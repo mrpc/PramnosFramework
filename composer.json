@@ -20,7 +20,7 @@
     },
     "autoload": {
         "psr-4": {
-            "pramnos\\": "src/pramnos/"
+            "Pramnos\\": "src/Pramnos/"
         }
 
     }
