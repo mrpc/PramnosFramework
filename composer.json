@@ -1,0 +1,21 @@
+{
+    "name": "pramnoshosting/pramnosframework",
+    "description": "The Pramnos Framework.",
+    "keywords": ["framework", "pramnos"],
+    "license": "MIT",
+    "homepage": "http://www.pramhost.com",
+    "authors": [
+        {
+            "name": "Yannis - Pastis Glaros",
+            "email": "mrpc@pramnoshosting.gr"
+        }
+    ],
+    "require": {
+        "php": ">=5.4",
+        "ext-mbstring": "*",
+        "swiftmailer/swiftmailer": "~5.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "~4.0"
+    }
+}
