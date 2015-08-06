@@ -41,7 +41,7 @@ class Request extends Base
     {
         static $instance=null;
         if (!is_object($instance)) {
-            $instance = new pramnos_request();
+            $instance = new Request();
         }
 
         return $instance;
@@ -158,7 +158,7 @@ class Request extends Base
      */
     public function getOption()
     {
-        return pramnos_request::staticGetOption();
+        return Request::staticGetOption();
 
     }
 
@@ -189,7 +189,7 @@ class Request extends Base
     public function get($varname, $default = null,
         $method = 'request', $type = '')
     {
-        return pramnos_request::staticGet($varname, $default, $method, $type);
+        return Request::staticGet($varname, $default, $method, $type);
 
     }
 
@@ -205,7 +205,7 @@ class Request extends Base
     public function getArray($varname, $default = null,
         $method = 'request', $type = '')
     {
-        $var = pramnos_request::staticGet($varname, $default, $method, $type);
+        $var = Request::staticGet($varname, $default, $method, $type);
         if (is_array($var)) {
             return (object)$var;
         } else {
@@ -286,7 +286,7 @@ class Request extends Base
     /**
      * Set the module to whatever you want
      * @param  string           $module
-     * @return \pramnos_request
+     * @return Request
      */
     public function setModule($module)
     {

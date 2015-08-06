@@ -1,6 +1,6 @@
 <?php
 
-namespace Pramnos\Http;
+namespace Pramnos\Translator;
 
 use Pramnos\Framework\Base;
 
@@ -52,14 +52,14 @@ class Language extends Base
     /**
      * Set current language
      * @param string $language
-     * @return \pramnos_language
-     * @throws Exception if $language is not string
+     * @return Language
+     * @throws \Exception if $language is not string
      */
     public function setLang($language = 'english')
     {
         if (!is_string($language)) {
-            throw new Exception(
-                'Method pramnos_language_setLang accepts strings, '
+            throw new \Exception(
+                'Method Language::setLang accepts strings, '
                 . gettype($language)
                 . ' given.'
             );
@@ -170,15 +170,15 @@ class Language extends Base
 
     /**
      * Factory method
-     * @staticvar pramnos_language $instance
+     * @staticvar Language $instance
      * @param <strung $lang
-     * @return pramnos_language
+     * @return Language
      */
     public static function &getInstance($lang = '')
     {
         static $instance=NULL;
         if (!is_object($instance)) {
-            $instance = new pramnos_language($lang);
+            $instance = new Language($lang);
         }
         return $instance;
     }
@@ -224,7 +224,7 @@ class Language extends Base
             }
             return $list;
         } else {
-            throw new Exception('Languages directory does not exist');
+            throw new \Exception('Languages directory does not exist');
         }
     }
 
