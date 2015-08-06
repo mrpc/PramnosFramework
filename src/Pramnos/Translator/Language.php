@@ -7,7 +7,7 @@ use Pramnos\Framework\Base;
 /**
  * Language / translation functions
  * @package     PramnosFramework
- * @subpackage  Language
+ * @subpackage  Translator
  * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  */
