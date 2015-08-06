@@ -1,5 +1,7 @@
 /vendor
 /build/logs/*
+/builg/coverage/*
+/builg/coverage/**/*
 composer.phar
 composer.lock
 .php_cs.cache
