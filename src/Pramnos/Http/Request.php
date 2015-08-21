@@ -135,12 +135,19 @@ class Request extends Base
     public function __construct()
     {
         if (isset($_SERVER['REQUEST_URI'])) {
-            if (substr($_SERVER['REQUEST_URI'], 0, 1) == '/') {
-                $this->requestUri = rtrim(
-                    substr($_SERVER['REQUEST_URI'], 1), '/'
+            $this->requestUri = trim($_SERVER['REQUEST_URI'], '/');
+            /**
+             * Clean up the request url in case the app runs under a
+             * subdirectory
+             */
+            if (isset($_SERVER['PHP_SELF'])) {
+                $this->requestUri = trim(
+                    substr(
+                        $_SERVER['REQUEST_URI'],
+                        strlen(dirname($_SERVER['PHP_SELF']))
+                    ),
+                    "/"
                 );
-            } else {
-                $this->requestUri = rtrim($_SERVER['REQUEST_URI'], '/');
             }
         }
         if (isset($_GET['r'])) {
