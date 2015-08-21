@@ -26,9 +26,15 @@ class Router extends Base implements RouterInterface
      * Supported methods
      * @var array
      */
-    public $methods = [
+    private $methods = [
         'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'
     ];
+
+    /**
+     * IoC Container that will be used to resolve controllers etc
+     * @var \Pramnos\Framework\Container
+     */
+    private $container;
 
 
     /**
@@ -36,6 +42,16 @@ class Router extends Base implements RouterInterface
      * @var type
      */
     public $failback;
+
+    /**
+     * Class constructor
+     * @param \Pramnos\Framework\Container $container IoC Container
+     */
+    public function __construct($container)
+    {
+        $this->container = $container;
+        parent::__construct();
+    }
 
     public function addRoute($uri, $methods, $action)
     {
@@ -64,12 +80,12 @@ class Router extends Base implements RouterInterface
         }
         // First, we check for static routes (no regex)
         if (isset($this->routes[$method][$uri])) {
-            return $this->routes[$method][$uri]->execute();
+            return $this->routes[$method][$uri]->execute($this->container);
         }
         // Advanced matching
         foreach ($this->routes[$method] as $route) {
             if ($route->matches($request)) {
-                return $route->execute();
+                return $route->execute($this->container);
             }
         }
 
