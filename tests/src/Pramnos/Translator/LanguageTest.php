@@ -1,5 +1,6 @@
 <?php
 
+namespace Pramnos\Tests;
 use Pramnos\Translator\Language;
 
 /**
@@ -8,7 +9,7 @@ use Pramnos\Translator\Language;
  * @copyright	2013-2014 Yannis - Pastis Glaros, Pramnos Hosting
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  */
-class TranslatorLanguageTest extends PHPUnit_Framework_TestCase
+class LanguageTest extends \PHPUnit_Framework_TestCase
 {
 
     /**
@@ -54,7 +55,6 @@ class TranslatorLanguageTest extends PHPUnit_Framework_TestCase
         $this->assertEquals($lang['test'], 'test');
     }
 
-
     /**
      * @covers Pramnos\Translator\Language::_
      */
@@ -66,7 +66,7 @@ class TranslatorLanguageTest extends PHPUnit_Framework_TestCase
         $this->assertEquals('test string', $this->object->_('test string'));
         $this->object->addlang($lang);
         $this->assertEquals('a translated string',
-            $this->object->_('Translated String'));
+                            $this->object->_('Translated String'));
     }
 
     /**
@@ -86,7 +86,7 @@ class TranslatorLanguageTest extends PHPUnit_Framework_TestCase
         $this->assertTrue(
             $this->object->setLang(
                 'greek'
-            ) instanceof Pramnos\Translator\Language
+            ) instanceof \Pramnos\Translator\Language
         );
     }
 
@@ -109,7 +109,5 @@ class TranslatorLanguageTest extends PHPUnit_Framework_TestCase
             Language::getInstance() instanceof \Pramnos\Translator\Language
         );
     }
-
-
 
 }
