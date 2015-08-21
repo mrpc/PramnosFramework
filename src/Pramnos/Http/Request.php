@@ -135,7 +135,13 @@ class Request extends Base
     public function __construct()
     {
         if (isset($_SERVER['REQUEST_URI'])) {
-            $this->requestUri=$_SERVER['REQUEST_URI'];
+            if (substr($_SERVER['REQUEST_URI'], 0, 1) == '/') {
+                $this->requestUri = rtrim(
+                    substr($_SERVER['REQUEST_URI'], 1), '/'
+                );
+            } else {
+                $this->requestUri = rtrim($_SERVER['REQUEST_URI'], '/');
+            }
         }
         if (isset($_GET['r'])) {
             self::$originalRequest=$_GET['r'];
