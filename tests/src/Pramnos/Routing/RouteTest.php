@@ -110,7 +110,7 @@ class RouteTest extends \PHPUnit_Framework_TestCase
         $this->assertEquals(
             'Yannis30GR',
             $route->execute(
-                \Pramnos\Http\Request::create('foo/Yannis/boom/30', 'GET')
+                new \Pramnos\Framework\Container
             )
         );
     }
@@ -131,7 +131,7 @@ class RouteTest extends \PHPUnit_Framework_TestCase
         );
         $this->assertNull(
             $route->execute(
-                \Pramnos\Http\Request::create('foo/Yannis/boom/30', 'GET')
+                new \Pramnos\Framework\Container
             )
         );
     }

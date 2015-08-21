@@ -23,7 +23,8 @@ class RouterTest extends \PHPUnit_Framework_TestCase
      */
     protected function setUp()
     {
-        $this->Router = new Router;
+        $container = new \Pramnos\Application\Application('myApp');
+        $this->Router = new Router($container);
     }
 
     /**

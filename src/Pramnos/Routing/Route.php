@@ -108,8 +108,9 @@ class Route
 
     /**
      * Execute the action of this route
+     * @param \Pramnos\Framework\Container $container IoC Container
      */
-    public function execute()
+    public function execute($container)
     {
         if (is_callable($this->action)) {
             $reflectFunction = new \ReflectionFunction($this->action);
