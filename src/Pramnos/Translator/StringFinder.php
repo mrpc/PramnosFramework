@@ -8,6 +8,8 @@ namespace Pramnos\Translator;
  * @subpackage  Translator
  * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ *
+ * Check this: https://github.com/barryvdh/laravel-translation-manager/blob/master/src/Manager.php
  */
 class StringFinder
 {
