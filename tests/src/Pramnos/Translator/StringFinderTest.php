@@ -1,15 +1,15 @@
 <?php
 
 namespace Pramnos\Tests;
-use Pramnos\Translator\StringFinder;
 
+use Pramnos\Translator\StringFinder;
 
 /**
  * @package     pramnosFrameworkTests
  * @copyright   2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  */
-class TranslatorStringFinderTest extends \PHPUnit_Framework_TestCase
+class StringFinderTest extends \PHPUnit_Framework_TestCase
 {
 
     /**
@@ -52,10 +52,8 @@ class TranslatorStringFinderTest extends \PHPUnit_Framework_TestCase
     public function testSearchShouldReturnAnArray()
     {
         $this->assertInternalType(
-            'array',
-            $this->object->search(ROOT)
+            'array', $this->object->search(ROOT)
         );
     }
-
 
 }

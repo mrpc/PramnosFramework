@@ -9,7 +9,7 @@ use Pramnos\Http\Request;
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @runTestsInSeparateProcesses
  */
-class HttpRequestTest extends PHPUnit_Framework_TestCase
+class RequestTest extends PHPUnit_Framework_TestCase
 {
 
     /**
@@ -31,7 +31,7 @@ class HttpRequestTest extends PHPUnit_Framework_TestCase
             $_SERVER['HTTP_USER_AGENT'] = 'PHPUnit Tests';
             $_SERVER['REQUEST_URI'] = '/pramnosframework/';
         }
-        $_GET['r']='controller/display/option';
+        $_GET['r'] = 'controller/display/option';
         $this->_object = new Request;
     }
 
@@ -41,6 +41,7 @@ class HttpRequestTest extends PHPUnit_Framework_TestCase
      */
     protected function tearDown()
     {
+
     }
 
     /**
@@ -48,10 +49,20 @@ class HttpRequestTest extends PHPUnit_Framework_TestCase
      */
     public function testGetInstance()
     {
-        $_GET['r']='controller/action.html/option';
-        $_SERVER['REQUEST_URI']='controller/action.html/option?test=test';
+        $_GET['r'] = 'controller/action.html/option';
+        $_SERVER['REQUEST_URI'] = 'controller/action.html/option?test=test';
         $this->assertInstanceOf(
             'Pramnos\Http\Request', Request::getInstance()
+        );
+    }
+
+    /**
+     * @covers Pramnos\Http\Request::create
+     */
+    public function testCreate()
+    {
+        $this->assertInstanceOf(
+            'Pramnos\Http\Request', Request::create("/", "GET")
         );
     }
 
@@ -62,7 +73,7 @@ class HttpRequestTest extends PHPUnit_Framework_TestCase
     {
         unset($_GET['_option']);
         $this->assertEquals(NULL, $this->_object->getOption());
-        $_GET['_option']='test';
+        $_GET['_option'] = 'test';
         $this->assertEquals('test', $this->_object->getOption());
     }
 
@@ -75,7 +86,7 @@ class HttpRequestTest extends PHPUnit_Framework_TestCase
             unset($_GET['_option']);
         }
         $this->assertEquals(NULL, Request::staticGetOption());
-        $_GET['_option']='test';
+        $_GET['_option'] = 'test';
         $this->assertEquals('test', Request::staticGetOption());
     }
 
@@ -84,8 +95,8 @@ class HttpRequestTest extends PHPUnit_Framework_TestCase
      */
     public function testGet()
     {
-        $_GET['test']='test';
-        $_POST['test2']='test2';
+        $_GET['test'] = 'test';
+        $_POST['test2'] = 'test2';
         $this->assertEquals('test', $this->_object->get('test', '', 'get'));
         $this->assertEquals('test2', $this->_object->get('test2', '', 'post'));
         $this->assertEquals(
@@ -99,10 +110,10 @@ class HttpRequestTest extends PHPUnit_Framework_TestCase
     public function testStaticGet()
     {
         $this->assertEquals(
-            'test', Request::staticGet('test','test','get')
+            'test', Request::staticGet('test', 'test', 'get')
         );
         $this->assertEquals(
-            'test', Request::staticGet('test','test','post')
+            'test', Request::staticGet('test', 'test', 'post')
         );
         $this->assertEquals(
             'test3', $this->_object->get('test3', 'test3', 'REQUEST')
@@ -125,7 +136,7 @@ class HttpRequestTest extends PHPUnit_Framework_TestCase
         $this->assertEquals(
             'test3', $this->_object->get('test3', 'test3', 'SERVER')
         );
-        $_POST['test3']='test3';
+        $_POST['test3'] = 'test3';
         $this->assertEquals(
             'test3', $this->_object->get('test3', 'test3', 'post')
         );
@@ -148,8 +159,6 @@ class HttpRequestTest extends PHPUnit_Framework_TestCase
         $this->_object->setModule('');
     }
 
-
-
     /**
      * @covers Pramnos\Http\Request::getAction
      * @covers Pramnos\Http\Request::setAction
@@ -161,19 +170,6 @@ class HttpRequestTest extends PHPUnit_Framework_TestCase
         $this->assertEquals('', $this->_object->getAction());
     }
 
-    /**
-     * @covers Pramnos\Http\Request::getPage
-     * @covers Pramnos\Http\Request::setPage
-     */
-    public function testGetAndSetPage()
-    {
-        $this->assertEquals('', $this->_object->getPage());
-        $this->_object->setPage('test');
-        $this->assertEquals('test', $this->_object->getPage());
-    }
-
-
-
 
 
     /**
@@ -183,9 +179,9 @@ class HttpRequestTest extends PHPUnit_Framework_TestCase
     {
         $this->assertInternalType('string', $this->_object->getURL());
         $this->assertInternalType('string', $this->_object->getURL(false));
-        $_SERVER["HTTPS"]='on';
+        $_SERVER["HTTPS"] = 'on';
         $this->assertInternalType('string', $this->_object->getURL(false));
-        $_SERVER["SERVER_PORT"]='123123';
+        $_SERVER["SERVER_PORT"] = '123123';
         $this->assertInternalType('string', $this->_object->getURL(false));
     }
 

@@ -1,15 +1,15 @@
 <?php
 
 namespace Pramnos\Tests;
-use Pramnos\Filesystem\Filesystem;
 
+use Pramnos\Filesystem\Filesystem;
 
 /**
  * @package     pramnosFrameworkTests
  * @copyright   2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  */
-class FilesystemFilesystemTest extends \PHPUnit_Framework_TestCase
+class FilesystemTest extends \PHPUnit_Framework_TestCase
 {
 
     /**
@@ -40,8 +40,7 @@ class FilesystemFilesystemTest extends \PHPUnit_Framework_TestCase
     {
 
         $this->assertInstanceOf(
-            'Pramnos\Filesystem\Filesystem',
-            Filesystem::getInstance()
+            'Pramnos\Filesystem\Filesystem', Filesystem::getInstance()
         );
     }
 
@@ -51,10 +50,8 @@ class FilesystemFilesystemTest extends \PHPUnit_Framework_TestCase
     public function testListDirectoryFilesShoudReturnAnArray()
     {
         $this->assertInternalType(
-            'array',
-            $this->object->listDirectoryFiles(ROOT)
+            'array', $this->object->listDirectoryFiles(ROOT)
         );
     }
-
 
 }
