@@ -14,28 +14,27 @@ use Pramnos\Framework\Base;
 class Request extends Base
 {
     /**
-     * Current module
+     * Current controller
      * @var string
      */
-    private $_module = '';
+    private $_controller = '';
     private $_action = '';
-    private $_page = '';
     /**
      * Original $_GET request
      * @var string
      */
     public static $originalRequest='';
     /**
-     * The URI which was given in order to access this page;
+     * The URI which was given in order to access the app;
      * for instance, '/index.html'.
      * @var string
      */
-    public static $requestUri='';
+    public $requestUri='';
 
-    public static $requestMethod='GET';
+    public $requestMethod='GET';
 
-    public static $putData = array();
-    public static $deleteData = array();
+    public $putData = array();
+    public $deleteData = array();
 
     public static function &getInstance()
     {
@@ -48,6 +47,20 @@ class Request extends Base
     }
 
     /**
+     * Create a request object
+     * @param string $uri
+     * @param string $method
+     * @return \Pramnos\Http\Request
+     */
+    public static function create($uri, $method="GET")
+    {
+        $request = new Request();
+        $request->requestUri = $uri;
+        $request->requestMethod = strtoupper($method);
+        return $request;
+    }
+
+    /**
      * Calculate the parameters of request
      * @param type $requestParam
      */
@@ -57,8 +70,7 @@ class Request extends Base
         if ($requestParam == null){
             $requestParam=self::$originalRequest;
         }
-        $this->_module='';
-        $this->_page='';
+        $this->_controller='';
         $this->_action='';
         $request = rtrim($requestParam, '/');
         $parsedUrl = parse_url($_SERVER['REQUEST_URI']);
@@ -81,7 +93,7 @@ class Request extends Base
         }
         $parts = explode("/", $request);
         if (isset($parts[0]) && $parts[0] !== '') {
-            $this->_module = $parts[0];
+            $this->_controller = $parts[0];
         }
         if ($slashes > 0 && isset($parts[1]) && $parts[1] !== '') {
             $this->_action = $parts[1];
@@ -122,31 +134,27 @@ class Request extends Base
      */
     public function __construct()
     {
-        self::$requestUri=$_SERVER['REQUEST_URI'];
+        if (isset($_SERVER['REQUEST_URI'])) {
+            $this->requestUri=$_SERVER['REQUEST_URI'];
+        }
         if (isset($_GET['r'])) {
             self::$originalRequest=$_GET['r'];
             $this->calcParams();
         }
-        if (preg_match("/.html/i", $this->_action)) {
-            $this->_page = urldecode(
-                str_ireplace(".html", "", $this->_action)
-            );
-            $this->_action = "display";
-        }
         unset($_GET['r']);
         if (isset($_SERVER['REQUEST_METHOD'])) {
-            self::$requestMethod = $_SERVER['REQUEST_METHOD'];
+            $this->requestMethod = $_SERVER['REQUEST_METHOD'];
         } else {
             if (isset($_POST) && count($_POST) != 0) {
-                self::$requestMethod = 'POST';
+                $this->requestMethod = 'POST';
             }
         }
-        if (self::$requestMethod == 'PUT') {
-             parse_str(file_get_contents("php://input"), self::$putData);
+        if ($this->requestMethod == 'PUT') {
+             parse_str(file_get_contents("php://input"), $this->putData);
         }
 
-        if (self::$requestMethod == 'DELETE') {
-            parse_str(file_get_contents("php://input"), self::$deleteData);
+        if ($this->requestMethod == 'DELETE') {
+            parse_str(file_get_contents("php://input"), $this->deleteData);
         }
 
         parent::__construct();
@@ -253,10 +261,10 @@ class Request extends Base
                 $input = &$_SERVER;
                 break;
             case 'DELETE':
-                $input = &self::$deleteData;
+                $input = &$this->deleteData;
                 break;
             case 'PUT':
-                $input = &self::$putData;
+                $input = &$this->putData;
                 break;
             default:
                 $input = &$_REQUEST;
@@ -280,7 +288,7 @@ class Request extends Base
      */
     public function getModule()
     {
-        return $this->_module;
+        return $this->_controller;
     }
 
     /**
@@ -290,7 +298,7 @@ class Request extends Base
      */
     public function setModule($module)
     {
-        $this->_module=$module;
+        $this->_controller=$module;
 
         return $this;
     }
@@ -305,26 +313,7 @@ class Request extends Base
 
     }
 
-    /**
-     * Get requested page
-     * @return string
-     */
-    public function getPage()
-    {
-        return $this->_page;
 
-    }
-
-    /**
-     * Set the request page
-     * @param string $page
-     */
-    public function setPage($page = "")
-    {
-        $this->_page = $page;
-
-        return $this;
-    }
 
     /**
      * Set request action
