@@ -150,6 +150,7 @@ class Request extends Base
                 );
             }
         }
+        $this->requestUri = str_replace('?{}', '', $this->requestUri);
         if (isset($_GET['r'])) {
             self::$originalRequest=$_GET['r'];
             $this->calcParams();
@@ -168,6 +169,21 @@ class Request extends Base
 
         if ($this->requestMethod == 'DELETE') {
             parse_str(file_get_contents("php://input"), $this->deleteData);
+        }
+
+        if ($this->requestMethod == 'POST' && count($_POST) == 0) {
+            if (\pramnos_general::checkJSON(file_get_contents("php://input"))) {
+                $postArray = (array)json_decode(
+                    file_get_contents("php://input")
+                );
+                $_POST = array_merge($postArray, $_POST);
+                unset($postArray);
+            }
+        }
+        if ($this->requestMethod == 'GET') {
+            if (isset($_GET['{}'])) {
+                unset($_GET['{}']);
+            }
         }
 
         parent::__construct();
