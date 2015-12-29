@@ -26,9 +26,9 @@ class Router extends Base implements RouterInterface
      * Supported methods
      * @var array
      */
-    private $methods = [
+    private $methods = array(
         'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'
-    ];
+    );
 
     /**
      * IoC Container that will be used to resolve controllers etc
