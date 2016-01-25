@@ -67,6 +67,7 @@ class StringFinder
             if(preg_match_all("/$pattern/siU", $file->getContents(), $matches)) {
                 // Get all matches
                 foreach ($matches[2] as $key) {
+                    $key = preg_replace('!\'\s+\.\s+\'!', '', $key);
                     $fileArray[$file->__tostring()][] = $key;
                 }
             }
