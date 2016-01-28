@@ -50,13 +50,13 @@ class StringFinder
         $functions =  array(' l', '_');
         $pattern =                              // See http://regexr.com/392hu
             "(".implode('|', $functions) .")".  // Must start with one of the functions
-            "\(".                               // Match opening parenthese
+            "\(\s*".                               // Match opening parenthese
             "[\'\"]".                           // Match " or '
             "(".                                // Start a new group to match:
                 "(.)+".                         // Can contain ANYTHING
             ")".                                // Close group
             "[\'\"]".                           // Closing quote
-            "[\),]";                            // Close parentheses or new parameter
+            "\s*[\),]";                            // Close parentheses or new parameter
         // Find all PHP + Twig files in the app folder, except for storage
         $finder = new Finder();
         $finder->in($path)->exclude('storage')->name('*.php')->files();
