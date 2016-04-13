@@ -35,7 +35,7 @@ class General extends Base
      * @param float $firstLatitude    Latitude of point 1 (in decimal degrees)
      * @param float $firstLongitude   Longitude of point 1 (in decimal degrees)
      * @param float $secondLatitude   Latitude of point 2 (in decimal degrees)
-     * @param float $secondLongtitude Longitude of point 2 (in decimal degrees)
+     * @param float $SecondLongitude Longitude of point 2 (in decimal degrees)
      * @param string $unit            The unit you desire for results.
      *                                Where: 'M' is statute miles,
      *                                'K' is kilometers (default) and
@@ -45,8 +45,8 @@ class General extends Base
      * @license http://www.gnu.org/licenses/lgpl-3.0.html LGPLv3
      */
     public function getDistance($firstLatitude, $firstLongitude,
-        $secondLatitude, $secondLongtitude, $unit='K') {
-        $theta = $firstLongitude - $secondLongtitude;
+        $secondLatitude, $SecondLongitude, $unit='K') {
+        $theta = $firstLongitude - $SecondLongitude;
         $dist = rad2deg(
             acos(
                 sin(deg2rad($firstLatitude))
