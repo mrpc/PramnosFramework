@@ -32,5 +32,6 @@
             "Pramnos\\": "src/Pramnos/"
         }
 
-    }
+    },
+    "bin": "bin/pramnos"
 }
