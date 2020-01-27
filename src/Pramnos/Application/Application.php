@@ -10,7 +10,9 @@ use Pramnos\Framework\Base;
  */
 class Application extends Base
 {
-
+    public $activeController = null;
+    public $currentUser = null;
+    public $applicationInfo = array();
     public $language = '';
     /**
      * Session object
@@ -38,7 +40,7 @@ class Application extends Base
     private $_extraPath = array();
 
     /**
-     * 
+     *
      * @param string $appName Application Name used for namespaces
      */
     public function __construct($appName = '')
@@ -48,13 +50,10 @@ class Application extends Base
         }
         $this->appName = $appName;
         if ($appName == '') {
-
+            $this->applicationInfo = require APP_PATH . DS . 'app.php';
+        } else {
+            $this->applicationInfo = require APP_PATH . DS . $appName . '.php';
         }
-        /**
-         * Start Session
-         */
-        $this->session = \Pramnos\Http\Session::getInstance();
-        $this->session->start();
 
         parent::__construct();
     }
@@ -96,7 +95,11 @@ class Application extends Base
      */
     public function init()
     {
-
+        /**
+         * Start Session
+         */
+        $this->session = \Pramnos\Http\Session::getInstance();
+        $this->session->start();
     }
 
     /**
