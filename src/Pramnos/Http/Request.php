@@ -382,4 +382,48 @@ class Request extends Base
 
         return $pageURL;
     }
+
+
+    /**
+     * Sets a hashed cookie
+     * @param string $cookiename
+     * @param string $value
+     * @param integer $time
+     * @return boolean
+     */
+    public function cookieset($cookiename, $value, $time = 0)
+    {
+        $realCookiename = str_rot13($cookiename);
+
+        $prefix = substr(md5('pcms'), 0, 10);
+        $name = $prefix . '[' . $realCookiename . ']';
+        if ($time == 0) {
+            $time = time() + 3600 * 24 * 14; //2 weeks
+        }
+        #str_replace('index.php', '', $_SERVER['PHP_SELF'])
+        if (!headers_sent()) {
+            return setcookie($name, $value, $time, '/');
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * Retreives a hashed cookie
+     * @param  string $cookiename
+     * @return string
+     */
+    public function cookieget($cookiename)
+    {
+        $realCookiename = str_rot13($cookiename);
+        $prefix = substr(md5('pcms'), 0, 10);
+        #$realCookiename = $prefix . '[' . $realCookiename . ']'; //WTF?
+        if (isset($_COOKIE[$prefix])
+            && isset($_COOKIE[$prefix][$realCookiename])) {
+            return $_COOKIE[$prefix][$realCookiename];
+        } else {
+            return null;
+        }
+    }
+
 }
