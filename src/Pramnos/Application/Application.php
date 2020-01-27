@@ -12,6 +12,10 @@ class Application extends Base
 {
 
     public $language = '';
+    /**
+     * Session object
+     * @var \Pramnos\Http\Session
+     */
     public $session;
     public $appName = ''; //Application Name
     public $settings;
@@ -34,13 +38,57 @@ class Application extends Base
     private $_extraPath = array();
 
     /**
-     *
+     * 
      * @param string $appName Application Name used for namespaces
      */
-    public function __construct($appName)
+    public function __construct($appName = '')
     {
+        if (!defined('PRAMNOS_DEFINES')) {
+            $this->setDefines();
+        }
         $this->appName = $appName;
+        if ($appName == '') {
+
+        }
+        /**
+         * Start Session
+         */
+        $this->session = \Pramnos\Http\Session::getInstance();
+        $this->session->start();
+
         parent::__construct();
+    }
+
+    /**
+     * Setup initial defines for the application
+     */
+    protected function setDefines()
+    {
+        if (!defined('DS')) {
+            define('DS', DIRECTORY_SEPARATOR);
+        }
+        if (!defined('APP_PATH')) {
+            define('APP_PATH', ROOT . DS . 'app');
+        }
+        if (!defined('INCLUDES')) {
+            define('INCLUDES', 'src');
+        }
+        if (!defined('CONFIG')) {
+            define('CONFIG', basename(APP_PATH) . DS . 'config');
+        }
+        if (!defined('VAR_PATH')) {
+            define('VAR_PATH', ROOT . DS . 'var');
+        }
+        if (!defined('CACHE_PATH')) {
+            define('CACHE_PATH', VAR_PATH . DS . 'cache');
+        }
+        if (!defined('VAR_PATH')) {
+            define('VAR_PATH', ROOT . DS . 'var');
+        }
+        if (!defined('ADDONS_PATH')) {
+            define('ADDONS_PATH', APP_PATH . DS . 'addons');
+        }
+        define('PRAMNOS_DEFINES', true);
     }
 
     /**
@@ -66,7 +114,7 @@ class Application extends Base
      * @param boolean $quit If you want to quit after redirecting.
      * @param string  $code Forces HTTP response code to the specified value.
      */
-    public function redirect($url = null, $quit = true, $code='302')
+    public function redirect($url = null, $quit = true, $code='301')
     {
 
     }
