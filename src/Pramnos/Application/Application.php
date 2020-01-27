@@ -1,14 +1,14 @@
 <?php
 
 namespace Pramnos\Application;
-use Pramnos\Framework\Container;
+use Pramnos\Framework\Base;
 /**
  * @package     PramnosFramework
  * @subpackage  Application
  * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  */
-class Application extends Container
+class Application extends Base
 {
 
     public $language = '';
