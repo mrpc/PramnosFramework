@@ -10,16 +10,32 @@ use Pramnos\Framework\Base;
  */
 class Application extends Base
 {
+    /**
+     * Current Active Controller
+     * @var mixed
+     */
     public $activeController = null;
     public $currentUser = null;
+    /**
+     * Main Application Information
+     * @var string
+     */
     public $applicationInfo = array();
+    /**
+     * Current Language name
+     * @var string
+     */
     public $language = '';
     /**
      * Session object
      * @var \Pramnos\Http\Session
      */
     public $session;
-    public $appName = ''; //Application Name
+    /**
+     * Application Name
+     * @var string
+     */
+    public $appName = '';
     public $settings;
     public $database;
     public $_defaultModule;
