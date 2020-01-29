@@ -136,7 +136,7 @@ class Session extends Base
         if (session_id() == '' && !headers_sent()) {
             @session_start();
         }
-        $this->_token = substr(md5(time() . URL), 0, 10);
+        $this->_token = substr(md5(time() . getUrl()), 0, 10);
         if (isset($_SESSION['token'])) {
             $this->_lastToken = $_SESSION['token'];
         }
