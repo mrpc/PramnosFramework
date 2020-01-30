@@ -39,6 +39,7 @@ class Application extends \Symfony\Component\Console\Application
     protected function registerCommands()
     {
         $this->add(new \Pramnos\Console\Commands\Create());
+        $this->add(new \Pramnos\Console\Commands\Serve());
     }
 
 }
