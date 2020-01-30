@@ -52,7 +52,7 @@ class Serve extends Command
         );
         $path = ROOT . '/www/index.php';
         passthru(
-            PHP_BINARY . " -S {$host}:{$port} \"{$path}\""
+            PHP_BINARY . " -S {$host}:{$port} \"{$path}\" 2>&1"
         );
 
     }
