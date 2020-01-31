@@ -11,36 +11,67 @@ namespace Pramnos\Application;
  */
 class Settings extends \Pramnos\Framework\Base
 {
-
-    public static $prefix = "pramnos_";
-    static private $sharedsettings = array();
-    private $settings = array();
-    static private $loaded = false;
+    /**
+     * The settings array
+     * @var array
+     */
+    static protected $settings = array();
+    /**
+     * Is a settings file loaded?
+     * @var bool
+     */
+    static protected $loaded = false;
 
     /**
-     * A settings handler to overide the default functions
-     * @var mixed
+     * Database to access dynamic settings
+     * @var \Pramnos\Database\Database
      */
-    static private $handler = NULL;
+    static protected $database = null;
 
-    function __construct($file = '', $onNoSettings = '', $args = array())
+
+
+    /**
+     * Initialize the settings object
+     * @param string $file Settings file to load
+     * @param string $onNoSettings function to run if no settings file is found
+     * @param array $args Arguments to pass to the onNoSettings function
+     */
+    public function __construct($file = '', $onNoSettings = '', $args = array())
     {
-        parent::__construct();
-        if ($this->loaded == false) {
+        if (self::$loaded == false) {
             self::loadSettings($file, $onNoSettings, $args);
         }
+        parent::__construct();
     }
 
-    public static function &getInstance($file = '', $onNoSettings = '', $args = array())
+    /**
+     * Singleton factory method
+     * @staticvar Settings $instance
+     * @param string $file Settings file to load
+     * @param string $onNoSettings function to run if no settings file is found
+     * @param array $args Arguments to pass to the onNoSettings function
+     * @return \Pramnos\Application\Settings
+     */
+    public static function &getInstance($file = '', $onNoSettings = '',
+        $args = array())
     {
-        static $instance;
+        static $instance = null;
         if (!is_object($instance)) {
             $instance = new Settings($file, $onNoSettings, $args);
         }
         return $instance;
     }
 
-    public static function loadSettings($file = '', $onNoSettings = '', $args = array())
+    /**
+     * Load the global settings file
+     * @param string $file Settings file to load
+     * @param string $onNoSettings function to run if no settings file is found
+     * @param array $args Arguments to pass to the onNoSettings function
+     * @return boolean
+     */
+    public static function loadSettings(
+        $file = '', $onNoSettings = '', $args = array()
+    )
     {
         if ($file === '') {
             if (defined('CONFIG')) {
@@ -51,28 +82,10 @@ class Settings extends \Pramnos\Framework\Base
             }
         }
         if (file_exists($file)) {
-            include($file);
+            $settings = include($file);
             self::$loaded = true;
-            self::baseset("debuglevel", $debuglevel);
-            self::baseset("db_server", $hostname_dbconnection);
-            self::baseset("db_database", $database_dbconnection);
-            self::baseset("db_user", $username_dbconnection);
-            self::baseset("db_password", $password_dbconnection);
-            self::baseset("db_prefix", $prefix_dbconnection . "_");
-            self::baseset("db_collation", $collation_dbconnection);
-            self::baseset("db_persistency", false);
-            self::$prefix = self::baseget("db_prefix");
-            self::baseset("smtp_host", $smtp_host);
-            self::baseset("smtp_user", $smtp_user);
-            self::baseset("smtp_pass", $smtp_pass);
-            if (isset($settings) && is_array($settings)) {
-                foreach ($settings as $key => $value) {
-                    self::baseset($key, $value);
-                }
-            }
-
-            if (isset($collation_dbconnection)) {
-                self::baseset("db_collation", $collation_dbconnection);
+            foreach ($settings as $key => $value){
+                self::setSetting($key, $value, false);
             }
             return true;
         }
@@ -90,39 +103,26 @@ class Settings extends \Pramnos\Framework\Base
     }
 
     /**
-     * Set a shared static setting
-     * @param string $setting
-     * @param mixed $value
+     * Set the database object
+     * @param \Pramnos\Database\Database $database
+     * @param bool $loadSettings Should we load the settings from database?
      */
-    public static function baseset($setting, $value)
+    public static function setDatabase(\Pramnos\Database\Database $database,
+        $loadSettings = true)
     {
-        self::$sharedsettings[$setting] = $value;
+        self::$database = $database;
     }
 
-    /**
-     *
-     * Return a static setting
-     * @param string $setting
-     * @return mixed The value of the setting
-     */
-    public static function baseget($setting)
-    {
-        if (isset(self::$sharedsettings[$setting])) {
-            return self::$sharedsettings[$setting];
-        }
-        else {
-            return false;
-        }
-    }
+
 
     /**
-     * Set a setting and it's value
+     * Set a setting and it's value. It doesn't record to database
      * @param string $setting Name of the setting
      * @param mixed $value Value of the setting
      */
-    function __set($setting, $value)
+    public function __set($setting, $value)
     {
-        $this->settings[$setting] = $value;
+        self::setSetting($setting, $value, false);
     }
 
     /**
@@ -130,56 +130,72 @@ class Settings extends \Pramnos\Framework\Base
      * @param string $setting Name of the setting
      * @return mixed The value of the setting or False if it's not set
      */
-    function __get($setting)
+    public function __get($setting)
     {
-        if (isset($this->settings[$setting])) {
-            return $this->settings[$setting];
-        }
-        else {
-            return false;
-        }
+        return self::getSetting($setting);
     }
 
     /**
      * Get a setting
-     * @param string $setting
+     * @param string $setting Setting to return
+     * @param mixed $defaultValue Default value to return if no setting is set
+     * @param bool $force Force reloading the setting from database if database
+     *                    is set
      * @return mixed Return Value or False if not set
      */
-    static function getSetting($setting)
+    static function getSetting($setting, $defaultValue = false, $force = false)
     {
-        $db = &pramnos_factory::getDatabase();
-        $sql = $db->prepare("select `value` from `#PREFIX#settings` where `setting` = %s limit 1", $setting);
-        $result = $db->Execute($sql, true, 600, 'settings');
-        if ($result->numRows != 0) {
-            return $result->fields['value'];
+        if (isset(self::$settings[$setting]) && $force == false) {
+            if (is_array(self::$settings[$setting])) {
+                return (object) self::$settings[$setting];
+            }
+            return self::$settings[$setting];
         }
-        return false;
+        if (is_object(self::$database)) {
+            $sql = self::$database->prepare(
+                "select `value` from `#PREFIX#settings` "
+                . " where `setting` = %s limit 1",
+                $setting
+            );
+        }
+
+        $result = self::$database->Execute(
+            $sql, true, 600, 'settings'
+        );
+        if ($result->numRows != 0) {
+            self::$settings[$setting] = $result->fields['value'];
+            return self::$settings[$setting];
+        }
+
+        return $defaultValue;
     }
 
     /**
      *
      * @param string $setting
      * @param string $value
+     * @param bool $writeToDatabase Write the setting to database if exists
      * @return boolean
      */
-    static function setSetting($setting, $value)
+    static function setSetting($setting, $value, $writeToDatabase = true)
     {
-        $db = &pramnos_factory::getDatabase();
+        self::$settings[$setting] = $value;
+        if ($writeToDatabase == true && is_object(self::$database)) {
 
-        $sql = $db->prepare("select * from `#PREFIX#settings` where `setting` = %s limit 1", $setting);
-        $num = $db->Execute($sql);
-        if ($num->numRows != 0) {
-            $sql = $db->prepare("update `#PREFIX#settings` set `value` = %s where `setting` = %s limit 1", $value, $setting);
-            $return = $db->Execute($sql);
+            $sql = $db->prepare("select * from `#PREFIX#settings` where `setting` = %s limit 1", $setting);
+            $num = $db->Execute($sql);
+            if ($num->numRows != 0) {
+                $sql = $db->prepare("update `#PREFIX#settings` set `value` = %s where `setting` = %s limit 1", $value, $setting);
+                $return = $db->Execute($sql);
+            }
+            else {
+                $sql = $db->prepare("insert into `#PREFIX#settings`
+                    (`setting`, `value`) values (%s, %s)
+                    on duplicate key update `value` = %s", $setting, $value, $value);
+                $return = $db->Execute($sql);
+            }
+            $db->flushCache('settings');
         }
-        else {
-            $sql = $db->prepare("insert into `#PREFIX#settings`
-                (`setting`, `value`) values (%s, %s)
-                on duplicate key update `value` = %s", $setting, $value, $value);
-            $return = $db->Execute($sql);
-        }
-        $db->flushCache('settings');
-        return $return;
     }
 
     /**

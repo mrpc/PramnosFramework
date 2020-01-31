@@ -36,6 +36,10 @@ class Application extends Base
      * @var string
      */
     public $appName = '';
+    /**
+     * Settings Object
+     * @var Settings
+     */
     public $settings;
     public $database;
     public $_defaultModule;
@@ -109,8 +113,16 @@ class Application extends Base
     /**
      * Load the database, session and settings classes
      */
-    public function init()
+    public function init($settingsFile = '')
     {
+        $this->settings = Settings::getInstance($settingsFile);
+        $this->database = new \Pramnos\Database\Database($this->settings);
+        try {
+            $this->database->connect();
+        } catch (Exception $ex) {
+            die($ex->getMessage());
+        }
+        
         /**
          * Start Session
          */

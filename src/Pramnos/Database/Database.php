@@ -52,6 +52,27 @@ class Database extends \Pramnos\Framework\Base
     private $_dbConnection;
 
     /**
+     * Initialize the database
+     * @param mixed $settingsObject Settings object or a database resource
+     */
+    public function __construct($settingsObject = null)
+    {
+        if (is_resource($settingsObject)) {
+            $this->addExternalConnection($settingsObject);
+        }
+        if ($settingsObject instanceof \Pramnos\Application\Settings) {
+            $dbSettings = $settingsObject->database;
+            $this->server = $dbSettings->hostname;
+            $this->database = $dbSettings->database;
+            $this->user = $dbSettings->user;
+            $this->password = $dbSettings->password;
+            $this->db_collation = $dbSettings->collation;
+            $this->prefix = $dbSettings->prefix;
+        }
+        parent::__construct();
+    }
+
+    /**
      * Instead of connecting, add an external mysql link
      * @param resource $link
      * @return \Database
@@ -64,11 +85,12 @@ class Database extends \Pramnos\Framework\Base
     }
 
     //Factory method to return new database objects
-    public static function &getInstance($name = 'default')
+    public static function &getInstance($name = 'default',
+        $settingsObject = null)
     {
         static $instance = array();
         if (!isset($instance[$name])) {
-            $instance[$name] = new Database;
+            $instance[$name] = new Database($settingsObject);
         }
         return $instance[$name];
     }
@@ -151,7 +173,7 @@ class Database extends \Pramnos\Framework\Base
      * Connect function - Connects to the database using all
      * database data
      */
-    function connect()
+    public function connect()
     {
         if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
             $this->startLogs();
@@ -168,6 +190,7 @@ class Database extends \Pramnos\Framework\Base
                 );
             }
         } catch (Exception $ex) {
+            die($ex->getMessage());
             return false;
         }
 
@@ -843,9 +866,9 @@ class Database extends \Pramnos\Framework\Base
 
     public function sql_cache_expire_now($query, $category = NULL)
     {
-        $cache = pramnos_factory::getCache($category, 'sql');
-        $cache->prefix = $this->prefix;
-        return $cache->remove($this->cache_generate_cache_name($query));
+        #$cache = pramnos_factory::getCache($category, 'sql');
+        #$cache->prefix = $this->prefix;
+        #return $cache->remove($this->cache_generate_cache_name($query));
     }
 
 
@@ -860,12 +883,12 @@ class Database extends \Pramnos\Framework\Base
     function sql_cache_store($query, $resultArray,
         $category = NULL, $cachetime=3600)
     {
-        $cache = pramnos_factory::getCache($category, 'sql');
-        $cache->prefix = $this->prefix;
-        $cache_name = $this->cache_generate_cache_name($query);
-        $cache->extradata=$query;
-        $cache->timeout=$cachetime;
-        return $cache->save(serialize($resultArray), $cache_name);
+        #$cache = pramnos_factory::getCache($category, 'sql');
+        #$cache->prefix = $this->prefix;
+        #$cache_name = $this->cache_generate_cache_name($query);
+        #$cache->extradata=$query;
+        #$cache->timeout=$cachetime;
+        #return $cache->save(serialize($resultArray), $cache_name);
     }
 
     /**
@@ -876,10 +899,11 @@ class Database extends \Pramnos\Framework\Base
      */
     function sql_cache_read($query, $category = "")
     {
-        $cache = pramnos_factory::getCache($category, 'sql');
-        $cache->prefix = $this->prefix;
-        $cache_name = $this->cache_generate_cache_name($query);
-        return $cache->load($cache_name);
+        #$cache = pramnos_factory::getCache($category, 'sql');
+        #$cache->prefix = $this->prefix;
+        #$cache_name = $this->cache_generate_cache_name($query);
+        #return $cache->load($cache_name);
+
     }
 
     /**
@@ -889,9 +913,9 @@ class Database extends \Pramnos\Framework\Base
      */
     function sql_cache_flush_cache($category = "")
     {
-        $cache = pramnos_factory::getCache($category, 'sql');
-        $cache->prefix = $this->prefix;
-        return $cache->clear($category);
+        #$cache = pramnos_factory::getCache($category, 'sql');
+        #$cache->prefix = $this->prefix;
+        #return $cache->clear($category);
     }
 
     /**
@@ -942,11 +966,11 @@ class Database extends \Pramnos\Framework\Base
         $cacheData = false;
         // eof: collect products_id queries
         if ($cache) {
-            $cache = pramnos_factory::getCache($category, 'sql');
-            $cache->prefix = $this->prefix;
-            $cache_name = $this->cache_generate_cache_name($sql);
-            $cache->timeout=$cachetime;
-            $cacheData = $cache->load($cache_name);
+            #$cache = pramnos_factory::getCache($category, 'sql');
+            #$cache->prefix = $this->prefix;
+            #$cache_name = $this->cache_generate_cache_name($sql);
+            #$cache->timeout=$cachetime;
+            #$cacheData = $cache->load($cache_name);
         }
         $this->sql = $sql;
 
@@ -1153,7 +1177,7 @@ class Database extends \Pramnos\Framework\Base
      */
     public function stopLogs()
     {
-        $request=&pramnos_factory::getRequest();
+        $request = new \Pramnos\Http\Request();
         if (is_resource($this->_queryLogHandler)) {
             $this->_querieslog = "\n\n"
                 . "=============================="
