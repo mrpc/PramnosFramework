@@ -9,6 +9,11 @@ namespace Pramnos\Console;
  */
 class Application extends \Symfony\Component\Console\Application
 {
+    /**
+     * Internal application used to connect to databases etc
+     * @var \Pramnos\Application\Application
+     */
+    public $internalApplication = null;
 
     /**
      * Class Constructor
@@ -31,6 +36,7 @@ class Application extends \Symfony\Component\Console\Application
         }
         parent::__construct($name, $version);
         $this->registerCommands();
+        $this->internalApplication = new \Pramnos\Application\Application();
     }
 
     /**
