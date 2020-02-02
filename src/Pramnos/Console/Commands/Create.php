@@ -57,9 +57,63 @@ class Create extends Command
         }
     }
 
+    /**
+     * Creates a model
+     * @param string $name Model name
+     */
     protected function createModel($name)
     {
-        
+        $this->getApplication()->internalApplication->init();
+        $database = \Pramnos\Database\Database::getInstance();
+        $tableName = '#PREFIX#' . $name . 's';
+
+        if (!$database->table_exists($tableName)) {
+            throw new \Exception('Table: ' . $tableName . ' does not exist.');
+        }
+        $sql = $database->Prepare("SHOW FULL COLUMNS FROM `{$tableName}`");
+        $result = $database->Execute($sql);
+        $fileContent = '';
+        while (!$result->eof) {
+
+            $type = 'string';
+            $basicType = explode('(', $result->fields['Type']);
+            switch ($basicType[0]) {
+                case "tinyint":
+                case "smallint":
+                case "integer":
+                case "int":
+                case "mediumint":
+                case "bigint":
+                    $type = 'int';
+                    break;
+                case "decimal":
+                case "numeric":
+                case "float":
+                case "double":
+                    $type = 'float';
+                    break;
+                case "bool":
+                case "boolean":
+                    $type = 'bool';
+                    break;
+            }
+
+
+            $fileContent .= "    /**\n"
+                . "     * "
+                . $result->fields['Comment']
+                . "\n"
+                . "     * @var "
+                . $type
+                . "\n"
+                . "     */\n"
+                . "    public $"
+                . $result->fields['Field']
+                . ";\n\n";
+            $result->MoveNext();
+        }
+        echo $fileContent;
+
     }
 
 
