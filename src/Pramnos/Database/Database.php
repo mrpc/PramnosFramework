@@ -13,22 +13,53 @@ namespace Pramnos\Database;
  */
 class Database extends \Pramnos\Framework\Base
 {
-
+    /**
+     * Database hostname
+     * @var string
+     */
     public $server = "localhost";
+    /**
+     * Username
+     * @var string
+     */
     public $user = "root";
+    /**
+     * Password
+     * @var string
+     */
     public $password = "";
+    /**
+     * Database to connect
+     * @var string
+     */
     public $database = "";
+    /**
+     * Use persistent connection
+     * @var bool
+     */
     public $persistency = false;
-    public $new_link = true;
-    public $db_connected = false;
-    public $db_collation = false;
+    public $newlink = true;
+    /**
+     * Is the database connected?
+     * @var bool
+     */
+    public $connected = false;
+    /**
+     * Database collation
+     * @var string
+     */
+    public $collation = false;
     public $query_result;
     public $row = array();
     public $rowset = array();
     public $total_query_time = 0;
     public $num_queries = 0;
-    public $in_transaction = 0;
+    public $intransaction = 0;
     public $sql = "";
+    /**
+     * Database prefix
+     * @var string
+     */
     public $prefix = "";
     public $modulePrefix = "";
     public $driver = 'mysql';
@@ -66,8 +97,8 @@ class Database extends \Pramnos\Framework\Base
             $this->database = $dbSettings->database;
             $this->user = $dbSettings->user;
             $this->password = $dbSettings->password;
-            $this->db_collation = $dbSettings->collation;
-            $this->prefix = $dbSettings->prefix;
+            $this->collation = $dbSettings->collation;
+            $this->prefix = $dbSettings->prefix . '_';
         }
         parent::__construct();
     }
@@ -80,15 +111,24 @@ class Database extends \Pramnos\Framework\Base
     public function addExternalConnection($link)
     {
         $this->_dbConnection = $link;
-        $this->db_connected = true;
+        $this->connected = true;
         return $this;
     }
 
-    //Factory method to return new database objects
-    public static function &getInstance($name = 'default',
-        $settingsObject = null)
+    /**
+     * Factory method to return a database instance
+     * @staticvar array $instance
+     * @param \Pramnos\Application\Settings $settingsObject
+     * @param string $name Instance name if you want to have multiple instances
+     * @return \Pramnos\Database\Database Database instance
+     */
+    public static function &getInstance($settingsObject = null,
+        $name = null)
     {
         static $instance = array();
+        if ($name === null) {
+            $name = 'default';
+        }
         if (!isset($instance[$name])) {
             $instance[$name] = new Database($settingsObject);
         }
@@ -100,7 +140,7 @@ class Database extends \Pramnos\Framework\Base
         try {
             touch($filename);
             chmod($filename, 0666);
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             \Pramnos\Logs\Logs::log($ex->getMessage());
         }
     }
@@ -111,13 +151,13 @@ class Database extends \Pramnos\Framework\Base
         if (file_exists($secondFileName)) {
             try {
                 @unlink($secondFileName);
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 \Pramnos\Logs\Logs::log($ex->getMessage());
             }
         }
         try {
             $rename = @rename($filename, $secondFileName);
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             \Pramnos\Logs\Logs::log($ex->getMessage());
             $rename = false;
         }
@@ -125,7 +165,7 @@ class Database extends \Pramnos\Framework\Base
             try {
                 touch($filename);
                 chmod($filename, 0666);
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 \Pramnos\Logs\Logs::log($ex->getMessage());
             }
         }
@@ -144,7 +184,7 @@ class Database extends \Pramnos\Framework\Base
             if (is_readable($filename)) {
                 $filesize = filesize($filename);
             }
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             \Pramnos\Logs\Logs::log($ex->getMessage());
             $filesize = 0;
         }
@@ -189,28 +229,27 @@ class Database extends \Pramnos\Framework\Base
                     $this->server, $this->user, $this->password, $this->database
                 );
             }
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             die($ex->getMessage());
             return false;
         }
 
         if ($this->_dbConnection) {
-            $this->db_connected = true;
+            $this->connected = true;
 
             /**
-             * If db_collation is set, change connection collation
+             * If collation is set, change connection collation
              * to get the data in the right format.
              */
-            if ($this->db_collation <> false) {
+            if ($this->collation <> false) {
                 mysqli_query(
                     $this->_dbConnection,
                     "SET NAMES "
-                    . $this->db_collation . ";"
+                    . $this->collation . ";"
                 );
             }
             if ((defined('DEVELOPMENT') && DEVELOPMENT == true)
-                    || (defined('LOG_SLOW_QUERIES')
-                        && LOG_SLOW_QUERIES == true) ) {
+                || (defined('LOG_SLOW_QUERIES') && LOG_SLOW_QUERIES == true)) {
                 $this->logSlowQueries();
 
 
@@ -305,7 +344,7 @@ class Database extends \Pramnos\Framework\Base
         //
         // Commit any remaining transactions
         //
-            if ($this->in_transaction) {
+            if ($this->intransaction) {
                 mysqli_query($this->_dbConnection, "COMMIT");
             }
             return mysqli_close($this->_dbConnection);
@@ -323,9 +362,9 @@ class Database extends \Pramnos\Framework\Base
      */
     function sql_query($query = "")
     {
-        if (pramnos_settings::baseget("debuglevel") > 1) {
-            echo "$query <br />";
-        }
+        #if (pramnos_settings::baseget("debuglevel") > 1) {
+        #    echo "$query <br />";
+        #}
         unset($this->query_result);
         if ($query != "") {
             $this->num_queries++;
@@ -443,16 +482,19 @@ class Database extends \Pramnos\Framework\Base
      * 	if there was something to prepare
      */
     function prepare($query = null)
-    { // ( $query, *$args )
-        if (is_null($query))
+    {
+        if (is_null($query)) {
             return;
-
-        $query = str_replace("#PREFIX#", $this->prefix, $query);
-        $query = str_replace("#MP#", $this->modulePrefix, $query);
+        }
+        $query = str_replace(
+            array("#PREFIX#", "#MP#"),
+            array($this->prefix, $this->modulePrefix),
+            $query
+        );
 
         $args = func_get_args();
         array_shift($args);
-    // If args were passed as an array (as in vsprintf), move them up
+        // If args were passed as an array (as in vsprintf), move them up
         if (isset($args[0]) && is_array($args[0])) {
             $args = $args[0];
         }
@@ -730,7 +772,7 @@ class Database extends \Pramnos\Framework\Base
                 }
                 return $this->prepare_input($value);
             default:
-                throw new Exception(
+                throw new \Exception(
                     'var-type undefined: ' . $type . '(' . $value . ')'
                 );
         }
@@ -938,9 +980,9 @@ class Database extends \Pramnos\Framework\Base
         // but just continue on instead
         if ($fatal && $err_num != 1141) {
             $this->show_error();
-            throw new Exception($err_text, $err_num);
+            throw new \Exception($err_text, $err_num);
         } elseif ($fatal == false && $err_num != 1141) {
-            throw new Exception(
+            throw new \Exception(
                 $err_num . ':' . $err_text . ' ::: SQL QUERY: ' . $this->sql
             );
         }
@@ -975,16 +1017,21 @@ class Database extends \Pramnos\Framework\Base
         $this->sql = $sql;
 
         if ($cache && $cacheData) {
-            $obj = new pramnos_database_result;
+            $obj = new Result();
             $obj->cursor = 0;
             $obj->isCached = true;
             $obj->sql_query = $sql;
             $result_array = unserialize($cacheData);
             $obj->result = $result_array;
-            $obj->numRows = sizeof($result_array);
-            if (sizeof($result_array) > 0) {
+            if ($result_array === null) {
+                $obj->numRows = 0;
+                $obj->eof = true;
+                return $obj;
+            }
+            $obj->numRows = count($result_array);
+            if ($obj->numRows > 0) {
                 $obj->eof = false;
-                while (list($key, $value) = each($result_array[0])) {
+                foreach ($result_array[0] as $key => $value) {
                     $obj->fields[$key] = $value;
                 }
                 return $obj;
@@ -995,15 +1042,18 @@ class Database extends \Pramnos\Framework\Base
         } elseif ($cache) {
             $this->sql_cache_expire_now($sql, $category);
             $timeStart = explode(' ', microtime());
-            $obj = new pramnos_database_result;
+            $obj = new Result();
             $obj->sql_query = $sql;
-            if (!$this->db_connected)
+            if (!$this->connected) {
                 $this->set_error('0', "Not Connected to database");
+            }
             $dbResource = @$this->query($sql, $this->_dbConnection);
-            if (!$dbResource)
+            if (!$dbResource) {
                 $this->set_error(
                     @mysqli_errno(), @mysqli_error(), $dieOnFatalError
                 );
+            }
+
             $obj->resource = $dbResource;
             $obj->numRows = mysqli_num_rows($dbResource);
             $obj->cursor = 0;
@@ -1014,7 +1064,7 @@ class Database extends \Pramnos\Framework\Base
                 while (!$obj->eof) {
                     $result_array = @mysqli_fetch_array($dbResource);
                     if ($result_array) {
-                        while (list($key, $value) = each($result_array)) {
+                        foreach ($result_array as $key => $value) {
                             if (!preg_match('/^[0-9]/', $key)) {
                                 $obj->result[$iiCount][$key] = $value;
                             }
@@ -1025,7 +1075,7 @@ class Database extends \Pramnos\Framework\Base
                     }
                     $iiCount++;
                 }
-                while (list($key, $value) = each($obj->result[$obj->cursor])) {
+                foreach ($obj->result[$obj->cursor] as $key => $value) {
                     if (!preg_match('/^[0-9]/', $key)) {
                         $obj->fields[$key] = $value;
                     }
@@ -1044,16 +1094,20 @@ class Database extends \Pramnos\Framework\Base
             return($obj);
         } else {
             $timeStart = explode(' ', microtime());
-            $obj = new pramnos_database_result;
-            if (!$this->db_connected)
+            $obj = new Result();
+            if (!$this->connected) {
                 $this->set_error('0', "Database is not connected");
+            }
+
             $dbResource = @$this->query($sql, $this->_dbConnection);
-            if (!$dbResource)
+            if (!$dbResource) {
                 $this->set_error(
                     @mysqli_errno($this->_dbConnection),
                     @mysqli_error($this->_dbConnection),
                     $dieOnFatalError
                 );
+            }
+
             $obj->resource = $dbResource;
             $obj->cursor = 0;
 
@@ -1063,7 +1117,7 @@ class Database extends \Pramnos\Framework\Base
                 $obj->eof = false;
                 $result_array = @mysqli_fetch_array($dbResource);
                 if ($result_array) {
-                    while (list($key, $value) = each($result_array)) {
+                    foreach($result_array as $key=>$value) {
                         if (!preg_match('/^[0-9]/', $key)) {
                             $obj->fields[$key] = $value;
                         }
@@ -1123,17 +1177,17 @@ class Database extends \Pramnos\Framework\Base
      * @param string $table table to check
      * @return bool true if table exists
      */
-    function table_exists($table)
+    public function table_exists($table)
     {
-        $exists = $this->sql_query(
+        $exists = $this->prepare(
             "SHOW TABLES FROM `"
             . $this->database . "` LIKE '" . $table . "'"
         );
-        if ($this->sql_numrows($exists) == 1) {
+        $result = $this->Execute($exists);
+        if ($result->numRows > 0) {
             return true;
-        } else {
-            return false;
         }
+        return false;
     }
 
     /**
@@ -1154,7 +1208,7 @@ class Database extends \Pramnos\Framework\Base
         $createDDl = str_ireplace($firstline, $newline, $createSql);
         try {
             $this->Execute($createDDl);
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             \Pramnos\Logs\Logs::log($ex->getMessage());
         }
 
