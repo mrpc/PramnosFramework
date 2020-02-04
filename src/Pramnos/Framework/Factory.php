@@ -16,11 +16,11 @@ class Factory
      * Get an instance of pramnos_database object or create one
      * This function doesn't need a static variable to store the object because
      * pramnos_database has it's own factory method.
-     * @return pramnos_database
+     * @return \Pramnos\Database\Database
      */
     public function &getDatabase($name = 'default')
     {
-        return pramnos_database::getInstance($name);
+        return \Pramnos\Database\Database::getInstance(null, $name);
     }
 
     /**
@@ -85,33 +85,12 @@ class Factory
      */
     public function &getDocument($type = '', $setDefault = true)
     {
-        return pramnos_document::getInstance($type, $setDefault);
+        return \Pramnos\Document\Document::getInstance($type, $setDefault);
     }
 
-    /**
-     * Get an instance of pramnos_theme object or create one
-     * @param string $theme
-     * @param string $path
-     * @return pramnos_theme
-     */
-    public function getTheme($theme = 'default', $path = '')
-    {
-        return pramnos_theme::getTheme($theme, $path);
-    }
 
-    /**
-     * Return a pramnos_html object
-     * @staticvar pramnos_html $instance
-     * @return pramnos_html
-     */
-    public function &getHtml()
-    {
-        static $instance=null;
-        if (!is_object($instance)) {
-            $instance = & pramnos_html::getInstance();
-        }
-        return $instance;
-    }
+
+
 
     /**
      * Get pramnos_search
@@ -174,14 +153,14 @@ class Factory
      * Return a pramnos_language object
      * @staticvar pramnos_language $instance
      * @param string $lang Website language
-     * @return pramnos_language
+     * @return \Pramnos\Translator\Language
      */
     public function &getLanguage($lang = '')
     {
         static $instance=null;
 
         if (!is_object($instance)) {
-            $instance = & pramnos_language::getInstance($lang);
+            $instance = \Pramnos\Translator\Language::getInstance($lang);
         }
         return $instance;
     }
@@ -189,13 +168,13 @@ class Factory
     /**
      * Return a pramnos_request object
      * @staticvar pramnos_request $instance
-     * @return pramnos_request
+     * @return \Pramnos\Http\Request
      */
     public function &getRequest()
     {
         static $instance=null;
         if (!is_object($instance)) {
-            $instance = & pramnos_request::getInstance();
+            $instance = \Pramnos\Http\Request::getInstance();
         }
         return $instance;
     }
