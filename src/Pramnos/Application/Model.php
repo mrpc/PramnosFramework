@@ -438,7 +438,12 @@ class Model extends \Pramnos\Framework\Base
             if ($debug==true) {
                 die($sql);
             }
-            $result = $database->Execute($sql, true, 600, $this->_cacheKey);
+            try {
+                $result = $database->Execute($sql, true, 600, $this->_cacheKey);
+            } catch (Exception $ex) {
+                $this->controller->application->showError($ex->getMessage());
+            }
+
             while (!$result->eof) {
                 $objects[$result->fields[$primarykey]]
                     = $this->getModel($this->name);
