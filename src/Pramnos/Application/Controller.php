@@ -17,8 +17,20 @@ class Controller extends \Pramnos\Framework\Base
      * @var array
      */
     public $actions_auth = array();
+    /**
+     * Controller Title
+     * @var string
+     */
     public $title = '';
+    /**
+     * Controller Name
+     * @var string
+     */
     public $controllerName = '';
+    /**
+     * Array of breadcrumbs used in the controller
+     * @var array
+     */
     public $_breadcrumbs = array();
 
     /**
@@ -277,18 +289,16 @@ class Controller extends \Pramnos\Framework\Base
      * @param string $path
      * @param string $name
      * @param string $type
-     * @param array $args
      * @return \pramnos_application_view|\classname|boolean
      * @throws \Exception
      */
-    private function _getView($path, $name, $type, $args)
+    private function _getView($path, $name, $type)
     {
         if ($type === '') {
             $doc = \Pramnos\Framework\Factory::getDocument();
             $type = $doc->type;
         }
         $tp = $path . DS . 'views' . DS . $name;
-        $filename = $tp . DS . 'view.' . $type . '.php';
         if (!file_exists($tp)) { // Check if template path exists
             return false;
         }
@@ -327,11 +337,12 @@ class Controller extends \Pramnos\Framework\Base
             }
         }
         if (class_exists($className)) {
-            $view = new $className();
+            $view = new $className($this);
             return $view;
         }
-        if (file_exists($tp . DS . $name . "." . $type . ".php")) {
-            $view = new \Pramnos\Application\View($tp, $name, $type);
+        if (file_exists($tp . DS . $name . "." . $type . ".php")
+            || file_exists($tp . DS  . "view." . $type . ".php")) {
+            $view = new \Pramnos\Application\View($this, $tp, $name, $type);
             return $view;
         }
         return false;

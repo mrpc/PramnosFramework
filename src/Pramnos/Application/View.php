@@ -8,15 +8,46 @@ namespace Pramnos\Application;
  */
 class View extends \Pramnos\Framework\Base
 {
-
+    /**
+     * Array of models
+     * @var \Pramnos\Application\Model[]
+     */
     protected $models = array();
+    /**
+     * Default model name
+     * @var string
+     */
     protected $defaultModel = '';
+    /**
+     * View path
+     * @var string
+     */
     protected $path = '';
+    /**
+     * View name
+     * @var string
+     */
     protected $name = '';
+    /**
+     * View type
+     * @var string
+     */
     protected $type = 'html';
+    /**
+     * Model output
+     * @var string
+     */
     public $output = '';
-    public $model = '';
-    public $controllerName = '';
+    /**
+     * Current Model
+     * @var \Pramnos\Application\Model
+     */
+    public $model = false;
+    /**
+     * Current Controller
+     * @var \Pramnos\Application\Controller
+     */
+    public $controller = null;
 
     /**
      * Render and return the view contents
@@ -37,12 +68,15 @@ class View extends \Pramnos\Framework\Base
 
     /**
      * View constructor
+     * @param \Pramnos\Application\Controller $controller Current controller
      * @param string $path
      * @param string $name
      * @param string $type
      */
-    public function __construct($path='', $name='', $type='html')
+    public function __construct(\Pramnos\Application\Controller $controller,
+        $path='', $name='', $type='html')
     {
+        $this->controller = $controller;
         $this->path=$path;
         $this->name=$name;
         $this->type=$type;
