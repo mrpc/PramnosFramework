@@ -105,7 +105,8 @@ class Request extends Base
         if ($slashes > 0 && isset($parts[1]) && $parts[1] !== '') {
             $this->_action = $parts[1];
         }
-        if (count($parts > 2)) {
+        
+        if (count($parts) > 2) {
             if ($slashes == 2) {
                 $_GET['_option'] = $parts[2];
                 unset($parts[2]);
