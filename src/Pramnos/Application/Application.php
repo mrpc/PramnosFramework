@@ -166,6 +166,21 @@ class Application extends Base
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', VAR_PATH);
         }
+        if (!defined('DB_USERSTABLE')) {
+            define('DB_USERSTABLE', "#PREFIX#users");
+        }
+        if (!defined('DB_USERGROUPSTABLE')) {
+            define('DB_USERGROUPSTABLE', "#PREFIX#groups");
+        }
+        if (!defined('DB_USERGROUPSUBSCRIPTIONS')) {
+            define('DB_USERGROUPSUBSCRIPTIONS', "#PREFIX#groupmembers");
+        }
+        if (!defined('DB_USERDETAILSTABLE')) {
+            define('DB_USERDETAILSTABLE', "#PREFIX#userdetails");
+        }
+        if (!defined('DB_PERMISSIONSTABLE')) {
+            define('DB_PERMISSIONSTABLE', "#PREFIX#permissions");
+        }
         define('PRAMNOS_DEFINES', true);
     }
 
@@ -371,6 +386,9 @@ class Application extends Base
             $this->close('There is no controller to run...');
         }
         $this->activeController = $controllerObject;
+
+        $doc->loadtheme('main', 'app' . DS . 'themes');
+
         try {
             $doc->addContent($controllerObject->exec($this->action));
         } catch (Exception $exception) {
