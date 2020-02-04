@@ -188,7 +188,12 @@ class Controller extends \Pramnos\Framework\Base
 
     }
 
-    function auth($action)
+    /**
+     * Check if a user can execute a controller action
+     * @param string $action
+     * @return boolean
+     */
+    public function auth($action)
     {
         $session = \Pramnos\Http\Session::getInstance();
         if (array_search($action, $this->actions_auth) !== false) {
