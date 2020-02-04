@@ -191,29 +191,33 @@ class Theme extends \Pramnos\Framework\Base
      * Returns a theme object
      * @param string $theme Theme to load
      * @param string $path Path of the theme
-     * @param boolean $load should we actually load the theme for display, or just get it's information?
+     * @param boolean $load should we actually load the theme for display,
+     *                      or just get it's information?
      * @return \classname|Theme
      */
-    public static function getTheme($theme = NULL, $path = '', $load = true)
+    public static function getTheme($theme = null, $path = '', $load = true)
     {
 
-        if ($theme === NULL) {
+        if ($theme === null) {
             $theme = self::$activeTheme;
         } else {
             self::$activeTheme = $theme;
         }
 
-        if (self::$instances === NULL) {
+        if (self::$instances === null) {
             self::$instances = array();
         }
+
         if ($path == '') {
-            $path = ROOT . DS . 'themes';
+            $path = APP_PATH . DS . 'themes';
+
         } else {
             $path = ROOT . DS . $path;
         }
 
         if (!isset(self::$instances[$theme])) {
             if (file_exists($path . DS . $theme . DS . $theme . '.php')) {
+
                 include $path . DS . $theme . DS . $theme . '.php';
                 $classname = $theme . '_theme';
                 if (class_exists($classname)) {
@@ -255,17 +259,30 @@ class Theme extends \Pramnos\Framework\Base
      */
     public function loadtheme()
     {
-        $themefile = $this->path . DS . $this->theme . DS . "theme." . $this->document->getType() . ".php";
+        $themefile = $this->path . DS
+            . $this->theme . DS . "theme."
+            . $this->document->getType() . ".php";
+
         if (isset($this->elements[$this->_contentType])) {
-            $themefile = str_replace('.html.php', '.' . $this->document->getType() . '.php', $this->path . DS . $this->theme . DS . $this->elements[$this->_contentType]);
+            $themefile = str_replace(
+                '.html.php',
+                '.' . $this->document->getType() . '.php',
+                $this->path . DS . $this->theme
+                . DS . $this->elements[$this->_contentType]
+            );
             if (!file_exists($themefile)) {
-                $themefile = str_replace('.html.php', '.' . $this->document->getType() . '.php', $this->path . DS . $this->theme . DS . $this->elements['index']);
+                $themefile = str_replace(
+                    '.html.php', '.' . $this->document->getType() . '.php',
+                    $this->path . DS . $this->theme
+                    . DS . $this->elements['index']
+                );
                 if (!file_exists($themefile)) {
-                    $themefile = $this->path . DS . $this->theme . DS . "theme.html.php";
+                    $themefile = $this->path . DS
+                        . $this->theme . DS . "theme.html.php";
                 }
             }
         }
-        $lang = \Pramnos\Framework\Factory::getLanguage();
+
         if (!function_exists('l')) {
 
             /**
@@ -274,7 +291,7 @@ class Theme extends \Pramnos\Framework\Base
             function l()
             {
                 $params = func_get_args();
-                $lang = &pramnos_factory::getLanguage();
+                $lang = \Pramnos\Framework\Factory::getLanguage();
                 echo call_user_func_array(array($lang, '_'), $params);
             }
 
@@ -487,7 +504,10 @@ class Theme extends \Pramnos\Framework\Base
             $filename = $this->fullpath . DS . $this->elements['style'];
             if (file_exists($filename) && is_file($filename)) {
                 $doc = \Pramnos\Document\Document::getInstance();
-                $doc->addCss(sURL . 'themes/' . $this->theme . '/' . $this->elements['style']);
+                $doc->addCss(
+                    sURL . 'themes/' . $this->theme
+                    . '/' . $this->elements['style']
+                );
             }
         }
         return $this;
@@ -501,7 +521,8 @@ class Theme extends \Pramnos\Framework\Base
      * @param array $options
      * @return Theme
      */
-    public function registerWidgetArea($name = "Sidebar", $description = '', $id = '', $options = array())
+    public function registerWidgetArea($name = "Sidebar", $description = '',
+        $id = '', $options = array())
     {
         $name = $this->makeWidgetAreaName($name);
         if ($id == '') {
