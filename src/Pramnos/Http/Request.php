@@ -311,21 +311,25 @@ class Request extends Base
         return $return;
     }
 
+
+
     /**
-     * Get the requested module
+     * Get the requested controller
      * @return string
      */
-    public function getModule()
+    public function getController()
     {
         return $this->_controller;
     }
 
+
+
     /**
-     * Set the module to whatever you want
+     * Set the controller to whatever you want
      * @param  string           $module
      * @return Request
      */
-    public function setModule($module)
+    public function setController($module)
     {
         $this->_controller=$module;
 
@@ -424,6 +428,27 @@ class Request extends Base
         } else {
             return null;
         }
+    }
+
+    /**
+     * Get request controller
+     * @deprecated since version 1.0
+     * @return string
+     */
+    public function getModule()
+    {
+        return $this->getController();
+    }
+
+    /**
+     * Set request controller
+     * @deprecated since version 1.0
+     * @param string $module
+     * @return string
+     */
+    public function setModule($module)
+    {
+        return $this->setController($module);
     }
 
 }
