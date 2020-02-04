@@ -40,7 +40,7 @@ class Document extends \Pramnos\Framework\Base
      */
     public $metanames = array();
     public $bodyclasses = array();
-    public $reset = true;
+
     public $headContent = "";
     public $og_title = "";
     public $og_type = "website";
@@ -168,7 +168,7 @@ class Document extends \Pramnos\Framework\Base
 
 
         //Register default stylesheets
-        $this->registerStyle('reset', sURL . 'media/css/reset.css');
+
         $this->registerStyle(
             'jquery-ui', sURL . 'media/css/jquery/jquery-ui.css'
         );
@@ -300,14 +300,7 @@ class Document extends \Pramnos\Framework\Base
         return $themeobject;
     }
 
-    /**
-     * Should we load a reset css?
-     * @param boolean $reset
-     */
-    public function setReset($reset)
-    {
-        $this->reset = $reset;
-    }
+    
 
     /**
      * Factory function for document
