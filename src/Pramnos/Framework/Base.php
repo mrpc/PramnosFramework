@@ -80,7 +80,7 @@ class Base
     {
         $this->_errors[] = $error;
         if (isset($_SESSION)) {
-            @$_SESSION['_errors'] = $this->_errors;
+            $_SESSION['_errors'] = $this->_errors;
         }
         return $this;
     }
@@ -94,7 +94,7 @@ class Base
     {
         $this->_messages[] = $message;
         if (isset($_SESSION)) {
-            @$_SESSION['_messages'] = $this->_messages;
+            $_SESSION['_messages'] = $this->_messages;
         }
         return $this;
     }
@@ -102,7 +102,8 @@ class Base
     function _getErrors($session = true)
     {
         if ($session == true && isset($_SESSION)) {
-            if (isset($_SESSION['_errors']) && is_array($_SESSION['_errors'])) {
+            if (isset($_SESSION['_errors'])
+                && is_array($_SESSION['_errors'])) {
                 $return = $_SESSION['_errors'];
                 unset($_SESSION['_errors']);
                 return $return;
@@ -122,7 +123,8 @@ class Base
     function _getMessages($session = true)
     {
         if ($session == true && isset($_SESSION)) {
-            if (isset($_SESSION['_messages']) && is_array($_SESSION['_messages'])) {
+            if (isset($_SESSION['_messages'])
+                && is_array($_SESSION['_messages'])) {
                 $return = $_SESSION['_messages'];
                 unset($_SESSION['_messages']);
                 return $return;
@@ -139,25 +141,33 @@ class Base
         }
     }
 
-    function _printMessages($class = 'pramnosMessage')
+    protected function _printMessages($class = 'pramnosMessage')
     {
         $return = '';
         $messages = $this->_getMessages();
         if ($messages != false) {
             foreach ($messages as $message) {
-                $return .= '<p class="' . $class . '">' . $message . "</p>";
+                $return .= '<span class="'
+                    . $class
+                    . '">'
+                    . $message
+                    . "</span>";
             }
         }
         return $return;
     }
 
-    function _printErrors($class = 'pramnosError')
+    protected function _printErrors($class = 'pramnosError')
     {
         $return = '';
         $messages = $this->_getErrors();
         if ($messages != false) {
             foreach ($messages as $message) {
-                $return .= '<p class="' . $class . '">' . $message . "</p>";
+                $return .= '<span class="'
+                    . $class
+                    . '">'
+                    . $message
+                    . "</span>";
             }
         }
         return $return;
