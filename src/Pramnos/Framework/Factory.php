@@ -28,7 +28,7 @@ class Factory
      * @staticvar pramnos_session $instance
      * @return \Pramnos\Http\Session
      */
-    public function &getSession()
+    public static function &getSession()
     {
         static $instance=null;
         if (!is_object($instance)) {
@@ -40,13 +40,13 @@ class Factory
     /**
      * Get an instance of pramnos_settings object or create one
      * @staticvar pramnos_settings $instance
-     * @return pramnos_settings
+     * @return \Pramnos\Application\Settings
      */
-    public function &getSettings()
+    public static function &getSettings()
     {
         static $instance=null;
         if (!is_object($instance)) {
-            $instance = & pramnos_settings::getInstance();
+            $instance = & \Pramnos\Application\Settings::getInstance();
         }
         return $instance;
     }
@@ -56,7 +56,7 @@ class Factory
      * @staticvar pramnos_filesystem $instance
      * @return pramnos_filesystem
      */
-    public function &getFilesystem()
+    public static function &getFilesystem()
     {
         static $instance=null;
         if (!is_object($instance)) {
@@ -72,7 +72,7 @@ class Factory
      * @param string $type
      * @return \pramnos_cache
      */
-    public function getCache($category=NULL, $type=NULL)
+    public static function getCache($category=NULL, $type=NULL)
     {
         return new pramnos_cache($category, $type);
     }
@@ -97,7 +97,7 @@ class Factory
      * @staticvar pramnos_search $instance
      * @return pramnos_search
      */
-    public function &getSearch()
+    public static function &getSearch()
     {
         static $instance=null;
         if (!is_object($instance)) {
@@ -111,7 +111,7 @@ class Factory
      * @staticvar pramnos_html_form $instance
      * @return pramnos_html_form
      */
-    public function &getForm()
+    public static function &getForm()
     {
         static $instance=null;
         if (!is_object($instance)) {
@@ -124,13 +124,15 @@ class Factory
      * Returns a pramnos_permissions object
      * @staticvar pramnos_permissions $instance
      * @param string $storageMethod
-     * @return pramnos_permissions
+     * @return \Pramnos\Auth\Permissions
      */
-    public function &getPermissions($storageMethod = 'database')
+    public static function &getPermissions($storageMethod = 'database')
     {
         static $instance=null;
         if (!is_object($instance)) {
-            $instance = & pramnos_permissions::getInstance($storageMethod);
+            $instance = & \Pramnos\Auth\Permissions::getInstance(
+                $storageMethod
+            );
         }
         return $instance;
     }
@@ -140,7 +142,7 @@ class Factory
      * @staticvar pramnos_auth $instance
      * @return \Pramnos\Auth\Auth
      */
-    public function &getAuth()
+    public static function &getAuth()
     {
         static $instance=null;
         if (!is_object($instance)) {
@@ -184,7 +186,7 @@ class Factory
      * @staticvar pramnos_jquery $instance
      * @return pramnos_jquery
      */
-    public function &getJquery()
+    public static function &getJquery()
     {
         static $instance=null;
         if (!is_object($instance)) {
@@ -198,7 +200,7 @@ class Factory
      * @staticvar pramnos_email $instance
      * @return pramnos_email
      */
-    public function &getEmail()
+    public static function &getEmail()
     {
         static $instance=null;
         if (!is_object($instance)) {
