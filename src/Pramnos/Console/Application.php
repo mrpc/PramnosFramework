@@ -36,7 +36,8 @@ class Application extends \Symfony\Component\Console\Application
         }
         parent::__construct($name, $version);
         $this->registerCommands();
-        $this->internalApplication = new \Pramnos\Application\Application();
+        $this->internalApplication
+            = \Pramnos\Application\Application::getInstance();
     }
 
     /**
