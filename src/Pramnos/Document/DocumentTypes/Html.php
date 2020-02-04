@@ -29,7 +29,7 @@ class Html extends \Pramnos\Document\Document
     public function render()
     {
         $lang = \Pramnos\Framework\Factory::getLanguage();
-        if ($this->themeObject !== NULL) {
+        if ($this->themeObject !== null) {
             $this->themeObject->loadTheme();
             $this->header .= $this->themeObject->getheader();
             $this->head .= $this->themeObject->gethead();
