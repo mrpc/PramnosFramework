@@ -71,7 +71,12 @@ class Base
         #defined('SP') or die('No startpoint defined...');
     }
 
-    function addError($error)
+    /**
+     * Add an error to session storage
+     * @param string $error
+     * @return $this
+     */
+    protected function addError($error)
     {
         $this->_errors[] = $error;
         if (isset($_SESSION)) {
@@ -80,7 +85,12 @@ class Base
         return $this;
     }
 
-    function addMessage($message)
+    /**
+     * Add a message to session storage
+     * @param string $message
+     * @return $this
+     */
+    protected function addMessage($message)
     {
         $this->_messages[] = $message;
         if (isset($_SESSION)) {
@@ -157,8 +167,13 @@ class Base
      * Check if there is any reported error.
      * @return boolean
      */
-    function hasErrors()
+    protected function hasErrors()
     {
+        if (isset($_SESSION['_errors'])
+            && is_array($_SESSION['_errors'])
+            && count($_SESSION['_errors']) > 0) {
+            return true;
+        }
         if (count($this->_errors) != 0) {
             return true;
         }
@@ -171,7 +186,7 @@ class Base
      * Check if there is any message to display.
      * @return boolean
      */
-    function hasMessages()
+    protected function hasMessages()
     {
         if (isset($_SESSION['_messages'])
             && is_array($_SESSION['_messages'])
