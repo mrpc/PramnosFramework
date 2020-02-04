@@ -181,6 +181,9 @@ class Application extends Base
         if (!defined('DB_PERMISSIONSTABLE')) {
             define('DB_PERMISSIONSTABLE', "#PREFIX#permissions");
         }
+        ini_set(
+            'error_log', LOG_PATH . DS . 'logs' . DS . 'php_error.log'
+        );
         define('PRAMNOS_DEFINES', true);
     }
 
