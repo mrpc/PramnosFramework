@@ -32,9 +32,14 @@ class Controller extends \Pramnos\Framework\Base
      * @var array
      */
     public $_breadcrumbs = array();
+    /**
+     * Application
+     * @var \Pramnos\Application\Application
+     */
+    public $application = null;
 
     /**
-     * Extra paths to check for models and views
+     * Extra paths to check for views
      * BEFORE looking on normal path
      * @var array
      */
@@ -42,14 +47,14 @@ class Controller extends \Pramnos\Framework\Base
 
 
     /**
-     * Extra paths to check for models and views
+     * Extra paths to check for views
      * if main paths are not found
      * @var array
      */
     protected $_extraPaths = array();
 
     /**
-     * Extra paths to check for models and views
+     * Extra paths to check for views
      * if main paths after application
      * @var array
      */
@@ -109,13 +114,22 @@ class Controller extends \Pramnos\Framework\Base
      */
     public function redirect($url = null, $quit = true, $code='302')
     {
-        $app = \Pramnos\Application\Application::getInstance();
-        $app->redirect($url, $quit, $code);
+        $this->application->redirect($url, $quit, $code);
     }
 
-    public function __construct()
+    /**
+     * Controller constructor
+     * @param \Pramnos\Application\Application $application
+     */
+    public function __construct(
+        \Pramnos\Application\Application $application = null
+    )
     {
-        $this->controllerName = get_class($this);
+        if ($application == null) {
+            $this->application
+                = \Pramnos\Application\Application::getInstance();
+        }
+        $this->controllerName = (new \ReflectionClass($this))->getShortName();
         $this->actions[] = 'display';
         parent::__construct();
     }
@@ -188,96 +202,40 @@ class Controller extends \Pramnos\Framework\Base
     }
 
 
-
-    /**
-     * Check if a model exists and load it
-     * It should be used to search for models and views.
-     * @param string $filename
-     * @param string $classname
-     * @param string $name
-     * @param array $args
-     * @return \classname|boolean
-     */
-    private function _getModel($path, $name, $args)
-    {
-        if ($this->_name !== "") {
-            $classname = $this->_name . '_' . $name . 'model';
-        } else {
-            $classname = $classname = $name . 'model';
-        }
-        $filename = $path . DS . 'models' . DS . $name . '.' . 'php';
-        #echo "<br />$filename";
-        if (file_exists($filename)) {
-                include_once($filename);
-                if (class_exists($classname)) {
-                    $model = new $classname($name, $args);
-                    $model->controller = $this;
-                    return $model;
-                } elseif ($this->_name !== "" && class_exists($name . 'model') ){
-                    $classname = $name . 'model';
-                    $model = new $classname($name, $args);
-                    $model->controller = $this;
-                    return $model;
-                } elseif ($this->_extends){
-                    $classname = $this->_extends . '_' . $name . 'model';
-                    $model = new $classname($name, $args);
-                    $model->controller = $this;
-                    return $model;
-                }
-            }
-            return false;
-    }
-
-
     /**
      * Get a model
      * @param string $name
-     * @param array $args
      * @return object A model object
      */
-    public function &getModel($name = '', $args = array())
+    public function &getModel($name = '')
     {
-        static $modelPaths = array(); // Cache the correct array path
-        if (isset($modelPaths[$name])){
-            $model=$this->_getModel($modelPaths[$name], $name, $args);
-            if ($model){
-                return $model;
+        if (isset($this->application->applicationInfo['namespace'])) {
+            if ($this->application->appName == '') {
+                $class = '\\'
+                    . $this->application->applicationInfo['namespace']
+                    . '\\Models\\'
+                    . $name;
             } else {
-                unset($modelPaths[$name]);
+                $class = '\\'
+                    . $this->application->applicationInfo['namespace']
+                    . '\\'
+                    . $this->application->appName
+                    . '\\Models\\'
+                    . $name;
             }
+        } elseif ($this->application->appName == '') {
+            $class = '\\Pramnos\\Models\\'
+                . $name;
+        } else {
+            $class = '\\Pramnos\\'
+                . $this->application->appName
+                . '\\Models\\'
+                . $name;
         }
-        $paths = array_merge(
-                $this->_priorityPaths,
-                array($this->_path . DS . $this->_name, $this->_path),
-                $this->_extraPaths
-                );
-        foreach ($paths as $path){
-            $model = $this->_getModel($path, $name, $args);
-            if ($model){
-                $modelPaths[$name]=$path;
-                return $model;
-            }
+        if (class_exists($class)) {
+            $model = new $class($this, $name);
+            return $model;
         }
-        $app = \Pramnos\Application\Application::getInstance();
-        // In case we can't find the model, we search in Application path.
-        // Check for app extra paths
-        $appPaths = array_merge(
-            array(APPS_PATH . DS . $app->appName),
-            $app->getExtraPaths(),
-            $this->_lastPaths
-        );
-        foreach ($appPaths as $path) {
-            $model = $this->_getModel($path, $name, $args);
-            if ($model){
-                $modelPaths[$name]=$path;
-                return $model;
-            }
-        }
-        $return = new pramnos_application_model();
-        die ('Cannot find model: ' . $name . ' (Class: ' . $this->_name . ')');
-        \Pramnos\Logs\Logs::log('Cannot find model: ' . $name . ' (Class: ' . $this->_name . ')');
-        $app->setRedirect(URL);
-        return $return;
     }
 
 
@@ -310,25 +268,25 @@ class Controller extends \Pramnos\Framework\Base
         /**
          * Search for the right view class
          */
-        $app = \Pramnos\Application\Application::getInstance();
-        if (isset($app->applicationInfo['namespace'])) {
-            if ($app->appName != '') {
+
+        if (isset($this->application->applicationInfo['namespace'])) {
+            if ($this->application->appName != '') {
                 $className = '\\'
-                    . $app->applicationInfo['namespace']
+                    . $this->application->applicationInfo['namespace']
                     . '\\'
-                    . $app->appName
+                    . $this->application->appName
                     . '\\Views\\'
                     . $name;
             } else {
                 $className = '\\'
-                    . $app->applicationInfo['namespace']
+                    . $this->application->applicationInfo['namespace']
                     . '\\Views\\'
                     . $name;
             }
         } else {
-            if ($app->appName != '') {
+            if ($this->application->appName != '') {
                 $className = '\\Pramnos\\'
-                    . $app->appName
+                    . $this->application->appName
                     . '\\Views\\'
                     . $name;
             } else {
@@ -369,24 +327,22 @@ class Controller extends \Pramnos\Framework\Base
                 return $view;
             }
         }
-
-        $app = \Pramnos\Application\Application::getInstance();
         // In case we can't find the view, we search in Application path.
         // Check for app extra paths
-        if ($app->appName == '') {
+        if ($this->application->appName == '') {
             $appPaths = array_merge(
                 array(
                     ROOT . DS . INCLUDES
                 ),
-                $app->getExtraPaths(),
+                $this->application->getExtraPaths(),
                 $this->_lastPaths
             );
         } else {
             $appPaths = array_merge(
                 array(
-                    ROOT . DS . INCLUDES . DS . $app->appName
+                    ROOT . DS . INCLUDES . DS . $this->application->appName
                 ),
-                $app->getExtraPaths(),
+                $this->application->getExtraPaths(),
                 $this->_lastPaths
             );
         }
