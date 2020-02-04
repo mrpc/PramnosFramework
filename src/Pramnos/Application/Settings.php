@@ -157,15 +157,16 @@ class Settings extends \Pramnos\Framework\Base
                 . " where `setting` = %s limit 1",
                 $setting
             );
+            $result = self::$database->Execute(
+                $sql, true, 600, 'settings'
+            );
+            if ($result->numRows != 0) {
+                self::$settings[$setting] = $result->fields['value'];
+                return self::$settings[$setting];
+            }
         }
 
-        $result = self::$database->Execute(
-            $sql, true, 600, 'settings'
-        );
-        if ($result->numRows != 0) {
-            self::$settings[$setting] = $result->fields['value'];
-            return self::$settings[$setting];
-        }
+
 
         return $defaultValue;
     }
