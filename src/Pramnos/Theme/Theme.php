@@ -68,7 +68,8 @@ class Theme extends \Pramnos\Framework\Base
         'comments' => 'comments.php', // The comments template.
         'style' => 'style.css', // The main stylesheet.
         'dynamicStyle' => 'style.php',
-        'index' => 'theme.html.php'
+        'index' => 'theme.html.php',
+        'login' => 'login.php'
     );
     protected $_contentType = 'index';
 
