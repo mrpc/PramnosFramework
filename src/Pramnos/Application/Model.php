@@ -68,11 +68,11 @@ class Model extends \Pramnos\Framework\Base
         $this->controller = $controller;
         if ($this->_dbtable === null) {
             $this->_dbtable = '#PREFIX#' . $name . 's';
-            $database = \Pramnos\Database\Database::getInstance();
-            $this->_dbtable=str_ireplace(
-                '#PREFIX#', $database->prefix, $this->_dbtable
-            );
         }
+        $database = \Pramnos\Database\Database::getInstance();
+        $this->_dbtable=str_ireplace(
+            '#PREFIX#', $database->prefix, $this->_dbtable
+        );
 
         parent::__construct();
     }
@@ -352,7 +352,7 @@ class Model extends \Pramnos\Framework\Base
             if ($order === NULL || $order === '') {
                 $order  = " order by `" . $primarykey . "` DESC ";
             }
-            $sql    = "select * from `" . $this->_dbtable
+            $sql = "select * from `" . $this->_dbtable
                 . "` " . $filter . ' ' . $order . ' limit '
                 . $page . ', ' . $items;
 
