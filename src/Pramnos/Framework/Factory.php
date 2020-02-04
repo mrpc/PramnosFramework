@@ -138,13 +138,13 @@ class Factory
     /**
      * Return a pramnos_auth object
      * @staticvar pramnos_auth $instance
-     * @return pramnos_auth
+     * @return \Pramnos\Auth\Auth
      */
     public function &getAuth()
     {
         static $instance=null;
         if (!is_object($instance)) {
-            $instance = & pramnos_auth::getInstance();
+            $instance = & \Pramnos\Auth\Auth::getInstance();
         }
         return $instance;
     }
