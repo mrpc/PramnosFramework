@@ -267,9 +267,12 @@ class Controller extends \Pramnos\Framework\Base
             $doc = \Pramnos\Framework\Factory::getDocument();
             $type = $doc->type;
         }
-        $tp = $path . DS . 'views' . DS . $name;
+        $tp = $path . DS . 'Views' . DS . $name;
         if (!file_exists($tp)) { // Check if template path exists
-            return false;
+            $tp = $path . DS . 'views' . DS . $name;
+            if (!file_exists($tp)) { // Check if template path exists
+                return false;
+            }
         }
 
         if (!is_dir($tp)){
