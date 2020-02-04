@@ -204,8 +204,9 @@ class Controller extends \Pramnos\Framework\Base
 
     /**
      * Get a model
-     * @param string $name
-     * @return object A model object
+     * @param string $name Model name
+     * @return \Pramnos\Application\Model
+     * @throws \Exception
      */
     public function &getModel($name = '')
     {
@@ -236,6 +237,11 @@ class Controller extends \Pramnos\Framework\Base
             $model = new $class($this, $name);
             return $model;
         }
+        throw new \Exception(
+            'Cannot find model: ' . $name . ' (Class: ' . $class . ')'
+        );
+
+
     }
 
 
