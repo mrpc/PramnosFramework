@@ -24,17 +24,24 @@ class Request extends Base
      * @var string
      */
     public static $originalRequest='';
+
     /**
-     * The URI which was given in order to access the app;
+     * Original $_GET request that should never change
+     * @var string
+     */
+    public static $originalRequestNoChange='';
+
+    /**
+     * The URI which was given in order to access this page;
      * for instance, '/index.html'.
      * @var string
      */
-    public $requestUri='';
+    public static $requestUri='';
 
-    public $requestMethod='GET';
+    public static $requestMethod='GET';
 
-    public $putData = array();
-    public $deleteData = array();
+    public static $putData = array();
+    public static $deleteData = array();
 
     public static function &getInstance()
     {
@@ -157,21 +164,21 @@ class Request extends Base
         }
         unset($_GET['r']);
         if (isset($_SERVER['REQUEST_METHOD'])) {
-            $this->requestMethod = $_SERVER['REQUEST_METHOD'];
+            self::$requestMethod = $_SERVER['REQUEST_METHOD'];
         } else {
             if (isset($_POST) && count($_POST) != 0) {
-                $this->requestMethod = 'POST';
+                self::$requestMethod = 'POST';
             }
         }
-        if ($this->requestMethod == 'PUT') {
-             parse_str(file_get_contents("php://input"), $this->putData);
+        if (self::$requestMethod == 'PUT') {
+             parse_str(file_get_contents("php://input"), self::$putData);
         }
 
-        if ($this->requestMethod == 'DELETE') {
-            parse_str(file_get_contents("php://input"), $this->deleteData);
+        if (self::$requestMethod == 'DELETE') {
+            parse_str(file_get_contents("php://input"), self::$deleteData);
         }
 
-        if ($this->requestMethod == 'POST' && count($_POST) == 0) {
+        if (self::$requestMethod == 'POST' && count($_POST) == 0) {
             if (\pramnos_general::checkJSON(file_get_contents("php://input"))) {
                 $postArray = (array)json_decode(
                     file_get_contents("php://input")
@@ -180,7 +187,7 @@ class Request extends Base
                 unset($postArray);
             }
         }
-        if ($this->requestMethod == 'GET') {
+        if (self::$requestMethod == 'GET') {
             if (isset($_GET['{}'])) {
                 unset($_GET['{}']);
             }
@@ -290,10 +297,10 @@ class Request extends Base
                 $input = &$_SERVER;
                 break;
             case 'DELETE':
-                $input = &$this->deleteData;
+                $input = &self::$deleteData;
                 break;
             case 'PUT':
-                $input = &$this->putData;
+                $input = &self::$putData;
                 break;
             default:
                 $input = &$_REQUEST;
