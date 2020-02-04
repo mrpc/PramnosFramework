@@ -26,13 +26,13 @@ class Factory
     /**
      * Get an instance of pramnos_session object or create one
      * @staticvar pramnos_session $instance
-     * @return pramnos_session
+     * @return \Pramnos\Http\Session
      */
     public function &getSession()
     {
         static $instance=null;
         if (!is_object($instance)) {
-            $instance = & pramnos_session::getInstance();
+            $instance = \Pramnos\Http\Session::getInstance();
         }
         return $instance;
     }
