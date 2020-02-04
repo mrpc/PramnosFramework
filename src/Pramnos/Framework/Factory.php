@@ -18,7 +18,7 @@ class Factory
      * pramnos_database has it's own factory method.
      * @return \Pramnos\Database\Database
      */
-    public function &getDatabase($name = 'default')
+    public static function &getDatabase($name = 'default')
     {
         return \Pramnos\Database\Database::getInstance(null, $name);
     }
@@ -83,7 +83,7 @@ class Factory
      * @var    boolean  $setDefault Set the document type as default
      * @return pramnos_document
      */
-    public function &getDocument($type = '', $setDefault = true)
+    public static function &getDocument($type = '', $setDefault = true)
     {
         return \Pramnos\Document\Document::getInstance($type, $setDefault);
     }
@@ -155,7 +155,7 @@ class Factory
      * @param string $lang Website language
      * @return \Pramnos\Translator\Language
      */
-    public function &getLanguage($lang = '')
+    public static function &getLanguage($lang = '')
     {
         static $instance=null;
 
@@ -170,7 +170,7 @@ class Factory
      * @staticvar pramnos_request $instance
      * @return \Pramnos\Http\Request
      */
-    public function &getRequest()
+    public static function &getRequest()
     {
         static $instance=null;
         if (!is_object($instance)) {
