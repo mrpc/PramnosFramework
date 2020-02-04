@@ -300,7 +300,7 @@ class Document extends \Pramnos\Framework\Base
         return $themeobject;
     }
 
-    
+
 
     /**
      * Factory function for document
@@ -739,10 +739,12 @@ class Document extends \Pramnos\Framework\Base
         return $text;
     }
 
+    /**
+     * Render and return theme content
+     * @return string
+     */
     public function render()
     {
-
-
         if ($this->themeObject !== NULL) {
             $this->header .= $this->themeObject->getheader();
             $this->head = $this->themeObject->gethead();
