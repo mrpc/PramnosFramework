@@ -473,7 +473,7 @@ class Theme extends \Pramnos\Framework\Base
      */
     public function init()
     {
-        pramnos_addon::doAction('after_setup_theme');
+        \Pramnos\Addon\Addon::doAction('after_setup_theme');
         return $this;
     }
 
@@ -1106,7 +1106,7 @@ if (!function_exists('get_header')) {
      */
     function get_header()
     {
-        $theme = self::getTheme();
+        $theme = \Pramnos\Theme\Theme::getTheme();
         $theme->get_header();
     }
 
@@ -1119,7 +1119,7 @@ if (!function_exists('get_footer')) {
      */
     function get_footer()
     {
-        $theme = self::getTheme();
+        $theme = \Pramnos\Theme\Theme::getTheme();
         $theme->get_footer();
     }
 
@@ -1133,7 +1133,7 @@ if (!function_exists('get_search_form')) {
      */
     function get_search_form()
     {
-        $theme = self::getTheme();
+        $theme = \Pramnos\Theme\Theme::getTheme();
         $theme->get_search_form();
     }
 
@@ -1147,7 +1147,7 @@ if (!function_exists('get_sidebar')) {
      */
     function get_sidebar()
     {
-        $theme = self::getTheme();
+        $theme = \Pramnos\Theme\Theme::getTheme();
         $theme->get_sidebar();
     }
 
