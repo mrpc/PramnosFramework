@@ -20,11 +20,7 @@ class Html extends \Pramnos\Document\Document
      * @var string
      */
     public $extraBodyTag = '';
-    /**
-     * Load Modernizr
-     * @var bool
-     */
-    public $modernizr = true;
+
 
     /**
      * Render the html document and return it's contents
@@ -64,16 +60,12 @@ class Html extends \Pramnos\Document\Document
         if (!headers_sent()) {
             header('Content-type: text/html; charset=' . $lang->_('CHARSET'));
         }
-        $modern = '';
-        if ($this->modernizr === true) {
-            $modern = '<script async src="' . sURL . 'media/js/modernizr.min.js"></script>';
-        }
+
         $content = '<!doctype html>
 <html ' . $this->extraHtmlTag . ' lang="' . $lang->_('LangShort') . '" xmlns:og="http://ogp.me/ns#"
     xmlns:fb="https://www.facebook.com/2008/fbml">
     <head class="no-js" ' . $this->headContent . '>
         <meta charset="' . $lang->_('CHARSET') . '">
-        '. $modern . '
         <title>' . $this->title . '</title>
         <meta name="description" content="' . $this->description . '" />
         <meta property="og:title" content="' . $this->og_title . '" />
@@ -103,11 +95,7 @@ class Html extends \Pramnos\Document\Document
         <meta property="og:site_name" content="' . $this->og_site_name . '" />
         <meta property="og:description" content="'
             . $this->og_description . '" />';
-        if ($this->reset === true) {
-            $content .= '
-        <link  href="' . sURL . 'media/css/reset.css" rel="stylesheet" />
-        ';
-        }
+
 
         $content .= $this->header;
         $bodyclasses = '';
