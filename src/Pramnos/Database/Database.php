@@ -990,7 +990,8 @@ class Database extends \Pramnos\Framework\Base
 
     function show_error()
     {
-        echo $this->error_number . ' ' . $this->error_text;
+        $app = \Pramnos\Application\Application::getInstance();
+        $app->showError($this->error_number . ' ' . $this->error_text);
     }
 
     /**

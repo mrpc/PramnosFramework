@@ -202,7 +202,7 @@ class Application extends Base
         try {
             $this->database->connect();
         } catch (Exception $ex) {
-            die($ex->getMessage());
+            $this->showError($ex->getMessage());
         }
         $this->initialized = true;
         /**
@@ -238,6 +238,38 @@ class Application extends Base
     public function setRedirect($url = '')
     {
         $this->_redirect = $url;
+    }
+
+    /**
+     * Display an error
+     * @param string $msg Message to add
+     */
+    public function showError($msg='')
+    {
+        if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
+            $database=&pramnos_factory::getDatabase();
+            $error = pramnos_general::varDumpToString($database->sql_error());
+        } else {
+            $error = '';
+        }
+        if ($msg != '') {
+            $error .= "<br />" . $msg;
+        }
+        $this->close(
+            '<html><head><title>Maintenance Mode</title>'
+            . '<style>body {background-color: #cccccc;font-family: '
+            . 'verdana;color: midnightblue;}div {margin: 100px auto 0 auto;'
+            . 'width:500px;background-color: #ffffff;height: 400px;'
+            . 'text-align: center;padding: 20px;}.powered {font-size: 10px;}'
+            . '</style></head><body><div><h1>Database Unavailable</h1>'
+            . $error
+            . '<p>Our website is currently unavailable.Please come back in a '
+            . 'few minutes.</p><br /><br /><br /><br /><br /><br /><br />'
+            . '<br /><p class="powered">Website is powered by '
+            . 'PramnosFramework,<br />created by<br />'
+            . '<a href="http://www.pramhost.com">Pramnos Hosting</a>.'
+            . '</p></div></body></html>'
+        );
     }
 
     /**
