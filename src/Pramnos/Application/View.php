@@ -9,11 +9,11 @@ namespace Pramnos\Application;
 class View extends \Pramnos\Framework\Base
 {
 
-    protected $_models = array();
-    protected $_defaultModel = '';
-    protected $_path = '';
-    protected $_name = '';
-    protected $_type = 'html';
+    protected $models = array();
+    protected $defaultModel = '';
+    protected $path = '';
+    protected $name = '';
+    protected $type = 'html';
     public $output = '';
     public $model = '';
     public $controllerName = '';
@@ -37,16 +37,16 @@ class View extends \Pramnos\Framework\Base
 
     /**
      * View constructor
-     * @param string $_path
-     * @param string $_name
-     * @param string $_type
+     * @param string $path
+     * @param string $name
+     * @param string $type
      */
-    public function __construct($_path='', $_name='', $_type='html')
+    public function __construct($path='', $name='', $type='html')
     {
-        $this->_path=$_path;
-        $this->_name=$_name;
-        $this->_type=$_type;
-        $this->_defaultModel=$_name;
+        $this->path=$path;
+        $this->name=$name;
+        $this->type=$type;
+        $this->defaultModel=$name;
         parent::__construct();
     }
 
@@ -58,10 +58,10 @@ class View extends \Pramnos\Framework\Base
     public function addModel(\Pramnos\Application\Model &$model, $default=true)
     {
         if (is_object($model)){
-            $this->_models[$model->_name] = $model;
+            $this->models[$model->name] = $model;
             if ($default !== false) {
-                $this->_defaultModel = $model->_name;
-                $this->model =& $this->getModel($this->_defaultModel);
+                $this->defaultModel = $model->name;
+                $this->model =& $this->getModel($this->defaultModel);
             }
         }
     }
@@ -74,11 +74,11 @@ class View extends \Pramnos\Framework\Base
     public function &getModel($model='')
     {
         if ($model === ''){
-            $model = $this->_defaultModel;
+            $model = $this->defaultModel;
         }
-        if (isset($this->_models[$model])
-            && is_object($this->_models[$model])) {
-            return $this->_models[$model];
+        if (isset($this->models[$model])
+            && is_object($this->models[$model])) {
+            return $this->models[$model];
         }
         else {
             $model = false;
@@ -111,23 +111,21 @@ class View extends \Pramnos\Framework\Base
             }
         }
         if ($tpl === '') {
-            $tpl = $this->_name;
+            $tpl = $this->name;
         }
         if ($type === '') {
-            $type = $this->_type;
+            $type = $this->type;
         }
-        $_url = URL . $this->modulename . '/';
+        $_url = URL . $this->controllerName . '/';
         $model=$this->model;
 
-
-
-        $tplfile = $this->_path . DS . 'tpl'
+        $tplfile = $this->path
             . DS . $tpl . '.' . $type . '.php';
 
         if (is_object($doc->themeObject)
             && $doc->themeObject->allowsViewOverrides()) {
             $viewTplFile=$doc->themeObject->fullpath . DS . 'views' . DS
-                . $this->_name . DS . 'tpl' . DS . $tpl
+                . $this->name . DS . $tpl
                 . '.' . $type . '.php';
             if (file_exists($viewTplFile)) {
                 $tplfile = $viewTplFile;
@@ -140,19 +138,19 @@ class View extends \Pramnos\Framework\Base
                 include $tplfile;
             } catch (Exception $ex) {
                 \Pramnos\Logs\Logs::log(
-                    'Error in view: ' . $this->_name . ' and template file: '
+                    'Error in view: ' . $this->name . ' and template file: '
                     . $tplfile . '. ' . $ex->getMessage()
                     . ' at line ' . $ex->getLine()
                 );
                 throw new \Exception(
                     'Error rendering template file. '
-                    . 'View: ' . $this->_name . ' and template file: '
+                    . 'View: ' . $this->name . ' and template file: '
                     . $tplfile . '. ' . $ex->getMessage()
                     . ' at line ' . $ex->getLine()
                 );
             }
             $tplInformation = '';
-            if ($this->_type == 'html') {
+            if ($this->type == 'html') {
                 $tplInformation = "\n<!-- \n"
                     . "View Rendered at: "
                     . date('d/m/Y H:i:s')
@@ -177,11 +175,11 @@ class View extends \Pramnos\Framework\Base
                     }
                 }
             }
-            if ($this->_type != 'raw' && $this->_type != 'json') {
+            if ($this->type != 'raw' && $this->type != 'json') {
                 \Pramnos\Logs\Logs::log(
                     'Cannot find view template. View:'
-                    . $this->_name . ', template: '
-                    . $tpl . ", type: ".$this->_type."\n"
+                    . $this->name . ', template: '
+                    . $tpl . ", type: ".$this->type."\n"
                     . \Pramnos\General\Helpers::varDumpToString(debug_backtrace())
                 );
             }

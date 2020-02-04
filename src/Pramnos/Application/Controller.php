@@ -17,8 +17,6 @@ class Controller extends \Pramnos\Framework\Base
      * @var array
      */
     public $actions_auth = array();
-    public $_path = '';
-    public $_name = '';
     public $title = '';
     public $controllerName = '';
     public $_breadcrumbs = array();
@@ -139,7 +137,7 @@ class Controller extends \Pramnos\Framework\Base
             if ($this->auth($action)) {
                 return $this->$action($args);
             } else {
-                throw new Exception(
+                throw new \Exception(
                     'Not authenticated users cannot do that.',
                     403
                 );
@@ -148,7 +146,7 @@ class Controller extends \Pramnos\Framework\Base
             if ($this->auth('display')) {
                 return $this->display($args);
             } else {
-                throw new Exception(
+                throw new \Exception(
                     'Not authenticated users cannot do that.',
                     403
                 );
@@ -252,10 +250,10 @@ class Controller extends \Pramnos\Framework\Base
         // In case we can't find the model, we search in Application path.
         // Check for app extra paths
         $appPaths = array_merge(
-                array(APPS_PATH . DS . $app->appName),
-                $app->_getExtraPaths(),
-                $this->_lastPaths
-                );
+            array(APPS_PATH . DS . $app->appName),
+            $app->getExtraPaths(),
+            $this->_lastPaths
+        );
         foreach ($appPaths as $path) {
             $model = $this->_getModel($path, $name, $args);
             if ($model){
@@ -270,22 +268,7 @@ class Controller extends \Pramnos\Framework\Base
         return $return;
     }
 
-    /**
-     * Checks if a class exists based on it's filename and classname
-     * @param type $filename
-     * @param type $classname
-     * @return boolean
-     */
-    protected function _viewClassExists($filename, $classname)
-    {
-        if (file_exists($filename)){
-            include_once($filename);
-            if (class_exists($classname)) {
-                return true;
-            }
-        }
-        return false;
-    }
+
 
 
 
@@ -296,60 +279,61 @@ class Controller extends \Pramnos\Framework\Base
      * @param string $type
      * @param array $args
      * @return \pramnos_application_view|\classname|boolean
-     * @throws Exception
+     * @throws \Exception
      */
     private function _getView($path, $name, $type, $args)
     {
         if ($type === '') {
             $doc = \Pramnos\Framework\Factory::getDocument();
             $type = $doc->type;
-       }
-       $tp = $path . DS . 'views' . DS . $name;
-        if ($this->_name !== "") {
-            $classname = $this->_name . '_' . $name . 'view';
-
-        } else {
-            $classname = $name . 'view';
-            $tp = $path . DS . 'views' . DS . $name;
         }
+        $tp = $path . DS . 'views' . DS . $name;
         $filename = $tp . DS . 'view.' . $type . '.php';
         if (!file_exists($tp)) { // Check if template path exists
             return false;
         }
 
         if (!is_dir($tp)){
-            throw new Exception('View is not a directory');
+            throw new \Exception('View is not a directory');
         }
-        if ($this->_viewClassExists($filename, $classname)){
-                $view = new $classname($tp, $name, $type, $args);
-                $view->controllerName = $this->controllerName;
-                $view->controller = $this;
-                return $view;
-            } elseif ($this->_extends && $this->_viewClassExists($filename, $this->_extends . '_' . $name . 'view')) {
-                $newClasname = $this->_extends . '_' . $name . 'view';
-                $view = new $newClasname($tp, $name, $type, $args);
-                $view->controllerName = $this->controllerName;
-                $view->controller = $this;
-                return $view;
-            } elseif ($this->_viewClassExists($filename, $name.'view')) {
-                $newClasname = $name.'view';
-                $view = new $newClasname($tp, $name, $type, $args);
-                $view->controllerName = $this->controllerName;
-                $view->controller = $this;
-                return $view;
-            } elseif ($this->_extends && $this->_viewClassExists($filename, $this->_extends . 'view')) {
-                $newClasname = $this->_extends . 'view';
-                $view = new $newClasname($tp, $name, $type, $args);
-                $view->controllerName = $this->controllerName;
-                $view->controller = $this;
-                return $view;
-            } elseif (file_exists($tp . DS . 'tpl' . DS . $name . "." . $type . ".php")) {
-                $view = new pramnos_application_view($tp, $name,
-                        $type, $args);
-                $view->controllerName = $this->controllerName;
-                $view->controller = $this;
-                return $view;
+
+        /**
+         * Search for the right view class
+         */
+        $app = \Pramnos\Application\Application::getInstance();
+        if (isset($app->applicationInfo['namespace'])) {
+            if ($app->appName != '') {
+                $className = '\\'
+                    . $app->applicationInfo['namespace']
+                    . '\\'
+                    . $app->appName
+                    . '\\Views\\'
+                    . $name;
+            } else {
+                $className = '\\'
+                    . $app->applicationInfo['namespace']
+                    . '\\Views\\'
+                    . $name;
             }
+        } else {
+            if ($app->appName != '') {
+                $className = '\\Pramnos\\'
+                    . $app->appName
+                    . '\\Views\\'
+                    . $name;
+            } else {
+                $className = '\\Pramnos\\Views\\'
+                    . $name;
+            }
+        }
+        if (class_exists($className)) {
+            $view = new $className();
+            return $view;
+        }
+        if (file_exists($tp . DS . $name . "." . $type . ".php")) {
+            $view = new \Pramnos\Application\View($tp, $name, $type);
+            return $view;
+        }
         return false;
     }
 
@@ -365,10 +349,9 @@ class Controller extends \Pramnos\Framework\Base
     function &getView($name = '', $type = '', $args = array())
     {
         $paths = array_merge(
-                $this->_priorityPaths,
-                array($this->_path . DS . $this->_name ,$this->_path),
-                $this->_extraPaths
-                );
+            $this->_priorityPaths,
+            $this->_extraPaths
+        );
         foreach ($paths as $path){
             $view = $this->_getView($path, $name, $type, $args);
             if ($view){
@@ -376,36 +359,47 @@ class Controller extends \Pramnos\Framework\Base
             }
         }
 
-
-
         $app = \Pramnos\Application\Application::getInstance();
-        // In case we can't find the model, we search in Application path.
+        // In case we can't find the view, we search in Application path.
         // Check for app extra paths
-        $appPaths = array_merge(
+        if ($app->appName == '') {
+            $appPaths = array_merge(
                 array(
-                    APPS_PATH . DS . $app->appName),
-                    $app->_getExtraPaths(),
-                    $this->_lastPaths
-                );
+                    ROOT . DS . INCLUDES
+                ),
+                $app->getExtraPaths(),
+                $this->_lastPaths
+            );
+        } else {
+            $appPaths = array_merge(
+                array(
+                    ROOT . DS . INCLUDES . DS . $app->appName
+                ),
+                $app->getExtraPaths(),
+                $this->_lastPaths
+            );
+        }
+
         foreach ($appPaths as $path) {
             $view = $this->_getView($path, $name, $type, $args);
             if ($view){
                 return $view;
             }
         }
-        $return = new pramnos_application_view();
-        $return->_generatedView = true;
+        if ($type == '') {
+            $doc = \Pramnos\Framework\Factory::getDocument();
+            $type = $doc->type;
+        }
         \Pramnos\Logs\Logs::log(
             'Cannot find view: '
             . $name
-            . ' (type: ' . $type . ', class: ' . $this->_name . ')'
+            . ' (type: ' . $type . ', class: ' . $name . ')'
         );
-        throw new Exception(
+        throw new \Exception(
             'Cannot find view: '
             . $name
-            . ' (type: ' . $type . ', class: ' . $this->_name . ')'
+            . ' (type: ' . $type . ', class: ' . $name . ')'
         );
-        return $return;
     }
 
 
