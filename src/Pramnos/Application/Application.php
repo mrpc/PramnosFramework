@@ -94,6 +94,12 @@ class Application extends Base
     protected static $lastUsedApplication = null;
 
     /**
+     * Extra paths to look when getting models or views
+     * @var array
+     */
+    protected $extraPaths = array();
+
+    /**
      * Application class constructor
      * @param string $appName Application Name used for namespaces
      */
@@ -477,6 +483,27 @@ class Application extends Base
             );
         }
         exit($msg);
+    }
+
+
+    /**
+     * Adds an extra path to the application to look for models and views
+     * @param string $path
+     * @return pramnos_application
+     */
+    public function addExtraPath($path)
+    {
+        $this->extraPaths[$path] = $path;
+        return $this;
+    }
+
+    /**
+     * Return the array with all paths
+     * @return array
+     */
+    public function getExtraPaths()
+    {
+        return $this->extraPaths;
     }
 
 
