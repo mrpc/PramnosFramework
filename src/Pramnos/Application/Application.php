@@ -358,6 +358,9 @@ class Application extends Base
      */
     public function exec($coontrollerName = '')
     {
+        /*
+         * Find the right controller to load
+         */
         $controller = strtolower($coontrollerName);
         if ($controller === '' && $this->controller === '') {
             if ($this->defaultController !== "") {
@@ -368,6 +371,9 @@ class Application extends Base
         } elseif ($controller != '') {
             $this->controller = $controller;
         }
+        /*
+         * If there is a setting for ssl, enforce it
+         */
         if (\Pramnos\Application\Settings::getSetting('forcessl') == '1') {
             if (strpos(sURL, 'https') !== 0) {
                 $this->redirect(
@@ -375,10 +381,15 @@ class Application extends Base
                 );
             }
         }
+        /*
+         * Get a document to fill with content
+         */
         $doc = \Pramnos\Framework\Factory::getDocument();
 
 
-
+        /*
+         * Try to load the controller
+         */
         try {
             $controllerObject = $this->getController($this->controller);
         } catch (\Exception $Exception) {
@@ -387,8 +398,18 @@ class Application extends Base
         }
         $this->activeController = $controllerObject;
 
-        $doc->loadtheme('main', 'app' . DS . 'themes');
+        /*
+         * Check for theme in the application configuration. If set, load it.
+         */
+        if (isset($this->applicationInfo['theme'])
+            && $this->applicationInfo['theme'] != ''
+            && $this->applicationInfo['theme'] != null) {
+            $doc->loadtheme($this->applicationInfo['theme']);
+        }
 
+        /*
+         * Execute the controller and add content to the document
+         */
         try {
             $doc->addContent($controllerObject->exec($this->action));
         } catch (Exception $exception) {
