@@ -168,6 +168,26 @@ class Base
     }
 
     /**
+     * Check if there is any message to display.
+     * @return boolean
+     */
+    function hasMessages()
+    {
+        if (isset($_SESSION['_messages'])
+            && is_array($_SESSION['_messages'])
+            && count($_SESSION['_messages']) > 0) {
+            return true;
+        }
+
+        if (count($this->_messages) != 0) {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+
+    /**
      * Set a class parameter and return $this. Useful for better code syntax.
      * @param string $field
      * @param mixed $value
