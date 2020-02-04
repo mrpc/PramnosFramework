@@ -63,18 +63,66 @@ class Create extends Command
      */
     protected function createModel($name)
     {
-        $this->getApplication()->internalApplication->init();
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
         $database = \Pramnos\Database\Database::getInstance();
-        $tableName = '#PREFIX#' . $name . 's';
+        $tableName = '#PREFIX#' . strtolower($name) . 's';
 
         if (!$database->table_exists($tableName)) {
             throw new \Exception('Table: ' . $tableName . ' does not exist.');
         }
         $sql = $database->Prepare("SHOW FULL COLUMNS FROM `{$tableName}`");
         $result = $database->Execute($sql);
-        $fileContent = '';
-        while (!$result->eof) {
 
+
+        $path = ROOT . DS . INCLUDES . DS;
+
+        if (isset($application->applicationInfo['namespace'])) {
+            $namespace = $application->applicationInfo['namespace'];
+        } else {
+            $namespace = 'Pramnos';
+        }
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+            $path .= $application->appName . DS;
+        }
+        $namespace .= '\\Models';
+        $className =  ucfirst($name);
+        $path .= 'Models';
+        $filename = $path . DS . ucfirst($name) . '.php';
+        if (class_exists('\\' . $namespace . '\\'. $className)
+            || file_exists($filename)) {
+            throw new \Exception('Model already exists.');
+        }
+        if (!file_exists($path)) {
+            mkdir($path);
+        }
+
+
+        $date = date('d/m/Y H:i');
+        $fileContent = <<<content
+<?php
+namespace {$namespace};
+
+/**
+ * {$className} Model
+ * Auto generated at: {$date}
+ */
+class {$className} extends \Pramnos\Application\Model
+{
+
+content;
+
+
+
+        $primaryKey = '';
+        while (!$result->eof) {
+            $primary = false;
+            if (isset($result->fields['Key'])
+                && $result->fields['Key'] == 'PRI') {
+                $primaryKey = $result->fields['Field'];
+                $primary = true;
+            }
             $type = 'string';
             $basicType = explode('(', $result->fields['Type']);
             switch ($basicType[0]) {
@@ -98,21 +146,115 @@ class Create extends Command
                     break;
             }
 
-
-            $fileContent .= "    /**\n"
-                . "     * "
-                . $result->fields['Comment']
-                . "\n"
-                . "     * @var "
+            $fileContent .= "    /**\n";
+            if ($result->fields['Comment'] != '') {
+                $fileContent .= "     * "
+                    . $result->fields['Comment']
+                    . "\n";
+            }
+            if ($primary) {
+                if ($result->fields['Comment'] != '') {
+                    $fileContent .= "     * Primary Key \n";
+                } else {
+                    $fileContent .= "     * (Primary Key) \n";
+                }
+            }
+            $fileContent .= "     * @var "
                 . $type
                 . "\n"
                 . "     */\n"
                 . "    public $"
                 . $result->fields['Field']
-                . ";\n\n";
+                . ";\n";
             $result->MoveNext();
         }
-        echo $fileContent;
+        if ($primaryKey != '') {
+            $fileContent .= "    /**\n"
+                . "     * Primary key in database\n"
+                . "     * @var string\n"
+                . "     */\n"
+                . '    protected $_primaryKey = "'
+                . $primaryKey
+                . "\";\n\n";
+        }
+        $fileContent .= "    /**\n"
+            . "     * Database table\n"
+            . "     * @var string\n"
+            . "     */\n"
+            . '    protected $_dbtable = "'
+            . $tableName
+            . "\";\n\n";
+
+        $primaryKeyVal = '$primaryKey';
+        if ($primaryKey != '') {
+            $primaryKeyVal = '$' . $primaryKey;
+        }
+
+        $fileContent .= <<<content
+    /**
+     * Load from database
+     * @param string {$primaryKeyVal} ID to load
+     * @param string \$table Database table
+     * @param string \$key Primary key on database
+     * @param boolean   \$debug Show debug information
+     * @return \$this
+     */
+    public function load({$primaryKeyVal}, \$table = NULL,
+        \$key = NULL, \$debug = false)
+    {
+        return parent::_load({$primaryKeyVal}, \$table, \$key, \$debug);
+    }
+
+    /**
+     * Save to database
+     * @param string    \$table
+     * @param string    \$key
+     * @param boolean   \$autoGetValues If true, get all values from \$_REQUEST
+     * @param boolean   \$debug Show debug information (and die)
+     * @return          \$this
+     */
+    public function save(\$table = NULL, \$key = NULL,
+        \$autoGetValues = false, \$debug = false)
+    {
+        return parent::_save(\$table, \$key, \$autoGetValues, \$debug);
+    }
+
+
+    /**
+     * Delete from database
+     * @param integer {$primaryKeyVal} ID to delete
+     * @param string \$table
+     * @param string \$key
+     * @return \$this
+     */
+    public function delete({$primaryKeyVal}, \$table = NULL, \$key = NULL)
+    {
+        return parent::_delete({$primaryKeyVal}, \$table, \$key);
+    }
+
+    /**
+     * List objects
+     * @param string \$filter Filter for where statement in database query
+     * @param string \$order Order for database query
+     * @param type $\table
+     * @param type \$key
+     * @return {$className}[]
+     */
+    public function getList(\$filter = NULL, \$order = NULL,
+        \$table = NULL, \$key = NULL, \$debug = false)
+    {
+        return parent::_getList(\$filter, \$order, \$table, \$key, \$debug);
+    }
+
+}
+content;
+
+        file_put_contents($filename, $fileContent);
+
+        return "Namespace: {$namespace}\n"
+        . "Class: {$className}\n"
+        . "File: {$filename}\n\nModel created.";
+
 
     }
 

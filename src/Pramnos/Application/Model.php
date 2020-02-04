@@ -64,12 +64,16 @@ class Model extends \Pramnos\Framework\Base
             $name = (new \ReflectionClass($this))->getShortName();
         }
         $this->name = $name;
-        $this->_dbtable = '#PREFIX#' . $name . 's';
+
         $this->controller = $controller;
-        $database = \Pramnos\Database\Database::getInstance();
-        $this->_dbtable=str_ireplace(
-            '#PREFIX#', $database->prefix, $this->_dbtable
-        );
+        if ($this->_dbtable === null) {
+            $this->_dbtable = '#PREFIX#' . $name . 's';
+            $database = \Pramnos\Database\Database::getInstance();
+            $this->_dbtable=str_ireplace(
+                '#PREFIX#', $database->prefix, $this->_dbtable
+            );
+        }
+
         parent::__construct();
     }
 
