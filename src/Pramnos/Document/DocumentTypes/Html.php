@@ -7,7 +7,7 @@ namespace Pramnos\Document\DocumentTypes;
  * @subpackage  Document
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  */
-class Html extends \Pramnos\Document
+class Html extends \Pramnos\Document\Document
 {
     /**
      * This will be added inside the "html" tag
