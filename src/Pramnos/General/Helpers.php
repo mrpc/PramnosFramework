@@ -122,7 +122,9 @@ class Helpers
             $time = time();
         }
         if ($difference == 0) {
-            $difference = pramnos_settings::baseget('timedifference');
+            $difference = \Pramnos\Application\Settings::getSetting(
+                'timedifference'
+            );
         }
         $difference = (real) $difference;
         $difference = $difference * 3600;
