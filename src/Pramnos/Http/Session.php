@@ -160,6 +160,34 @@ class Session extends Base
 
     }
 
+
+    /**
+     * Sets a hashed cookie
+     * @deprecated since version 1.0
+     * @param string $cookiename
+     * @param string $value
+     * @param integer $time
+     * @return boolean
+     */
+    public function cookieset($cookiename, $value, $time = 0)
+    {
+        $request = \Pramnos\Http\Request::getInstance();
+        return $request->cookieset($cookiename, $value, $time);
+    }
+
+    /**
+     * Retreives a hashed cookie
+     * @deprecated since version 1.0
+     * @param  string $cookiename
+     * @return string
+     */
+    public function cookieget($cookiename)
+    {
+        $request = \Pramnos\Http\Request::getInstance();
+        return $request->cookieget($cookiename);
+    }
+
+
     /**
      * Get a session variable or NULL if it's not set, to avoid warnings
      * @param string $key
