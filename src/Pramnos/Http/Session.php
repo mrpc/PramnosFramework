@@ -98,7 +98,7 @@ class Session extends Base
         }
         if (isset($_SESSION['logged'])
             && isset($_SESSION['uid']) && $_SESSION['uid'] > 1) {
-            return $_SESSION['logged'];
+            return true;
         } else {
             return false;
         }
