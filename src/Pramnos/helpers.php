@@ -18,6 +18,17 @@ if (!function_exists("env")) {
     }
 }
 
+if (!function_exists('l')) {
+    /**
+     * Alias of echo $lang->_('string');
+     */
+    function l(){
+        $lang = \Pramnos\Framework\Factory::getLanguage();
+        $params = func_get_args();
+        echo call_user_func_array(array($lang,'_'), $params);
+    }
+}
+
 if (!function_exists("getUrl")) {
     /**
      * Returns the current URL. This function exists here to
