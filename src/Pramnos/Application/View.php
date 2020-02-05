@@ -134,16 +134,6 @@ class View extends \Pramnos\Framework\Base
     public function getTpl($tpl='', $type='', $render=false)
     {
         $doc = \Pramnos\Framework\Factory::getDocument();
-        if (!function_exists('l')) {
-            /**
-             * Alias of echo $lang->_('string');
-             */
-            function l(){
-                $lang = \Pramnos\Framework\Factory::getLanguage();
-                $params = func_get_args();
-                echo call_user_func_array(array($lang,'_'), $params);
-            }
-        }
         if ($tpl === '') {
             $tpl = $this->name;
         }
