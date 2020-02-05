@@ -503,6 +503,16 @@ class Addon extends \Pramnos\Framework\Base
      */
     static function load($addon, $type = 'system')
     {
+        if (class_exists($addon)) {
+            $addonObject = new $addon;
+            $addonObject->type = $type;
+            $addonObject->name = (new \ReflectionClass($addonObject))
+                ->getShortName();
+            if (!isset(self::$_addons[$type][$addon])) {
+                self::$_addons[$type][$addon] = & $addonObject;
+            }
+            return true;
+        }
         if (defined('ADDONS_PATH')) {
             $afile = ADDONS_PATH . DS . $type . DS . $addon . '.php';
         } else {

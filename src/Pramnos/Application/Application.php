@@ -225,6 +225,20 @@ class Application extends Base
             $_SESSION['language'] = $_GET['lang'];
             $this->language = $_GET['lang'];
         }
+
+        if (
+            isset($this->applicationInfo['addons'])
+            && is_array($this->applicationInfo['addons'])
+        ) {
+            foreach ($this->applicationInfo['addons'] as $addon) {
+                if (!\Pramnos\Addon\Addon::load(
+                    $addon['addon'], $addon['type']
+                )) {
+                    $this->showError('Cannot load addon: ' . $addon['addon']);
+                }
+            }
+        }
+
         $lang = \Pramnos\Translator\Language::getInstance($this->language);
         $lang->load($this->language);
         \Pramnos\Addon\Addon::triger('AppInit', 'system');
