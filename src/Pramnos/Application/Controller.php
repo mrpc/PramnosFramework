@@ -31,7 +31,7 @@ class Controller extends \Pramnos\Framework\Base
      * Array of breadcrumbs used in the controller
      * @var array
      */
-    public $_breadcrumbs = array();
+    public $breadcrumbs = array();
     /**
      * Application
      * @var \Pramnos\Application\Application
@@ -95,14 +95,14 @@ class Controller extends \Pramnos\Framework\Base
         }
     }
 
-    public function _getBreadcrumbs()
+    public function getBreadcrumbs()
     {
-        return $this->_breadcrumbs;
+        return $this->breadcrumbs;
     }
 
-    public function _addBreadcrumb($item, $url = NULL)
+    public function addBreadcrumb($item, $url = NULL)
     {
-        $this->_breadcrumbs[] = array('item' => $item, 'url' => $url);
+        $this->breadcrumbs[] = array('item' => $item, 'url' => $url);
         return $this;
     }
 
@@ -146,7 +146,7 @@ class Controller extends \Pramnos\Framework\Base
             $action = 'display';
         }
         if ($action == 'display') {
-            $this->_addBreadcrumb($this->title);
+            $this->addBreadcrumb($this->title);
         }
         if (\Pramnos\Http\Request::$requestMethod != 'GET') {
             $actionWithMethod = strtolower(
