@@ -327,7 +327,7 @@ class Controller extends \Pramnos\Framework\Base
      * @param string $name
      * @param string $type
      * @param array $args
-     * @return \pramnos_application_view|\classname
+     * @return \Pramnos\Application\View
      */
     function &getView($name = '', $type = '', $args = array())
     {
