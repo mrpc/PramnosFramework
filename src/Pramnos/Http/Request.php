@@ -18,7 +18,7 @@ class Request extends Base
      * @var string
      */
     private $_controller = '';
-    private $_action = '';
+    protected static $action = '';
     /**
      * Original $_GET request
      * @var string
@@ -78,7 +78,6 @@ class Request extends Base
             $requestParam=self::$originalRequest;
         }
         $this->_controller='';
-        $this->_action='';
         $request = rtrim($requestParam, '/');
         $parsedUrl = parse_url($_SERVER['REQUEST_URI']);
         if (is_array($parsedUrl) && isset($parsedUrl['query'])) {
@@ -103,9 +102,9 @@ class Request extends Base
             $this->_controller = $parts[0];
         }
         if ($slashes > 0 && isset($parts[1]) && $parts[1] !== '') {
-            $this->_action = $parts[1];
+            self::$action = $parts[1];
         }
-        
+
         if (count($parts) > 2) {
             if ($slashes == 2) {
                 $_GET['_option'] = $parts[2];
@@ -350,7 +349,7 @@ class Request extends Base
      */
     public function getAction()
     {
-        return $this->_action;
+        return self::$action;
 
     }
 
@@ -362,7 +361,7 @@ class Request extends Base
      */
     public function setAction($action = "display")
     {
-        $this->_action = $action;
+        self::$action = $action;
 
         return $this;
 
