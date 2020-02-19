@@ -209,7 +209,7 @@ class Model extends \Pramnos\Framework\Base
                 );
                 if ($result==false) {
                     $error = $database->sql_error();
-                    throw new Exception($error['message']);
+                    throw new \Exception($error['message']);
                 }
                 $this->$primarykey = $database->sql_nextid();
             } else {
@@ -440,7 +440,7 @@ class Model extends \Pramnos\Framework\Base
             }
             try {
                 $result = $database->Execute($sql, true, 600, $this->_cacheKey);
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 $this->controller->application->showError($ex->getMessage());
             }
 
