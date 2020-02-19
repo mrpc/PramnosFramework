@@ -12,7 +12,7 @@ class Model extends \Pramnos\Framework\Base
      * Model name
      * @var string
      */
-    public $name = '';
+    protected $modelname = '';
     /**
      * Database table
      * @var string
@@ -63,7 +63,7 @@ class Model extends \Pramnos\Framework\Base
         if ($name == '') {
             $name = (new \ReflectionClass($this))->getShortName();
         }
-        $this->name = $name;
+        $this->modelname = $name;
 
         $this->controller = $controller;
         if ($this->_dbtable === null) {
@@ -326,7 +326,7 @@ class Model extends \Pramnos\Framework\Base
         $page = abs((int)$page);
         $page = $items * $page;
         if ($table === NULL && $this->_dbtable === NULL) {
-            $table = '#PREFIX#' . $this->prefix . '_' . $this->name;
+            $table = '#PREFIX#' . $this->prefix . '_' . $this->modelname;
         }
         $objects = array();
         $database = \Pramnos\Database\Database::getInstance();
@@ -370,7 +370,7 @@ class Model extends \Pramnos\Framework\Base
             $result = $database->Execute($sql, true, 600, $this->_cacheKey);
             while (!$result->eof) {
                 $objects[$result->fields[$primarykey]] = $this->getModel(
-                    $this->name
+                    $this->modelname
                 );
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
@@ -407,7 +407,7 @@ class Model extends \Pramnos\Framework\Base
         $table = NULL, $key = NULL, $debug=false)
     {
         if ($table === NULL && $this->_dbtable === NULL) {
-            $table = '#PREFIX#' . $this->prefix . '_' . $this->name;
+            $table = '#PREFIX#' . $this->prefix . '_' . $this->modelname;
         }
         $objects = array();
         $database = \Pramnos\Database\Database::getInstance();
@@ -446,7 +446,7 @@ class Model extends \Pramnos\Framework\Base
 
             while (!$result->eof) {
                 $objects[$result->fields[$primarykey]]
-                    = $this->getModel($this->name);
+                    = $this->getModel($this->modelname);
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
                         = $result->fields[$field];
