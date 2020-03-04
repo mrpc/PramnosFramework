@@ -190,7 +190,7 @@ $formContent .= <<<content
             </div>
 
 content;
-						break;
+                            break;
 
                         case "float":
                         case "double":
