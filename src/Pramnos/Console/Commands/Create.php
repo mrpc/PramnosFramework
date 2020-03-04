@@ -96,9 +96,8 @@ class Create extends Command
  */
 
 defined('SP') or die('No startpoint defined...');
-?>
-Hello World
 content;
+        $fileContent .= "\n?>\nHello World";
         $return = "Files: \n";
         foreach ($files as $reason => $filename) {
             $return .= ' - ' . $filename . "\n";
