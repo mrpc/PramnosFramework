@@ -47,6 +47,7 @@ class Create extends Command
                 $output->writeln($this->createModel($name));
                 break;
             case "controller":
+                $output->writeln($this->createController($name));
                 break;
             case "view":
                 break;
@@ -55,6 +56,119 @@ class Create extends Command
                     'Invalid type of entity to create: ' . $entity
                 );
         }
+    }
+
+    /**
+     * Creates a controller
+     * @param string $name
+     */
+    protected function createController($name)
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $path = ROOT . DS . INCLUDES . DS;
+
+        if (isset($application->applicationInfo['namespace'])) {
+            $namespace = $application->applicationInfo['namespace'];
+        } else {
+            $namespace = 'Pramnos';
+        }
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+            $path .= $application->appName . DS;
+        }
+        $namespace .= '\\Controllers';
+        $className =  ucfirst($name);
+        $path .= 'Controllers';
+        $filename = $path . DS . ucfirst($name) . '.php';
+        if (class_exists('\\' . $namespace . '\\'. $className)
+            || file_exists($filename)) {
+            throw new \Exception('Controller already exists.');
+        }
+        if (!file_exists($path)) {
+            mkdir($path);
+        }
+        $date = date('d/m/Y H:i');
+        $fileContent = <<<content
+<?php
+namespace {$namespace};
+use \Pramnos\Application;
+
+/**
+ * {$className} Controller
+ * Auto generated at: {$date}
+ */
+class {$className} extends \Pramnos\Application\Controller
+{
+
+    /**
+     * {$className} controller constructor
+     * @param Application \$application
+     */
+    public function __construct(Application \$application = null)
+    {
+        \$this->addAuthAction(
+            array('edit', 'save', 'delete', 'show')
+        );
+        parent::__construct(\$application);
+    }
+
+
+    /**
+     * Display a listing of the resource
+     * @return string
+     */
+    public function display()
+    {
+
+    }
+
+    /**
+     * Display the specified resource
+     * @return string
+     */
+    public function show()
+    {
+
+    }
+
+    /**
+     * Show the form for creating a new resource or editing an existing one
+     * @return string
+     */
+    public function edit()
+    {
+
+    }
+
+    /**
+     * Store a newly created or edited resource in storage.
+     */
+    public function save()
+    {
+
+    }
+
+    /**
+     * Remove the specified resource from storage
+     */
+    public function delete()
+    {
+
+    }
+
+
+
+}
+content;
+
+        file_put_contents($filename, $fileContent);
+
+        return "Namespace: {$namespace}\n"
+            . "Class: {$className}\n"
+            . "File: {$filename}\n\nController created.";
+
     }
 
     /**
