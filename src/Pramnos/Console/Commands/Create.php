@@ -50,6 +50,7 @@ class Create extends Command
                 $output->writeln($this->createController($name));
                 break;
             case "view":
+                $output->writeln($this->createView($name));
                 break;
             default:
                 throw new \InvalidArgumentException(
@@ -57,6 +58,59 @@ class Create extends Command
                 );
         }
     }
+
+    /**
+     * Creates a controller
+     * @param string $name
+     */
+    protected function createView($name)
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $path = ROOT . DS . INCLUDES . DS;
+        if ($application->appName != '') {
+            $path .= $application->appName . DS;
+        }
+        $path .= 'Views';
+        $viewPath = $path . DS . strtolower($name);
+
+        if (file_exists($viewPath)) {
+            throw new \Exception('View already exists.');
+        }
+        mkdir($viewPath);
+
+        $files = array();
+        $files['Index File'] = $viewPath . DS . strtolower($name) . '.html.php';
+        $files['Edit Resource'] = $viewPath . DS . 'edit.html.php';
+        $files['Show Resource'] = $viewPath . DS . 'show.html.php';
+        $actualName = ucfirst($name);
+        $date = date('d/m/Y H:i');
+        $fileContent = <<<content
+<?php
+
+/**
+ * {$actualName} View
+ * REASON
+ * Auto generated at: {$date}
+ */
+
+defined('SP') or die('No startpoint defined...');
+?>
+Hello World
+content;
+        $return = "Files: \n";
+        foreach ($files as $reason => $filename) {
+            $return .= ' - ' . $filename . "\n";
+            file_put_contents(
+                $filename, str_replace('REASON', $reason, $fileContent)
+            );
+        }
+
+        return $return . "\nView created.";
+
+    }
+
 
     /**
      * Creates a controller
