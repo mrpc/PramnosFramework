@@ -24,6 +24,7 @@ class Create extends Command
             . " - model: Create a model\n"
             . " - controller: Create a controller\n"
             . " - view: Create a view\n"
+            . " - crud: Create a CRUD system (model/view/controller)\n"
         );
         $this->addArgument(
             'entity', InputArgument::REQUIRED, 'What to create'
@@ -52,12 +53,40 @@ class Create extends Command
             case "view":
                 $output->writeln($this->createView($name));
                 break;
+            case "crud":
+                $output->writeln($this->createCrud($name));
+                break;
             default:
                 throw new \InvalidArgumentException(
                     'Invalid type of entity to create: ' . $entity
                 );
         }
     }
+
+    /**
+     * Creates a CRUD system based on a model name
+     * @param string $name
+     * @return string
+     */
+    public function createCrud($name)
+    {
+        $content = "Creating Model: ";
+        try {
+            $this->createModel($name);
+            $content .= "OK\n";
+        } catch (\Exception $ex) {
+            $content .= "FAIL - " . $ex->getMessage() . "\n";
+        }
+        $content .= "Creating Controller: ";
+        try {
+            $this->createController($name, true);
+            $content .= "OK\n";
+        } catch (\Exception $ex) {
+            $content .= "FAIL - " . $ex->getMessage() . "\n";
+        }
+        return $content . "\n";
+    }
+
 
     /**
      * Creates a controller
@@ -114,9 +143,10 @@ content;
 
     /**
      * Creates a controller
-     * @param string $name
+     * @param string $name Name of the controller to be created
+     * @param bool $full Create a full crud controller
      */
-    protected function createController($name)
+    protected function createController($name, $full = false)
     {
         $application = $this->getApplication()->internalApplication;
         $application->init();
@@ -133,9 +163,18 @@ content;
             $path .= $application->appName . DS;
         }
         $namespace .= '\\Controllers';
-        $className =  ucfirst($name);
+
         $path .= 'Controllers';
-        $filename = $path . DS . ucfirst($name) . '.php';
+        $lastLetter = substr($name, -1);
+        if ($lastLetter == 's') {
+            $className =  ucfirst($name);
+            $filename = $path . DS . ucfirst($name) . '.php';
+        } else {
+            $className =  ucfirst($name) . 's';
+            $filename = $path . DS . ucfirst($name) . 's.php';
+        }
+
+
         if (class_exists('\\' . $namespace . '\\'. $className)
             || file_exists($filename)) {
             throw new \Exception('Controller already exists.');
@@ -168,7 +207,9 @@ class {$className} extends \Pramnos\Application\Controller
         parent::__construct(\$application);
     }
 
-
+content;
+        if (!$full) {
+            $fileContent .= <<<content
     /**
      * Display a listing of the resource
      * @return string
@@ -212,10 +253,163 @@ class {$className} extends \Pramnos\Application\Controller
 
     }
 
+}
+content;
+        } else {
+            $database = \Pramnos\Database\Database::getInstance();
+            $viewName = strtolower($name);
+            $modelNameSpace = str_replace("Controllers", "Models", $namespace);
+            $modelClass = substr($className, 0, -1);
 
+
+            if ($lastLetter == 's') {
+                $tableName = '#PREFIX#' . strtolower($name);
+            } else {
+                $tableName = '#PREFIX#' . strtolower($name) . 's';
+            }
+
+
+            if (!$database->table_exists($tableName)) {
+                throw new \Exception(
+                    'Table: ' . $tableName . ' does not exist.'
+                );
+            }
+            $sql = $database->Prepare("SHOW FULL COLUMNS FROM `{$tableName}`");
+            $result = $database->Execute($sql);
+
+
+            $saveContent = '';
+
+            $primaryKey = '';
+            while (!$result->eof) {
+                $primary = false;
+                if (isset($result->fields['Key'])
+                    && $result->fields['Key'] == 'PRI') {
+                    $primaryKey = $result->fields['Field'];
+                    $primary = true;
+                }
+                $type = 'string';
+                $basicType = explode('(', $result->fields['Type']);
+                if (!$primary) {
+                    switch ($basicType[0]) {
+                        case "tinyint":
+                        case "smallint":
+                        case "integer":
+                        case "int":
+                        case "mediumint":
+                        case "bigint":
+                            $saveContent .= '        $model->'
+                                . $result->fields['Field']
+                                . ' = $request->get(\''
+                                . $result->fields['Field']
+                                . '\', \'\', \'post\', \'int\');'
+                                . "\n";
+                            break;
+                        case "float":
+                        case "double":
+                            $saveContent .= '        $model->'
+                                . $result->fields['Field']
+                                . ' = (float) $request->get(\''
+                                . $result->fields['Field']
+                                . '\', \'\', \'post\');'
+                                . "\n";
+                            break;
+                        case "bool":
+                        case "boolean":
+                            $saveContent .= '        $model->'
+                                . $result->fields['Field']
+                                . ' = (bool) $request->get(\''
+                                . $result->fields['Field']
+                                . '\', \'\', \'post\');'
+                                . "\n";
+                            break;
+                        default:
+                            $saveContent .= '        $model->'
+                                . $result->fields['Field']
+                                . ' = trim('
+                                . "\n            strip_tags(\n"
+                                . '                $request->get(\''
+                                . $result->fields['Field']
+                                . '\', \'\', \'post\')'
+                                . "\n            )"
+                                . "\n        );\n";
+                            break;
+                    }
+                }
+
+                $result->MoveNext();
+            }
+
+
+            $fileContent .= <<<content
+    /**
+     * Display a listing of the resource
+     * @return string
+     */
+    public function display()
+    {
+        \$view = \$this->getView('{$viewName}');
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+
+        \$view->items = \$model->getList();
+        return \$view->display();
+    }
+
+    /**
+     * Display the specified resource
+     * @return string
+     */
+    public function show()
+    {
+        \$view = \$this->getView('{$viewName}');
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+        \$view->addModel(\$model);
+        return \$view->display('show');
+    }
+
+    /**
+     * Show the form for creating a new resource or editing an existing one
+     * @return string
+     */
+    public function edit()
+    {
+        \$view = \$this->getView('{$viewName}');
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+        \$view->addModel(\$model);
+        return \$view->display('edit');
+    }
+
+    /**
+     * Store a newly created or edited resource in storage.
+     */
+    public function save()
+    {
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+{$saveContent}
+        \$model->save();
+        \$this->redirect(sURL . '{$className}');
+    }
+
+    /**
+     * Remove the specified resource from storage
+     */
+    public function delete()
+    {
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->delete(\$request->getOption());
+        \$this->redirect(sURL . '{$className}');
+    }
 
 }
 content;
+        }
 
         file_put_contents($filename, $fileContent);
 
@@ -234,7 +428,13 @@ content;
         $application = $this->getApplication()->internalApplication;
         $application->init();
         $database = \Pramnos\Database\Database::getInstance();
-        $tableName = '#PREFIX#' . strtolower($name) . 's';
+        $lastLetter = substr($name, -1);
+        if ($lastLetter == 's') {
+            $tableName = '#PREFIX#' . strtolower($name);
+        } else {
+            $tableName = '#PREFIX#' . strtolower($name) . 's';
+        }
+
 
         if (!$database->table_exists($tableName)) {
             throw new \Exception('Table: ' . $tableName . ' does not exist.');
@@ -255,9 +455,15 @@ content;
             $path .= $application->appName . DS;
         }
         $namespace .= '\\Models';
-        $className =  ucfirst($name);
         $path .= 'Models';
-        $filename = $path . DS . ucfirst($name) . '.php';
+        if ($lastLetter == 's') {
+            $className =  ucfirst(substr($name, 0, -1));
+            $filename = $path . DS . ucfirst(substr($name, 0, -1)) . '.php';
+        } else {
+            $className =  ucfirst($name);
+            $filename = $path . DS . ucfirst($name) . '.php';
+        }
+
         if (class_exists('\\' . $namespace . '\\'. $className)
             || file_exists($filename)) {
             throw new \Exception('Model already exists.');
