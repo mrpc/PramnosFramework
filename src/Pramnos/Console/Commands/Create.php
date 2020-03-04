@@ -84,15 +84,23 @@ class Create extends Command
         } catch (\Exception $ex) {
             $content .= "FAIL - " . $ex->getMessage() . "\n";
         }
+        $content .= "Creating View: ";
+        try {
+            $this->createView($name, true);
+            $content .= "OK\n";
+        } catch (\Exception $ex) {
+            $content .= "FAIL - " . $ex->getMessage() . "\n";
+        }
         return $content . "\n";
     }
 
 
     /**
-     * Creates a controller
-     * @param string $name
+     * Creates a view
+     * @param string $name Name of the view
+     * @param bool $full Create a full crud view (Create/List/Edit/Delete)
      */
-    protected function createView($name)
+    protected function createView($name, $full = false)
     {
         $application = $this->getApplication()->internalApplication;
         $application->init();
@@ -110,9 +118,204 @@ class Create extends Command
         mkdir($viewPath);
 
         $files = array();
-        $files['Index File'] = $viewPath . DS . strtolower($name) . '.html.php';
-        $files['Edit Resource'] = $viewPath . DS . 'edit.html.php';
-        $files['Show Resource'] = $viewPath . DS . 'show.html.php';
+
+        $indexContent = 'Hello World';
+        $editContent = '';
+        $lastLetter = substr($name, -1);
+        if ($lastLetter == 's') {
+            $className =  ucfirst($name);
+            $filename = $path . DS . ucfirst($name) . '.php';
+        } else {
+            $className =  ucfirst($name) . 's';
+            $filename = $path . DS . ucfirst($name) . 's.php';
+        }
+
+        if ($full) {
+            $database = \Pramnos\Database\Database::getInstance();
+            $objectName = ucfirst($name);
+
+
+            if ($lastLetter == 's') {
+                $tableName = '#PREFIX#' . strtolower($name);
+            } else {
+                $tableName = '#PREFIX#' . strtolower($name) . 's';
+            }
+
+
+            if (!$database->table_exists($tableName)) {
+                throw new \Exception(
+                    'Table: ' . $tableName . ' does not exist.'
+                );
+            }
+            $sql = $database->Prepare("SHOW FULL COLUMNS FROM `{$tableName}`");
+            $result = $database->Execute($sql);
+
+
+            $formContent = '';
+
+            $firstField = '';
+            $primaryKey = '';
+            $count = 0;
+            while (!$result->eof) {
+                $count++;
+                $primary = false;
+                if (isset($result->fields['Key'])
+                    && $result->fields['Key'] == 'PRI') {
+                    $primaryKey = $result->fields['Field'];
+                    $primary = true;
+                }
+                if ($count == 2) {
+                    $firstField = $result->fields['Field'];
+                }
+                if ($result->fields['Comment'] != '') {
+                        $fieldName = $result->fields['Comment'];
+                } else {
+                        $fieldName = ucfirst($result->fields['Field']);
+                }
+                $field = $result->fields['Field'];
+
+                $basicType = explode('(', $result->fields['Type']);
+                if (!$primary) {
+                    switch ($basicType[0]) {
+                        case "tinyint":
+                        case "smallint":
+                        case "integer":
+                        case "int":
+                        case "mediumint":
+                        case "bigint":
+$formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <input type="number" value="<?php echo \$this->model->{$field}; ?>" step="1" id="{$field}" name="{$field}" class="form-control">
+            </div>
+
+content;
+						break;
+
+                        case "float":
+                        case "double":
+$formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <input type="number" step="0.0001" value="<?php echo \$this->model->{$field}; ?>" id="{$field}" name="{$field}" class="form-control">
+            </div>
+
+content;
+                            break;
+
+                        case "bool":
+                        case "boolean":
+$formContent .= <<<content
+            <div class="form-group">
+            <label for="{$field}">{$fieldName}:</label>
+                <select id="{$field}" name="{$field}" class="form-control">
+                    <option <?php if (\$this->model->{$field} == 0): echo 'selected'; endif;?> value="0"><?php l('No');?></option>
+                    <option <?php if (\$this->model->{$field} == 1): echo 'selected'; endif;?> value="1"><?php l('Yes');?></option>
+                </select>
+            </div>
+
+content;
+                            break;
+
+                        case "text":
+$formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <textarea id="{$field}" name="{$field}" class="form-control"><?php echo \$this->model->{$field}; ?></textarea>
+            </div>
+
+content;
+                            break;
+
+                        default:
+$formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <input type="text" value="<?php echo \$this->model->{$field}; ?>" id="{$field}" name="{$field}" class="form-control">
+            </div>
+
+content;
+                            break;
+                    }
+                }
+                $formContent .= "\n";
+                $result->MoveNext();
+            }
+
+            $editContent = <<<content
+<div class="card">
+    <div class="card-body">
+        <form action="[sURL]{$className}/save/<?php echo \$this->model->{$primaryKey}; ?>" method="post" role="form">
+
+{$formContent}
+
+            <div class="form-group">
+                <button type="submit" class="btn btn-primary"><?php l('Save'); ?></button>
+            </div>
+        </form>
+
+    </div>
+</div>
+content;
+
+            $indexContent = <<<content
+<div class="card">
+    <div class="card-header">
+        <h1 class="page-head-line">
+            {$objectName} list
+        </h1>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-12">
+                <a href="[sURL]{$className}/edit/0"><button type="button" class="btn btn-primary"><i class="fa fa-plus"></i> <?php l('New'); ?></button></a>
+            </div>
+            <br /><br />
+        </div>
+
+        <!-- Table -->
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>{$firstField}</td>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach (\$this->items as \$item): ?>
+                    <tr>
+                        <td><a href="[sURL]{$className}/show/<?php echo \$item->{$primaryKey}; ?>">#<?php echo \$item->{$primaryKey}; ?></a></td>
+                        <td><a href="[sURL]{$className}/show/<?php echo \$item->{$primaryKey}; ?>"><?php echo \$item->{$firstField}; ?></a></td>
+                        <td>
+                            <a href="[sURL]{$className}/edit/<?php echo \$item->{$primaryKey}; ?>"><?php l('Edit');?></a>
+                            <a onclick="return confirm('<?php l('Are you sure?');?>');" href="[sURL]{$className}/delete/<?php echo \$item->{$primaryKey}; ?>"><?php l('Delete');?></a>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+content;
+        }
+
+
+        $files[] = array (
+            'reason' => 'Index File',
+            'file' => $viewPath . DS . strtolower($name) . '.html.php',
+            'content' => $indexContent
+        );
+        $files[] = array (
+            'reason' => 'Edit Resource',
+            'file' => $viewPath . DS . 'edit.html.php',
+            'content' => $editContent
+        );
+        $files[] = array (
+            'reason' => 'Show Resource',
+            'file' => $viewPath . DS . 'show.html.php',
+            'content' => '<?php var_dump($this->model);?' . '>'
+        );
         $actualName = ucfirst($name);
         $date = date('d/m/Y H:i');
         $fileContent = <<<content
@@ -127,12 +330,17 @@ class Create extends Command
 defined('SP') or die('No startpoint defined...');
 content;
         $fileContent .= "\n?"
-            . ">\nHello World";
+            . ">\nCONTENT";
         $return = "Files: \n";
-        foreach ($files as $reason => $filename) {
-            $return .= ' - ' . $filename . "\n";
+        foreach ($files as $file) {
+            $return .= ' - ' . $file['file'] . "\n";
             file_put_contents(
-                $filename, str_replace('REASON', $reason, $fileContent)
+                $file['file'],
+                str_replace(
+                    array('REASON', 'CONTENT', '[sURL]'),
+                    array($file['reason'], $file['content'], '<?php echo sURL;?>'),
+                    $fileContent
+                )
             );
         }
 
@@ -288,7 +496,6 @@ content;
                     $primaryKey = $result->fields['Field'];
                     $primary = true;
                 }
-                $type = 'string';
                 $basicType = explode('(', $result->fields['Type']);
                 if (!$primary) {
                     switch ($basicType[0]) {
