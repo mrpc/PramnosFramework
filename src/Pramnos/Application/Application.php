@@ -204,6 +204,7 @@ class Application extends Base
         } catch (Exception $ex) {
             $this->showError($ex->getMessage());
         }
+        \Pramnos\Application\Settings::setDatabase($this->database);
         $this->initialized = true;
         /**
          * Start Session

@@ -182,20 +182,28 @@ class Settings extends \Pramnos\Framework\Base
     {
         self::$settings[$setting] = $value;
         if ($writeToDatabase == true && is_object(self::$database)) {
-
-            $sql = $db->prepare("select * from `#PREFIX#settings` where `setting` = %s limit 1", $setting);
-            $num = $db->Execute($sql);
+            $sql = self::$database->prepare(
+                "select * from `#PREFIX#settings` where `setting` = %s limit 1",
+                $setting
+            );
+            $num = self::$database->Execute($sql);
             if ($num->numRows != 0) {
-                $sql = $db->prepare("update `#PREFIX#settings` set `value` = %s where `setting` = %s limit 1", $value, $setting);
-                $return = $db->Execute($sql);
+                $sql = self::$database->prepare(
+                    "update `#PREFIX#settings` set `value` = %s "
+                    . " where `setting` = %s limit 1",
+                    $value, $setting
+                );
+                $return = self::$database->Execute($sql);
             }
             else {
-                $sql = $db->prepare("insert into `#PREFIX#settings`
+                $sql = self::$database->prepare(
+                    "insert into `#PREFIX#settings`
                     (`setting`, `value`) values (%s, %s)
-                    on duplicate key update `value` = %s", $setting, $value, $value);
-                $return = $db->Execute($sql);
+                    on duplicate key update `value` = %s",
+                    $setting, $value, $value
+                );
+                $return = self::$database->Execute($sql);
             }
-            $db->flushCache('settings');
         }
     }
 
@@ -206,7 +214,12 @@ class Settings extends \Pramnos\Framework\Base
      */
     static function deleteSetting($setting)
     {
-        return $db->Execute($db->prepare("delete from `#PREFIX#settings` where `setting` = %s limit 1", $setting));
+        return self::$database->Execute(
+            self::$database->prepare(
+                "delete from `#PREFIX#settings` where `setting` = %s limit 1",
+                $setting
+            )
+        );
     }
 
 }
