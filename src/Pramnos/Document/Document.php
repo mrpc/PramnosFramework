@@ -128,18 +128,7 @@ class Document extends \Pramnos\Framework\Base
                 'jquery-fileupload-ui'
             ), '', true
         );
-        $this->registerScript(
-            'slimbox2', sURL . 'media/js/jquery/slimbox2.js',
-            array('jquery'), '', true
-        );
-        $this->registerScript(
-            'thickbox', sURL . 'media/js/jquery/thickbox.js',
-            array('jquery')
-        );
-        $this->registerScript(
-            'spectrum', sURL . 'media/js/jquery/spectrum.js',
-            array('jquery')
-        );
+
 
 
         //Bootstrap Date
@@ -172,9 +161,7 @@ class Document extends \Pramnos\Framework\Base
         $this->registerStyle(
             'jquery-ui', sURL . 'media/css/jquery/jquery-ui.css'
         );
-        $this->registerStyle(
-            'mediamanager', sURL . 'media/css/pramnoscms/media.css'
-        );
+        
         $this->registerStyle(
             'jquery-fileupload-ui',
             sURL . 'media/css/jquery/jquery.fileupload-ui.css',
@@ -197,12 +184,7 @@ class Document extends \Pramnos\Framework\Base
             array('datatables')
         );
 
-        $this->registerStyle(
-            'slimbox2', sURL . 'media/css/jquery/slimbox2.css'
-        );
-        $this->registerStyle(
-            'thickbox', sURL . 'media/css/jquery/thickbox.css'
-        );
+
 
         $this->registerStyle(
             'tabletools', sURL . 'media/css/jquery/TableTools.css',
@@ -213,65 +195,7 @@ class Document extends \Pramnos\Framework\Base
             sURL . 'media/css/jquery/TableTools_JUI.css',
             array('datatables', 'jquery-ui')
         );
-        $this->registerStyle(
-            'spectrum', sURL . 'media/css/jquery/spectrum.css'
-        );
 
-
-        //SPRY
-        $this->registerScript(
-            'SpryMenuBar', sURL . 'media/js/SpryAssets/SpryMenuBar.js',
-            array('jquery'), '', true
-        );
-        $this->registerScript(
-            'SpryValidationTextArea',
-            sURL . 'media/js/SpryAssets/SpryValidationTextArea.min.js',
-            array('jquery'), '', true
-        );
-        $this->registerScript(
-            'SpryValidationTextField',
-            sURL . 'media/js/SpryAssets/SpryValidationTextField.min.js',
-            array('jquery'), '', true
-        );
-        $this->registerScript(
-            'SpryValidationPassword',
-            sURL . 'media/js/SpryAssets/SpryValidationPassword.min.js',
-            array('jquery'), '', true
-        );
-        $this->registerScript(
-            'SpryValidationConfirm',
-            sURL . 'media/js/SpryAssets/SpryValidationConfirm.min.js',
-            array('jquery'), '', true
-        );
-        $this->registerScript(
-            'SpryValidationCheckbox',
-            sURL . 'media/js/SpryAssets/SpryValidationCheckbox.min.js',
-            array('jquery'), '', true
-        );
-        $this->registerStyle(
-            'SpryValidationTextarea',
-            sURL . 'media/css/SpryAssets/SpryValidationTextarea.css'
-        );
-        $this->registerStyle(
-            'SpryValidationPassword',
-            sURL . 'media/css/SpryAssets/SpryValidationPassword.css'
-        );
-        $this->registerStyle(
-            'SpryValidationConfirm',
-            sURL . 'media/css/SpryAssets/SpryValidationConfirm.css'
-        );
-        $this->registerStyle(
-            'SpryValidationCheckbox',
-            sURL . 'media/css/SpryAssets/SpryValidationCheckbox.css'
-        );
-        $this->registerStyle(
-            'SpryValidationTextField',
-            sURL . 'media/css/SpryAssets/SpryValidationTextField.css'
-        );
-        $this->registerStyle(
-            'SpryMenuBarHorizontal',
-            sURL . 'media/css/SpryAssets/SpryMenuBarHorizontal.css'
-        );
 
         $this->breadcrumb = new \Pramnos\Html\Breadcrumb();
     }
@@ -453,14 +377,14 @@ class Document extends \Pramnos\Framework\Base
      *                                      dependencies.
      * @param  string            $version   String specifying the script
      *                                      version number, if it has one.
-     * @param  boolean           $in_footer Normally scripts are placed in the
+     * @param  boolean           $footer Normally scripts are placed in the
      *                                      head section. If this parameter is
      *                                      true the script is placed at the
      *                                      bottom of the body.
      * @return Document
      */
     public function registerScript($handle, $src, $deps = array(),
-        $version = '', $in_footer = false)
+        $version = '', $footer = false)
     {
         if (!is_array($deps)){
             $deps = array($deps);
@@ -470,7 +394,7 @@ class Document extends \Pramnos\Framework\Base
             'src' => $src,
             'deps' => $deps,
             'ver' => $version,
-            'in_footer' => $in_footer,
+            'footer' => $footer,
             'loaded' => false
         );
         return $this;
@@ -517,7 +441,7 @@ class Document extends \Pramnos\Framework\Base
         }
         if (isset($this->_queue['js'])) {
             foreach ($this->_queue['js'] as $key => $js) {
-                $this->_enqueueScript($js['handle'], $js['src'], $js['deps'], $js['version'], $js['in_footer']);
+                $this->_enqueueScript($js['handle'], $js['src'], $js['deps'], $js['version'], $js['footer']);
                 unset($this->_queue['js'][$key]);
             }
             unset($this->_queue['js']);
@@ -533,11 +457,11 @@ class Document extends \Pramnos\Framework\Base
      * @param string $src URL to the script.
      * @param array $deps Array of handles of any script that this script depends on; scripts that must be loaded before this script. false if there are no dependencies.
      * @param string $version String specifying the script version number, if it has one.
-     * @param boolean $in_footer Normally scripts are placed in the <head> section. If this parameter is true the script is placed at the bottom of the <body>.
+     * @param boolean $footer Normally scripts are placed in the <head> section. If this parameter is true the script is placed at the bottom of the <body>.
      * @return Document
      */
     private function _enqueueScript($handle, $src = '',
-        $deps = array(), $version = '', $in_footer = false)
+        $deps = array(), $version = '', $footer = false)
     {
         if (isset($this->_js[$handle])) {
             if ($this->_js[$handle]['loaded'] == false) {
@@ -550,7 +474,7 @@ class Document extends \Pramnos\Framework\Base
                     $script .= '?v=' . $version;
                 }
 
-                if ($this->_js[$handle]['in_footer'] == true) {
+                if ($this->_js[$handle]['footer'] == true) {
                     $this->foot .= "\n        "
                         . "<script type=\"text/javascript\" src=\""
                         . $script
@@ -567,7 +491,7 @@ class Document extends \Pramnos\Framework\Base
                 return $this;
             }
         } elseif ($src != '') {
-            $this->registerScript($handle, $src, $deps, $version, $in_footer);
+            $this->registerScript($handle, $src, $deps, $version, $footer);
             return $this->_enqueueScript($handle);
         } else {
             throw new Exception('Cannot find script: ' . $handle);
@@ -630,18 +554,18 @@ class Document extends \Pramnos\Framework\Base
      * @param string $src URL to the script.
      * @param array $deps Array of handles of any script that this script depends on; scripts that must be loaded before this script. false if there are no dependencies.
      * @param string $version String specifying the script version number, if it has one.
-     * @param boolean $in_footer Normally scripts are placed in the <head> section. If this parameter is true the script is placed at the bottom of the <body>.
+     * @param boolean $footer Normally scripts are placed in the <head> section. If this parameter is true the script is placed at the bottom of the <body>.
      * @return Document
      */
     public function enqueueScript($handle, $src = '', $deps = array(),
-        $version = '', $in_footer = false)
+        $version = '', $footer = false)
     {
         $this->_queue['js'][$handle] = array(
             'handle' => $handle,
             'src' => $src,
             'deps' => $deps,
             'version' => $version,
-            'in_footer' => $in_footer
+            'footer' => $footer
         );
         return $this;
     }
