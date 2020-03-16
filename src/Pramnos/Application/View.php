@@ -159,6 +159,7 @@ class View extends \Pramnos\Framework\Base
         if (file_exists($tplfile)) {
             ob_start();
             try {
+                $lang = \Pramnos\Framework\Factory::getLanguage();
                 include $tplfile;
             } catch (Exception $ex) {
                 \Pramnos\Logs\Logs::log(
