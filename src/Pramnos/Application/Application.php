@@ -436,6 +436,30 @@ class Application extends Base
          */
         $doc = \Pramnos\Framework\Factory::getDocument();
 
+        if (isset($this->applicationInfo['scripts'])) {
+            foreach ($this->applicationInfo['scripts'] as $script) {
+                $doc->registerScript(
+                    $script['script'],
+                    sURL . $script['src'],
+                    $script['deps'],
+                    $script['version'],
+                    $script['footer']
+                );
+            }
+        }
+
+        if (isset($this->applicationInfo['css'])) {
+            foreach ($this->applicationInfo['css'] as $css) {
+                $doc->registerStyle(
+                    $css['name'],
+                    sURL . $css['src'],
+                    $css['deps'],
+                    $css['version'],
+                    $css['media']
+                );
+            }
+        }
+
 
         /*
          * Try to load the controller
