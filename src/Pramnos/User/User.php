@@ -369,9 +369,9 @@ class User extends \Pramnos\Framework\Base
     /**
      * Save user data into database
      */
-    function save()
+    public function save()
     {
-        return $this->_save();
+        return $this->_save(false);
     }
 
     /**
