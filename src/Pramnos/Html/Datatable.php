@@ -364,17 +364,19 @@ embed;
                 if ($this->stateSave == true) {
                     $this->codeEmbed.=<<<embed
     if($this->name.fnSettings().aoPreSearchCols[$c].sSearch.length>0){
-        $('#$id').val($this->name.fnSettings().aoPreSearchCols[$c].sSearch);
+        jQuery('#$id').val($this->name.fnSettings().aoPreSearchCols[$c].sSearch);
     }
 embed;
                 }
 #$this->name.fnFilter( $('#$id').val(),$c ); inside next code embed
                 $this->codeEmbed.=<<<embed
 
-   $('#$id', this).change( function () {
-
-            $this->name.fnFilter( $(this).val(),$c );
+        jQuery('#$id').change( function () {
+            $this->name.fnFilter( jQuery(this).val(),$c );
         } );
+        jQuery('#$id').keyup(DataTableDelay(function(){
+            $this->name.fnFilter( jQuery(this).val(),$c );
+        } ));
 
 embed;
             }
@@ -548,11 +550,20 @@ table;
         $return = <<<table
    <script>
 
+            function DataTableDelay(fn) {
+                var ms = 500;
+                let timer = 0;
+                return function(...args) {
+                  clearTimeout(timer);
+                  timer = setTimeout(fn.bind(this, ...args), ms || 0);
+                };
+              }
+
     window.addEventListener("load", function () {
 
 
 
-            $this->name = $('#$this->name').dataTable( {
+            $this->name = jQuery('#$this->name').dataTable( {
             $language
             $jui
             $fnDrawCallback
@@ -570,7 +581,7 @@ table;
              $tabletools
              $search
             "fnServerData": function ( sSource, aoData, fnCallback ) {
-                $.ajax( {
+                jQuery.ajax( {
                     "dataType": 'json',
                     "type": "POST",
                     "url": sSource,
