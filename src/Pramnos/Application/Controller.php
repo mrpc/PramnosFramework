@@ -317,7 +317,7 @@ class Controller extends \Pramnos\Framework\Base
             $view = new \Pramnos\Application\View($this, $tp, $name, $type);
             return $view;
         }
-        return false;
+        return new \Pramnos\Application\View($this, $path, $name, $type);
     }
 
 
