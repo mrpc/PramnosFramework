@@ -503,7 +503,7 @@ class Model extends \Pramnos\Framework\Base
                 $result->MoveNext();
             }
 
-            $objects = pramnos_html_datatable_datasource::getList(
+            $objects = \Pramnos\Html\Datatable\Datasource::getList(
                 $this->_dbtable, $fields, false, $filter
             );
 
