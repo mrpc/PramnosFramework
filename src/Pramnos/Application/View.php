@@ -120,6 +120,15 @@ class View extends \Pramnos\Framework\Base
         }
     }
 
+    /**
+     * Get view type
+     * @return string
+     */
+    public function getType()
+    {
+        return $this->type;
+    }
+
 
 
 
@@ -188,8 +197,7 @@ class View extends \Pramnos\Framework\Base
             }
             $this->output .= ob_get_clean() . $tplInformation;
             return true;
-        }
-        else {
+        } else {
             if (\Pramnos\Http\Request::staticGet(
                 'format', '', 'get'
             ) == 'json') {
@@ -204,7 +212,7 @@ class View extends \Pramnos\Framework\Base
                 \Pramnos\Logs\Logs::log(
                     'Cannot find view template. View:'
                     . $this->name . ', template: '
-                    . $tpl . ", type: ".$this->type."\n"
+                    . $tpl . ", type: " . $this->type . "\n"
                     . \Pramnos\General\Helpers::varDumpToString(debug_backtrace())
                 );
             }
