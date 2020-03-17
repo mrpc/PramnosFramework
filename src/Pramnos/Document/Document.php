@@ -161,7 +161,7 @@ class Document extends \Pramnos\Framework\Base
         $this->registerStyle(
             'jquery-ui', sURL . 'media/css/jquery/jquery-ui.css'
         );
-        
+
         $this->registerStyle(
             'jquery-fileupload-ui',
             sURL . 'media/css/jquery/jquery.fileupload-ui.css',
@@ -524,8 +524,7 @@ class Document extends \Pramnos\Framework\Base
                         . $this->_css[$handle]['src']
                         . "\" type=\"text/css\" media=\""
                         . $this->_css[$handle]['media'] . "\" />";
-                }
-                else {
+                } else {
                     $this->_queueContent .= "\n        "
                         . "<link rel=\"stylesheet\" id=\""
                         . $handle . "\" href=\""
@@ -533,16 +532,13 @@ class Document extends \Pramnos\Framework\Base
                         . "\" type=\"text/css\"  />";
                 }
                 $this->_css[$handle]['loaded'] = true;
-            }
-            else {
+            } else {
                 return $this;
             }
-        }
-        elseif ($src != '') {
+        } elseif ($src != '') {
             $this->registerStyle($handle, $src, $deps, $version, $media);
             return $this->_enqueueStyle($handle);
-        }
-        else {
+        } else {
             throw new Exception('Cannot find stylesheet: ' . $handle);
         }
         return $this;
