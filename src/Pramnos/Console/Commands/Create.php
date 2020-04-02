@@ -25,6 +25,7 @@ class Create extends Command
             . " - controller: Create a controller\n"
             . " - view: Create a view\n"
             . " - crud: Create a CRUD system (model/view/controller)\n"
+            . " - migration: Create a migration\n"
         );
         $this->addArgument(
             'entity', InputArgument::REQUIRED, 'What to create'
@@ -56,11 +57,144 @@ class Create extends Command
             case "crud":
                 $output->writeln($this->createCrud($name));
                 break;
+            case "migration":
+                $output->writeln($this->createMigration($name));
+                break;
             default:
                 throw new \InvalidArgumentException(
                     'Invalid type of entity to create: ' . $entity
                 );
         }
+    }
+
+    /**
+     * Create a database migration
+     * @param string $migrationName
+     * @return string
+     * @throws \Exception
+     */
+    public function createMigration($migrationName)
+    {
+        $name = preg_replace('/\W+/','',strtolower(strip_tags($migrationName)));
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        if (!file_exists(APP_PATH . DS . 'Migrations')) {
+            if (!mkdir(APP_PATH . DS . 'Migrations')) {
+                throw new Exception('Cannot create migrations directory.');
+            }
+        }
+        $path = APP_PATH . DS . 'Migrations' . DS;
+
+        $migrationsFile = APP_PATH . DS . 'migrations.php';
+        if (file_exists($migrationsFile)) {
+            $migrations = require($migrationsFile);
+        }
+
+        if (isset($application->applicationInfo['namespace'])) {
+            $namespace = $application->applicationInfo['namespace'];
+        } else {
+            $namespace = 'Pramnos';
+        }
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+            $path .= $application->appName . DS;
+        }
+        $namespace .= '\\Migrations';
+
+
+        $className =  'Migration' . $name;
+        $filename = $path . DS . 'Migration' . $name . '.php';
+
+
+        if (class_exists('\\' . $namespace . '\\'. $className)
+            || file_exists($filename)) {
+            throw new \Exception('Migration already exists.');
+        }
+
+        $date = date('d/m/Y H:i');
+        $fileContent = <<<content
+<?php
+namespace {$namespace};
+
+/**
+ * {$name} migration
+ * Auto generated at: {$date}
+ */
+final class {$className} extends \Pramnos\Database\Migration
+{
+
+    /**
+     * Version that this migration sets
+     * @var string
+     */
+    public \$version = '{$migrationName}';
+    /**
+     * Description of the migration
+     * @var string
+     */
+    public \$description = '';
+    /**
+     * Should the migration executed automatically
+     * @var bool
+     */
+    public \$autoExecute = true;
+
+    /**
+     * Run the migration
+     * @return void
+     */
+    public function up() : void
+    {
+        // this up() migration is auto-generated, please modify it to your needs
+    }
+
+    /**
+     * Undo the migration
+     * @return void
+     */
+    public function down() : void
+    {
+        // this down() migration is auto-generated, please modify it to your needs
+    }
+
+}
+content;
+        if (!file_put_contents($filename, $fileContent)) {
+            throw new \Exception('Cannot write migration file.');
+        }
+        $migrations[$migrationName] = $className;
+
+        $migrationsContent = <<<migcontent
+<?php
+return [
+    /*
+    |--------------------------------------------------------------------------
+    | Migrations List
+    |--------------------------------------------------------------------------
+    |
+    | These migrations will be executed in order on application execution
+    |
+    */
+migcontent;
+        $comma = '';
+        foreach ($migrations as $version => $class) {
+            $migrationsContent .= $comma
+                . "\n    '"
+                . $version
+                . "' => '" .
+                $class
+                . "'";
+            $comma = ',';
+        }
+        $migrationsContent .= "\n];";
+        if (!file_put_contents($migrationsFile, $migrationsContent)) {
+            throw new \Exception('Cannot write migrations list file.');
+        }
+
+        return "Namespace: {$namespace}\n"
+            . "Class: {$className}\n"
+            . "File: {$filename}\n\nMigration created.";
     }
 
     /**

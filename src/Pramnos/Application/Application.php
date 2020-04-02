@@ -409,6 +409,13 @@ class Application extends Base
     public function exec($coontrollerName = '')
     {
         /*
+         * Run any needed updates
+         */
+        if ($this->checkversion() !== true) {
+            $this->upgrade();
+        }
+
+        /*
          * Find the right controller to load
          */
         $controller = strtolower($coontrollerName);
@@ -596,6 +603,91 @@ class Application extends Base
             );
         }
         exit($msg);
+    }
+
+
+    /**
+     * Should be called if there is a new version update
+     * Return true if upgrade is done
+     */
+    public function upgrade()
+    {
+        $migrations = array();
+        $migrationsFile = APP_PATH . DS . 'migrations.php';
+        if (file_exists($migrationsFile)) {
+            $migrations = require($migrationsFile);
+        }
+        foreach ($migrations as $version => $class) {
+            if (!$this->checkversion($version)) {
+                $this->runMigration($class);
+            }
+        }
+    }
+
+    /**
+     * Run a migration
+     * @param string $class Class name to run
+     */
+    public function runMigration($class)
+    {
+        $path = APP_PATH . DS . 'Migrations' . DS;
+        $namespace = 'Pramnos';
+        if (isset($this->applicationInfo['namespace'])) {
+            $namespace = $this->applicationInfo['namespace'];
+        }
+        if ($this->appName != '') {
+            $namespace .= '\\' . $this->appName;
+            $path .= $this->appName . DS;
+        }
+        if (file_exists($path . $class . '.php')) {
+            require_once $path . $class . '.php';
+
+            $nameSpacedClass = '\\' . $namespace . '\\Migrations\\' . $class;
+            if (!class_exists($nameSpacedClass)) {
+                throw new Exception('Cannot find ' . $class . ' migration');
+            }
+            $object = new $nameSpacedClass();
+            if ($object->autoExecute == true) {
+                $object->up();
+                $sql = $this->database->prepare(
+                    "insert into `#PREFIX#schemaversion` (`key`) values (%s);",
+                    $object->version
+                );
+                $this->database->Execute($sql);
+                \Pramnos\Logs\Logs::log("\n" . $sql . "\n\n", 'upgrades');
+            }
+        }
+    }
+
+    /**
+     * Check if there is a new version of the database available
+     * Return true if we are in current version
+     * @var string $version Version to check. Leave empty for latest
+     */
+    public function checkversion($version = null)
+    {
+        if ($version == null) {
+            if (isset($this->applicationInfo['database_version'])) {
+                $version = $this->applicationInfo['database_version'];
+            }
+        }
+        if ($version == null) {
+            return true;
+        }
+        if (!$this->database) {
+            return true;
+        }
+
+        $sql = $this->database->prepare(
+            "select * from `#PREFIX#schemaversion` "
+            . " where `key` = %s limit 1",
+            $version
+        );
+        $result = $this->database->Execute($sql);
+        if ($result->numRows == 0) {
+            return false;
+        }
+        return true;
     }
 
 
