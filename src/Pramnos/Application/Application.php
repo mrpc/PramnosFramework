@@ -105,6 +105,9 @@ class Application extends Base
      */
     public function __construct($appName = '')
     {
+        if (file_exists(ROOT . '/var/MAINTENANCE')) {
+            $this->showError();
+        }
         if (!defined('PRAMNOS_DEFINES')) {
             $this->setDefines();
         }
@@ -259,7 +262,7 @@ class Application extends Base
      * Display an error
      * @param string $msg Message to add
      */
-    public function showError($msg='')
+    public function showError($msg='', $title='Maintenance Mode')
     {
         if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
             $database=&pramnos_factory::getDatabase();
@@ -271,19 +274,20 @@ class Application extends Base
             $error .= "<br />" . $msg;
         }
         $this->close(
-            '<html><head><title>Maintenance Mode</title>'
+            '<html><head><title>'
+            . $title
+            . '</title>'
             . '<style>body {background-color: #cccccc;font-family: '
             . 'verdana;color: midnightblue;}div {margin: 100px auto 0 auto;'
             . 'width:500px;background-color: #ffffff;height: 400px;'
             . 'text-align: center;padding: 20px;}.powered {font-size: 10px;}'
-            . '</style></head><body><div><h1>Database Unavailable</h1>'
+            . '</style></head><body><div><h1>'
+            . $title
+            . '</h1>'
+            . '<p>'
             . $error
-            . '<p>Our website is currently unavailable.Please come back in a '
-            . 'few minutes.</p><br /><br /><br /><br /><br /><br /><br />'
-            . '<br /><p class="powered">Website is powered by '
-            . 'PramnosFramework,<br />created by<br />'
-            . '<a href="http://www.pramhost.com">Pramnos Hosting</a>.'
-            . '</p></div></body></html>'
+            . '</p><br /><br /><br /><br /><br /><br /><br />'
+            . '</div></body></html>'
         );
     }
 
@@ -648,6 +652,7 @@ class Application extends Base
             }
             $object = new $nameSpacedClass();
             if ($object->autoExecute == true) {
+                $this->startMaintenance();
                 $object->up();
                 $sql = $this->database->prepare(
                     "insert into `#PREFIX#schemaversion` (`key`) values (%s);",
@@ -655,6 +660,7 @@ class Application extends Base
                 );
                 $this->database->Execute($sql);
                 \Pramnos\Logs\Logs::log("\n" . $sql . "\n\n", 'upgrades');
+                $this->stopMaintenance();
             }
         }
     }
@@ -712,6 +718,47 @@ class Application extends Base
     }
 
 
+    /**
+     * Switch to maintenance mode. Mostly used by the upgrade script
+     * @param   string  $reason Reason of maintainance mode
+     */
+    public function startMaintenance($reason = '')
+    {
+        if (file_exists(ROOT . DS . 'var' . DS . "MAINTENANCE")) {
+            return;
+        }
+        if (!file_exists(ROOT . DS . 'var')) {
+            mkdir(ROOT . DS . 'var');
+        }
+        $file = fopen(ROOT . DS . 'var' . DS . "MAINTENANCE", "w+");
+        if ($reason != '') {
+            fwrite(
+                $file,
+                "Maintenance started at: "
+                . date('d/m/Y H:i')
+                . ". Reason: " . $reason
+            );
+        } else {
+            fwrite($file, "Maintenance started at: " . date('d/m/Y H:i') . ".");
+        }
+        fclose($file);
+    }
+
+    /**
+     * Stop the maintenance mode
+     */
+    public function stopMaintenance()
+    {
+        if (file_exists(ROOT . DS . 'var' . DS . "MAINTENANCE")) {
+                unlink(ROOT . DS . 'var' . DS . "MAINTENANCE");
+        }
+        //@codeCoverageIgnoreStart
+        if (file_exists(ROOT . DS . 'var' . DS . "MAINTENANCE")) {
+            sleep(2);
+            $this->stopMaintenance();
+        }
+        //@codeCoverageIgnoreEnd
+    }
 
 
 }
