@@ -27,6 +27,26 @@ abstract class Migration extends \Pramnos\Framework\Base
      * @var bool
      */
     public $autoExecute = true;
+    /**
+     * List of queries to execute
+     * @var string[]
+     */
+    protected $queriesToExecute = array();
+    /**
+     * Application
+     * @var \Pramnos\Application\Application
+     */
+    protected $application;
+
+    /**
+     * Database migration
+     * @param \Pramnos\Application\Application $application
+     */
+    public function __construct(\Pramnos\Application\Application $application)
+    {
+        $this->application = $application;
+        parent::__construct();
+    }
 
     /**
      * Get the description of the migration
@@ -35,6 +55,32 @@ abstract class Migration extends \Pramnos\Framework\Base
     public function getDescription() : string
     {
         return $this->description;
+    }
+
+    /**
+     * Add a query for execution
+     * @param string $query
+     */
+    protected function addQuery($query)
+    {
+        $this->queriesToExecute[] = $query;
+    }
+
+    /**
+     * Execute all the queries
+     */
+    protected function executeQueries()
+    {
+        foreach ($this->queriesToExecute as $query) {
+            try {
+                $this->application->database->Execute($query);
+                \Pramnos\Logs\Logs::log("\n" . $query . "\n\n", 'upgrades');
+            } catch (Exception $exception) {
+                \Pramnos\Logs\Logs::log(
+                    $exception->getMessage() . "\n\n" . $query, 'upgradeerrors'
+                );
+            }
+        }
     }
 
     /**

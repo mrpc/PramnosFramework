@@ -686,7 +686,7 @@ class Application extends Base
             if (!class_exists($nameSpacedClass)) {
                 throw new Exception('Cannot find ' . $class . ' migration');
             }
-            $object = new $nameSpacedClass();
+            $object = new $nameSpacedClass($this);
             if ($object->autoExecute == true) {
                 $this->startMaintenance();
                 $object->up();
