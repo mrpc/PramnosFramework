@@ -98,6 +98,11 @@ class Application extends Base
      * @var array
      */
     protected $extraPaths = array();
+    /**
+     * Breadcrumbs
+     * @var \Pramnos\Html\Breadcrumb
+     */
+    protected $breadcrumbs;
 
     /**
      * Application class constructor
@@ -105,6 +110,9 @@ class Application extends Base
      */
     public function __construct($appName = '')
     {
+        if ($this->breadcrumbs === null) {
+            $this->breadcrumbs = new \Pramnos\Html\Breadcrumb();
+        }
         if (file_exists(ROOT . '/var/MAINTENANCE')) {
             $this->showError();
         }
@@ -257,6 +265,30 @@ class Application extends Base
     {
         $this->_redirect = $url;
     }
+
+
+    /**
+     * Add a breadcrumb to navigation
+     * @param string $text
+     * @param string $link
+     * @param string $title Title property
+     * @return $this
+     */
+    public function addbreadcrumb($text, $link = '#', $title = '')
+    {
+        $this->breadcrumbs->addItem($text, $link, $title);
+        return $this;
+    }
+
+    /**
+     * Render the breadcrumbs
+     * @return string
+     */
+    public function renderBreadcrumbs()
+    {
+        return $this->breadcrumbs->render();
+    }
+
 
     /**
      * Display an error
@@ -470,7 +502,11 @@ class Application extends Base
                 );
             }
         }
+        $lang = \Pramnos\Framework\Factory::getLanguage();
 
+        if ($doc->getType() == 'html') {
+            $this->addbreadcrumb($lang->_('Home'), sURL);
+        }
 
         /*
          * Try to load the controller
