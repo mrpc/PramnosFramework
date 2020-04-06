@@ -245,7 +245,9 @@ class Date extends Html
             . $unique . '_datepicker'
             . '" class="form-control '
             . $this->class
-            . '" data-inputmask="\'alias\': \'dd/mm/yyyy\'" data-mask';
+            . '" data-inputmask="\'alias\': \'dd/mm/yyyy\'" data-mask value="'
+            . $value
+            . '"';
 
         if ($this->tabindex != null) {
             $return .=" tabindex=\"".$this->tabindex."\" ";
