@@ -344,16 +344,21 @@ class Helpers
      */
     public static function generatePassword($length = 8)
     {
-        $password = md5(rand(0, time()));
+        $initialPass = md5(rand(0, time()));
         $symbols = "!@#$%^&*()_+-=[]{}|~";
         $maxlength = strlen($symbols);
         $symbol = substr($symbols, mt_rand(0, $maxlength - 1), 1);
         $injectpos = mt_rand(1, $length - 1);
-        $password = substr($password, 0, $length - 1);
-        $password = substr($password, 0, $injectpos)
+        $password = substr(
+                substr(
+                    $initialPass, 0, $length - 1
+                ),
+                0, $injectpos
+            )
             . $symbol
             . substr($password, $injectpos);
         return $password;
+
     }
 
     /**
@@ -1076,6 +1081,20 @@ class Helpers
         } else {
             return $dat;
         }
+    }
+
+    /**
+     * Make a string uppercase and remove the greek accents
+     * @param string $string utf-8 encoded input string
+     * @return string Returns the uppercased string.
+     */
+    public static function greekStrToUpper($string)
+    {
+        return str_replace(
+            array("Ά", "Έ", "Ή", "Ί", "Ϊ", "ΐ", "Ό", "Ύ", "Ϋ", "ΰ", "Ώ"),
+            array("Α", "Ε", "Η", "Ι", "Ι", "Ι", "Ο", "Υ", "Υ", "Υ", "Ω"),
+            mb_strtoupper($string, "UTF-8")
+        );
     }
 
 }
