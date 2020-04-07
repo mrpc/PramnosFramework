@@ -9,7 +9,7 @@ namespace Pramnos\Database;
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @package     PramnosFramework
  * @subpackage  Database
- * @copyright   (C) 2005 - 2014 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (C) 2020 Yannis - Pastis Glaros, Pramnos Hosting
  */
 class Database extends \Pramnos\Framework\Base
 {
@@ -106,7 +106,7 @@ class Database extends \Pramnos\Framework\Base
     /**
      * Instead of connecting, add an external mysql link
      * @param resource $link
-     * @return \Database
+     * @return $this
      */
     public function addExternalConnection($link)
     {
@@ -135,6 +135,10 @@ class Database extends \Pramnos\Framework\Base
         return $instance[$name];
     }
 
+    /**
+     * Creates a log file if it doesn't exist
+     * @param string $filename
+     */
     private function _createLogFile($filename)
     {
         try {
@@ -145,6 +149,10 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
+    /**
+     * Renames a log file
+     * @param string $filename
+     */
     private function _renameLogFile($filename)
     {
         $secondFileName = "$filename.old";
@@ -338,7 +346,7 @@ class Database extends \Pramnos\Framework\Base
      * Close the database connection
      * @return boolean
      */
-    function sql_close()
+    public function close()
     {
         if ($this->_dbConnection) {
         //
@@ -360,7 +368,7 @@ class Database extends \Pramnos\Framework\Base
      * @param int $cachetime Time of result cache
      * @return array
      */
-    function sql_query($query = "")
+    public function query($query = "")
     {
         #if (pramnos_settings::baseget("debuglevel") > 1) {
         #    echo "$query <br />";
@@ -552,7 +560,7 @@ class Database extends \Pramnos\Framework\Base
      * @param resource $query_id
      * @return int
      */
-    function sql_numrows($query_id = 0)
+    public function getNumRows($query_id = 0)
     {
         if (!$query_id) {
             $query_id = $this->query_result;
@@ -565,7 +573,7 @@ class Database extends \Pramnos\Framework\Base
      * Get number of affected rows in previous database operation
      * @return int
      */
-    function sql_affectedrows()
+    public function getAffectedRows()
     {
         return ( $this->_dbConnection )
         ? mysqli_affected_rows($this->_dbConnection)
@@ -577,7 +585,7 @@ class Database extends \Pramnos\Framework\Base
      * @param resource $query_id The result resource that is being evaluated.
      * @return int
      */
-    function sql_numfields($query_id = 0)
+    public function getNumFields($query_id = 0)
     {
         if (!$query_id) {
             $query_id = $this->query_result;
@@ -592,7 +600,7 @@ class Database extends \Pramnos\Framework\Base
      * @param resource $query_id The result resource that is being evaluated.
      * @return int
      */
-    function sql_fieldname($offset, $query_id = 0)
+    public function getFieldName($offset, $query_id = 0)
     {
         if (!$query_id) {
             $query_id = $this->query_result;
@@ -607,7 +615,7 @@ class Database extends \Pramnos\Framework\Base
      * @param resource $query_id The result resource that is being evaluated.
      * @return int
      */
-    function sql_fieldtype($offset, $query_id = 0)
+    public function getFieldType($offset, $query_id = 0)
     {
         if (!$query_id) {
             $query_id = $this->query_result;
@@ -621,7 +629,7 @@ class Database extends \Pramnos\Framework\Base
      * @param resource $query_id The result resource that is being evaluated.
      * @return array
      */
-    function sql_fetchrow($query_id = 0)
+    public function fetchRow($query_id = 0)
     {
         if (!$query_id) {
             $query_id = $this->query_result;
@@ -680,7 +688,7 @@ class Database extends \Pramnos\Framework\Base
                 if ($debug === true) {
                     echo $insertString;
                 } else {
-                    return $this->sql_query($insertString);
+                    return $this->query($insertString);
                 }
                 break;
             case 'update':
@@ -702,7 +710,7 @@ class Database extends \Pramnos\Framework\Base
                 if ($debug === true) {
                     echo $updateString;
                 } else {
-                    return $this->sql_query($updateString);
+                    return $this->query($updateString);
                 }
                 break;
         }
@@ -794,7 +802,7 @@ class Database extends \Pramnos\Framework\Base
         return mysqli_real_escape_string($this->_dbConnection, $string);
     }
 
-    function sql_fetchrowset($queryId = 0)
+    public function fetchRowset($queryId = 0)
     {
         if (!$queryId) {
             $queryId = $this->query_result;
@@ -816,7 +824,7 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
-    function sql_fetchfield($field, $rownum = -1, $query_id = 0)
+    public function fetchField($field, $rownum = -1, $query_id = 0)
     {
         if (!$query_id) {
             $query_id = $this->query_result;
@@ -828,7 +836,7 @@ class Database extends \Pramnos\Framework\Base
             } else {
                 if (empty($this->row[$query_id])
                     && empty($this->rowset[$query_id])) {
-                    if ($this->sql_fetchrow()) {
+                    if ($this->fetchRow()) {
                         $result = $this->row[$query_id][$field];
                     }
                 } else {
@@ -846,7 +854,7 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
-    function sql_rowseek($rownum, $query_id = 0)
+    function rowSeek($rownum, $query_id = 0)
     {
         if (!$query_id) {
             $query_id = $this->query_result;
@@ -855,14 +863,28 @@ class Database extends \Pramnos\Framework\Base
         return ( $query_id ) ? mysqli_data_seek($query_id, $rownum) : false;
     }
 
-    function sql_nextid()
+    /**
+     * Returns the auto generated id used in the latest query
+     * @return mixed The value of the AUTO_INCREMENT field that was updated by
+     * the previous query. Returns zero if there was no previous query
+     * on the connection or if the query did not update an AUTO_INCREMENT value.
+     * Returns false when database is not connected
+     */
+    public function getInsertId()
     {
-        return ( $this->_dbConnection )
-        ? mysqli_insert_id($this->_dbConnection)
-        : false;
+        if ($this->_dbConnection) {
+            return mysqli_insert_id($this->_dbConnection);
+        }
+
+        return false;
     }
 
-    function sql_freeresult($query_id = 0)
+    /**
+     * Frees the memory associated with the result.
+     * @param int $query_id
+     * @return boolean
+     */
+    public function freeResult($query_id = 0)
     {
         if (!$query_id) {
             $query_id = $this->query_result;
@@ -880,6 +902,7 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
+    
     function sql_error()
     {
         $result['message'] = mysqli_error($this->_dbConnection);
@@ -1021,7 +1044,7 @@ class Database extends \Pramnos\Framework\Base
             $obj = new Result();
             $obj->cursor = 0;
             $obj->isCached = true;
-            $obj->sql_query = $sql;
+            $obj->query = $sql;
             $result_array = unserialize($cacheData);
             $obj->result = $result_array;
             if ($result_array === null) {
@@ -1140,38 +1163,7 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
-    /**
-     *
-     * @param string $query
-     * @param resource $link
-     * @return type
-     */
-    function query($query, $link)
-    {
-        $this->num_queries++;
-        $time = -microtime(true);
-        $result = mysqli_query($link, $query);
-        $time += microtime(true);
-        if ($this->_customLogSlowQueries == true
-                && $this->_slowQueryLogHandler !== NULL
-                && $time > $this->long_query_time) {
-            $this->_slowquerieslog .= "\n\n"
-                . date('H:i:s') . ": "
-                . $query . "\nTime: " . number_format($time, 4)
-                . ' > '.$this->long_query_time ;
-            $this->_numSlowqueries+=1;
-        }
-        if ($this->_queryLogHandler !== NULL) {
-            $this->_querieslog .= "\n\n" . $this->num_queries
-                . '.: ' . date('H:i:s') . ": " . $query
-                . "\nTime: " . number_format($time, 4);
-            if (isset($this->_duplicateQueries[$query])) {
-                fwrite($this->_duplicateQueryLogHandler, "\n" . $query);
-            }
-            $this->_duplicateQueries[$query] = true;
-        }
-        return($result);
-    }
+
 
     /**
      * Check if a table exists in the database
@@ -1273,7 +1265,7 @@ class Database extends \Pramnos\Framework\Base
     public function __destruct()
     {
         $this->stopLogs();
-        $this->sql_close();
+        $this->close();
     }
 
 }
