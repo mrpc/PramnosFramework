@@ -14,16 +14,26 @@ class Result
      * @var int
      */
     public $numRows;
+    /**
+     * Cached results
+     * @var array
+     */
     public $result;
     /**
      * Is the result cached
      * @var bool
      */
     public $isCached;
-    public $eof = true;
-    public $cursor;
+    /**
+     * Fields array
+     * @var array
+     */
     public $fields = array();
-    public $resource = null;
+    /**
+     * Mysqli Result Object
+     * @var \mysqli_result|bool
+     */
+    public $mysqlResult = null;
     /**
      * Cache time to live (in seconds)
      * @var int
@@ -34,16 +44,57 @@ class Result
      * @var string
      */
     public $cacheCategory = '';
+    /**
+     * Database reference
+     * @var Database
+     */
+    protected $database;
+    /**
+     * Current cursor position in case of cached results
+     * @var int
+     */
+    protected $cursor = 0;
 
-    public function __construct()
+    /**
+     * Database result object
+     * @param array $result
+     */
+    public function __construct(Database $database, $result = null)
     {
+        $this->database = $database;
+        $this->result = $result;
         $this->isCached = false;
     }
 
     /**
-     * Move the cursor to the next result
+     * Magic method to return a result field
+     * @param string $name
+     * @return mixed
      */
-    public function MoveNext()
+    public function __get($name)
+    {
+        if (isset($this->fields[$name])) {
+            return $this->fields[$name];
+        }
+    }
+
+    /**
+     * Fetches all result rows as an associative array
+     * @return array
+     */
+    public function fetchAll()
+    {
+        if (is_object($this->mysqlResult)) {
+            return mysqli_fetch_all($this->mysqlResult, MYSQLI_ASSOC);
+        }
+    }
+
+    /**
+     * Fetch a result row as an associative array
+     * @return array|null Returns an array of strings that corresponds to the
+     * fetched row or NULL if there are no more rows in resultset.
+     */
+    public function fetch()
     {
         $this->cursor++;
         if ($this->isCached) {
@@ -54,34 +105,63 @@ class Result
                     $this->fields[$key] = $value;
                 }
             }
-        } else {
-            if ($this->resource instanceof PDOStatement) {
-                $resultArray = $this->resource->fetch(PDO::FETCH_ASSOC);
-            } else {
-                $resultArray = @mysqli_fetch_array($this->resource);
-            }
-            if (!$resultArray) {
-                $this->eof = true;
-            } else {
-                foreach ($resultArray as $key => $value) {
-                    if (!preg_match('/^[0-9]/', $key)) {
-                        $this->fields[$key] = $value;
-                    }
-                }
-            }
+        } elseif (is_object($this->mysqlResult)) {
+            $this->fields = mysqli_fetch_array(
+                $this->mysqlResult, MYSQLI_ASSOC
+            );
         }
+        return $this->fields;
+    }
+
+    /**
+     * Returns the auto generated id used in the latest query
+     * @return mixed The value of the AUTO_INCREMENT field that was updated by
+     * the previous query. Returns zero if there was no previous query
+     * on the connection or if the query did not update an AUTO_INCREMENT value.
+     * Returns false when database is not connected
+     */
+    public function getInsertId()
+    {
+        return mysqli_insert_id($this->database->getConnectionLink());
+    }
+
+    /**
+     * Get number of affected rows in previous database operation
+     * @return int
+     */
+    public function getAffectedRows()
+    {
+        if (is_resource($this->mysqlResult)) {
+            return mysqli_affected_rows($this->mysqlResult);
+        }
+
+        return 0;
+    }
+
+    /**
+     * Get number of fields in result.
+     * @return int
+     */
+    public function getNumFields()
+    {
+        if (is_object($this->mysqlResult)) {
+            return mysqli_num_fields($this->mysqlResult);
+        }
+
+        return 0;
     }
 
     /**
      * How many results do we have?
      * @return int
      */
-    public function RecordCount()
+    public function getNumRows()
     {
-        if ($this->resource instanceof PDOStatement) {
-            return 0; //There is no such thing in PDO :D
+        if (is_object($this->mysqlResult)) {
+            return mysqli_num_rows($this->mysqlResult);
         }
-        return @mysqli_num_rows($this->resource);
+
+        return $this->numRows;
     }
 
 }

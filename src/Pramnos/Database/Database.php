@@ -151,6 +151,15 @@ class Database extends \Pramnos\Framework\Base
     private $_dbConnection;
 
     /**
+     * Return current database connection link
+     * @return resource
+     */
+    public function getConnectionLink()
+    {
+        return $this->_dbConnection;
+    }
+
+    /**
      * Initialize the database
      * @param mixed $settingsObject Settings object or a database resource
      */
@@ -611,102 +620,10 @@ class Database extends \Pramnos\Framework\Base
     }
 
 
-    /**
-     * Get number of rows in result. This command is only valid for
-     * statements like SELECT or SHOW that return an actual result set.
-     * @param resource $query_id
-     * @return int
-     */
-    public function getNumRows($query_id = 0)
-    {
-        if (!$query_id) {
-            $query_id = $this->queryResult;
-        }
 
-        return ( $query_id ) ? mysqli_num_rows($query_id) : false;
-    }
 
-    /**
-     * Get number of affected rows in previous database operation
-     * @return int
-     */
-    public function getAffectedRows()
-    {
-        return ( $this->_dbConnection )
-        ? mysqli_affected_rows($this->_dbConnection)
-        : false;
-    }
 
-    /**
-     * Get number of fields in result
-     * @param resource $query_id The result resource that is being evaluated.
-     * @return int
-     */
-    public function getNumFields($query_id = 0)
-    {
-        if (!$query_id) {
-            $query_id = $this->queryResult;
-        }
 
-        return ( $query_id ) ? mysqli_num_fields($query_id) : false;
-    }
-
-    /**
-     * Get the name of the specified field in a result
-     * @param int $offset The numerical field offset
-     * @param resource $query_id The result resource that is being evaluated.
-     * @return int
-     */
-    public function getFieldName($offset, $query_id = 0)
-    {
-        if (!$query_id) {
-            $query_id = $this->queryResult;
-        }
-
-        return ( $query_id ) ? mysqli_field_name($query_id, $offset) : false;
-    }
-
-    /**
-     * Get the type of the specified field in a result
-     * @param int $offset The numerical field offset
-     * @param resource $query_id The result resource that is being evaluated.
-     * @return int
-     */
-    public function getFieldType($offset, $query_id = 0)
-    {
-        if (!$query_id) {
-            $query_id = $this->queryResult;
-        }
-
-        return ( $query_id ) ? mysqli_field_type($query_id, $offset) : false;
-    }
-
-    /**
-     * Fetch a result row as an associative array, a numeric array, or both.
-     * @param resource $queryId The result resource that is being evaluated.
-     * @return array
-     */
-    public function fetchRow($queryId = 0)
-    {
-        if (!$queryId) {
-            $queryId = $this->queryResult;
-        }
-
-        if ($queryId) {
-            if (!is_object($queryId)) {
-                $this->row[(int) $queryId] = mysqli_fetch_array(
-                    $queryId, MYSQLI_ASSOC
-                );
-                return $this->row[(int) $queryId];
-            } else {
-                return mysqli_fetch_array(
-                    $queryId, MYSQLI_ASSOC
-                );
-            }
-        } else {
-            return false;
-        }
-    }
 
 
 
@@ -994,6 +911,7 @@ class Database extends \Pramnos\Framework\Base
         $cachetime = 60, $category = "", $dieOnFatalError = false)
     {
         $cacheData = false;
+        $cache = false;
         // eof: collect products_id queries
         if ($cache) {
             #$cache = pramnos_factory::getCache($category, 'sql');
@@ -1005,21 +923,21 @@ class Database extends \Pramnos\Framework\Base
         $this->currentQuery = $sql;
 
         if ($cache && $cacheData) {
-            $obj = new Result();
+            $obj = new Result($this);
             $obj->cursor = 0;
             $obj->isCached = true;
             $obj->query = $sql;
-            $result_array = unserialize($cacheData);
-            $obj->result = $result_array;
-            if ($result_array === null) {
+            $resultArray = unserialize($cacheData);
+            $obj->result = $resultArray;
+            if ($resultArray === null) {
                 $obj->numRows = 0;
                 $obj->eof = true;
                 return $obj;
             }
-            $obj->numRows = count($result_array);
+            $obj->numRows = count($resultArray);
             if ($obj->numRows > 0) {
                 $obj->eof = false;
-                foreach ($result_array[0] as $key => $value) {
+                foreach ($resultArray[0] as $key => $value) {
                     $obj->fields[$key] = $value;
                 }
                 return $obj;
@@ -1030,7 +948,7 @@ class Database extends \Pramnos\Framework\Base
         } elseif ($cache) {
             $this->cacheExpire($sql, $category);
             $timeStart = explode(' ', microtime());
-            $obj = new Result();
+            $obj = new Result($this);
             $obj->sql_query = $sql;
             if (!$this->connected) {
                 $this->setError('0', "Not Connected to database");
@@ -1042,23 +960,22 @@ class Database extends \Pramnos\Framework\Base
                 );
             }
 
-            $obj->resource = $dbResource;
-            $obj->numRows = mysqli_num_rows($dbResource);
-            $obj->cursor = 0;
+            $obj->mysqlResult = $dbResource;
+            $obj->numRows = $obj->getNumRows();
+
             $obj->isCached = true;
-            if ($obj->RecordCount() > 0) {
-                $obj->eof = false;
+            if ($obj->getNumRows() > 0) {
                 $iiCount = 0;
                 while (!$obj->eof) {
-                    $result_array = @mysqli_fetch_array($dbResource);
-                    if ($result_array) {
-                        foreach ($result_array as $key => $value) {
-                            if (!preg_match('/^[0-9]/', $key)) {
-                                $obj->result[$iiCount][$key] = $value;
-                            }
+                    $resultArray = mysqli_fetch_array(
+                        $dbResource, MYSQLI_ASSOC
+                    );
+                    mysqli_data_seek($dbResource, 0);
+                    if ($resultArray) {
+                        foreach ($resultArray as $key => $value) {
+                            $obj->result[$iiCount][$key] = $value;
                         }
                     } else {
-                        $obj->Limit = $iiCount;
                         $obj->eof = true;
                     }
                     $iiCount++;
@@ -1082,7 +999,7 @@ class Database extends \Pramnos\Framework\Base
             return($obj);
         } else {
             $timeStart = explode(' ', microtime());
-            $obj = new Result();
+            $obj = new Result($this);
             if (!$this->connected) {
                 $this->setError('0', "Database is not connected");
             }
@@ -1096,19 +1013,17 @@ class Database extends \Pramnos\Framework\Base
                 );
             }
 
-            $obj->resource = $dbResource;
-            $obj->cursor = 0;
+            $obj->mysqlResult = $dbResource;
 
-            $obj->numRows = @mysqli_num_rows($dbResource);
+            $obj->numRows = $obj->getNumRows();
 
-            if ($obj->RecordCount() > 0) {
+            if ($obj->getNumRows() > 0) {
                 $obj->eof = false;
-                $result_array = @mysqli_fetch_array($dbResource);
-                if ($result_array) {
-                    foreach($result_array as $key=>$value) {
-                        if (!preg_match('/^[0-9]/', $key)) {
-                            $obj->fields[$key] = $value;
-                        }
+                $resultArray = mysqli_fetch_array($dbResource, MYSQLI_ASSOC);
+                mysqli_data_seek($dbResource, 0);
+                if ($resultArray) {
+                    foreach($resultArray as $key=>$value) {
+                        $obj->fields[$key] = $value;
                     }
                     $obj->eof = false;
                 } else {
