@@ -26,11 +26,27 @@ class Language extends Base
     private $_strings = array();
 
     /**
+     * Language files path
+     * @var string
+     */
+    private $languagePath = '';
+
+    /**
      * If a language is set, load it
      * @param string $lang
+     * @param string $path Default language path
      */
-    function __construct($lang = '')
+    function __construct($lang = '', $path = null)
     {
+        if ($path != null) {
+            $this->languagePath = $path;
+        } else {
+            if (defined('LANGPATH')) {
+                $this->languagePath = LANGPATH;
+            } else {
+                $this->languagePath = ROOT . DS . "app" . DS . "language";
+            }
+        }
         if ($lang <> '') {
             $this->_lang = $lang;
             $this->load($lang);
@@ -92,6 +108,11 @@ class Language extends Base
 
         if ($path == '') {
             if (file_exists(
+                $this->languagePath . DS . $language . ".php"
+            )) {
+                include $this->languagePath . DS . $language . ".php";
+
+            } elseif (file_exists(
                 ROOT . DS . "language" . DS . $language . ".php"
             )) {
                 include ROOT . DS . "language" . DS . $language . ".php";
