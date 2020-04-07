@@ -30,7 +30,7 @@ class User extends \Pramnos\Framework\Base
     protected $_isnew = 0;
     protected static $_usercache = NULL;
 
-    function __construct($userid = 0)
+    public function __construct($userid = 0)
     {
         if ($userid === 0) {
             $this->_isnew = 1;
@@ -467,15 +467,14 @@ class User extends \Pramnos\Framework\Base
         if ($by != 'username' && $by != 'email') {
             return false;
         }
-        $config['prefix'] = $database->prefix;
-        $return = "";
-        $sql = "SELECT `userid` FROM `"
-            . $config['prefix']
-            . "users` WHERE `$by` = '$username' limit 1";
-        $result = $database->query($sql);
-        $result2 = $database->fetchRow($result);
-        if ($database->getNumRows($result) == 1) {
-            return $result2['userid'];
+        $sql = $database->prepare(
+            "SELECT `userid` FROM `#PREFIX#users` "
+            . " WHERE `$by` = %s limit 1",
+            $username
+        );
+        $result = $database->Execute($sql);
+        if ($result->numRows == 1) {
+            return $result->fields['userid'];
         } else {
             return false;
         }
@@ -499,7 +498,7 @@ class User extends \Pramnos\Framework\Base
             . "', '"
             . (int) $userb
             . "', '1')";
-        $database->query($sql);
+        $database->Execute($sql);
     }
 
     /**
@@ -514,7 +513,7 @@ class User extends \Pramnos\Framework\Base
         $sql = "delete from `" . $database->prefix . "userfriends` "
                 . "where (`from_userid` = '$usera' and `to_userid`='$userb') "
                 . "or (`from_userid` = '$userb' and `to_userid`='$usera')";
-        $database->query($sql);
+        $database->Execute($sql);
     }
 
     /**
@@ -531,8 +530,8 @@ class User extends \Pramnos\Framework\Base
                 . "where `confirm` = 1 "
                 . "and ((`from_userid` = '$usera' and `to_userid`='$userb') "
                 . "or (`from_userid` = '$userb' and `to_userid`='$usera'))";
-        $result = $database->query($sql);
-        if ($database->getNumRows($result) == 1) {
+        $result = $database->Execute($sql);
+        if ($result->numRows == 1) {
             return true;
         }
         else {
@@ -546,26 +545,28 @@ class User extends \Pramnos\Framework\Base
      * @param int $userid ID of the user
      * @return array All friend's IDs
      */
-    static function getfriends($userid)
+    public static function getfriends($userid)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $return = array();
-        $sql = "select * from `" . $database->prefix . "userfriends` "
+        $sql = "select * from `#PREFIX#userfriends` "
                 . "where `confirm` = 1 "
                 . "and (`from_userid` = '$userid' or `to_userid`='$userid')";
-        $result = $database->query($sql);
-        while ($row = $database->fetchRow($result)) {
-            if ($row['from_userid'] == $userid) {
-                $return[] = $row['to_userid'];
+        $result = $database->Execute($sql);
+        while (!$result->eof) {
+
+            if ($result->fields['from_userid'] == $userid) {
+                $return[] = $result->fields['to_userid'];
+            } else {
+                $return[] = $result->fields['from_userid'];
             }
-            else {
-                $return[] = $row['from_userid'];
-            }
+
+            $result->MoveNext();
         }
         return $return;
     }
 
-    function getFeed($limit = 10)
+    public function getFeed($limit = 10)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $friends = array();
@@ -576,25 +577,27 @@ class User extends \Pramnos\Framework\Base
             . "and (`from_userid` = %d or `to_userid`=%d)", $this->userid,
             $this->userid
         );
-        $result = $database->query($sql);
-        while ($row = $database->fetchRow($result)) {
-            if ($row['from_userid'] == $this->userid) {
-                $friends[] = $row['to_userid'];
+        $result = $database->Execute($sql);
+        while (!$result->eof) {
+            if ($result->fields['from_userid'] == $this->userid) {
+                $friends[] = $result->fields['to_userid'];
             } else {
-                $friends[] = $row['from_userid'];
+                $friends[] = $result->fields['from_userid'];
             }
+            $result->MoveNext();
         }
+
         $in = '0';
         foreach ($friends as $friendid) {
             $in .= ', ' . $friendid;
         }
-        $sql = $database->prepare(
+        $secondSql = $database->prepare(
                 "select * from `#PREFIX#feed` "
                 . "where `userid` in (" . $in . ") "
                 . "and itemprivacy=0 "
                 . "order by `date` desc limit " . $limit
         );
-        $result = $database->Execute($sql);
+        $finalResult = $database->Execute($secondSql);
         $return = array();
         while (!$result->eof) {
             if (trim($result->fields['itemtext']) != '') {
