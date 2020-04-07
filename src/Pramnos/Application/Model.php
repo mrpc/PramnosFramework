@@ -164,7 +164,7 @@ class Model extends \Pramnos\Framework\Base
                 $sql    = "SHOW COLUMNS FROM `" . $this->_dbtable . "`";
                 $result = $database->query($sql);
                 self::$columnCache[$this->_dbtable] = array();
-                while (!$result->eof) {
+                while ($result->fetch()) {
                     self::$columnCache[$this->_dbtable][] = $result->fields;
                     if ($result->fields['Field'] != $this->_primaryKey) {
                         $field = $result->fields['Field'];
@@ -193,7 +193,6 @@ class Model extends \Pramnos\Framework\Base
                             )
                         );
                     }
-                    $result->MoveNext();
                 }
             }
             $primarykey = $this->_primaryKey;
@@ -367,7 +366,7 @@ class Model extends \Pramnos\Framework\Base
                 die($sql);
             }
             $result = $database->query($sql, true, 600, $this->_cacheKey);
-            while (!$result->eof) {
+            while ($result->fetch()) {
                 $objects[$result->fields[$primarykey]] = $this->getModel(
                     $this->modelname
                 );
@@ -376,7 +375,6 @@ class Model extends \Pramnos\Framework\Base
                         = $result->fields[$field];
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
-                $result->MoveNext();
             }
         }
 
@@ -443,7 +441,7 @@ class Model extends \Pramnos\Framework\Base
                 $this->controller->application->showError($ex->getMessage());
             }
 
-            while (!$result->eof) {
+            while ($result->fetch()) {
                 $objects[$result->fields[$primarykey]]
                     = $this->getModel($this->modelname);
                 foreach (array_keys($result->fields) as $field) {
@@ -451,7 +449,6 @@ class Model extends \Pramnos\Framework\Base
                         = $result->fields[$field];
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
-                $result->MoveNext();
             }
         }
         return $objects;
@@ -497,9 +494,8 @@ class Model extends \Pramnos\Framework\Base
             $sql    = "SHOW COLUMNS FROM `" . $this->_dbtable . "`";
             $result = $database->query($sql);
 
-            while (!$result->eof) {
+            while ($result->fetch()) {
                 $fields[] = $result->fields['Field'];
-                $result->MoveNext();
             }
 
             $objects = \Pramnos\Html\Datatable\Datasource::getList(

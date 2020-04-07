@@ -290,7 +290,7 @@ migcontent;
             $firstField = '';
             $primaryKey = '';
             $count = 0;
-            while (!$result->eof) {
+            while ($result->fetch()) {
                 $count++;
                 $primary = false;
                 if (isset($result->fields['Key'])
@@ -373,7 +373,6 @@ content;
                     }
                 }
                 $formContent .= "\n";
-                $result->MoveNext();
             }
 
             $editContent = <<<content
@@ -623,7 +622,7 @@ content;
             $saveContent = '';
 
             $primaryKey = '';
-            while (!$result->eof) {
+            while ($result->fetch()) {
                 $primary = false;
                 if (isset($result->fields['Key'])
                     && $result->fields['Key'] == 'PRI') {
@@ -678,7 +677,6 @@ content;
                     }
                 }
 
-                $result->MoveNext();
             }
 
 
@@ -831,7 +829,7 @@ content;
 
 
         $primaryKey = '';
-        while (!$result->eof) {
+        while ($result->fetch()) {
             $primary = false;
             if (isset($result->fields['Key'])
                 && $result->fields['Key'] == 'PRI') {
@@ -881,7 +879,6 @@ content;
                 . "    public $"
                 . $result->fields['Field']
                 . ";\n";
-            $result->MoveNext();
         }
         if ($primaryKey != '') {
             $fileContent .= "    /**\n"

@@ -370,7 +370,7 @@ class Datasource extends Base
 
 
         $return = array();
-        while (!$result->eof) {
+        while ($result->fetch()) {
             $fielddetails = array_keys($this->fielddetails);
             $i = 0;
             foreach ($result->fields as $field) {
@@ -397,7 +397,6 @@ class Datasource extends Base
             $tf['DT_RowId'] = $tf[0];
             $return['aaData'][] = $tf;
             unset($tf);
-            $result->MoveNext();
         }
 
         $return['sEcho'] = intval($request->get('sEcho'));
