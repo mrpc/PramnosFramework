@@ -742,30 +742,6 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
-     * Frees the memory associated with the result.
-     * @param int $query_id
-     * @return boolean
-     */
-    public function freeResult($query_id = 0)
-    {
-        if (!$query_id) {
-            $query_id = $this->queryResult;
-        }
-
-        if ($query_id) {
-            unset($this->row[$query_id]);
-            unset($this->rowset[$query_id]);
-
-            mysqli_free_result($query_id);
-
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-
-    /**
      * Get the last database error
      * @return array Array with message and error code
      */
