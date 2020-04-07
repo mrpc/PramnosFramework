@@ -24,7 +24,7 @@ class Helper extends pramnos_base
         }
         $db = pramnos_factory::getDatabase();
         $db->sql_cache_flush_cache();
-        $db->sql_query(
+        $db->query(
             "ALTER DATABASE `" . $db->database . "` "
             . " DEFAULT CHARACTER SET utf8 "
             . " COLLATE utf8_general_ci"

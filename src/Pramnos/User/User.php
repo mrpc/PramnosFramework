@@ -299,7 +299,7 @@ class User extends \Pramnos\Framework\Base
                 $this->addError($error['message']);
                 return $this;
             }
-            $this->userid = $database->sql_nextid();
+            $this->userid = $database->getInsertId();
         } else {
             if (!$database->perform(
                 $database->prefix . "users", $itemdata, 'update',
@@ -472,9 +472,9 @@ class User extends \Pramnos\Framework\Base
         $sql = "SELECT `userid` FROM `"
             . $config['prefix']
             . "users` WHERE `$by` = '$username' limit 1";
-        $result = $database->sql_query($sql);
-        $result2 = $database->sql_fetchrow($result);
-        if ($database->sql_numrows($result) == 1) {
+        $result = $database->query($sql);
+        $result2 = $database->fetchRow($result);
+        if ($database->getNumRows($result) == 1) {
             return $result2['userid'];
         } else {
             return false;
@@ -499,7 +499,7 @@ class User extends \Pramnos\Framework\Base
             . "', '"
             . (int) $userb
             . "', '1')";
-        $database->sql_query($sql);
+        $database->query($sql);
     }
 
     /**
@@ -514,7 +514,7 @@ class User extends \Pramnos\Framework\Base
         $sql = "delete from `" . $database->prefix . "userfriends` "
                 . "where (`from_userid` = '$usera' and `to_userid`='$userb') "
                 . "or (`from_userid` = '$userb' and `to_userid`='$usera')";
-        $database->sql_query($sql);
+        $database->query($sql);
     }
 
     /**
@@ -531,8 +531,8 @@ class User extends \Pramnos\Framework\Base
                 . "where `confirm` = 1 "
                 . "and ((`from_userid` = '$usera' and `to_userid`='$userb') "
                 . "or (`from_userid` = '$userb' and `to_userid`='$usera'))";
-        $result = $database->sql_query($sql);
-        if ($database->sql_numrows($result) == 1) {
+        $result = $database->query($sql);
+        if ($database->getNumRows($result) == 1) {
             return true;
         }
         else {
@@ -553,8 +553,8 @@ class User extends \Pramnos\Framework\Base
         $sql = "select * from `" . $database->prefix . "userfriends` "
                 . "where `confirm` = 1 "
                 . "and (`from_userid` = '$userid' or `to_userid`='$userid')";
-        $result = $database->sql_query($sql);
-        while ($row = $database->sql_fetchrow($result)) {
+        $result = $database->query($sql);
+        while ($row = $database->fetchRow($result)) {
             if ($row['from_userid'] == $userid) {
                 $return[] = $row['to_userid'];
             }
@@ -576,8 +576,8 @@ class User extends \Pramnos\Framework\Base
             . "and (`from_userid` = %d or `to_userid`=%d)", $this->userid,
             $this->userid
         );
-        $result = $database->sql_query($sql);
-        while ($row = $database->sql_fetchrow($result)) {
+        $result = $database->query($sql);
+        while ($row = $database->fetchRow($result)) {
             if ($row['from_userid'] == $this->userid) {
                 $friends[] = $row['to_userid'];
             } else {
