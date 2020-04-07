@@ -162,7 +162,7 @@ class Model extends \Pramnos\Framework\Base
                 }
             } else {
                 $sql    = "SHOW COLUMNS FROM `" . $this->_dbtable . "`";
-                $result = $database->Execute($sql);
+                $result = $database->query($sql);
                 self::$columnCache[$this->_dbtable] = array();
                 while (!$result->eof) {
                     self::$columnCache[$this->_dbtable][] = $result->fields;
@@ -204,22 +204,21 @@ class Model extends \Pramnos\Framework\Base
             if ($this->_isnew == true) {
 
                 $this->_isnew = false;
-                $result = $database->perform(
-                    $this->_dbtable, $itemdata, 'insert', '', $debug
+                $result = $database->insertDataToTable(
+                    $this->_dbtable, $itemdata
                 );
                 if ($result==false) {
-                    $error = $database->sql_error();
+                    $error = $database->getError();
                     throw new \Exception($error['message']);
                 }
                 $this->$primarykey = $database->getInsertId();
             } else {
-                $database->perform(
+                $database->updateTableData(
                     $this->_dbtable, $itemdata,
-                    'update', "`" . $primarykey . "` = '"
-                    . (int) $this->$primarykey . "'", $debug
+                    "`" . $primarykey . "` = '" . (int) $this->$primarykey . "'"
                 );
             }
-            $database->sql_cache_flush_cache($this->_cacheKey);
+            $database->cacheflush($this->_cacheKey);
         }
 
         return $this;
@@ -252,7 +251,7 @@ class Model extends \Pramnos\Framework\Base
             if ($this->_cacheKey === NULL) {
                 $this->_fixDb();
             }
-            $sql = $database->prepare(
+            $sql = $database->prepareQuery(
                 "select * from "
                 . $this->_dbtable
                 . " where `"
@@ -263,7 +262,7 @@ class Model extends \Pramnos\Framework\Base
             if ($debug === true) {
                 die($sql);
             }
-            $result = $database->Execute($sql, true, 600, $this->_cacheKey);
+            $result = $database->query($sql, true, 600, $this->_cacheKey);
             if ($result->numRows != 0) {
                 foreach (array_keys($result->fields) as $field) {
                     $this->$field = $result->fields[$field];
@@ -299,8 +298,8 @@ class Model extends \Pramnos\Framework\Base
             $sql = "delete from `" . $this->_dbtable
                 . "` where `" . $this->_primaryKey
                 . "` = " . (int) $primaryKey . " limit 1";
-            $database->Execute($sql);
-            $database->sql_cache_flush_cache($this->_cacheKey);
+            $database->query($sql);
+            $database->cacheflush($this->_cacheKey);
         }
         $this->_isnew = true;
         return $this;
@@ -359,7 +358,7 @@ class Model extends \Pramnos\Framework\Base
             $countSql = "select count(`" . $primarykey . "`) "
                 . "as 'itemsCount'  from `"
                 . $this->_dbtable . "` " . $filter . ' ' . $order ;
-            $countResult = $database->Execute(
+            $countResult = $database->query(
                 $countSql, true, 600, $this->_cacheKey
             );
             $totalItems = $countResult->fields['itemsCount'];
@@ -367,7 +366,7 @@ class Model extends \Pramnos\Framework\Base
             if ($debug==true) {
                 die($sql);
             }
-            $result = $database->Execute($sql, true, 600, $this->_cacheKey);
+            $result = $database->query($sql, true, 600, $this->_cacheKey);
             while (!$result->eof) {
                 $objects[$result->fields[$primarykey]] = $this->getModel(
                     $this->modelname
@@ -439,7 +438,7 @@ class Model extends \Pramnos\Framework\Base
                 die($sql);
             }
             try {
-                $result = $database->Execute($sql, true, 600, $this->_cacheKey);
+                $result = $database->query($sql, true, 600, $this->_cacheKey);
             } catch (\Exception $ex) {
                 $this->controller->application->showError($ex->getMessage());
             }
@@ -496,7 +495,7 @@ class Model extends \Pramnos\Framework\Base
 
 
             $sql    = "SHOW COLUMNS FROM `" . $this->_dbtable . "`";
-            $result = $database->Execute($sql);
+            $result = $database->query($sql);
 
             while (!$result->eof) {
                 $fields[] = $result->fields['Field'];

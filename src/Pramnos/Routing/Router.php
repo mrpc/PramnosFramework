@@ -80,12 +80,12 @@ class Router extends Base implements RouterInterface
         }
         // First, we check for static routes (no regex)
         if (isset($this->routes[$method][$uri])) {
-            return $this->routes[$method][$uri]->execute($this->container);
+            return $this->routes[$method][$uri]->query($this->container);
         }
         // Advanced matching
         foreach ($this->routes[$method] as $route) {
             if ($route->matches($request)) {
-                return $route->execute($this->container);
+                return $route->query($this->container);
             }
         }
 

@@ -48,11 +48,11 @@ class User extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         if ($this->_isnew == false) {
-            $sql = $database->prepare(
+            $sql = $database->prepareQuery(
                 "delete from `#PREFIX#users` "
                 . "where `userid` = %d limit 1", $this->userid
             );
-            $database->Execute($sql);
+            $database->query($sql);
             $this->_isnew = 1;
         }
         return $this;
@@ -66,11 +66,11 @@ class User extends \Pramnos\Framework\Base
         if ($this->_isnew == false) {
             $this->active = true;
             $database = \Pramnos\Framework\Factory::getDatabase();
-            $sql = $database->prepare(
+            $sql = $database->prepareQuery(
                 "update `#PREFIX#users`"
                 . " set `active` = 1 where `userid` = %d", $this->userid
             );
-            $database->Execute($sql);
+            $database->query($sql);
         }
         else {
             $this->active = true;
@@ -85,11 +85,11 @@ class User extends \Pramnos\Framework\Base
         if ($this->_isnew == false) {
             $this->active = 0;
             $database = \Pramnos\Framework\Factory::getDatabase();
-            $sql = $database->prepare(
+            $sql = $database->prepareQuery(
                 "update `#PREFIX#users` "
                 . "set `active` = 0 where `userid` = %d", $this->userid
             );
-            $database->Execute($sql);
+            $database->query($sql);
         }
         else {
             $this->active = 0;
@@ -104,11 +104,11 @@ class User extends \Pramnos\Framework\Base
     static function getUsers($where = '')
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepare("select `userid` from `#PREFIX#users`");
+        $sql = $database->prepareQuery("select `userid` from `#PREFIX#users`");
         if ($where != '') {
             $sql .= ' where ' . $database->prepareInput($where);
         }
-        $users = $database->Execute($sql, 1, 10, 'userlist');
+        $users = $database->query($sql, 1, 10, 'userlist');
         $return = array();
         while (!$users->eof) {
             $theuser = new User($users->fields['userid']);
@@ -205,13 +205,13 @@ class User extends \Pramnos\Framework\Base
             return array();
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepare(
+        $sql = $database->prepareQuery(
             "select * from `"
             . DB_USERGROUPSUBSCRIPTIONS
             . " `where `userid` = %d", $this->userid
         );
         try {
-            $result = $database->Execute($sql, true, 60);
+            $result = $database->query($sql, true, 60);
         }
         catch (Exception $exc) {
             pramnos_logs::log($exc->getMessage());
@@ -292,20 +292,20 @@ class User extends \Pramnos\Framework\Base
                     'value' => $this->userid,
                     'type' => 'integer');
             }
-            if (!$database->perform(
-                $database->prefix . "users", $itemdata, 'insert', '', $debug
+            if (!$database->insertDataToTable(
+                $database->prefix . "users", $itemdata
             )) {
-                $error = $database->sql_error();
+                $error = $database->getError();
                 $this->addError($error['message']);
                 return $this;
             }
             $this->userid = $database->getInsertId();
         } else {
-            if (!$database->perform(
-                $database->prefix . "users", $itemdata, 'update',
-                "`userid` = " . $this->userid, $debug
+            if (!$database->updateTableData(
+                $database->prefix . "users", $itemdata,
+                "`userid` = " . $this->userid
             )) {
-                $error = $database->sql_error();
+                $error = $database->getError();
                 $this->addError($error['message']);
                 return $this;
             }
@@ -314,7 +314,7 @@ class User extends \Pramnos\Framework\Base
         foreach (array_keys($this->otherinfo) as $fieldname) {
             $fixname = substr($fieldname, 3);
             if ($this->$fieldname === NULL) {
-                $sql = $database->prepare(
+                $sql = $database->prepareQuery(
                     "DELETE FROM `#PREFIX#userdetails` "
                     . "where `userid` = %d and `fieldname` = %s "
                     . "limit 1", $this->userid, $fieldname
@@ -325,7 +325,7 @@ class User extends \Pramnos\Framework\Base
                 if ($fixname != 'originalOtherinfo'
                     && substr($fixname, 0, 1) != '_'
                     && substr($fieldname, 0, 1) != '_') {
-                    $sql = $database->prepare(
+                    $sql = $database->prepareQuery(
                         "insert into `#PREFIX#userdetails` "
                         . " (`userid`, `fieldname`, `value`) "
                         . " values (%d, %s, %s) "
@@ -340,7 +340,7 @@ class User extends \Pramnos\Framework\Base
                 || $this->originalOtherinfo[$fieldname] != $this->$fieldname
                 && substr($fixname, 0, 1) != '_'
                 && substr($fieldname, 0, 1) != '_') {
-                $sql = $database->prepare(
+                $sql = $database->prepareQuery(
                     "insert into `#PREFIX#userdetails` "
                     . " (`userid`, `fieldname`, `value`) "
                     . " values (%d, %s, %s) "
@@ -352,17 +352,17 @@ class User extends \Pramnos\Framework\Base
 
             try {
                 if (isset($sql)) {
-                    $database->Execute($sql);
+                    $database->query($sql);
                     unset($sql);
                 }
             } catch (Exception $ex) {
-                $error = $database->sql_error();
+                $error = $database->getError();
                 $this->addError($error['message']);
                 \Pramnos\Logs\Logs::log($ex->getMessage());
             }
 
         }
-        $database->sql_cache_flush_cache('userlist');
+        $database->cacheflush('userlist');
         return $this;
     }
 
@@ -394,10 +394,10 @@ class User extends \Pramnos\Framework\Base
             return $this;
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepare(
+        $sql = $database->prepareQuery(
             "SELECT * FROM #PREFIX#users WHERE `userid` = %d LIMIT 1", $uid
         );
-        $result = $database->execute($sql, 1, 10, 'userlist');
+        $result = $database->query($sql, 1, 10, 'userlist');
         if ($result->numRows == 0) {
             return false;
         }
@@ -407,10 +407,10 @@ class User extends \Pramnos\Framework\Base
         }
 
 
-        $sql = $database->prepare(
+        $sql = $database->prepareQuery(
             "SELECT * FROM #PREFIX#userdetails WHERE `userid` = %d", $uid
         );
-        $result = $database->execute($sql);
+        $result = $database->query($sql);
         while (!$result->eof) { //This should load all special settings
             $fixname = substr($result->fields['fieldname'], 3);
             if ($fixname != 'originalOtherinfo'
@@ -444,11 +444,11 @@ class User extends \Pramnos\Framework\Base
     static function getbyparam($param, $value)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepare(
+        $sql = $database->prepareQuery(
             "select `userid` from `#PREFIX#userdetails` "
             . "where `fieldname` = %s and `value` = %s", $param, $value
         );
-        $result = $database->Execute($sql);
+        $result = $database->query($sql);
         $return = array();
         while (!$result->eof) {
             $return[] = $result->fields['userid'];
@@ -467,12 +467,12 @@ class User extends \Pramnos\Framework\Base
         if ($by != 'username' && $by != 'email') {
             return false;
         }
-        $sql = $database->prepare(
+        $sql = $database->prepareQuery(
             "SELECT `userid` FROM `#PREFIX#users` "
             . " WHERE `$by` = %s limit 1",
             $username
         );
-        $result = $database->Execute($sql);
+        $result = $database->query($sql);
         if ($result->numRows == 1) {
             return $result->fields['userid'];
         } else {
@@ -498,7 +498,7 @@ class User extends \Pramnos\Framework\Base
             . "', '"
             . (int) $userb
             . "', '1')";
-        $database->Execute($sql);
+        $database->query($sql);
     }
 
     /**
@@ -513,7 +513,7 @@ class User extends \Pramnos\Framework\Base
         $sql = "delete from `" . $database->prefix . "userfriends` "
                 . "where (`from_userid` = '$usera' and `to_userid`='$userb') "
                 . "or (`from_userid` = '$userb' and `to_userid`='$usera')";
-        $database->Execute($sql);
+        $database->query($sql);
     }
 
     /**
@@ -530,7 +530,7 @@ class User extends \Pramnos\Framework\Base
                 . "where `confirm` = 1 "
                 . "and ((`from_userid` = '$usera' and `to_userid`='$userb') "
                 . "or (`from_userid` = '$userb' and `to_userid`='$usera'))";
-        $result = $database->Execute($sql);
+        $result = $database->query($sql);
         if ($result->numRows == 1) {
             return true;
         }
@@ -552,7 +552,7 @@ class User extends \Pramnos\Framework\Base
         $sql = "select * from `#PREFIX#userfriends` "
                 . "where `confirm` = 1 "
                 . "and (`from_userid` = '$userid' or `to_userid`='$userid')";
-        $result = $database->Execute($sql);
+        $result = $database->query($sql);
         while (!$result->eof) {
 
             if ($result->fields['from_userid'] == $userid) {
@@ -570,14 +570,14 @@ class User extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $friends = array();
-        $sql = $database->prepare(
+        $sql = $database->prepareQuery(
             "select * "
             . "from `#PREFIX#userfriends` "
             . "where `confirm` = 1 "
             . "and (`from_userid` = %d or `to_userid`=%d)", $this->userid,
             $this->userid
         );
-        $result = $database->Execute($sql);
+        $result = $database->query($sql);
         while (!$result->eof) {
             if ($result->fields['from_userid'] == $this->userid) {
                 $friends[] = $result->fields['to_userid'];
@@ -591,13 +591,13 @@ class User extends \Pramnos\Framework\Base
         foreach ($friends as $friendid) {
             $in .= ', ' . $friendid;
         }
-        $secondSql = $database->prepare(
+        $secondSql = $database->prepareQuery(
                 "select * from `#PREFIX#feed` "
                 . "where `userid` in (" . $in . ") "
                 . "and itemprivacy=0 "
                 . "order by `date` desc limit " . $limit
         );
-        $finalResult = $database->Execute($secondSql);
+        $finalResult = $database->query($secondSql);
         $return = array();
         while (!$result->eof) {
             if (trim($result->fields['itemtext']) != '') {
@@ -615,14 +615,14 @@ class User extends \Pramnos\Framework\Base
     public function addFeed($text, $privacy = 0)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepare(
+        $sql = $database->prepareQuery(
             "insert into `#PREFIX#feed` "
             . "(`date`, `userid`, `usertype`, `itemprivacy`, `itemtext`) "
             . "values "
             . "(%d, %d, %d, %d, %s)", time(), $this->userid, 0, $privacy,
             $text
         );
-        $database->Execute($sql);
+        $database->query($sql);
         return $this;
     }
 

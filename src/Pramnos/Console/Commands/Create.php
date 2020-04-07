@@ -276,13 +276,13 @@ migcontent;
             }
 
 
-            if (!$database->table_exists($tableName)) {
+            if (!$database->tableExists($tableName)) {
                 throw new \Exception(
                     'Table: ' . $tableName . ' does not exist.'
                 );
             }
-            $sql = $database->Prepare("SHOW FULL COLUMNS FROM `{$tableName}`");
-            $result = $database->Execute($sql);
+            $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            $result = $database->query($sql);
 
 
             $formContent = '';
@@ -611,13 +611,13 @@ content;
             }
 
 
-            if (!$database->table_exists($tableName)) {
+            if (!$database->tableExists($tableName)) {
                 throw new \Exception(
                     'Table: ' . $tableName . ' does not exist.'
                 );
             }
-            $sql = $database->Prepare("SHOW FULL COLUMNS FROM `{$tableName}`");
-            $result = $database->Execute($sql);
+            $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            $result = $database->query($sql);
 
 
             $saveContent = '';
@@ -777,11 +777,11 @@ content;
         }
 
 
-        if (!$database->table_exists($tableName)) {
+        if (!$database->tableExists($tableName)) {
             throw new \Exception('Table: ' . $tableName . ' does not exist.');
         }
-        $sql = $database->Prepare("SHOW FULL COLUMNS FROM `{$tableName}`");
-        $result = $database->Execute($sql);
+        $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+        $result = $database->query($sql);
 
 
         $path = ROOT . DS . INCLUDES . DS;

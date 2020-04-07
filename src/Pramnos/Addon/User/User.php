@@ -16,11 +16,11 @@ class User extends \Pramnos\Addon\Addon
 
         $database = \Pramnos\Framework\Factory::getDatabase();
         if (isset($_SESSION['username'])) {
-            $sql = $database->prepare(
+            $sql = $database->prepareQuery(
                 "DELETE FROM `#PREFIX#sessions` WHERE `uname` = %s",
                 $_SESSION['username']
             );
-            $database->execute($sql);
+            $database->query($sql);
         }
         $session = \Pramnos\Framework\Factory::getSession();
         $cookietime = time() - 1;
@@ -72,7 +72,7 @@ class User extends \Pramnos\Addon\Addon
         }
 
 
-        $sql = $database->prepare(
+        $sql = $database->prepareQuery(
             "UPDATE `#PREFIX#sessions` "
             . " SET `uname` = %s, "
             . " `time` = %s, "
@@ -81,15 +81,15 @@ class User extends \Pramnos\Addon\Addon
             . " WHERE `host_addr` = %s",
              $info['username'], $ctime, $remoteIp, $remoteIp
         );
-        $database->execute($sql);
-        $sqlLastLogin = $database->prepare(
+        $database->query($sql);
+        $sqlLastLogin = $database->prepareQuery(
             "UPDATE `#PREFIX#users` "
             . " SET `lastlogin`= %d, "
             . " `language` = %s "
             . " WHERE `userid` = %d",
             time(), $lang->currentlang(), $info['uid']
         );
-        $database->execute($sqlLastLogin);
+        $database->query($sqlLastLogin);
 
 
 

@@ -63,7 +63,7 @@ class Permissions extends \Pramnos\Framework\Base
     {
         $database = pramnos_database::getInstance();
         if ($subjectType == 'user') {
-            $sql = $database->prepare(
+            $sql = $database->prepareQuery(
                 "DELETE FROM `" . DB_PERMISSIONSTABLE . "` "
                 . " WHERE `userid` = %d "
                 . " AND `resource` = %s AND `resourcetype`= %s "
@@ -73,7 +73,7 @@ class Permissions extends \Pramnos\Framework\Base
                 $resourceElement
             );
         } else {
-            $sql = $database->prepare(
+            $sql = $database->prepareQuery(
                 "DELETE FROM `" . DB_PERMISSIONSTABLE . "`
                 WHERE `subject` = %s
                 AND `resource` = %s
@@ -87,8 +87,8 @@ class Permissions extends \Pramnos\Framework\Base
             );
         }
 
-        $database->Execute($sql);
-        $database->sql_cache_flush_cache('permissions');
+        $database->query($sql);
+        $database->cacheflush('permissions');
         return $this;
     }
 
@@ -118,9 +118,9 @@ class Permissions extends \Pramnos\Framework\Base
             );
         }
         $database = pramnos_database::getInstance();
-        $database->sql_cache_flush_cache('permissions');
+        $database->cacheflush('permissions');
         if ($subjectType == 'user') {
-            $sql = $database->prepare(
+            $sql = $database->prepareQuery(
                 "SELECT * FROM `" . DB_PERMISSIONSTABLE . "`
                 WHERE `userid` = %d
                 AND `resource` = %s
@@ -132,7 +132,7 @@ class Permissions extends \Pramnos\Framework\Base
                 $resourceElement
             );
         } else {
-            $sql = $database->prepare(
+            $sql = $database->prepareQuery(
                 "SELECT * FROM `" . DB_PERMISSIONSTABLE . "`
                 WHERE `subject` = %s
                 AND `resource` = %s
@@ -144,12 +144,12 @@ class Permissions extends \Pramnos\Framework\Base
                 $subjectType, $resourceElement
             );
         }
-        $result = $database->Execute($sql, true, 600, 'permissions');
+        $result = $database->query($sql, true, 600, 'permissions');
         if ($result->numRows != 0) { // we need to update the permission
             //Or we don't because it's already what we want
             if ($result->fields['value'] != (int) $value) {
                 if ($subjectType == 'user') {
-                    $sql = $database->prepare(
+                    $sql = $database->prepareQuery(
                         "UPDATE `" . DB_PERMISSIONSTABLE . "`
                         SET `value` = %d
                         WHERE `userid` = %d
@@ -162,7 +162,7 @@ class Permissions extends \Pramnos\Framework\Base
                         $resourceType, $privilege, $resourceElement
                     );
                 } else {
-                    $sql = $database->prepare(
+                    $sql = $database->prepareQuery(
                         "UPDATE `" . DB_PERMISSIONSTABLE . "`
                         SET `value` = %d
                         WHERE `subject` = %d
@@ -176,12 +176,12 @@ class Permissions extends \Pramnos\Framework\Base
                         $resourceElement
                     );
                 }
-                $database->Execute($sql);
-                $database->sql_cache_flush_cache('permissions');
+                $database->query($sql);
+                $database->cacheflush('permissions');
             }
         } else { // we need to insert the permission
             if ($subjectType == 'user') {
-                $sql = $database->prepare(
+                $sql = $database->prepareQuery(
                     "INSERT INTO `" . DB_PERMISSIONSTABLE . "`
                     (`userid`, `resource`, `resourcetype`,
                     `privilege`, `subjecttype`, `resourceelement`, `value`)
@@ -191,7 +191,7 @@ class Permissions extends \Pramnos\Framework\Base
                     (int) $value
                 );
             } else {
-                $sql = $database->prepare(
+                $sql = $database->prepareQuery(
                     "INSERT INTO `" . DB_PERMISSIONSTABLE . "`
                     (`subject`, `resource`, `resourcetype`, `privilege`,
                     `subjecttype`, `resourceelement`, `value`)
@@ -201,8 +201,8 @@ class Permissions extends \Pramnos\Framework\Base
                     $resourceElement, (int) $value
                 );
             }
-            $database->Execute($sql);
-            $database->sql_cache_flush_cache('permissions');
+            $database->query($sql);
+            $database->cacheflush('permissions');
         }
         return $this;
     }
@@ -359,7 +359,7 @@ class Permissions extends \Pramnos\Framework\Base
             // First, we have to check if this user has a defined permission
 
             try {
-                $sql = $database->prepare(
+                $sql = $database->prepareQuery(
                     "select `value` from `" . DB_PERMISSIONSTABLE . "`
                     WHERE `userid` = %d
                     AND `resource` = %s
@@ -370,7 +370,7 @@ class Permissions extends \Pramnos\Framework\Base
                     LIMIT 1", $subject, $resource, $resourceType, $privilege,
                     $subjectType, $resourceElement
                 );
-                $result = $database->Execute($sql, true, 600, 'permissions');
+                $result = $database->query($sql, true, 600, 'permissions');
             }
             catch (Exception $exc) {
                 return false;
@@ -408,7 +408,7 @@ class Permissions extends \Pramnos\Framework\Base
         } else {
             // We are not looking for a user. Just run the check.
             try {
-                $sql = $database->prepare(
+                $sql = $database->prepareQuery(
                     "select `value` from `" . DB_PERMISSIONSTABLE . "`
                     WHERE `subject` = %s
                     AND `resource` = %s
@@ -419,7 +419,7 @@ class Permissions extends \Pramnos\Framework\Base
                     LIMIT 1", $subject, $resource, $resourceType, $privilege,
                     $subjectType, $resourceElement
                 );
-                $result = $database->Execute($sql, true, 600, 'permissions');
+                $result = $database->query($sql, true, 600, 'permissions');
             }
             catch (Exception $exc) {
                 return false;
@@ -445,7 +445,7 @@ class Permissions extends \Pramnos\Framework\Base
     public static function setupDb($foreignKeys = true)
     {
         $database = &pramnos_factory::getDatabase();
-        $statement = $database->prepare(
+        $statement = $database->prepareQuery(
             "CREATE TABLE IF NOT EXISTS `" . DB_PERMISSIONSTABLE . "` (
             `userid` bigint(20) DEFAULT NULL,
             `subject` varchar(80) DEFAULT NULL,
@@ -462,7 +462,7 @@ class Permissions extends \Pramnos\Framework\Base
         );
 
         try {
-            $database->Execute($statement);
+            $database->query($statement);
         }
         catch (Exception $exc) {
             pramnos_logs::log($exc->getTraceAsString());
@@ -470,8 +470,8 @@ class Permissions extends \Pramnos\Framework\Base
 
         if ($foreignKeys == true) {
             try {
-                $database->Execute(
-                    $database->prepare(
+                $database->query(
+                    $database->prepareQuery(
                         "ALTER TABLE `" . DB_PERMISSIONSTABLE
                         . "` ADD CONSTRAINT `permissions_to_users` "
                         . "FOREIGN KEY (`userid`) REFERENCES `"
