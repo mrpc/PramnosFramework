@@ -38,7 +38,6 @@ class Database extends \Pramnos\Framework\Base
      * @var bool
      */
     public $persistency = false;
-    public $newlink = true;
     /**
      * Is the database connected?
      * @var bool
@@ -49,31 +48,100 @@ class Database extends \Pramnos\Framework\Base
      * @var string
      */
     public $collation = false;
-    public $query_result;
-    public $row = array();
+    /**
+     * Current query result
+     * @var type
+     */
+    protected $queryResult;
+    /**
+     * Rows
+     * @var array
+     */
+    protected $row = array();
+    /**
+     * Rowset
+     * @var array
+     */
     public $rowset = array();
-    public $total_query_time = 0;
-    public $num_queries = 0;
-    public $intransaction = 0;
-    public $sql = "";
+    /**
+     * Total database queries execution time
+     * @var int
+     */
+    public $totalQueryTime = 0;
+    /**
+     * Queries counter
+     * @var int
+     */
+    public $queriesCount = 0;
+    /**
+     * Current sql query
+     * @var string
+     */
+    protected $currentQuery = "";
     /**
      * Database prefix
      * @var string
      */
     public $prefix = "";
-    public $modulePrefix = "";
-    public $driver = 'mysql';
-
+    /**
+     * Extra controller prefix for tables
+     * @var string
+     */
+    public $controllerPrefix = "";
+    /**
+     * Query log handler (fopen resource)
+     * @var resource
+     */
     private $_queryLogHandler = NULL;
+    /**
+     * Duplicate query log handler
+     * @var resource
+     */
     private $_duplicateQueryLogHandler = NULL;
+    /**
+     * Slow query log handler
+     * @var resource
+     */
     private $_slowQueryLogHandler = NULL;
+    /**
+     * Array with all duplicate queries
+     * @var array
+     */
     private $_duplicateQueries = NULL;
+    /**
+     * Total duplicate queries counter
+     * @var int
+     */
     private $_duplicateQueriesCounter = 0;
-    public $long_query_time=1;
+    /**
+     * Long query time in seconds to calculate long queries
+     * @var type
+     */
+    public $longQueryTime=1;
+    /**
+     * Log slow queries?
+     * @var bool
+     */
     private $_logSlowQueries=false;
+    /**
+     * Custom logging of slow queries
+     * @var bool
+     */
     private $_customLogSlowQueries=false;
-    private $_querieslog='';
-    private $_slowquerieslog='';
+    /**
+     * Queries log
+     * @var string
+     */
+    private $_querieslog = '';
+    /**
+     * Slow queries log
+     * @var string
+     */
+    private $_slowquerieslog = '';
+    /**
+     * Slow queries counter
+     * @var int
+     */
     private $_numSlowqueries = 0;
 
     /**
@@ -278,7 +346,7 @@ class Database extends \Pramnos\Framework\Base
     public function logSlowQueries($time=0, $mode=0)
     {
         if ((int)$time != 0) {
-            $this->long_query_time = (int)$time;
+            $this->longQueryTime = (int)$time;
         }
         $lngPthQueryOriginal=LOG_PATH . DS . 'logs' . DS . 'slowQueries.log';
         $this->rotateLog($lngPthQueryOriginal);
@@ -294,7 +362,7 @@ class Database extends \Pramnos\Framework\Base
             mysqli_query(
                 $this->_dbConnection,
                 "SET GLOBAL long_query_time = "
-                . $this->long_query_time
+                . $this->longQueryTime
                 . ";"
             );
             mysqli_query(
@@ -306,10 +374,10 @@ class Database extends \Pramnos\Framework\Base
                 "SET GLOBAL SLOW_QUERY_LOG = ON;"
             );
 
-            $resultOne = $this->Execute('select @@global.long_query_time');
-            $resultTwo = $this->Execute('select @@global.LOG_SLOW_QUERIES');
-            $resultThree = $this->Execute('select @@global.SLOW_QUERY_LOG');
-            $resultFour = $this->Execute('select @@global.slow_query_log_file');
+            $resultOne = $this->query('select @@global.long_query_time');
+            $resultTwo = $this->query('select @@global.LOG_SLOW_QUERIES');
+            $resultThree = $this->query('select @@global.SLOW_QUERY_LOG');
+            $resultFour = $this->query('select @@global.slow_query_log_file');
 
             $longQueryTime
                 =(int)$resultOne->fields['@@global.long_query_time'];
@@ -317,7 +385,7 @@ class Database extends \Pramnos\Framework\Base
             $SLOW_QUERY_LOG=$resultThree->fields['@@global.SLOW_QUERY_LOG'];
             $slow_query_log_file
                 =$resultFour->fields['@@global.slow_query_log_file'];
-            if ($longQueryTime != $this->long_query_time
+            if ($longQueryTime != $this->longQueryTime
                     || $LOG_SLOW_QUERIES != 1
                     || $SLOW_QUERY_LOG != 1
                     || $slow_query_log_file != $longpathquery) {
@@ -349,12 +417,6 @@ class Database extends \Pramnos\Framework\Base
     public function close()
     {
         if ($this->_dbConnection) {
-        //
-        // Commit any remaining transactions
-        //
-            if ($this->intransaction) {
-                mysqli_query($this->_dbConnection, "COMMIT");
-            }
             return mysqli_close($this->_dbConnection);
         } else {
             return false;
@@ -362,36 +424,31 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
-     * Basic query method
+     * Run the actual query on database
      * @param string $query sql query
-     * @param boolean $cache Do you want to use the cache?
-     * @param int $cachetime Time of result cache
-     * @return array
+     * @return \mysqli_result
      */
-    public function query($query = "")
+    protected function runQuery($query = "")
     {
-        #if (pramnos_settings::baseget("debuglevel") > 1) {
-        #    echo "$query <br />";
-        #}
-        unset($this->query_result);
+        unset($this->queryResult);
         if ($query != "") {
-            $this->num_queries++;
+            $this->queriesCount++;
             $time = -microtime(true);
-            $this->query_result = mysqli_query($this->_dbConnection, $query);
+            $this->queryResult = mysqli_query($this->_dbConnection, $query);
             $time += microtime(true);
             if ($this->_customLogSlowQueries == true
                     && $this->_slowQueryLogHandler !== NULL
-                    && $time > $this->long_query_time) {
+                    && $time > $this->longQueryTime) {
                 $this->_slowquerieslog .= "\n\n"
                     . date('H:i:s') . ": "
                     . $query . "\nTime: "
                     . number_format($time, 4)
-                    . ' > '.$this->long_query_time ;
+                    . ' > '.$this->longQueryTime ;
                 $this->_numSlowqueries+=1;
             }
             if ($this->_queryLogHandler !== NULL) {
                 $this->_querieslog .= "\n\n"
-                    . $this->num_queries . '.: '
+                    . $this->queriesCount . '.: '
                     . date('H:i:s') . ": "
                     . $query . "\nTime: " . number_format($time, 4);
                 if (isset($this->_duplicateQueries[$query])
@@ -405,20 +462,20 @@ class Database extends \Pramnos\Framework\Base
             }
         }
 
-        if ($this->query_result) {
+        if ($this->queryResult) {
 
             if (count($this->row) > 0
-                && $this->query_result !== true
-                && isset($this->row[$this->query_result])) {
-                unset($this->row[$this->query_result]);
+                && $this->queryResult !== true
+                && isset($this->row[$this->queryResult])) {
+                unset($this->row[$this->queryResult]);
             }
             if (count($this->rowset) > 0
-                && $this->query_result !== true
-                && isset($this->rowset[$this->query_result])) {
-                unset($this->rowset[$this->query_result]);
+                && $this->queryResult !== true
+                && isset($this->rowset[$this->queryResult])) {
+                unset($this->rowset[$this->queryResult]);
             }
 
-            return $this->query_result;
+            return $this->queryResult;
         } else {
             return false;
         }
@@ -445,12 +502,15 @@ class Database extends \Pramnos\Framework\Base
 
     /**
      * Prepares a SQL query for safe execution. Uses sprintf()-like syntax.
-     * Copied from Wordpress
+     * Inspired from Wordpress
      *
      * The following directives can be used in the query format string:
      *   %d (decimal number)
      *   %s (string)
      *   %% (literal percentage sign - no argument needed)
+     *
+     * Replaces #PREFIX# with database global table prefix
+     * and #CP# with controller table prefix
      *
      * Both %d and %s are to be left unquoted in the query
      * string and they need an argument passed for them.
@@ -482,37 +542,34 @@ class Database extends \Pramnos\Framework\Base
      * 	{@link http://php.net/vsprintf vsprintf()}, or the first variable
      * to substitute into the query's placeholders if
      * 	being called like {@link http://php.net/sprintf sprintf()}.
-     * @param mixed $args,... further variables to substitute into the
-     * query's placeholders if being called like
-     * 	{@link http://php.net/sprintf sprintf()}.
+     *
      * @return null|false|string Sanitized query string, null if there is
      * no query, false if there is an error and string
      * 	if there was something to prepare
      */
-    function prepare($query = null)
+    public function prepareQuery($sqlQueryString = null)
     {
-        if (is_null($query)) {
+        if (is_null($sqlQueryString)) {
             return;
         }
-        $query = str_replace(
-            array("#PREFIX#", "#MP#"),
-            array($this->prefix, $this->modulePrefix),
-            $query
+        $query = preg_replace(
+            '|(?<!%)%s|',
+            "'%s'",
+            str_replace(
+                array("#PREFIX#", "#CP#", "'%s'", '"%s"'),
+                array($this->prefix, $this->controllerPrefix, '%s', '%s'),
+                $sqlQueryString
+            )
         );
-
         $args = func_get_args();
         array_shift($args);
-        // If args were passed as an array (as in vsprintf), move them up
         if (isset($args[0]) && is_array($args[0])) {
             $args = $args[0];
         }
-        // in case someone mistakenly already singlequoted it
-        $query = str_replace("'%s'", '%s', $query);
-        // doublequote unquoting
-        $query = str_replace('"%s"', '%s', $query);
-        // quote the strings, avoiding escaped strings like %%s
-        $query = preg_replace('|(?<!%)%s|', "'%s'", $query);
-        // START replace NULLs
+        /*
+         * Replace nulls
+         */
+        $positions = array();
         preg_match_all(
             '|\'?%(?:(\d+)\$)?[dfs]\'?|', $query, $positions,
             PREG_OFFSET_CAPTURE
@@ -529,30 +586,30 @@ class Database extends \Pramnos\Framework\Base
                     $locIndex = $index++;
                 }
                 if (!isset($values[$locIndex])) {
-                    unset($values[$locIndex]); // NULL is not set, but present
-                    $format_length = strlen($pattern[0]);
+                    unset($values[$locIndex]);
+                    $formatLength = strlen($pattern[0]);
                     $query = substr(
                         $query, 0, $pattern[1] + $str_offset
                     ) . ' NULL ' . substr(
-                        $query, $pattern[1] + $format_length + $str_offset
+                        $query, $pattern[1] + $formatLength + $str_offset
                     );
-                    if ($format_length != 6) {
-                        $str_offset += 6 - $format_length;
+                    if ($formatLength != 6) {
+                        $str_offset += 6 - $formatLength;
                     }
                 }
             }
             $args = array_values($values);
         }
-        // END replace NULLs
+        /*
+         * EOF Replace nulls
+         */
+        foreach ($args as $key => $arg) {
+            $args[$key] = $this->prepareInput($arg);
+        }
 
-        array_walk($args, array(&$this, 'escape_by_ref'));
         return @vsprintf($query, $args);
     }
 
-    function escape_by_ref(&$string)
-    {
-        $string = $this->prepare_input($string);
-    }
 
     /**
      * Get number of rows in result. This command is only valid for
@@ -563,7 +620,7 @@ class Database extends \Pramnos\Framework\Base
     public function getNumRows($query_id = 0)
     {
         if (!$query_id) {
-            $query_id = $this->query_result;
+            $query_id = $this->queryResult;
         }
 
         return ( $query_id ) ? mysqli_num_rows($query_id) : false;
@@ -588,7 +645,7 @@ class Database extends \Pramnos\Framework\Base
     public function getNumFields($query_id = 0)
     {
         if (!$query_id) {
-            $query_id = $this->query_result;
+            $query_id = $this->queryResult;
         }
 
         return ( $query_id ) ? mysqli_num_fields($query_id) : false;
@@ -603,7 +660,7 @@ class Database extends \Pramnos\Framework\Base
     public function getFieldName($offset, $query_id = 0)
     {
         if (!$query_id) {
-            $query_id = $this->query_result;
+            $query_id = $this->queryResult;
         }
 
         return ( $query_id ) ? mysqli_field_name($query_id, $offset) : false;
@@ -618,7 +675,7 @@ class Database extends \Pramnos\Framework\Base
     public function getFieldType($offset, $query_id = 0)
     {
         if (!$query_id) {
-            $query_id = $this->query_result;
+            $query_id = $this->queryResult;
         }
 
         return ( $query_id ) ? mysqli_field_type($query_id, $offset) : false;
@@ -626,24 +683,24 @@ class Database extends \Pramnos\Framework\Base
 
     /**
      * Fetch a result row as an associative array, a numeric array, or both.
-     * @param resource $query_id The result resource that is being evaluated.
+     * @param resource $queryId The result resource that is being evaluated.
      * @return array
      */
-    public function fetchRow($query_id = 0)
+    public function fetchRow($queryId = 0)
     {
-        if (!$query_id) {
-            $query_id = $this->query_result;
+        if (!$queryId) {
+            $queryId = $this->queryResult;
         }
 
-        if ($query_id) {
-            if (!is_object($query_id)) {
-                $this->row[(int) $query_id] = mysqli_fetch_array(
-                    $query_id, MYSQLI_ASSOC
+        if ($queryId) {
+            if (!is_object($queryId)) {
+                $this->row[(int) $queryId] = mysqli_fetch_array(
+                    $queryId, MYSQLI_ASSOC
                 );
-                return $this->row[(int) $query_id];
+                return $this->row[(int) $queryId];
             } else {
                 return mysqli_fetch_array(
-                    $query_id, MYSQLI_ASSOC
+                    $queryId, MYSQLI_ASSOC
                 );
             }
         } else {
@@ -651,85 +708,77 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
-    /**
-     * Performs an INSERT or UPDATE to a table
-     * @param string $tableName
-     * @param array $tableData
-     * @param string $performType insert or update
-     * @param string $performFilter filter for update (EX: where x=x)
-     * @param boolean $debug
-     */
-    function perform($tableName, $tableData, $performType = 'insert',
-        $performFilter = '', $debug = false)
-    {
-        switch (strtolower($performType)) {
-            case 'insert':
-                $insertString = "";
-                $insertString = "INSERT INTO " . $tableName . " (";
-                foreach ($tableData as $key => $value) {
-                    if ($debug === true) {
-                        echo $value['fieldName'] . '#' . "\n";
-                    }
-                    $insertString .= "`" . $value['fieldName'] . "`, ";
-                }
-                $insertString = substr(
-                    $insertString, 0, strlen($insertString) - 2
-                ) . ') VALUES (';
-                reset($tableData);
-                foreach ($tableData as $key => $value) {
-                    $bindVarValue = $this->getBindVarValue(
-                        $value['value'], $value['type']
-                    );
-                    $insertString .= $bindVarValue . ", ";
-                }
-                $insertString = substr(
-                    $insertString, 0, strlen($insertString) - 2
-                ) . ')';
-                if ($debug === true) {
-                    echo $insertString;
-                } else {
-                    return $this->query($insertString);
-                }
-                break;
-            case 'update':
 
-                $updateString = 'UPDATE ' . $tableName . ' SET ';
-                foreach ($tableData as $key => $value) {
-                    $bindVarValue = $this->getBindVarValue(
-                        $value['value'], $value['type']
-                    );
-                    $updateString .= "`" . $value['fieldName']
-                        . '`=' . $bindVarValue . ', ';
-                }
-                $updateString = substr(
-                    $updateString, 0, strlen($updateString) - 2
-                );
-                if ($performFilter != '') {
-                    $updateString .= ' WHERE ' . $performFilter;
-                }
-                if ($debug === true) {
-                    echo $updateString;
-                } else {
-                    return $this->query($updateString);
-                }
-                break;
+
+    /**
+     * Insert data to a table
+     * @param string $table
+     * @param array $data
+     */
+    public function insertDataToTable($table, $data)
+    {
+        $insertString = "";
+        $insertString = "INSERT INTO " . $table . " (";
+        foreach ($data as $key => $value) {
+            $insertString .= "`" . $value['fieldName'] . "`, ";
         }
+        $insertString = substr(
+            $insertString, 0, strlen($insertString) - 2
+        ) . ') VALUES (';
+        reset($data);
+        foreach ($data as $key => $value) {
+            $bindVarValue = $this->prepareValue(
+                $value['value'], $value['type']
+            );
+            $insertString .= $bindVarValue . ", ";
+        }
+        $insertString = substr(
+            $insertString, 0, strlen($insertString) - 2
+        ) . ')';
+
+        return $this->runQuery($insertString);
+
     }
 
-    function getBindVarValue($value, $type)
+    /**
+     * Update data on a table
+     * @param string $table
+     * @param array $data
+     * @param string $filter filter for update (EX: where x=x)
+     */
+    public function updateTableData($table, $data, $filter = '')
     {
-        $typeArray = explode(':', $type);
-        $type = $typeArray[0];
+        $updateString = 'UPDATE ' . $table . ' SET ';
+        foreach ($data as $value) {
+            $bindVarValue = $this->prepareValue(
+                $value['value'], $value['type']
+            );
+            $updateString .= "`" . $value['fieldName']
+                . '`=' . $bindVarValue . ', ';
+        }
+        $updateString = substr(
+            $updateString, 0, strlen($updateString) - 2
+        );
+        if ($filter != '') {
+            $updateString .= ' WHERE ' . $filter;
+        }
+        return $this->runQuery($updateString);
+
+    }
+
+    /**
+     * Clean up a value to use in insert or update methods
+     * @param mixed $value
+     * @param string $type
+     * @return string|int
+     * @throws \Exception
+     */
+    protected function prepareValue($value, $type)
+    {
         if ($value === NULL) {
             return 'NULL';
         }
         switch ($type) {
-            case 'csv':
-                return $value;
-                break;
-            case 'passthru':
-                return $value;
-                break;
             case 'float':
                 if ($value === 'NULL' or $value === NULL or $value === "") {
                     return 'NULL';
@@ -737,48 +786,20 @@ class Database extends \Pramnos\Framework\Base
                 if (strpos($value, ",") !== false) {
                     $value = str_replace(",", ".", $value);
                 }
-
-                return (is_null($value) || $value == '' || $value == 0)
-                ? 0
-                : (float) $value;
-                break;
+                if ($value == '' || $value == 0) {
+                    return 0;
+                } else {
+                    return (float) $value;
+                }
             case 'integer':
                 if ($value === 'NULL' or $value === NULL) {
                     return 'NULL';
                 }
                 return (int) $value;
-                break;
             case 'string':
-                if (isset($typeArray[1])) {
-                    $regexp = $typeArray[1];
-                }
-                return '\'' . $this->prepare_input($value) . '\'';
-                break;
-            case 'noquotestring':
-                return $this->prepare_input($value);
-                break;
             case 'currency':
-                return '\'' . $this->prepare_input($value) . '\'';
-                break;
             case 'date':
-                return '\'' . $this->prepare_input($value) . '\'';
-                break;
-            case 'enum':
-                if (isset($typeArray[1])) {
-                    $enumArray = explode('|', $typeArray[1]);
-                }
-                return '\'' . $this->prepare_input($value) . '\'';
-            case 'regexp':
-                $searchArray = array(
-                    '[', ']', '(', ')', '{', '}', '|', '*', '?',
-                    '.', '$', '^'
-                );
-                foreach ($searchArray as $searchTerm) {
-                    $value = str_replace(
-                        $searchTerm, '\\' . $searchTerm, $value
-                    );
-                }
-                return $this->prepare_input($value);
+                return '\'' . $this->prepareInput($value) . '\'';
             default:
                 throw new \Exception(
                     'var-type undefined: ' . $type . '(' . $value . ')'
@@ -786,82 +807,6 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
-    /**
-     * method to do bind variables to a query
-     * */
-    function bindVars($sql, $bindVarString, $bindVarValue, $bindVarType)
-    {
-        #$bindVarTypeArray = explode(':', $bindVarType);
-        $sqlNew = $this->getBindVarValue($bindVarValue, $bindVarType);
-        $sqlNew = str_replace($bindVarString, $sqlNew, $sql);
-        return $sqlNew;
-    }
-
-    function prepareInput($string)
-    {
-        return mysqli_real_escape_string($this->_dbConnection, $string);
-    }
-
-    public function fetchRowset($queryId = 0)
-    {
-        if (!$queryId) {
-            $queryId = $this->query_result;
-        }
-
-        if ($queryId) {
-            unset($this->rowset[$queryId]);
-            unset($this->row[$queryId]);
-
-            while ($this->rowset[$queryId] = mysqli_fetch_array(
-                $queryId, MYSQLI_ASSOC
-            )) {
-                $result[] = $this->rowset[$queryId];
-            }
-
-            return $result;
-        } else {
-            return false;
-        }
-    }
-
-    public function fetchField($field, $rownum = -1, $query_id = 0)
-    {
-        if (!$query_id) {
-            $query_id = $this->query_result;
-        }
-
-        if ($query_id) {
-            if ($rownum > -1) {
-                $result = mysqli_result($query_id, $rownum, $field);
-            } else {
-                if (empty($this->row[$query_id])
-                    && empty($this->rowset[$query_id])) {
-                    if ($this->fetchRow()) {
-                        $result = $this->row[$query_id][$field];
-                    }
-                } else {
-                    if ($this->rowset[$query_id]) {
-                        $result = $this->rowset[$query_id][$field];
-                    } elseif ($this->row[$query_id]) {
-                        $result = $this->row[$query_id][$field];
-                    }
-                }
-            }
-
-            return $result;
-        } else {
-            return false;
-        }
-    }
-
-    function rowSeek($rownum, $query_id = 0)
-    {
-        if (!$query_id) {
-            $query_id = $this->query_result;
-        }
-
-        return ( $query_id ) ? mysqli_data_seek($query_id, $rownum) : false;
-    }
 
     /**
      * Returns the auto generated id used in the latest query
@@ -887,7 +832,7 @@ class Database extends \Pramnos\Framework\Base
     public function freeResult($query_id = 0)
     {
         if (!$query_id) {
-            $query_id = $this->query_result;
+            $query_id = $this->queryResult;
         }
 
         if ($query_id) {
@@ -903,7 +848,11 @@ class Database extends \Pramnos\Framework\Base
     }
 
 
-    function sql_error()
+    /**
+     * Get the last database error
+     * @return array Array with message and error code
+     */
+    public function getError()
     {
         $result['message'] = mysqli_error($this->_dbConnection);
         $result['code'] = mysqli_errno($this->_dbConnection);
@@ -916,7 +865,7 @@ class Database extends \Pramnos\Framework\Base
      * @param string $string
      * @return string
      */
-    function prepare_input($string)
+    public function prepareInput($string)
     {
         if (function_exists('mysqli_real_escape_string')) {
             return mysqli_real_escape_string($this->_dbConnection, $string);
@@ -929,7 +878,7 @@ class Database extends \Pramnos\Framework\Base
 
 
 
-    public function sql_cache_expire_now($query, $category = NULL)
+    public function cacheExpire($query, $category = NULL)
     {
         #$cache = pramnos_factory::getCache($category, 'sql');
         #$cache->prefix = $this->prefix;
@@ -945,7 +894,7 @@ class Database extends \Pramnos\Framework\Base
      * @param integer $cachetime
      * @return boolean
      */
-    function sql_cache_store($query, $resultArray,
+    function cacheStore($query, $resultArray,
         $category = NULL, $cachetime=3600)
     {
         #$cache = pramnos_factory::getCache($category, 'sql');
@@ -962,7 +911,7 @@ class Database extends \Pramnos\Framework\Base
      * @param string $category
      * @return string
      */
-    function sql_cache_read($query, $category = "")
+    function cacheRead($query, $category = "")
     {
         #$cache = pramnos_factory::getCache($category, 'sql');
         #$cache->prefix = $this->prefix;
@@ -976,7 +925,7 @@ class Database extends \Pramnos\Framework\Base
      * @param string $category
      * @return type
      */
-    function sql_cache_flush_cache($category = "")
+    function cacheflush($category = "")
     {
         #$cache = pramnos_factory::getCache($category, 'sql');
         #$cache->prefix = $this->prefix;
@@ -988,30 +937,45 @@ class Database extends \Pramnos\Framework\Base
      * @param string $query
      * @return string
      */
-    function cache_generate_cache_name($query)
+    function generateCacheName($query)
     {
         return pramnos_addon::applyFilters(
             'pramnos_database_generate_cache_name', md5($query)
         );
     }
 
-    function set_error($err_num, $err_text, $fatal = true)
+    /**
+     * Set the database error
+     * @param int $errorNumber Error Number
+     * @param string $errorMessage  Error Message
+     * @param bool $fatal If set to true, display error and stop the application
+     *                    execution
+     * @throws \Exception
+     */
+    protected function setError($errorNumber, $errorMessage, $fatal = true)
     {
-        $this->error_number = $err_num;
-        $this->error_text = $err_text;
+        $this->error_number = $errorNumber;
+        $this->error_text = $errorMessage;
         // error 1141 is okay ... should not die on 1141,
         // but just continue on instead
-        if ($fatal && $err_num != 1141) {
-            $this->show_error();
-            throw new \Exception($err_text, $err_num);
-        } elseif ($fatal == false && $err_num != 1141) {
+        if ($fatal && $errorNumber != 1141) {
+            $this->displayError();
+            throw new \Exception($errorMessage, $errorNumber);
+        } elseif ($fatal == false && $errorNumber != 1141) {
             throw new \Exception(
-                $err_num . ':' . $err_text . ' ::: SQL QUERY: ' . $this->sql
+                $errorNumber
+                . ':'
+                . $errorMessage
+                . ' ::: SQL QUERY: '
+                . $this->currentQuery
             );
         }
     }
 
-    function show_error()
+    /**
+     * Display the last database error
+     */
+    public function displayError()
     {
         $app = \Pramnos\Application\Application::getInstance();
         $app->showError($this->error_number . ' ' . $this->error_text);
@@ -1026,7 +990,7 @@ class Database extends \Pramnos\Framework\Base
      * @param boolean $dieOnFatalError
      * @return \pramnos_database_result
      */
-    public function Execute($sql, $cache = false,
+    public function query($sql, $cache = false,
         $cachetime = 60, $category = "", $dieOnFatalError = false)
     {
         $cacheData = false;
@@ -1038,7 +1002,7 @@ class Database extends \Pramnos\Framework\Base
             #$cache->timeout=$cachetime;
             #$cacheData = $cache->load($cache_name);
         }
-        $this->sql = $sql;
+        $this->currentQuery = $sql;
 
         if ($cache && $cacheData) {
             $obj = new Result();
@@ -1064,16 +1028,16 @@ class Database extends \Pramnos\Framework\Base
                 return $obj;
             }
         } elseif ($cache) {
-            $this->sql_cache_expire_now($sql, $category);
+            $this->cacheExpire($sql, $category);
             $timeStart = explode(' ', microtime());
             $obj = new Result();
             $obj->sql_query = $sql;
             if (!$this->connected) {
-                $this->set_error('0', "Not Connected to database");
+                $this->setError('0', "Not Connected to database");
             }
-            $dbResource = @$this->query($sql, $this->_dbConnection);
+            $dbResource = @$this->runQuery($sql, $this->_dbConnection);
             if (!$dbResource) {
-                $this->set_error(
+                $this->setError(
                     @mysqli_errno(), @mysqli_error(), $dieOnFatalError
                 );
             }
@@ -1109,23 +1073,23 @@ class Database extends \Pramnos\Framework\Base
                 $obj->eof = true;
             }
             #var_dump($obj);
-            $this->sql_cache_store($sql, $obj->result, $category, $cachetime);
+            $this->cacheStore($sql, $obj->result, $category, $cachetime);
             $timeEnd = explode(' ', microtime());
             $queryTime = $timeEnd[1] + $timeEnd[0]
                 - $timeStart[1] - $timeStart[0];
-            $this->total_query_time += $queryTime;
+            $this->totalQueryTime += $queryTime;
 
             return($obj);
         } else {
             $timeStart = explode(' ', microtime());
             $obj = new Result();
             if (!$this->connected) {
-                $this->set_error('0', "Database is not connected");
+                $this->setError('0', "Database is not connected");
             }
 
-            $dbResource = @$this->query($sql, $this->_dbConnection);
+            $dbResource = @$this->runQuery($sql, $this->_dbConnection);
             if (!$dbResource) {
-                $this->set_error(
+                $this->setError(
                     @mysqli_errno($this->_dbConnection),
                     @mysqli_error($this->_dbConnection),
                     $dieOnFatalError
@@ -1157,7 +1121,7 @@ class Database extends \Pramnos\Framework\Base
             $timeEnd = explode(' ', microtime());
             $queryTime = $timeEnd[1] + $timeEnd[0]
                 - $timeStart[1] - $timeStart[0];
-            $this->total_query_time += $queryTime;
+            $this->totalQueryTime += $queryTime;
 
             return($obj);
         }
@@ -1170,20 +1134,20 @@ class Database extends \Pramnos\Framework\Base
      * @param string $table table to check
      * @return bool true if table exists
      */
-    public function table_exists($table)
+    public function tableExists($table)
     {
-        $exists = $this->prepare(
+        $exists = $this->prepareQuery(
             "SHOW TABLES FROM `"
             . $this->database . "` LIKE '" . $table . "'"
         );
-        $result = $this->Execute($exists);
+        $result = $this->query($exists);
         if ($result->numRows > 0) {
             return true;
         }
         return false;
     }
 
-   
+
 
     /**
      * Stop logging
@@ -1195,7 +1159,7 @@ class Database extends \Pramnos\Framework\Base
             $this->_querieslog = "\n\n"
                 . "=============================="
                 . "=======================================\n"
-                . date('d/m/Y') . ' :: ' . $this->num_queries
+                . date('d/m/Y') . ' :: ' . $this->queriesCount
                 . ' queries :: ' . $request->getURL(false)."\n"
                 . "================================"
                 . "====================================="

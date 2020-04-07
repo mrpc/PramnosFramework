@@ -152,12 +152,12 @@ class Settings extends \Pramnos\Framework\Base
             return self::$settings[$setting];
         }
         if (is_object(self::$database)) {
-            $sql = self::$database->prepare(
+            $sql = self::$database->prepareQuery(
                 "select `value` from `#PREFIX#settings` "
                 . " where `setting` = %s limit 1",
                 $setting
             );
-            $result = self::$database->Execute(
+            $result = self::$database->query(
                 $sql, true, 600, 'settings'
             );
             if ($result->numRows != 0) {
@@ -182,27 +182,27 @@ class Settings extends \Pramnos\Framework\Base
     {
         self::$settings[$setting] = $value;
         if ($writeToDatabase == true && is_object(self::$database)) {
-            $sql = self::$database->prepare(
+            $sql = self::$database->prepareQuery(
                 "select * from `#PREFIX#settings` where `setting` = %s limit 1",
                 $setting
             );
-            $num = self::$database->Execute($sql);
+            $num = self::$database->query($sql);
             if ($num->numRows != 0) {
-                $sql = self::$database->prepare(
+                $sql = self::$database->prepareQuery(
                     "update `#PREFIX#settings` set `value` = %s "
                     . " where `setting` = %s limit 1",
                     $value, $setting
                 );
-                $return = self::$database->Execute($sql);
+                $return = self::$database->query($sql);
             }
             else {
-                $sql = self::$database->prepare(
+                $sql = self::$database->prepareQuery(
                     "insert into `#PREFIX#settings`
                     (`setting`, `value`) values (%s, %s)
                     on duplicate key update `value` = %s",
                     $setting, $value, $value
                 );
-                $return = self::$database->Execute($sql);
+                $return = self::$database->query($sql);
             }
         }
     }
@@ -214,8 +214,8 @@ class Settings extends \Pramnos\Framework\Base
      */
     static function deleteSetting($setting)
     {
-        return self::$database->Execute(
-            self::$database->prepare(
+        return self::$database->query(
+            self::$database->prepareQuery(
                 "delete from `#PREFIX#settings` where `setting` = %s limit 1",
                 $setting
             )

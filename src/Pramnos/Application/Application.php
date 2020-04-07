@@ -298,7 +298,7 @@ class Application extends Base
     {
         if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
             $database=&pramnos_factory::getDatabase();
-            $error = pramnos_general::varDumpToString($database->sql_error());
+            $error = pramnos_general::varDumpToString($database->getError());
         } else {
             $error = '';
         }
@@ -690,11 +690,11 @@ class Application extends Base
             if ($object->autoExecute == true) {
                 $this->startMaintenance();
                 $object->up();
-                $sql = $this->database->prepare(
+                $sql = $this->database->prepareQuery(
                     "insert into `#PREFIX#schemaversion` (`key`) values (%s);",
                     $object->version
                 );
-                $this->database->Execute($sql);
+                $this->database->query($sql);
                 \Pramnos\Logs\Logs::log("\n" . $sql . "\n\n", 'upgrades');
                 $this->stopMaintenance();
             }
@@ -720,12 +720,12 @@ class Application extends Base
             return true;
         }
 
-        $sql = $this->database->prepare(
+        $sql = $this->database->prepareQuery(
             "select * from `#PREFIX#schemaversion` "
             . " where `key` = %s limit 1",
             $version
         );
-        $result = $this->database->Execute($sql);
+        $result = $this->database->query($sql);
         if ($result->numRows == 0) {
             return false;
         }
