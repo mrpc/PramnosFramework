@@ -142,13 +142,13 @@ class Request extends Base
     public function __construct()
     {
         if (isset($_SERVER['REQUEST_URI'])) {
-            $this->requestUri = trim($_SERVER['REQUEST_URI'], '/');
+            self::$requestUri = trim($_SERVER['REQUEST_URI'], '/');
             /**
              * Clean up the request url in case the app runs under a
              * subdirectory
              */
             if (isset($_SERVER['PHP_SELF'])) {
-                $this->requestUri = trim(
+                self::$requestUri = trim(
                     substr(
                         $_SERVER['REQUEST_URI'],
                         strlen(dirname($_SERVER['PHP_SELF']))
@@ -157,7 +157,7 @@ class Request extends Base
                 );
             }
         }
-        $this->requestUri = str_replace('?{}', '', $this->requestUri);
+        self::$requestUri = str_replace('?{}', '', self::$requestUri);
         if (isset($_GET['r'])) {
             self::$originalRequest=$_GET['r'];
             $this->calcParams();
@@ -456,6 +456,24 @@ class Request extends Base
     public function setModule($module)
     {
         return $this->setController($module);
+    }
+
+    /**
+     * Get the request method
+     * @return string
+     */
+    public function getRequestMethod()
+    {
+        return self::$requestMethod;
+    }
+
+    /**
+     * Get ther request URI
+     * @return string
+     */
+    public function getRequestUri()
+    {
+        return self::$requestUri;
     }
 
 }

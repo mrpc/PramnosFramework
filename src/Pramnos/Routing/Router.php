@@ -71,8 +71,8 @@ class Router extends Base implements RouterInterface
      */
     public function dispatch(\Pramnos\Http\Request $request)
     {
-        $method = $request->requestMethod;
-        $uri = $request->requestUri;
+        $method = $request->getRequestMethod();
+        $uri = $request->getRequestUri();
         // If there is no route with the selected method, return null
         // no need to check one-by-one
         if (!isset($this->routes[$method])) {
