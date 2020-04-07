@@ -211,7 +211,7 @@ class Model extends \Pramnos\Framework\Base
                     $error = $database->sql_error();
                     throw new \Exception($error['message']);
                 }
-                $this->$primarykey = $database->sql_nextid();
+                $this->$primarykey = $database->getInsertId();
             } else {
                 $database->perform(
                     $this->_dbtable, $itemdata,
