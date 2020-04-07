@@ -110,13 +110,12 @@ class User extends \Pramnos\Framework\Base
         }
         $users = $database->query($sql, 1, 10, 'userlist');
         $return = array();
-        while (!$users->eof) {
+        while ($users->fetch()) {
             $theuser = new User($users->fields['userid']);
             $theuser->userid = $users->fields['userid'];
             $theuser->load($users->fields['userid']);
             $return[$users->fields['userid']] = $theuser;
             unset($theuser);
-            $users->MoveNext();
         }
         return $return;
     }
@@ -219,13 +218,12 @@ class User extends \Pramnos\Framework\Base
         }
         $return = array();
         $return[$this->maingroup] = new pramnos_user_group($this->maingroup);
-        while (!$result->eof) {
+        while ($result->fetch()) {
             if (!isset($return[$result->fields['group_id']])) {
                 $return[$result->fields['group_id']] = new pramnos_user_group(
                     $result->fields['group_id']
                 );
             }
-            $result->MoveNext();
         }
         return $return;
     }
@@ -411,7 +409,7 @@ class User extends \Pramnos\Framework\Base
             "SELECT * FROM #PREFIX#userdetails WHERE `userid` = %d", $uid
         );
         $result = $database->query($sql);
-        while (!$result->eof) { //This should load all special settings
+        while ($result->fetch()) { //This should load all special settings
             $fixname = substr($result->fields['fieldname'], 3);
             if ($fixname != 'originalOtherinfo'
                 && substr($fixname, 0, 1) != '_'
@@ -419,7 +417,6 @@ class User extends \Pramnos\Framework\Base
                 $this->otherinfo[$result->fields['fieldname']]
                     = $result->fields['value'];
             }
-            $result->MoveNext();
         }
         $this->originalOtherinfo = $this->otherinfo;
 
@@ -450,9 +447,8 @@ class User extends \Pramnos\Framework\Base
         );
         $result = $database->query($sql);
         $return = array();
-        while (!$result->eof) {
+        while ($result->fetch()) {
             $return[] = $result->fields['userid'];
-            $result->MoveNext();
         }
         return $return;
     }
@@ -553,7 +549,7 @@ class User extends \Pramnos\Framework\Base
                 . "where `confirm` = 1 "
                 . "and (`from_userid` = '$userid' or `to_userid`='$userid')";
         $result = $database->query($sql);
-        while (!$result->eof) {
+        while ($result->fetch()) {
 
             if ($result->fields['from_userid'] == $userid) {
                 $return[] = $result->fields['to_userid'];
@@ -561,7 +557,6 @@ class User extends \Pramnos\Framework\Base
                 $return[] = $result->fields['from_userid'];
             }
 
-            $result->MoveNext();
         }
         return $return;
     }
@@ -578,13 +573,12 @@ class User extends \Pramnos\Framework\Base
             $this->userid
         );
         $result = $database->query($sql);
-        while (!$result->eof) {
+        while ($result->fetch()) {
             if ($result->fields['from_userid'] == $this->userid) {
                 $friends[] = $result->fields['to_userid'];
             } else {
                 $friends[] = $result->fields['from_userid'];
             }
-            $result->MoveNext();
         }
 
         $in = '0';
@@ -599,7 +593,7 @@ class User extends \Pramnos\Framework\Base
         );
         $finalResult = $database->query($secondSql);
         $return = array();
-        while (!$result->eof) {
+        while ($finalResult->fetch()) {
             if (trim($result->fields['itemtext']) != '') {
                 $return[$result->fields['itemid']] = array(
                     'date' => $result->fields['date'],
@@ -607,7 +601,6 @@ class User extends \Pramnos\Framework\Base
                     'user' => new pramnoscms_user($result->fields['userid'])
                 );
             }
-            $result->MoveNext();
         }
         return $return;
     }
