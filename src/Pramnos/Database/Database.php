@@ -902,7 +902,7 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
-    
+
     function sql_error()
     {
         $result['message'] = mysqli_error($this->_dbConnection);
@@ -1183,41 +1183,7 @@ class Database extends \Pramnos\Framework\Base
         return false;
     }
 
-    /**
-     * Create database table, if it doesn't already exist.
-     * @param string $tableName Database table name.
-     * @param string $createSql Create database table SQL.
-     * @return bool False on error, true if already exists or success.
-     */
-    function create_table($tableName, $createSql)
-    {
-        $tablename = $this->prefix . $tableName;
-        if ($this->table_exists($tablename)) {
-            return true;
-        }
-        $lines = explode("\n", $createSql);
-        $firstline = $lines[0];
-        $newline = str_ireplace($tableName, $tablename, $firstline);
-        $createDDl = str_ireplace($firstline, $newline, $createSql);
-        try {
-            $this->Execute($createDDl);
-        } catch (\Exception $ex) {
-            \Pramnos\Logs\Logs::log($ex->getMessage());
-        }
-
-        if ($this->table_exists($tablename)) {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    public function select($fields = "*")
-    {
-        $database = new pramnos_database_statement_select($fields);
-        $database->database = $this->driver;
-        return $database;
-    }
+   
 
     /**
      * Stop logging
