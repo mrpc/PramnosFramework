@@ -24,11 +24,11 @@ class Session extends \Pramnos\Addon\Addon
         $app = \Pramnos\Application\Application::getInstance();
         $request = \Pramnos\Framework\Factory::getRequest();
         $past = time() - 300;
-        $sql = $database->prepare(
+        $sql = $database->prepareQuery(
             "DELETE FROM `#PREFIX#sessions` where `time` < %d", $past
         );
         try {
-            $database->Execute($sql);
+            $database->query($sql);
         } catch (Exception $exc) {
             $app->showError($exc->getMessage());
             \Pramnos\Logs\Logs::log($exc->getMessage());
@@ -223,13 +223,13 @@ class Session extends \Pramnos\Addon\Addon
 
 
 
-        $sessionsql = $database->prepare(
+        $sessionsql = $database->prepareQuery(
             "select * from `#PREFIX#sessions` "
             . "WHERE `visitorid` = %s",
             hex2bin($visitorid)
         );
 
-        $result = $database->Execute($sessionsql);
+        $result = $database->query($sessionsql);
 
         if ($result->numRows != 0) {
             if ($result->fields['logout'] == "1") {
@@ -245,7 +245,7 @@ class Session extends \Pramnos\Addon\Addon
 
 
         try {
-            $sql = $database->prepare(
+            $sql = $database->prepareQuery(
                 "insert into `#PREFIX#sessions`
                 (`visitorid`, `uname`, `time`, `host_addr`, `guest`, `agent`,
                 `userid`, `url`,  `logout`, `sid`)
@@ -258,7 +258,7 @@ class Session extends \Pramnos\Addon\Addon
                 $uname, time(), $remoteip, $guest, $agent, $url,
                 0, $sid, $uname, time(), $guest, $url, 0
             );
-            $database->Execute($sql);
+            $database->query($sql);
         }
         catch (Exception $e) {
             $session->reset();

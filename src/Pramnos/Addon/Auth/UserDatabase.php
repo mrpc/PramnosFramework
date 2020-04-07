@@ -32,7 +32,7 @@ class UserDatabase extends \Pramnos\Addon\Addon
         $return['auth'] = '';
         $return['email'] = '';
         $return['remember'] = $remember;
-        $sql = $database->prepare(
+        $sql = $database->prepareQuery(
             "SELECT `userid`, `username`, `password`, `email`, "
             . " `active`, `validated` "
             . "FROM #PREFIX#users "
@@ -41,7 +41,7 @@ class UserDatabase extends \Pramnos\Addon\Addon
             $username, $username
         );
 
-        $result = $database->execute($sql);
+        $result = $database->query($sql);
         if ($result->numRows == 0) {
             $return['message'] = "User doesn't exist";
             $return['statusCode'] = 404;

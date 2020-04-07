@@ -119,7 +119,7 @@ class Datasource extends Base
         }
         $Awhere = "";
         if ($join != '') {
-            $join = $db->prepare($join);
+            $join = $db->prepareQuery($join);
         }
         if ($where != '') {
             $Awhere = ' '. $whereWord . ' ' . $where;
@@ -172,7 +172,7 @@ class Datasource extends Base
             $sOrder = substr_replace($sOrder, "", -2);
         }
 
-        $sql = $db->prepare(
+        $sql = $db->prepareQuery(
             "SELECT COUNT(a.`" . $fields[0] . "`) as 'num' from `"
             . $table . "` a  $join  " . $Awhere
         );
@@ -181,7 +181,7 @@ class Datasource extends Base
             echo '<pre>First Count: ' . $sql . "\n\n</pre>";
         }
         try {
-            $num = $db->Execute($sql, $cache, $cachetime, $cachecategory);
+            $num = $db->query($sql, $cache, $cachetime, $cachecategory);
         } catch (Exception $ex) {
             $message = 'Error in getJsonList (first count): '
                 . $ex->getMessage() . '. Sql Query:'
@@ -301,13 +301,13 @@ class Datasource extends Base
 
 
         if ($distinctField != '') {
-            $sql = $db->prepare(
+            $sql = $db->prepareQuery(
                 'select distinct('.$distinctField.'), '
                 . $selectfields . ' from `'
                 . $table . '` a   ' . $join . '   '
             ) . $sWhere . ' ' . $sOrder . ' ' . $sLimit;
         } else {
-            $sql = $db->prepare(
+            $sql = $db->prepareQuery(
                 'select distinct ' . $selectfields . ' from `'
                 . $table . '` a   ' . $join . '   '
             ) . $sWhere . ' ' . $sOrder . ' ' . $sLimit;
@@ -320,7 +320,7 @@ class Datasource extends Base
         }
 
         try {
-            $result = $db->Execute($sql, $cache, $cachetime, $cachecategory);
+            $result = $db->query($sql, $cache, $cachetime, $cachecategory);
         } catch (Exception $ex) {
             $message = 'Error in getJsonList: '
                 . $ex->getMessage() . '. Sql Query:'
@@ -339,19 +339,19 @@ class Datasource extends Base
         }
 
         if (strpos($sWhere, 'group by') !== false) {
-            $sql = $db->prepare(
+            $sql = $db->prepareQuery(
             "select COUNT(distinct(a.`" . $fields[0] . "`)) "
             . "as 'num' from `" . $table . "` a  " . $join . "  "
         ) . str_replace('group by a.`' . $fields[0] . '`', '', $sWhere);
         } else {
-            $sql = $db->prepare(
+            $sql = $db->prepareQuery(
             "select COUNT(a.`" . $fields[0] . "`) "
             . "as 'num' from `" . $table . "` a  " . $join . "  "
         ) . $sWhere;
         }
 
         try {
-            $sQueryR = $db->Execute($sql, $cache, $cachetime, $cachecategory);
+            $sQueryR = $db->query($sql, $cache, $cachetime, $cachecategory);
         } catch (Exception $ex) {
             $message = 'Error in getJsonList: '
                 . $ex->getMessage() . '. Sql Query:'
