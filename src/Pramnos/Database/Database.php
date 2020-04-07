@@ -435,7 +435,7 @@ class Database extends \Pramnos\Framework\Base
     /**
      * Run the actual query on database
      * @param string $query sql query
-     * @return \mysqli_result
+     * @return \mysqli_result|bool
      */
     protected function runQuery($query = "")
     {
@@ -524,12 +524,6 @@ class Database extends \Pramnos\Framework\Base
      * Both %d and %s are to be left unquoted in the query
      * string and they need an argument passed for them.
      * Literals (%) as parts of the query must be properly written as %%.
-     *
-     * This function only supports a small subset of the
-     * sprintf syntax; it only supports %d (decimal number), %s (string).
-     * Does not support sign, padding, alignment,
-     * width or precision specifiers.
-     * Does not support argument numbering/swapping.
      *
      * May be called like {@link http://php.net/sprintf sprintf()}
      * or like {@link http://php.net/vsprintf vsprintf()}.
