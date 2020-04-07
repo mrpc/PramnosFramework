@@ -152,6 +152,17 @@ class Result
     }
 
     /**
+     * Frees the memory associated with the result
+     */
+    public function free()
+    {
+        if (is_object($this->mysqlResult)) {
+            $this->$this->mysqlResult->free();
+            $this->mysqlResult = null;
+        }
+    }
+
+    /**
      * How many results do we have?
      * @return int
      */
@@ -162,6 +173,14 @@ class Result
         }
 
         return $this->numRows;
+    }
+
+    /**
+     * free the memory
+     */
+    public function __destruct()
+    {
+        $this->free();
     }
 
 }
