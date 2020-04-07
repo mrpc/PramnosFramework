@@ -66,8 +66,8 @@ class Route
      */
     public function matches(\Pramnos\Http\Request $request)
     {
-        $method = $request->requestMethod;
-        $uri = $request->requestUri;
+        $method = $request->getRequestMethod();
+        $uri = $request->getRequestUri();
         if ($this->method != $method) {
             return false;
         }
