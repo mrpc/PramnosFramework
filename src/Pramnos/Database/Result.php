@@ -157,7 +157,7 @@ class Result
     public function free()
     {
         if (is_object($this->mysqlResult)) {
-            $this->$this->mysqlResult->free();
+            $this->mysqlResult->free();
             $this->mysqlResult = null;
         }
     }
