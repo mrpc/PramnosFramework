@@ -150,6 +150,8 @@ class Database extends \Pramnos\Framework\Base
      */
     private $_dbConnection;
 
+    protected $statements = array();
+
     /**
      * Return current database connection link
      * @return resource
@@ -426,6 +428,16 @@ class Database extends \Pramnos\Framework\Base
     public function close()
     {
         if ($this->_dbConnection) {
+
+            foreach ($this->statements as $key=>$statement) {
+                try {
+                    @$statement['statement']->close();
+                    unset($this->statements[$key]);
+                } catch (\Exception $ex) {
+                    \Pramnos\Logs\Logs::log($ex->getMessage);
+                }
+            }
+
             return mysqli_close($this->_dbConnection);
         } else {
             return false;
@@ -508,6 +520,136 @@ class Database extends \Pramnos\Framework\Base
             );
         }
     }
+
+
+    /**
+     * Prepare an SQL statement for execution (as a prepared statement)
+     * Used mostly to run a query multiple times
+     * @param string $sql
+     * @return \mysqli_stmt class
+     */
+    public function prepare($sql)
+    {
+        $query = str_replace(
+            array("#PREFIX#", "#CP#"),
+            array($this->prefix, $this->controllerPrefix),
+            $sql
+        );
+        $types = array();
+        $numOfTypes = preg_match_all('/\%(i|d|s|b)/i', $query, $types);
+        if ($numOfTypes > 0) {
+            $query = str_replace(array('%d', '%i', '%s', '%b'), '?', $query);
+            $types = implode($types[1]);
+        }
+        if (is_array($types)) {
+            $types = '';
+        }
+        $statement = $this->_dbConnection->prepare($query);
+        if ($statement) {
+            $this->statements[$statement->id] = array(
+                'statement' => $statement,
+                'types' => $types,
+                'query' => $query
+            );
+        }
+
+        return $statement;
+    }
+
+
+    /**
+     * Execute a query as prepared statement<br>
+     * Example: <br>
+     * <code>
+     * $userid = 2;<br>
+     * $database->execute(<br>
+     *     "select * from `#PREFIX#users` where `userid` = %i",<br>
+     *     $userid<br>
+     * );
+     * </code>
+     * @param string|mysqli_stmt $sql An sql query, either as a string
+     *                                or as a prepared statement object
+     * @param mixed $arguments
+     * @return \pramnos_database_result
+     */
+    public function execute($sql, &...$arguments)
+    {
+        $free = false;
+        $statement = $sql;
+
+        if (is_string($sql)) {
+            $statement = $this->prepare($sql);
+            $free = true;
+        }
+        if (isset($this->statements[$statement->id])) {
+            $arguments = array_merge(
+                array($this->statements[$statement->id]['types']),
+                $arguments
+            );
+        }
+
+        $timeStart = explode(' ', microtime());
+        $obj = new Result($this);
+        if (!$this->connected) {
+            $this->setError('0', "Database is not connected");
+        }
+
+
+        if (count($arguments) > 1) {
+            call_user_func_array(
+                array($statement, 'bind_param'), $arguments
+            );
+        }
+        if ($statement->execute()) {
+            $dbResource = $statement->get_result();
+        } else {
+            $dbResource = null;
+        }
+        if ($free) {
+            unset($this->statements[$statement->id]);
+            $statement->close();
+        }
+
+
+
+
+        if (!$dbResource) {
+            $this->setError(
+                @mysqli_errno($this->_dbConnection),
+                @mysqli_error($this->_dbConnection),
+                false
+            );
+        }
+
+        $obj->mysqlResult = $dbResource;
+
+        $obj->numRows = $obj->getNumRows();
+
+        if ($obj->getNumRows() > 0) {
+            $obj->eof = false;
+            $resultArray = mysqli_fetch_array($dbResource, MYSQLI_ASSOC);
+            mysqli_data_seek($dbResource, 0);
+            if ($resultArray) {
+                foreach($resultArray as $key=>$value) {
+                    $obj->fields[$key] = $value;
+                }
+                $obj->eof = false;
+            } else {
+                $obj->eof = true;
+            }
+        } else {
+            $obj->eof = true;
+        }
+
+        $timeEnd = explode(' ', microtime());
+        $queryTime = $timeEnd[1] + $timeEnd[0]
+            - $timeStart[1] - $timeStart[0];
+        $this->totalQueryTime += $queryTime;
+
+        return($obj);
+
+    }
+
 
     /**
      * Prepares a SQL query for safe execution. Uses sprintf()-like syntax.
