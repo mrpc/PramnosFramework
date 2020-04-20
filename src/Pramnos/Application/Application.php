@@ -348,7 +348,7 @@ class Application extends Base
             }
 
             $request = new \Pramnos\Http\Request();
-            \Pramnos\Logs\Logs::log(
+            \Pramnos\Logs\Logger::log(
                 "\n"
                 . 'Redirect from: '
                 . $request->getURL(false)
@@ -514,7 +514,7 @@ class Application extends Base
         try {
             $controllerObject = $this->getController($this->controller);
         } catch (\Exception $Exception) {
-            \Pramnos\Logs\Logs::log($Exception->getMessage());
+            \Pramnos\Logs\Logger::log($Exception->getMessage());
             $this->close('There is no controller to run...');
         }
         $this->activeController = $controllerObject;
@@ -536,7 +536,7 @@ class Application extends Base
         } catch (Exception $exception) {
             $message = $exception->getMessage();
             if (strpbrk($message, 'SQL') !== false) {
-                \Pramnos\Logs\Logs::log(
+                \Pramnos\Logs\Logger::log(
                     $message
                     . "\nLine:\n"
                     . $exception->getFile()
@@ -593,7 +593,7 @@ class Application extends Base
                 }
 
             } catch (\Exception $Exception) {
-                \Pramnos\Logs\Logs::log(
+                \Pramnos\Logs\Logger::log(
                     'Cannot start ' . $app . ' application: '
                     . $Exception->getMessage()
                 );
@@ -637,7 +637,7 @@ class Application extends Base
     public function close($msg = "")
     {
         if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
-            \Pramnos\Logs\Logs::log(
+            \Pramnos\Logs\Logger::log(
                 \Pramnos\General\Helpers::varDumpToString(debug_backtrace()),
                 'exitAppLog'
             );
@@ -695,7 +695,7 @@ class Application extends Base
                     $object->version
                 );
                 $this->database->query($sql);
-                \Pramnos\Logs\Logs::log("\n" . $sql . "\n\n", 'upgrades');
+                \Pramnos\Logs\Logger::log("\n" . $sql . "\n\n", 'upgrades');
                 $this->stopMaintenance();
             }
         }

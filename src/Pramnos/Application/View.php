@@ -171,7 +171,7 @@ class View extends \Pramnos\Framework\Base
                 $lang = \Pramnos\Framework\Factory::getLanguage();
                 include $tplfile;
             } catch (Exception $ex) {
-                \Pramnos\Logs\Logs::log(
+                \Pramnos\Logs\Logger::log(
                     'Error in view: ' . $this->name . ' and template file: '
                     . $tplfile . '. ' . $ex->getMessage()
                     . ' at line ' . $ex->getLine()
@@ -209,7 +209,7 @@ class View extends \Pramnos\Framework\Base
                 }
             }
             if ($this->type != 'raw' && $this->type != 'json') {
-                \Pramnos\Logs\Logs::log(
+                \Pramnos\Logs\Logger::log(
                     'Cannot find view template. View:'
                     . $this->name . ', template: '
                     . $tpl . ", type: " . $this->type . "\n"

@@ -356,7 +356,7 @@ class User extends \Pramnos\Framework\Base
             } catch (Exception $ex) {
                 $error = $database->getError();
                 $this->addError($error['message']);
-                \Pramnos\Logs\Logs::log($ex->getMessage());
+                \Pramnos\Logs\Logger::log($ex->getMessage());
             }
 
         }

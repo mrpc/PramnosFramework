@@ -74,9 +74,9 @@ abstract class Migration extends \Pramnos\Framework\Base
         foreach ($this->queriesToExecute as $query) {
             try {
                 $this->application->database->query($query);
-                \Pramnos\Logs\Logs::log("\n" . $query . "\n\n", 'upgrades');
+                \Pramnos\Logs\Logger::log("\n" . $query . "\n\n", 'upgrades');
             } catch (Exception $exception) {
-                \Pramnos\Logs\Logs::log(
+                \Pramnos\Logs\Logger::log(
                     $exception->getMessage() . "\n\n" . $query, 'upgradeerrors'
                 );
             }

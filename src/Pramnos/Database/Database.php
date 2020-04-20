@@ -224,7 +224,7 @@ class Database extends \Pramnos\Framework\Base
             touch($filename);
             chmod($filename, 0666);
         } catch (\Exception $ex) {
-            \Pramnos\Logs\Logs::log($ex->getMessage());
+            \Pramnos\Logs\Logger::log($ex->getMessage());
         }
     }
 
@@ -239,13 +239,13 @@ class Database extends \Pramnos\Framework\Base
             try {
                 @unlink($secondFileName);
             } catch (\Exception $ex) {
-                \Pramnos\Logs\Logs::log($ex->getMessage());
+                \Pramnos\Logs\Logger::log($ex->getMessage());
             }
         }
         try {
             $rename = @rename($filename, $secondFileName);
         } catch (\Exception $ex) {
-            \Pramnos\Logs\Logs::log($ex->getMessage());
+            \Pramnos\Logs\Logger::log($ex->getMessage());
             $rename = false;
         }
         if ($rename !== false) {
@@ -253,7 +253,7 @@ class Database extends \Pramnos\Framework\Base
                 touch($filename);
                 chmod($filename, 0666);
             } catch (\Exception $ex) {
-                \Pramnos\Logs\Logs::log($ex->getMessage());
+                \Pramnos\Logs\Logger::log($ex->getMessage());
             }
         }
     }
@@ -272,7 +272,7 @@ class Database extends \Pramnos\Framework\Base
                 $filesize = filesize($filename);
             }
         } catch (\Exception $ex) {
-            \Pramnos\Logs\Logs::log($ex->getMessage());
+            \Pramnos\Logs\Logger::log($ex->getMessage());
             $filesize = 0;
         }
         if (isset($filesize) && $filesize > ((1024*1024)/2)) {
@@ -434,7 +434,7 @@ class Database extends \Pramnos\Framework\Base
                     @$statement['statement']->close();
                     unset($this->statements[$key]);
                 } catch (\Exception $ex) {
-                    \Pramnos\Logs\Logs::log($ex->getMessage);
+                    \Pramnos\Logs\Logger::log($ex->getMessage);
                 }
             }
 

@@ -371,7 +371,7 @@ class Controller extends \Pramnos\Framework\Base
             $doc = \Pramnos\Framework\Factory::getDocument();
             $type = $doc->type;
         }
-        \Pramnos\Logs\Logs::log(
+        \Pramnos\Logs\Logger::log(
             'Cannot find view: '
             . $name
             . ' (type: ' . $type . ', class: ' . $name . ')'
