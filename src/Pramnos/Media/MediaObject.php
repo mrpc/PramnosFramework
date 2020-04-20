@@ -1213,9 +1213,9 @@ class MediaObject extends \Pramnos\Framework\Base
                 'type' => 'integer'
             )
         );
-        $database->sql_cache_flush_cache('media');
-        $database->perform($database->prefix . "mediause", $itemdata);
-        $usageid = $database->sql_nextid();
+        $database->cacheflush('media');
+        $database->insertDataToTable($database->prefix . "mediause", $itemdata);
+        $usageid = $database->getInsertId();
         if ($this->mediaid != 0) {
             $this->usages = $this->usages + 1;
             $sql = $database->prepareQuery(
@@ -1237,7 +1237,7 @@ class MediaObject extends \Pramnos\Framework\Base
     function removeUsage($usageid, $safe = false)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $database->sql_cache_flush_cache('media');
+        $database->cacheflush('media');
         $sql = $database->prepareQuery(
             "select * from `#PREFIX#mediause` where `usageid` = %d limit 1",
             $usageid
@@ -1271,7 +1271,7 @@ class MediaObject extends \Pramnos\Framework\Base
                 }
             }
         }
-        $database->sql_cache_flush_cache('media');
+        $database->cacheflush('media');
         return $this;
     }
 
@@ -1312,7 +1312,7 @@ class MediaObject extends \Pramnos\Framework\Base
     public function clearUsage($module, $specific = '', $safe = true)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $database->sql_cache_flush_cache('media');
+        $database->cacheflush('media');
         $sql = $database->prepareQuery(
             "select * from `#PREFIX#mediause` "
             . "where `module` = %s and `specific` = %s",
@@ -1502,15 +1502,15 @@ class MediaObject extends \Pramnos\Framework\Base
                 'type' => 'integer'
             )
         );
-        $database->sql_cache_flush_cache('media');
+        $database->cacheflush('media');
         if ($this->_isnew == true) {
             $this->_isnew = false;
-            $database->perform(
+            $database->insertDataToTable(
                 $database->prefix . "media", $itemdata, 'insert', '', false
             );
-            $this->mediaid = $database->sql_nextid();
+            $this->mediaid = $database->getInsertId();
         } else {
-            $database->perform(
+            $database->updateTableData(
                 $database->prefix . "media", $itemdata, 'update',
                 "`mediaid` = '" . (int) $this->mediaid . "'", false
             );
@@ -1556,8 +1556,8 @@ class MediaObject extends \Pramnos\Framework\Base
                 'type' => 'integer'
             )
         );
-        $database->sql_cache_flush_cache('media');
-        $database->perform(
+        $database->cacheflush('media');
+        $database->updateTableData(
             $database->prefix . "mediause", $itemdata, 'update',
             "`usageid` = '" . (int) $this->usageid . "'", false
         );
@@ -1613,7 +1613,7 @@ class MediaObject extends \Pramnos\Framework\Base
         }
         $this->_isnew = true;
         $this->mediaid = 0;
-        $database->sql_cache_flush_cache('media');
+        $database->cacheflush('media');
         return $this;
     }
 
