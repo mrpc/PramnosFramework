@@ -31,7 +31,7 @@ class Session extends \Pramnos\Addon\Addon
             $database->query($sql);
         } catch (Exception $exc) {
             $app->showError($exc->getMessage());
-            \Pramnos\Logs\Logs::log($exc->getMessage());
+            \Pramnos\Logs\Logger::log($exc->getMessage());
         }
 
         if (isset($_SERVER['HTTP_USER_AGENT'])) {
@@ -75,7 +75,7 @@ class Session extends \Pramnos\Addon\Addon
                     'https://api.ipify.org', false, $context
                 );
             } catch (Exception $ex) {
-                \Pramnos\Logs\Logs::log($ex->getMessage());
+                \Pramnos\Logs\Logger::log($ex->getMessage());
             }
 
         }

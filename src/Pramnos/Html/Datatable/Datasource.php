@@ -186,7 +186,7 @@ class Datasource extends Base
             $message = 'Error in getJsonList (first count): '
                 . $ex->getMessage() . '. Sql Query:'
                 . str_replace(array("\n", "\t", "\r"), " ", $sql);
-            \Pramnos\Logs\Logs::log(
+            \Pramnos\Logs\Logger::log(
                 $message
             );
         }
@@ -325,7 +325,7 @@ class Datasource extends Base
             $message = 'Error in getJsonList: '
                 . $ex->getMessage() . '. Sql Query:'
                 . str_replace(array("\n", "\t", "\r"), " ", $sql);
-            \Pramnos\Logs\Logs::log(
+            \Pramnos\Logs\Logger::log(
                 $message
             );
             die($message);
@@ -356,7 +356,7 @@ class Datasource extends Base
             $message = 'Error in getJsonList: '
                 . $ex->getMessage() . '. Sql Query:'
                 . str_replace(array("\n", "\t", "\r"), " ", $sql);
-            \Pramnos\Logs\Logs::log(
+            \Pramnos\Logs\Logger::log(
                 $message
             );
             die($message);
