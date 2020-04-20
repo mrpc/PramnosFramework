@@ -7,7 +7,7 @@ namespace Pramnos\Logs;
  * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  */
-class Logs
+class Logger
 {
 
     /**
