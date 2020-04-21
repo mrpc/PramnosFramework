@@ -475,8 +475,8 @@ class MediaObject extends \Pramnos\Framework\Base
     {
         $this->mediatype = 1;
 
-        if (!is_dir(ROOT . DS . 'uploads')) {
-            mkdir(ROOT . DS . 'uploads');
+        if (!is_dir(ROOT . DS . 'www' . DS . 'uploads')) {
+            mkdir(ROOT . DS . 'www' . DS . 'uploads');
         }
         $urlParams = explode('?', $url);
         $urlParts=explode('.', $urlParams[0]);
@@ -497,7 +497,8 @@ class MediaObject extends \Pramnos\Framework\Base
 
 
         $image = \Pramnos\General\Helpers::fileGetContents($url);
-        $filename = ROOT . DS . 'uploads' . DS . 'tmp' . rand(0, time())
+        $filename = ROOT . DS . 'www' . DS
+            . 'uploads' . DS . 'tmp' . rand(0, time())
             . '.' . $ext;
         $handler = fopen($filename, 'w');
         fwrite($handler, $image);
@@ -513,10 +514,10 @@ class MediaObject extends \Pramnos\Framework\Base
      */
     private function createPath($module = '')
     {
-        if (!is_dir(ROOT . DS . 'uploads')) {
-            mkdir(ROOT . DS . 'uploads');
+        if (!is_dir(ROOT . DS . 'www' . DS . 'uploads')) {
+            mkdir(ROOT . DS . 'www' . DS . 'uploads');
         }
-        $path = ROOT . DS . 'uploads';
+        $path = ROOT . DS . 'www' . DS . 'uploads';
 
         if ($module != '') {
             $this->module = $module;
@@ -590,7 +591,7 @@ class MediaObject extends \Pramnos\Framework\Base
         }
         $this->url = str_replace(
             DS, '/',
-            str_replace(ROOT . DS, '', $this->filename)
+            str_replace(ROOT . DS . 'www' . DS, '', $this->filename)
         );
         $this->x = $startWidth;
         $this->y = $startHeight;
@@ -674,7 +675,7 @@ class MediaObject extends \Pramnos\Framework\Base
             $tmpThumb->filename = $tfile;
             $tmpThumb->url = str_replace(
                 DS, '/',
-                str_replace(ROOT . DS, '', $tmpThumb->filename)
+                str_replace(ROOT . DS . 'www' . DS, '', $tmpThumb->filename)
             );
             $tmpThumb->x = $startWidth;
             $tmpThumb->y = $startHeight;
@@ -712,7 +713,7 @@ class MediaObject extends \Pramnos\Framework\Base
             $tmpThumb->filename = $tfile;
             $tmpThumb->url = str_replace(
                 DS, '/',
-                str_replace(ROOT . DS, '', $tmpThumb->filename)
+                str_replace(ROOT . DS . 'www' . DS, '', $tmpThumb->filename)
             );
             $tmpThumb->x = $startWidth;
             $tmpThumb->y = $startHeight;
@@ -1070,7 +1071,7 @@ class MediaObject extends \Pramnos\Framework\Base
 
         $this->url = str_replace(
             DS, '/',
-            str_replace(ROOT . DS, '', $this->filename)
+            str_replace(ROOT . DS . 'www' . DS, '', $this->filename)
         );
 
         // I don't remember why this was here
@@ -1787,7 +1788,7 @@ class MediaObject extends \Pramnos\Framework\Base
             $tmThumb->filename = $tfile;
             $tmThumb->url = str_replace(
                 DS, '/',
-                str_replace(ROOT . DS, '', $tmThumb->filename)
+                str_replace(ROOT . DS . 'www' . DS, '', $tmThumb->filename)
             );
             $tmThumb->x = $tmpWidth;
             $tmThumb->y = $tmpHeight;
