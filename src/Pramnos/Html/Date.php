@@ -234,7 +234,7 @@ class Date extends Html
 
         $return .= "
             <script>
-            jQuery(function() {
+            window.addEventListener(\"load\", function () {
             jQuery( \"#" . $this->name . $unique . "_datepicker\" ).datepicker({
                     autoclose: true,
                     format: 'dd/mm/yyyy'
