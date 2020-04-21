@@ -218,7 +218,7 @@ class Date extends Html
         } else {
             $name = $this->name . "_datepicker";
         }
-        $document = \pramnos_document::getInstance();
+        $document = \Pramnos\Document\Document::getInstance();
         if ($this->addjs == true) {
             $document->enqueueScript('bootstrap-datepicker');
 
