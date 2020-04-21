@@ -141,23 +141,9 @@ class Document extends \Pramnos\Framework\Base
 
         //jQuery InputMask
         $this->registerScript('jquery-inputmask',
-            'https://cdnjs.cloudflare.com/ajax/libs/inputmask/4.0.9/'
-            . 'inputmask/jquery.inputmask.min.js',
+            'https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/'
+            . '3.3.4/jquery.inputmask.bundle.min.js',
             array('jquery'), '', true
-        );
-
-        //jQuery InputMask Extensions
-        $this->registerScript('jquery-inputmask-extensions',
-            'https://cdnjs.cloudflare.com/ajax/libs/inputmask/4.0.9/'
-            . 'inputmask/inputmask.extensions.min.js',
-            array('jquery-inputmask'), '', true
-        );
-
-        //jQuery InputMask Date Extensions
-        $this->registerScript('jquery-inputmask-date',
-            'https://cdnjs.cloudflare.com/ajax/libs/inputmask/4.0.9/'
-            . 'inputmask/inputmask.date.extensions.min.js',
-            array('jquery-inputmask-extensions'), '', true
         );
 
 
