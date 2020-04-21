@@ -76,6 +76,20 @@ class Date extends Html
         return (string) $this->getDate();
     }
 
+
+    /**
+     * Return unix timestamp of any html5 date field
+     * @param string $dateField
+     * @return int
+     */
+    public static function getHtmlDate($dateField)
+    {
+        $date = date_create_from_format(
+            'Y-m-d H:i:s', $dateField . ' 00:00:00'
+        );
+        return $date->getTimestamp();
+    }
+
     /**
      * Retreive the date from a submited form
      * @param string $requestType Form method
