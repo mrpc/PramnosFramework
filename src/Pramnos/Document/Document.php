@@ -63,7 +63,8 @@ class Document extends \Pramnos\Framework\Base
         parent::__construct();
         //Register default scripts
         $this->registerScript(
-            'jquery', sURL . 'media/js/jquery/jquery.min.js',
+            'jquery',
+            'https://cdnjs.cloudflare.com/ajax/libs/jquery/2.2.4/jquery.min.js',
             array(), '', false
         ); //jQuery
         $this->registerScript(
@@ -133,25 +134,29 @@ class Document extends \Pramnos\Framework\Base
 
         //Bootstrap Date
         $this->registerScript('bootstrap-datepicker',
-            sURL . 'plugins/datepicker/bootstrap-datepicker.js',
+            'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/'
+            . '1.9.0/js/bootstrap-datepicker.min.js',
             array(), '', true
         );
 
         //jQuery InputMask
         $this->registerScript('jquery-inputmask',
-            sURL . 'plugins/input-mask/jquery.inputmask.js',
+            'https://cdnjs.cloudflare.com/ajax/libs/inputmask/4.0.9/'
+            . 'inputmask/jquery.inputmask.min.js',
             array('jquery'), '', true
         );
 
         //jQuery InputMask Extensions
         $this->registerScript('jquery-inputmask-extensions',
-            sURL . 'plugins/input-mask/jquery.inputmask.extensions.js',
+            'https://cdnjs.cloudflare.com/ajax/libs/inputmask/4.0.9/'
+            . 'inputmask/inputmask.extensions.min.js',
             array('jquery-inputmask'), '', true
         );
 
         //jQuery InputMask Date Extensions
         $this->registerScript('jquery-inputmask-date',
-            sURL . 'plugins/input-mask/jquery.inputmask.date.extensions.js',
+            'https://cdnjs.cloudflare.com/ajax/libs/inputmask/4.0.9/'
+            . 'inputmask/inputmask.date.extensions.min.js',
             array('jquery-inputmask-extensions'), '', true
         );
 
