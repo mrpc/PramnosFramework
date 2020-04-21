@@ -226,7 +226,7 @@ class Date extends Html
 
         if ($this->validate == true) {
             if ($this->addjs == true) {
-                $document->enqueueScript('jquery-inputmask-date');
+                $document->enqueueScript('jquery-inputmask');
             }
         }
 
