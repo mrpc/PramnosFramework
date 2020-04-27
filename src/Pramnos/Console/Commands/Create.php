@@ -905,56 +905,47 @@ content;
     /**
      * Load from database
      * @param string {$primaryKeyVal} ID to load
-     * @param string \$table Database table
      * @param string \$key Primary key on database
      * @param boolean   \$debug Show debug information
      * @return \$this
      */
-    public function load({$primaryKeyVal}, \$table = NULL,
+    public function load({$primaryKeyVal},
         \$key = NULL, \$debug = false)
     {
-        return parent::_load({$primaryKeyVal}, \$table, \$key, \$debug);
+        return parent::_load({$primaryKeyVal}, null, \$key, \$debug);
     }
 
     /**
      * Save to database
-     * @param string    \$table
-     * @param string    \$key
      * @param boolean   \$autoGetValues If true, get all values from \$_REQUEST
      * @param boolean   \$debug Show debug information (and die)
      * @return          \$this
      */
-    public function save(\$table = NULL, \$key = NULL,
-        \$autoGetValues = false, \$debug = false)
+    public function save(\$autoGetValues = false, \$debug = false)
     {
-        return parent::_save(\$table, \$key, \$autoGetValues, \$debug);
+        return parent::_save(null, null \$autoGetValues, \$debug);
     }
 
 
     /**
      * Delete from database
      * @param integer {$primaryKeyVal} ID to delete
-     * @param string \$table
-     * @param string \$key
      * @return \$this
      */
-    public function delete({$primaryKeyVal}, \$table = NULL, \$key = NULL)
+    public function delete({$primaryKeyVal})
     {
-        return parent::_delete({$primaryKeyVal}, \$table, \$key);
+        return parent::_delete({$primaryKeyVal}, null, null);
     }
 
     /**
      * List objects
      * @param string \$filter Filter for where statement in database query
      * @param string \$order Order for database query
-     * @param type $\table
-     * @param type \$key
      * @return {$className}[]
      */
-    public function getList(\$filter = NULL, \$order = NULL,
-        \$table = NULL, \$key = NULL, \$debug = false)
+    public function getList(\$filter = NULL, \$order = NULL)
     {
-        return parent::_getList(\$filter, \$order, \$table, \$key, \$debug);
+        return parent::_getList(\$filter, \$order);
     }
 
 }
