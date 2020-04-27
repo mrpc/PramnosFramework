@@ -214,7 +214,7 @@ class Model extends \Pramnos\Framework\Base
             } else {
                 $database->updateTableData(
                     $this->_dbtable, $itemdata,
-                    "`" . $primarykey . "` = '" . (int) $this->$primarykey . "'"
+                    "`" . $primarykey . "` = '" . $this->$primarykey . "'"
                 );
             }
             $database->cacheflush($this->_cacheKey);
