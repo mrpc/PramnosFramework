@@ -411,7 +411,7 @@ content;
             <thead>
                 <tr>
                     <th>#</th>
-                    <th>{$firstField}</td>
+                    <th>{$firstField}</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -527,7 +527,6 @@ content;
         $fileContent = <<<content
 <?php
 namespace {$namespace};
-use \Pramnos\Application;
 
 /**
  * {$className} Controller
@@ -540,7 +539,7 @@ class {$className} extends \Pramnos\Application\Controller
      * {$className} controller constructor
      * @param Application \$application
      */
-    public function __construct(Application \$application = null)
+    public function __construct(\Pramnos\Application\Application \$application = null)
     {
         \$this->addAuthAction(
             array('edit', 'save', 'delete', 'show')
