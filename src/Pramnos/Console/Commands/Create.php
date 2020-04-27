@@ -923,7 +923,7 @@ content;
      */
     public function save(\$autoGetValues = false, \$debug = false)
     {
-        return parent::_save(null, null \$autoGetValues, \$debug);
+        return parent::_save(null, null, \$autoGetValues, \$debug);
     }
 
 
