@@ -684,7 +684,7 @@ class Application extends Base
 
             $nameSpacedClass = '\\' . $namespace . '\\Migrations\\' . $class;
             if (!class_exists($nameSpacedClass)) {
-                throw new Exception('Cannot find ' . $class . ' migration');
+                throw new \Exception('Cannot find ' . $class . ' migration');
             }
             $object = new $nameSpacedClass($this);
             if ($object->autoExecute == true) {
