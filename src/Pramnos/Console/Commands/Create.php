@@ -775,8 +775,15 @@ content;
 
 
         if (!$database->tableExists($tableName)) {
-            throw new \Exception('Table: ' . $tableName . ' does not exist.');
+            $tableName = '#PREFIX#' . strtolower($name);
+            if (!$database->tableExists($tableName)) {
+                throw new \Exception(
+                    'Table: ' . $tableName . ' does not exist.'
+                );
+            }
+
         }
+
         $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
         $result = $database->query($sql);
 
