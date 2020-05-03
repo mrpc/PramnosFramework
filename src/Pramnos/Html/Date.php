@@ -162,7 +162,11 @@ class Date extends Html
     }
 
 
-
+    /**
+     * Html date field
+     * @param string $name Field name
+     * @param int $date Unix timestamp
+     */
     public function __construct($name = '', $date = 0)
     {
         parent::__construct();
