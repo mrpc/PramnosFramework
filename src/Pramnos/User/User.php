@@ -242,7 +242,7 @@ class User extends \Pramnos\Framework\Base
     protected function _save($groupSupport = TRUE, $debug = false)
     {
         if (trim($this->username) == '' || trim($this->email) == '') {
-            throw new Exception(
+            throw new \Exception(
                 'Invalid username or email address. Username: '
                 . $this->username
                 . '. Email address: '
