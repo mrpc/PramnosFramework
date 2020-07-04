@@ -45,12 +45,19 @@ if (!function_exists("getUrl")) {
             && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https') {
             $s = 's';
         }
-        $port = ($_SERVER["SERVER_PORT"] == "80"
-            || $_SERVER["SERVER_PORT"] == "443"
-            ) ? "" : (":" . $_SERVER["SERVER_PORT"]);
-        $url = 'http' . $s . "://"
-            . $_SERVER['SERVER_NAME']
-            . $port . dirname($_SERVER["SCRIPT_NAME"]);
+        $port = '';
+        if (isset($_SERVER['SERVER_PORT'])) {
+            $port = ($_SERVER["SERVER_PORT"] == "80"
+                || $_SERVER["SERVER_PORT"] == "443"
+                ) ? "" : (":" . $_SERVER["SERVER_PORT"]);
+        }
+        if (isset($_SERVER['SERVER_NAME'])) {
+            $url = 'http' . $s . "://"
+                . $_SERVER['SERVER_NAME']
+                . $port . dirname($_SERVER["SCRIPT_NAME"]);
+        } else {
+            $url = '';
+        }
         if (substr($url, -1) != "/") {
             $url .= "/";
         }
