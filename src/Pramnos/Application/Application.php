@@ -525,7 +525,7 @@ class Application extends Base
         if (isset($this->applicationInfo['theme'])
             && $this->applicationInfo['theme'] != ''
             && $this->applicationInfo['theme'] != null) {
-            $doc->loadtheme($this->applicationInfo['theme']);
+            $doc->loadtheme($this->applicationInfo['theme'], '', $this);
         }
 
         /*

@@ -35,6 +35,12 @@ class Theme extends \Pramnos\Framework\Base
     public $theme = "default";
     public $path = '';
     public $fullpath = '';
+    /**
+     * Application Instance
+     * @var \Pramnos\Application\Application
+     */
+    public $application;
+
     private $contents = "";
 
     /**
@@ -99,10 +105,17 @@ class Theme extends \Pramnos\Framework\Base
      * Theme class constructor - most of the magic happens here :D
      * @param string $theme Theme to load
      * @param string $path Path of themes
+     * @param \Pramnos\Application\Application $application Application instance
      */
-    function __construct($theme = 'default', $path = '')
+    function __construct($theme = 'default', $path = '', $application = null)
     {
         parent::__construct();
+        if ($application !== null) {
+            $this->application = $application;
+        } else {
+            $this->application
+                = \Pramnos\Application\Application::getInstance();
+        }
         $this->theme = $theme;
         if ($theme != 'default') { //Always load the default theme if define theme doesn't exist
             if ($path == '' && !file_exists(ROOT . DS . 'themes' . DS . $theme)) {
@@ -194,9 +207,11 @@ class Theme extends \Pramnos\Framework\Base
      * @param string $path Path of the theme
      * @param boolean $load should we actually load the theme for display,
      *                      or just get it's information?
+     * @param \Pramnos\Application\Application $application Application instance
      * @return \classname|Theme
      */
-    public static function getTheme($theme = null, $path = '', $load = true)
+    public static function getTheme($theme = null, $path = '',
+        $load = true, $application = null)
     {
 
         if ($theme === null) {
@@ -224,7 +239,7 @@ class Theme extends \Pramnos\Framework\Base
                 if (class_exists($classname)) {
 
                     self::$instances[$theme] = new $classname(
-                        $theme, $path
+                        $theme, $path, $application
                     );
                     if ($load == true) {
                         self::$instances[$theme]->loadtheme();
@@ -232,7 +247,7 @@ class Theme extends \Pramnos\Framework\Base
                     return self::$instances[$theme];
                 } else {
                     self::$instances[$theme] = new Theme(
-                        $theme, $path
+                        $theme, $path, $application
                     );
                     if ($load == true) {
                         self::$instances[$theme]->loadtheme();
@@ -241,7 +256,7 @@ class Theme extends \Pramnos\Framework\Base
                 }
             } else {
                 self::$instances[$theme] = new Theme(
-                    $theme, $path
+                    $theme, $path, $application
                 );
                 if ($load == true) {
                     self::$instances[$theme]->loadtheme();
