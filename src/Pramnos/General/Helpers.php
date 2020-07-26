@@ -219,9 +219,23 @@ class Helpers
      */
     public static function getBrowser($agent) {
 
-        $browserInfo = pramnos_browserdetect::browser_detection(
-            'full_assoc', '', $agent
+        $browserInfo = @get_browser(
+            $agent, true
         );
+
+        if (!$browserInfo) {
+            return (object)array(
+                'userAgent' => $agent,
+                'browser'   => '',
+                'version'   => '',
+                'platform'  => '',
+                'majorver'  => '',
+                'os_number' => '',
+                'engine' => ''
+
+            );
+        }
+
         if (isset($browserInfo['engine_data'])
             && is_array($browserInfo['engine_data'])
             && isset($browserInfo['engine_data'][0])) {
@@ -231,11 +245,11 @@ class Helpers
         }
         return (object)array(
             'userAgent' => $agent,
-            'browser'   => $browserInfo['browser_name'],
-            'version'   => $browserInfo['browser_number'],
-            'platform'  => $browserInfo['os'],
-            'majorver'  => $browserInfo['browser_math_number'],
-            'os_number' => $browserInfo['os_number'],
+            'browser'   => $browserInfo['browser'],
+            'version'   => $browserInfo['version'],
+            'platform'  => $browserInfo['platform'],
+            'majorver'  => $browserInfo['majorver'],
+            'os_number' => '',
             'engine' => $engine
 
         );
