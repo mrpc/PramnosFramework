@@ -229,7 +229,7 @@ class Application extends Base
             $this->controller = $request->getController();
         }
         $this->action = $request->getAction();
-        
+
         //End of set session defaults
         if (isset($_GET['lang']) == true) {
             $_SESSION['language'] = $_GET['lang'];
