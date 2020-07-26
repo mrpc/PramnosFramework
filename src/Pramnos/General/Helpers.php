@@ -226,7 +226,7 @@ class Helpers
         if (!$browserInfo) {
             return (object)array(
                 'userAgent' => $agent,
-                'browser'   => '',
+                'browser'   => self::get_user_browser($agent),
                 'version'   => '',
                 'platform'  => '',
                 'majorver'  => '',
