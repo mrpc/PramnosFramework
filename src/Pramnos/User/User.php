@@ -640,7 +640,7 @@ class User extends \Pramnos\Framework\Base
 
     /**
      * Return the current logged user
-     * @return \getsynched_user|boolean
+     * @return User|boolean
      */
     public static function getCurrentUser()
     {
@@ -661,7 +661,22 @@ class User extends \Pramnos\Framework\Base
 
                 return $app->currentUser;
             }
-            $app->currentUser = new User($_SESSION['uid']);
+            // Try to find an override user class
+            if (isset($app->applicationInfo['namespace'])
+                && $app->applicationInfo['namespace'] != ''
+                && class_exists(
+                    '\\'
+                    . $app->applicationInfo['namespace']
+                    . '\\User'
+                )) {
+                $className = '\\'
+                    . $app->applicationInfo['namespace']
+                    . '\\User';
+                $app->currentUser = new $className($_SESSION['uid']);
+            } else {
+                $app->currentUser = new User($_SESSION['uid']);
+            }
+
             return $app->currentUser;
         }
 
