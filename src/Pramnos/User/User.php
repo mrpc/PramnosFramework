@@ -640,7 +640,7 @@ class User extends \Pramnos\Framework\Base
 
     /**
      * Return the current logged user
-     * @return User|boolean
+     * @return \getsynched_user|boolean
      */
     public static function getCurrentUser()
     {
@@ -661,7 +661,7 @@ class User extends \Pramnos\Framework\Base
 
                 return $app->currentUser;
             }
-            // Try to find an override user class
+             // Try to find an override user class
             if (isset($app->applicationInfo['namespace'])
                 && $app->applicationInfo['namespace'] != ''
                 && class_exists(
@@ -676,11 +676,100 @@ class User extends \Pramnos\Framework\Base
             } else {
                 $app->currentUser = new User($_SESSION['uid']);
             }
-
             return $app->currentUser;
         }
 
         return false;
+    }
+
+    /**
+     * Add a token to the database
+     * @param string $tokentype
+     * @param string $token
+     * @param string $notes
+     * @return $this
+     */
+    public function addToken($tokentype, $token, $notes='',
+        $parentToken = null)
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $sql = $database->prepareQuery(
+            "insert into `#PREFIX#usertokens` "
+            . " (`userid`, `tokentype`, `token`, `created`, `notes`, `status`,"
+            . " `parentToken`)"
+            . " values"
+            . " (%d, %s, %s, %d, %s, 1, %d) on duplicate key update"
+            . " `lastused` = %d, `status` = 1, `parentToken` = %d",
+            $this->userid, $tokentype, $token, time(), $notes, $parentToken,
+            time(), $parentToken
+        );
+        $database->query($sql);
+        return $this;
+    }
+
+
+    /**
+     * Delete a token from this user
+     * @param int $tokenid
+     * @return $this
+     */
+    public function deleteToken($tokenid)
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $sql = $database->prepareQuery(
+            "update `#PREFIX#usertokens` set `status` = 2, `removedate` = %d "
+            . "where (`tokenid` = %d or `parentToken` = %d)"
+            . "  and `userid` = %d",
+            time(), $tokenid, $tokenid, $this->userid
+        );
+        $database->query($sql);
+        return $this;
+    }
+
+    /**
+     * Clear ALL tokens from this user
+     * @return $this
+     */
+    public function clearTokens()
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $sql = $database->prepareQuery(
+            "update `#PREFIX#usertokens` set `status` = 2, `removedate` = %d "
+            . "where `userid` = %d ",
+            time(), $this->userid
+        );
+        $database->query($sql);
+        return $this;
+    }
+
+    /**
+     * Load a user based on user token (useful for the API)
+     * @param string $token
+     * @param string $tokentype
+     * @param boolean $setSessionApi
+     * @return $this
+     */
+    public function loadByToken($token, $tokentype='auth', $setSessionApi=true)
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $sql = $database->prepareQuery(
+            "select * from `#PREFIX#usertokens`"
+            . " where `token` = %s and `tokentype` = %s "
+            . " and `status` = 1 limit 1",
+            $token, $tokentype
+        );
+        $result = $database->query($sql);
+        if ($result->numRows > 0) {
+            $this->load($result->fields['userid']);
+            if ($setSessionApi) {
+                $tokenObj = new Token($result->fields);
+                $_SESSION['usertoken'] = $tokenObj;
+            }
+
+            return $this;
+        }
+
+
     }
 
 }
