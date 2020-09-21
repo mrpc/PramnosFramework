@@ -242,6 +242,11 @@ class Controller extends \Pramnos\Framework\Base
             $model = new $class($this, $name);
             return $model;
         }
+        if (class_exists(str_replace($name, ucfirst($name), $class))) {
+            $class = str_replace($name, ucfirst($name), $class);
+            $model = new $class($this, ucfirst($name));
+            return $model;
+        }
         throw new \Exception(
             'Cannot find model: ' . $name . ' (Class: ' . $class . ')'
         );
