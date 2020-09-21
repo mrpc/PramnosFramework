@@ -48,7 +48,11 @@ class Document extends \Pramnos\Framework\Base
     public $og_image = "";
     public $og_site_name = "";
     public $og_description = "";
-    public $themeObject = NULL;
+    /**
+     * Theme object
+     * @var \Pramnos\Theme\Theme
+     */
+    public $themeObject;
     public $breadcrumb = NULL;
     protected $_js = array();
     protected $_css = array();
@@ -206,11 +210,15 @@ class Document extends \Pramnos\Framework\Base
      * Load a theme and return a theme object
      * @param string $theme Theme to load
      * @param string $path Path to load theme from
+     * @param \Pramnos\Application\Application $application Application instance
      * @return  \Pramnos\Theme\Theme
      */
-    public function loadtheme($theme = 'default', $path = '')
+    public function loadtheme($theme = 'default', $path = '',
+        $application = null)
     {
-        $themeobject = \Pramnos\Theme\Theme::getTheme($theme, $path, false);
+        $themeobject = \Pramnos\Theme\Theme::getTheme(
+            $theme, $path, false, $application
+        );
         $this->themeObject = $themeobject;
         return $themeobject;
     }
