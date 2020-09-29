@@ -29,6 +29,7 @@ class User extends \Pramnos\Framework\Base
     protected $originalOtherinfo = array();
     protected $_isnew = 0;
     protected static $_usercache = NULL;
+    protected static $usersCache = array();
 
     public function __construct($userid = 0)
     {
@@ -94,6 +95,41 @@ class User extends \Pramnos\Framework\Base
         else {
             $this->active = 0;
         }
+    }
+
+    /**
+     * Get a user by it's user id
+     * @param int $userid
+     * @return User User Object
+     */
+    public static function getUser($userid)
+    {
+
+        if (isset(self::$usersCache[$userid])) {
+            return self::$usersCache[$userid];
+        }
+
+        $app = \Pramnos\Application\Application::getInstance();
+
+         // Try to find an override user class
+        if (isset($app->applicationInfo['namespace'])
+            && $app->applicationInfo['namespace'] != ''
+            && class_exists(
+                '\\'
+                . $app->applicationInfo['namespace']
+                . '\\User'
+            )) {
+            $className = '\\'
+                . $app->applicationInfo['namespace']
+                . '\\User';
+            $user = new $className($userid);
+        } else {
+            $user = new User($userid);
+        }
+        if ($user->userid > 1) {
+            self::$usersCache[$userid] = $user;
+        }
+        return $user;
     }
 
     /**
