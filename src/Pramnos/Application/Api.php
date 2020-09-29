@@ -190,18 +190,20 @@ class Api extends Application
             $this->logAction();
         }
 
-        /**
-         * Ok, εδώ θα γίνει λίγο της πουτάνας - προσωρινά - αφού φορτώνουμε
-         * κομμάτια του PramnosFramework2 για να έχουμε καλύτερο routing
-         */
-        $response = include(ROOT . '/src/Api/routes.php');
-        if ($response) {
-            $doc->addContent(
-                $this->_translateStatus(
-                    $response
-                )
-            );
-            return;
+        if (file_exists(ROOT . '/src/Api/routes.php')) {
+            /**
+             * Ok, εδώ θα γίνει λίγο της πουτάνας - προσωρινά - αφού φορτώνουμε
+             * κομμάτια του PramnosFramework2 για να έχουμε καλύτερο routing
+             */
+            $response = include(ROOT . '/src/Api/routes.php');
+            if ($response) {
+                $doc->addContent(
+                    $this->_translateStatus(
+                        $response
+                    )
+                );
+                return;
+            }
         }
 
         $moduleObject = $this->getController($this->controller);
@@ -301,7 +303,7 @@ class Api extends Application
         if ($apiKey == md5(str_replace('/api/', '/', sURL))) {
             return true;
         }
-        $applicationObject = new Api\Apikey($apiKey);
+        $applicationObject = new \Pramnos\Application\Api\Apikey($apiKey);
         if ($applicationObject->appid != 0) {
             $this->apiKey = $applicationObject;
             if ($applicationObject->status == 1) {
