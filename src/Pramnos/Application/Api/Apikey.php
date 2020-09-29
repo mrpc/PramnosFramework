@@ -211,7 +211,7 @@ class Apikey extends \Pramnos\Framework\Base
 
     /**
      * Αποθήκευση του api key στη βάση δεδομένων
-     * @return \captainbook_apikey
+     * @return Apikey
      */
     public function save()
     {
