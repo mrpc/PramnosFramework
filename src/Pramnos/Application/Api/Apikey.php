@@ -1,12 +1,11 @@
 <?php
-
 namespace Pramnos\Application\Api;
-
 /**
  * API Key Class
  *
  * @package     PramnosFramework
- * @copyright   Copyright (C) 2020  Yannis - Pastis Glaros, Pramnos Hosting Ltd.
+ * @subpackage Application
+ * @copyright   Copyright (C) 2017  Yannis - Pastis Glaros, Pramnos Hosting Ltd.
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  */
 class Apikey extends \Pramnos\Framework\Base
@@ -184,7 +183,7 @@ class Apikey extends \Pramnos\Framework\Base
             $data['status'] = $statusArray[(int) $this->status];
         }
         if (isset($data['owner']) && (int) $data['owner'] != 0) {
-            $owner = new \Pramnos\User\User($data['owner']);
+            $owner = \Pramnos\User\User::getUser($data['owner']);
             $data['owner'] = $owner->getData();
         }
         return $data;
@@ -202,9 +201,8 @@ class Apikey extends \Pramnos\Framework\Base
         );
         $result = $database->query($sql);
         $applications = array();
-        while (!$result->eof) {
-            $applications[] = new Apikey($result->fields);
-            $result->MoveNext();
+        foreach ($result as $app) {
+            $applications[] = new Apikey($app->fields);
         }
 
         return $applications;
@@ -213,7 +211,7 @@ class Apikey extends \Pramnos\Framework\Base
 
     /**
      * Αποθήκευση του api key στη βάση δεδομένων
-     * @return Apikey
+     * @return \captainbook_apikey
      */
     public function save()
     {
@@ -294,25 +292,25 @@ class Apikey extends \Pramnos\Framework\Base
                 'value' => $this->owner, 'type' => 'integer'
             ),
         );
-        $database->sql_cache_flush_cache('applications');
+        $database->cacheflush('applications');
         if ($this->_isnew == true) {
             $this->_isnew = false;
 
             if (!$database->insertDataToTable(
                 $database->prefix . "applications", $itemdata
             )) {
-                $error = $database->sql_error();
+                $error = $database->getError();
                 $this->addError($error['message']);
             } else {
-                $this->appid = $database->sql_nextid();
+                $this->appid = $database->getInsertId();
             }
             return $this;
         }
         if (!$database->updateTableData(
             $database->prefix . "applications", $itemdata,
-            "`appid` = '" . (int) $this->appid . "'", false
+            "`appid` = '" . (int) $this->appid . "'"
         )) {
-            $error = $database->sql_error();
+            $error = $database->getError();
             $this->addError($error['message']);
         }
 
