@@ -440,10 +440,11 @@ class Model extends \Pramnos\Framework\Base
             } catch (\Exception $ex) {
                 $this->controller->application->showError($ex->getMessage());
             }
-
+            $class = get_class($this);
             while ($result->fetch()) {
+
                 $objects[$result->fields[$primarykey]]
-                    = $this->getModel($this->modelname);
+                    = new $class($this->controller);
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
                         = $result->fields[$field];
@@ -652,6 +653,10 @@ class Model extends \Pramnos\Framework\Base
     {
         $data = array();
         foreach (get_object_vars($this) as $key=>$value) {
+            if ($key == '_primaryKey' || $key == '_dbtable'
+                || $key == 'modelname' || $key == 'prefix') {
+                continue;
+            }
             if (is_numeric($value) || is_string($value)) {
                 $data[$key] = $value;
             }
