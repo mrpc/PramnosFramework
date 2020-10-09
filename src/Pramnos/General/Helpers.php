@@ -126,7 +126,7 @@ class Helpers
                 'timedifference'
             );
         }
-        $difference = (real) $difference;
+        $difference = (float) $difference;
         $difference = $difference * 3600;
         return $time + $difference;
     }
@@ -778,7 +778,7 @@ class Helpers
     }
 
 
-  
+
 
     /**
      * Optimize timestamps for use in sql or cache queries
