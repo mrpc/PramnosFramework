@@ -38,18 +38,22 @@ if (!function_exists("getUrl")) {
      */
     function getUrl()
     {
-        $s = empty($_SERVER["HTTPS"])
-            ? ''
-            : ($_SERVER["HTTPS"] == "on") ? "s" : "";
+        if (empty($_SERVER["HTTPS"])) {
+               $s = '';
+           } else {
+               $s = ($_SERVER["HTTPS"] == "on") ? "s" : "";
+           }
         if (isset($_SERVER['HTTP_X_FORWARDED_PROTO'])
             && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https') {
             $s = 's';
         }
         $port = '';
-        if (isset($_SERVER['SERVER_PORT'])) {
-            $port = ($_SERVER["SERVER_PORT"] == "80"
-                || $_SERVER["SERVER_PORT"] == "443"
-                ) ? "" : (":" . $_SERVER["SERVER_PORT"]);
+        if ($_SERVER["SERVER_PORT"] == "80"
+            || $_SERVER["SERVER_PORT"] == "443"
+        ) {
+            $port = '';
+        } else {
+            $port = ":" . $_SERVER["SERVER_PORT"];
         }
         if (isset($_SERVER['SERVER_NAME'])) {
             $url = 'http' . $s . "://"
