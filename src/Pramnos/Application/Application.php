@@ -229,9 +229,7 @@ class Application extends Base
             $this->controller = $request->getController();
         }
         $this->action = $request->getAction();
-        if (isset($_SESSION['language'])) {
-            $this->language = $_SESSION['language'];
-        }
+
         //End of set session defaults
         if (isset($_GET['lang']) == true) {
             $_SESSION['language'] = $_GET['lang'];
@@ -525,7 +523,7 @@ class Application extends Base
         if (isset($this->applicationInfo['theme'])
             && $this->applicationInfo['theme'] != ''
             && $this->applicationInfo['theme'] != null) {
-            $doc->loadtheme($this->applicationInfo['theme']);
+            $doc->loadtheme($this->applicationInfo['theme'], '', $this);
         }
 
         /*

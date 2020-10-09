@@ -17,7 +17,7 @@ class Request extends Base
      * Current controller
      * @var string
      */
-    private $_controller = '';
+    protected static $_controller = '';
     protected static $action = '';
     /**
      * Original $_GET request
@@ -77,7 +77,7 @@ class Request extends Base
         if ($requestParam == null){
             $requestParam=self::$originalRequest;
         }
-        $this->_controller='';
+        self::$_controller = '';
         $request = rtrim($requestParam, '/');
         $parsedUrl = parse_url($_SERVER['REQUEST_URI']);
         if (is_array($parsedUrl) && isset($parsedUrl['query'])) {
@@ -99,7 +99,7 @@ class Request extends Base
         }
         $parts = explode("/", $request);
         if (isset($parts[0]) && $parts[0] !== '') {
-            $this->_controller = $parts[0];
+            self::$_controller = $parts[0];
         }
         if ($slashes > 0 && isset($parts[1]) && $parts[1] !== '') {
             self::$action = $parts[1];
@@ -326,7 +326,7 @@ class Request extends Base
      */
     public function getController()
     {
-        return $this->_controller;
+        return self::$_controller;
     }
 
 
@@ -338,7 +338,7 @@ class Request extends Base
      */
     public function setController($module)
     {
-        $this->_controller=$module;
+        self::$_controller = $module;
 
         return $this;
     }
@@ -384,7 +384,7 @@ class Request extends Base
                 && $_SERVER["SERVER_PORT"] != "80") {
                 $pageURL .= $_SERVER["SERVER_NAME"] . ":"
                     . $_SERVER["SERVER_PORT"] . $_SERVER["REQUEST_URI"];
-            } else {
+            } elseif (isset($_SERVER['SERVER_NAME'])) {
                 $pageURL .= $_SERVER["SERVER_NAME"] . $_SERVER["REQUEST_URI"];
             }
         } else {
