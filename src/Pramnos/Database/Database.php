@@ -721,30 +721,17 @@ class Database extends \Pramnos\Framework\Base
         );
         if (!empty($positions)) {
             $values = array_values($args);
-            $index = 0;
-            $str_offset = 0;
-            foreach ($positions[0] as $ref => $pattern) {
-                $locIndex = 0;
-                if (!empty($positions[1][$ref])) {
-                    if (PHP_MINOR_VERSION == 4) {
-                        $locIndex = ( (int) $positions[1][$ref][0] );
-                    } else {
-                        $locIndex = ( (int) $positions[1][$ref][0] ) - 1;
-                   }
-                } else {
-                    $locIndex = $index++;
-                }
-                if (!isset($values[$locIndex])) {
-                    unset($values[$locIndex]);
-                    $formatLength = strlen($pattern[0]);
+            foreach ($values as $index => $value) {
+                if ($value === null) {
+                    $match = $positions[0][$index][0];
+                    $offset = $positions[0][$index][1];
+                    $offsetEnd = $offset + strlen($match);
+                    unset($values[$index]);
                     $query = substr(
-                        $query, 0, $pattern[1] + $str_offset
+                        $query, 0, $offset
                     ) . ' NULL ' . substr(
-                        $query, $pattern[1] + $formatLength + $str_offset
+                        $query, $offsetEnd
                     );
-                    if ($formatLength != 6) {
-                        $str_offset += 6 - $formatLength;
-                    }
                 }
             }
             $args = array_values($values);
