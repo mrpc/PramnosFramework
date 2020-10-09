@@ -726,7 +726,11 @@ class Database extends \Pramnos\Framework\Base
             foreach ($positions[0] as $ref => $pattern) {
                 $locIndex = 0;
                 if (!empty($positions[1][$ref])) {
-                    $locIndex = ( (int) $positions[1][$ref][0] ) - 1;
+                    if (PHP_MINOR_VERSION == 4) {
+                        $locIndex = ( (int) $positions[1][$ref][0] );
+                    } else {
+                        $locIndex = ( (int) $positions[1][$ref][0] ) - 1;
+                   }
                 } else {
                     $locIndex = $index++;
                 }
