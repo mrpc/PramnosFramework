@@ -231,10 +231,11 @@ class Model extends \Pramnos\Framework\Base
      * @param string $table
      * @param string $key
      * @param boolean   $debug
+     * @param boolean   $useCache Use cache?
      * @return Model
      */
     protected function _load($primaryKey, $table = NULL,
-        $key = NULL, $debug=false)
+        $key = NULL, $debug=false, $useCache = true)
     {
 
         $database = \Pramnos\Database\Database::getInstance();
@@ -261,7 +262,7 @@ class Model extends \Pramnos\Framework\Base
             if ($debug === true) {
                 die($sql);
             }
-            $result = $database->query($sql, true, 600, $this->_cacheKey);
+            $result = $database->query($sql, $useCache, 600, $this->_cacheKey);
             if ($result->numRows != 0) {
                 foreach (array_keys($result->fields) as $field) {
                     $this->$field = $result->fields[$field];
