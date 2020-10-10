@@ -721,15 +721,17 @@ class Database extends \Pramnos\Framework\Base
         );
         if (!empty($positions)) {
             $values = array_values($args);
+            $extraLetters = 0;
             foreach ($values as $index => $value) {
                 if ($value === null) {
                     $match = $positions[0][$index][0];
-                    $offset = $positions[0][$index][1];
+                    $offset = $positions[0][$index][1] + $extraLetters;
+                    $extraLetters += (6 - strlen($match));
                     $offsetEnd = $offset + strlen($match);
                     unset($values[$index]);
                     $query = substr(
                         $query, 0, $offset
-                    ) . ' NULL ' . substr(
+                    ) . ' null ' . substr(
                         $query, $offsetEnd
                     );
                 }
