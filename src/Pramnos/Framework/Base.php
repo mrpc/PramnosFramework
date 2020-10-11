@@ -98,8 +98,12 @@ class Base
         }
         return $this;
     }
-
-    function _getErrors($session = true)
+    /**
+     * Returns an array of errors or false if no messages exist
+     * @param bool $session Check in session data
+     * @return array|boolean
+     */
+    protected function _getErrors($session = true)
     {
         if ($session == true && isset($_SESSION)) {
             if (isset($_SESSION['_errors'])
@@ -120,7 +124,12 @@ class Base
         }
     }
 
-    function _getMessages($session = true)
+    /**
+     * Returns an array of messages or false if no messages exist
+     * @param bool $session Check in session data
+     * @return array|boolean
+     */
+    protected function _getMessages($session = true)
     {
         if ($session == true && isset($_SESSION)) {
             if (isset($_SESSION['_messages'])
@@ -141,6 +150,11 @@ class Base
         }
     }
 
+    /**
+     * Display all messages
+     * @param string $class
+     * @return string
+     */
     protected function _printMessages($class = 'pramnosMessage')
     {
         $return = '';
@@ -157,6 +171,11 @@ class Base
         return $return;
     }
 
+    /**
+     * Display all errors
+     * @param string $class
+     * @return string
+     */
     protected function _printErrors($class = 'pramnosError')
     {
         $return = '';
