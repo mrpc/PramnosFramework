@@ -640,6 +640,7 @@ class Application extends Base
                 'exitAppLog'
             );
         }
+        session_write_close();
         exit($msg);
     }
 
