@@ -241,16 +241,16 @@ class Date extends Html
             window.addEventListener(\"load\", function () {
             jQuery( \"#" . $this->name . $unique . "_datepicker\" ).datepicker({
                     autoclose: true,
-                    format: 'dd/mm/yyyy'
+                    dateFormat: 'dd/mm/yyyy'
             });\n";
 
         if ($this->validate) {
             $return .= 'jQuery("#'
                 . $this->name
                 . $unique
-                . '_datepicker").inputmask("dd/mm/yyyy", {"placeholder": "'
+                . '_datepicker").inputmask("99/99/9999", {"placeholder": "'
                 . $lang->_('DD/MM/YYYY')
-                . '"});';
+                . '", alias: "dd/mm/yyyy"});';
         }
 
         $return .="\n});\n</script>";
