@@ -241,6 +241,7 @@ class Date extends Html
             window.addEventListener(\"load\", function () {
             jQuery( \"#" . $this->name . $unique . "_datepicker\" ).datepicker({
                     autoclose: true,
+                    changeYear: true,
                     dateFormat: 'dd/mm/yyyy'
             });\n";
 
