@@ -242,6 +242,7 @@ class Date extends Html
             jQuery( \"#" . $this->name . $unique . "_datepicker\" ).datepicker({
                     autoclose: true,
                     changeYear: true,
+                    yearRange: \"c-250:c+10\",
                     dateFormat: 'dd/mm/yyyy'
             });\n";
 
