@@ -143,7 +143,8 @@ class Api extends Application
                         array(
                             'status' => 403,
                             'message' => 'Invalid Access Token.',
-                            'error' => 'InvalidAccessToken'
+                            'error' => 'InvalidAccessToken',
+                            'data' => $ex->getMessage()
                         )
                     )
                 );
