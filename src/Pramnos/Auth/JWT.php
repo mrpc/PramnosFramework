@@ -83,7 +83,7 @@ class JWT
 
             // Check the signature
             if (!self::verify("$headb64.$bodyb64", $sig, $key, $header->alg)) {
-                throw new Exception('Signature verification failed');
+                throw new \Exception('Signature verification failed');
             }
 
             // Check if the nbf if it is defined. This is the time that the
