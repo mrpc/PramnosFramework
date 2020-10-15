@@ -405,32 +405,32 @@ class User extends \Pramnos\Framework\Base
             array(
                 'fieldName' => 'regcompletion',
                 'value' => $this->regcompletion,
-                'type' => 'int'
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'lasttermsagreed',
                 'value' => $this->lasttermsagreed,
-                'type' => 'int'
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'usertype',
                 'value' => $this->usertype,
-                'type' => 'int'
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'sex',
                 'value' => $this->sex,
-                'type' => 'int'
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'birthdate',
                 'value' => $this->birthdate,
-                'type' => 'int'
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'photo',
                 'value' => $this->photo,
-                'type' => 'int'
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'phone',
@@ -469,7 +469,7 @@ class User extends \Pramnos\Framework\Base
             );
         }
 
-        $itemdata=$this->_alterFields($itemdata);
+        $itemdata = $this->_alterFields($itemdata);
         if ($this->_isnew === 1 || $this->userid == 1) {
             $this->_isnew = 0;
             if ($this->userid != 1) {
