@@ -137,7 +137,7 @@ class Api extends Application
                     $_SERVER['HTTP_ACCESSTOKEN'], $this->authenticationKey,
                     array('HS256')
                 );
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 $doc->addContent(
                     $this->_translateStatus(
                         array(
