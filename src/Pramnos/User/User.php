@@ -13,8 +13,61 @@ class User extends \Pramnos\Framework\Base
 
     private $_userstable = DB_USERSTABLE;
     private $_userdetailstable = DB_USERSTABLE;
+    /**
+     * User ID
+     * @var int
+     */
     public $userid = 1;
+    /**
+     * Username
+     * @var string
+     */
     public $username = "Anonymous";
+    /**
+     * First Name
+     * @var string
+     */
+    public $firstname = '';
+    /**
+     * Last Name
+     * @var string
+     */
+    public $lastname = '';
+    /**
+     * Registration Completion in unix timestamp
+     * @var int
+     */
+    public $regcompletion = null;
+    /**
+     * Last agreement to the terms of use, in unix timestamp
+     * @var int
+     */
+    public $lasttermsagreed = null;
+    /**
+     * User type
+     * @var int
+     */
+    public $usertype;
+    /**
+     * User gender. 0: Unknown 1: Male 2: Female
+     * @var int
+     */
+    public $sex = 0;
+
+    public $photo = null;
+
+    public $phone = '';
+    public $fax = '';
+    public $mobile = '';
+    public $birthdate;
+
+    public $website = '';
+    /**
+     * Last modification in unix timestamp
+     * @var int
+     */
+    public $modified = 0;
+
     public $password = "";
     public $email = "";
     public $regdate = 0;
@@ -287,26 +340,125 @@ class User extends \Pramnos\Framework\Base
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
         $itemdata = array(
-            array('fieldName' => 'username',
-                'value' => $this->username, 'type' => 'string'),
-            array('fieldName' => 'password',
-                'value' => $this->password, 'type' => 'string'),
-            array('fieldName' => 'email',
-                'value' => $this->email, 'type' => 'string'),
-            array('fieldName' => 'regdate',
-                'value' => $this->regdate, 'type' => 'integer'),
-            array('fieldName' => 'lastlogin',
-                'value' => $this->lastlogin, 'type' => 'integer'),
-            array('fieldName' => 'active',
-                'value' => $this->active, 'type' => 'integer'),
-            array('fieldName' => 'validated',
-                'value' => $this->validated, 'type' => 'integer'),
-            array('fieldName' => 'language',
-                'value' => $this->language, 'type' => 'string'),
-            array('fieldName' => 'timezone',
-                'value' => $this->timezone, 'type' => 'string'),
-            array('fieldName' => 'dateformat',
-                'value' => $this->dateformat, 'type' => 'string')
+            array(
+                'fieldName' => 'username',
+                'value' => $this->username,
+                'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'password',
+                'value' => $this->password,
+                'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'email',
+                'value' => $this->email,
+                'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'regdate',
+                'value' => $this->regdate,
+                'type' => 'integer'
+            ),
+            array(
+                'fieldName' => 'lastlogin',
+                'value' => $this->lastlogin,
+                'type' => 'integer'
+            ),
+            array(
+                'fieldName' => 'active',
+                'value' => $this->active,
+                'type' => 'integer'
+            ),
+            array(
+                'fieldName' => 'validated',
+                'value' => $this->validated,
+                'type' => 'integer'
+            ),
+            array(
+                'fieldName' => 'language',
+                'value' => $this->language,
+                'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'lastname',
+                'value' => $this->lastname,
+                'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'firstname',
+                'value' => $this->firstname,
+                'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'timezone',
+                'value' => $this->timezone,
+                'type' => 'string'
+            ),
+
+            array(
+                'fieldName' => 'dateformat',
+                'value' => $this->dateformat,
+                'type' => 'string'
+            ),
+
+            array(
+                'fieldName' => 'regcompletion',
+                'value' => $this->regcompletion,
+                'type' => 'int'
+            ),
+            array(
+                'fieldName' => 'lasttermsagreed',
+                'value' => $this->lasttermsagreed,
+                'type' => 'int'
+            ),
+            array(
+                'fieldName' => 'usertype',
+                'value' => $this->usertype,
+                'type' => 'int'
+            ),
+            array(
+                'fieldName' => 'sex',
+                'value' => $this->sex,
+                'type' => 'int'
+            ),
+            array(
+                'fieldName' => 'birthdate',
+                'value' => $this->birthdate,
+                'type' => 'int'
+            ),
+            array(
+                'fieldName' => 'photo',
+                'value' => $this->photo,
+                'type' => 'int'
+            ),
+            array(
+                'fieldName' => 'phone',
+                'value' => $this->phone,
+                'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'fax',
+                'value' => $this->fax,
+                'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'mobile',
+                'value' => $this->mobile,
+                'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'website',
+                'value' => $this->website,
+                'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'modified',
+                'value' => $this->modified,
+                'type' => 'string'
+            )
+
+
         );
 
         if ($groupSupport == true) {
@@ -806,6 +958,38 @@ class User extends \Pramnos\Framework\Base
         }
 
 
+    }
+
+
+    /**
+     * Get user data as array
+     * @return array
+     */
+    public function getData()
+    {
+        $data = array();
+        foreach (get_object_vars($this) as $key=>$value) {
+            if (is_numeric($value) || is_string($value)) {
+                $data[$key] = $value;
+            }
+        }
+        foreach ($this->otherinfo as $key=>$value) {
+            if (!isset($data[$key])) {
+                if (is_numeric($value) || is_string($value)) {
+                    $data[$key] = $value;
+                }
+            }
+        }
+        unset($data['_isnew']);
+        unset($data['_userdetailstable']);
+        unset($data['_userstable']);
+
+        unset($data['_messages']);
+        unset($data['_messages']);
+        unset($data['_messages']);
+
+        ksort($data);
+        return $data;
     }
 
 }
