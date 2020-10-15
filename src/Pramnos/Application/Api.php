@@ -169,6 +169,7 @@ class Api extends Application
                         )
                     )
                 );
+                return;
             } else {
                 $_SESSION['user'] = null;
             }
