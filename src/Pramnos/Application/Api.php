@@ -182,7 +182,7 @@ class Api extends Application
             && is_object($_SESSION['usertoken'])) {
             try {
                 $_SESSION['usertoken']->addAction();
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 unset($_SESSION['usertoken']);
                 \Pramnos\Logs\Logger::log($ex->getMessage());
             }
@@ -215,7 +215,7 @@ class Api extends Application
                     $moduleObject->exec($this->action)
                 )
             );
-        } catch (Exception $exception) {
+        } catch (\Exception $exception) {
             if ($exception->getCode() == 403) {
                 $lang = \Pramnos\Framework\Factory::getLanguage();
                 $doc->addContent(
