@@ -51,7 +51,11 @@ class Api extends Application
                 define('APIVERSION', 'edge');
             }
         }
-        $this->authenticationKey = md5(sURL . APIVERSION);
+        if (defined('sURL')) {
+            $this->authenticationKey = md5(sURL . APIVERSION);
+        } else {
+            $this->authenticationKey = md5(APIVERSION);
+        }
 
     }
 
