@@ -59,7 +59,7 @@ class User extends \Pramnos\Framework\Base
     public $phone = '';
     public $fax = '';
     public $mobile = '';
-    public $birthdate;
+    public $birthdate = 0;
 
     public $website = '';
     /**
