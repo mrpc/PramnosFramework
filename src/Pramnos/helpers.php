@@ -22,11 +22,20 @@ if (!function_exists('l')) {
     /**
      * Alias of echo $lang->_('string');
      */
-    function l(){
-        $lang = \Pramnos\Framework\Factory::getLanguage();
-        $params = func_get_args();
-        echo call_user_func_array(array($lang,'_'), $params);
+    if (class_exists('pramnos_factory')) {
+        function l(){
+            $lang = \pramnos_factory::getLanguage();
+            $params = func_get_args();
+            echo call_user_func_array(array($lang,'_'), $params);
+        }
+    } else {
+        function l(){
+            $lang = \Pramnos\Framework\Factory::getLanguage();
+            $params = func_get_args();
+            echo call_user_func_array(array($lang,'_'), $params);
+        }
     }
+
 }
 
 if (!function_exists("getUrl")) {
