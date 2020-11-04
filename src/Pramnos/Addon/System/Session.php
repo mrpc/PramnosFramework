@@ -115,7 +115,7 @@ class Session extends \Pramnos\Addon\Addon
             if (isset($_SESSION['uid'])) {
                 $uid = $_SESSION['uid'];
             } else {
-                $uid = 1;
+                $uid = 'NULL';
             }
             if (isset($_SESSION['username'])) {
                 $uname = $_SESSION['username'];
@@ -242,7 +242,9 @@ class Session extends \Pramnos\Addon\Addon
 
         }
 
-
+        if ((int) $uid == 1) {
+            $uid = 'NULL';
+        }
 
         try {
             $sql = $database->prepareQuery(
