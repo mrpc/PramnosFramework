@@ -179,7 +179,7 @@ class Request extends Base
         }
 
         if (self::$requestMethod == 'POST' && count($_POST) == 0) {
-            if (\pramnos_general::checkJSON(file_get_contents("php://input"))) {
+            if (\Pramnos\General\Helpers::checkJSON(file_get_contents("php://input"))) {
                 $postArray = (array)json_decode(
                     file_get_contents("php://input")
                 );
