@@ -71,12 +71,14 @@ class Api extends Application
         if ($this->checkversion() !== true) {
             $this->upgrade();
         }
-        if (isset($_SERVER['HTTP_ORIGIN'])) {
+        #if (isset($_SERVER['HTTP_ORIGIN'])) {
             #header("Access-Control-Allow-Origin: {$_SERVER['HTTP_ORIGIN']}");
-            header("Access-Control-Allow-Origin: *");
-            header('Access-Control-Allow-Credentials: true');
+            #header("Access-Control-Allow-Origin: *");
+            #header('Access-Control-Allow-Credentials: true');
             #header('Access-Control-Max-Age: 86400');    // cache for 1 day
-        }
+        #}
+        header("Access-Control-Allow-Origin: *");
+        header('Access-Control-Allow-Credentials: true');
         // Access-Control headers are received during OPTIONS requests
         if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
             if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_METHOD']))
