@@ -17,7 +17,7 @@ class MediaObject extends \Pramnos\Framework\Base
      */
     public $mediaid = 0;
     /**
-     * Media Type. 1: image, 2:emoticon 3:pdf 4:Flash Media 5:video
+     * Media Type. 0: Generic 1: image, 2:emoticon 3:pdf 4:Flash Media 5:video
      * @var int
      */
     public $mediatype = 0;
@@ -626,7 +626,7 @@ class MediaObject extends \Pramnos\Framework\Base
                         $tmpMedia->save();
                         \Pramnos\Logs\Logger::log('Cannot copy');
                     }
-                } catch (Exception $ex) {
+                } catch (\Exception $ex) {
                     $tmpMedia->filename = $file;
                     $tmpMedia->save();
                     \Pramnos\Logs\Logger::log($ex->getMessage());
@@ -985,7 +985,7 @@ class MediaObject extends \Pramnos\Framework\Base
             );
         } else {
             $allowedExtentions = array(
-                'jpg', 'jpeg', 'gif', 'png', 'bmp', 'pdf', 'ico'
+                'jpg', 'jpeg', 'gif', 'png', 'bmp', 'pdf', 'ico', 'xls', 'xlsx'
             );
         }
         if (array_search($ext, $allowedExtentions) === false) {
@@ -996,6 +996,8 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($this->mediatype == 0) {
             if ($ext == 'pdf') {
                 $this->mediatype = 3;
+            } elseif ($ext == 'xls' || $ext == 'xlst') {
+                $this->mediatype = 0;
             } else {
                 $this->mediatype = 1;
             }
@@ -1041,6 +1043,11 @@ class MediaObject extends \Pramnos\Framework\Base
                         break;
                     case "application/pdf":
                         $this->mediatype = 3;
+                        break;
+                    case "application/vnd.ms-excel":
+                        $this->mediatype = 0;
+                        $this->x = 0;
+                        $this->y = 0;
                         break;
                     default:
                         $this->error = "Invalid MIME type: " . $file['type'];
@@ -1098,6 +1105,7 @@ class MediaObject extends \Pramnos\Framework\Base
             return $this;
         }
         $this->name = $thename;
+        $this->save();
         return $this;
     }
 
@@ -1127,7 +1135,7 @@ class MediaObject extends \Pramnos\Framework\Base
         $description = '', $tags = '', $order = 0)
     {
         if ($this->mediaid == 0) {
-            throw new Exception(
+            throw new \Exception(
                 'Cannot add a usage to a non existing media object.'
             );
         }
@@ -1135,7 +1143,7 @@ class MediaObject extends \Pramnos\Framework\Base
             $module = $this->module;
         }
         if ($module == '') {
-            throw new Exception(
+            throw new \Exception(
                 'Cannot add a usage where there is no module.'
             );
         }
@@ -1389,7 +1397,7 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($this->error != false && $force == false) {
             return $this;
         }
-        if ($this->userid == 0) {
+        if ($this->userid == 0 && isset($_SESSION['uid'])) {
             $this->userid = $_SESSION['uid'];
         }
         if ($this->date == 0) {
@@ -1507,12 +1515,12 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($this->_isnew == true) {
             $this->_isnew = false;
             $database->insertDataToTable(
-                $database->prefix . "media", $itemdata, 'insert', '', false
+                $database->prefix . "media", $itemdata
             );
             $this->mediaid = $database->getInsertId();
         } else {
             $database->updateTableData(
-                $database->prefix . "media", $itemdata, 'update',
+                $database->prefix . "media", $itemdata,
                 "`mediaid` = '" . (int) $this->mediaid . "'", false
             );
         }
@@ -1668,6 +1676,17 @@ class MediaObject extends \Pramnos\Framework\Base
                 }
             }
             return new Thumbnail();
+        } elseif ($this->mediatype == 0) {
+            $thumb = new Thumbnail();
+            $thumb->createdTxt = date('d/m/Y H:i:s');
+            $thumb->filename = ROOT . 'www/assets/image/pdf.png';
+            $thumb->x = 120;
+            $thumb->y = 120;
+            $thumb->views = 0;
+            $thumb->filesize = 0;
+            $thumb->reason = "File Preview";
+            $thumb->url = 'assets/image/pdf.png';
+            return $thumb;
         } elseif ($this->mediatype == 3) {
             $thumb = new Thumbnail();
             $thumb->createdTxt = date('d/m/Y H:i:s');
@@ -1812,6 +1831,17 @@ class MediaObject extends \Pramnos\Framework\Base
             $thumb->views = 0;
             $thumb->filesize = 0;
             $thumb->reason = "PDF Preview";
+            $thumb->url = 'assets/image/pdf.png';
+            return $thumb;
+        } else {
+            $thumb = new Thumbnail();
+            $thumb->createdTxt = date('d/m/Y H:i:s');
+            $thumb->filename = ROOT .  'www/assets/image/pdf.png';
+            $thumb->x = 256;
+            $thumb->y = 256;
+            $thumb->views = 0;
+            $thumb->filesize = 0;
+            $thumb->reason = "File Preview";
             $thumb->url = 'assets/image/pdf.png';
             return $thumb;
         }
