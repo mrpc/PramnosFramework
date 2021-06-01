@@ -135,7 +135,22 @@ class Api extends Application
         //$_SESSION['logged'] = false;
         if (isset($_SERVER['HTTP_ACCESSTOKEN'])
             && trim($_SERVER['HTTP_ACCESSTOKEN'] != '')) {
-            $user = new \Pramnos\User\User();
+
+            // Try to find an override user class
+            if (isset($this->applicationInfo['namespace'])
+                && $this->applicationInfo['namespace'] != ''
+                && class_exists(
+                    '\\'
+                    . $this->applicationInfo['namespace']
+                    . '\\User'
+                )) {
+                $className = '\\'
+                    . $this->applicationInfo['namespace']
+                    . '\\User';
+                $user = new $className();
+            } else {
+                $user = new \Pramnos\User\User();
+            }
 
             \Pramnos\Auth\JWT::$leeway = 60; // $leeway in seconds
             try {
