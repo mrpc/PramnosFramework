@@ -366,10 +366,14 @@ class Model extends \Pramnos\Framework\Base
             if ($debug==true) {
                 die($sql);
             }
+
+            $class = get_class($this);
+            
+
             $result = $database->query($sql, true, 600, $this->_cacheKey);
             while ($result->fetch()) {
-                $objects[$result->fields[$primarykey]] = $this->getModel(
-                    $this->modelname
+                $objects[$result->fields[$primarykey]] = new $class(
+                    $this->controller
                 );
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
