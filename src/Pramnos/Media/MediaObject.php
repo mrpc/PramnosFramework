@@ -443,7 +443,7 @@ class MediaObject extends \Pramnos\Framework\Base
             $path = $this->createPath($module);
             try {
                 copy($file, $path . strtolower(basename($file)));
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::log("Cannot copy image. " . $ex->getMessage());
                 $this->error = "Cannot copy image. " . $ex->getMessage();
                 return $this;
@@ -451,7 +451,7 @@ class MediaObject extends \Pramnos\Framework\Base
             if ($deleteOriginal === true) {
                 try {
                     unlink($file);
-                } catch (Exception $ex) {
+                } catch (\Exception $ex) {
                     \Pramnos\Logs\Logger::log(
                         "Cannot delete original image. " . $ex->getMessage()
                     );
@@ -884,7 +884,7 @@ class MediaObject extends \Pramnos\Framework\Base
     {
         try {
             $exif = @exif_read_data($filename);
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             $exif = array(
                 'message' => $ex->getMessage(),
                 'Orientation' => null
@@ -925,7 +925,7 @@ class MediaObject extends \Pramnos\Framework\Base
         if (!isset($file['name'])
             || !isset($file['type'])
             || !isset($file['tmp_name'])) {
-            throw new Exception('Invalid file upload');
+            throw new \Exception('Invalid file upload');
         }
         return $file;
     }
@@ -989,14 +989,14 @@ class MediaObject extends \Pramnos\Framework\Base
             );
         }
         if (array_search($ext, $allowedExtentions) === false) {
-            $this->error = "Invalid File Type: " . $ext;
+            $this->error = "#1 Invalid File Type: " . $ext;
             return $this;
         }
-
         if ($this->mediatype == 0) {
             if ($ext == 'pdf') {
                 $this->mediatype = 3;
-            } elseif ($ext == 'xls' || $ext == 'xlst') {
+            } elseif ($ext == 'xls' || $ext == 'xlsx' 
+                || $ext == 'doc' || $ext == 'docx') {
                 $this->mediatype = 0;
             } else {
                 $this->mediatype = 1;
@@ -1015,7 +1015,7 @@ class MediaObject extends \Pramnos\Framework\Base
                     case "image/vnd.microsoft.icon":
                         break;
                     default:
-                        $this->error = "Invalid MIME type: " . $file['type'];
+                        $this->error = "#2 Invalid MIME type: " . $file['type'];
                         return $this;
                         break;
                 }
@@ -1025,7 +1025,7 @@ class MediaObject extends \Pramnos\Framework\Base
                         $this->mediatype = 3;
                         break;
                     default:
-                        $this->error = "Invalid MIME type: " . $file['type'];
+                        $this->error = "#3 Invalid MIME type: " . $file['type'];
                         return $this;
                         break;
                 }
@@ -1045,12 +1045,21 @@ class MediaObject extends \Pramnos\Framework\Base
                         $this->mediatype = 3;
                         break;
                     case "application/vnd.ms-excel":
+                    case "application/vnd.oasis.opendocument.text":
+                    case "application/xml":
+                    case "text/xml":
+                    case "application/msword":
+                    case "application/vnd.ms-powerpoint":
+                    case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+                    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+                    case "application/vnd.oasis.opendocument.spreadsheet":
                         $this->mediatype = 0;
                         $this->x = 0;
                         $this->y = 0;
                         break;
                     default:
-                        $this->error = "Invalid MIME type: " . $file['type'];
+                        $this->error = "#4 Invalid MIME type: " . $file['type'];
                         return $this;
                         break;
                 }
@@ -1129,7 +1138,7 @@ class MediaObject extends \Pramnos\Framework\Base
      * @param string $tags Tags used for this usage
      * @param int $order Order of display
      * @return int Usage ID or false if cannot be created
-     * @throws Exception When media usage cannot be created
+     * @throws \Exception When media usage cannot be created
      */
     public function addUsage($module = '', $specific = '', $title = '',
         $description = '', $tags = '', $order = 0)
@@ -1710,7 +1719,7 @@ class MediaObject extends \Pramnos\Framework\Base
      * @param boolean $debug Show debug information
      * @param boolean $resample Different way of creating the image
      * @return MediaObject_thumbnail
-     * @throws Exception
+     * @throws \Exception
      */
     function get($width, $height, $crop = false,
         $force = false, $debug = false, $resample = true)
@@ -1772,7 +1781,7 @@ class MediaObject extends \Pramnos\Framework\Base
             }
             if (!$this->_checkFilePath()) {
                 if (!$this->_tryToRecreatePath()) {
-                    throw new Exception(
+                    throw new \Exception(
                         'Media file doesnt exist: ' . $this->filename
                     );
                 }
@@ -1795,7 +1804,7 @@ class MediaObject extends \Pramnos\Framework\Base
                     if(rename($tfile, $existingFile)) {
                         $tfile = $existingFile;
                     }
-                } catch (Exception $exc) {
+                } catch (\Exception $exc) {
                     \Pramnos\Logs\Logger::log($exc->getMessage());
                 }
             }
