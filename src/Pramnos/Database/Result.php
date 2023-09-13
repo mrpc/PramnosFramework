@@ -1,5 +1,7 @@
 <?php
+
 namespace Pramnos\Database;
+
 /**
  * Database result object
  * @package     PramnosFramework
@@ -30,8 +32,8 @@ class Result
      */
     public $fields = array();
     /**
-     * Mysqli Result Object
-     * @var \mysqli_result|bool
+     * Database Result Object
+     * @var \mysqli_result|bool|\PgSql\Result
      */
     public $mysqlResult = null;
     /**
@@ -84,7 +86,10 @@ class Result
      */
     public function fetchAll()
     {
-        if (is_object($this->mysqlResult)) {
+        if ($this->database->type == 'postgresql' 
+            && is_resource($this->mysqlResult)) {
+            return pg_fetch_all($this->mysqlResult, PGSQL_ASSOC);
+        } elseif (is_object($this->mysqlResult)) {
             return mysqli_fetch_all($this->mysqlResult, MYSQLI_ASSOC);
         }
     }
@@ -101,13 +106,20 @@ class Result
             if ($this->cursor >= sizeof($this->result)) {
                 $this->eof = true;
             } else {
-                foreach ($this->result[$this->cursor] as $key=>$value) {
+                foreach ($this->result[$this->cursor] as $key => $value) {
                     $this->fields[$key] = $value;
                 }
             }
+        } elseif ($this->database->type == 'postgresql' && is_resource($this->mysqlResult)) {
+            $this->fields = pg_fetch_array(
+                $this->mysqlResult,
+                null,
+                MYSQLI_ASSOC
+            );
         } elseif (is_object($this->mysqlResult)) {
             $this->fields = mysqli_fetch_array(
-                $this->mysqlResult, MYSQLI_ASSOC
+                $this->mysqlResult,
+                MYSQLI_ASSOC
             );
         }
         return $this->fields;
@@ -122,7 +134,12 @@ class Result
      */
     public function getInsertId()
     {
-        return mysqli_insert_id($this->database->getConnectionLink());
+        if ($this->database->type == 'postgresql' 
+            && is_resource($this->mysqlResult)) {
+            return pg_last_oid($this->mysqlResult);
+        } else {
+            return mysqli_insert_id($this->database->getConnectionLink());
+        }
     }
 
     /**
@@ -131,7 +148,10 @@ class Result
      */
     public function getAffectedRows()
     {
-        if (is_resource($this->mysqlResult)) {
+        if ($this->database->type == 'postgresql' 
+            && is_resource($this->mysqlResult)) {
+            return pg_affected_rows($this->mysqlResult);
+        } elseif (is_resource($this->mysqlResult)) {
             return mysqli_affected_rows($this->mysqlResult);
         }
 
@@ -144,7 +164,10 @@ class Result
      */
     public function getNumFields()
     {
-        if (is_object($this->mysqlResult)) {
+        if ($this->database->type == 'postgresql' 
+            && is_resource($this->mysqlResult)) {
+            return pg_num_fields($this->mysqlResult);
+        } elseif (is_object($this->mysqlResult)) {
             return mysqli_num_fields($this->mysqlResult);
         }
 
@@ -156,7 +179,10 @@ class Result
      */
     public function free()
     {
-        if (is_object($this->mysqlResult)) {
+        if ($this->database->type == 'postgresql' 
+            && is_resource($this->mysqlResult)) {
+            pg_free_result($this->mysqlResult);
+        } elseif (is_object($this->mysqlResult)) {
             $this->mysqlResult->free();
             $this->mysqlResult = null;
         }
@@ -168,7 +194,11 @@ class Result
      */
     public function getNumRows()
     {
-        if (is_object($this->mysqlResult)) {
+        if ($this->database->type == 'postgresql' 
+            && is_resource($this->mysqlResult)) {
+                return pg_num_rows($this->mysqlResult);
+        } elseif (is_object($this->mysqlResult)) {
+            
             return mysqli_num_rows($this->mysqlResult);
         }
 
@@ -182,5 +212,4 @@ class Result
     {
         $this->free();
     }
-
 }

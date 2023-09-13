@@ -211,7 +211,8 @@ class Api extends Application
             }
 
         } else {
-            $this->logAction();
+            //Uncomment this to log non authenticated actions
+            //$this->logAction();
         }
 
         if (file_exists(ROOT . '/src/Api/routes.php')) {

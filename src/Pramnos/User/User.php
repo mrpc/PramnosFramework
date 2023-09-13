@@ -104,7 +104,7 @@ class User extends \Pramnos\Framework\Base
         if ($this->_isnew == false) {
             $sql = $database->prepareQuery(
                 "delete from `#PREFIX#users` "
-                . "where `userid` = %d limit 1", $this->userid
+                . "where `userid` = %d ", $this->userid
             );
             $database->query($sql);
             $this->_isnew = 1;
@@ -120,10 +120,18 @@ class User extends \Pramnos\Framework\Base
         if ($this->_isnew == false) {
             $this->active = true;
             $database = \Pramnos\Framework\Factory::getDatabase();
-            $sql = $database->prepareQuery(
-                "update `#PREFIX#users`"
-                . " set `active` = 1 where `userid` = %d", $this->userid
-            );
+            if ($database->type == 'postgresql') {
+                $sql = $database->prepareQuery(
+                    "update `#PREFIX#users`"
+                    . " set `active` = 't' where `userid` = %d", $this->userid
+                );
+            } else {
+                $sql = $database->prepareQuery(
+                    "update `#PREFIX#users`"
+                    . " set `active` = 1 where `userid` = %d", $this->userid
+                );
+            }
+            
             $database->query($sql);
         }
         else {
@@ -365,11 +373,7 @@ class User extends \Pramnos\Framework\Base
                 'value' => $this->lastlogin,
                 'type' => 'integer'
             ),
-            array(
-                'fieldName' => 'active',
-                'value' => $this->active,
-                'type' => 'integer'
-            ),
+            
             array(
                 'fieldName' => 'validated',
                 'value' => $this->validated,
@@ -460,6 +464,13 @@ class User extends \Pramnos\Framework\Base
 
 
         );
+        if ($database->type !=  'postgresql'){
+            $itemdata[] = array(
+                'fieldName' => 'active',
+                'value' => $this->active,
+                'type' => 'integer'
+            );
+        }
 
         if ($groupSupport == true) {
             $itemdata[] = array(
@@ -478,14 +489,29 @@ class User extends \Pramnos\Framework\Base
                     'value' => $this->userid,
                     'type' => 'integer');
             }
-            if (!$database->insertDataToTable(
-                $database->prefix . "users", $itemdata
-            )) {
-                $error = $database->getError();
-                $this->addError($error['message']);
-                return $this;
+
+            if ($database->type == 'postgresql') {
+                $dbresult = $database->insertDataToTable(
+                    $database->prefix . "users", $itemdata, 'userid'
+                );
+                if (!$dbresult) {
+                    $error = $database->getError();
+                    $this->addError($error['message']);
+                    return $this;
+                }
+                $this->userid = pg_fetch_result($dbresult, 0, 'userid');
+            } else {
+                if (!$database->insertDataToTable(
+                    $database->prefix . "users", $itemdata, 'userid'
+                )) {
+                    $error = $database->getError();
+                    $this->addError($error['message']);
+                    return $this;
+                }
+                $this->userid = $database->getInsertId();
             }
-            $this->userid = $database->getInsertId();
+
+            
         } else {
             if (!$database->updateTableData(
                 $database->prefix . "users", $itemdata,
@@ -502,8 +528,8 @@ class User extends \Pramnos\Framework\Base
             if ($this->$fieldname === NULL) {
                 $sql = $database->prepareQuery(
                     "DELETE FROM `#PREFIX#userdetails` "
-                    . "where `userid` = %d and `fieldname` = %s "
-                    . "limit 1", $this->userid, $fieldname
+                    . "where `userid` = %d and `fieldname` = %s ", 
+                    $this->userid, $fieldname
                 );
             } elseif (is_object($this->$fieldname)
                 || is_array($this->$fieldname)) {
@@ -512,10 +538,10 @@ class User extends \Pramnos\Framework\Base
                     && substr($fixname, 0, 1) != '_'
                     && substr($fieldname, 0, 1) != '_') {
                     $sql = $database->prepareQuery(
-                        "insert into `#PREFIX#userdetails` "
-                        . " (`userid`, `fieldname`, `value`) "
+                        "insert into #PREFIX#userdetails "
+                        . " (userid, fieldname, value) "
                         . " values (%d, %s, %s) "
-                        . " ON DUPLICATE KEY UPDATE `value` = %s ",
+                        . " ON CONFLICT (userid, fieldname) DO UPDATE SET value = %s ",
                         $this->userid, $fieldname,
                         serialize($this->$fieldname),
                         serialize($this->$fieldname)
@@ -527,10 +553,10 @@ class User extends \Pramnos\Framework\Base
                 && substr($fixname, 0, 1) != '_'
                 && substr($fieldname, 0, 1) != '_') {
                 $sql = $database->prepareQuery(
-                    "insert into `#PREFIX#userdetails` "
-                    . " (`userid`, `fieldname`, `value`) "
+                    "insert into #PREFIX#userdetails "
+                    . " (userid, fieldname, value) "
                     . " values (%d, %s, %s) "
-                    . " ON DUPLICATE KEY UPDATE `value` = %s ",
+                    . " ON CONFLICT (userid, fieldname) DO UPDATE SET value = %s ",
                     $this->userid, $fieldname,
                     $this->$fieldname, $this->$fieldname
                 );
@@ -541,7 +567,7 @@ class User extends \Pramnos\Framework\Base
                     $database->query($sql);
                     unset($sql);
                 }
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 $error = $database->getError();
                 $this->addError($error['message']);
                 \Pramnos\Logs\Logger::log($ex->getMessage());
@@ -881,16 +907,32 @@ class User extends \Pramnos\Framework\Base
         $parentToken = null)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "insert into `#PREFIX#usertokens` "
-            . " (`userid`, `tokentype`, `token`, `created`, `notes`, `status`,"
-            . " `parentToken`)"
-            . " values"
-            . " (%d, %s, %s, %d, %s, 1, %d) on duplicate key update"
-            . " `lastused` = %d, `status` = 1, `parentToken` = %d",
-            $this->userid, $tokentype, $token, time(), $notes, $parentToken,
-            time(), $parentToken
-        );
+        if ($database->type == 'postgresql') {
+            
+            $table = '#PREFIX#usertokens';
+            
+            $sql = $database->prepareQuery(
+                "insert into " . $table
+                . " (`userid`, `tokentype`, `token`, `created`, `notes`, `status`,"
+                . " `lastused`, `actions`, `removedate`, `deviceinfo`, `scope`)"
+                . " values"
+                . " (%d, %s, %s, %d, %s, 1, %d, 0, 0, '', '') ON CONFLICT (userid, tokentype, token) DO UPDATE SET "
+                . " `lastused` = %d, `status` = 1",
+                $this->userid, $tokentype, $token, time(), $notes, time(),
+                time()
+            );
+        } else {
+            $sql = $database->prepareQuery(
+                "insert into `#PREFIX#usertokens` "
+                . " (`userid`, `tokentype`, `token`, `created`, `notes`, `status`,"
+                . " `parentToken`)"
+                . " values"
+                . " (%d, %s, %s, %d, %s, 1, %d) on duplicate key update"
+                . " `lastused` = %d, `status` = 1, `parentToken` = %d",
+                $this->userid, $tokentype, $token, time(), $notes, $parentToken,
+                time(), $parentToken
+            );
+        }
         $database->query($sql);
         return $this;
     }
@@ -904,12 +946,22 @@ class User extends \Pramnos\Framework\Base
     public function deleteToken($tokenid)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "update `#PREFIX#usertokens` set `status` = 2, `removedate` = %d "
-            . "where (`tokenid` = %d or `parentToken` = %d)"
-            . "  and `userid` = %d",
-            time(), $tokenid, $tokenid, $this->userid
-        );
+        if ($database->type == 'postgresql') {
+            $sql = $database->prepareQuery(
+                "update `#PREFIX#usertokens` set `status` = 2, `removedate` = %d "
+                . "where (`tokenid` = %d)"
+                . "  and `userid` = %d",
+                time(), $tokenid, $this->userid
+            );
+        } else {
+            $sql = $database->prepareQuery(
+                "update `#PREFIX#usertokens` set `status` = 2, `removedate` = %d "
+                . "where (`tokenid` = %d or `parentToken` = %d)"
+                . "  and `userid` = %d",
+                time(), $tokenid, $tokenid, $this->userid
+            );
+        }
+        
         $database->query($sql);
         return $this;
     }
