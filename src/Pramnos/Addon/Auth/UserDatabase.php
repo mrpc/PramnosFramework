@@ -35,7 +35,7 @@ class UserDatabase extends \Pramnos\Addon\Addon
         $sql = $database->prepareQuery(
             "SELECT `userid`, `username`, `password`, `email`, "
             . " `active`, `validated` "
-            . "FROM #PREFIX#users "
+            . "FROM `#PREFIX#users` "
             . "WHERE ( `username` = %s or `email` = %s) "
             . "  limit 1",
             $username, $username
@@ -56,7 +56,7 @@ class UserDatabase extends \Pramnos\Addon\Addon
         if ($encryptedPassword == false) {
             $checkPassword = password_hash($pwd, PASSWORD_DEFAULT);
         }
-        if ($result->fields['active']  == 0) {
+        if ($result->fields['active'] == 0 && $result->fields['active'] != 't') {
             $return['message'] = 'Inactive User';
             $return['statusCode'] = 0;
             return $return;

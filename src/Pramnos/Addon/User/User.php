@@ -20,7 +20,12 @@ class User extends \Pramnos\Addon\Addon
                 "DELETE FROM `#PREFIX#sessions` WHERE `uname` = %s",
                 $_SESSION['username']
             );
-            $database->query($sql);
+
+            try {
+                $database->query($sql);
+            } catch (\Exception $ex) {
+                \Pramnos\Logs\Logger::log($ex->getMessage());
+            }
         }
         $session = \Pramnos\Framework\Factory::getSession();
         $cookietime = time() - 1;
@@ -81,7 +86,11 @@ class User extends \Pramnos\Addon\Addon
             . " WHERE `host_addr` = %s",
              $info['username'], $ctime, $remoteIp, $remoteIp
         );
-        $database->query($sql);
+        try {
+            $database->query($sql);
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::log($ex->getMessage());
+        }
         $sqlLastLogin = $database->prepareQuery(
             "UPDATE `#PREFIX#users` "
             . " SET `lastlogin`= %d, "
