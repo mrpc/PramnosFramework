@@ -279,6 +279,7 @@ class Session extends \Pramnos\Addon\Addon
             $database->query($sql);
         }
         catch (\Exception $e) {
+            \Pramnos\Logs\Logger::log($e->getMessage());
             $session->reset();
             $auth->logout();
             $guest = 1;
