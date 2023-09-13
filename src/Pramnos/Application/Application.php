@@ -212,7 +212,7 @@ class Application extends Base
         );
         try {
             $this->database->connect();
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             $this->showError($ex->getMessage());
         }
         \Pramnos\Application\Settings::setDatabase($this->database);
