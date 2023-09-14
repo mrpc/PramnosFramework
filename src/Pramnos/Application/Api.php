@@ -94,6 +94,13 @@ class Api extends Application
                 );
             exit(0);
         }
+        if ($_SERVER['HTTP_ACCEPT'] == 'application/xml'
+            || $_SERVER['HTTP_ACCEPT'] == 'xml') {
+            $this->accept = 'xml';
+            header('content-type: application/xml; charset=utf-8');
+        } else {
+            header('content-type: application/json; charset=utf-8');
+        }
 
         $controller = strtolower($coontrollerName);
         if ($controller === '' && $this->controller === '') {
