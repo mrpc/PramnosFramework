@@ -281,7 +281,19 @@ migcontent;
                     'Table: ' . $tableName . ' does not exist.'
                 );
             }
-            $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            if ($database->type == 'postgresql') {
+                $sql = $database->prepareQuery(
+                    "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
+                    . "(SELECT pg_catalog.col_description(c.oid, a.ordinal_position) FROM pg_catalog.pg_class c WHERE c.oid = (SELECT relfilenode FROM pg_catalog.pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "')) AS \"Comment\" "
+                    . "FROM information_schema.columns a "
+                    . "WHERE table_name = '" 
+                    . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
+                );
+                
+            } else {
+                $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            }
+            
             $result = $database->query($sql);
 
 
@@ -614,7 +626,18 @@ content;
                     'Table: ' . $tableName . ' does not exist.'
                 );
             }
-            $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            if ($database->type == 'postgresql') {
+                $sql = $database->prepareQuery(
+                    "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
+                    . "(SELECT pg_catalog.col_description(c.oid, a.ordinal_position) FROM pg_catalog.pg_class c WHERE c.oid = (SELECT relfilenode FROM pg_catalog.pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "')) AS \"Comment\" "
+                    . "FROM information_schema.columns a "
+                    . "WHERE table_name = '" 
+                    . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
+                );
+                
+            } else {
+                $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            }
             $result = $database->query($sql);
 
 
@@ -758,6 +781,81 @@ content;
     }
 
     /**
+     * Updates a model
+     * @param string $name Model name
+     * @param \Pramnos\Database\Result $result Database result
+     * @param string $filename Filename of the model
+     */
+    protected function updateModel($name, \Pramnos\Database\Result $result, $filename)
+    {
+        $fileContent = '';
+        
+        while ($result->fetch()) {
+            if (property_exists($name, $result->fields['Field'])) {
+                continue;
+            }
+            $type = 'string';
+            $basicType = explode('(', $result->fields['Type']);
+            switch ($basicType[0]) {
+                case "tinyint":
+                case "smallint":
+                case "integer":
+                case "int":
+                case "mediumint":
+                case "bigint":
+                    $type = 'int';
+                    break;
+                case "decimal":
+                case "numeric":
+                case "float":
+                case "double":
+                    $type = 'float';
+                    break;
+                case "bool":
+                case "boolean":
+                    $type = 'bool';
+                    break;
+                default: 
+                    $type = 'string';
+                    break;
+            }
+
+            $fileContent .= "    /**\n";
+            if ($result->fields['Comment'] != '') {
+                $fileContent .= "     * "
+                    . $result->fields['Comment']
+                    . "\n";
+            }
+            $fileContent .= "     * @var "
+                . $type
+                . "\n"
+                . "     */\n"
+                . "    public $"
+                . $result->fields['Field']
+                . ";\n";
+        }
+        if ($fileContent != '') {
+            
+            // Read the contents of the file
+            $fileContents = file_get_contents($filename);
+            
+            // Find the position of the last property definition
+            $lastPropertyPosition = strrpos($fileContents, 'public $');
+            // Find the position of the end of the last property definition
+            $lastPropertyEndPosition = strpos($fileContents, ';', $lastPropertyPosition);
+            // Insert the new property definitions after the last property definition
+            
+            $fileContents = substr_replace($fileContents, "\n" . $fileContent, $lastPropertyEndPosition + 1, 0);
+            // Write the modified contents back to the file
+            file_put_contents($filename, $fileContents);
+
+            return "File: {$filename}\n\nModel updated.";
+        }
+        return "Model exists and doesnt need an update.";
+    }
+
+
+    /**
      * Creates a model
      * @param string $name Model name
      */
@@ -784,10 +882,24 @@ content;
 
         }
 
-        $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+        if ($database->type == 'postgresql') {
+            $sql = $database->prepareQuery(
+                "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
+                . "(SELECT pg_catalog.col_description(c.oid, a.ordinal_position) FROM pg_catalog.pg_class c WHERE c.oid = (SELECT relfilenode FROM pg_catalog.pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "')) AS \"Comment\" "
+                . "FROM information_schema.columns a "
+                . "WHERE table_name = '" 
+                . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
+            );
+            
+            
+
+        } else {
+            $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+        }
         $result = $database->query($sql);
+        
 
-
+        
         $path = ROOT . DS . INCLUDES . DS;
 
         if (isset($application->applicationInfo['namespace'])) {
@@ -808,10 +920,15 @@ content;
             $className =  ucfirst($name);
             $filename = $path . DS . ucfirst($name) . '.php';
         }
-
+        
         if (class_exists('\\' . $namespace . '\\'. $className)
-            || file_exists($filename)) {
-            throw new \Exception('Model already exists.');
+            && file_exists($filename)) {  
+            return $this->updateModel('\\' . $namespace . '\\'. $className, $result, $filename);
+        } elseif (class_exists('\\' . $namespace . '\\'. $className)
+            && file_exists($filename)) {  
+                throw new \Exception(
+                    'Model already exists and cannot be updated'
+                );
         }
         if (!file_exists($path)) {
             mkdir($path);
@@ -862,6 +979,9 @@ content;
                 case "bool":
                 case "boolean":
                     $type = 'bool';
+                    break;
+                default: 
+                    $type = 'string';
                     break;
             }
 
