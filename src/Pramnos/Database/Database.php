@@ -1138,7 +1138,7 @@ class Database extends \Pramnos\Framework\Base
      * @param int $cachetime
      * @param string $category
      * @param boolean $dieOnFatalError
-     * @return \pramnos_database_result
+     * @return \Pramnos\Database\Result
      */
     public function query($sql, $cache = false,
         $cachetime = 60, $category = "", $dieOnFatalError = false)
@@ -1327,14 +1327,25 @@ class Database extends \Pramnos\Framework\Base
      */
     public function tableExists($table)
     {
-        $exists = $this->prepareQuery(
-            "SHOW TABLES FROM `"
-            . $this->database . "` LIKE '" . $table . "'"
-        );
-        $result = $this->query($exists);
-        if ($result->numRows > 0) {
-            return true;
+        if ($this->type == 'postgresql') {
+            $exists = $this->prepareQuery(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '" . $table . "')"
+            );
+            $result = $this->query($exists);
+            if ($result->numRows > 0) {
+                return true;
+            }
+        } else {
+            $exists = $this->prepareQuery(
+                "SHOW TABLES FROM `"
+                . $this->database . "` LIKE '" . $table . "'"
+            );
+            $result = $this->query($exists);
+            if ($result->numRows > 0) {
+                return true;
+            }
         }
+        
         return false;
     }
 
