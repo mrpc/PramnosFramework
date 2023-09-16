@@ -862,6 +862,11 @@ $updateContent
         
         \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
         \$model->load((int) \$$primaryKey);
+        if (\$model->$primaryKey == 0) {
+            return array(
+                'status' => 404
+            );
+        }
 
  
 $putContent
