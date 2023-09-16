@@ -1385,12 +1385,22 @@ content;
                 . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
                 . "    WHERE constraint_type = 'PRIMARY KEY' "
                 . "    AND tc.table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
-                . ") as \"PrimaryKey\" "
+                . ") as \"PrimaryKey\", "
+                . "column_name in ( "
+                . "    SELECT column_name "
+                . "    FROM information_schema.key_column_usage "
+                . "    WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "' "
+                . "    AND column_name = a.column_name "
+                . "    AND constraint_name in ( "
+                . "        SELECT constraint_name "
+                . "        FROM information_schema.table_constraints "
+                . "        WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "' "
+                . "        AND constraint_type = 'FOREIGN KEY' "
+                . "    ) "
+                . ") as \"ForeignKey\" "
                 . "FROM information_schema.columns a "
                 . "WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
             );
-            
-            
 
         } else {
             $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
@@ -1450,6 +1460,7 @@ content;
 
 
         $arrayFix = '';
+        $foreignFixes = '';
         $primaryKey = '';
         while ($result->fetch()) {
             $primary = false;
@@ -1472,6 +1483,11 @@ content;
                 case "int":
                 case "mediumint":
                 case "bigint":
+                    if ($database->type == 'postgresql' && $result->fields['ForeignKey'] == "t") {
+                        $foreignFixes .= '        if ($this->' . $result->fields['Field'] . ' == 0) {' . "\n";
+                        $foreignFixes .= '            $this->' . $result->fields['Field'] . ' = null;' . "\n";
+                        $foreignFixes .= '        }' . "\n";
+                    }
                     $type = 'int';
                     $arrayFix .= '        if (isset($data[\'' . $result->fields['Field'] . '\']) &&  $data[\'' . $result->fields['Field'] . '\'] !== null) {' . "\n";
                     $arrayFix .= '            $data[\'' . $result->fields['Field'] . '\'] = (int) $this->' . $result->fields['Field'] . ";\n";
@@ -1561,6 +1577,7 @@ content;
      */
     public function save(\$autoGetValues = false, \$debug = false)
     {
+$foreignFixes
         return parent::_save(null, null, \$autoGetValues, \$debug);
     }
 
