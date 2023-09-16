@@ -1363,10 +1363,16 @@ content;
         if ($database->type == 'postgresql') {
             $sql = $database->prepareQuery(
                 "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
-                . "(SELECT pg_catalog.col_description(c.oid, a.ordinal_position) FROM pg_catalog.pg_class c WHERE c.oid = (SELECT relfilenode FROM pg_catalog.pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "')) AS \"Comment\" "
+                . "(SELECT col_description((SELECT oid FROM pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'), a.ordinal_position)) AS \"Comment\", "
+                . "column_name in ( "
+                . "    SELECT column_name "
+                . "    FROM information_schema.table_constraints tc "
+                . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
+                . "    WHERE constraint_type = 'PRIMARY KEY' "
+                . "    AND tc.table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
+                . ") as \"PrimaryKey\" "
                 . "FROM information_schema.columns a "
-                . "WHERE table_name = '" 
-                . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
+                . "WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
             );
             
             
@@ -1432,8 +1438,7 @@ content;
         $primaryKey = '';
         while ($result->fetch()) {
             $primary = false;
-            if (isset($result->fields['Key'])
-                && $result->fields['Key'] == 'PRI') {
+            if ($result->fields['PrimaryKey'] == 't') {
                 $primaryKey = $result->fields['Field'];
                 $primary = true;
             }
@@ -1447,14 +1452,18 @@ content;
                 case "mediumint":
                 case "bigint":
                     $type = 'int';
-                    $arrayFix .= '        $data[\'' . $result->fields['Field'] . '\'] = (int) $this->' . $result->fields['Field'] . ";\n";
+                    $arrayFix .= '        if (isset($data[\'' . $result->fields['Field'] . '\']) &&  $data[\'' . $result->fields['Field'] . '\'] !== null) {' . "\n";
+                    $arrayFix .= '            $data[\'' . $result->fields['Field'] . '\'] = (int) $this->' . $result->fields['Field'] . ";\n";
+                    $arrayFix .= '        }' . "\n";
                     break;
                 case "decimal":
                 case "numeric":
                 case "float":
                 case "double":
                     $type = 'float';
-                    $arrayFix .= '        $data[\'' . $result->fields['Field'] . '\'] = (float) $this->' . $result->fields['Field'] . ";\n";
+                    $arrayFix .= '        if (isset($data[\'' . $result->fields['Field'] . '\']) &&  $data[\'' . $result->fields['Field'] . '\'] !== null) {' . "\n";
+                    $arrayFix .= '            $data[\'' . $result->fields['Field'] . '\'] = (float) $this->' . $result->fields['Field'] . ";\n";
+                    $arrayFix .= '        }' . "\n";
                     break;
                 case "bool":
                 case "boolean":
