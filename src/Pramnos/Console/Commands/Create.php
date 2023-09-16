@@ -618,10 +618,15 @@ content;
 
             while ($result->fetch()) {
                 $primary = false;
-                if (isset($result->fields['PrimaryKey'])
-                    && $result->fields['PrimaryKey'] == 't') {
-                    $primaryKey = $result->fields['Field'];
-                    $primary = true;
+                if ($database->type == 'postgresql') {
+                    if ($result->fields['PrimaryKey'] == 't') {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                    }
+                } elseif (isset($result->fields['Key'])
+                    && $result->fields['Key'] == 'PRI') {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
                 }
                 $basicType = explode('(', $result->fields['Type']);
                 switch ($basicType[0]) {
@@ -1438,9 +1443,15 @@ content;
         $primaryKey = '';
         while ($result->fetch()) {
             $primary = false;
-            if ($result->fields['PrimaryKey'] == 't') {
-                $primaryKey = $result->fields['Field'];
-                $primary = true;
+            if ($database->type == 'postgresql') {
+                if ($result->fields['PrimaryKey'] == 't') {
+                    $primaryKey = $result->fields['Field'];
+                    $primary = true;
+                }
+            } elseif (isset($result->fields['Key'])
+                && $result->fields['Key'] == 'PRI') {
+                    $primaryKey = $result->fields['Field'];
+                    $primary = true;
             }
             $type = 'string';
             $basicType = explode('(', $result->fields['Type']);
