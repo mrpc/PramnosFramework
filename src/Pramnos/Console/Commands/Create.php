@@ -1428,7 +1428,7 @@ class {$className} extends \Pramnos\Application\Model
 content;
 
 
-
+        $arrayFix = '';
         $primaryKey = '';
         while ($result->fetch()) {
             $primary = false;
@@ -1447,16 +1447,19 @@ content;
                 case "mediumint":
                 case "bigint":
                     $type = 'int';
+                    $arrayFix .= '        $data[\'' . $result->fields['Field'] . '\'] = (int) $this->' . $result->fields['Field'] . ";\n";
                     break;
                 case "decimal":
                 case "numeric":
                 case "float":
                 case "double":
                     $type = 'float';
+                    $arrayFix .= '        $data[\'' . $result->fields['Field'] . '\'] = (float) $this->' . $result->fields['Field'] . ";\n";
                     break;
                 case "bool":
                 case "boolean":
                     $type = 'bool';
+                    $arrayFix .= '        $data[\'' . $result->fields['Field'] . '\'] = (bool) $this->' . $result->fields['Field'] . ";\n";
                     break;
                 default: 
                     $type = 'string';
@@ -1540,6 +1543,17 @@ content;
     public function delete({$primaryKeyVal})
     {
         return parent::_delete({$primaryKeyVal}, null, null);
+    }
+
+    /**
+     * Return all data as array
+     * @return array
+     */
+    public function getData()
+    {
+        \$data = parent::getData();
+$arrayFix
+        return \$data;
     }
 
     /**
