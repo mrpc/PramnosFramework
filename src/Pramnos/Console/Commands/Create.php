@@ -780,6 +780,11 @@ $returnContent
         
         \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
         \$model->load(\$$primaryKey);
+        if (\$model->$primaryKey == 0) {
+            return array(
+                'status' => 404
+            );
+        }
         \$data = \$model->getData();
         return array('data' => \$data);
     }
