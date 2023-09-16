@@ -911,7 +911,7 @@ content;
 
 $routerContent = <<<content
 \$router->delete(
-    '/$modelClassLower/{$primaryKey}',
+    '/$modelClassLower/{{$primaryKey}}',
     function (\$$primaryKey) {
         \$controller = \$this->getController('$className');
         return \$controller->delete$modelClass(\$$primaryKey);
@@ -919,7 +919,7 @@ $routerContent = <<<content
 );
 
 \$router->put(
-    '/$modelClassLower/{$primaryKey}',
+    '/$modelClassLower/{{$primaryKey}}',
     function (\$$primaryKey) {
         \$controller = \$this->getController('$className');
         return \$controller->update$modelClass(\$$primaryKey);
@@ -927,7 +927,7 @@ $routerContent = <<<content
 );
 
 \$router->get(
-    '/$modelClassLower/{$primaryKey}',
+    '/$modelClassLower/{{$primaryKey}}',
     function (\$$primaryKey) {
         \$controller = \$this->getController('$className');
         return \$controller->read$modelClass(\$$primaryKey);
