@@ -1245,6 +1245,7 @@ class Database extends \Pramnos\Framework\Base
                         pg_last_error($this->_dbConnection),
                         $dieOnFatalError
                     );
+                    \Pramnos\Logs\Logger::log('Postgres error:' . pg_last_error($this->_dbConnection) . ' for query: ' . $sql, 'postgreserrors');
                     
                 
                 }
