@@ -10,6 +10,12 @@ class Auth extends \Pramnos\Framework\Base
 {
 
     /**
+     * Last addon response
+     * @var mixed
+     */
+    public $lastResponse = null;
+
+    /**
      * Factory method
      * @staticvar \pramnos_auth $instance
      * @return \pramnos_auth
@@ -63,6 +69,7 @@ class Auth extends \Pramnos\Framework\Base
                 $response = $addon->onAuth(
                     $username, $password, $remember, $encryptedPassword, $validate
                 );
+                $this->lastResponse = $response;
                 if ($response['status'] == true) {
                     #echo "Loged!";
                     //Triger onLogin
