@@ -46,12 +46,12 @@ class Auth extends \Pramnos\Framework\Base
      * @param string $username Username
      * @param string $password Password
      * @param boolean $remember Set cookie to remember user
-     * @param boolean $md5password Is the password already an md5 hash?
+     * @param boolean $md5password Is the password already encrypted?
      * @param boolean $validate
      * @return boolean True on success
      */
     public function auth($username, $password = '',
-        $remember = true, $md5password = false, $validate = true)
+        $remember = true, $encryptedPassword = false, $validate = true)
     {
         //Another method to do that:
         //echo 'Running test: ';
@@ -61,7 +61,7 @@ class Auth extends \Pramnos\Framework\Base
         foreach ($addons as $addon) {
             if (method_exists($addon, 'onAuth')) {
                 $response = $addon->onAuth(
-                    $username, $password, $remember, $md5password, $validate
+                    $username, $password, $remember, $encryptedPassword, $validate
                 );
                 if ($response['status'] == true) {
                     #echo "Loged!";
