@@ -288,6 +288,16 @@ class User extends \Pramnos\Framework\Base
      */
     public function setPassword($password = '')
     {
+        if ($this->userid > 1) {
+            $pwd = $password
+                . md5(
+                \Pramnos\Application\Settings::getSetting('securitySalt')
+                . $this->userid
+            );
+            $this->password = password_hash($pwd, PASSWORD_DEFAULT);
+        } else {
+            $this->password = md5($password);
+        }
         $this->password = md5($password);
     }
 
