@@ -71,11 +71,6 @@ class UserDatabase extends \Pramnos\Addon\Addon
             $return['statusCode'] = 5;
             return $return;
         }
-        if ($result->fields['validated']  == 0) {
-            $return['message'] = 'Please Validate your email';
-            $return['statusCode'] = 0;
-            return $return;
-        }
         if (password_verify($pwd, $result->fields['password'])
             && !$encryptedPassword) {
             $return['status'] = true;
