@@ -298,7 +298,6 @@ class User extends \Pramnos\Framework\Base
         } else {
             $this->password = md5($password);
         }
-        $this->password = md5($password);
     }
 
     /**
