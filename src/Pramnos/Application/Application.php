@@ -512,7 +512,7 @@ class Application extends Base
         try {
             $controllerObject = $this->getController($this->controller);
         } catch (\Exception $Exception) {
-            \Pramnos\Logs\Logger::log($Exception->getMessage());
+            //\Pramnos\Logs\Logger::log($Exception->getMessage());
             $this->close('There is no controller to run...');
         }
         $this->activeController = $controllerObject;
