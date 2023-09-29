@@ -247,7 +247,7 @@ class Token extends \Pramnos\Framework\Base
             $inputData,
             time()
         );
-        $database->query($sql);
+        @$database->query($sql);
         $this->actions +=1;
         $this->lastused = time();
         $this->save();
