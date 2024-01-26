@@ -475,7 +475,9 @@ class Model extends \Pramnos\Framework\Base
             if ($filter === NULL) {
                 $filter = "";
             } else {
-                $filter = str_replace('`', '"', $filter);
+                if ($database->type == 'postgresql') {
+                    $filter = str_replace('`', '"', $filter);
+                }
             }
             if ($order === NULL) {
                 $order  = " order by " . $primarykey . " DESC ";
