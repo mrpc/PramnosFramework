@@ -71,12 +71,14 @@ class Api extends Application
         if ($this->checkversion() !== true) {
             $this->upgrade();
         }
-        if (isset($_SERVER['HTTP_ORIGIN'])) {
+        #if (isset($_SERVER['HTTP_ORIGIN'])) {
             #header("Access-Control-Allow-Origin: {$_SERVER['HTTP_ORIGIN']}");
-            header("Access-Control-Allow-Origin: *");
-            header('Access-Control-Allow-Credentials: true');
+            #header("Access-Control-Allow-Origin: *");
+            #header('Access-Control-Allow-Credentials: true');
             #header('Access-Control-Max-Age: 86400');    // cache for 1 day
-        }
+        #}
+        header("Access-Control-Allow-Origin: *");
+        header('Access-Control-Allow-Credentials: true');
         // Access-Control headers are received during OPTIONS requests
         if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
             if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_METHOD']))
@@ -91,6 +93,15 @@ class Api extends Application
                     . "{$_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']}"
                 );
             exit(0);
+        }
+        if (isset($_SERVER['HTTP_ACCEPT']) 
+            && ($_SERVER['HTTP_ACCEPT'] == 'application/xml' 
+                || $_SERVER['HTTP_ACCEPT'] == 'xml')
+            ) {
+            $this->accept = 'xml';
+            header('content-type: application/xml; charset=utf-8');
+        } else {
+            header('content-type: application/json; charset=utf-8');
         }
 
         $controller = strtolower($coontrollerName);
@@ -133,7 +144,22 @@ class Api extends Application
         //$_SESSION['logged'] = false;
         if (isset($_SERVER['HTTP_ACCESSTOKEN'])
             && trim($_SERVER['HTTP_ACCESSTOKEN'] != '')) {
-            $user = new \Pramnos\User\User();
+
+            // Try to find an override user class
+            if (isset($this->applicationInfo['namespace'])
+                && $this->applicationInfo['namespace'] != ''
+                && class_exists(
+                    '\\'
+                    . $this->applicationInfo['namespace']
+                    . '\\User'
+                )) {
+                $className = '\\'
+                    . $this->applicationInfo['namespace']
+                    . '\\User';
+                $user = new $className();
+            } else {
+                $user = new \Pramnos\User\User();
+            }
 
             \Pramnos\Auth\JWT::$leeway = 60; // $leeway in seconds
             try {
@@ -194,7 +220,8 @@ class Api extends Application
             }
 
         } else {
-            $this->logAction();
+            //Uncomment this to log non authenticated actions
+            //$this->logAction();
         }
 
         if (file_exists(ROOT . '/src/Api/routes.php')) {

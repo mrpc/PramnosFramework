@@ -29,8 +29,7 @@ class Session extends \Pramnos\Addon\Addon
         );
         try {
             $database->query($sql);
-        } catch (Exception $exc) {
-            $app->showError($exc->getMessage());
+        } catch (\Exception $exc) {
             \Pramnos\Logs\Logger::log($exc->getMessage());
         }
 
@@ -115,7 +114,7 @@ class Session extends \Pramnos\Addon\Addon
             if (isset($_SESSION['uid'])) {
                 $uid = $_SESSION['uid'];
             } else {
-                $uid = 1;
+                $uid = 'NULL';
             }
             if (isset($_SESSION['username'])) {
                 $uname = $_SESSION['username'];
@@ -226,7 +225,7 @@ class Session extends \Pramnos\Addon\Addon
         $sessionsql = $database->prepareQuery(
             "select * from `#PREFIX#sessions` "
             . "WHERE `visitorid` = %s",
-            hex2bin($visitorid)
+            base64_encode(hex2bin($visitorid))
         );
 
         $result = $database->query($sessionsql);
@@ -242,25 +241,45 @@ class Session extends \Pramnos\Addon\Addon
 
         }
 
-
+        if ((int) $uid == 1) {
+            $uid = 'NULL';
+        }
 
         try {
-            $sql = $database->prepareQuery(
-                "insert into `#PREFIX#sessions`
-                (`visitorid`, `uname`, `time`, `host_addr`, `guest`, `agent`,
-                `userid`, `url`,  `logout`, `sid`)
-                values
-                (%s, %s, %d, %s, %d, %s, $uid, %s,  %d, %s)
-                ON DUPLICATE KEY UPDATE
-                `uname` = %s, `time`=%d, `guest` = %d,
-                `userid` = $uid, `url` = %s,  `logout`=%d",
-                hex2bin($visitorid),
-                $uname, time(), $remoteip, $guest, $agent, $url,
-                0, $sid, $uname, time(), $guest, $url, 0
-            );
+            if ($database->type == 'postgresql') {
+                $sql = $database->prepareQuery(
+                    "insert into `#PREFIX#sessions`
+                    (`visitorid`, `uname`, `time`, `host_addr`, `guest`, `agent`,
+                    `userid`, `url`,  `logout`, `sid`, `history`)
+                    values
+                    (%s, %s, %d, %s, %d, %s, $uid, %s,  %d, %s, '')
+                    ON CONFLICT (visitorid) DO UPDATE SET
+                    `uname` = %s, `time`=%d, `guest` = %d,
+                    `userid` = $uid, `url` = %s,  `logout`=%d",
+                    base64_encode(hex2bin($visitorid)),
+                    $uname, time(), $remoteip, $guest, $agent, $url,
+                    0, $sid, $uname, time(), $guest, $url, 0
+                );
+            } else {
+                $sql = $database->prepareQuery(
+                    "insert into `#PREFIX#sessions`
+                    (`visitorid`, `uname`, `time`, `host_addr`, `guest`, `agent`,
+                    `userid`, `url`,  `logout`, `sid`)
+                    values
+                    (%s, %s, %d, %s, %d, %s, $uid, %s,  %d, %s)
+                    ON DUPLICATE KEY UPDATE
+                    `uname` = %s, `time`=%d, `guest` = %d,
+                    `userid` = $uid, `url` = %s,  `logout`=%d",
+                    base64_encode(hex2bin($visitorid)),
+                    $uname, time(), $remoteip, $guest, $agent, $url,
+                    0, $sid, $uname, time(), $guest, $url, 0
+                );
+            }
+            
             $database->query($sql);
         }
-        catch (Exception $e) {
+        catch (\Exception $e) {
+            \Pramnos\Logs\Logger::log($e->getMessage());
             $session->reset();
             $auth->logout();
             $guest = 1;

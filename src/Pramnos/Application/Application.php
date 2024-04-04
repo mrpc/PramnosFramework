@@ -212,7 +212,7 @@ class Application extends Base
         );
         try {
             $this->database->connect();
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             $this->showError($ex->getMessage());
         }
         \Pramnos\Application\Settings::setDatabase($this->database);
@@ -512,7 +512,7 @@ class Application extends Base
         try {
             $controllerObject = $this->getController($this->controller);
         } catch (\Exception $Exception) {
-            \Pramnos\Logs\Logger::log($Exception->getMessage());
+            //\Pramnos\Logs\Logger::log($Exception->getMessage());
             $this->close('There is no controller to run...');
         }
         $this->activeController = $controllerObject;

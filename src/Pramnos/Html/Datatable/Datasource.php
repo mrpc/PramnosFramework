@@ -134,13 +134,27 @@ class Datasource extends Base
         $sLimit = "";
         if (isset($_POST['iDisplayStart'])) {
             if ($request->get('iDisplayLength', '', 'post') != "-1") {
-                $sLimit = "LIMIT " . $database->prepareInput(
-                    $request->get('iDisplayStart', '0', 'post')
-                    ) . ", " . $database->prepareInput(
-                        $request->get(
-                            'iDisplayLength', $this->maxlimit, 'post'
-                        )
-                    );
+                if ($database->type =='postgresql') {
+                    $sLimit = "LIMIT " 
+                        . $database->prepareInput(
+                            $request->get(
+                                'iDisplayLength', $this->maxlimit, 'post'
+                            )
+                            . ' OFFSET '
+                            . $database->prepareInput(
+                                $request->get('iDisplayStart', '0', 'post')
+                            )                     
+                        );
+                } else {
+                    $sLimit = "LIMIT " . $database->prepareInput(
+                        $request->get('iDisplayStart', '0', 'post')
+                        ) . ", " . $database->prepareInput(
+                            $request->get(
+                                'iDisplayLength', $this->maxlimit, 'post'
+                            )
+                        );
+                }
+                
             }
         } else {
             $sLimit = "LIMIT " . $database->prepareInput($this->maxlimit);
@@ -182,7 +196,7 @@ class Datasource extends Base
         }
         try {
             $num = $db->query($sql, $cache, $cachetime, $cachecategory);
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             $message = 'Error in getJsonList (first count): '
                 . $ex->getMessage() . '. Sql Query:'
                 . str_replace(array("\n", "\t", "\r"), " ", $sql);

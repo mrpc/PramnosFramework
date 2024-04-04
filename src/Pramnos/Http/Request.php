@@ -172,6 +172,15 @@ class Request extends Base
         }
         if (self::$requestMethod == 'PUT') {
              parse_str(file_get_contents("php://input"), self::$putData);
+             if (\Pramnos\General\Helpers::checkJSON(file_get_contents("php://input"))) {
+                $putArray = (array)json_decode(
+                    file_get_contents("php://input")
+                );
+                self::$putData = array_merge($putArray, self::$putData);
+                unset($putArray);
+            } else{
+                parse_str(file_get_contents("php://input"), self::$putData);
+            }
         }
 
         if (self::$requestMethod == 'DELETE') {
@@ -179,7 +188,7 @@ class Request extends Base
         }
 
         if (self::$requestMethod == 'POST' && count($_POST) == 0) {
-            if (\pramnos_general::checkJSON(file_get_contents("php://input"))) {
+            if (\Pramnos\General\Helpers::checkJSON(file_get_contents("php://input"))) {
                 $postArray = (array)json_decode(
                     file_get_contents("php://input")
                 );
@@ -190,6 +199,16 @@ class Request extends Base
         if (self::$requestMethod == 'GET') {
             if (isset($_GET['{}'])) {
                 unset($_GET['{}']);
+            }
+            
+            foreach (array_keys($_GET) as $key) {
+                if (\Pramnos\General\Helpers::checkJSON(str_replace("_", " ", $key))) {
+                    $getArray = (array)json_decode(
+                        str_replace("_", " ", $key)
+                    );
+                    $_GET = array_merge($getArray, $_GET);
+                    unset($getArray);
+                }
             }
         }
 

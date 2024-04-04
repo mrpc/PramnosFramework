@@ -88,6 +88,12 @@ class Datatable extends Base
     public $aoColumns = array();
 
     /**
+     * Filter specific values on db
+     * @var array
+     */
+    public $aoData = array();
+
+    /**
      * Display a "show/hide" menu for all columns
      * @var boolean
      */
@@ -174,6 +180,7 @@ class Datatable extends Base
     {
         $this->name = trim($name);
         $this->source = trim($source);
+        $this->aoData = json_encode($this->aoData);
         parent::__construct();
     }
 
@@ -562,7 +569,6 @@ table;
     window.addEventListener("load", function () {
 
 
-
             $this->name = jQuery('#$this->name').dataTable( {
             $language
             $jui
@@ -581,6 +587,10 @@ table;
              $tabletools
              $search
             "fnServerData": function ( sSource, aoData, fnCallback ) {
+                let aoDataArray = $this->aoData ;
+                for (var i = 0; i < aoDataArray.length; i++){
+                    aoData.push( aoDataArray[i] );
+                }                
                 jQuery.ajax( {
                     "dataType": 'json',
                     "type": "POST",
