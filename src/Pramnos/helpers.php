@@ -18,7 +18,7 @@ if (!function_exists("env")) {
     }
 }
 
-if (!function_exists('l')) {
+if (!function_exists('l') && !class_exists("pramnos_theme")) {
     /**
      * Alias of echo $lang->_('string');
      */
