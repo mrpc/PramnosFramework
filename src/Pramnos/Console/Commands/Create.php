@@ -25,6 +25,7 @@ class Create extends Command
             . " - controller: Create a controller\n"
             . " - view: Create a view\n"
             . " - crud: Create a CRUD system (model/view/controller)\n"
+            . " - api: Create an API endpoint\n"
             . " - migration: Create a migration\n"
         );
         $this->addArgument(
@@ -56,6 +57,9 @@ class Create extends Command
                 break;
             case "crud":
                 $output->writeln($this->createCrud($name));
+                break;
+            case "api":
+                $output->writeln($this->createApi($name));
                 break;
             case "migration":
                 $output->writeln($this->createMigration($name));
@@ -281,7 +285,19 @@ migcontent;
                     'Table: ' . $tableName . ' does not exist.'
                 );
             }
-            $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            if ($database->type == 'postgresql') {
+                $sql = $database->prepareQuery(
+                    "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
+                    . "(SELECT pg_catalog.col_description(c.oid, a.ordinal_position) FROM pg_catalog.pg_class c WHERE c.oid = (SELECT relfilenode FROM pg_catalog.pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "')) AS \"Comment\" "
+                    . "FROM information_schema.columns a "
+                    . "WHERE table_name = '" 
+                    . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
+                );
+                
+            } else {
+                $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            }
+            
             $result = $database->query($sql);
 
 
@@ -487,6 +503,509 @@ content;
      * @param string $name Name of the controller to be created
      * @param bool $full Create a full crud controller
      */
+    protected function createApi($name)
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $path = ROOT . DS . INCLUDES . DS;
+
+        if (isset($application->applicationInfo['namespace'])) {
+            $namespace = $application->applicationInfo['namespace'];
+        } else {
+            $namespace = 'Pramnos';
+        }
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+            $path .= $application->appName . DS;
+        }
+        $namespace .= '\\Api\\Controllers';
+
+        $path .= 'Api/Controllers';
+        $lastLetter = substr($name, -1);
+        if ($lastLetter == 's') {
+            $className = ucfirst(substr($name, 0, -1));
+            $filename = $path . DS . ucfirst(substr($name, 0, -1)) . '.php';
+        } else {
+            $className = ucfirst($name);
+            $filename = $path . DS . ucfirst($name) . '.php';
+        }
+
+
+        if (class_exists('\\' . $namespace . '\\'. $className)
+            || file_exists($filename)) {
+            throw new \Exception('Controller already exists.');
+        }
+        if (!file_exists($path)) {
+            mkdir($path);
+        }
+
+
+        
+
+        $date = date('d/m/Y H:i');
+        $fileContent = <<<content
+<?php
+namespace {$namespace};
+
+/**
+ * {$className} Controller
+ * Auto generated at: {$date}
+ */
+class {$className} extends \Pramnos\Application\Controller
+{
+
+    /**
+     * {$className} controller constructor
+     * @param Application \$application
+     */
+    public function __construct(\Pramnos\Application\Application \$application = null)
+    {
+        parent::__construct(\$application);
+    }
+    
+
+content;
+        
+            $database = \Pramnos\Database\Database::getInstance();
+            $viewName = strtolower($name);
+            $modelNameSpace = str_replace("Api\Controllers", "Models", $namespace);
+            $modelClass = $className;
+            $modelClassLower = strtolower($modelClass);
+
+
+            if ($lastLetter == 's') {
+                $tableName = '#PREFIX#' . strtolower($name);
+            } else {
+                $tableName = '#PREFIX#' . strtolower($name) . s;
+            }
+            
+
+
+            if (!$database->tableExists($tableName)) {
+                throw new \Exception(
+                    'Table: ' . $tableName . ' does not exist.'
+                );
+            }
+            if ($database->type == 'postgresql') {
+                $sql = $database->prepareQuery(
+                    "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
+                    . "(SELECT col_description((SELECT oid FROM pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'), a.ordinal_position)) AS \"Comment\", "
+                    . "column_name in ( "
+                    . "    SELECT column_name "
+                    . "    FROM information_schema.table_constraints tc "
+                    . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
+                    . "    WHERE constraint_type = 'PRIMARY KEY' "
+                    . "    AND tc.table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
+                    . ") as \"PrimaryKey\" "
+                    . "FROM information_schema.columns a "
+                    . "WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
+                );
+            } else {
+                $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            }
+            $result = $database->query($sql);
+
+
+            $saveContent = '';
+            $updateContent = '';
+            $returnContent = '';
+            $postContent = '';
+            $putContent = '';
+            $primaryKey = '';
+
+            $routerContent = '';
+
+            while ($result->fetch()) {
+                $primary = false;
+                if ($database->type == 'postgresql') {
+                    if ($result->fields['PrimaryKey'] == 't') {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                    }
+                } elseif (isset($result->fields['Key'])
+                    && $result->fields['Key'] == 'PRI') {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                }
+                $basicType = explode('(', $result->fields['Type']);
+                switch ($basicType[0]) {
+                    case "tinyint":
+                    case "smallint":
+                    case "integer":
+                    case "int":
+                    case "mediumint":
+                    case "bigint":
+
+                        $returnContent .= '     * @apiSuccess {Number} data.' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                        if (!$primary) {
+                            if ($result->fields['Null'] == 'YES') {
+                                $saveContent .= '     * @apiBody {Number} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\', \'int\');' . "\n";
+                                $postContent .= '        if ($model->' . $result->fields['Field'] . ' == 0) {' . "\n";
+                                $postContent .= '            $model->' . $result->fields['Field'] . ' = null;' . "\n";
+                                $postContent .= '        }' . "\n";
+                            } else {
+                                $saveContent .= '     * @apiBody {Number}' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', 0, \'post\', \'int\');' . "\n";
+                            }
+                            $updateContent .= '     * @apiBody {Number} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                            $putContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\', \'int\');' . "\n";
+                            
+                        }
+                        break;
+                    case "float":
+                    case "double":
+                        $returnContent .= '     * @apiSuccess {Number} data.' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                        if (!$primary) {
+                            if ($result->fields['Null'] == 'YES') {
+                                $saveContent .= '     * @apiBody {Number} [' . $result->fields['Field'] . ']  ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\');' . "\n";
+                                $postContent .= '        if ($model->' . $result->fields['Field'] . ' == 0) {' . "\n";
+                                $postContent .= '            $model->' . $result->fields['Field'] . ' = null;' . "\n";
+                                $postContent .= '        }' . "\n";
+                            } else {
+                                $saveContent .= '     * @apiBody {Number} ' . $result->fields['Field'] . '  ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', 0, \'post\');' . "\n";
+                            }
+                            $updateContent .= '      * @apiBody {Number} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                            $putContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\');' . "\n";
+                        }
+                        break;
+                    case "bool":
+                    case "boolean":
+                        $returnContent .= '     * @apiSuccess {Boolean} data.' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                        if (!$primary) { 
+                            $saveContent .= '        $tmpVar = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\');' . "\n";
+                            $saveContent .= '        if ($tmpVar == \'true\' || $tmpVar == \'on\' || $tmpVar == "yes" || $tmpVar === \'1\' || $tmpVar === 1) {' . "\n";
+                            $saveContent .= '            $tmpVar = true; ' . "\n";
+                            $saveContent .= '        } else { ' . "\n";
+                            $saveContent .= '            $tmpVar = false; ' . "\n";
+                            $saveContent .= '        } ' . "\n";
+                            $saveContent .= '      * @apiBody {Boolean} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                            $postContent .= '        $model->' . $result->fields['Field'] . ' = $tmpVar;' . "\n";   
+                        }
+                        $updateContent .= '     * @apiBody {Boolean} [' . $result->fields['Field'] . ']  ' . $result->fields['Comment'] . "\n";
+                        $putContent .= '       $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\', \'int\');' . "\n";
+                        break;
+                    case "json":
+                        $returnContent .= '     * @apiSuccess {JSON} data.' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                        if (!$primary) {
+                            if ($result->fields['Null'] == 'YES') {
+                                $saveContent .= '     * @apiBody {JSON} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\'));' . "\n";
+                            } else {
+                                $saveContent .= '     * @apiBody {JSON} ' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', \'\', \'post\'));' . "\n";
+                            }
+                            $updateContent .= '     * @apiBody {JSON} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                            $putContent .= '        $model->' . $result->fields['Field'] . ' = trim(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\'));' . "\n";
+                        }
+                        break;
+                    default:
+                        $returnContent .= '     * @apiSuccess {String} data.' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                        if (!$primary) {
+                            if ($result->fields['Null'] == 'YES') {
+                                $saveContent .= '     * @apiBody {String} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(strip_tags(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\')));' . "\n";
+                            } else {
+                                $saveContent .= '     * @apiBody {String} ' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(strip_tags(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', \'\', \'post\')));' . "\n";
+                            }
+                            $updateContent .= '     * @apiBody {String} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                            $putContent .= '        $model->' . $result->fields['Field'] . ' = trim(strip_tags(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\')));' . "\n";
+                        }
+                        break;
+                }
+
+            }
+
+
+            $fileContent .= <<<content
+    /**
+     * @api {get} 1.0/$modelClassLower List
+     * @apiVersion 1.0.0
+     * @apiGroup $modelClass
+     * @apiName list$modelClass
+     * @apiDescription List of $modelClass objects
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     *
+     *
+     * @apiSuccess {Array} data List of $modelClass objects
+$returnContent
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     */
+    public function display()
+    {
+
+        if (!isset(\$_SESSION['user']) || !is_object(\$_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        \$user = \$_SESSION['user'];
+        if (\$user->userid < 2) {
+            return array('status' => 401);
+        }
+        
+        
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$list = \$model->getList();
+        
+        foreach (\$list as \$obj) {
+            \$data[] = \$obj->getData();
+        }
+
+        return array('data' => \$data);
+    }
+
+    /**
+     * @api {get} 1.0/$modelClassLower/:$primaryKey Read
+     * @apiVersion 1.0.0
+     * @apiGroup $modelClass
+     * @apiName read$modelClass
+     * @apiDescription Read a specific $modelClass object
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * @apiParam  {Number} $primaryKey Id to load
+     *
+     * @apiSuccess {{$modelClass}} data A $modelClass object
+$returnContent
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function read$modelClass(\$$primaryKey)
+    {
+        if (!isset(\$_SESSION['user']) || !is_object(\$_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        \$user = \$_SESSION['user'];
+        if (\$user->userid < 2) {
+            return array('status' => 401);
+        }
+        
+        
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$model->load(\$$primaryKey);
+        if (\$model->$primaryKey == 0) {
+            return array(
+                'status' => 404
+            );
+        }
+        \$data = \$model->getData();
+        return array('data' => \$data);
+    }
+
+    /**
+     * @api {post} 1.0/$modelClassLower Create
+     * @apiVersion 1.0.0
+     * @apiGroup $modelClass
+     * @apiName create$modelClass
+     * @apiDescription Create a $modelClass
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * 
+$saveContent
+     *
+     * @apiSuccess {{$modelClass}} data A $modelClass object
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function create$modelClass()
+    {
+        if (!isset(\$_SESSION['user']) || !is_object(\$_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        \$user = \$_SESSION['user'];
+        
+        
+
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+
+ 
+$postContent
+        
+
+        \$model->save();
+        
+        return array(
+            'status' => 201,
+            'data' => \$model->getData()
+        );
+    }
+
+
+    /**
+     * @api {put} 1.0/$modelClassLower/:$primaryKey Update
+     * @apiVersion 1.0.0
+     * @apiGroup $modelClass
+     * @apiName update$modelClass
+     * @apiDescription Update a specific $modelClass object
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * @apiParam  {Number} $primaryKey Id to update
+     * 
+     * 
+$updateContent
+     * @apiSuccess {{$modelClass}} data A $modelClass object
+     * 
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function update$modelClass(\$$primaryKey)
+    {
+        if (!isset(\$_SESSION['user']) || !is_object(\$_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        \$user = \$_SESSION['user'];
+        
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$model->load((int) \$$primaryKey);
+        if (\$model->$primaryKey == 0) {
+            return array(
+                'status' => 404
+            );
+        }
+
+ 
+$putContent
+
+        
+        \$model->save();
+        return array(
+            'status' => 202,
+            'data' => \$model->getData()
+        );
+    }
+
+    /**
+     * @api {delete} 1.0/$modelClassLower/:$primaryKey Delete
+     * @apiVersion 1.0.0
+     * @apiGroup $modelClass
+     * @apiName delte$modelClass
+     * @apiDescription Delete a $modelClass
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * @apiParam  {Number} $primaryKey Id to delete
+     *
+     *
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function delete$modelClass(\$$primaryKey)
+    {
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$model->load((int) \$$primaryKey);
+        if (\$model->$primaryKey == 0) {
+            return array(
+                'status' => 404
+            );
+        }
+        \$model->delete(\$$primaryKey);
+        return array(
+            'status' => 202
+        );
+
+    }
+
+
+
+}
+content;
+
+
+$routerContent = <<<content
+\$router->delete(
+    '/$modelClassLower/{{$primaryKey}}',
+    function (\$$primaryKey) {
+        \$controller = \$this->getController('$className');
+        return \$controller->delete$modelClass(\$$primaryKey);
+    }
+);
+
+\$router->put(
+    '/$modelClassLower/{{$primaryKey}}',
+    function (\$$primaryKey) {
+        \$controller = \$this->getController('$className');
+        return \$controller->update$modelClass(\$$primaryKey);
+    }
+);
+
+\$router->get(
+    '/$modelClassLower/{{$primaryKey}}',
+    function (\$$primaryKey) {
+        \$controller = \$this->getController('$className');
+        return \$controller->read$modelClass(\$$primaryKey);
+    }
+);
+
+\$router->get(
+    '/$modelClassLower',
+    function () {
+        \$controller = \$this->getController('$className');
+        return \$controller->display();
+    }
+);
+
+\$router->post(
+    '/$modelClassLower',
+    function () {
+        \$controller = \$this->getController('$className');
+        return \$controller->create$modelClass();
+    }
+);
+
+content;
+
+
+      
+        file_put_contents($filename, $fileContent);
+
+
+
+        $routerFile = ROOT . '/src/Api/routes.php';
+        $routerContentOriginal = file_get_contents($routerFile);
+        if (strpos($routerContentOriginal, $routerContent) === false) {
+            $routerContentOriginal = str_replace(
+                'return $router->dispatch($newRequest);',
+                $routerContent . "\n\n" . 'return $router->dispatch($newRequest);',
+                $routerContentOriginal
+            );
+            file_put_contents($routerFile, $routerContentOriginal);
+        }
+
+
+        return "Namespace: {$namespace}\n"
+            . "Class: {$className}\n"
+            . "File: {$filename}\n\nController created. \n";
+
+    }
+
+
+    /**
+     * Creates a controller
+     * @param string $name Name of the controller to be created
+     * @param bool $full Create a full crud controller
+     */
     protected function createController($name, $full = false)
     {
         $application = $this->getApplication()->internalApplication;
@@ -614,7 +1133,18 @@ content;
                     'Table: ' . $tableName . ' does not exist.'
                 );
             }
-            $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            if ($database->type == 'postgresql') {
+                $sql = $database->prepareQuery(
+                    "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
+                    . "(SELECT pg_catalog.col_description(c.oid, a.ordinal_position) FROM pg_catalog.pg_class c WHERE c.oid = (SELECT relfilenode FROM pg_catalog.pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "')) AS \"Comment\" "
+                    . "FROM information_schema.columns a "
+                    . "WHERE table_name = '" 
+                    . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
+                );
+                
+            } else {
+                $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            }
             $result = $database->query($sql);
 
 
@@ -758,6 +1288,81 @@ content;
     }
 
     /**
+     * Updates a model
+     * @param string $name Model name
+     * @param \Pramnos\Database\Result $result Database result
+     * @param string $filename Filename of the model
+     */
+    protected function updateModel($name, \Pramnos\Database\Result $result, $filename)
+    {
+        $fileContent = '';
+        
+        while ($result->fetch()) {
+            if (property_exists($name, $result->fields['Field'])) {
+                continue;
+            }
+            $type = 'string';
+            $basicType = explode('(', $result->fields['Type']);
+            switch ($basicType[0]) {
+                case "tinyint":
+                case "smallint":
+                case "integer":
+                case "int":
+                case "mediumint":
+                case "bigint":
+                    $type = 'int';
+                    break;
+                case "decimal":
+                case "numeric":
+                case "float":
+                case "double":
+                    $type = 'float';
+                    break;
+                case "bool":
+                case "boolean":
+                    $type = 'bool';
+                    break;
+                default: 
+                    $type = 'string';
+                    break;
+            }
+
+            $fileContent .= "    /**\n";
+            if ($result->fields['Comment'] != '') {
+                $fileContent .= "     * "
+                    . $result->fields['Comment']
+                    . "\n";
+            }
+            $fileContent .= "     * @var "
+                . $type
+                . "\n"
+                . "     */\n"
+                . "    public $"
+                . $result->fields['Field']
+                . ";\n";
+        }
+        if ($fileContent != '') {
+            
+            // Read the contents of the file
+            $fileContents = file_get_contents($filename);
+            
+            // Find the position of the last property definition
+            $lastPropertyPosition = strrpos($fileContents, 'public $');
+            // Find the position of the end of the last property definition
+            $lastPropertyEndPosition = strpos($fileContents, ';', $lastPropertyPosition);
+            // Insert the new property definitions after the last property definition
+            
+            $fileContents = substr_replace($fileContents, "\n" . $fileContent, $lastPropertyEndPosition + 1, 0);
+            // Write the modified contents back to the file
+            file_put_contents($filename, $fileContents);
+
+            return "File: {$filename}\n\nModel updated.";
+        }
+        return "Model exists and doesnt need an update.";
+    }
+
+
+    /**
      * Creates a model
      * @param string $name Model name
      */
@@ -784,10 +1389,40 @@ content;
 
         }
 
-        $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+        if ($database->type == 'postgresql') {
+            $sql = $database->prepareQuery(
+                "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
+                . "(SELECT col_description((SELECT oid FROM pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'), a.ordinal_position)) AS \"Comment\", "
+                . "column_name in ( "
+                . "    SELECT column_name "
+                . "    FROM information_schema.table_constraints tc "
+                . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
+                . "    WHERE constraint_type = 'PRIMARY KEY' "
+                . "    AND tc.table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
+                . ") as \"PrimaryKey\", "
+                . "column_name in ( "
+                . "    SELECT column_name "
+                . "    FROM information_schema.key_column_usage "
+                . "    WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "' "
+                . "    AND column_name = a.column_name "
+                . "    AND constraint_name in ( "
+                . "        SELECT constraint_name "
+                . "        FROM information_schema.table_constraints "
+                . "        WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "' "
+                . "        AND constraint_type = 'FOREIGN KEY' "
+                . "    ) "
+                . ") as \"ForeignKey\" "
+                . "FROM information_schema.columns a "
+                . "WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
+            );
+
+        } else {
+            $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+        }
         $result = $database->query($sql);
+        
 
-
+        
         $path = ROOT . DS . INCLUDES . DS;
 
         if (isset($application->applicationInfo['namespace'])) {
@@ -808,10 +1443,15 @@ content;
             $className =  ucfirst($name);
             $filename = $path . DS . ucfirst($name) . '.php';
         }
-
+        
         if (class_exists('\\' . $namespace . '\\'. $className)
-            || file_exists($filename)) {
-            throw new \Exception('Model already exists.');
+            && file_exists($filename)) {  
+            return $this->updateModel('\\' . $namespace . '\\'. $className, $result, $filename);
+        } elseif (class_exists('\\' . $namespace . '\\'. $className)
+            && file_exists($filename)) {  
+                throw new \Exception(
+                    'Model already exists and cannot be updated'
+                );
         }
         if (!file_exists($path)) {
             mkdir($path);
@@ -833,14 +1473,20 @@ class {$className} extends \Pramnos\Application\Model
 content;
 
 
-
+        $arrayFix = '';
+        $foreignFixes = '';
         $primaryKey = '';
         while ($result->fetch()) {
             $primary = false;
-            if (isset($result->fields['Key'])
+            if ($database->type == 'postgresql') {
+                if ($result->fields['PrimaryKey'] == 't') {
+                    $primaryKey = $result->fields['Field'];
+                    $primary = true;
+                }
+            } elseif (isset($result->fields['Key'])
                 && $result->fields['Key'] == 'PRI') {
-                $primaryKey = $result->fields['Field'];
-                $primary = true;
+                    $primaryKey = $result->fields['Field'];
+                    $primary = true;
             }
             $type = 'string';
             $basicType = explode('(', $result->fields['Type']);
@@ -851,17 +1497,32 @@ content;
                 case "int":
                 case "mediumint":
                 case "bigint":
+                    if ($database->type == 'postgresql' && $result->fields['ForeignKey'] == "t") {
+                        $foreignFixes .= '        if ($this->' . $result->fields['Field'] . ' == 0) {' . "\n";
+                        $foreignFixes .= '            $this->' . $result->fields['Field'] . ' = null;' . "\n";
+                        $foreignFixes .= '        }' . "\n";
+                    }
                     $type = 'int';
+                    $arrayFix .= '        if (isset($data[\'' . $result->fields['Field'] . '\']) &&  $data[\'' . $result->fields['Field'] . '\'] !== null) {' . "\n";
+                    $arrayFix .= '            $data[\'' . $result->fields['Field'] . '\'] = (int) $this->' . $result->fields['Field'] . ";\n";
+                    $arrayFix .= '        }' . "\n";
                     break;
                 case "decimal":
                 case "numeric":
                 case "float":
                 case "double":
                     $type = 'float';
+                    $arrayFix .= '        if (isset($data[\'' . $result->fields['Field'] . '\']) &&  $data[\'' . $result->fields['Field'] . '\'] !== null) {' . "\n";
+                    $arrayFix .= '            $data[\'' . $result->fields['Field'] . '\'] = (float) $this->' . $result->fields['Field'] . ";\n";
+                    $arrayFix .= '        }' . "\n";
                     break;
                 case "bool":
                 case "boolean":
                     $type = 'bool';
+                    $arrayFix .= '        $data[\'' . $result->fields['Field'] . '\'] = (bool) $this->' . $result->fields['Field'] . ";\n";
+                    break;
+                default: 
+                    $type = 'string';
                     break;
             }
 
@@ -930,6 +1591,7 @@ content;
      */
     public function save(\$autoGetValues = false, \$debug = false)
     {
+$foreignFixes
         return parent::_save(null, null, \$autoGetValues, \$debug);
     }
 
@@ -942,6 +1604,17 @@ content;
     public function delete({$primaryKeyVal})
     {
         return parent::_delete({$primaryKeyVal}, null, null);
+    }
+
+    /**
+     * Return all data as array
+     * @return array
+     */
+    public function getData()
+    {
+        \$data = parent::getData();
+$arrayFix
+        return \$data;
     }
 
     /**
