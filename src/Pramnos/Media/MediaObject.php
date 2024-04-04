@@ -17,7 +17,7 @@ class MediaObject extends \Pramnos\Framework\Base
      */
     public $mediaid = 0;
     /**
-     * Media Type. 1: image, 2:emoticon 3:pdf 4:Flash Media 5:video
+     * Media Type. 0: Generic 1: image, 2:emoticon 3:pdf 4:Flash Media 5:video
      * @var int
      */
     public $mediatype = 0;
@@ -443,7 +443,7 @@ class MediaObject extends \Pramnos\Framework\Base
             $path = $this->createPath($module);
             try {
                 copy($file, $path . strtolower(basename($file)));
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::log("Cannot copy image. " . $ex->getMessage());
                 $this->error = "Cannot copy image. " . $ex->getMessage();
                 return $this;
@@ -451,7 +451,7 @@ class MediaObject extends \Pramnos\Framework\Base
             if ($deleteOriginal === true) {
                 try {
                     unlink($file);
-                } catch (Exception $ex) {
+                } catch (\Exception $ex) {
                     \Pramnos\Logs\Logger::log(
                         "Cannot delete original image. " . $ex->getMessage()
                     );
@@ -626,7 +626,7 @@ class MediaObject extends \Pramnos\Framework\Base
                         $tmpMedia->save();
                         \Pramnos\Logs\Logger::log('Cannot copy');
                     }
-                } catch (Exception $ex) {
+                } catch (\Exception $ex) {
                     $tmpMedia->filename = $file;
                     $tmpMedia->save();
                     \Pramnos\Logs\Logger::log($ex->getMessage());
@@ -884,7 +884,7 @@ class MediaObject extends \Pramnos\Framework\Base
     {
         try {
             $exif = @exif_read_data($filename);
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             $exif = array(
                 'message' => $ex->getMessage(),
                 'Orientation' => null
@@ -925,7 +925,7 @@ class MediaObject extends \Pramnos\Framework\Base
         if (!isset($file['name'])
             || !isset($file['type'])
             || !isset($file['tmp_name'])) {
-            throw new Exception('Invalid file upload');
+            throw new \Exception('Invalid file upload');
         }
         return $file;
     }
@@ -985,17 +985,19 @@ class MediaObject extends \Pramnos\Framework\Base
             );
         } else {
             $allowedExtentions = array(
-                'jpg', 'jpeg', 'gif', 'png', 'bmp', 'pdf', 'ico'
+                'jpg', 'jpeg', 'gif', 'png', 'bmp', 'pdf', 'ico', 'xls', 'xlsx'
             );
         }
         if (array_search($ext, $allowedExtentions) === false) {
-            $this->error = "Invalid File Type: " . $ext;
+            $this->error = "#1 Invalid File Type: " . $ext;
             return $this;
         }
-
         if ($this->mediatype == 0) {
             if ($ext == 'pdf') {
                 $this->mediatype = 3;
+            } elseif ($ext == 'xls' || $ext == 'xlsx' 
+                || $ext == 'doc' || $ext == 'docx') {
+                $this->mediatype = 0;
             } else {
                 $this->mediatype = 1;
             }
@@ -1013,7 +1015,7 @@ class MediaObject extends \Pramnos\Framework\Base
                     case "image/vnd.microsoft.icon":
                         break;
                     default:
-                        $this->error = "Invalid MIME type: " . $file['type'];
+                        $this->error = "#2 Invalid MIME type: " . $file['type'];
                         return $this;
                         break;
                 }
@@ -1023,7 +1025,7 @@ class MediaObject extends \Pramnos\Framework\Base
                         $this->mediatype = 3;
                         break;
                     default:
-                        $this->error = "Invalid MIME type: " . $file['type'];
+                        $this->error = "#3 Invalid MIME type: " . $file['type'];
                         return $this;
                         break;
                 }
@@ -1042,8 +1044,22 @@ class MediaObject extends \Pramnos\Framework\Base
                     case "application/pdf":
                         $this->mediatype = 3;
                         break;
+                    case "application/vnd.ms-excel":
+                    case "application/vnd.oasis.opendocument.text":
+                    case "application/xml":
+                    case "text/xml":
+                    case "application/msword":
+                    case "application/vnd.ms-powerpoint":
+                    case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+                    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+                    case "application/vnd.oasis.opendocument.spreadsheet":
+                        $this->mediatype = 0;
+                        $this->x = 0;
+                        $this->y = 0;
+                        break;
                     default:
-                        $this->error = "Invalid MIME type: " . $file['type'];
+                        $this->error = "#4 Invalid MIME type: " . $file['type'];
                         return $this;
                         break;
                 }
@@ -1098,6 +1114,7 @@ class MediaObject extends \Pramnos\Framework\Base
             return $this;
         }
         $this->name = $thename;
+        $this->save();
         return $this;
     }
 
@@ -1121,13 +1138,13 @@ class MediaObject extends \Pramnos\Framework\Base
      * @param string $tags Tags used for this usage
      * @param int $order Order of display
      * @return int Usage ID or false if cannot be created
-     * @throws Exception When media usage cannot be created
+     * @throws \Exception When media usage cannot be created
      */
     public function addUsage($module = '', $specific = '', $title = '',
         $description = '', $tags = '', $order = 0)
     {
         if ($this->mediaid == 0) {
-            throw new Exception(
+            throw new \Exception(
                 'Cannot add a usage to a non existing media object.'
             );
         }
@@ -1135,7 +1152,7 @@ class MediaObject extends \Pramnos\Framework\Base
             $module = $this->module;
         }
         if ($module == '') {
-            throw new Exception(
+            throw new \Exception(
                 'Cannot add a usage where there is no module.'
             );
         }
@@ -1389,7 +1406,7 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($this->error != false && $force == false) {
             return $this;
         }
-        if ($this->userid == 0) {
+        if ($this->userid == 0 && isset($_SESSION['uid'])) {
             $this->userid = $_SESSION['uid'];
         }
         if ($this->date == 0) {
@@ -1507,12 +1524,12 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($this->_isnew == true) {
             $this->_isnew = false;
             $database->insertDataToTable(
-                $database->prefix . "media", $itemdata, 'insert', '', false
+                $database->prefix . "media", $itemdata
             );
             $this->mediaid = $database->getInsertId();
         } else {
             $database->updateTableData(
-                $database->prefix . "media", $itemdata, 'update',
+                $database->prefix . "media", $itemdata,
                 "`mediaid` = '" . (int) $this->mediaid . "'", false
             );
         }
@@ -1668,6 +1685,17 @@ class MediaObject extends \Pramnos\Framework\Base
                 }
             }
             return new Thumbnail();
+        } elseif ($this->mediatype == 0) {
+            $thumb = new Thumbnail();
+            $thumb->createdTxt = date('d/m/Y H:i:s');
+            $thumb->filename = ROOT . 'www/assets/image/pdf.png';
+            $thumb->x = 120;
+            $thumb->y = 120;
+            $thumb->views = 0;
+            $thumb->filesize = 0;
+            $thumb->reason = "File Preview";
+            $thumb->url = 'assets/image/pdf.png';
+            return $thumb;
         } elseif ($this->mediatype == 3) {
             $thumb = new Thumbnail();
             $thumb->createdTxt = date('d/m/Y H:i:s');
@@ -1691,7 +1719,7 @@ class MediaObject extends \Pramnos\Framework\Base
      * @param boolean $debug Show debug information
      * @param boolean $resample Different way of creating the image
      * @return MediaObject_thumbnail
-     * @throws Exception
+     * @throws \Exception
      */
     function get($width, $height, $crop = false,
         $force = false, $debug = false, $resample = true)
@@ -1753,7 +1781,7 @@ class MediaObject extends \Pramnos\Framework\Base
             }
             if (!$this->_checkFilePath()) {
                 if (!$this->_tryToRecreatePath()) {
-                    throw new Exception(
+                    throw new \Exception(
                         'Media file doesnt exist: ' . $this->filename
                     );
                 }
@@ -1776,7 +1804,7 @@ class MediaObject extends \Pramnos\Framework\Base
                     if(rename($tfile, $existingFile)) {
                         $tfile = $existingFile;
                     }
-                } catch (Exception $exc) {
+                } catch (\Exception $exc) {
                     \Pramnos\Logs\Logger::log($exc->getMessage());
                 }
             }
@@ -1812,6 +1840,17 @@ class MediaObject extends \Pramnos\Framework\Base
             $thumb->views = 0;
             $thumb->filesize = 0;
             $thumb->reason = "PDF Preview";
+            $thumb->url = 'assets/image/pdf.png';
+            return $thumb;
+        } else {
+            $thumb = new Thumbnail();
+            $thumb->createdTxt = date('d/m/Y H:i:s');
+            $thumb->filename = ROOT .  'www/assets/image/pdf.png';
+            $thumb->x = 256;
+            $thumb->y = 256;
+            $thumb->views = 0;
+            $thumb->filesize = 0;
+            $thumb->reason = "File Preview";
             $thumb->url = 'assets/image/pdf.png';
             return $thumb;
         }

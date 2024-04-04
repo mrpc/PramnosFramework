@@ -243,7 +243,8 @@ class Date extends Html
                     autoclose: true,
                     changeYear: true,
                     yearRange: \"c-250:c+10\",
-                    dateFormat: 'dd/mm/yyyy'
+                    dateFormat: 'dd/mm/yyyy',
+                    format: 'dd/mm/yyyy',
             });\n";
 
         if ($this->validate) {

@@ -247,7 +247,7 @@ class Token extends \Pramnos\Framework\Base
             $inputData,
             time()
         );
-        $database->query($sql);
+        @$database->query($sql);
         $this->actions +=1;
         $this->lastused = time();
         $this->save();
@@ -296,10 +296,6 @@ class Token extends \Pramnos\Framework\Base
                 'value' => $this->status, 'type' => 'integer'
             ),
             array(
-                'fieldName' => 'parentToken',
-                'value' => $this->parentToken, 'type' => 'integer'
-            ),
-            array(
                 'fieldName' => 'applicationid',
                 'value' => $this->applicationid, 'type' => 'integer'
             ),
@@ -320,6 +316,12 @@ class Token extends \Pramnos\Framework\Base
                 'value' => serialize($this->scope), 'type' => 'string'
             )
         );
+        if ($database->type != 'postgresql') {
+            $itemdata[] = array(
+                'fieldName' => 'parentToken',
+                'value' => $this->parentToken, 'type' => 'integer'
+            );
+        }
         #$database->sql_cache_flush_cache('usertokens');
         if ($this->_isnew == true) {
             $this->_isnew = false;

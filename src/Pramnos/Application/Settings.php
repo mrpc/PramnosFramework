@@ -190,18 +190,29 @@ class Settings extends \Pramnos\Framework\Base
             if ($num->numRows != 0) {
                 $sql = self::$database->prepareQuery(
                     "update `#PREFIX#settings` set `value` = %s "
-                    . " where `setting` = %s limit 1",
+                    . " where `setting` = %s",
                     $value, $setting
                 );
                 $return = self::$database->query($sql);
             }
             else {
-                $sql = self::$database->prepareQuery(
-                    "insert into `#PREFIX#settings`
-                    (`setting`, `value`) values (%s, %s)
-                    on duplicate key update `value` = %s",
-                    $setting, $value, $value
-                );
+                if (self::$database->type == 'postgresql') {
+                    $sql = self::$database->prepareQuery(
+                        "insert into `#PREFIX#settings`
+                        (`setting`, `value`) values (%s, %s)
+                        ON CONFLICT (setting) DO UPDATE SET `value` = %s",
+                        $setting, $value, $value
+                    );
+                } else {
+                    $sql = self::$database->prepareQuery(
+                        "insert into `#PREFIX#settings`
+                        (`setting`, `value`) values (%s, %s)
+                        on duplicate key update `value` = %s",
+                        $setting, $value, $value
+                    );
+                    
+                }
+                
                 $return = self::$database->query($sql);
             }
         }

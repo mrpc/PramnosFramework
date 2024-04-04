@@ -161,7 +161,20 @@ class Model extends \Pramnos\Framework\Base
                     }
                 }
             } else {
-                $sql    = "SHOW COLUMNS FROM `" . $this->_dbtable . "`";
+
+                if ($database->type == 'postgresql') {
+                    $sql = "SELECT column_name as \"Field\", data_type as \"Type\", is_nullable as \"Null\" "
+                    . " FROM information_schema.columns "
+                    . " WHERE table_schema = '"
+                    . $database->schema
+                    . "' AND table_name = '"
+                    . $this->_dbtable
+                    . "';";
+                } else {
+                    $sql    = "SHOW COLUMNS FROM `" . $this->_dbtable . "`";
+                }
+
+                
                 $result = $database->query($sql);
                 self::$columnCache[$this->_dbtable] = array();
                 while ($result->fetch()) {
@@ -204,13 +217,18 @@ class Model extends \Pramnos\Framework\Base
 
                 $this->_isnew = false;
                 $result = $database->insertDataToTable(
-                    $this->_dbtable, $itemdata
+                    $this->_dbtable, $itemdata, $primarykey
                 );
                 if ($result==false) {
                     $error = $database->getError();
                     throw new \Exception($error['message']);
                 }
-                $this->$primarykey = $database->getInsertId();
+                if ($database->type == 'postgresql') {
+                    $this->$primarykey = pg_fetch_result($result, 0, $primarykey);
+                } else {
+                    $this->$primarykey = $database->getInsertId();
+                }
+                
             } else {
                 $database->updateTableData(
                     $this->_dbtable, $itemdata,
@@ -251,14 +269,39 @@ class Model extends \Pramnos\Framework\Base
             if ($this->_cacheKey === NULL) {
                 $this->_fixDb();
             }
-            $sql = $database->prepareQuery(
-                "select * from "
-                . $this->_dbtable
-                . " where `"
-                . $this->_primaryKey
-                . "` = %s limit 1",
-                $primaryKey
-            );
+            if ($database->type == 'postgresql') {
+                if ($database->schema != '') {
+                    $sql = $database->prepareQuery(
+                        "select * from "
+                        . $database->schema
+                        . '.'
+                        . $this->_dbtable
+                        . " where `"
+                        . $this->_primaryKey
+                        . "` = %s limit 1",
+                        $primaryKey
+                    );
+                } else {
+                    $sql = $database->prepareQuery(
+                        "select * from "
+                        . $this->_dbtable
+                        . " where `"
+                        . $this->_primaryKey
+                        . "` = %s limit 1",
+                        $primaryKey
+                    );
+                }
+            } else {
+                $sql = $database->prepareQuery(
+                    "select * from "
+                    . $this->_dbtable
+                    . " where `"
+                    . $this->_primaryKey
+                    . "` = %s limit 1",
+                    $primaryKey
+                );
+            }
+            
             if ($debug === true) {
                 die($sql);
             }
@@ -295,9 +338,9 @@ class Model extends \Pramnos\Framework\Base
             if ($this->_cacheKey === NULL) {
                 $this->_fixDb();
             }
-            $sql = "delete from `" . $this->_dbtable
-                . "` where `" . $this->_primaryKey
-                . "` = " . (int) $primaryKey . " limit 1";
+            $sql = "delete from " . $this->_dbtable
+                . " where " . $this->_primaryKey
+                . " = " . (int) $primaryKey;
             $database->query($sql);
             $database->cacheflush($this->_cacheKey);
         }
@@ -366,10 +409,14 @@ class Model extends \Pramnos\Framework\Base
             if ($debug==true) {
                 die($sql);
             }
+
+            $class = get_class($this);
+            
+
             $result = $database->query($sql, true, 600, $this->_cacheKey);
             while ($result->fetch()) {
-                $objects[$result->fields[$primarykey]] = $this->getModel(
-                    $this->modelname
+                $objects[$result->fields[$primarykey]] = new $class(
+                    $this->controller
                 );
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
@@ -427,12 +474,29 @@ class Model extends \Pramnos\Framework\Base
             $primarykey = $this->_primaryKey;
             if ($filter === NULL) {
                 $filter = "";
+            } else {
+                if ($database->type == 'postgresql') {
+                    $filter = str_replace('`', '"', $filter);
+                }
             }
             if ($order === NULL) {
-                $order  = " order by `" . $primarykey . "` DESC ";
+                $order  = " order by " . $primarykey . " DESC ";
             }
-            $sql = "select * from `"
-                . $this->_dbtable . "` " . $filter . ' ' . $order;
+
+            
+            if ($database->type == 'postgresql') {
+                if ($database->schema != '') {
+                    $sql = "select * from " . $database->schema . '.'
+                        . $this->_dbtable . " " . $filter . ' ' . $order;
+                } else {
+                    $sql = "select * from " 
+                        . $this->_dbtable . " " . $filter . ' ' . $order;
+                }
+            } else {
+                $sql = "select * from `"
+                    . $this->_dbtable . "` " . $filter . ' ' . $order;
+            }
+
             if ($debug==true) {
                 die($sql);
             }
@@ -615,7 +679,8 @@ class Model extends \Pramnos\Framework\Base
         switch ($type) {
 
             case "int":
-            case "tinyint";
+            case "tinyint":
+            case "smallint":
             case "bigint":
                 return "integer";
             case "double":
