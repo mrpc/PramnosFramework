@@ -546,29 +546,53 @@ class User extends \Pramnos\Framework\Base
                 if ($fixname != 'originalOtherinfo'
                     && substr($fixname, 0, 1) != '_'
                     && substr($fieldname, 0, 1) != '_') {
-                    $sql = $database->prepareQuery(
-                        "insert into #PREFIX#userdetails "
-                        . " (userid, fieldname, value) "
-                        . " values (%d, %s, %s) "
-                        . " ON CONFLICT (userid, fieldname) DO UPDATE SET value = %s ",
-                        $this->userid, $fieldname,
-                        serialize($this->$fieldname),
-                        serialize($this->$fieldname)
-                    );
+
+                    if ($database->type == 'postgresql') {
+                        $sql = $database->prepareQuery(
+                            "insert into #PREFIX#userdetails "
+                            . " (userid, fieldname, value) "
+                            . " values (%d, %s, %s) "
+                            . " ON CONFLICT (userid, fieldname) DO UPDATE SET value = %s ",
+                            $this->userid, $fieldname,
+                            serialize($this->$fieldname),
+                            serialize($this->$fieldname)
+                        );
+                    } else {
+                        $sql = $database->prepareQuery(
+                            "insert into `#PREFIX#userdetails` "
+                            . " (`userid`, `fieldname`, `value`) "
+                            . " values (%d, %s, %s) "
+                            . " ON DUPLICATE KEY UPDATE `value` = %s ",
+                            $this->userid, $fieldname,
+                            serialize($this->$fieldname),
+                            serialize($this->$fieldname)
+                        );
+                    }
                 }
 
             } elseif (!isset($this->originalOtherinfo[$fieldname])
                 || $this->originalOtherinfo[$fieldname] != $this->$fieldname
                 && substr($fixname, 0, 1) != '_'
                 && substr($fieldname, 0, 1) != '_') {
-                $sql = $database->prepareQuery(
-                    "insert into #PREFIX#userdetails "
-                    . " (userid, fieldname, value) "
-                    . " values (%d, %s, %s) "
-                    . " ON CONFLICT (userid, fieldname) DO UPDATE SET value = %s ",
-                    $this->userid, $fieldname,
-                    $this->$fieldname, $this->$fieldname
-                );
+                if ($database->type == 'postgresql') {
+                    $sql = $database->prepareQuery(
+                        "insert into #PREFIX#userdetails "
+                        . " (userid, fieldname, value) "
+                        . " values (%d, %s, %s) "
+                        . " ON CONFLICT (userid, fieldname) DO UPDATE SET value = %s ",
+                        $this->userid, $fieldname,
+                        $this->$fieldname, $this->$fieldname
+                    );
+                } else {
+                    $sql = $database->prepareQuery(
+                        "insert into `#PREFIX#userdetails` "
+                        . " (`userid`, `fieldname`, `value`) "
+                        . " values (%d, %s, %s) "
+                        . " ON DUPLICATE KEY UPDATE `value` = %s ",
+                        $this->userid, $fieldname,
+                        $this->$fieldname, $this->$fieldname
+                    );
+                }
             }
 
             try {
