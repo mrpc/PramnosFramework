@@ -677,7 +677,8 @@ class Model extends \Pramnos\Framework\Base
         $type = explode("(", $type);
         $type = $type[0];
         switch ($type) {
-
+            case "numeric":
+                return "float";
             case "int":
             case "tinyint":
             case "smallint":
