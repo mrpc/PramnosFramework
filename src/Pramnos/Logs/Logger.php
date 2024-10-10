@@ -30,7 +30,7 @@ class Logger
         $handle = @fopen(LOG_PATH . DS . 'logs' . DS . $file, "a+");
         @fwrite(
             $handle, "["
-            . date('d/m/Y H:i', time() + 25200)
+            . date('d/m/Y H:i:s', time())
             . "] " . $log . "\r\n"
         );
         @fclose($handle);
