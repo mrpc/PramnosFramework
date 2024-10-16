@@ -232,7 +232,8 @@ class Model extends \Pramnos\Framework\Base
             } else {
                 $database->updateTableData(
                     $this->_dbtable, $itemdata,
-                    "`" . $primarykey . "` = '" . $this->$primarykey . "'"
+                    "`" . $primarykey . "` = '" . $this->$primarykey . "'",
+                    $debug
                 );
             }
             $database->cacheflush($this->_cacheKey);
@@ -677,8 +678,7 @@ class Model extends \Pramnos\Framework\Base
         $type = explode("(", $type);
         $type = $type[0];
         switch ($type) {
-            case "numeric":
-                return "float";
+
             case "int":
             case "tinyint":
             case "smallint":

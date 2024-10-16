@@ -887,7 +887,7 @@ class User extends \Pramnos\Framework\Base
 
     /**
      * Return the current logged user
-     * @return \getsynched_user|boolean
+     * @return User|boolean
      */
     public static function getCurrentUser()
     {

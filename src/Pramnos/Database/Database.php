@@ -897,7 +897,7 @@ class Database extends \Pramnos\Framework\Base
      * @param array $data
      * @param string $filter filter for update (EX: where x=x)
      */
-    public function updateTableData($table, $data, $filter = '')
+    public function updateTableData($table, $data, $filter = '', $debug=false)
     {
         if ($this->type == 'postgresql' && $this->schema != '') {
             $updateString = "UPDATE " . $this->schema . '.' . $table . ' SET ';
@@ -927,6 +927,9 @@ class Database extends \Pramnos\Framework\Base
                 $updateString .= ' WHERE ' . $filter;
             }
             
+        }
+        if ($debug) {
+            var_dump($updateString);
         }
         return $this->runQuery($updateString);
 
