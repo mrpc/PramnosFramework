@@ -312,7 +312,16 @@ class Datasource extends Base
                 }
             }
         }
-
+        if ($database->type == 'postgresql') {
+            $sWhere = str_replace('`', '"', $sWhere);
+            $sWhere = preg_replace_callback(
+                '/(\S+)\s+LIKE\s+(\S+)/i',
+                function ($matches) {
+                    return 'CAST(' . $matches[1] . ' AS TEXT) ILIKE ' . $matches[2];
+                },
+                $sWhere
+            );
+        }
 
         if ($distinctField != '') {
             $sql = $db->prepareQuery(
