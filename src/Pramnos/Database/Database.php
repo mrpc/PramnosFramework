@@ -34,6 +34,11 @@ class Database extends \Pramnos\Framework\Base
      */
     public $database = "";
     /**
+     * Database port
+     * @var int
+     */
+    public $port = null;
+    /**
      * Database schema (For postgresql)
      * @var string
      */
@@ -189,6 +194,10 @@ class Database extends \Pramnos\Framework\Base
             $this->password = $dbSettings->password;
             $this->collation = $dbSettings->collation;
             $this->prefix = $dbSettings->prefix . '_';
+            if (isset($dbSettings->port)) {
+                $this->port = $dbSettings->port;
+            }
+            
             if (isset($dbSettings->type)) {
                 if ($dbSettings->type == 'postgresql') {
                     if (!extension_loaded('pgsql') 
@@ -350,9 +359,23 @@ class Database extends \Pramnos\Framework\Base
                 break;
             case "postgresql":
                 try {
+                    if ($this->port === null ){
+                        $this->_dbConnection = pg_connect(
+                            "host=" 
+                            . $this->server 
+                            . " dbname=" 
+                            . $this->database 
+                            . " user=" 
+                            . $this->user 
+                            . " password=" 
+                            . $this->password
+                        ) or die('Could not connect: ' . pg_last_error());
+                    }
                     $this->_dbConnection = pg_connect(
                         "host=" 
                         . $this->server 
+                        . ' port=' 
+                        . $this->port
                         . " dbname=" 
                         . $this->database 
                         . " user=" 
@@ -360,6 +383,7 @@ class Database extends \Pramnos\Framework\Base
                         . " password=" 
                         . $this->password
                     ) or die('Could not connect: ' . pg_last_error());
+                    
                 } catch (\Exception $ex) {
                     die($ex->getMessage());
                     return false;
@@ -897,7 +921,7 @@ class Database extends \Pramnos\Framework\Base
      * @param array $data
      * @param string $filter filter for update (EX: where x=x)
      */
-    public function updateTableData($table, $data, $filter = '', $debug=false)
+    public function updateTableData($table, $data, $filter = '')
     {
         if ($this->type == 'postgresql' && $this->schema != '') {
             $updateString = "UPDATE " . $this->schema . '.' . $table . ' SET ';
@@ -927,9 +951,6 @@ class Database extends \Pramnos\Framework\Base
                 $updateString .= ' WHERE ' . $filter;
             }
             
-        }
-        if ($debug) {
-            var_dump($updateString);
         }
         return $this->runQuery($updateString);
 
