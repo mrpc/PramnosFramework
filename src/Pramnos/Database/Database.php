@@ -370,19 +370,21 @@ class Database extends \Pramnos\Framework\Base
                             . " password=" 
                             . $this->password
                         ) or die('Could not connect: ' . pg_last_error());
+                    } else {
+                        $this->_dbConnection = pg_connect(
+                            "host=" 
+                            . $this->server 
+                            . ' port=' 
+                            . $this->port
+                            . " dbname=" 
+                            . $this->database 
+                            . " user=" 
+                            . $this->user 
+                            . " password=" 
+                            . $this->password
+                        ) or die('Could not connect: ' . pg_last_error());
                     }
-                    $this->_dbConnection = pg_connect(
-                        "host=" 
-                        . $this->server 
-                        . ' port=' 
-                        . $this->port
-                        . " dbname=" 
-                        . $this->database 
-                        . " user=" 
-                        . $this->user 
-                        . " password=" 
-                        . $this->password
-                    ) or die('Could not connect: ' . pg_last_error());
+                    
                     
                 } catch (\Exception $ex) {
                     die($ex->getMessage());
