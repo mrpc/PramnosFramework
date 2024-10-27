@@ -111,7 +111,7 @@ class Logger
      * @param string $ext The extension of the log file
      * @return void
      */
-    public static function logJson($data, string $file = 'downlink', string $ext = "log"): void
+    public static function logJson($data, string $file = 'pramnosframework', string $ext = "log"): void
     {
         $jsonString = is_string($data) ? $data : json_encode($data, JSON_UNESCAPED_SLASHES);
         self::log($jsonString, $file, $ext, false, ['type' => 'json']);
