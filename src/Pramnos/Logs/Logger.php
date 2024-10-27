@@ -3,70 +3,147 @@
 namespace Pramnos\Logs;
 
 /**
+ * Enhanced Logger class with structured logging support
  * @package     PramnosFramework
  * @subpackage  Logs
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
- * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  */
 class Logger
 {
+    /**
+     * Default log directory paths
+     */
+    private const DEFAULT_LOG_PATH = LOG_PATH . DS . 'logs';
 
     /**
-     * Log something
-     * @param string $log The log string to write
+     * Ensures log directories exist
+     */
+    private static function ensureLogDirectories(): void
+    {
+        if (!file_exists(LOG_PATH)) {
+            @mkdir(LOG_PATH, 0777, true);
+        }
+        if (!file_exists(self::DEFAULT_LOG_PATH)) {
+            @mkdir(self::DEFAULT_LOG_PATH, 0777, true);
+        }
+    }
+
+    /**
+     * Formats the log entry into a structured single line
+     * @param string $message The log message
+     * @param array $context Additional context data
+     * @return string
+     */
+    private static function formatLogEntry(string $message, array $context = []): string
+    {
+        $entry = [
+            'timestamp' => date('d/m/Y H:i:s', time()),
+            'message' => $message,
+        ];
+
+        // Handle multiline content
+        if (strpos($message, "\n") !== false || !empty($context)) {
+            // If message contains newlines or JSON, encode it
+            $entry['message'] = str_replace("\n", "\\n", $message);
+            
+            // Add any additional context
+            if (!empty($context)) {
+                $entry['context'] = $context;
+            }
+            
+            // Convert to JSON, ensuring single line
+            return json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+
+        // For simple messages without context, maintain original format
+        return "[" . $entry['timestamp'] . "] " . $entry['message'];
+    }
+
+    /**
+     * Enhanced log method with structured logging support
+     * @param string $message The log message
      * @param string $file The file to write the log
      * @param string $ext The extension of the log file
      * @param bool $startoffile If true, the log will be written at the start of the file
+     * @param array $context Additional context data for structured logging
      * @return void
      */
-    public static function log($log, $file = 'pramnosframework', $ext = "log", $startoffile = false)
-    {
-        if (!file_exists(LOG_PATH)) {
-            @mkdir(LOG_PATH);
-            @chmod(LOG_PATH, 0777);
-        }
-        if (!file_exists(LOG_PATH . DS . 'logs')) {
-            @mkdir(LOG_PATH . DS . 'logs');
-            @chmod(LOG_PATH . DS . 'logs', 0777);
-        }
-        $file = $file . '.' . $ext;
-        $handle = @fopen(LOG_PATH . DS . 'logs' . DS . $file, "a+");
+    public static function log(
+        string $message,
+        string $file = 'pramnosframework',
+        string $ext = "log",
+        bool $startoffile = false,
+        array $context = []
+    ): void {
+        self::ensureLogDirectories();
 
+        $filepath = self::DEFAULT_LOG_PATH . DS . $file . '.' . $ext;
+        $formattedEntry = self::formatLogEntry($message, $context) . "\n";
 
-        if ($handle) {
-            if ($startoffile) {
-                $content = @fread($handle, filesize(LOG_PATH . DS . 'logs' . DS . $file));
-                @ftruncate($handle, 0);
-                @rewind($handle);
-                @fwrite(
-                    $handle,
-                    "["
-                        . date('d/m/Y H:i:s', time())
-                        . "] " . $log . "\r\n"
-                );
-                @fwrite($handle, $content);
-            } else {
-                @fwrite(
-                    $handle,
-                    "["
-                        . date('d/m/Y H:i:s', time())
-                        . "] " . $log . "\r\n"
-                );
-            }
+        if ($startoffile && file_exists($filepath)) {
+            $content = @file_get_contents($filepath);
+            @file_put_contents($filepath, $formattedEntry . $content);
+        } else {
+            @file_put_contents($filepath, $formattedEntry, FILE_APPEND | LOCK_EX);
         }
-        @fclose($handle);
     }
 
     /**
      * Log something at the start of the file
-     * @param string $log The log string to write
+     * @param string $message The log message
+     * @param string $file The file to write the log
+     * @param string $ext The extension of the log file
+     * @param array $context Additional context data
+     * @return void
+     */
+    public static function logPrepend(
+        string $message,
+        string $file = 'pramnosframework',
+        string $ext = "log",
+        array $context = []
+    ): void {
+        self::log($message, $file, $ext, true, $context);
+    }
+
+    /**
+     * Specialized method for logging JSON data
+     * @param mixed $data The data to log
      * @param string $file The file to write the log
      * @param string $ext The extension of the log file
      * @return void
      */
-    public static function logPrepend($log, $file = 'pramnosframework', $ext = "log")
+    public static function logJson($data, string $file = 'downlink', string $ext = "log"): void
     {
-        self::log($log, $file, $ext, true);
+        $jsonString = is_string($data) ? $data : json_encode($data, JSON_UNESCAPED_SLASHES);
+        self::log($jsonString, $file, $ext, false, ['type' => 'json']);
     }
 
+    /**
+     * Specialized method for logging errors with stack traces
+     * @param string $message Error message
+     * @param \Throwable|null $exception Optional exception object
+     * @param string $file The file to write the log
+     * @param string $ext The extension of the log file
+     * @return void
+     */
+    public static function logError(
+        string $message,
+        ?\Throwable $exception = null,
+        string $file = 'pramnosframework',
+        string $ext = "log"
+    ): void {
+        $context = ['type' => 'error'];
+        
+        if ($exception) {
+            $context['exception'] = [
+                'class' => get_class($exception),
+                'message' => $exception->getMessage(),
+                'code' => $exception->getCode(),
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+                'trace' => $exception->getTraceAsString()
+            ];
+        }
+
+        self::log($message, $file, $ext, false, $context);
+    }
 }
