@@ -47,6 +47,7 @@ class Application extends \Symfony\Component\Console\Application
     {
         $this->add(new \Pramnos\Console\Commands\Create());
         $this->add(new \Pramnos\Console\Commands\Serve());
+        $this->add(new \Pramnos\Console\Commands\MigrateLogs());
     }
 
 }
