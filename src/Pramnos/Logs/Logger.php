@@ -75,6 +75,14 @@ class Logger
         array $context = []
     ): void {
         self::ensureLogDirectories();
+        
+        // Check if the message is a valid JSON string
+        if (!isset($content['type'])) {
+            @json_decode($message);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $context['type'] = 'json';
+            }
+        }
 
         $filepath = self::DEFAULT_LOG_PATH . DS . $file . '.' . $ext;
         $formattedEntry = self::formatLogEntry($message, $context) . "\n";
