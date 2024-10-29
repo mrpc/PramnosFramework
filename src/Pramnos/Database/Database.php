@@ -258,7 +258,7 @@ class Database extends \Pramnos\Framework\Base
             touch($filename);
             chmod($filename, 0666);
         } catch (\Exception $ex) {
-            \Pramnos\Logs\Logger::log($ex->getMessage());
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
     }
 
@@ -273,13 +273,13 @@ class Database extends \Pramnos\Framework\Base
             try {
                 @unlink($secondFileName);
             } catch (\Exception $ex) {
-                \Pramnos\Logs\Logger::log($ex->getMessage());
+                \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             }
         }
         try {
             $rename = @rename($filename, $secondFileName);
         } catch (\Exception $ex) {
-            \Pramnos\Logs\Logger::log($ex->getMessage());
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             $rename = false;
         }
         if ($rename !== false) {
@@ -287,7 +287,7 @@ class Database extends \Pramnos\Framework\Base
                 touch($filename);
                 chmod($filename, 0666);
             } catch (\Exception $ex) {
-                \Pramnos\Logs\Logger::log($ex->getMessage());
+                \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             }
         }
     }
@@ -306,7 +306,7 @@ class Database extends \Pramnos\Framework\Base
                 $filesize = filesize($filename);
             }
         } catch (\Exception $ex) {
-            \Pramnos\Logs\Logger::log($ex->getMessage());
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             $filesize = 0;
         }
         if (isset($filesize) && $filesize > ((1024*1024)/2)) {
@@ -343,15 +343,13 @@ class Database extends \Pramnos\Framework\Base
             default:
                 try {
                     if ($this->persistency) {
-                        $this->_dbConnection = mysqli_connect(
-                            'p:' . $this->server, $this->user, $this->password,
-                            $this->database
-                        );
+                        $host = 'p:' . $this->server; 
                     } else {
-                        $this->_dbConnection = mysqli_connect(
-                            $this->server, $this->user, $this->password, $this->database
-                        );
+                        $host = $this->server;
                     }
+                    $this->_dbConnection = mysqli_connect(
+                        $host, $this->user, $this->password, $this->database, $this->port
+                    );
                 } catch (\Exception $ex) {
                     die($ex->getMessage());
                     return false;
@@ -507,7 +505,7 @@ class Database extends \Pramnos\Framework\Base
                     @$statement['statement']->close();
                     unset($this->statements[$key]);
                 } catch (\Exception $ex) {
-                    \Pramnos\Logs\Logger::log($ex->getMessage);
+                    \Pramnos\Logs\Logger::logError($ex->getMessage, $ex);
                 }
             }
 
@@ -1271,7 +1269,7 @@ class Database extends \Pramnos\Framework\Base
                         pg_last_error($this->_dbConnection),
                         $dieOnFatalError
                     );
-                    \Pramnos\Logs\Logger::log('Postgres error:' . pg_last_error($this->_dbConnection) . ' for query: ' . $sql, 'postgreserrors');
+                    \Pramnos\Logs\Logger::logError('Postgres error:' . pg_last_error($this->_dbConnection) . ' for query: ' . $sql, null, 'postgreserrors');
                     
                 
                 }
