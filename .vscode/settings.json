@@ -1,0 +1,27 @@
+{
+    "files.watcherExclude": {
+        "**/*.js": true,
+        "**/*.css": true,
+        "**/*.html": true,
+        "**/*.json": true,
+        "**/*.md": true,
+        "**/*.xml": true,
+        "**/*.yml": true,
+        "**/vendor/**": true,
+        "!**/vendor/pramnoshosting/**": true,
+        "**/node_modules/**": true,
+        "**/.git/**": true,
+        "**/dist/**": true,
+        "**/build/**": true,
+        "**/*.min.*": true,
+        "**/coverage/**": true
+    },
+    "search.exclude": {
+        "**/coverage/**": true,
+        "**/.git/**": true,
+        "**/*.min.*": true
+    },
+    "files.eol": "\n",
+    "editor.tabSize": 4
+    
+}
