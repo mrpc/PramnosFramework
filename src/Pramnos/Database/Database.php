@@ -876,8 +876,10 @@ class Database extends \Pramnos\Framework\Base
      * Insert data to a table
      * @param string $table
      * @param array $data
+     * @param string $primarykey
+     * @param bool $debug
      */
-    public function insertDataToTable($table, $data, $primarykey = '')
+    public function insertDataToTable($table, $data, $primarykey = '', $debug = false)
     {
         $insertString = "";
         if ($this->type == 'postgresql' && $this->schema != '') {
@@ -910,7 +912,9 @@ class Database extends \Pramnos\Framework\Base
         if ($this->type == 'postgresql' && $primarykey != '') {
             $insertString .= " RETURNING " . $primarykey;
         }
-        #die($insertString);
+        if ($debug) {
+            echo "\n\n" . $insertString . "\n\n";
+        }
         return $this->runQuery($insertString);
 
     }
@@ -920,8 +924,9 @@ class Database extends \Pramnos\Framework\Base
      * @param string $table
      * @param array $data
      * @param string $filter filter for update (EX: where x=x)
+     * @param bool $debug
      */
-    public function updateTableData($table, $data, $filter = '')
+    public function updateTableData($table, $data, $filter = '', $debug = false)
     {
         if ($this->type == 'postgresql' && $this->schema != '') {
             $updateString = "UPDATE " . $this->schema . '.' . $table . ' SET ';
@@ -951,6 +956,9 @@ class Database extends \Pramnos\Framework\Base
                 $updateString .= ' WHERE ' . $filter;
             }
             
+        }
+        if ($debug) {
+            echo "\n\n" . $updateString . "\n\n";
         }
         return $this->runQuery($updateString);
 

@@ -217,7 +217,7 @@ class Model extends \Pramnos\Framework\Base
 
                 $this->_isnew = false;
                 $result = $database->insertDataToTable(
-                    $this->_dbtable, $itemdata, $primarykey
+                    $this->_dbtable, $itemdata, $primarykey, $debug
                 );
                 if ($result==false) {
                     $error = $database->getError();
