@@ -34,8 +34,22 @@ class Validator extends \Pramnos\Framework\Base
     }
 
     /**
+     * Check if a string is a valid JSON
+     * @param string $string
+     * @return boolean true if the string is a valid JSON
+     */
+    public static function isJson($string)
+    {
+        if (version_compare(PHP_VERSION, '8.3.0', '>=')) {
+            return json_validate($string);
+        }
+        json_decode($string);
+        return (json_last_error() === JSON_ERROR_NONE);
+    }
+
+    /**
      * Check if a link is valid
-     * @param sting $url Url to parse
+     * @param string $url Url to parse
      * @return boolean true if the url is valid
      */
     public static function checkLink($url)
@@ -66,7 +80,7 @@ class Validator extends \Pramnos\Framework\Base
     {
         static $instance;
         if (!is_object($instance)) {
-            $instance = new pramnos_validate;
+            $instance = new Validator();
         }
         return $instance;
     }
