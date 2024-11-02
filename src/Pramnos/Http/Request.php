@@ -26,6 +26,12 @@ class Request extends Base
     public static $originalRequest='';
 
     /**
+     * Raw input stream content
+     * @var string|null
+     */
+    protected static $rawInput = null;
+
+    /**
      * Original $_GET request that should never change
      * @var string
      */
@@ -65,6 +71,27 @@ class Request extends Base
         $request->requestUri = $uri;
         $request->requestMethod = strtoupper($method);
         return $request;
+    }
+
+    /**
+     * Set raw input content for testing
+     * @param string|null $content
+     */
+    public static function setRawInput($content)
+    {
+        self::$rawInput = $content;
+    }
+
+    /**
+     * Get raw input content
+     * @return string
+     */
+    protected function getRawInput()
+    {
+        if (self::$rawInput !== null) {
+            return self::$rawInput;
+        }
+        return file_get_contents("php://input");
     }
 
     /**
@@ -171,31 +198,33 @@ class Request extends Base
             }
         }
         if (self::$requestMethod == 'PUT') {
-             parse_str(file_get_contents("php://input"), self::$putData);
-             if (\Pramnos\General\Helpers::checkJSON(file_get_contents("php://input"))) {
-                $putArray = (array)json_decode(
-                    file_get_contents("php://input")
-                );
+            $rawInput = $this->getRawInput();
+            if (\Pramnos\General\Helpers::checkJSON($rawInput)) {
+                $putArray = (array)json_decode($rawInput);
                 self::$putData = array_merge($putArray, self::$putData);
                 unset($putArray);
-            } else{
-                parse_str(file_get_contents("php://input"), self::$putData);
+            } else {
+                parse_str($rawInput, self::$putData);
             }
         }
 
         if (self::$requestMethod == 'DELETE') {
-            parse_str(file_get_contents("php://input"), self::$deleteData);
+            $rawInput = $this->getRawInput();
+            parse_str($rawInput, self::$deleteData);
         }
 
+        
+        
         if (self::$requestMethod == 'POST' && count($_POST) == 0) {
-            if (\Pramnos\General\Helpers::checkJSON(file_get_contents("php://input"))) {
-                $postArray = (array)json_decode(
-                    file_get_contents("php://input")
-                );
+            $rawInput = $this->getRawInput();
+            if (\Pramnos\General\Helpers::checkJSON($rawInput)) {
+                $postArray = (array)json_decode($rawInput);
                 $_POST = array_merge($postArray, $_POST);
                 unset($postArray);
             }
         }
+
+        
         if (self::$requestMethod == 'GET') {
             if (isset($_GET['{}'])) {
                 unset($_GET['{}']);
