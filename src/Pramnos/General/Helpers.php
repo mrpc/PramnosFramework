@@ -691,13 +691,7 @@ class Helpers
      */
     public static function checkJSON($string)
     {
-        if (is_string($string)
-            && is_object(json_decode($string))
-            && (json_last_error() == JSON_ERROR_NONE)) {
-            return true;
-        } else {
-            return false;
-        }
+        return \Pramnos\General\Validator::isJson($string);
     }
 
     /**
