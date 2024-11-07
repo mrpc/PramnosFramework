@@ -125,6 +125,7 @@ class Controller extends \Pramnos\Framework\Base
         \Pramnos\Application\Application $application = null
     )
     {
+        $this->application = $application;
         if ($application == null) {
             $this->application
                 = \Pramnos\Application\Application::getInstance();
