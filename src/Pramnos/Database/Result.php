@@ -57,6 +57,13 @@ class Result
      */
     protected $cursor = 0;
 
+     /**
+     * End of file flag
+     * @var bool
+     */
+     public $eof = true;
+
+
     /**
      * Database result object
      * @param array $result
@@ -182,7 +189,8 @@ class Result
         if ($this->database->type == 'postgresql' 
             && is_resource($this->mysqlResult)) {
             pg_free_result($this->mysqlResult);
-        } elseif (is_object($this->mysqlResult)) {
+        } elseif (is_object($this->mysqlResult) 
+            && $this->database->type == 'mysql') {
             $this->mysqlResult->free();
             $this->mysqlResult = null;
         }
@@ -197,8 +205,8 @@ class Result
         if ($this->database->type == 'postgresql' 
             && is_resource($this->mysqlResult)) {
                 return pg_num_rows($this->mysqlResult);
-        } elseif (is_object($this->mysqlResult)) {
-            
+        } elseif (is_object($this->mysqlResult) 
+            && $this->database->type == 'mysql') {
             return mysqli_num_rows($this->mysqlResult);
         }
 
