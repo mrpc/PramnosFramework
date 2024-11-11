@@ -123,6 +123,12 @@ class Result
                 null,
                 MYSQLI_ASSOC
             );
+        } elseif ($this->database->type == 'postgresql' && is_object($this->mysqlResult)) {
+            $this->fields = pg_fetch_array(
+                $this->mysqlResult,
+                null,
+                MYSQLI_ASSOC
+            );
         } elseif (is_object($this->mysqlResult)) {
             $this->fields = mysqli_fetch_array(
                 $this->mysqlResult,

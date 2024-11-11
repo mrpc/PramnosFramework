@@ -1273,7 +1273,7 @@ class Database extends \Pramnos\Framework\Base
             }
 
             if ($this->type == 'postgresql') {
-                $dbResource = @$this->runQuery($sql, $this->_dbConnection);
+                $dbResource = $this->runQuery($sql, $this->_dbConnection);
                 if (!$dbResource) {
                     $this->setError(
                         0,
@@ -1286,9 +1286,11 @@ class Database extends \Pramnos\Framework\Base
                 }
 
                 $obj->mysqlResult = $dbResource;
-
-                $obj->numRows = $obj->getNumRows();
-
+                if (is_object($dbResource)) {
+                    $obj->numRows = pg_num_rows($dbResource);
+                } elseif (is_resource($dbResource)) {
+                    $obj->numRows = $obj->getNumRows();
+                }
                 if ($obj->getNumRows() > 0) {
                     $obj->eof = false;
                     $resultArray = pg_fetch_array($dbResource, null, PGSQL_ASSOC);
