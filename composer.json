@@ -16,7 +16,7 @@
         "swiftmailer/swiftmailer": "~5.1",
         "symfony/console": "6.1.*",
         "symfony/css-selector": "6.1.*",
-        "symfony/debug": "6.1.*",
+        "symfony/debug": "*",
         "symfony/dom-crawler": "6.1.*",
         "symfony/finder": "6.1.*",
         "symfony/http-foundation": "6.1.*",
