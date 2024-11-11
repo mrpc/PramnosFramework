@@ -194,6 +194,9 @@ class Database extends \Pramnos\Framework\Base
             $this->password = $dbSettings->password;
             $this->collation = $dbSettings->collation;
             $this->prefix = $dbSettings->prefix . '_';
+            if ($this->prefix == '_') {
+                $this->prefix = '';
+            }
             if (isset($dbSettings->port)) {
                 $this->port = $dbSettings->port;
             }
