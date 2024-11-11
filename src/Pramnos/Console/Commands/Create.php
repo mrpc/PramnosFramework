@@ -577,7 +577,7 @@ content;
             if ($lastLetter == 's') {
                 $tableName = '#PREFIX#' . strtolower($name);
             } else {
-                $tableName = '#PREFIX#' . strtolower($name) . s;
+                $tableName = '#PREFIX#' . strtolower($name) . 's';
             }
             
 
