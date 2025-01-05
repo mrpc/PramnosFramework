@@ -133,6 +133,7 @@ class MigrateLogs extends Command
             $output->writeln("<error>Migration failed: " . $e->getMessage() . "</error>");
             return 1;
         }
+        return 0;
     }
 
     /**
