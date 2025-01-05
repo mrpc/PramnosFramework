@@ -69,6 +69,7 @@ class Create extends Command
                     'Invalid type of entity to create: ' . $entity
                 );
         }
+        return 0;
     }
 
     /**

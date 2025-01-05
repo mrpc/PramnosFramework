@@ -54,6 +54,7 @@ class Serve extends Command
         passthru(
             PHP_BINARY . " -S {$host}:{$port} \"{$path}\" 2>&1"
         );
+        return 0;
 
     }
 
