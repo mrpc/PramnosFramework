@@ -121,7 +121,7 @@ class Cache extends \Pramnos\Framework\Base
             $this->cacheDir=CACHE_PATH;
         }
         if ($this->prefix == '') {
-            $prefix = \Pramnos\Application\Settings::getSetting('db_prefix');
+            $prefix = \Pramnos\Application\Settings::getSetting('database')->prefix;
             if ($prefix != '') {
                 $this->prefix = $prefix;
             }
@@ -367,7 +367,7 @@ class Cache extends \Pramnos\Framework\Base
 
         if (self::$_memcached == null) {
             self::$_memcached = new \Memcached(
-                pramnos_settings::baseget('db_database')
+                \Pramnos\Application\Settings::getSetting('database')->database
             );
             $servers = self::$_memcached->getServerList();
             if (is_array($servers) && count($servers) > 0) {
@@ -379,8 +379,8 @@ class Cache extends \Pramnos\Framework\Base
                     $this->memcacheServer, $this->memcachePort
                 );
             }
-            catch (Exception $exc) {
-                pramnos_logs::log($exc->getMessage());
+            catch (\Exception $exc) {
+                \pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
                 $method = 'memcache';
                 $this->method='memcache';
             }
