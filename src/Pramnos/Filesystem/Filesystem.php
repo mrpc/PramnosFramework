@@ -53,7 +53,7 @@ class Filesystem
                     unlink($dir . DS . $file);
                 }
             }
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             #pramnos_logs::log($ex->getMessage());
             return false;
         }
@@ -110,7 +110,7 @@ class Filesystem
         if (!file_exists($dst)) {
             try {
                 mkdir($dst);
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 return false;
             }
         }
@@ -178,7 +178,7 @@ class Filesystem
         }
         try {
             unlink($file);
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             #pramnos_logs::log($ex->getMessage());
             return false;
         }
