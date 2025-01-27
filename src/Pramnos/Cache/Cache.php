@@ -118,7 +118,7 @@ class Cache extends \Pramnos\Framework\Base
             $this->type=$type;
         }
         if ($this->cacheDir == '' && defined('CACHE_PATH')) {
-            $this->cacheDir=CACHE_PATH;
+            $this->cacheDir = CACHE_PATH;
         }
         if ($this->prefix == '') {
             $prefix = \Pramnos\Application\Settings::getSetting('database')->prefix;
@@ -861,7 +861,6 @@ class Cache extends \Pramnos\Framework\Base
         if ($id == '') {
             return FALSE;
         }
-
         $dataFile = serialize($this);
         try {
             $fp = @fopen($this->actualPath . DS . $this->_cachename, 'w');
