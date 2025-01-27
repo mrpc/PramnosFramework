@@ -54,13 +54,13 @@ class Factory
     /**
      * Get an instance of pramnos_filesystem object or create one
      * @staticvar pramnos_filesystem $instance
-     * @return pramnos_filesystem
+     * @return \Pramnos\Filesystem\Filesystem
      */
     public static function &getFilesystem()
     {
         static $instance=null;
         if (!is_object($instance)) {
-            $instance = & pramnos_filesystem::getInstance();
+            $instance = & \Pramnos\Filesystem\Filesystem::getInstance();
         }
         return $instance;
     }
@@ -70,18 +70,18 @@ class Factory
      * Get an instance of pramnos_cache
      * @param string $category
      * @param string $type
-     * @return \pramnos_cache
+     * @return \Pramnos\Cache\Cache
      */
     public static function getCache($category=NULL, $type=NULL)
     {
-        return new pramnos_cache($category, $type);
+        return \Pramnos\Cache\Cache::getInstance($category, $type);
     }
 
     /**
      * Get an instance of pramnos_document object or create one
      * @var    string   $type Document Type. For example: pdf. Default is html
      * @var    boolean  $setDefault Set the document type as default
-     * @return pramnos_document
+     * @return \Pramnos\Document\Document
      */
     public static function &getDocument($type = '', $setDefault = true)
     {
