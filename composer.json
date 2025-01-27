@@ -11,11 +11,11 @@
         }
     ],
     "require": {
-        "php": ">=7.0",
+        "php": ">=7.2",
         "ext-mbstring": "*",
         "swiftmailer/swiftmailer": "~5.1",
-        "symfony/console": "6.1.*",
-        "symfony/routing": "6.1.*"
+        "symfony/console": "5.4.*",
+        "symfony/routing": "5.4.*"
     },
     "autoload": {
         "files": [
