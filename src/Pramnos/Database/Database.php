@@ -1116,16 +1116,26 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
-     * Generate cache name
-     * @param string $query
-     * @return string
+     * Refresh the database connection
+     * @return void
      */
-    function generateCacheName($query)
+    public function refresh()
     {
-        return pramnos_addon::applyFilters(
-            'pramnos_database_generate_cache_name', md5($query)
-        );
-    }
+        $this->close();
+        $this->connect();
+    }   
+
+    // /**
+    //  * Generate cache name
+    //  * @param string $query
+    //  * @return string
+    //  */
+    // function generateCacheName($query)
+    // {
+    //     return pramnos_addon::applyFilters(
+    //         'pramnos_database_generate_cache_name', md5($query)
+    //     );
+    //}
 
     /**
      * Set the database error
