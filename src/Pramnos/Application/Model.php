@@ -242,6 +242,54 @@ class Model extends \Pramnos\Framework\Base
         return $this;
     }
 
+    /**
+     * Function to get the count of items based on the provided filter, table, and key.
+     * @param string $filter
+     * @param string $table
+     * @param string $key
+     * @return integer
+     */
+    public function getCount($filter = NULL, $table = NULL, $key = NULL)
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        if ($table !== NULL && $table != "") {
+            $this->_dbtable = str_replace(
+                "#PREFIX#", $database->prefix, $table
+            );
+        }
+        if ($key !== NULL && $key != "") {
+            $this->_primaryKey = $key;
+        }
+        if ($this->_dbtable === NULL) {
+            return 0;
+        }
+        if ($this->_dbtable != NULL) {
+            if ($this->_cacheKey === NULL) {
+                $this->_fixDb();
+            }
+            $primarykey = $this->_primaryKey;
+            if ($filter === NULL) {
+                $filter = "";
+            }
+            if ($database->type == 'postgresql') {
+                if ($database->schema != '') {
+                    $sql = "select count(*) as 'itemsCount' from "
+                        . $database->schema . '.' . $this->_dbtable
+                        . " " . $filter;
+                } else {
+                    $sql = "select count(*) as 'itemsCount' from "
+                        . $this->_dbtable . " " . $filter;
+                }
+            } else {
+                $sql = "select count(*) as 'itemsCount' from `"
+                    . $this->_dbtable . "` " . $filter;
+            }
+            $result = $database->query($sql, true, 600, $this->_cacheKey);
+            return $result->fields['itemsCount'];
+        }
+        return 0;
+    }
+
 
 
     /**
