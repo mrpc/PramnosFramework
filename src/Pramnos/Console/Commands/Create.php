@@ -80,13 +80,13 @@ class Create extends Command
      */
     public function createMigration($migrationName)
     {
-        $name = preg_replace('/\W+/','',strtolower(strip_tags($migrationName)));
+        $name = preg_replace('/\W+/','',strtolower(strip_tags($migrationName ?? '')));
         $application = $this->getApplication()->internalApplication;
         $application->init();
 
         if (!file_exists(APP_PATH . DS . 'Migrations')) {
             if (!mkdir(APP_PATH . DS . 'Migrations')) {
-                throw new Exception('Cannot create migrations directory.');
+                throw new \Exception('Cannot create migrations directory.');
             }
         }
         $path = APP_PATH . DS . 'Migrations' . DS;

@@ -90,7 +90,7 @@ class Email extends \Pramnos\Framework\Base
         $message = \Swift_Message::newInstance($this->subject)
             ->setTo($this->to)
             ->setBody($this->body, 'text/html')
-            ->addPart(strip_tags($this->body), 'text/plain');
+            ->addPart(strip_tags($this->body ?? ''), 'text/plain');
 
         $message->setPriority($this->priority);
 

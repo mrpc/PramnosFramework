@@ -87,9 +87,14 @@ class Helpers
         return $returnedText;
     }
 
+    /**
+     * Convert seconds to text format time difference
+     * @param integer $seconds
+     * @return string
+     */
     public static function secondsToTime($seconds) {
-        $dtF = new DateTime("@0");
-        $dtT = new DateTime("@$seconds");
+        $dtF = new \DateTime("@0");
+        $dtT = new \DateTime("@$seconds");
         if ($seconds > (3600*24)) {
             return $dtF->diff($dtT)->format(
                 '%a days, %h hours, %i minutes and %s seconds'
@@ -370,7 +375,7 @@ class Helpers
                 0, $injectpos
             )
             . $symbol
-            . substr($password, $injectpos);
+            . substr($initialPass, $injectpos);
         return $password;
 
     }
@@ -559,7 +564,7 @@ class Helpers
             if ($debug == true) {
                 var_dump($handler);
                 var_dump($httpcode);
-                throw new Exception($httpcode);
+                throw new \Exception($httpcode);
             }
             return array('online' => false, 'status' => $httpcode);
         }
@@ -567,8 +572,8 @@ class Helpers
 
     /**
      * Find a percentage
-     * @param type $numAmount
-     * @param type $numTotal
+     * @param int $numAmount
+     * @param int $numTotal
      * @return null|int
      */
     public static function percent($numAmount, $numTotal)
@@ -609,7 +614,7 @@ class Helpers
         $order = 'asc')
     {
         if (!is_array($array)) {
-            throw new Exception(
+            throw new \Exception(
                 'Method sortArrayOfObjects expected an array.'
             );
         }
@@ -750,9 +755,9 @@ class Helpers
         $charset = 'utf-8')
     {
         if (!is_numeric($length)) {
-            throw new Exception('Invalid length');
+            throw new \Exception('Invalid length');
         }
-        $returnText = trim(strip_tags($text));
+        $returnText = trim(strip_tags($text ?? ''));
         if (mb_strlen($returnText, $charset) > $length) {
             if (version_compare(PHP_VERSION, '7.4.0') >= 0) {
                 $lastSpace = mb_strrpos(

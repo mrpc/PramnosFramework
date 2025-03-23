@@ -49,7 +49,8 @@ class Session extends \Pramnos\Addon\Addon
             $remoteip = $_SERVER['HTTP_CF_CONNECTING_IP'];
         }
         $country = '';
-        if (isset($_SERVER['HTTP_CF_IPCOUNTRY'])) {
+        if (isset($_SERVER['HTTP_CF_IPCOUNTRY']) 
+            && is_string($_SERVER['HTTP_CF_IPCOUNTRY'])) {
             $country = strip_tags($_SERVER['HTTP_CF_IPCOUNTRY']);
         }
         $language = '';
