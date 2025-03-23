@@ -1055,7 +1055,7 @@ class Database extends \Pramnos\Framework\Base
         } elseif (function_exists('mysqli_escape_string')) {
             return mysqli_escape_string($string);
         } else {
-            return addslashes($string);
+            return addslashes($string ?? '');
         }
     }
 

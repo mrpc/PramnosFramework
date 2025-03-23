@@ -54,18 +54,19 @@ class Breadcrumb extends \Pramnos\Framework\Base
         $comma = '';
         foreach ($this->items as $item) {
             $count += 1;
+            $label = isset($item['label']) ? (string)$item['label'] : '';
             $script .= $comma . '{ "@type": "ListItem", '
                 . '"position": '
                 . $count
                 . ', "name": "'
-                . addslashes( strip_tags($item['label']))
+                . addslashes(strip_tags($label))
                 . '", '
                 . '"item": "'
                 . $item['url']
                 . '" }';
             $comma = ', ';
             if ($item['title'] == '') {
-                $item['title'] = $item['label'];
+                $item['title'] = $label;
             }
             $text .= '<li class="breadcrumb-item';
             if ($header == 2) {
@@ -90,7 +91,7 @@ class Breadcrumb extends \Pramnos\Framework\Base
                     . '">';
             }
             $text .= '<span>'
-                . $item['label']
+                . $label
                 . '</span>';
             if ($item['url'] != '') {
                 $text .= '</a>';
