@@ -160,7 +160,7 @@ class JWT
         list($function, $algorithm) = self::$supported_algs[$alg];
         switch($function) {
             case 'hash_hmac':
-                return hash_hmac($algorithm, $msg, $key, true);
+                return hash_hmac($algorithm, $msg, $key ?? '', true);
             case 'openssl':
                 $signature = '';
                 $success = openssl_sign($msg, $signature, $key, $algorithm);
