@@ -344,10 +344,10 @@ class Datasource extends Base
 
         try {
             $result = $db->query($sql, $cache, $cachetime, $cachecategory);
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             $message = 'Error in getJsonList: '
                 . $ex->getMessage() . '. Sql Query:'
-                . str_replace(array("\n", "\t", "\r"), " ", $sql);
+                . str_replace(array("\n", "\t", "\r"), " ", $sql ?? '');
             \Pramnos\Logs\Logger::log(
                 $message
             );
@@ -375,10 +375,10 @@ class Datasource extends Base
 
         try {
             $sQueryR = $db->query($sql, $cache, $cachetime, $cachecategory);
-        } catch (Exception $ex) {
+        } catch (\Exception $ex) {
             $message = 'Error in getJsonList: '
                 . $ex->getMessage() . '. Sql Query:'
-                . str_replace(array("\n", "\t", "\r"), " ", $sql);
+                . str_replace(array("\n", "\t", "\r"), " ", $sql ?? '');
             \Pramnos\Logs\Logger::log(
                 $message
             );
