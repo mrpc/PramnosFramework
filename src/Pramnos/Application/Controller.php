@@ -122,7 +122,7 @@ class Controller extends \Pramnos\Framework\Base
      * @param \Pramnos\Application\Application $application
      */
     public function __construct(
-        \Pramnos\Application\Application $application = null
+        ?\Pramnos\Application\Application $application = null
     )
     {
         $this->application = $application;
