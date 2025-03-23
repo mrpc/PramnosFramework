@@ -399,7 +399,7 @@ class Datasource extends Base
             foreach ($result->fields as $field) {
 
                 $field = trim(
-                    str_replace(array("\n", "\t", "\r"), " ", $field)
+                    str_replace(array("\n", "\t", "\r"), " ", $field ?? '')
                 ); //Fixed for exporting to Excel
                 if ($iconv !== NULL && !is_numeric($field) && $iconv != 'utf-8') {
                     $field = iconv($iconv, 'utf-8//IGNORE', $field);
