@@ -162,7 +162,7 @@ class Database extends \Pramnos\Framework\Base
 
     /**
      * Database connection link
-     * @var resource
+     * @var \mysqli|\pgsql\connection
      */
     private $_dbConnection;
 
@@ -508,7 +508,7 @@ class Database extends \Pramnos\Framework\Base
                     @$statement['statement']->close();
                     unset($this->statements[$key]);
                 } catch (\Exception $ex) {
-                    \Pramnos\Logs\Logger::logError($ex->getMessage, $ex);
+                    \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 }
             }
 
@@ -1053,7 +1053,7 @@ class Database extends \Pramnos\Framework\Base
         } elseif (function_exists('pg_escape_string') && $this->type == 'postgresql') {
             return pg_escape_string($this->_dbConnection, $string);
         } elseif (function_exists('mysqli_escape_string')) {
-            return mysqli_escape_string($string);
+            return mysqli_real_escape_string($this->_dbConnection, $string);
         } else {
             return addslashes($string ?? '');
         }
@@ -1446,6 +1446,67 @@ class Database extends \Pramnos\Framework\Base
     {
         $this->stopLogs();
         $this->close();
+    }
+
+    /**
+     * Starts a database transaction
+     *
+     * @return bool True on success, false on failure
+     */
+    public function startTransaction()
+    {
+        if (!$this->connected) {
+            $this->connect();
+        }
+        
+        try {
+            if ($this->type == 'postgresql') {
+                return $this->runQuery('BEGIN') !== false;
+            } else {
+                return $this->runQuery('START TRANSACTION') !== false;
+            }
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::logError("Failed to start transaction: " . $ex->getMessage(), $ex);
+            return false;
+        }
+    }
+
+    /**
+     * Commits the current transaction
+     *
+     * @return bool True on success, false on failure
+     */
+    public function commitTransaction()
+    {
+        if (!$this->connected) {
+            return false;
+        }
+        
+        try {
+            return $this->runQuery('COMMIT') !== false;
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::logError("Failed to commit transaction: " . $ex->getMessage(), $ex);
+            return false;
+        }
+    }
+
+    /**
+     * Rolls back the current transaction
+     *
+     * @return bool True on success, false on failure
+     */
+    public function rollbackTransaction()
+    {
+        if (!$this->connected) {
+            return false;
+        }
+        
+        try {
+            return $this->runQuery('ROLLBACK') !== false;
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::logError("Failed to rollback transaction: " . $ex->getMessage(), $ex);
+            return false;
+        }
     }
 
 }
