@@ -273,11 +273,11 @@ class Model extends \Pramnos\Framework\Base
             }
             if ($database->type == 'postgresql') {
                 if ($database->schema != '') {
-                    $sql = "select count(*) as 'itemsCount' from "
+                    $sql = "select count(*) as \"itemsCount\" from "
                         . $database->schema . '.' . $this->_dbtable
                         . " " . $filter;
                 } else {
-                    $sql = "select count(*) as 'itemsCount' from "
+                    $sql = "select count(*) as \"itemsCount\" from "
                         . $this->_dbtable . " " . $filter;
                 }
             } else {
