@@ -796,7 +796,7 @@ class Database extends \Pramnos\Framework\Base
         if ($this->type == 'postgresql') {
             $sqlQueryString = str_replace("`", '"', $sqlQueryString);
 
-            $sqlQueryString = preg_replace("/as '(.*)'/", 'as "$1"', $sqlQueryString);
+            $sqlQueryString = preg_replace("/\bas\s+'([^']+)'/i", 'AS "$1"', $sqlQueryString);
 
 
 
