@@ -531,6 +531,9 @@ class Model extends \Pramnos\Framework\Base
             if ($order === NULL) {
                 $order  = " order by " . $primarykey . " DESC ";
             }
+            if ($database->type == 'postgresql') {
+                $order = str_replace('`', '"', $order);
+            }
 
             
             if ($database->type == 'postgresql') {
@@ -545,13 +548,13 @@ class Model extends \Pramnos\Framework\Base
                 $sql = "select * from `"
                     . $this->_dbtable . "` " . $filter . ' ' . $order;
             }
-
             if ($debug==true) {
                 die($sql);
             }
             try {
                 $result = $database->query($sql, true, 600, $this->_cacheKey);
             } catch (\Exception $ex) {
+                \Pramnos\Logs\Logger::logError("Error in getList query: " . $sql . " - " . $ex->getMessage(), $ex);
                 $this->controller->application->showError($ex->getMessage());
             }
             $class = get_class($this);
