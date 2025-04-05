@@ -13,7 +13,7 @@
     "require": {
         "php": ">=7.2",
         "ext-mbstring": "*",
-        "swiftmailer/swiftmailer": "~5.1",
+        "symfony/mailer": "^5.4",
         "symfony/console": "5.4.*",
         "symfony/routing": "5.4.*"
     },
