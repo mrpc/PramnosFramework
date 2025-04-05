@@ -112,7 +112,7 @@ class Email extends \Pramnos\Framework\Base
      * Enable debug logging
      * @var bool
      */
-    public $debug = true;
+    public $debug = false;
 
     /**
      * Store the last error message
