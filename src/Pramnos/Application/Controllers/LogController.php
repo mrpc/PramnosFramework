@@ -151,12 +151,7 @@ class LogController extends Controller
             $file = 'php_error.log';
         }
         
-        if ($this->application) {
-            $this->application->addBreadcrumb(
-                $file,
-                defined('sURL') ? sURL . 'Logs/display/' . $file : ''
-            );
-        }
+        
         
         // Add additional action buttons for the enhanced features
         $actionButtons = $this->renderActionButtons();
