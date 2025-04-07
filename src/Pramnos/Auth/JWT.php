@@ -14,10 +14,6 @@ namespace Pramnos\Auth;
  * @link     https://github.com/firebase/php-jwt
  */
 
-
-namespace Pramnos\Auth;
-
-
 class ExpiredException extends \Exception {}
 class JWT
 {
