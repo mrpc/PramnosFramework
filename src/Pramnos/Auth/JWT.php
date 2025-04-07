@@ -13,6 +13,12 @@ namespace Pramnos\Auth;
  * @license  http://opensource.org/licenses/BSD-3-Clause 3-clause BSD
  * @link     https://github.com/firebase/php-jwt
  */
+
+
+namespace Pramnos\Auth;
+
+
+class ExpiredException extends \Exception {}
 class JWT
 {
 
@@ -89,8 +95,8 @@ class JWT
             // Check if the nbf if it is defined. This is the time that the
             // token can actually be used. If it's not yet that time, abort.
             if (isset($payload->nbf) && $payload->nbf > (time() + self::$leeway)) {
-                throw new \BeforeValidException(
-                    'Cannot handle token prior to ' . date(DateTime::ISO8601, $payload->nbf)
+                throw new \UnexpectedValueException(
+                    'Cannot handle token prior to ' . date(\DateTime::ISO8601, $payload->nbf)
                 );
             }
 
@@ -98,14 +104,14 @@ class JWT
             // using tokens that have been created for later use (and haven't
             // correctly used the nbf claim).
             if (isset($payload->iat) && $payload->iat > (time() + self::$leeway)) {
-                throw new \BeforeValidException(
-                    'Cannot handle token prior to ' . date(DateTime::ISO8601, $payload->iat)
+                throw new \UnexpectedValueException(
+                    'Cannot handle token prior to ' . date(\DateTime::ISO8601, $payload->iat)
                 );
             }
 
             // Check if this token has expired.
             if (isset($payload->exp) && (time() - self::$leeway) >= $payload->exp) {
-                throw new \ExpiredException('Expired token');
+                throw new ExpiredException('Expired token');
             }
         }
 
@@ -155,7 +161,7 @@ class JWT
     public static function sign($msg, $key, $alg = 'HS256')
     {
         if (empty(self::$supported_algs[$alg])) {
-            throw new DomainException('Algorithm not supported');
+            throw new \DomainException('Algorithm not supported');
         }
         list($function, $algorithm) = self::$supported_algs[$alg];
         switch($function) {
@@ -165,7 +171,7 @@ class JWT
                 $signature = '';
                 $success = openssl_sign($msg, $signature, $key, $algorithm);
                 if (!$success) {
-                    throw new DomainException("OpenSSL unable to sign data");
+                    throw new \DomainException("OpenSSL unable to sign data");
                 } else {
                     return $signature;
                 }
@@ -185,7 +191,7 @@ class JWT
     private static function verify($msg, $signature, $key, $alg)
     {
         if (empty(self::$supported_algs[$alg])) {
-            throw new DomainException('Algorithm not supported');
+            throw new \DomainException('Algorithm not supported');
         }
 
         list($function, $algorithm) = self::$supported_algs[$alg];
@@ -193,7 +199,7 @@ class JWT
             case 'openssl':
                 $success = openssl_verify($msg, $signature, $key, $algorithm);
                 if (!$success) {
-                    throw new DomainException("OpenSSL unable to verify data: " . openssl_error_string());
+                    throw new \DomainException("OpenSSL unable to verify data: " . openssl_error_string());
                 } else {
                     return $signature;
                 }
@@ -244,7 +250,7 @@ class JWT
         if (function_exists('json_last_error') && $errno = json_last_error()) {
             self::handleJsonError($errno);
         } elseif ($obj === null && $input !== 'null') {
-            throw new DomainException('Null result with non-null input');
+            throw new \DomainException('Null result with non-null input');
         }
         return $obj;
     }
@@ -263,7 +269,7 @@ class JWT
         if (function_exists('json_last_error') && $errno = json_last_error()) {
             self::handleJsonError($errno);
         } elseif ($json === 'null' && $input !== null) {
-            throw new DomainException('Null result with non-null input');
+            throw new \DomainException('Null result with non-null input');
         }
         return $json;
     }
@@ -311,7 +317,7 @@ class JWT
             JSON_ERROR_CTRL_CHAR => 'Unexpected control character found',
             JSON_ERROR_SYNTAX => 'Syntax error, malformed JSON'
         );
-        throw new DomainException(
+        throw new \DomainException(
             isset($messages[$errno])
             ? $messages[$errno]
             : 'Unknown JSON error: ' . $errno
