@@ -201,6 +201,7 @@ class Model extends \Pramnos\Framework\Base
                         $itemdata[] = array(
                             'fieldName' => $result->fields['Field'],
                             'value'     => $this->$field,
+                            'rawtype'  => $result->fields['Type'],
                             'type'      => $this->fieldtype(
                                 $result->fields['Type']
                             )
@@ -732,6 +733,7 @@ class Model extends \Pramnos\Framework\Base
 
             case "int":
             case "tinyint":
+            case "integer":
             case "smallint":
             case "bigint":
                 return "integer";
