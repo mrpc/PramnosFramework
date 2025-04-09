@@ -535,7 +535,10 @@ class Database extends \Pramnos\Framework\Base
             $this->queriesCount++;
             $time = -microtime(true);
             if ($this->type == 'postgresql') {
-                $this->queryResult = pg_query($this->_dbConnection, $query);
+                $this->queryResult = @pg_query($this->_dbConnection, $query);
+                if ($this->queryResult === false) {
+                    \Pramnos\Logs\Logger::logError('Postgres error: ' . pg_last_error($this->_dbConnection) . ' for query: ' . $query, null);
+                }
             } else {
                 $this->queryResult = mysqli_query($this->_dbConnection, $query);
             }
