@@ -235,19 +235,20 @@ class Token extends \Pramnos\Framework\Base
 
         }
 
-
-        $sql = $database->prepareQuery(
-            "insert into `#PREFIX#tokenactions` "
-            . "(`tokenid`, `urlid`, `method`, `params`, `servertime`)"
-            . " values "
-            . "(%d, %d, %s, %s, %d)",
-            $this->tokenid,
-            $urlid,
-            \Pramnos\Http\Request::$requestMethod,
-            $inputData,
-            time()
-        );
-        @$database->query($sql);
+        if ($urlid > 0) {
+            $sql = $database->prepareQuery(
+                "insert into `#PREFIX#tokenactions` "
+                . "(`tokenid`, `urlid`, `method`, `params`, `servertime`)"
+                . " values "
+                . "(%d, %d, %s, %s, %d)",
+                $this->tokenid,
+                $urlid,
+                \Pramnos\Http\Request::$requestMethod,
+                $inputData,
+                time()
+            );
+            @$database->query($sql);
+        }
         $this->actions +=1;
         $this->lastused = time();
         $this->save();
