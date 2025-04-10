@@ -264,9 +264,9 @@ class Email extends \Pramnos\Framework\Base
             // Create a DSN string directly
             $auth = '';
             if (!empty($user)) {
-                $auth = $user;
+                $auth = urlencode($user);
                 if (!empty($pass)) {
-                    $auth .= ':' . $pass;
+                    $auth .= ':' . urlencode($pass);
                 }
                 $auth .= '@';
             }
