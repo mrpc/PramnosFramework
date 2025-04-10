@@ -252,8 +252,8 @@ class Email extends \Pramnos\Framework\Base
     protected function sendWithSymfonyMailer()
     {
         $host = \Pramnos\Application\Settings::getSetting("smtp_host");
-        $user = \Pramnos\Application\Settings::getSetting("smtp_user");
-        $pass = \Pramnos\Application\Settings::getSetting("smtp_pass");
+        $user = urlencode(\Pramnos\Application\Settings::getSetting("smtp_user"));
+        $pass = urlencode(\Pramnos\Application\Settings::getSetting("smtp_pass"));
         $port = \Pramnos\Application\Settings::getSetting('smtp_port');
         $useTls = \Pramnos\Application\Settings::getSetting('smtp_tls') == 'yes';
         
@@ -261,27 +261,49 @@ class Email extends \Pramnos\Framework\Base
         $this->debugLog("Sending mail via SMTP: {$host}:{$port}, User: {$user}, TLS: " . ($useTls ? 'yes' : 'no'));
         
         try {
-            // Create a DSN string directly
-            $auth = '';
-            if (!empty($user)) {
-                $auth = urlencode($user);
-                if (!empty($pass)) {
-                    $auth .= ':' . urlencode($pass);
-                }
-                $auth .= '@';
+            // Amazon SES and many other SMTP servers require explicit TLS settings
+            // Determine the correct scheme based on port and TLS settings
+            if ($port == 465) {
+                // Port 465 always uses implicit SSL
+                $scheme = 'smtps';
+                $this->debugLog("Using smtps (implicit SSL) for port 465");
+            } else if ($port == 587 && $useTls) {
+                // Port 587 typically uses STARTTLS (explicit TLS)
+                $scheme = 'smtp';
+                $this->debugLog("Using STARTTLS for port 587");
+            } else if ($useTls) {
+                // Other ports with TLS enabled
+                $scheme = 'smtps';
+                $this->debugLog("Using smtps (implicit SSL) based on TLS setting");
+            } else {
+                // Plain SMTP without encryption
+                $scheme = 'smtp';
+                $this->debugLog("Using plain SMTP without encryption");
             }
             
-            $scheme = $useTls ? 'smtps' : 'smtp';
-            $dsnString = sprintf(
-                '%s://%s%s:%s',
+            // Create DSN with proper configuration
+            $dsn = new \Symfony\Component\Mailer\Transport\Dsn(
                 $scheme,
-                $auth,
                 $host,
+                $user,
+                $pass,
                 $port
             );
             
-            // Create transport from DSN string
-            $transport = \Symfony\Component\Mailer\Transport::fromDsn($dsnString);
+            // For AWS SES and similar services on port 587, we need to set explicit STARTTLS mode
+            if ($port == 587 && $useTls) {
+                $factory = new \Symfony\Component\Mailer\Transport\Smtp\EsmtpTransportFactory();
+                $transport = $factory->create($dsn);
+                
+                // Force STARTTLS if available
+                if (method_exists($transport, 'setStartTLS')) {
+                    $transport->setStartTLS(true);
+                    $this->debugLog("Explicitly enabled STARTTLS on transport");
+                }
+            } else {
+                // For other configurations, use the standard transport factory
+                $transport = \Symfony\Component\Mailer\Transport::fromDsn($dsn->toString());
+            }
             
             // Create Mailer
             $mailer = new \Symfony\Component\Mailer\Mailer($transport);
