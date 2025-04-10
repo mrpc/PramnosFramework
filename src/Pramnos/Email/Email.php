@@ -252,10 +252,21 @@ class Email extends \Pramnos\Framework\Base
     protected function sendWithSymfonyMailer()
     {
         $host = \Pramnos\Application\Settings::getSetting("smtp_host");
-        $user = urlencode(\Pramnos\Application\Settings::getSetting("smtp_user"));
-        $pass = urlencode(\Pramnos\Application\Settings::getSetting("smtp_pass"));
+        $user = \Pramnos\Application\Settings::getSetting("smtp_user");
+        $pass = \Pramnos\Application\Settings::getSetting("smtp_pass");
         $port = \Pramnos\Application\Settings::getSetting('smtp_port');
         $useTls = \Pramnos\Application\Settings::getSetting('smtp_tls') == 'yes';
+
+
+         // Advanced debugging for credentials
+        $this->debugLog("Credentials check:");
+        $this->debugLog("- SMTP Host: {$host}");
+        $this->debugLog("- SMTP User: {$user}");
+        $this->debugLog("- SMTP Port: {$port}");
+        $this->debugLog("- Password length: " . strlen($pass) . " chars");
+        $this->debugLog("- First 4 chars of password: " . substr($pass, 0, 4));
+        
+        
         
         // Log SMTP settings (without password)
         $this->debugLog("Sending mail via SMTP: {$host}:{$port}, User: {$user}, TLS: " . ($useTls ? 'yes' : 'no'));
@@ -299,6 +310,12 @@ class Email extends \Pramnos\Framework\Base
                 if (method_exists($transport, 'setStartTLS')) {
                     $transport->setStartTLS(true);
                     $this->debugLog("Explicitly enabled STARTTLS on transport");
+                }
+                
+                // Configure authentication mechanisms explicitly for AWS SES
+                if (method_exists($transport, 'setAuthMode')) {
+                    $transport->setAuthMode('login');
+                    $this->debugLog("Explicitly set auth mode to 'login'");
                 }
             } else {
                 // For other configurations, use the standard transport factory
