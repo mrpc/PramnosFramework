@@ -1088,7 +1088,7 @@ class User extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $sql = $database->prepareQuery(
-            "UPDATE #PREFIX#usertokens SET `expires` = %d WHERE `tokenid` = %d AND `userid` = %d",
+            "UPDATE #PREFIX#usertokens SET `expires` = %d, `status` = 0 WHERE `tokenid` = %d AND `userid` = %d",
             time(), $tokenId, $this->userid
         );
         $database->query($sql);
