@@ -1023,6 +1023,11 @@ class Database extends \Pramnos\Framework\Base
     {
         if ($this->_dbConnection && $this->type != 'postgresql') {
             return mysqli_insert_id($this->_dbConnection);
+        } elseif ($this->type == 'postgresql') {
+            $result = $this->query('SELECT LASTVAL()');
+            if ($result) {
+                return $result->fields['lastval'];
+            }
         }
 
         return false;
