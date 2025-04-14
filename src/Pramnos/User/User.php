@@ -1016,6 +1016,113 @@ class User extends \Pramnos\Framework\Base
     }
 
     /**
+     * Return an active auth token for the user
+     * @return string|bool
+     */
+    public function getToken()
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $sql = $database->prepareQuery(
+            "SELECT * FROM #PREFIX#usertokens WHERE `tokentype` = 'auth' and `status` = 1 and `userid` = %d LIMIT 1", $this->userid
+        );
+        $result = $database->query($sql, true);
+        if ($result->numRows == 0) {
+            return false;
+        }
+        return $result->fields['token'];
+    }
+
+    /**
+     * Get all tokens for the user
+     * @return array Array of tokens with their details
+     */
+    public function getAllTokens()
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $sql = $database->prepareQuery(
+            "SELECT * FROM #PREFIX#usertokens WHERE `userid` = %d ORDER BY created DESC", 
+            $this->userid
+        );
+        $result = $database->query($sql);
+        
+        $tokens = [];
+        while ($result->fetch()) {
+            $tokens[] = [
+                'tokenid' => isset($result->fields['tokenid']) ? (int)$result->fields['tokenid'] : 0,
+                'token' => $result->fields['token'],
+                'tokentype' => $result->fields['tokentype'],
+                'created' => isset($result->fields['created']) ? (int)$result->fields['created'] : 0,
+                'status' => isset($result->fields['status']) ? (int)$result->fields['status'] : 0,
+                'lastused' => isset($result->fields['lastused']) ? (int)$result->fields['lastused'] : 0
+            ];
+        }
+        
+        return $tokens;
+    }
+    
+    /**
+     * Deactivate a user token
+     * @param int $tokenId Token ID to deactivate
+     * @return bool Success status
+     */
+    public function deactivateToken($tokenId)
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $sql = $database->prepareQuery(
+            "UPDATE #PREFIX#usertokens SET `status` = 0 WHERE `tokenid` = %d AND `userid` = %d",
+            $tokenId, $this->userid
+        );
+        $database->query($sql);
+        
+        return true;
+    }
+    
+    
+    
+
+    
+    /**
+     * Cleanup unused auth tokens older than a month
+     * Removes any auth tokens that haven't been used in over a month
+     * @param int $days Number of days to keep tokens (default: 30)
+     * @return bool Success status
+     */
+    public function cleanupAuthTokens(int $days = 30)
+    {
+        $oneMonthAgo = time() - ($days * 24 * 60 * 60); // 30 days in seconds
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        
+        // Delete the auth tokens only
+        $sql = $database->prepareQuery(
+            "DELETE FROM #PREFIX#usertokens WHERE `userid` = %d AND `lastused` < %d AND `tokentype` = 'auth'",
+            $this->userid, $oneMonthAgo
+        );
+        $database->query($sql);
+        
+        return true;
+    }
+    
+    /**
+     * Static method to clean up all unused auth tokens older than a specified number of days
+     * @param int $days Number of days to keep tokens (default: 30)
+     * @return bool Success status
+     */
+    public static function cleanupAllAuthTokens(int $days = 30)
+    {
+        $oneMonthAgo = time() - ($days * 24 * 60 * 60); // 30 days in seconds
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        
+        // Delete the auth tokens only
+        $sql = $database->prepareQuery(
+            "DELETE FROM #PREFIX#usertokens WHERE `lastused` < %d AND `tokentype` = 'auth'",
+            $oneMonthAgo
+        );
+        $database->query($sql);
+        
+        return true;
+    }
+
+    /**
      * Load a user based on user token (useful for the API)
      * @param string $token
      * @param string $tokentype
