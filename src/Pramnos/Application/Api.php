@@ -340,8 +340,7 @@ class Api extends Application
         $applicationObject = new \Pramnos\Application\Api\Apikey($apiKey);
         if ($applicationObject->appid != 0) {
             $this->apiKey = $applicationObject;
-            if ($applicationObject->status == 1 
-                && ($applicationObject->expires == 0 || $applicationObject->expires > time())) {
+            if ($applicationObject->status == 1) {
                 return true;
             }
         }
