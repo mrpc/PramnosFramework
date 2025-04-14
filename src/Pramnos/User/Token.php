@@ -380,6 +380,10 @@ class Token extends \Pramnos\Framework\Base
             }
             return $this;
         }
+        if ((int) $this->tokenid == 0) {
+            $this->addError('Token ID is not set');
+            return $this;
+        }
         if (!$database->updateTableData(
             $database->prefix . "usertokens", $itemdata,
             "`tokenid` = '" . (int) $this->tokenid . "'", false
