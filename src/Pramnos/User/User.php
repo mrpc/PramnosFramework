@@ -1154,8 +1154,8 @@ class User extends \Pramnos\Framework\Base
         $sql = $database->prepareQuery(
             "select * from `#PREFIX#usertokens`"
             . " where `token` = %s and `tokentype` = %s "
-            . " and `status` = 1 limit 1",
-            $token, $tokentype
+            . " and `status` = 1 and (`expires` = 0 or `expires` > %d) limit 1",
+            $token, $tokentype, time()
         );
         $result = $database->query($sql);
         if ($result->numRows > 0) {
