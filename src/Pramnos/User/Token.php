@@ -128,11 +128,15 @@ class Token extends \Pramnos\Framework\Base
         $this->_isnew = false;
         if (\Pramnos\General\Helpers::checkUnserialize($this->scope)) {
             $this->scope = unserialize($this->scope);
+        } elseif ($this->scope && json_decode($this->scope) !== null) {
+            $this->scope = json_decode($this->scope, true);
         } else {
             $this->scope = array();
         }
         if (\Pramnos\General\Helpers::checkUnserialize($this->deviceinfo)) {
             $this->deviceinfo = unserialize($this->deviceinfo);
+        } elseif ($this->deviceinfo && json_decode($this->deviceinfo) !== null) {
+            $this->deviceinfo = json_decode($this->deviceinfo, true);
         } else {
             $this->deviceinfo = array();
         }
@@ -340,11 +344,11 @@ class Token extends \Pramnos\Framework\Base
             ),
             array(
                 'fieldName' => 'deviceinfo',
-                'value' => serialize($this->deviceinfo), 'type' => 'string'
+                'value' => json_encode($this->deviceinfo), 'type' => 'string'
             ),
             array(
                 'fieldName' => 'scope',
-                'value' => serialize($this->scope), 'type' => 'string'
+                'value' => json_encode($this->scope), 'type' => 'string'
             )
         );
         if ($database->type != 'postgresql') {
@@ -408,56 +412,4 @@ class Token extends \Pramnos\Framework\Base
 
 
 
-
-    public function getTokenLogInJson()
-    {
-        set_time_limit(0);
-        $database = \Pramnos\Framework\Factory::getDatabase();
-        $fields = array(
-            'actionid',                               #0
-            'u.`userid`', #1
-            'concat(u.`firstname`, \' \', u.`lastname`, '
-            . '\' (\', u.`email`, \', \', u.`userid`, \')\')', #2
-            'url.`url`',                             #3
-            'a.`method`',                             #4
-            'servertime',   #5
-            'a.`params`',                              #6
-            't.`token`',                               #7
-            'app.`name`' #8
-        );
-        #var_dump($fields); die();
-
-        $actions = pramnos_html_datatable_datasource::getList(
-            $database->prefix . 'tokenactions', $fields, false,
-            '',
-            'inner join `#PREFIX#usertokens` t on a.`tokenid` = t.`tokenid` '
-            . 'inner join `#PREFIX#users` u on t.`userid` = u.`userid` '
-            . 'inner join `#PREFIX#urls` url on a.`urlid` = url.`urlid` '
-            . 'left join `#PREFIX#applications` app '
-            . ' on app.`appid` = t.`applicationid` '
-        );
-
-        $loopCounter = 0;
-        if (isset($actions['aaData']) && is_array($actions['aaData'])) {
-            foreach ($actions['aaData'] as $data) {
-                $actions['aaData'][$loopCounter] = $this->fixJsonData(
-                    $data
-                );
-                $loopCounter+=1;
-            }
-        }
-
-        return json_encode($actions);
-    }
-
-
-    /**
-     * Fixes the data for json
-     * @param array $data
-     */
-    private function fixJsonData($data)
-    {
-        $data[5] = date('d/m/Y H:i:s', $data[5]);
-        return $data;
-    }
 }
