@@ -82,6 +82,17 @@ class Token extends \Pramnos\Framework\Base
      */
     public $scope = array();
     /**
+     * IP address of the user
+     * @var string
+     */
+    public $ipaddress = '';
+    /**
+     * When the token expires in unix timestamp`
+     * @var int
+     */
+    public $expires = null;
+
+    /**
      * Token state for database
      * @var bool
      */
@@ -251,6 +262,23 @@ class Token extends \Pramnos\Framework\Base
         }
         $this->actions +=1;
         $this->lastused = time();
+        $remoteip = '';
+        if (isset($_SERVER['HTTP_USER_AGENT'])) {
+            $this->deviceinfo = \Pramnos\General\Helpers::getBrowser(
+                $_SERVER['HTTP_USER_AGENT']
+            );
+        }
+        $remoteip = '';
+        if (isset($_SERVER['REMOTE_ADDR'])) {
+            $remoteip = $_SERVER['REMOTE_ADDR'];
+        }
+        if (isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+            $remoteip = $_SERVER['HTTP_CF_CONNECTING_IP'];
+        }
+        if ($remoteip != '') {
+            $this->ipaddress = $remoteip;
+        }
+
         $this->save();
 
         return $this;
@@ -266,7 +294,9 @@ class Token extends \Pramnos\Framework\Base
         if ($this->_isnew == true) {
             $this->added = time();
         }
-
+        if ($this->expires == 0) {
+            $this->expires = null;
+        }
         $itemdata = array(
             array(
                 'fieldName' => 'userid',
@@ -322,6 +352,15 @@ class Token extends \Pramnos\Framework\Base
                 'fieldName' => 'parentToken',
                 'value' => $this->parentToken, 'type' => 'integer'
             );
+        } else {
+            $itemdata[] = array(
+                'fieldName' => 'ipaddress',
+                'value' => $this->ipaddress, 'type' => 'string'
+            );
+            $itemdata[] = array(
+                'fieldName' => 'expires',
+                'value' => $this->expires, 'type' => 'integer'
+            );
         }
         #$database->sql_cache_flush_cache('usertokens');
         if ($this->_isnew == true) {
@@ -330,10 +369,10 @@ class Token extends \Pramnos\Framework\Base
             if (!$database->insertDataToTable(
                 $database->prefix . "usertokens", $itemdata
             )) {
-                $error = $database->sql_error();
+                $error = $database->getError();
                 $this->addError($error['message']);
             } else {
-                $this->tokenid = $database->sql_nextid();
+                $this->tokenid = $database->getInsertId();
             }
             return $this;
         }
@@ -341,8 +380,27 @@ class Token extends \Pramnos\Framework\Base
             $database->prefix . "usertokens", $itemdata,
             "`tokenid` = '" . (int) $this->tokenid . "'", false
         )) {
-            $error = $database->sql_error();
-            $this->addError($error['message']);
+
+            if ($database->type == 'postgresql' 
+                && strpos($database->getError()['message'], 'column "ipaddress"') !== false) {
+
+                $database->query($database->prepareQuery('ALTER TABLE #PREFIX#usertokens ADD "expires" integer NULL, ADD "ipaddress" inet NULL;'));
+                if (!$database->updateTableData(
+                    $database->prefix . "usertokens", $itemdata,
+                    "`tokenid` = '" . (int) $this->tokenid . "'", false
+                )) {
+                    $error = $database->getError();
+                    $this->addError($error['message']);
+                }   
+            } else {
+                $error = $database->getError();
+                $this->addError($error['message']);
+            }
+
+
+
+
+            
         }
 
         return $this;
