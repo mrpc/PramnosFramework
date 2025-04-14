@@ -1053,7 +1053,9 @@ class User extends \Pramnos\Framework\Base
                 'tokentype' => $result->fields['tokentype'],
                 'created' => isset($result->fields['created']) ? (int)$result->fields['created'] : 0,
                 'status' => isset($result->fields['status']) ? (int)$result->fields['status'] : 0,
-                'lastused' => isset($result->fields['lastused']) ? (int)$result->fields['lastused'] : 0
+                'lastused' => isset($result->fields['lastused']) ? (int)$result->fields['lastused'] : 0,
+                'expires' => isset($result->fields['expires']) ? (int)$result->fields['expires'] : 0,
+                'ipaddress' => $result->fields['ipaddress']
             ];
         }
         
@@ -1071,6 +1073,23 @@ class User extends \Pramnos\Framework\Base
         $sql = $database->prepareQuery(
             "UPDATE #PREFIX#usertokens SET `status` = 0 WHERE `tokenid` = %d AND `userid` = %d",
             $tokenId, $this->userid
+        );
+        $database->query($sql);
+        
+        return true;
+    }
+
+    /**
+     * Expire a user token (set expiration to current time)
+     * @param int $tokenId Token ID to expire
+     * @return bool Success status
+     */
+    public function expireToken($tokenId)
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $sql = $database->prepareQuery(
+            "UPDATE #PREFIX#usertokens SET `expires` = %d WHERE `tokenid` = %d AND `userid` = %d",
+            time(), $tokenId, $this->userid
         );
         $database->query($sql);
         
