@@ -16,7 +16,7 @@
         "symfony/mailer": "^5.4",
         "symfony/console": "5.4.*",
         "symfony/routing": "5.4.*",
-        "web-token/jwt-framework": "^2.2"
+        "web-token/jwt-framework": "^2.2|^3.0"
     },
     "autoload": {
         "files": [
