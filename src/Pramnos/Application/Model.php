@@ -739,6 +739,7 @@ class Model extends \Pramnos\Framework\Base
                 return "integer";
             case "double":
             case "float":
+            case "real":
             case "double precision":
                 return "float";
             default:
