@@ -11,7 +11,7 @@ Pramnos Framework is a custom framework built on top of Symfony, enhanced with f
 ## Installation
 
 ```bash
-composer require pramnoshosting/pramnosframework
+composer require mrpc/pramnosframework
 ```
 
 ## Features
