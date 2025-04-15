@@ -1,9 +1,9 @@
 {
-    "name": "pramnoshosting/pramnosframework",
+    "name": "mrpc/pramnosframework",
     "description": "The Pramnos Framework.",
     "keywords": ["framework", "pramnos"],
     "license": "MIT",
-    "homepage": "http://www.pramhost.com",
+    "homepage": "https://github.com/mrpc/PramnosFramework",
     "authors": [
         {
             "name": "Yannis - Pastis Glaros",
