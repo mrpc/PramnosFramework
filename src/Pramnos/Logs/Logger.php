@@ -372,7 +372,7 @@ class Logger
             
             // Add a notice about rotation in the new log file
             self::notice(
-                "Log file rotated due to size exceeding " . self::formatBytes($maxSize),
+                "Log file rotated due to size exceeding " . \Pramnos\General\Helpers::formatBytes($maxSize),
                 ['previous_file' => $file . '.' . $ext . '.1']
             );
             
@@ -382,7 +382,7 @@ class Logger
             $fp = fopen($filepath, 'w');
             if ($fp) {
                 fwrite($fp, self::formatLogEntry(
-                    "Log file truncated due to size exceeding " . self::formatBytes($maxSize),
+                    "Log file truncated due to size exceeding " . \Pramnos\General\Helpers::formatBytes($maxSize),
                     ['level' => 'notice', 'previous_size' => $filesize]
                 ) . "\n");
                 fclose($fp);

@@ -37,7 +37,7 @@ class LogManager
                 $entry = [
                     'name' => $basename,
                     'size' => filesize($file),
-                    'size_formatted' => self::formatBytes(filesize($file)),
+                    'size_formatted' => \Pramnos\General\Helpers::formatBytes(filesize($file)),
                     'modified' => filemtime($file),
                     'modified_formatted' => date('Y-m-d H:i:s', filemtime($file))
                 ];
@@ -112,7 +112,7 @@ class LogManager
             'name' => $filename . '.' . $ext,
             'path' => $filepath,
             'size' => $size,
-            'size_formatted' => self::formatBytes($size),
+            'size_formatted' => \Pramnos\General\Helpers::formatBytes($size),
             'lines' => $lineCount,
             'json_percentage' => $sampleCount > 0 ? round(($jsonCount / $sampleCount) * 100) : 0,
             'modified' => filemtime($filepath),
@@ -322,24 +322,7 @@ class LogManager
         return $results;
     }
 
-    /**
-     * Format bytes to human-readable format
-     * @param int $bytes Number of bytes
-     * @param int $precision Decimal precision
-     * @return string Formatted string
-     */
-    public static function formatBytes(int $bytes, int $precision = 2): string
-    {
-        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        
-        $bytes = max($bytes, 0);
-        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
-        $pow = min($pow, count($units) - 1);
-        
-        $bytes /= (1 << (10 * $pow));
-        
-        return round($bytes, $precision) . ' ' . $units[$pow];
-    }
+
 
     /**
      * Process a log file with a callback function

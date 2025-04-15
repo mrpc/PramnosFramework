@@ -3,7 +3,6 @@ namespace Pramnos\Auth;
 
 use Jose\Component\Core\AlgorithmManager;
 use Jose\Component\Core\JWK;
-use Jose\Component\Core\Util\Base64Url;
 use Jose\Component\Signature\Algorithm\HS256;
 use Jose\Component\Signature\Algorithm\HS384;
 use Jose\Component\Signature\Algorithm\HS512;
@@ -89,14 +88,14 @@ class JWT
         list($headb64, $bodyb64, $cryptob64) = $tks;
         
         // Decode header
-        $headerJson = Base64Url::decode($headb64);
+        $headerJson = self::b64UrlDecode($headb64);
         $header = json_decode($headerJson);
         if ($header === null) {
             throw new \UnexpectedValueException('Invalid header encoding');
         }
         
         // Decode payload
-        $payloadJson = Base64Url::decode($bodyb64);
+        $payloadJson = self::b64UrlDecode($bodyb64);
         $payload = json_decode($payloadJson);
         if ($payload === null) {
             throw new \UnexpectedValueException('Invalid claims encoding');
@@ -300,7 +299,7 @@ class JWT
             // For HMAC algorithms, use simple key
             return new JWK([
                 'kty' => 'oct',
-                'k' => Base64Url::encode($key),
+                'k' => self::b64UrlEncode($key),
             ]);
         } else if (in_array($alg, ['ES256', 'ES384', 'ES512'])) {
             // For ECDSA algorithms
@@ -390,5 +389,31 @@ class JWT
             default:
                 throw new \DomainException('Algorithm not supported: ' . $alg);
         }
+    }
+    
+    
+    
+    /**
+     * Decodes a URL-safe base64 string to its binary representation.
+     *
+     * @param string $input URL-safe base64 string
+     * @return string Decoded binary data
+     */
+    private static function b64UrlDecode(string $input): string
+    {
+        // Convert to standard base64 and decode
+        return base64_decode(\Pramnos\General\Helpers::urlSafeToBase64($input));
+    }
+    
+    /**
+     * Encodes binary data to a URL-safe base64 string.
+     *
+     * @param string $input Binary data to encode
+     * @return string URL-safe base64 encoded string
+     */
+    private static function b64UrlEncode(string $input): string
+    {
+        // Encode to base64 and convert to URL-safe format
+        return \Pramnos\General\Helpers::base64ToUrlSafe(base64_encode($input));
     }
 }
