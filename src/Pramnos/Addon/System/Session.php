@@ -74,7 +74,7 @@ class Session extends \Pramnos\Addon\Addon
                 $remoteip = @file_get_contents(
                     'https://api.ipify.org', false, $context
                 );
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::log($ex->getMessage());
             }
 
@@ -125,10 +125,10 @@ class Session extends \Pramnos\Addon\Addon
             if ($request->cookieget('auth') !== null
                 && $request->cookieget('username') !== null
                 && isset($_SESSION['uid']) && (int) $_SESSION['uid'] > 1) {
-                $session->cookieset('logged', true);
-                $session->cookieset('uid', $_SESSION['uid']);
-                $session->cookieset('username', @$_SESSION['username']);
-                $session->cookieset('auth', @$_SESSION['auth']);
+                $request->cookieset('logged', true);
+                $request->cookieset('uid', $_SESSION['uid']);
+                $request->cookieset('username', @$_SESSION['username']);
+                $request->cookieset('auth', @$_SESSION['auth']);
             }
         } elseif ($request->cookieget('auth') !== null
             && $request->cookieget('username') !== null) {
@@ -139,86 +139,144 @@ class Session extends \Pramnos\Addon\Addon
             $uid = 'NULL';
             $session->reset();
             $uname = "Anonymous";
-            if (preg_match("/Yahoo/i", $agent)) {
-                $uname = "Slurp (Yahoo Bot)";
-            } elseif (preg_match("/googlebot/i", $agent)) {
-                $uname = "Googlebot";
-            } elseif (preg_match("/facebookexternalhit/i", $agent)) {
-                $uname = "Facebook Ext";
-            } elseif (preg_match("/Feedburner/i", $agent)) {
-                $uname = "Feedburner";
-            } elseif (preg_match("/Feedfetcher/i", $agent)) {
-                $uname = "Feedfetcher (Google)";
-            } elseif (preg_match("/msnbot/i", $agent)) {
-                $uname = "MSNBot";
-            } elseif (preg_match("/Baiduspider/i", $agent)) {
-                $uname = "Baiduspider";
-            } elseif (preg_match("/Freecrawl/i", $agent)) {
-                $uname = "Freecrawl";
-            } elseif (preg_match("/AdsBot-Google/i", $agent)) {
-                $uname = "Google AdsBot";
-            } elseif (preg_match("/ia_archiver/i", $agent)) {
-                $uname = "AlexaBot";
-            } elseif (preg_match("/Mediapartners/i", $agent)) {
-                $uname = "Mediapartners (Adsense)";
-            } elseif (preg_match("/SnapPreviewBot/i", $agent)) {
-                $uname = "Snap Preview Bot";
-            } elseif (preg_match("/Speedy Spider/i", $agent)) {
-                $uname = "Speedy Spider";
-            } elseif (preg_match("/pramnos/i", $agent)) {
-                $uname = "Pramnos.net Toolbar";
-            } elseif (preg_match("/IRLbot/i", $agent)) {
-                $uname = "IRLbot";
-            } elseif (preg_match("/BuzzSumo/i", $agent)) {
-                $uname = "BuzzSumo Bot";
-            } elseif (preg_match("/Gigabot/i", $agent)) {
-                $uname = "Gigabot";
-            } elseif (preg_match("/J12bot/i", $agent)) {
-                $uname = "MJ12bot";
-            } elseif (preg_match("/InternetSeer/i", $agent)) {
-                $uname = "InternetSeer";
-            } elseif (preg_match("/Twitterbot/i", $agent)) {
-                $uname = "Twitter Bot";
-            } elseif (preg_match("/Applebot/i", $agent)) {
-                $uname = "Apple Bot (Siri/Spotlight Suggestions)";//
-            } elseif ($remoteip == "62.1.217.20" and $agent == "") {
-                $uname = "Pramnos Hosting Balrog Server ";
-            } elseif ($remoteip == "109.169.27.9"
-                || $remoteip == '95.154.242.224') {
-                $uname = "Pramnos Hosting Balrog Server ";
-            } elseif ($remoteip == "141.101.93.72") {
-                $uname = "Nannuka Cron Bot";
-            } elseif (preg_match("/ahrefs/i", $agent)) {
-                $uname = "ahrefs.com Crawler";
-            } elseif (preg_match("/JoobleBot/i", $agent)) {
-                $uname = "Jooble Bot";
-            } elseif (preg_match("/Mechanize/i", $agent)) {
-                $uname = "Mechanize Bot";
-            } elseif (preg_match("/Qwantify/i", $agent)) {
-                $uname = "Qwantify Bot";
-            } elseif (preg_match("/bingbot/i", $agent)) {
-                $uname = "Bing Bot";
-            } elseif (preg_match("/affiliatecoach/i", $agent)) {
-                $uname = "affiliatecoach.net crawler";
-            } elseif (preg_match("/Curl/i", $agent)) {
-                $uname = "Unknown Curl Bot";
-            } elseif (preg_match("/HTTP_Request2/i", $agent)) {
-                $uname = "Unknown HTTP_Request2 (PHP) Bot";
-            } elseif (preg_match("/YandexBot/i", $agent)) {
-                $uname = "Yandex Bot";
-            } elseif (preg_match("/spbot/i", $agent)) {
-                $uname = "spbot (OpenLinkProfiler.org Bot)";
-            } elseif (preg_match("/Go 1.1 package http/i", $agent)) {
-                $uname = "Unknown Go bot";
+            
+            // Bot detection optimization - using array of patterns
+            $botPatterns = [
+                '/Yahoo/i' => 'Slurp (Yahoo Bot)',
+                '/googlebot/i' => 'Googlebot',
+                '/facebookexternalhit/i' => 'Facebook Ext',
+                '/Feedburner/i' => 'Feedburner',
+                '/Feedfetcher/i' => 'Feedfetcher (Google)',
+                '/msnbot/i' => 'MSNBot',
+                '/Baiduspider/i' => 'Baiduspider',
+                '/Freecrawl/i' => 'Freecrawl',
+                '/AdsBot-Google/i' => 'Google AdsBot',
+                '/ia_archiver/i' => 'AlexaBot',
+                '/Mediapartners/i' => 'Mediapartners (Adsense)',
+                '/SnapPreviewBot/i' => 'Snap Preview Bot',
+                '/Speedy Spider/i' => 'Speedy Spider',
+                '/IRLbot/i' => 'IRLbot',
+                '/BuzzSumo/i' => 'BuzzSumo Bot',
+                '/Gigabot/i' => 'Gigabot',
+                '/MJ12bot/i' => 'Majestic-12 Bot',
+                '/InternetSeer/i' => 'InternetSeer',
+                '/Twitterbot/i' => 'Twitter Bot',
+                '/Applebot/i' => 'Apple Bot (Siri/Spotlight Suggestions)',
+                '/AhrefsBot/i' => 'Ahrefs Bot',
+                '/JoobleBot/i' => 'Jooble Bot',
+                '/Mechanize/i' => 'Mechanize Bot',
+                '/Qwantify/i' => 'Qwantify Bot',
+                '/bingbot/i' => 'Bing Bot',
+                '/affiliatecoach/i' => 'affiliatecoach.net crawler',
+                '/Curl/i' => 'Unknown Curl Bot',
+                '/HTTP_Request2/i' => 'Unknown HTTP_Request2 (PHP) Bot',
+                '/YandexBot/i' => 'Yandex Bot',
+                '/spbot/i' => 'spbot (OpenLinkProfiler.org Bot)',
+                '/Go 1.1 package http/i' => 'Unknown Go bot',
+                '/DuckDuckGo-Favicons-Bot/i' => 'DuckDuckGo Favicons Bot',
+                '/SemrushBot/i' => 'SEMrush Bot',
+                '/PetalBot/i' => 'Petal Bot (Huawei)',
+                '/DotBot/i' => 'DotBot Crawler',
+                '/Discordbot/i' => 'Discord Bot',
+                '/LinkedInBot/i' => 'LinkedIn Bot',
+                '/WhatsApp.*Bot/i' => 'WhatsApp Bot',
+                '/CCBot(?!.*anthropic)/i' => 'Common Crawl Bot',
+                '/CCBot.*anthropic/i' => 'Anthropic Claude Crawler',
+                '/Sogou/i' => 'Sogou Spider',
+                '/seznambot/i' => 'Seznam Bot',
+                '/rogerbot/i' => 'Moz Crawler',
+                '/BLEXBot/i' => 'BLEXBot Crawler',
+                '/pingdom/i' => 'Pingdom Bot',
+                '/Googlebot-Image/i' => 'Google Image Bot',
+                '/Pinterestbot/i' => 'Pinterest Bot',
+                '/Mail\.RU_Bot/i' => 'Mail.ru Bot',
+                '/HeadlessChrome/i' => 'Headless Chrome',
+                '/PhantomJS/i' => 'PhantomJS Bot',
+                '/Lighthouse/i' => 'Google Lighthouse',
+                '/TelegramBot/i' => 'Telegram Bot',
+                '/GTmetrix/i' => 'GTmetrix Performance Bot',
+                '/Dataprovider\.com/i' => 'Dataprovider Bot',
+                '/Uptimebot/i' => 'Uptime Monitoring Bot',
+                '/StatusCake/i' => 'StatusCake Bot',
+                '/UptimeRobot/i' => 'UptimeRobot Bot',
+                '/CloudFront/i' => 'AWS/Amazon CloudFront Bot',
+                '/ApacheBench/i' => 'ApacheBench (ab) Bot',
+                '/colly/i' => 'Colly Crawler',
+                '/Screaming Frog SEO Spider/i' => 'Screaming Frog SEO Spider',
+                '/NetcraftSurveyAgent/i' => 'Netcraft Survey Agent',
+                '/ZoominfoBot/i' => 'ZoomInfo Bot',
+                '/bytespider/i' => 'ByteSpider (Bytedance/TikTok Bot)',
+                '/GPTBot/i' => 'OpenAI GPTBot',
+                '/ChatGPT-User/i' => 'ChatGPT User Agent',
+                '/Claude-Web/i' => 'Claude Web Bot',
+                '/Anthropic-AI/i' => 'Anthropic AI Bot',
+                '/Google-Extended/i' => 'Google Extended (Bard/Gemini)',
+                '/Cohere-AI/i' => 'Cohere AI Bot',
+                '/MetaAI/i' => 'Meta AI Crawler',
+                '/perplexitybot/i' => 'Perplexity AI Bot',
+                '/AppleNewsBot/i' => 'Apple News Bot',
+                '/Siri/i' => 'Siri Bot',
+                '/AppleMail/i' => 'Apple Mail Bot',
+                '/amazonbot/i' => 'Amazon Bot',
+                '/AmazonUIPageSpeed/i' => 'Amazon UI PageSpeed Bot',
+                '/Kindle/i' => 'Kindle Bot',
+                '/Alexa/i' => 'Amazon Alexa Bot',
+                '/Nutch/i' => 'Apache Nutch Crawler',
+                '/BingPreview/i' => 'Bing Preview Bot',
+                '/WBSearchBot/i' => 'Warebay Search Bot',
+                '/Archive\.org_bot/i' => 'Internet Archive Bot',
+                '/XiaoMi/i' => 'Xiaomi Bot',
+                '/Barkrowler/i' => 'Barkrowler Search Bot',
+                '/360Spider/i' => '360Spider (Qihoo)',
+                '/newspaperbot/i' => 'Newspaper Bot',
+                '/wp-fastest-cache-preload/i' => 'WordPress Cache Preload Bot',
+                '/W3C_Validator/i' => 'W3C Validator',
+                '/SEOkicks/i' => 'SEOkicks Bot',
+                '/Neevabot/i' => 'Neeva Search Bot',
+                '/YisouSpider/i' => 'Yisou Spider',
+                '/Storebot/i' => 'Store Bot',
+                '/PagesInventory/i' => 'Pages Inventory Bot',
+                '/SiteAuditBot/i' => 'Site Audit Bot',
+                '/VelenPublicWebCrawler/i' => 'Velen Web Crawler',
+                '/BraveBot/i' => 'Brave Search Bot',
+                '/meta-externalagent/i' => 'Meta External Agent (Facebook Link Preview)',
+                '/facebot/i' => 'Facebook Bot',
+                '/WhatsApp Link Preview/i' => 'WhatsApp Link Preview',
+                '/Slackbot-LinkExpanding/i' => 'Slack Link Expander',
+                '/TelegramBot\/[0-9]/i' => 'Telegram Link Preview',
+                '/Twitterbot/i' => 'Twitter Bot',
+                '/Snapchat/i' => 'Snapchat Bot',
+                '/vkShare/i' => 'VKontakte Share Bot',
+                '/redditbot/i' => 'Reddit Bot',
+                '/Skype\/[0-9]+/i' => 'Skype Link Preview',
+                '/Teams\/[0-9]+/i' => 'Microsoft Teams Bot',
+                '/XING-contenttabreceiver/i' => 'Xing Bot',
+                '/OutlookUCBot/i' => 'Outlook Bot',
+                '/Line\/[0-9]+/i' => 'LINE App Bot',
+                '/viber/i' => 'Viber Bot',
+                '/Mastodon\/[0-9]+/i' => 'Mastodon Link Preview',
+                '/TeamsBot/i' => 'Microsoft Teams Bot',
+                '/MS-TeamsBot/i' => 'Microsoft Teams Bot',
+                '/Microsoft-Teams/i' => 'Microsoft Teams Link Preview'
+            ];
+
+            // Check user agent against bot patterns
+            foreach ($botPatterns as $pattern => $botName) {
+                if (preg_match($pattern, $agent)) {
+                    $uname = $botName;
+                    break;
+                }
             }
-
-
-
-
+        
         }
 
-
-
+        // Truncate long strings
+        if (strlen($agent) > 255) {
+            $agent = substr($agent, 0, 255);
+        }
+        if (strlen($uname) > 128) {
+            $uname = substr($uname, 0, 128);
+        }
 
 
 
