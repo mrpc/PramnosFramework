@@ -3,6 +3,7 @@ namespace Pramnos\Auth;
 
 use Jose\Component\Core\AlgorithmManager;
 use Jose\Component\Core\JWK;
+use Jose\Component\Core\Util\Base64Url;
 use Jose\Component\Signature\Algorithm\HS256;
 use Jose\Component\Signature\Algorithm\HS384;
 use Jose\Component\Signature\Algorithm\HS512;
@@ -67,8 +68,8 @@ class JWT
      * Decodes a JWT string into a PHP object.
      *
      * @param string      $jwt           The JWT
-     * @param string|Array|null $key     The secret key, or map of keys
-     * @param Array       $allowed_algs  List of supported verification algorithms
+     * @param string|array|null $key     The secret key, or map of keys
+     * @param array       $allowed_algs  List of supported verification algorithms
      *
      * @return object      The JWT's payload as a PHP object
      *
@@ -79,7 +80,7 @@ class JWT
      * @throws \UnexpectedValueException     Provided JWT is trying to be used before it's been created as defined by 'iat'
      * @throws ExpiredException             Provided JWT has since expired, as defined by the 'exp' claim
      */
-    public static function decode($jwt, $key = null, $allowed_algs = array())
+    public static function decode(string $jwt, $key = null, array $allowed_algs = [])
     {
         $tks = explode('.', $jwt);
         if (count($tks) != 3) {
@@ -88,14 +89,14 @@ class JWT
         list($headb64, $bodyb64, $cryptob64) = $tks;
         
         // Decode header
-        $headerJson = \Jose\Component\Core\Util\Base64Url::decode($headb64);
+        $headerJson = Base64Url::decode($headb64);
         $header = json_decode($headerJson);
         if ($header === null) {
             throw new \UnexpectedValueException('Invalid header encoding');
         }
         
         // Decode payload
-        $payloadJson = \Jose\Component\Core\Util\Base64Url::decode($bodyb64);
+        $payloadJson = Base64Url::decode($bodyb64);
         $payload = json_decode($payloadJson);
         if ($payload === null) {
             throw new \UnexpectedValueException('Invalid claims encoding');
@@ -163,10 +164,11 @@ class JWT
      * @param string       $key     The secret key
      * @param string       $alg     The signing algorithm. Supported
      *                              algorithms are 'HS256', 'HS384' and 'HS512'
+     * @param string|null  $keyId   Key identifier
      *
      * @return string      A signed JWT
      */
-    public static function encode($payload, $key, $alg = 'HS256', $keyId = null)
+    public static function encode($payload, string $key, string $alg = 'HS256', ?string $keyId = null)
     {
         // Using web-token/jwt-framework for encoding
         return self::encodeWithWebToken($payload, $key, $alg, $keyId);
@@ -182,7 +184,7 @@ class JWT
      * @return string          An encrypted message
      * @throws \DomainException Unsupported algorithm was specified
      */
-    public static function sign($msg, $key, $alg = 'HS256')
+    public static function sign(string $msg, $key, string $alg = 'HS256')
     {
         if (empty(self::$supported_algs[$alg])) {
             throw new \DomainException('Algorithm not supported');
@@ -200,6 +202,8 @@ class JWT
                     return $signature;
                 }
         }
+        
+        return '';
     }
 
     /**
@@ -210,7 +214,7 @@ class JWT
      * @param string $alg Algorithm
      * @return bool
      */
-    private static function verifyWithWebToken($jwt, $key, $alg)
+    private static function verifyWithWebToken(string $jwt, $key, string $alg)
     {
         try {
             // Create algorithm manager with the requested algorithm
@@ -246,7 +250,7 @@ class JWT
      * @param string|null $keyId Key ID if needed
      * @return string
      */
-    private static function encodeWithWebToken($payload, $key, $alg = 'HS256', $keyId = null)
+    private static function encodeWithWebToken($payload, $key, string $alg = 'HS256', ?string $keyId = null)
     {
         // Create algorithm manager
         $algorithmManager = new AlgorithmManager(self::getAlgorithmsByName($alg));
@@ -288,7 +292,7 @@ class JWT
      * @param string $alg
      * @return JWK
      */
-    private static function createJWKFromKey($key, $alg)
+    private static function createJWKFromKey($key, string $alg)
     {
         $isSymmetric = in_array($alg, ['HS256', 'HS384', 'HS512']);
         
@@ -296,11 +300,11 @@ class JWT
             // For HMAC algorithms, use simple key
             return new JWK([
                 'kty' => 'oct',
-                'k' => \Jose\Component\Core\Util\Base64Url::encode($key),
+                'k' => Base64Url::encode($key),
             ]);
         } else if (in_array($alg, ['ES256', 'ES384', 'ES512'])) {
             // For ECDSA algorithms
-            if (is_resource($key) || ($key instanceof \OpenSSLAsymmetricKey)) {
+            if (is_resource($key) || (PHP_VERSION_ID >= 80000 && $key instanceof \OpenSSLAsymmetricKey)) {
                 // Convert OpenSSL resource to PEM
                 $details = openssl_pkey_get_details($key);
                 if ($details === false) {
@@ -312,7 +316,7 @@ class JWT
             return JWK::createFromPem($key);
         } else if ($alg === 'EdDSA') {
             // For EdDSA algorithms
-            if (is_resource($key) || ($key instanceof \OpenSSLAsymmetricKey)) {
+            if (is_resource($key) || (PHP_VERSION_ID >= 80000 && $key instanceof \OpenSSLAsymmetricKey)) {
                 // Convert OpenSSL resource to PEM
                 $details = openssl_pkey_get_details($key);
                 if ($details === false) {
@@ -324,7 +328,7 @@ class JWT
             return JWK::createFromPem($key);
         } else {
             // For RSA and RSAPSS algorithms
-            if (is_resource($key) || ($key instanceof \OpenSSLAsymmetricKey)) {
+            if (is_resource($key) || (PHP_VERSION_ID >= 80000 && $key instanceof \OpenSSLAsymmetricKey)) {
                 // Convert OpenSSL resource to PEM
                 $details = openssl_pkey_get_details($key);
                 if ($details === false) {
@@ -344,7 +348,7 @@ class JWT
      * @return array Array with algorithm instance
      * @throws \DomainException If algorithm not supported
      */
-    private static function getAlgorithmsByName($alg)
+    private static function getAlgorithmsByName(string $alg)
     {
         switch ($alg) {
             // HMAC algorithms
