@@ -388,7 +388,7 @@ class LogController extends Controller
                                         <span class="kt-widget24__stats">
                                             <?php 
                                             $totalSize = array_sum(array_column($stats, 'size'));
-                                            echo LogManager::formatBytes($totalSize);
+                                            echo \Pramnos\General\Helpers::formatBytes($totalSize);
                                             ?>
                                         </span>
                                     </div>
