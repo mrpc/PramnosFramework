@@ -876,62 +876,26 @@ class Helpers
         return $diff;
     }
 
-    /**s
-     * The following 2 functions are taken from Piwik
-     * @link http://piwik.org
-     * @license http://www.gnu.org/licenses/lgpl-3.0.html LGPL v3 or later
-     */
 
     /**
-     * Converts an IP address in string/presentation format to binary/network address format.
-     *
-     * @param string $ipString IP address, either IPv4 or IPv6, e.g. `'127.0.0.1'`.
-     * @return string Binary-safe string, e.g. `"\x7F\x00\x00\x01"`.
+     * Format bytes to human-readable format
+     * @param int $bytes Number of bytes
+     * @param int $precision Decimal precision
+     * @return string Formatted string
      */
-    public static function stringToBinaryIP($ipString)
+    public static function formatBytes(int $bytes, int $precision = 2): string
     {
-        // use @inet_pton() because it throws an exception and E_WARNING on invalid input
-        $ip = @inet_pton($ipString);
-        return $ip === false ? "\x00\x00\x00\x00" : $ip;
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        
+        $bytes = max($bytes, 0);
+        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
+        $pow = min($pow, count($units) - 1);
+        
+        $bytes /= (1 << (10 * $pow));
+        
+        return round($bytes, $precision) . ' ' . $units[$pow];
     }
 
-    /**
-     * Convert binary/network address format to string/presentation format.
-     *
-     * @param string $ip IP address in binary/network address format
-     * @return string IP address in string format, e.g. `'127.0.0.1'`.
-     */
-    public static function binaryToStringIP($ip)
-    {
-        // use @inet_ntop() because it throws an exception and E_WARNING on invalid input
-        $ipStr = @inet_ntop($ip);
-        return $ipStr === false ? '0.0.0.0' : $ipStr;
-    }
-
-    /**
-     * Encode array to utf8 recursively
-     * @param array $dat
-     * @return array
-     */
-    public static function deepUtfEncode($dat)
-    {
-        if (is_string($dat)) {
-            return utf8_encode($dat);
-        } elseif (is_array($dat)) {
-            $ret = [];
-            foreach ($dat as $i => $d)
-                $ret[$i] = self::deepUtfEncode($d);
-
-            return $ret;
-        } elseif (is_object($dat)) {
-            foreach ($dat as $i => $d)
-                $dat->$i = self::deepUtfEncode($d);
-
-            return $dat;
-        } else {
-            return $dat;
-        }
-    }
 
     /**
      * Make a string uppercase and remove the greek accents
@@ -945,6 +909,39 @@ class Helpers
             array("Α", "Ε", "Η", "Ι", "Ι", "Ι", "Ο", "Υ", "Υ", "Υ", "Ω"),
             mb_strtoupper($string, "UTF-8")
         );
+    }
+
+
+    /**
+     * Converts a standard base64 string to a URL-safe version
+     * by replacing "+" with "-" and "/" with "_" and removing padding.
+     *
+     * @param string $input A base64 encoded string
+     * @return string URL-safe base64 string
+     */
+    public static function base64ToUrlSafe(string $input): string
+    {
+        // Replace non-URL safe characters and remove padding
+        return rtrim(strtr($input, '+/', '-_'), '=');
+    }
+
+    /**
+     * Converts a URL-safe base64 string back to standard format
+     * by replacing "-" with "+" and "_" with "/" and adding padding.
+     *
+     * @param string $input URL-safe base64 string
+     * @return string Standard base64 string
+     */
+    public static function urlSafeToBase64(string $input): string
+    {
+        // Calculate and add required padding
+        $padding = strlen($input) % 4;
+        if ($padding > 0) {
+            $input .= str_repeat('=', 4 - $padding);
+        }
+        
+        // Replace URL-safe characters with standard base64 characters
+        return strtr($input, '-_', '+/');
     }
 
 }
