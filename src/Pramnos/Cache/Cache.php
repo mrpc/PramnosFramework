@@ -440,7 +440,7 @@ class Cache extends \Pramnos\Framework\Base
             $category = $this->_sanitizeName($this->category);
         }
         if ($this->prefix != '') {
-            $this->_id = $prefix
+            $this->_cachename = $prefix
                 . $this->getCategory($category) . '_'
                 . $id
                 . '.'
@@ -448,14 +448,14 @@ class Cache extends \Pramnos\Framework\Base
                 . '.'
                 . $this->_sanitizeName($this->extension); // Updated to use 'extension'
         } else {
-            $this->_id = $prefix
+            $this->_cachename = $prefix
                 . $this->getCategory($category) . '_'
                 . $id
                 . '.'
                 . $this->_sanitizeName($this->extension); // Updated to use 'extension'
         }
 
-        return $this->_id;
+        return $this->_cachename;
     }
 
     /**
