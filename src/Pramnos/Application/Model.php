@@ -3,7 +3,7 @@ namespace Pramnos\Application;
 /**
  * @package      PramnosFramework
  * @subpackage   Application
- * @copyright    2005 - 2014 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright    2005 - 2025 Yannis - Pastis Glaros
  * @author       Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  */
 class Model extends \Pramnos\Framework\Base
@@ -38,6 +38,18 @@ class Model extends \Pramnos\Framework\Base
      * @var type
      */
     private   $_jsonactions = array();
+    /**
+     * Initial data loaded from database
+     * @var array
+     */
+    protected $_initialData = array();
+
+    /**
+     * Array of last changes
+     * @var array
+     */
+    protected $_lastChanges = array();
+
     /**
      * Database prefix used for this model
      * @var string
@@ -104,10 +116,11 @@ class Model extends \Pramnos\Framework\Base
      * @param string    $key
      * @param boolean   $autoGetValues If true, get all values from $_REQUEST
      * @param boolean   $debug Show debug information (and die)
+     * @param boolean   $force Force the save operation
      * @return          Model
      */
     protected function _save($table = NULL, $key = NULL,
-        $autoGetValues = false, $debug = false)
+        $autoGetValues = false, $debug = false, $force = false)
     {
         $database = \Pramnos\Database\Database::getInstance();
         if ($autoGetValues == true) {
@@ -124,6 +137,15 @@ class Model extends \Pramnos\Framework\Base
 
         if ($debug==true) {
             var_dump($_POST, $this);
+        }
+
+        // For existing records, check if there are any changes before saving
+        if (!$this->_isnew && !empty($this->_initialData) && $force == false) {
+            $changes = $this->getChanges();
+            if (empty($changes)) {
+                // No changes detected, no need to save
+                return $this;
+            }
         }
 
         if ($this->_dbtable != NULL) {
@@ -238,8 +260,29 @@ class Model extends \Pramnos\Framework\Base
                 );
             }
             $database->cacheflush($this->_cacheKey);
+            
+            // After successful save, update the initial data to match current state
+            $this->_initialData = array();
+            foreach ($itemdata as $item) {
+                $field = $item['fieldName'];
+                $this->_initialData[$field] = $this->$field;
+            }
+            // Also make sure primary key is in initial data
+            if (isset($this->$primarykey)) {
+                $this->_initialData[$primarykey] = $this->$primarykey;
+            }
         }
-
+        if (!isset($changes)) {
+            $changes = array();
+            foreach ($itemdata as $item) {
+                $field = $item['fieldName'];
+                $changes[$field] = array(
+                    'old' => null,
+                    'new' => $this->$field
+                );
+            }
+        }
+        $this->_lastChanges = $changes;
         return $this;
     }
 
@@ -357,8 +400,13 @@ class Model extends \Pramnos\Framework\Base
             }
             $result = $database->query($sql, $useCache, 600, $this->_cacheKey);
             if ($result->numRows != 0) {
+                // Reset initial data array
+                $this->_initialData = array();
+                
                 foreach (array_keys($result->fields) as $field) {
                     $this->$field = $result->fields[$field];
+                    // Store initial value
+                    $this->_initialData[$field] = $result->fields[$field];
                 }
                 $this->_isnew = false;
             }
@@ -785,6 +833,55 @@ class Model extends \Pramnos\Framework\Base
             }
         }
         return $data;
+    }
+
+    /**
+     * Get the last changes made to the model
+     * @return array Array of changed fields with their old and new values
+     * @example array('field1' => array('old' => 'old_value', 'new' => 'new_value'))
+     * @note This function returns the last changes made to the model after saving it to the database.
+     *       It provides an array of fields that have changed, along with their old and new values.
+     *       This is useful for tracking changes made to the model during the last save operation.
+     *       It can be used to determine what fields were modified and their corresponding values before and after the save.
+     *       Note that this function only returns the changes from the last save operation.
+     *       If you want to get changes made since the model was loaded from the database,
+     *       you should use the getChanges() function instead.
+     */
+    public function  getLastSaveChanges()
+    {
+        return $this->_lastChanges;
+    }
+
+    /**
+     * Get changes between current state and initial data
+     * @return array Array of changed fields with their old and new values
+     * @example array('field1' => array('old' => 'old_value', 'new' => 'new_value'))
+     * @note This function compares the current state of the model with the initial data loaded from the database.
+     *       It returns an array of fields that have changed, along with their old and new values.
+     *       If the model is new or has no initial data, it returns an empty array.
+     *       This is useful for tracking changes made to the model after it has been loaded from the database.
+     *       It can be used to determine what fields have been modified before saving the model back to the database.
+     */
+    public function getChanges()
+    {
+        $changes = array();
+        
+        // If this is a new model with no initial data, return empty array
+        if ($this->_isnew || empty($this->_initialData)) {
+            return $changes;
+        }
+        
+        foreach ($this->_initialData as $field => $initialValue) {
+            // Check if the field exists and has changed
+            if (property_exists($this, $field) && $this->$field !== $initialValue) {
+                $changes[$field] = array(
+                    'old' => $initialValue,
+                    'new' => $this->$field
+                );
+            }
+        }
+        
+        return $changes;
     }
 
 }
