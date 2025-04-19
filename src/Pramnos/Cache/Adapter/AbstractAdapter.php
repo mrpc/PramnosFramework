@@ -94,10 +94,10 @@ abstract class AbstractAdapter implements AdapterInterface
      * Generate a cache key
      * @param string $id The cache ID
      * @param string $category The category
-     * @param string $type The cache type
+     * @param string $extension The cache extension (suffix)
      * @return string
      */
-    public function generateKey($id, $category = '', $type = 'cache')
+    public function generateKey($id, $category = '', $extension = 'cache')
     {
         $prefix = '';
         if ($this->prefix != '') {
@@ -109,12 +109,25 @@ abstract class AbstractAdapter implements AdapterInterface
             $categoryHash = $this->categoryHash($category) . '_';
         }
         
-        $suffix = '.' . $this->sanitizeName($type);
-        if (defined('CACHE_PREFIX')) {
-            $suffix = '.' . CACHE_PREFIX . $suffix;
-        }
+        $suffix = '.' . $this->sanitizeName($extension);
         
         return $prefix . $categoryHash . $id . $suffix;
+    }
+    
+    /**
+     * Load data from the cache by key
+     * @param string $key The cache key
+     * @param int|null $timeout The cache timeout in seconds (optional)
+     * @return mixed|null The cached data or null if not found
+     */
+    public function load($key, $timeout = null)
+    {
+        if (!$this->caching) {
+            return null;
+        }
+
+        // This method should be implemented by concrete adapters
+        throw new \BadMethodCallException("The 'load' method is not implemented in the adapter.");
     }
     
     /**
@@ -129,7 +142,6 @@ abstract class AbstractAdapter implements AdapterInterface
         
         $testKey = $this->generateKey('pramnos_test_connection');
         $testValue = 'Cache test value - ' . time();
-        
         // Save test data
         $saveResult = $this->save($testKey, $testValue);
         if (!$saveResult) {
