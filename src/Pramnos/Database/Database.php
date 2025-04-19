@@ -1186,15 +1186,20 @@ class Database extends \Pramnos\Framework\Base
 
     /**
      *
-     * @param string $sql
-     * @param boolean $cache
-     * @param int $cachetime
-     * @param string $category
-     * @param boolean $dieOnFatalError
+     * Run a query on the database
+     * @note This function is used to run a query on the database
+     *       and return the result as an object of the Result class
+     * @param string $sql SQL query
+     * @param bool $cache If set to true, the result will be cached
+     * @param int $cachetime Cache time in seconds
+     * @param string $category Cache category
+     * @param bool $dieOnFatalError If set to true, the application will die
+     *                              on fatal error
+     * @param bool $skipDataFix If set to true, the data fix will be skipped
      * @return \Pramnos\Database\Result
      */
     public function query($sql, $cache = false,
-        $cachetime = 60, $category = "", $dieOnFatalError = false)
+        $cachetime = 60, $category = "", $dieOnFatalError = false, $skipDataFix = false)
     {
         $cacheData = false;
         $cache = false;
@@ -1311,11 +1316,50 @@ class Database extends \Pramnos\Framework\Base
                 }
                 if ($obj->getNumRows() > 0) {
                     $obj->eof = false;
+                    
+                    // Get column types to properly convert numeric values
+                    $columnTypes = [];
+                    $numFields = pg_num_fields($dbResource);
+                    for ($i = 0; $i < $numFields; $i++) {
+                        $fieldName = pg_field_name($dbResource, $i);
+                        $fieldType = pg_field_type($dbResource, $i);
+                        $columnTypes[$fieldName] = $fieldType;
+                    }
+                    
                     $resultArray = pg_fetch_array($dbResource, null, PGSQL_ASSOC);
-                    pg_fetch_array($dbResource, 0);
+                    pg_result_seek($dbResource, 0);
+                    
                     if ($resultArray) {
-                        foreach($resultArray as $key=>$value) {
-                            $obj->fields[$key] = $value;
+                        foreach($resultArray as $key => $value) {
+                            // Convert numeric types to their PHP equivalents
+                            if (isset($columnTypes[$key]) && !$skipDataFix) {
+                                switch ($columnTypes[$key]) {
+                                    case 'int4':
+                                    case 'int8':
+                                    case 'int2':
+                                    case 'integer':
+                                    case 'bigint':
+                                    case 'smallint':
+                                        $obj->fields[$key] = $value === null ? null : (int)$value;
+                                        break;
+                                    case 'float4':
+                                    case 'float8':
+                                    case 'numeric':
+                                    case 'decimal':
+                                    case 'real':
+                                    case 'double precision':
+                                        $obj->fields[$key] = $value === null ? null : (float)$value;
+                                        break;
+                                    case 'bool':
+                                    case 'boolean':
+                                        $obj->fields[$key] = $value === 't' ? true : ($value === 'f' ? false : $value);
+                                        break;
+                                    default:
+                                        $obj->fields[$key] = $value;
+                                }
+                            } else {
+                                $obj->fields[$key] = $value;
+                            }
                         }
                         $obj->eof = false;
                     } else {
@@ -1347,11 +1391,35 @@ class Database extends \Pramnos\Framework\Base
 
                 if ($obj->getNumRows() > 0) {
                     $obj->eof = false;
+                    
                     $resultArray = mysqli_fetch_array($dbResource, MYSQLI_ASSOC);
                     mysqli_data_seek($dbResource, 0);
+                    
                     if ($resultArray) {
-                        foreach($resultArray as $key=>$value) {
-                            $obj->fields[$key] = $value;
+                        // Get field information without creating an intermediate array
+                        $fields = mysqli_fetch_fields($dbResource);
+                        $fieldTypes = [];
+                        foreach ($fields as $field) {
+                            $fieldTypes[$field->name] = $field->type;
+                        }
+                        
+                        foreach($resultArray as $key => $value) {
+                            // Convert numeric types to their PHP equivalents
+                            if ($value !== null && isset($fieldTypes[$key]) && !$skipDataFix) {
+                                $type = $fieldTypes[$key];
+                                if ($type == MYSQLI_TYPE_TINY || $type == MYSQLI_TYPE_SHORT || 
+                                    $type == MYSQLI_TYPE_LONG || $type == MYSQLI_TYPE_INT24 || 
+                                    $type == MYSQLI_TYPE_LONGLONG) {
+                                    $obj->fields[$key] = (int)$value;
+                                } else if ($type == MYSQLI_TYPE_FLOAT || $type == MYSQLI_TYPE_DOUBLE || 
+                                          $type == MYSQLI_TYPE_DECIMAL || $type == MYSQLI_TYPE_NEWDECIMAL) {
+                                    $obj->fields[$key] = (float)$value;
+                                } else {
+                                    $obj->fields[$key] = $value;
+                                }
+                            } else {
+                                $obj->fields[$key] = $value;
+                            }
                         }
                         $obj->eof = false;
                     } else {
