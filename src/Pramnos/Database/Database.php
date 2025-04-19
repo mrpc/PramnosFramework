@@ -1205,11 +1205,11 @@ class Database extends \Pramnos\Framework\Base
         $cache = false;
         // eof: collect products_id queries
         if ($cache) {
-            #$cache = pramnos_factory::getCache($category, 'sql');
-            #$cache->prefix = $this->prefix;
-            #$cache_name = $this->cache_generate_cache_name($sql);
-            #$cache->timeout=$cachetime;
-            #$cacheData = $cache->load($cache_name);
+            $cache = \Pramnos\Cache\Cache::getInstance($category, 'sql');
+            $cache->prefix = $this->prefix;
+            $cache_name = md5($sql);
+            $cache->timeout=$cachetime;
+            $cacheData = $cache->load($cache_name);
         }
         $this->currentQuery = $sql;
 
@@ -1217,7 +1217,6 @@ class Database extends \Pramnos\Framework\Base
             $obj = new Result($this);
             $obj->cursor = 0;
             $obj->isCached = true;
-            $obj->query = $sql;
             $resultArray = unserialize($cacheData);
             $obj->result = $resultArray;
             if ($resultArray === null) {
@@ -1239,49 +1238,17 @@ class Database extends \Pramnos\Framework\Base
         } elseif ($cache) {
             $this->cacheExpire($sql, $category);
             $timeStart = explode(' ', microtime());
-            $obj = new Result($this);
-            $obj->sql_query = $sql;
-            if (!$this->connected) {
-                $this->setError('0', "Not Connected to database");
-            }
-            $dbResource = @$this->runQuery($sql, $this->_dbConnection);
-            if (!$dbResource) {
-                $this->setError(
-                    @mysqli_errno(), @mysqli_error(), $dieOnFatalError
-                );
-            }
-
-            $obj->mysqlResult = $dbResource;
-            $obj->numRows = $obj->getNumRows();
-
-            $obj->isCached = true;
-            if ($obj->getNumRows() > 0) {
-                $iiCount = 0;
-                while (!$obj->eof) {
-                    $resultArray = mysqli_fetch_array(
-                        $dbResource, MYSQLI_ASSOC
-                    );
-                    mysqli_data_seek($dbResource, 0);
-                    if ($resultArray) {
-                        foreach ($resultArray as $key => $value) {
-                            $obj->result[$iiCount][$key] = $value;
-                        }
-                    } else {
-                        $obj->eof = true;
-                    }
-                    $iiCount++;
-                }
-                foreach ($obj->result[$obj->cursor] as $key => $value) {
-                    if (!preg_match('/^[0-9]/', $key)) {
-                        $obj->fields[$key] = $value;
-                    }
-                }
-                $obj->eof = false;
+            
+            if ($this->type == 'postgresql') {
+                $obj = $this->runPgQuery($sql, $dieOnFatalError, $skipDataFix);
             } else {
-                $obj->eof = true;
+                $obj = $this->runMysqlQuery($sql, $dieOnFatalError, $skipDataFix);
             }
-            #var_dump($obj);
+            $obj->isCached = true;
+            $obj->result = $obj->fetchAll();
+
             $this->cacheStore($sql, $obj->result, $category, $cachetime);
+            
             $timeEnd = explode(' ', microtime());
             $queryTime = $timeEnd[1] + $timeEnd[0]
                 - $timeStart[1] - $timeStart[0];
@@ -1289,157 +1256,183 @@ class Database extends \Pramnos\Framework\Base
 
             return($obj);
         } else {
-            $timeStart = explode(' ', microtime());
-            $obj = new Result($this);
-            if (!$this->connected) {
-                $this->setError('0', "Database is not connected");
-            }
-
             if ($this->type == 'postgresql') {
-                $dbResource = $this->runQuery($sql, $this->_dbConnection);
-                if (!$dbResource) {
-                    $this->setError(
-                        0,
-                        pg_last_error($this->_dbConnection),
-                        $dieOnFatalError
-                    );
-                    \Pramnos\Logs\Logger::logError('Postgres error:' . pg_last_error($this->_dbConnection) . ' for query: ' . $sql, null, 'postgreserrors');
-                    
-                
-                }
-
-                $obj->mysqlResult = $dbResource;
-                if (is_object($dbResource)) {
-                    $obj->numRows = pg_num_rows($dbResource);
-                } elseif (is_resource($dbResource)) {
-                    $obj->numRows = $obj->getNumRows();
-                }
-                if ($obj->getNumRows() > 0) {
-                    $obj->eof = false;
-                    
-                    // Get column types to properly convert numeric values
-                    $columnTypes = [];
-                    $numFields = pg_num_fields($dbResource);
-                    for ($i = 0; $i < $numFields; $i++) {
-                        $fieldName = pg_field_name($dbResource, $i);
-                        $fieldType = pg_field_type($dbResource, $i);
-                        $columnTypes[$fieldName] = $fieldType;
-                    }
-                    
-                    $resultArray = pg_fetch_array($dbResource, null, PGSQL_ASSOC);
-                    pg_result_seek($dbResource, 0);
-                    
-                    if ($resultArray) {
-                        foreach($resultArray as $key => $value) {
-                            // Convert numeric types to their PHP equivalents
-                            if (isset($columnTypes[$key]) && !$skipDataFix) {
-                                switch ($columnTypes[$key]) {
-                                    case 'int4':
-                                    case 'int8':
-                                    case 'int2':
-                                    case 'integer':
-                                    case 'bigint':
-                                    case 'smallint':
-                                        $obj->fields[$key] = $value === null ? null : (int)$value;
-                                        break;
-                                    case 'float4':
-                                    case 'float8':
-                                    case 'numeric':
-                                    case 'decimal':
-                                    case 'real':
-                                    case 'double precision':
-                                        $obj->fields[$key] = $value === null ? null : (float)$value;
-                                        break;
-                                    case 'bool':
-                                    case 'boolean':
-                                        $obj->fields[$key] = $value === 't' ? true : ($value === 'f' ? false : $value);
-                                        break;
-                                    default:
-                                        $obj->fields[$key] = $value;
-                                }
-                            } else {
-                                $obj->fields[$key] = $value;
-                            }
-                        }
-                        $obj->eof = false;
-                    } else {
-                        $obj->eof = true;
-                    }
-                } else {
-                    $obj->eof = true;
-                }
-
-                $timeEnd = explode(' ', microtime());
-                $queryTime = $timeEnd[1] + $timeEnd[0]
-                    - $timeStart[1] - $timeStart[0];
-                $this->totalQueryTime += $queryTime;
-
-                return($obj);
+                return $this->runPgQuery($sql, $dieOnFatalError, $skipDataFix);
             } else {
-                $dbResource = @$this->runQuery($sql, $this->_dbConnection);
-                if (!$dbResource) {
-                    $this->setError(
-                        @mysqli_errno($this->_dbConnection),
-                        @mysqli_error($this->_dbConnection),
-                        $dieOnFatalError
-                    );
-                }
-
-                $obj->mysqlResult = $dbResource;
-
-                $obj->numRows = $obj->getNumRows();
-
-                if ($obj->getNumRows() > 0) {
-                    $obj->eof = false;
-                    
-                    $resultArray = mysqli_fetch_array($dbResource, MYSQLI_ASSOC);
-                    mysqli_data_seek($dbResource, 0);
-                    
-                    if ($resultArray) {
-                        // Get field information without creating an intermediate array
-                        $fields = mysqli_fetch_fields($dbResource);
-                        $fieldTypes = [];
-                        foreach ($fields as $field) {
-                            $fieldTypes[$field->name] = $field->type;
-                        }
-                        
-                        foreach($resultArray as $key => $value) {
-                            // Convert numeric types to their PHP equivalents
-                            if ($value !== null && isset($fieldTypes[$key]) && !$skipDataFix) {
-                                $type = $fieldTypes[$key];
-                                if ($type == MYSQLI_TYPE_TINY || $type == MYSQLI_TYPE_SHORT || 
-                                    $type == MYSQLI_TYPE_LONG || $type == MYSQLI_TYPE_INT24 || 
-                                    $type == MYSQLI_TYPE_LONGLONG) {
-                                    $obj->fields[$key] = (int)$value;
-                                } else if ($type == MYSQLI_TYPE_FLOAT || $type == MYSQLI_TYPE_DOUBLE || 
-                                          $type == MYSQLI_TYPE_DECIMAL || $type == MYSQLI_TYPE_NEWDECIMAL) {
-                                    $obj->fields[$key] = (float)$value;
-                                } else {
-                                    $obj->fields[$key] = $value;
-                                }
-                            } else {
-                                $obj->fields[$key] = $value;
-                            }
-                        }
-                        $obj->eof = false;
-                    } else {
-                        $obj->eof = true;
-                    }
-                } else {
-                    $obj->eof = true;
-                }
-
-                $timeEnd = explode(' ', microtime());
-                $queryTime = $timeEnd[1] + $timeEnd[0]
-                    - $timeStart[1] - $timeStart[0];
-                $this->totalQueryTime += $queryTime;
-
-                return($obj);
+                return $this->runMysqlQuery($sql, $dieOnFatalError, $skipDataFix);
             }
-
-
-            
         }
+    }
+
+    /**
+     * Run a query on postgres sql
+     * @param string $sql SQL query
+     * @param bool $dieOnFatalError If set to true, the application will die
+     *                              on fatal error
+     * @param bool $skipDataFix If set to true, the data fix will be skipped
+     * @return \Pramnos\Database\Result
+     */
+    protected function runPgQuery($sql, $dieOnFatalError = false, $skipDataFix = false)
+    {
+        $timeStart = explode(' ', microtime());
+        $obj = new Result($this);
+        if (!$this->connected) {
+            $this->setError('0', "Database is not connected");
+        }
+        $dbResource = $this->runQuery($sql, $this->_dbConnection);
+        if (!$dbResource) {
+            $this->setError(
+                0,
+                pg_last_error($this->_dbConnection),
+                $dieOnFatalError
+            );
+            \Pramnos\Logs\Logger::logError('Postgres error:' . pg_last_error($this->_dbConnection) . ' for query: ' . $sql, null, 'postgreserrors');
+            
+        
+        }
+
+        $obj->mysqlResult = $dbResource;
+        if (is_object($dbResource)) {
+            $obj->numRows = pg_num_rows($dbResource);
+        } elseif (is_resource($dbResource)) {
+            $obj->numRows = $obj->getNumRows();
+        }
+        if ($obj->getNumRows() > 0) {
+            $obj->eof = false;
+            
+            // Get column types to properly convert numeric values
+            $columnTypes = [];
+            $numFields = pg_num_fields($dbResource);
+            for ($i = 0; $i < $numFields; $i++) {
+                $fieldName = pg_field_name($dbResource, $i);
+                $fieldType = pg_field_type($dbResource, $i);
+                $columnTypes[$fieldName] = $fieldType;
+            }
+            
+            $resultArray = pg_fetch_array($dbResource, null, PGSQL_ASSOC);
+            pg_result_seek($dbResource, 0);
+            
+            if ($resultArray) {
+                foreach($resultArray as $key => $value) {
+                    // Convert numeric types to their PHP equivalents
+                    if (isset($columnTypes[$key]) && !$skipDataFix) {
+                        switch ($columnTypes[$key]) {
+                            case 'int4':
+                            case 'int8':
+                            case 'int2':
+                            case 'integer':
+                            case 'bigint':
+                            case 'smallint':
+                                $obj->fields[$key] = $value === null ? null : (int)$value;
+                                break;
+                            case 'float4':
+                            case 'float8':
+                            case 'numeric':
+                            case 'decimal':
+                            case 'real':
+                            case 'double precision':
+                                $obj->fields[$key] = $value === null ? null : (float)$value;
+                                break;
+                            case 'bool':
+                            case 'boolean':
+                                $obj->fields[$key] = $value === 't' ? true : ($value === 'f' ? false : $value);
+                                break;
+                            default:
+                                $obj->fields[$key] = $value;
+                        }
+                    } else {
+                        $obj->fields[$key] = $value;
+                    }
+                }
+                $obj->eof = false;
+            } else {
+                $obj->eof = true;
+            }
+        } else {
+            $obj->eof = true;
+        }
+
+        $timeEnd = explode(' ', microtime());
+        $queryTime = $timeEnd[1] + $timeEnd[0]
+            - $timeStart[1] - $timeStart[0];
+        $this->totalQueryTime += $queryTime;
+
+        return($obj);
+    }
+    
+    /**
+     * Run a query on mysql
+     * @param string $sql SQL query
+     * @param bool $dieOnFatalError If set to true, the application will die
+     * @param bool $skipDataFix If set to true, the data fix will be skipped
+     * @return \Pramnos\Database\Result
+     */
+    protected function runMysqlQuery($sql, $dieOnFatalError = false, $skipDataFix = false)
+    {
+        $timeStart = explode(' ', microtime());
+        $obj = new Result($this);
+        if (!$this->connected) {
+            $this->setError('0', "Database is not connected");
+        }
+        $dbResource = @$this->runQuery($sql, $this->_dbConnection);
+        if (!$dbResource) {
+            $this->setError(
+                @mysqli_errno($this->_dbConnection),
+                @mysqli_error($this->_dbConnection),
+                $dieOnFatalError
+            );
+        }
+
+        $obj->mysqlResult = $dbResource;
+
+        $obj->numRows = $obj->getNumRows();
+
+        if ($obj->getNumRows() > 0) {
+            $obj->eof = false;
+            
+            $resultArray = mysqli_fetch_array($dbResource, MYSQLI_ASSOC);
+            mysqli_data_seek($dbResource, 0);
+            
+            if ($resultArray) {
+                // Get field information without creating an intermediate array
+                $fields = mysqli_fetch_fields($dbResource);
+                $fieldTypes = [];
+                foreach ($fields as $field) {
+                    $fieldTypes[$field->name] = $field->type;
+                }
+                
+                foreach($resultArray as $key => $value) {
+                    // Convert numeric types to their PHP equivalents
+                    if ($value !== null && isset($fieldTypes[$key]) && !$skipDataFix) {
+                        $type = $fieldTypes[$key];
+                        if ($type == MYSQLI_TYPE_TINY || $type == MYSQLI_TYPE_SHORT || 
+                            $type == MYSQLI_TYPE_LONG || $type == MYSQLI_TYPE_INT24 || 
+                            $type == MYSQLI_TYPE_LONGLONG) {
+                            $obj->fields[$key] = (int)$value;
+                        } else if ($type == MYSQLI_TYPE_FLOAT || $type == MYSQLI_TYPE_DOUBLE || 
+                                    $type == MYSQLI_TYPE_DECIMAL || $type == MYSQLI_TYPE_NEWDECIMAL) {
+                            $obj->fields[$key] = (float)$value;
+                        } else {
+                            $obj->fields[$key] = $value;
+                        }
+                    } else {
+                        $obj->fields[$key] = $value;
+                    }
+                }
+                $obj->eof = false;
+            } else {
+                $obj->eof = true;
+            }
+        } else {
+            $obj->eof = true;
+        }
+
+        $timeEnd = explode(' ', microtime());
+        $queryTime = $timeEnd[1] + $timeEnd[0]
+            - $timeStart[1] - $timeStart[0];
+        $this->totalQueryTime += $queryTime;
+
+        return($obj);
     }
 
 
