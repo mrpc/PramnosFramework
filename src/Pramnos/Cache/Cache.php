@@ -79,6 +79,33 @@ class Cache extends \Pramnos\Framework\Base
      */
     public $memcachePort=11211;
 
+    /**
+     * Redis Server
+     * @var string
+     */
+    public $redisServer='localhost';
+    
+    /**
+     * Redis Port
+     * @var int
+     */
+    public $redisPort=6379;
+    
+    /**
+     * Redis Database Index
+     * @var int
+     */
+    public $redisDatabase=0;
+    
+    /**
+     * Redis Password
+     * @var string|null
+     */
+    public $redisPassword=null;
+
+    protected static $_redis=null;
+    protected static $_redisConnected=false;
+
     protected $_id='';
     protected $_cachename='';
 
@@ -90,7 +117,7 @@ class Cache extends \Pramnos\Framework\Base
 
 
     /**
-     * Cache method: file, memcache, memcached
+     * Cache method: file, memcache, memcached, redis
      * If something is wrong, it defaults to file
      * @var string
      */
@@ -103,10 +130,16 @@ class Cache extends \Pramnos\Framework\Base
     protected static $_memcachedConnected=false;
 
     /**
+     * The adapter instance
+     * @var AdapterInterface
+     */
+    protected $adapter = null;
+
+    /**
      * Class constructor. Check the paths of cache and create if needed.
      * @param string $category
      * @param string $type
-     * @param string $method file, memcache, memcached
+     * @param string $method file, memcache, memcached, redis
      */
     public function __construct($category=NULL, $type=NULL, $method='memcached')
     {
@@ -126,24 +159,92 @@ class Cache extends \Pramnos\Framework\Base
                 $this->prefix = $prefix;
             }
         }
-        if ($method=='memcached' && class_exists('\Memcached')) {
-            if (!$this->_memcachedConnect()) {
-                $method = 'memcache';
-                $this->method='memcache';
-            }
-        }
-        if ($method=='memcache' && class_exists('\Memcache')) {
-            if (!$this->_memcacheConnect()) {
-                $method = 'file';
-                $this->method='file';
-            }
-        }
-        if ($method == 'file') {
-            if ($this->cacheDir != '' && !file_exists($this->cacheDir)) {
-                $this->_createCacheDir();
-            }
-        }
+        
+        // Create the appropriate adapter
+        $this->initializeAdapter($method);
+        
         parent::__construct();
+    }
+
+    /**
+     * Initialize the cache adapter based on the selected method
+     * @param string $method cache method
+     */
+    protected function initializeAdapter($method) 
+    {
+        switch ($method) {
+            case 'redis':
+                if (class_exists('\Redis')) {
+                    $this->adapter = new Adapter\RedisAdapter(
+                        $this->redisServer,
+                        $this->redisPort,
+                        $this->redisDatabase,
+                        $this->redisPassword,
+                        $this->prefix
+                    );
+                    
+                    if (!$this->adapter->connect()) {
+                        $this->initializeAdapter('memcached');
+                    }
+                } else {
+                    $this->initializeAdapter('memcached');
+                }
+                break;
+                
+            case 'memcached':
+                if (class_exists('\Memcached')) {
+                    $this->adapter = new Adapter\MemcachedAdapter(
+                        $this->memcacheServer,
+                        $this->memcachePort,
+                        \Pramnos\Application\Settings::getSetting('database')->database,
+                        $this->prefix
+                    );
+                    
+                    if (!$this->adapter->connect()) {
+                        $this->initializeAdapter('memcache');
+                    }
+                } else {
+                    $this->initializeAdapter('memcache');
+                }
+                break;
+                
+            case 'memcache':
+                if (class_exists('\Memcache')) {
+                    $this->adapter = new Adapter\MemcacheAdapter(
+                        $this->memcacheServer,
+                        $this->memcachePort,
+                        $this->prefix
+                    );
+                    
+                    if (!$this->adapter->connect()) {
+                        $this->initializeAdapter('file');
+                    }
+                } else {
+                    $this->initializeAdapter('file');
+                }
+                break;
+                
+            case 'file':
+            default:
+                $this->adapter = new Adapter\FileAdapter(
+                    $this->cacheDir,
+                    $this->prefix
+                );
+                
+                if (!$this->adapter->connect()) {
+                    $this->caching = false;
+                }
+                break;
+        }
+    }
+
+    /**
+     * Get the current adapter
+     * @return AdapterInterface
+     */
+    public function getAdapter()
+    {
+        return $this->adapter;
     }
 
     /**
@@ -158,6 +259,45 @@ class Cache extends \Pramnos\Framework\Base
         }
         if ($this->method == 'file') {
             return $category;
+        }
+        if ($this->method == 'redis') {
+            if (self::$_redisConnected != true) {
+                $this->_redisConnect();
+            }
+            if (self::$_redisConnected != true) {
+                return $category;
+            }
+            if (self::$_redis === null) {
+                return $category;
+            }
+            try {
+                $entry = self::$_redis->get($this->prefix . $this->tagsKey);
+                if ($entry) {
+                    $entry = json_decode($entry, true);
+                }
+            } catch (\Exception $ex) {
+                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                return $category;
+            }
+            if (!is_array($entry)) {
+                $entry = array();
+            }
+            if (isset($entry[$category])) {
+                return $entry[$category];
+            }
+            $entry[$category] = uniqid(substr(md5($category), 0, 3));
+
+            try {
+                self::$_redis->set(
+                    $this->prefix . $this->tagsKey, 
+                    json_encode($entry)
+                );
+            } catch (\Exception $ex) {
+                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                return $category;
+            }
+
+            return $entry[$category];
         }
         if ($this->method == 'memcached') {
             if (self::$_memcachedConnected != true) {
@@ -251,7 +391,39 @@ class Cache extends \Pramnos\Framework\Base
             return null;
         }
 
-        if ($this->method == 'memcached') {
+        if ($this->method == 'redis') {
+            if (self::$_redisConnected != true) {
+                $this->_redisConnect();
+            }
+            if (self::$_redisConnected != true) {
+                return null;
+            }
+            if (self::$_redis === null) {
+                return null;
+            }
+            try {
+                $entry = self::$_redis->get($this->prefix . $this->tagsKey);
+                if ($entry) {
+                    $entry = json_decode($entry, true);
+                }
+            } catch (\Exception $ex) {
+                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                return null;
+            }
+            if (!is_array($entry)) {
+                $entry = array();
+            }
+            $entry[$category] = uniqid(substr(md5($category), 0, 3));
+
+            try {
+                self::$_redis->set(
+                    $this->prefix . $this->tagsKey, 
+                    json_encode($entry)
+                );
+            } catch (\Exception $ex) {
+                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            }
+        } elseif ($this->method == 'memcached') {
             if (self::$_memcachedConnected != true) {
                 $this->_memcachedConnect();
             }
@@ -394,6 +566,44 @@ class Cache extends \Pramnos\Framework\Base
     }
 
     /**
+     * Connect to Redis server
+     * @return boolean
+     */
+    protected function _redisConnect()
+    {
+        if (!class_exists('Redis')) {
+            return false;
+        }
+        
+        if (self::$_redis === null) {
+            self::$_redis = new \Redis();
+            try {
+                self::$_redisConnected = self::$_redis->connect(
+                    $this->redisServer, 
+                    $this->redisPort
+                );
+                
+                if ($this->redisPassword) {
+                    if (!self::$_redis->auth($this->redisPassword)) {
+                        self::$_redisConnected = false;
+                    }
+                }
+                
+                if (self::$_redisConnected && $this->redisDatabase > 0) {
+                    self::$_redis->select($this->redisDatabase);
+                }
+            }
+            catch (\Exception $exc) {
+                \pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
+                $this->method = 'memcached';
+                self::$_redisConnected = false;
+            }
+        }
+        
+        return self::$_redisConnected;
+    }
+
+    /**
      * Create cache dir if it doesn't exist
      */
     private function _createCacheDir()
@@ -415,7 +625,7 @@ class Cache extends \Pramnos\Framework\Base
      * Factory Method
      * @param string $category
      * @param string $type
-     * @param string $method file, memcache, memcached
+     * @param string $method file, memcache, memcached, redis
      * @return \pramnos_cache
      */
     public static function getInstance($category=NULL, $type=NULL,
@@ -516,6 +726,44 @@ class Cache extends \Pramnos\Framework\Base
     }
 
     /**
+     * Load data from Redis
+     * @return boolean|string
+     */
+    protected function _loadFromRedis()
+    {
+        if (self::$_redisConnected != true) {
+            return false;
+        }
+        if (self::$_redis === null) {
+            return false;
+        }
+        try {
+            $entry = self::$_redis->get($this->_cachename);
+            if (!$entry) {
+                return false;
+            }
+            $entry = unserialize($entry);
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+        if (!is_object($entry)) {
+            return false;
+        }
+        // Check for timeout
+        if (isset($entry->time) && $entry->time > 0 && $this->timeout > 0) {
+            if (($entry->time + $this->timeout) < time()) {
+                $this->data = $entry->data;
+                self::$_redis->del($this->_cachename);
+                return false;
+            }
+        }
+        $this->data = $entry->data;
+        $this->timeout = $entry->timeout;
+        return $this->data;
+    }
+
+    /**
      * Load and return data from cache
      * @param string $id Cache name
      * @param string $category Cache category to override object property
@@ -535,7 +783,9 @@ class Cache extends \Pramnos\Framework\Base
         }
         $this->_id=$id;
         $this->_cachename = $this->_generateCacheName($id);
-        if ($this->method == 'memcache') {
+        if ($this->method == 'redis') {
+            return $this->_loadFromRedis();
+        } elseif ($this->method == 'memcache') {
             return $this->_loadFromMemcache();
         } elseif ($this->method == 'memcached') {
             return $this->_loadFromMemcached();
@@ -555,7 +805,9 @@ class Cache extends \Pramnos\Framework\Base
             return false;
         }
 
-        if ($this->method=='memcache') {
+        if ($this->method == 'redis') {
+            $this->_redisRemove($id);
+        } elseif ($this->method=='memcache') {
             $this->_memcacheRemove($id);
         } elseif ($this->method=='memcached') {
             $this->_memcachedRemove($id);
@@ -568,8 +820,6 @@ class Cache extends \Pramnos\Framework\Base
             return true;
         }
     }
-
-
 
     /**
      * Remove a cache object from memcache
@@ -612,6 +862,30 @@ class Cache extends \Pramnos\Framework\Base
         }
         try {
             self::$_memcached->delete($this->_cachename);
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Remove a cache object from Redis
+     * @param string $id
+     * @return boolean
+     */
+    protected function _redisRemove($id)
+    {
+        $this->_id = $id;
+        $this->_cachename = $this->_generateCacheName($id);
+        if (self::$_redisConnected != true) {
+            return false;
+        }
+        if (self::$_redis === null) {
+            return false;
+        }
+        try {
+            self::$_redis->del($this->_cachename);
         } catch (\Exception $ex) {
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
@@ -700,7 +974,10 @@ class Cache extends \Pramnos\Framework\Base
     public function clear($category='')
     {
 
-        if ($this->method == 'memcache') {
+        if ($this->method == 'redis') {
+            $this->_fileClear($category);
+            return $this->_redisClear($category);
+        } elseif ($this->method == 'memcache') {
             $this->_fileClear($category);
             return $this->_memcacheClear();
         } elseif ($this->method == 'memcached') {
@@ -746,6 +1023,34 @@ class Cache extends \Pramnos\Framework\Base
         if ($category == '') {
             try {
                 self::$_memcached->flush();
+            } catch (\Exception $ex) {
+                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                return false;
+            }
+            return true;
+        } else {
+            $this->resetCategory($category);
+        }
+
+        return true;
+    }
+
+    /**
+     * Clear Redis cache
+     * @param string $category
+     * @return boolean
+     */
+    protected function _redisClear($category='')
+    {
+        if (self::$_redisConnected != true) {
+            return false;
+        }
+        if (self::$_redis === null) {
+            return false;
+        }
+        if ($category == '') {
+            try {
+                self::$_redis->flushDb();
             } catch (\Exception $ex) {
                 \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 return false;
@@ -957,6 +1262,53 @@ class Cache extends \Pramnos\Framework\Base
     }
 
     /**
+     * Save data to Redis
+     * @param string $id
+     * @return boolean
+     */
+    protected function _redisSave($id=NULL)
+    {
+        if (self::$_redisConnected != true) {
+            return false;
+        }
+        if (self::$_redis === null) {
+            return false;
+        }
+
+        if ($id === NULL){
+            $id = $this->_id;
+        } else {
+            $this->id = $id;
+            $this->_cachename = $this->_generateCacheName($id);
+        }
+        if ($this->_cachename == ''){
+            $this->_cachename = $this->_generateCacheName($id);
+        }
+        if ($id == ''){
+            return FALSE;
+        }
+
+        try {
+            if ($this->timeout > 0) {
+                self::$_redis->setex(
+                    $this->_cachename, 
+                    $this->timeout, 
+                    serialize($this)
+                );
+            } else {
+                self::$_redis->set(
+                    $this->_cachename, 
+                    serialize($this)
+                );
+            }
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * Save data to the cache
      * @param string $data Data to be written
      * @param string $id Optional, override the object property
@@ -972,10 +1324,11 @@ class Cache extends \Pramnos\Framework\Base
         }
         $this->time = time();
 
-        if ($this->method == 'memcached') {
+        if ($this->method == 'redis') {
+            return $this->_redisSave($id);
+        } elseif ($this->method == 'memcached') {
             return $this->_memcachedSave($id);
-        }
-        if ($this->method == 'memcache') {
+        } elseif ($this->method == 'memcache') {
             return $this->_memcacheSave($id);
         }
         return $this->_fileSave($id);
@@ -1165,5 +1518,45 @@ class Cache extends \Pramnos\Framework\Base
         $this->caching=false;
 
         return false;
+    }
+
+    /**
+     * Returns the Redis object
+     * @return \Redis
+     */
+    public function getRedis()
+    {
+        return self::$_redis;
+    }
+    
+    /**
+     * Tests the current cache connection by writing and reading data
+     * @param string $testKey Key to use for testing
+     * @return boolean True on success, false on failure
+     */
+    public function testConnection($testKey = 'pramnos_test_connection')
+    {
+        if (!$this->caching || $this->adapter === null) {
+            return false;
+        }
+        
+        return $this->adapter->test();
+    }
+    
+    /**
+     * Returns statistics about the cache
+     * @return array Array containing statistics about the cache
+     */
+    public function getStats()
+    {
+        if (!$this->caching || $this->adapter === null) {
+            return [
+                'method' => $this->method,
+                'categories' => 0,
+                'items' => 0
+            ];
+        }
+        
+        return $this->adapter->getStats();
     }
 }
