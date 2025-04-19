@@ -55,7 +55,7 @@ class Result
      * Current cursor position in case of cached results
      * @var int
      */
-    protected $cursor = 0;
+    public $cursor = 0;
 
      /**
      * End of file flag
@@ -94,7 +94,7 @@ class Result
     public function fetchAll()
     {
         if ($this->database->type == 'postgresql' 
-            && is_resource($this->mysqlResult)) {
+            && is_object($this->mysqlResult)) {
             return pg_fetch_all($this->mysqlResult, PGSQL_ASSOC);
         } elseif (is_object($this->mysqlResult)) {
             return mysqli_fetch_all($this->mysqlResult, MYSQLI_ASSOC);
