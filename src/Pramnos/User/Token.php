@@ -1,5 +1,7 @@
 <?php
+
 namespace Pramnos\User;
+
 /**
  * User tokens
  * @package     CaptainBook
@@ -106,8 +108,10 @@ class Token extends \Pramnos\Framework\Base
     public function __construct($tokenidOrDataArray = null)
     {
         if ($tokenidOrDataArray !== null) {
-            if (is_numeric($tokenidOrDataArray)
-                || is_string(($tokenidOrDataArray))) {
+            if (
+                is_numeric($tokenidOrDataArray)
+                || is_string(($tokenidOrDataArray))
+            ) {
                 $this->load($tokenidOrDataArray);
             } elseif (is_array($tokenidOrDataArray)) {
                 $this->fillProperties($tokenidOrDataArray);
@@ -153,13 +157,13 @@ class Token extends \Pramnos\Framework\Base
         if (is_numeric($tokenid)) {
             $sql = $database->prepareQuery(
                 "SELECT * FROM `#PREFIX#usertokens` "
-                . "WHERE `tokenid` = %d limit 1",
+                    . "WHERE `tokenid` = %d limit 1",
                 $tokenid
             );
         } else {
             $sql = $database->prepareQuery(
                 "SELECT * FROM `#PREFIX#usertokens` "
-                . "WHERE `token` = %s limit 1",
+                    . "WHERE `token` = %s limit 1",
                 $tokenid
             );
         }
@@ -178,7 +182,7 @@ class Token extends \Pramnos\Framework\Base
     public function getData()
     {
         $data = array();
-        foreach (get_object_vars($this) as $key=>$value) {
+        foreach (get_object_vars($this) as $key => $value) {
             if (is_numeric($value) || is_string($value)) {
                 $data[$key] = $value;
             }
@@ -200,7 +204,8 @@ class Token extends \Pramnos\Framework\Base
             $data['status'] = $statusArray[(int) $this->status];
         }
         if ((is_array($this->deviceinfo) && count($this->deviceinfo) > 0)
-            || is_object($this->deviceinfo)) {
+            || is_object($this->deviceinfo)
+        ) {
             $data['deviceinfo'] = $this->deviceinfo;
         }
         return $data;
@@ -217,15 +222,16 @@ class Token extends \Pramnos\Framework\Base
         $database = \Pramnos\Framework\Factory::getDatabase();
         $findUrlSql = $database->prepareQuery(
             "select `urlid` from `#PREFIX#urls` "
-            . " where `hash` = %s limit 1",
+                . " where `hash` = %s limit 1",
             $urlHash
         );
         $findUrlResult = $database->query($findUrlSql);
         if ($findUrlResult->numRows == 0) {
             $urlInsertSql = $database->prepareQuery(
                 "insert into `#PREFIX#urls` (`url`, `hash`) "
-                . " values (%s, %s)",
-                $url, $urlHash
+                    . " values (%s, %s)",
+                $url,
+                $urlHash
             );
             $database->query($urlInsertSql);
             $urlid = $database->getInsertId();
@@ -247,15 +253,14 @@ class Token extends \Pramnos\Framework\Base
             default:
                 $inputData = file_get_contents("php://input");
                 break;
-
         }
 
         if ($urlid > 0) {
             $sql = $database->prepareQuery(
                 "insert into `#PREFIX#tokenactions` "
-                . "(`tokenid`, `urlid`, `method`, `params`, `servertime`)"
-                . " values "
-                . "(%d, %d, %s, %s, %d)",
+                    . "(`tokenid`, `urlid`, `method`, `params`, `servertime`)"
+                    . " values "
+                    . "(%d, %d, %s, %s, %d)",
                 $this->tokenid,
                 $urlid,
                 \Pramnos\Http\Request::$requestMethod,
@@ -264,7 +269,7 @@ class Token extends \Pramnos\Framework\Base
             );
             @$database->query($sql);
         }
-        $this->actions +=1;
+        $this->actions += 1;
         $this->lastused = time();
         $remoteip = '';
         if (isset($_SERVER['HTTP_USER_AGENT'])) {
@@ -304,66 +309,81 @@ class Token extends \Pramnos\Framework\Base
         $itemdata = array(
             array(
                 'fieldName' => 'userid',
-                'value' => $this->userid, 'type' => 'integer'
+                'value' => $this->userid,
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'tokentype',
-                'value' => $this->tokentype, 'type' => 'string'
+                'value' => $this->tokentype,
+                'type' => 'string'
             ),
             array(
                 'fieldName' => 'token',
-                'value' => $this->token, 'type' => 'string'
+                'value' => $this->token,
+                'type' => 'string'
             ),
             array(
                 'fieldName' => 'created',
-                'value' => $this->created, 'type' => 'integer'
+                'value' => $this->created,
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'notes',
-                'value' => $this->notes, 'type' => 'string'
+                'value' => $this->notes,
+                'type' => 'string'
             ),
             array(
                 'fieldName' => 'lastused',
-                'value' => $this->lastused, 'type' => 'integer'
+                'value' => $this->lastused,
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'status',
-                'value' => $this->status, 'type' => 'integer'
+                'value' => $this->status,
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'applicationid',
-                'value' => $this->applicationid, 'type' => 'integer'
+                'value' => $this->applicationid,
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'actions',
-                'value' => $this->actions, 'type' => 'integer'
+                'value' => $this->actions,
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'removedate',
-                'value' => $this->removedate, 'type' => 'integer'
+                'value' => $this->removedate,
+                'type' => 'integer'
             ),
             array(
                 'fieldName' => 'deviceinfo',
-                'value' => json_encode($this->deviceinfo), 'type' => 'string'
+                'value' => json_encode($this->deviceinfo),
+                'type' => 'string'
             ),
             array(
                 'fieldName' => 'scope',
-                'value' => json_encode($this->scope), 'type' => 'string'
+                'value' => json_encode($this->scope),
+                'type' => 'string'
             )
         );
         if ($database->type != 'postgresql') {
             $itemdata[] = array(
                 'fieldName' => 'parentToken',
-                'value' => $this->parentToken, 'type' => 'integer'
+                'value' => $this->parentToken,
+                'type' => 'integer'
             );
         } else {
             $itemdata[] = array(
                 'fieldName' => 'ipaddress',
-                'value' => $this->ipaddress, 'type' => 'string'
+                'value' => $this->ipaddress,
+                'type' => 'string'
             );
             $itemdata[] = array(
                 'fieldName' => 'expires',
-                'value' => $this->expires, 'type' => 'integer'
+                'value' => $this->expires,
+                'type' => 'integer'
             );
         }
         #$database->sql_cache_flush_cache('usertokens');
@@ -371,7 +391,8 @@ class Token extends \Pramnos\Framework\Base
             $this->_isnew = false;
 
             if (!$database->insertDataToTable(
-                $database->prefix . "usertokens", $itemdata
+                $database->prefix . "usertokens",
+                $itemdata
             )) {
                 $error = $database->getError();
                 $this->addError($error['message']);
@@ -385,35 +406,198 @@ class Token extends \Pramnos\Framework\Base
             return $this;
         }
         if (!$database->updateTableData(
-            $database->prefix . "usertokens", $itemdata,
-            "`tokenid` = '" . (int) $this->tokenid . "'", false
+            $database->prefix . "usertokens",
+            $itemdata,
+            "`tokenid` = '" . (int) $this->tokenid . "'",
+            false
         )) {
 
-            if ($database->type == 'postgresql' 
-                && strpos($database->getError()['message'], 'column "ipaddress"') !== false) {
+            if (
+                $database->type == 'postgresql'
+                && strpos($database->getError()['message'], 'column "ipaddress"') !== false
+            ) {
 
                 $database->query($database->prepareQuery('ALTER TABLE #PREFIX#usertokens ADD "expires" integer NULL, ADD "ipaddress" inet NULL;'));
                 if (!$database->updateTableData(
-                    $database->prefix . "usertokens", $itemdata,
-                    "`tokenid` = '" . (int) $this->tokenid . "'", false
+                    $database->prefix . "usertokens",
+                    $itemdata,
+                    "`tokenid` = '" . (int) $this->tokenid . "'",
+                    false
                 )) {
                     $error = $database->getError();
                     $this->addError($error['message']);
-                }   
+                }
             } else {
                 $error = $database->getError();
                 $this->addError($error['message']);
             }
-
-
-
-
-            
         }
 
         return $this;
     }
 
+    /**
+     * Get token details
+     * @return array
+     */
+    public function getDetails()
+    {
+        if ($this->tokenid == 0) {
+            return array(
+                'tokenid' => 0,
+                'userid' => 0,
+                'token' => '',
+                'tokentype' => '',
+                'lastused' => 0,
+                'created' => 0,
+                'expires' => 0,
+                'scope' => '',
+                'status' => 0,
+                'applicationid' => 0,
+                'deviceinfo' => '',
+                'ipaddress' => '',
+                'notes' => '',
+                'username' => '',
+                'firstname' => '',
+                'lastname' => '',
+                'app_name' => ''
+            );
+        }
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        // Get token details
+        $tokenQuery = "SELECT ut.tokenid, ut.userid, ut.token, ut.tokentype, ut.lastused, ut.created, 
+                       ut.expires, ut.scope, ut.status, ut.applicationid, ut.deviceinfo, ut.ipaddress, ut.notes,
+                       u.username, u.firstname, u.lastname, a.name as app_name
+                       FROM `#PREFIX#usertokens` ut 
+                       LEFT JOIN `#PREFIX#users` u ON ut.userid = u.userid 
+                       LEFT JOIN `#PREFIX#applications` a ON ut.applicationid = a.appid
+                       WHERE ut.tokenid = %d";
 
+        $tokenQuery = $db->prepareQuery($tokenQuery, $this->tokenid);
+        $tokenResult = $db->query($tokenQuery);
 
+        return $tokenResult->fields;
+    }
+
+    /**
+     * Get token statistics
+     * @return array
+     */
+    public function getStatistics()
+    {
+        if ($this->tokenid == 0) {
+            return array(
+                'total_actions' => 0,
+                'first_action' => null,
+                'last_action' => null,
+                'active_days' => 0
+            );
+        }
+        $database = \Pramnos\Framework\Factory::getDatabase();
+
+        // Get statistics
+        $statsQuery = "";
+
+        // Use different SQL syntax based on the database type
+        if ($database->type == 'postgresql') {
+            // PostgreSQL version - use to_timestamp function instead of FROM_UNIXTIME
+            $statsQuery = "SELECT 
+                            COUNT(*) as total_actions,
+                            MIN(servertime) as first_action,
+                            MAX(servertime) as last_action,
+                            COUNT(DISTINCT DATE(to_timestamp(servertime))) as active_days
+                          FROM `#PREFIX#tokenactions` 
+                          WHERE tokenid = %d";
+        } else {
+            // MySQL version - use FROM_UNIXTIME
+            $statsQuery = "SELECT 
+                            COUNT(*) as total_actions,
+                            MIN(servertime) as first_action,
+                            MAX(servertime) as last_action,
+                            COUNT(DISTINCT DATE(FROM_UNIXTIME(servertime))) as active_days
+                          FROM `#PREFIX#tokenactions`
+                          WHERE tokenid = %d";
+        }
+
+        $statsQuery = $database->prepareQuery($statsQuery, $this->tokenid);
+        $statsResult = $database->query($statsQuery);
+
+        return $statsResult->fields;
+    }
+
+    /**
+     * Get token actions
+     * @param int $limit Number of records to return
+     * @param int $offset Pagination offset
+     * @param string $orderBy Field to order by (default: servertime)
+     * @param string $orderDir Order direction (ASC or DESC)
+     * @return array With 'data' containing the results and 'total' containing the total count
+     */
+    public function getActions($limit = 100, $offset = 0, $orderBy = 'servertime', $orderDir = 'DESC')
+    {
+        if ($this->tokenid == 0) {
+            return array('data' => array(), 'total' => 0);
+        }
+        $database = \Pramnos\Framework\Factory::getDatabase();
+
+        // Validate order direction
+        $orderDir = strtoupper($orderDir);
+        if ($orderDir !== 'ASC' && $orderDir !== 'DESC') {
+            $orderDir = 'DESC';
+        }
+
+        // Validate order by field
+        $allowedFields = ['actionid', 'tokenid', 'urlid', 'method', 'servertime'];
+        if (!in_array($orderBy, $allowedFields)) {
+            $orderBy = 'servertime';
+        }
+        
+        // First get total count
+        $countQuery = "SELECT COUNT(*) as total FROM `#PREFIX#tokenactions` WHERE tokenid = %d";
+        $countQuery = $database->prepareQuery($countQuery, $this->tokenid);
+        $countResult = $database->query($countQuery);
+        $totalCount = 0;
+        if ($countResult && $countResult->numRows > 0) {
+            $totalCount = (int)$countResult->fields['total'];
+        }
+        
+        // Get token actions - using database type agnostic query
+        $actionsQuery = "SELECT ta.actionid, ta.tokenid, ta.urlid, ta.method, ta.servertime,
+                        u.url, ta.params as parameters
+                        FROM `#PREFIX#tokenactions` ta
+                        LEFT JOIN `#PREFIX#urls` u ON ta.urlid = u.urlid
+                        WHERE ta.tokenid = %d
+                        ORDER BY ta." . $orderBy . " " . $orderDir;
+                        
+        // Add limit and offset in a database-compatible way
+        if ($database->type == 'postgresql') {
+            $actionsQuery .= " LIMIT %d OFFSET %d";
+        } else {
+            // MySQL or other databases
+            $actionsQuery .= " LIMIT %d OFFSET %d";
+        }
+        
+
+        $actionsQuery = $database->prepareQuery(
+            $actionsQuery, $this->tokenid, $limit, $offset
+        );
+        
+        $actionsResult = $database->query($actionsQuery);
+
+        $actionData = [];
+
+        if ($actionsResult && $actionsResult->numRows > 0) {
+            while ($actionsResult->fetch()) {
+                $action = $actionsResult->fields;
+
+                // check if $action['parameters'] is a json object, and if it is, decode it
+                if (is_string($action['parameters'])) {
+                    $action['parameters'] = json_decode($action['parameters'], true);
+                }
+
+                $actionData[] = $action;
+            }
+        }
+        return array('data' => $actionData, 'total' => $totalCount);
+    }
 }
