@@ -431,7 +431,23 @@ class Application extends Base
             return $controllerObject;
         }
 
-        throw new \Exception('No controller found: ' . $controller);
+
+        $errorMessage = 'Cannot find controller: ' . $controller;
+        // check current called url
+        if (isset($_SERVER['REQUEST_URI'])) {
+            $errorMessage .= "\n"
+                . 'Current URL: ' . $_SERVER['REQUEST_URI'];  
+        } 
+        if (isset($_SESSION['user']) && is_object($_SESSION['user'])) {
+            $errorMessage .= "\n"
+                . 'User: ' . $_SESSION['user']->username;
+        }
+
+        
+
+        throw new \Exception(
+            $errorMessage
+        );
     }
 
 
