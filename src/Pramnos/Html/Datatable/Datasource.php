@@ -184,6 +184,9 @@ class Datasource extends Base
                 ) . ", ";
             }
             $sOrder = substr_replace($sOrder, "", -2);
+            if ($database->type =='postgresql') { 
+                $sOrder = str_replace('`', '"', $sOrder);
+            }
         }
 
         $sql = $db->prepareQuery(
