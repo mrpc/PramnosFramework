@@ -618,11 +618,6 @@ content;
 </div>
 content
         );
-        $files[] = array (
-            'reason' => 'Show Resource',
-            'file' => $viewPath . DS . 'show.html.php',
-            'content' => '<?php var_dump($this->model);?' . '>'
-        );
         $actualName = ucfirst($name);
         $date = date('d/m/Y H:i');
         $fileContent = <<<content
