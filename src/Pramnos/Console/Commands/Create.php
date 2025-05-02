@@ -335,13 +335,104 @@ migcontent;
 
                 $basicType = explode('(', $result->fields['Type']);
                 if (!$primary) {
-                    switch ($basicType[0]) {
-                        case "tinyint":
-                        case "smallint":
-                        case "integer":
-                        case "int":
-                        case "mediumint":
-                        case "bigint":
+                    // Check if this field is a foreign key
+                    $isForeignKey = false;
+                    if ($database->type == 'postgresql') {
+                        $isForeignKey = $result->fields['ForeignKey'] == 't' || $result->fields['ForeignKey'] === true;
+                    } else {
+                        $isForeignKey = !empty($result->fields['ForeignKey']);
+                    }
+
+                    if ($isForeignKey && !empty($result->fields['ForeignTable'])) {
+                        // This is a foreign key field
+                        $foreignTable = $result->fields['ForeignTable'];
+                        $foreignSchema = $result->fields['ForeignSchema'];
+                        $foreignColumn = $result->fields['ForeignColumn'];
+                        
+                        // Special handling for user foreign keys
+                        $isUserForeignKey = ($foreignColumn == 'userid' && ($foreignTable == 'users' || $foreignTable == '#PREFIX#users'));
+                        
+                        if ($isUserForeignKey) {
+                            // Use userList variable for user foreign keys
+                            $foreignListVar = 'userList';
+                        } else {
+                            // Get potential model name from foreign table for variable access
+                            $foreignModelName = self::getProperClassName($foreignTable, true);
+                            $foreignListVar = lcfirst($foreignModelName) . 'List';
+                        }
+                        if ($isUserForeignKey) {
+                            $formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <?php if (is_array(\$this->{$foreignListVar}) && count(\$this->{$foreignListVar}) > 0): ?>
+                <!-- Foreign key field with available options from {$foreignTable} -->
+                <select id="{$field}" name="{$field}" class="form-control">
+                    <option value="">Select {$fieldName}</option>
+                    <?php foreach (\$this->{$foreignListVar} as \$item): ?>
+                        <?php 
+                        // Find suitable display field (first non-numeric field)
+                        \$selected = \$this->model->{$field} == \$item->{$foreignColumn} ? 'selected' : '';
+                        ?>
+                        <option value="<?php echo \$item->{$foreignColumn}; ?>" <?php echo \$selected; ?>>
+                            <?php echo htmlspecialchars(\$item->username); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <?php else: ?>
+                <!-- No foreign key data available, fallback to number input -->
+                <input type="number" value="<?php echo \$this->model->{$field}; ?>" step="1" id="{$field}" name="{$field}" class="form-control">
+                <small class="form-text text-muted">Foreign key to {$foreignTable} table</small>
+                <?php endif; ?>
+            </div>
+
+content;
+                        } else {
+                            $formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <?php if (is_array(\$this->{$foreignListVar}) && count(\$this->{$foreignListVar}) > 0): ?>
+                <!-- Foreign key field with available options from {$foreignTable} -->
+                <select id="{$field}" name="{$field}" class="form-control">
+                    <option value="">Select {$fieldName}</option>
+                    <?php foreach (\$this->{$foreignListVar} as \$item): ?>
+                        <?php 
+                        // Find suitable display field (first non-numeric field)
+                        \$displayField = null;
+                        \$itemData = \$item->getData();
+                        foreach (\$itemData as \$key => \$value) {
+                            // Skip the ID field for display purposes
+                            if (\$key != '{$foreignColumn}' && !is_numeric(\$value)) {
+                                \$displayField = \$key;
+                                break;
+                            }
+                        }
+                        // If no suitable display field found, use the foreign key
+                        \$displayField = \$displayField ?: '{$foreignColumn}';
+                        \$selected = \$this->model->{$field} == \$item->{$foreignColumn} ? 'selected' : '';
+                        ?>
+                        <option value="<?php echo \$item->{$foreignColumn}; ?>" <?php echo \$selected; ?>>
+                            <?php echo htmlspecialchars(\$item->{\$displayField}); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <?php else: ?>
+                <!-- No foreign key data available, fallback to number input -->
+                <input type="number" value="<?php echo \$this->model->{$field}; ?>" step="1" id="{$field}" name="{$field}" class="form-control">
+                <small class="form-text text-muted">Foreign key to {$foreignTable} table</small>
+                <?php endif; ?>
+            </div>
+
+content;
+                        }
+
+                    } else {
+                        switch ($basicType[0]) {
+                            case "tinyint":
+                            case "smallint":
+                            case "integer":
+                            case "int":
+                            case "mediumint":
+                            case "bigint":
 $formContent .= <<<content
             <div class="form-group">
                 <label for="{$field}">{$fieldName}:</label>
@@ -349,10 +440,10 @@ $formContent .= <<<content
             </div>
 
 content;
-                            break;
+                                break;
 
-                        case "float":
-                        case "double":
+                            case "float":
+                            case "double":
 $formContent .= <<<content
             <div class="form-group">
                 <label for="{$field}">{$fieldName}:</label>
@@ -360,10 +451,10 @@ $formContent .= <<<content
             </div>
 
 content;
-                            break;
+                                break;
 
-                        case "bool":
-                        case "boolean":
+                            case "bool":
+                            case "boolean":
 $formContent .= <<<content
             <div class="form-group">
             <label for="{$field}">{$fieldName}:</label>
@@ -374,9 +465,9 @@ $formContent .= <<<content
             </div>
 
 content;
-                            break;
+                                break;
 
-                        case "text":
+                            case "text":
 $formContent .= <<<content
             <div class="form-group">
                 <label for="{$field}">{$fieldName}:</label>
@@ -384,9 +475,9 @@ $formContent .= <<<content
             </div>
 
 content;
-                            break;
+                                break;
 
-                        default:
+                            default:
 $formContent .= <<<content
             <div class="form-group">
                 <label for="{$field}">{$fieldName}:</label>
@@ -394,7 +485,8 @@ $formContent .= <<<content
             </div>
 
 content;
-                            break;
+                                break;
+                        }
                     }
                 }
                 $formContent .= "\n";
@@ -1119,15 +1211,71 @@ content;
 
 
             $saveContent = '';
+            $foreignKeyModels = array();
+            $editContent = '';
 
             $primaryKey = '';
             while ($result->fetch()) {
                 $primary = false;
-                if (isset($result->fields['Key'])
+                if ($database->type == 'postgresql') {
+                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                    }
+                } elseif (isset($result->fields['Key'])
                     && $result->fields['Key'] == 'PRI') {
-                    $primaryKey = $result->fields['Field'];
-                    $primary = true;
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
                 }
+                
+                // Check if this is a foreign key field
+                $isForeignKey = false;
+                if ($database->type == 'postgresql') {
+                    $isForeignKey = $result->fields['ForeignKey'] == 't' || $result->fields['ForeignKey'] === true;
+                } else {
+                    $isForeignKey = !empty($result->fields['ForeignKey']);
+                }
+                
+                // If this is a foreign key, store information to load related models
+                if ($isForeignKey && !empty($result->fields['ForeignTable'])) {
+                    $foreignTable = $result->fields['ForeignTable'];
+                    $foreignSchema = $result->fields['ForeignSchema'];
+                    $foreignColumn = $result->fields['ForeignColumn'];
+                    
+                    // Special handling for user foreign keys
+                    $isUserForeignKey = ($foreignColumn == 'userid' && ($foreignTable == 'users' || $foreignTable == '#PREFIX#users'));
+                    
+                    if (!$isUserForeignKey) {
+                        // Get potential model name from foreign table
+                        $foreignModelName = self::getProperClassName($foreignTable, true);
+                        
+                        // Check if foreign model exists
+                        $foreignModelClass = "\\{$modelNameSpace}\\{$foreignModelName}";
+                        $foreignModelFile = $path . "/../Models/{$foreignModelName}.php";
+                        
+                        // Store foreign key information
+                        $foreignKeyModels[$result->fields['Field']] = [
+                            'table' => $foreignTable,
+                            'schema' => $foreignSchema,
+                            'column' => $foreignColumn,
+                            'modelClass' => $foreignModelName,
+                            'modelNamespace' => $modelNameSpace,
+                            'field' => $result->fields['Field'],
+                            'exists' => file_exists($foreignModelFile),
+                            'isUserForeignKey' => false
+                        ];
+                    } else {
+                        // Special handling for user foreign keys
+                        $foreignKeyModels[$result->fields['Field']] = [
+                            'table' => $foreignTable,
+                            'schema' => $foreignSchema,
+                            'column' => $foreignColumn,
+                            'field' => $result->fields['Field'],
+                            'isUserForeignKey' => true
+                        ];
+                    }
+                }
+                
                 $basicType = explode('(', $result->fields['Type']);
                 if (!$primary) {
                     switch ($basicType[0]) {
@@ -1178,6 +1326,19 @@ content;
 
             }
 
+            // Create code to load related models for foreign keys
+            $loadForeignModelsContent = '';
+            foreach ($foreignKeyModels as $field => $fkInfo) {
+                if (isset($fkInfo['exists']) && $fkInfo['exists']) {
+                    $varName = lcfirst($fkInfo['modelClass']) . 'List';
+                    $loadForeignModelsContent .= '        // Load ' . $fkInfo['modelClass'] . ' data for foreign key ' . $field . "\n";
+                    $loadForeignModelsContent .= '        $' . $varName . ' = new \\' . $fkInfo['modelNamespace'] . '\\' . $fkInfo['modelClass'] . '($this);' . "\n";
+                    $loadForeignModelsContent .= '        $view->' . $varName . ' = $' . $varName . '->getList();' . "\n\n";
+                } elseif (isset($fkInfo['isUserForeignKey']) && $fkInfo['isUserForeignKey']) {
+                    $loadForeignModelsContent .= '        // Load user data for foreign key ' . $field . "\n";
+                    $loadForeignModelsContent .= '        $view->userList = \Pramnos\User\User::getUsers();' . "\n\n";
+                }
+            }
 
             $fileContent .= <<<content
     /**
@@ -1218,6 +1379,8 @@ content;
         \$request = new \Pramnos\Http\Request();
         \$model->load(\$request->getOption());
         \$view->addModel(\$model);
+
+{$loadForeignModelsContent}
         return \$view->display('edit');
     }
 
@@ -1683,18 +1846,65 @@ content;
                 . "        AND table_schema = '" . ($this->schema ?? $database->schema) . "' "
                 . "        AND constraint_type = 'FOREIGN KEY' "
                 . "    ) "
-                . ") as \"ForeignKey\" "
+                . ") as \"ForeignKey\", "
+                . "( "
+                . "    SELECT kcu2.table_name "
+                . "    FROM information_schema.referential_constraints rc "
+                . "    JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = rc.constraint_name "
+                . "    JOIN information_schema.key_column_usage kcu2 ON kcu2.constraint_name = rc.unique_constraint_name "
+                . "    WHERE kcu.table_schema = '" . ($this->schema ?? $database->schema) . "' "
+                . "    AND kcu.table_name = '" . $this->getFullTableName($tableName, false) . "' "
+                . "    AND kcu.column_name = a.column_name "
+                . "    LIMIT 1 "
+                . ") as \"ForeignTable\", "
+                . "( "
+                . "    SELECT kcu2.table_schema "
+                . "    FROM information_schema.referential_constraints rc "
+                . "    JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = rc.constraint_name "
+                . "    JOIN information_schema.key_column_usage kcu2 ON kcu2.constraint_name = rc.unique_constraint_name "
+                . "    WHERE kcu.table_schema = '" . ($this->schema ?? $database->schema) . "' "
+                . "    AND kcu.table_name = '" . $this->getFullTableName($tableName, false) . "' "
+                . "    AND kcu.column_name = a.column_name "
+                . "    LIMIT 1 "
+                . ") as \"ForeignSchema\", "
+                . "( "
+                . "    SELECT kcu2.column_name "
+                . "    FROM information_schema.referential_constraints rc "
+                . "    JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = rc.constraint_name "
+                . "    JOIN information_schema.key_column_usage kcu2 ON kcu2.constraint_name = rc.unique_constraint_name "
+                . "    WHERE kcu.table_schema = '" . ($this->schema ?? $database->schema) . "' "
+                . "    AND kcu.table_name = '" . $this->getFullTableName($tableName, false) . "' "
+                . "    AND kcu.column_name = a.column_name "
+                . "    LIMIT 1 "
+                . ") as \"ForeignColumn\" "
                 . "FROM information_schema.columns a "
                 . "WHERE table_name = '" . $this->getFullTableName($tableName, false) . "' "
                 . "AND table_schema = '" . ($this->schema ?? $database->schema) . "'"
             );
 
         } else {
-            $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+            // MySQL query
+            $database_name = $database->database;
+            $sql = $database->prepareQuery(
+                "SELECT c.COLUMN_NAME as 'Field', c.DATA_TYPE as 'Type', c.CHARACTER_MAXIMUM_LENGTH, "
+                . "c.IS_NULLABLE as 'Null', c.COLUMN_DEFAULT, c.COLUMN_COMMENT as 'Comment', "
+                . "IF(k.COLUMN_NAME IS NOT NULL, 'PRI', '') as 'Key', "
+                . "IF(fk.COLUMN_NAME IS NOT NULL, 1, 0) as 'ForeignKey', "
+                . "fk.REFERENCED_TABLE_NAME as 'ForeignTable', "
+                . "fk.REFERENCED_TABLE_SCHEMA as 'ForeignSchema', "
+                . "fk.REFERENCED_COLUMN_NAME as 'ForeignColumn' "
+                . "FROM INFORMATION_SCHEMA.COLUMNS c "
+                . "LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE k "
+                . "ON c.TABLE_SCHEMA = k.TABLE_SCHEMA AND c.TABLE_NAME = k.TABLE_NAME AND c.COLUMN_NAME = k.COLUMN_NAME AND k.CONSTRAINT_NAME = 'PRIMARY' "
+                . "LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE fk "
+                . "ON c.TABLE_SCHEMA = fk.TABLE_SCHEMA AND c.TABLE_NAME = fk.TABLE_NAME AND c.COLUMN_NAME = fk.COLUMN_NAME AND fk.REFERENCED_TABLE_NAME IS NOT NULL "
+                . "WHERE c.TABLE_NAME = '{$tableName}' AND c.TABLE_SCHEMA = '{$database_name}'"
+            );
         }
         
         return $database->query($sql);
     }
 
+  
 
 }
