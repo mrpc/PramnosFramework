@@ -96,16 +96,23 @@ class Datasource extends Base
                 }
             }
         }
-        #$whereWord = 'where';
+        
+        // Handle schema-qualified table names
+        $tableQuoted = $table;
+        if ($database->type == 'postgresql') {
+            if (strpos($table, '.') !== false) {
+                $tableParts = explode('.', $table);
+                $schema = $tableParts[0];
+                $tableName = $tableParts[1];
+                $tableQuoted = '"' . $schema . '"."' . $tableName . '"';
+            } else {
+                $tableQuoted = '"' . $table . '"';
+            }
+        } else {
+            $tableQuoted = '`' . $table . '`';
+        }
 
         $fields = $this->fields;
-        #if (is_array($fields)) {
-        #    foreach ($fields as $fieldToTest) {
-        #        if (stripos($fieldToTest, 'concat') !== false) {
-        #            $whereWord = 'having';
-        #        }
-        #    }
-        #}
         $where = str_ireplace('where', ' ', $whereStatement);
         if ($debug == true) {
             echo "<pre>DEBUG MODE\n\n</pre>";
@@ -190,8 +197,8 @@ class Datasource extends Base
         }
 
         $sql = $db->prepareQuery(
-            "SELECT COUNT(a.`" . $fields[0] . "`) as 'num' from `"
-            . $table . "` a  $join  " . $Awhere
+            "SELECT COUNT(a.`" . $fields[0] . "`) as 'num' from "
+            . $tableQuoted . " a  $join  " . $Awhere
         );
 
         if ($debug == true) {
@@ -208,10 +215,12 @@ class Datasource extends Base
             );
         }
 
-        if (!isset($num->fields['num'])) {
-            $num->fields['num'] = 0;
+        if (!isset($num) || !$num || !isset($num->fields['num'])) {
+            $num = new \stdClass();
+            $num->fields = ['num' => 0];
         }
         $total = $num->fields['num'];
+
         /* Filtering - NOTE this does not match the
          * built-in DataTables filtering which does it
          * word by word on any field. It's possible to do here,
@@ -329,13 +338,13 @@ class Datasource extends Base
         if ($distinctField != '') {
             $sql = $db->prepareQuery(
                 'select distinct('.$distinctField.'), '
-                . $selectfields . ' from `'
-                . $table . '` a   ' . $join . '   '
+                . $selectfields . ' from '
+                . $tableQuoted . ' a   ' . $join . '   '
             ) . $sWhere . ' ' . $sOrder . ' ' . $sLimit;
         } else {
             $sql = $db->prepareQuery(
-                'select distinct ' . $selectfields . ' from `'
-                . $table . '` a   ' . $join . '   '
+                'select distinct ' . $selectfields . ' from '
+                . $tableQuoted . ' a   ' . $join . '   '
             ) . $sWhere . ' ' . $sOrder . ' ' . $sLimit;
         }
 
@@ -367,12 +376,12 @@ class Datasource extends Base
         if (strpos($sWhere, 'group by') !== false) {
             $sql = $db->prepareQuery(
             "select COUNT(distinct(a.`" . $fields[0] . "`)) "
-            . "as 'num' from `" . $table . "` a  " . $join . "  "
+            . "as 'num' from " . $tableQuoted . " a  " . $join . "  "
         ) . str_replace('group by a.`' . $fields[0] . '`', '', $sWhere);
         } else {
             $sql = $db->prepareQuery(
             "select COUNT(a.`" . $fields[0] . "`) "
-            . "as 'num' from `" . $table . "` a  " . $join . "  "
+            . "as 'num' from " . $tableQuoted . " a  " . $join . "  "
         ) . $sWhere;
         }
 
