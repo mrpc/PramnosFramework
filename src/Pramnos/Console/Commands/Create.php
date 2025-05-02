@@ -467,6 +467,21 @@ $formContent .= <<<content
 content;
                                 break;
 
+                            case "timestamp":
+                            case "timestamptz":
+                            case "timestamp with time zone":
+                            case "timestamp without time zone":
+                            case "datetime":
+                            case "date":
+$formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <input type="datetime-local" value="<?php echo \$this->model->{$field} ? date('Y-m-d\\TH:i', strtotime(\$this->model->{$field})) : ''; ?>" id="{$field}" name="{$field}" class="form-control">
+            </div>
+
+content;
+                                break;
+
                             case "text":
 $formContent .= <<<content
             <div class="form-group">
