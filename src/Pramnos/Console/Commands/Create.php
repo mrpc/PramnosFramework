@@ -1991,12 +1991,11 @@ $arrayFix
             foreach (\$items['aaData'] as \$data) {
                 \${$primaryKey} = \$data[0];
 
-                // Add links to the first two columns
                 \$link = '<a href="' . sURL . '{$controllerName}/show/' . \${$primaryKey} . '">';
-                \$data[0] = \$link . \$data[0] . '</a>';
-                if (isset(\$data[1])) {
-                    \$data[1] = \$link . \$data[1] . '</a>';
+                foreach (\$data as \$key => \$value) {
+                    \$data[\$key] = \$link . \$value . '</a>';    
                 }
+                
 
                 // Add action buttons at the end
                 \$actions = '<a href="'
