@@ -888,7 +888,7 @@ class Database extends \Pramnos\Framework\Base
     public function insertDataToTable($table, $data, $primarykey = '', $debug = false)
     {
         $insertString = "";
-        if ($this->type == 'postgresql' && $this->schema != '') {
+        if ($this->type == 'postgresql' && $this->schema != '' && strpos($table, '.') === false) {
             $insertString = "INSERT INTO " . $this->schema . '.' . $table . " (";
         } else {
             $insertString = "INSERT INTO " . $table . " (";
@@ -934,7 +934,7 @@ class Database extends \Pramnos\Framework\Base
      */
     public function updateTableData($table, $data, $filter = '', $debug = false)
     {
-        if ($this->type == 'postgresql' && $this->schema != '') {
+        if ($this->type == 'postgresql' && $this->schema != '' && strpos($table, '.') === false) {
             $updateString = "UPDATE " . $this->schema . '.' . $table . ' SET ';
         } else {
             $updateString = 'UPDATE ' . $table . ' SET ';
