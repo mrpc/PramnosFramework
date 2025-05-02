@@ -306,9 +306,11 @@ migcontent;
 
             $formContent = '';
 
-            $firstField = '';
+            $allFields = array();
             $primaryKey = '';
             $count = 0;
+            
+            // First pass to collect field information
             while ($result->fetch()) {
                 $count++;
                 $primary = false;
@@ -323,9 +325,38 @@ migcontent;
                         $primaryKey = $result->fields['Field'];
                         $primary = true;
                 }
-                if ($count == 2) {
-                    $firstField = $result->fields['Field'];
+                
+                // Store all field names and their display names
+                if ($result->fields['Comment'] != '') {
+                    $fieldDisplayName = $result->fields['Comment'];
+                } else {
+                    $fieldDisplayName = ucfirst(str_replace('_', ' ', $result->fields['Field']));
                 }
+                
+                $allFields[] = array(
+                    'name' => $result->fields['Field'],
+                    'display' => $fieldDisplayName,
+                    'isPrimary' => $primary
+                );
+            }
+            
+            // Reset result cursor for form generation
+            $result = $this->getColumns($tableName);
+            
+            while ($result->fetch()) {
+                $primary = false;
+
+                if ($database->type == 'postgresql') {
+                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                    }
+                } elseif (isset($result->fields['Key'])
+                    && $result->fields['Key'] == 'PRI') {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                }
+                
                 if ($result->fields['Comment'] != '') {
                         $fieldName = $result->fields['Comment'];
                 } else {
@@ -523,6 +554,13 @@ content;
 </div>
 content;
 
+            // Generate datatable columns for all fields
+            $datatableColumns = "";
+            foreach ($allFields as $field) {
+                $displayName = $field['display'];
+                $datatableColumns .= "\$datatable->addColumn('{$displayName}', true, true, true, '', '', true, 'left', true);\n";
+            }
+
             $indexContent = <<<content
 <div class="card">
     <div class="card-header">
@@ -540,8 +578,7 @@ content;
 <?php
 \$datatable = new \Pramnos\Html\Datatable('{$name}', URL . '{$className}/get{$className}');
 
-\$datatable->addColumn('#', true, true, true, '', '', true, 'left', true);
-\$datatable->addColumn(ucfirst('{$firstField}'), true, true, true, '', '', true, 'left', true);
+{$datatableColumns}
 \$datatable->addColumn('Ενέργeιες');
 
 \$datatable->jui = false;
@@ -777,7 +814,7 @@ content;
                                 $postContent .= '            $model->' . $result->fields['Field'] . ' = null;' . "\n";
                                 $postContent .= '        }' . "\n";
                             } else {
-                                $saveContent .= '     * @apiBody {Number}' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                                $saveContent .= '     * @apiBody {Number} ' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
                                 $postContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', 0, \'post\', \'int\');' . "\n";
                             }
                             $updateContent .= '     * @apiBody {Number} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
@@ -1753,6 +1790,9 @@ content;
         
         // Get columns again for the second pass since we can't rewind/reset the previous result
         $result = $this->getColumns($tableName);
+
+        // Store all field names for the getJsonList method
+        $allFields = array();
         
         while ($result->fetch()) {
             $primary = false;
@@ -1766,6 +1806,10 @@ content;
                     $primaryKey = $result->fields['Field'];
                     $primary = true;
             }
+            
+            // Store field name for use in getJsonList
+            $allFields[] = $result->fields['Field'];
+            
             $type = 'string';
             $basicType = explode('(', $result->fields['Type']);
             switch ($basicType[0]) {
@@ -1850,6 +1894,17 @@ content;
         // Get the controller name here once, before generating the model
         $controllerName = self::getProperClassName($name, false);
 
+        $theFieldsTxt = '';
+        $lastField = end($allFields);
+        foreach ($allFields as $field) {
+            $theFieldsTxt .= '            \'' . $field . '\'';
+            if ($field !== $lastField) {
+                $theFieldsTxt .= ',';
+            }
+            $theFieldsTxt .= "\n";
+        }
+
+
         $fileContent .= <<<content
     /**
      * Load from database
@@ -1898,15 +1953,15 @@ $arrayFix
         return \$data;
     }
 
-    /**
+/**
      * Return data in JSON format for datatables
-     * @param bool \$multiple Allow multiple selection
      * @return string
      */
-    public function getJsonList(\$multiple = false)
+    public function getJsonList()
     {
+        // Define all fields to be included in the query
         \$fields = array(
-            '{$primaryKey}', 'a.`{$firstNonPrimaryField}`'
+            $theFieldsTxt
         );
 
         // Get database instance
@@ -1922,6 +1977,8 @@ $arrayFix
             \$actualTableName = \$database->schema . '.' . \$actualTableName;
         }
 
+        
+
         \$items = \Pramnos\Html\Datatable\Datasource::getList(
             \$actualTableName,
             \$fields,
@@ -1934,10 +1991,14 @@ $arrayFix
             foreach (\$items['aaData'] as \$data) {
                 \${$primaryKey} = \$data[0];
 
-                \$link = '<a href="' . sURL . '{$controllerName}/show/' . \$data[0] . '">';
+                // Add links to the first two columns
+                \$link = '<a href="' . sURL . '{$controllerName}/show/' . \${$primaryKey} . '">';
                 \$data[0] = \$link . \$data[0] . '</a>';
-                \$data[1] = \$link . \$data[1] . '</a>';
+                if (isset(\$data[1])) {
+                    \$data[1] = \$link . \$data[1] . '</a>';
+                }
 
+                // Add action buttons at the end
                 \$actions = '<a href="'
                     . sURL
                     . '{$controllerName}/edit/'
@@ -1951,7 +2012,7 @@ $arrayFix
                     . \${$primaryKey}
                     . '">Delete</a>';
 
-                \$data[2] = \$actions;
+                \$data[] = \$actions;
                 \$items['aaData'][\$loopCounter] = \$data;
                 \$loopCounter += 1;
             }
