@@ -1578,4 +1578,100 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
+    /**
+     * Get columns from a table
+     * @param string $tableName Table name
+     * @param string $schema Optional schema override
+     * @param bool $skipDataFix If true, don't transform data types
+     * @return \Pramnos\Database\Result
+     */
+    public function getColumns($tableName, $schema = null, $skipDataFix = false)
+    {
+        // Use provided schema or fallback to the database schema
+        $schemaToUse = $schema ?? $this->schema;
+        
+        if ($this->type == 'postgresql') {
+            $sql = $this->prepareQuery(
+                "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
+                . "(SELECT col_description((SELECT oid FROM pg_class WHERE relname = '" . $tableName . "'), a.ordinal_position)) AS \"Comment\", "
+                . "column_name in ( "
+                . "    SELECT column_name "
+                . "    FROM information_schema.table_constraints tc "
+                . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
+                . "    WHERE constraint_type = 'PRIMARY KEY' "
+                . "    AND tc.table_name = '" . $tableName . "'"
+                . "    AND tc.table_schema = '" . $schemaToUse . "'"
+                . ") as \"PrimaryKey\", "
+                . "column_name in ( "
+                . "    SELECT column_name "
+                . "    FROM information_schema.key_column_usage "
+                . "    WHERE table_name = '" . $tableName . "' "
+                . "    AND table_schema = '" . $schemaToUse . "' "
+                . "    AND column_name = a.column_name "
+                . "    AND constraint_name in ( "
+                . "        SELECT constraint_name "
+                . "        FROM information_schema.table_constraints "
+                . "        WHERE table_name = '" . $tableName . "' "
+                . "        AND table_schema = '" . $schemaToUse . "' "
+                . "        AND constraint_type = 'FOREIGN KEY' "
+                . "    ) "
+                . ") as \"ForeignKey\", "
+                . "( "
+                . "    SELECT kcu2.table_name "
+                . "    FROM information_schema.referential_constraints rc "
+                . "    JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = rc.constraint_name "
+                . "    JOIN information_schema.key_column_usage kcu2 ON kcu2.constraint_name = rc.unique_constraint_name "
+                . "    WHERE kcu.table_schema = '" . $schemaToUse . "' "
+                . "    AND kcu.table_name = '" . $tableName . "' "
+                . "    AND kcu.column_name = a.column_name "
+                . "    LIMIT 1 "
+                . ") as \"ForeignTable\", "
+                . "( "
+                . "    SELECT kcu2.table_schema "
+                . "    FROM information_schema.referential_constraints rc "
+                . "    JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = rc.constraint_name "
+                . "    JOIN information_schema.key_column_usage kcu2 ON kcu2.constraint_name = rc.unique_constraint_name "
+                . "    WHERE kcu.table_schema = '" . $schemaToUse . "' "
+                . "    AND kcu.table_name = '" . $tableName . "' "
+                . "    AND kcu.column_name = a.column_name "
+                . "    LIMIT 1 "
+                . ") as \"ForeignSchema\", "
+                . "( "
+                . "    SELECT kcu2.column_name "
+                . "    FROM information_schema.referential_constraints rc "
+                . "    JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = rc.constraint_name "
+                . "    JOIN information_schema.key_column_usage kcu2 ON kcu2.constraint_name = rc.unique_constraint_name "
+                . "    WHERE kcu.table_schema = '" . $schemaToUse . "' "
+                . "    AND kcu.table_name = '" . $tableName . "' "
+                . "    AND kcu.column_name = a.column_name "
+                . "    LIMIT 1 "
+                . ") as \"ForeignColumn\" "
+                . "FROM information_schema.columns a "
+                . "WHERE table_name = '" . $tableName . "' "
+                . "AND table_schema = '" . $schemaToUse . "'"
+            );
+
+        } else {
+            // MySQL query
+            $database_name = $this->database;
+            $sql = $this->prepareQuery(
+                "SELECT c.COLUMN_NAME as 'Field', c.DATA_TYPE as 'Type', c.CHARACTER_MAXIMUM_LENGTH, "
+                . "c.IS_NULLABLE as 'Null', c.COLUMN_DEFAULT, c.COLUMN_COMMENT as 'Comment', "
+                . "IF(k.COLUMN_NAME IS NOT NULL, 'PRI', '') as 'Key', "
+                . "IF(fk.COLUMN_NAME IS NOT NULL, 1, 0) as 'ForeignKey', "
+                . "fk.REFERENCED_TABLE_NAME as 'ForeignTable', "
+                . "fk.REFERENCED_TABLE_SCHEMA as 'ForeignSchema', "
+                . "fk.REFERENCED_COLUMN_NAME as 'ForeignColumn' "
+                . "FROM INFORMATION_SCHEMA.COLUMNS c "
+                . "LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE k "
+                . "ON c.TABLE_SCHEMA = k.TABLE_SCHEMA AND c.TABLE_NAME = k.TABLE_NAME AND c.COLUMN_NAME = k.COLUMN_NAME AND k.CONSTRAINT_NAME = 'PRIMARY' "
+                . "LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE fk "
+                . "ON c.TABLE_SCHEMA = fk.TABLE_SCHEMA AND c.TABLE_NAME = fk.TABLE_NAME AND c.COLUMN_NAME = fk.COLUMN_NAME AND fk.REFERENCED_TABLE_NAME IS NOT NULL "
+                . "WHERE c.TABLE_NAME = '{$tableName}' AND c.TABLE_SCHEMA = '{$database_name}'"
+            );
+        }
+        
+        return $this->query($sql, false, 0, "", false, $skipDataFix);
+    }
+
 }
