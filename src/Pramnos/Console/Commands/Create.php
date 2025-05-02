@@ -533,33 +533,21 @@ content;
     <div class="card-body">
         <div class="row">
             <div class="col-md-12">
-                <a href="[sURL]{$className}/edit/0"><button type="button" class="btn btn-primary"><i class="fa fa-plus"></i> <?php l('New'); ?></button></a>
+                <a href="<?php echo sURL; ?>{$className}/edit/0"><button type="button" class="btn btn-primary"><i class="fa fa-plus"></i> <?php l('New'); ?></button></a>
             </div>
             <br /><br />
         </div>
+<?php
+\$datatable = new \Pramnos\Html\Datatable('{$name}', URL . '{$className}/get{$className}');
 
-        <!-- Table -->
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>{$firstField}</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach (\$this->items as \$item): ?>
-                    <tr>
-                        <td><a href="[sURL]{$className}/show/<?php echo \$item->{$primaryKey}; ?>">#<?php echo \$item->{$primaryKey}; ?></a></td>
-                        <td><a href="[sURL]{$className}/show/<?php echo \$item->{$primaryKey}; ?>"><?php echo \$item->{$firstField}; ?></a></td>
-                        <td>
-                            <a href="[sURL]{$className}/edit/<?php echo \$item->{$primaryKey}; ?>"><?php l('Edit');?></a>
-                            <a onclick="return confirm('<?php l('Are you sure?');?>');" href="[sURL]{$className}/delete/<?php echo \$item->{$primaryKey}; ?>"><?php l('Delete');?></a>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+\$datatable->addColumn('#', true, true, true, '', '', true, 'left', true);
+\$datatable->addColumn(ucfirst('{$firstField}'), true, true, true, '', '', true, 'left', true);
+\$datatable->addColumn('Ενέργeιες');
+
+\$datatable->jui = false;
+\$datatable->bootstrap = true;
+echo \$datatable->render();
+?>
     </div>
 </div>
 content;
@@ -575,6 +563,60 @@ content;
             'reason' => 'Edit Resource',
             'file' => $viewPath . DS . 'edit.html.php',
             'content' => $editContent
+        );
+        $files[] = array (
+            'reason' => 'Show Resource',
+            'file' => $viewPath . DS . 'show.html.php',
+            'content' => <<<content
+<div class="card">
+    <div class="card-header">
+        <h1 class="page-head-line">
+            View {$objectName}
+        </h1>
+    </div>
+    <div class="card-body">
+        <div class="row mb-3">
+            <div class="col-md-12">
+                <div class="btn-group">
+                    <a href="[sURL]{$className}" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back to List</a>
+                    <a href="[sURL]{$className}/edit/<?php echo \$this->model->{$primaryKey}; ?>" class="btn btn-primary"><i class="fa fa-edit"></i> Edit</a>
+                    <a onclick="return confirm('<?php l('Are you sure?');?>');" href="[sURL]{$className}/delete/<?php echo \$this->model->{$primaryKey}; ?>" class="btn btn-danger"><i class="fa fa-trash"></i> Delete</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped">
+                <tbody>
+                    <?php
+                    \$data = \$this->model->getData();
+                    foreach (\$data as \$field => \$value):
+                        // Convert field name to readable format
+                        \$displayName = ucwords(str_replace('_', ' ', \$field));
+                    ?>
+                        <tr>
+                            <th style="width: 30%"><?php echo \$displayName; ?></th>
+                            <td>
+                                <?php 
+                                if (is_bool(\$value)) {
+                                    echo \$value ? 'Yes' : 'No';
+                                } elseif (\$value === null) {
+                                    echo '<span class="text-muted">N/A</span>';
+                                } elseif (is_array(\$value) || is_object(\$value)) {
+                                    echo '<pre>' . htmlspecialchars(json_encode(\$value, JSON_PRETTY_PRINT)) . '</pre>';
+                                } else {
+                                    echo htmlspecialchars(\$value);
+                                }
+                                ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+content
         );
         $files[] = array (
             'reason' => 'Show Resource',
@@ -1150,7 +1192,7 @@ class {$className} extends \Pramnos\Application\Controller
     public function __construct(?\Pramnos\Application\Application \$application = null)
     {
         \$this->addAuthAction(
-            array('edit', 'save', 'delete', 'show')
+            array('edit', 'save', 'delete', 'show', 'get{$className}')
         );
         parent::__construct(\$application);
     }
@@ -1164,7 +1206,14 @@ content;
      */
     public function display()
     {
+        \$view = \$this->getView('{$viewName}');
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
 
+        \$view->items = \$model->getList();
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = '{$className}';
+        return \$view->display();
     }
 
     /**
@@ -1173,7 +1222,16 @@ content;
      */
     public function show()
     {
-
+        \$view = \$this->getView('{$viewName}');
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+        \$view->addModel(\$model);
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        \$this->application->addbreadcrumb('View ' . \$model->{$primaryKey}, sURL . '{$className}/show/' . \$model->{$primaryKey});
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = \$model->{$primaryKey} . ' | {$className}';
+        return \$view->display('show');
     }
 
     /**
@@ -1182,7 +1240,25 @@ content;
      */
     public function edit()
     {
+        \$view = \$this->getView('{$viewName}');
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+        \$view->addModel(\$model);
 
+{$loadForeignModelsContent}
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        if (\$model->{$primaryKey} > 0) {
+            \$this->application->addbreadcrumb('View ' . \$model->{$primaryKey}, sURL . '{$className}/show/' . \$model->{$primaryKey});
+            \$this->application->addbreadcrumb('Edit', sURL . '{$className}/edit/' . \$model->{$primaryKey});
+        } else {
+            \$this->application->addbreadcrumb('Create', sURL . '{$className}/edit/0');
+        }
+        
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = (\$model->{$primaryKey} > 0 ? 'Edit' : 'Create') . ' | {$className}';
+        
+        return \$view->display('edit');
     }
 
     /**
@@ -1190,7 +1266,12 @@ content;
      */
     public function save()
     {
-
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+{$saveContent}
+        \$model->save();
+        \$this->redirect(sURL . '{$className}');
     }
 
     /**
@@ -1198,7 +1279,21 @@ content;
      */
     public function delete()
     {
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->delete(\$request->getOption());
+        \$this->redirect(sURL . '{$className}');
+    }
 
+    /**
+     * Returns the resource in JSON format
+     * @return string
+     */
+    public function get{$className}()
+    {
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \Pramnos\Framework\Factory::getDocument('json');
+        return \$model->getJsonList((bool)\Pramnos\Http\Request::staticGet('multiple', 0, 'int', 'get'));
     }
 
 }
@@ -1230,7 +1325,10 @@ content;
             $editContent = '';
 
             $primaryKey = '';
+            $firstField = ''; // Initialize firstField variable
+            $count = 0;
             while ($result->fetch()) {
+                $count++;
                 $primary = false;
                 if ($database->type == 'postgresql') {
                     if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
@@ -1241,6 +1339,13 @@ content;
                     && $result->fields['Key'] == 'PRI') {
                         $primaryKey = $result->fields['Field'];
                         $primary = true;
+                }
+                // Store the second field as the first non-primary field for display
+                if ($count == 2 && !$primary) {
+                    $firstField = $result->fields['Field'];
+                } else if ($count > 2 && empty($firstField) && !$primary) {
+                    // If the second field was the primary key, use the next non-primary field
+                    $firstField = $result->fields['Field'];
                 }
                 
                 // Check if this is a foreign key field
@@ -1366,6 +1471,9 @@ content;
         \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
 
         \$view->items = \$model->getList();
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = '{$className}';
         return \$view->display();
     }
 
@@ -1380,6 +1488,10 @@ content;
         \$request = new \Pramnos\Http\Request();
         \$model->load(\$request->getOption());
         \$view->addModel(\$model);
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        \$this->application->addbreadcrumb('View ' . \$model->{$primaryKey}, sURL . '{$className}/show/' . \$model->{$primaryKey});
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = \$model->{$primaryKey} . ' | {$className}';
         return \$view->display('show');
     }
 
@@ -1396,6 +1508,17 @@ content;
         \$view->addModel(\$model);
 
 {$loadForeignModelsContent}
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        if (\$model->{$primaryKey} > 0) {
+            \$this->application->addbreadcrumb('View ' . \$model->{$primaryKey}, sURL . '{$className}/show/' . \$model->{$primaryKey});
+            \$this->application->addbreadcrumb('Edit', sURL . '{$className}/edit/' . \$model->{$primaryKey});
+        } else {
+            \$this->application->addbreadcrumb('Create', sURL . '{$className}/edit/0');
+        }
+        
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = (\$model->{$primaryKey} > 0 ? 'Edit' : 'Create') . ' | {$className}';
+        
         return \$view->display('edit');
     }
 
@@ -1421,6 +1544,17 @@ content;
         \$request = new \Pramnos\Http\Request();
         \$model->delete(\$request->getOption());
         \$this->redirect(sURL . '{$className}');
+    }
+
+    /**
+     * Returns the resource in JSON format
+     * @return string
+     */
+    public function get{$className}()
+    {
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \Pramnos\Framework\Factory::getDocument('json');
+        return \$model->getJsonList((bool)\Pramnos\Http\Request::staticGet('multiple', 0, 'int', 'get'));
     }
 
 }
@@ -1593,6 +1727,38 @@ content;
         $arrayFix = '';
         $foreignFixes = '';
         $primaryKey = '';
+        $firstNonPrimaryField = '';
+        $count = 0;
+        
+        // First pass - find primary key and first non-primary field
+        $result = $this->getColumns($tableName);
+        while ($result->fetch()) {
+            $count++;
+            $isPrimary = false;
+            if ($database->type == 'postgresql') {
+                if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
+                    $primaryKey = $result->fields['Field'];
+                    $isPrimary = true;
+                }
+            } elseif (isset($result->fields['Key']) && $result->fields['Key'] == 'PRI') {
+                $primaryKey = $result->fields['Field'];
+                $isPrimary = true;
+            }
+            
+            // Get the first non-primary field to use for display
+            if (!$isPrimary && empty($firstNonPrimaryField)) {
+                $firstNonPrimaryField = $result->fields['Field'];
+            }
+        }
+        
+        // If no field was found, use 'name' as a fallback
+        if (empty($firstNonPrimaryField)) {
+            $firstNonPrimaryField = 'name';
+        }
+        
+        // Get columns again for the second pass since we can't rewind/reset the previous result
+        $result = $this->getColumns($tableName);
+        
         while ($result->fetch()) {
             $primary = false;
             if ($database->type == 'postgresql') {
@@ -1686,6 +1852,9 @@ content;
             $primaryKeyVal = '$' . $primaryKey;
         }
 
+        // Get the controller name here once, before generating the model
+        $controllerName = self::getProperClassName($name, false);
+
         $fileContent .= <<<content
     /**
      * Load from database
@@ -1732,6 +1901,67 @@ $foreignFixes
         \$data = parent::getData();
 $arrayFix
         return \$data;
+    }
+
+    /**
+     * Return data in JSON format for datatables
+     * @param bool \$multiple Allow multiple selection
+     * @return string
+     */
+    public function getJsonList(\$multiple = false)
+    {
+        \$fields = array(
+            '{$primaryKey}', 'a.`{$firstNonPrimaryField}`'
+        );
+
+        // Get database instance
+        \$database = \Pramnos\Database\Database::getInstance();
+        
+        // Make sure to use the actual table name with prefix instead of the placeholder
+        \$actualTableName = str_replace('#PREFIX#', \$database->prefix, '{$tableName}');
+        
+        // Add schema if specified in the model and using PostgreSQL
+        if (\$database->type == 'postgresql' && !empty(\$this->_dbschema)) {
+            \$actualTableName = \$this->_dbschema . '.' . \$actualTableName;
+        } elseif (\$database->type == 'postgresql' && !empty(\$database->schema)) {
+            \$actualTableName = \$database->schema . '.' . \$actualTableName;
+        }
+
+        \$items = \Pramnos\Html\Datatable\Datasource::getList(
+            \$actualTableName,
+            \$fields,
+            false,
+            ''
+        );
+
+        \$loopCounter = 0;
+        if (isset(\$items['aaData']) && is_array(\$items['aaData'])) {
+            foreach (\$items['aaData'] as \$data) {
+                \${$primaryKey} = \$data[0];
+
+                \$link = '<a href="' . sURL . '{$controllerName}/show/' . \$data[0] . '">';
+                \$data[0] = \$link . \$data[0] . '</a>';
+                \$data[1] = \$link . \$data[1] . '</a>';
+
+                \$actions = '<a href="'
+                    . sURL
+                    . '{$controllerName}/edit/'
+                    . \${$primaryKey}
+                    . '">Edit</a> '
+                    . '<a onclick="return confirm'
+                    . '(\'Are you sure?\');"'
+                    . ' href="'
+                    . sURL
+                    . '{$controllerName}/delete/'
+                    . \${$primaryKey}
+                    . '">Delete</a>';
+
+                \$data[2] = \$actions;
+                \$items['aaData'][\$loopCounter] = \$data;
+                \$loopCounter += 1;
+            }
+        }
+        return json_encode(\$items);
     }
 
     /**
