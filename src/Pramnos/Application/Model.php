@@ -19,6 +19,11 @@ class Model extends \Pramnos\Framework\Base
      */
     protected $_dbtable = null;
     /**
+     * Database schema
+     * @var string
+     */
+    protected $_dbschema = null;
+    /**
      * Cache key
      * @var string
      */
@@ -127,9 +132,7 @@ class Model extends \Pramnos\Framework\Base
             $request = new \Pramnos\Http\Request();
         }
         if ($table !== NULL && $table != "") {
-            $this->_dbtable = str_replace(
-                "#PREFIX#", $database->prefix, $table
-            );
+            $this->_dbtable = $table;
         }
         if ($key !== NULL && $key != "") {
             $this->_primaryKey = $key;
@@ -154,8 +157,8 @@ class Model extends \Pramnos\Framework\Base
             }
             $itemdata = array();
 
-            if (isset(self::$columnCache[$this->_dbtable])) {
-                foreach (self::$columnCache[$this->_dbtable] as $fields) {
+            if (isset(self::$columnCache[$this->getFullTableName()])) {
+                foreach (self::$columnCache[$this->getFullTableName()] as $fields) {
                     if ($fields['Field'] != $this->_primaryKey) {
                         $field = $fields['Field'];
                         if ($fields['Null'] == "NO") {
@@ -185,22 +188,27 @@ class Model extends \Pramnos\Framework\Base
             } else {
 
                 if ($database->type == 'postgresql') {
+                    if ($this->_dbschema != null) {
+                        $schema = $this->_dbschema;
+                    } else {
+                        $schema = $database->schema;
+                    }
                     $sql = "SELECT column_name as \"Field\", data_type as \"Type\", is_nullable as \"Null\" "
                     . " FROM information_schema.columns "
                     . " WHERE table_schema = '"
-                    . $database->schema
+                    . $schema
                     . "' AND table_name = '"
-                    . $this->_dbtable
+                    . str_replace('#PREFIX#', $database->prefix, $this->_dbtable)
                     . "';";
                 } else {
-                    $sql    = "SHOW COLUMNS FROM `" . $this->_dbtable . "`";
+                    $sql    = "SHOW COLUMNS FROM `" . $this->getFullTableName() . "`";
                 }
 
                 
                 $result = $database->query($sql);
-                self::$columnCache[$this->_dbtable] = array();
+                self::$columnCache[$this->getFullTableName()] = array();
                 while ($result->fetch()) {
-                    self::$columnCache[$this->_dbtable][] = $result->fields;
+                    self::$columnCache[$this->getFullTableName()][] = $result->fields;
                     if ($result->fields['Field'] != $this->_primaryKey) {
                         $field = $result->fields['Field'];
                         if ($result->fields['Null'] == "NO") {
@@ -240,7 +248,7 @@ class Model extends \Pramnos\Framework\Base
 
                 $this->_isnew = false;
                 $result = $database->insertDataToTable(
-                    $this->_dbtable, $itemdata, $primarykey, $debug
+                    $this->getFullTableName(), $itemdata, $primarykey, $debug
                 );
                 if ($result==false) {
                     $error = $database->getError();
@@ -254,7 +262,7 @@ class Model extends \Pramnos\Framework\Base
                 
             } else {
                 $database->updateTableData(
-                    $this->_dbtable, $itemdata,
+                    $this->getFullTableName(), $itemdata,
                     "`" . $primarykey . "` = '" . $this->$primarykey . "'",
                     $debug
                 );
@@ -297,9 +305,7 @@ class Model extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Database\Database::getInstance();
         if ($table !== NULL && $table != "") {
-            $this->_dbtable = str_replace(
-                "#PREFIX#", $database->prefix, $table
-            );
+            $this->_dbtable = $table;
         }
         if ($key !== NULL && $key != "") {
             $this->_primaryKey = $key;
@@ -315,18 +321,12 @@ class Model extends \Pramnos\Framework\Base
             if ($filter === NULL) {
                 $filter = "";
             }
-            if ($database->type == 'postgresql') {
-                if ($database->schema != '') {
-                    $sql = "select count(*) as \"itemsCount\" from "
-                        . $database->schema . '.' . $this->_dbtable
-                        . " " . $filter;
-                } else {
-                    $sql = "select count(*) as \"itemsCount\" from "
-                        . $this->_dbtable . " " . $filter;
-                }
+            if ($database->type == 'postgresql') {                
+                $sql = "select count(*) as \"itemsCount\" from "
+                    . $this->getFullTableName() . " " . $filter;
             } else {
                 $sql = "select count(*) as 'itemsCount' from `"
-                    . $this->_dbtable . "` " . $filter;
+                    . $this->getFullTableName() . "` " . $filter;
             }
             $result = $database->query($sql, true, 600, $this->_cacheKey);
             return $result->fields['itemsCount'];
@@ -351,9 +351,7 @@ class Model extends \Pramnos\Framework\Base
 
         $database = \Pramnos\Database\Database::getInstance();
         if ($table !== NULL && $table != "") {
-            $this->_dbtable = str_replace(
-                "#PREFIX#", $database->prefix, $table
-            );
+            $this->_dbtable = $table;
         }
         if ($key !== NULL && $key != "") {
             $this->_primaryKey = $key;
@@ -363,31 +361,20 @@ class Model extends \Pramnos\Framework\Base
                 $this->_fixDb();
             }
             if ($database->type == 'postgresql') {
-                if ($database->schema != '') {
-                    $sql = $database->prepareQuery(
-                        "select * from "
-                        . $database->schema
-                        . '.'
-                        . $this->_dbtable
-                        . " where `"
-                        . $this->_primaryKey
-                        . "` = %s limit 1",
-                        $primaryKey
-                    );
-                } else {
-                    $sql = $database->prepareQuery(
-                        "select * from "
-                        . $this->_dbtable
-                        . " where `"
-                        . $this->_primaryKey
-                        . "` = %s limit 1",
-                        $primaryKey
-                    );
-                }
+                
+                $sql = $database->prepareQuery(
+                    "select * from "
+                    . $this->getFullTableName()
+                    . " where `"
+                    . $this->_primaryKey
+                    . "` = %s limit 1",
+                    $primaryKey
+                );
+            
             } else {
                 $sql = $database->prepareQuery(
                     "select * from "
-                    . $this->_dbtable
+                    . $this->getFullTableName()
                     . " where `"
                     . $this->_primaryKey
                     . "` = %s limit 1",
@@ -425,9 +412,7 @@ class Model extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Database\Database::getInstance();
         if ($table !== NULL && $table != "") {
-            $this->_dbtable = str_replace(
-                "#PREFIX#", $database->prefix, $table
-            );
+            $this->_dbtable = $table;
         }
         if ($key !== NULL && $key != "") {
             $this->_primaryKey = $key;
@@ -436,7 +421,7 @@ class Model extends \Pramnos\Framework\Base
             if ($this->_cacheKey === NULL) {
                 $this->_fixDb();
             }
-            $sql = "delete from " . $this->_dbtable
+            $sql = "delete from " . $this->getFullTableName()
                 . " where " . $this->_primaryKey
                 . " = " . (int) $primaryKey;
             $database->query($sql);
@@ -492,13 +477,13 @@ class Model extends \Pramnos\Framework\Base
             if ($order === NULL || $order === '') {
                 $order  = " order by `" . $primarykey . "` DESC ";
             }
-            $sql = "select * from `" . $this->_dbtable
+            $sql = "select * from `" . $this->getFullTableName()
                 . "` " . $filter . ' ' . $order . ' limit '
                 . $page . ', ' . $items;
 
             $countSql = "select count(`" . $primarykey . "`) "
                 . "as 'itemsCount'  from `"
-                . $this->_dbtable . "` " . $filter . ' ' . $order ;
+                . $this->getFullTableName() . "` " . $filter . ' ' . $order ;
             $countResult = $database->query(
                 $countSql, true, 600, $this->_cacheKey
             );
@@ -586,16 +571,13 @@ class Model extends \Pramnos\Framework\Base
 
             
             if ($database->type == 'postgresql') {
-                if ($database->schema != '') {
-                    $sql = "select * from " . $database->schema . '.'
-                        . $this->_dbtable . " " . $filter . ' ' . $order;
-                } else {
-                    $sql = "select * from " 
-                        . $this->_dbtable . " " . $filter . ' ' . $order;
-                }
+                
+                $sql = "select * from " 
+                    . $this->getFullTableName() . " " . $filter . ' ' . $order;
+            
             } else {
                 $sql = "select * from `"
-                    . $this->_dbtable . "` " . $filter . ' ' . $order;
+                    . $this->getFullTableName() . "` " . $filter . ' ' . $order;
             }
             if ($debug==true) {
                 die($sql);
@@ -658,7 +640,7 @@ class Model extends \Pramnos\Framework\Base
             $fields = array();
 
 
-            $sql    = "SHOW COLUMNS FROM `" . $this->_dbtable . "`";
+            $sql    = "SHOW COLUMNS FROM `" . $this->getFullTableName() . "`";
             $result = $database->query($sql);
 
             while ($result->fetch()) {
@@ -666,7 +648,7 @@ class Model extends \Pramnos\Framework\Base
             }
 
             $objects = \Pramnos\Html\Datatable\Datasource::getList(
-                $this->_dbtable, $fields, false, $filter
+                $this->getFullTableName(), $fields, false, $filter
             );
 
             if (is_array($this->_jsonactions)
@@ -882,6 +864,33 @@ class Model extends \Pramnos\Framework\Base
         }
         
         return $changes;
+    }
+
+    /**
+     * Get the fully qualified table name with schema if needed
+     * @return string
+     */
+    protected function getFullTableName($tableName = null)
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        if ($tableName === null) {
+            $tableName = $this->_dbtable;
+        }
+        
+        // For PostgreSQL with schema defined, prepend the schema
+        if ($database->type == 'postgresql' && $this->_dbschema !== null) {
+            return str_replace(
+                '#PREFIX#', $database->prefix, $this->_dbschema . '.' . $tableName
+            );
+        } elseif ($database->type == 'postgresql' && $database->schema != '') {
+            return str_replace(
+                '#PREFIX#', $database->prefix, $database->schema . '.' . $tableName
+            );
+        }
+        
+        return str_replace(
+            '#PREFIX#', $database->prefix, $tableName
+        );
     }
 
 }
