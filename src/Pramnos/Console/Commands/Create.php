@@ -13,6 +13,17 @@ use Symfony\Component\Console\Input\InputArgument;
 class Create extends Command
 {
     /**
+     * The database schema
+     * @var string|null
+     */
+    protected $schema = null;
+    /**
+     * The database table
+     * @var string|null
+     */
+    protected $dbtable = null;
+
+    /**
      * Command configuration
      */
     protected function configure()
@@ -34,6 +45,14 @@ class Create extends Command
         $this->addArgument(
             'name', InputArgument::REQUIRED, 'Name of the created object'
         );
+        $this->addOption(
+            'schema', 's', InputArgument::OPTIONAL, 'Database schema', null
+        );
+
+        $this->addOption(
+            'table', 't', InputArgument::OPTIONAL, 'Database table', null
+        );
+
     }
 
     /**
@@ -45,6 +64,9 @@ class Create extends Command
     {
         $entity = $input->getArgument('entity');
         $name =  $input->getArgument('name');
+        $this->schema = $input->getOption('schema');
+        $this->dbtable = $input->getOption('table');
+
         switch (strtolower($entity)) {
             case "model":
                 $output->writeln($this->createModel($name));
@@ -260,24 +282,17 @@ migcontent;
 
         $indexContent = 'Hello World';
         $editContent = '';
-        $lastLetter = substr($name, -1);
-        if ($lastLetter == 's') {
-            $className =  ucfirst($name);
-            $filename = $path . DS . ucfirst($name) . '.php';
-        } else {
-            $className =  ucfirst($name) . 's';
-            $filename = $path . DS . ucfirst($name) . 's.php';
-        }
+        $className = self::getProperClassName($name, false);
+        $filename = $path . DS . $className . '.php';
 
         if ($full) {
             $database = \Pramnos\Database\Database::getInstance();
             $objectName = ucfirst($name);
 
-
-            if ($lastLetter == 's') {
-                $tableName = '#PREFIX#' . strtolower($name);
+            if ($this->dbtable != null) {
+                $tableName = $this->dbtable;
             } else {
-                $tableName = '#PREFIX#' . strtolower($name) . 's';
+                $tableName = self::getModelTableName($name);
             }
 
 
@@ -286,20 +301,7 @@ migcontent;
                     'Table: ' . $tableName . ' does not exist.'
                 );
             }
-            if ($database->type == 'postgresql') {
-                $sql = $database->prepareQuery(
-                    "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
-                    . "(SELECT pg_catalog.col_description(c.oid, a.ordinal_position) FROM pg_catalog.pg_class c WHERE c.oid = (SELECT relfilenode FROM pg_catalog.pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "')) AS \"Comment\" "
-                    . "FROM information_schema.columns a "
-                    . "WHERE table_name = '" 
-                    . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
-                );
-                
-            } else {
-                $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
-            }
-            
-            $result = $database->query($sql);
+            $result = $this->getColumns($tableName);
 
 
             $formContent = '';
@@ -310,10 +312,16 @@ migcontent;
             while ($result->fetch()) {
                 $count++;
                 $primary = false;
-                if (isset($result->fields['Key'])
+
+                if ($database->type == 'postgresql') {
+                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                    }
+                } elseif (isset($result->fields['Key'])
                     && $result->fields['Key'] == 'PRI') {
-                    $primaryKey = $result->fields['Field'];
-                    $primary = true;
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
                 }
                 if ($count == 2) {
                     $firstField = $result->fields['Field'];
@@ -524,13 +532,8 @@ content;
 
         $path .= 'Api/Controllers';
         $lastLetter = substr($name, -1);
-        if ($lastLetter == 's') {
-            $className = ucfirst(substr($name, 0, -1));
-            $filename = $path . DS . ucfirst(substr($name, 0, -1)) . '.php';
-        } else {
-            $className = ucfirst($name);
-            $filename = $path . DS . ucfirst($name) . '.php';
-        }
+        $className = self::getProperClassName($name, false);
+        $filename = $path . DS . $className . '.php';
 
 
         if (class_exists('\\' . $namespace . '\\'. $className)
@@ -560,7 +563,7 @@ class {$className} extends \Pramnos\Application\Controller
      * {$className} controller constructor
      * @param Application \$application
      */
-    public function __construct(\Pramnos\Application\Application \$application = null)
+    public function __construct(?\Pramnos\Application\Application \$application = null)
     {
         parent::__construct(\$application);
     }
@@ -575,10 +578,10 @@ content;
             $modelClassLower = strtolower($modelClass);
 
 
-            if ($lastLetter == 's') {
-                $tableName = '#PREFIX#' . strtolower($name);
+            if ($this->dbtable != null) {
+                $tableName = $this->dbtable;
             } else {
-                $tableName = '#PREFIX#' . strtolower($name) . 's';
+                $tableName = self::getModelTableName($name);
             }
             
 
@@ -588,24 +591,7 @@ content;
                     'Table: ' . $tableName . ' does not exist.'
                 );
             }
-            if ($database->type == 'postgresql') {
-                $sql = $database->prepareQuery(
-                    "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
-                    . "(SELECT col_description((SELECT oid FROM pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'), a.ordinal_position)) AS \"Comment\", "
-                    . "column_name in ( "
-                    . "    SELECT column_name "
-                    . "    FROM information_schema.table_constraints tc "
-                    . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
-                    . "    WHERE constraint_type = 'PRIMARY KEY' "
-                    . "    AND tc.table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
-                    . ") as \"PrimaryKey\" "
-                    . "FROM information_schema.columns a "
-                    . "WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
-                );
-            } else {
-                $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
-            }
-            $result = $database->query($sql);
+            $result = $this->getColumns($tableName);
 
 
             $saveContent = '';
@@ -620,7 +606,7 @@ content;
             while ($result->fetch()) {
                 $primary = false;
                 if ($database->type == 'postgresql') {
-                    if ($result->fields['PrimaryKey'] == 't') {
+                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
                         $primaryKey = $result->fields['Field'];
                         $primary = true;
                     }
@@ -1027,13 +1013,8 @@ content;
 
         $path .= 'Controllers';
         $lastLetter = substr($name, -1);
-        if ($lastLetter == 's') {
-            $className =  ucfirst($name);
-            $filename = $path . DS . ucfirst($name) . '.php';
-        } else {
-            $className =  ucfirst($name) . 's';
-            $filename = $path . DS . ucfirst($name) . 's.php';
-        }
+        $className = self::getProperClassName($name, false);
+        $filename = $path . DS . $className . '.php';
 
 
         if (class_exists('\\' . $namespace . '\\'. $className)
@@ -1059,7 +1040,7 @@ class {$className} extends \Pramnos\Application\Controller
      * {$className} controller constructor
      * @param Application \$application
      */
-    public function __construct(\Pramnos\Application\Application \$application = null)
+    public function __construct(?\Pramnos\Application\Application \$application = null)
     {
         \$this->addAuthAction(
             array('edit', 'save', 'delete', 'show')
@@ -1122,10 +1103,10 @@ content;
             $modelClass = substr($className, 0, -1);
 
 
-            if ($lastLetter == 's') {
-                $tableName = '#PREFIX#' . strtolower($name);
+            if ($this->dbtable != null) {
+                $tableName = $this->dbtable;
             } else {
-                $tableName = '#PREFIX#' . strtolower($name) . 's';
+                $tableName = self::getModelTableName($name);
             }
 
 
@@ -1134,19 +1115,7 @@ content;
                     'Table: ' . $tableName . ' does not exist.'
                 );
             }
-            if ($database->type == 'postgresql') {
-                $sql = $database->prepareQuery(
-                    "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
-                    . "(SELECT pg_catalog.col_description(c.oid, a.ordinal_position) FROM pg_catalog.pg_class c WHERE c.oid = (SELECT relfilenode FROM pg_catalog.pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "')) AS \"Comment\" "
-                    . "FROM information_schema.columns a "
-                    . "WHERE table_name = '" 
-                    . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
-                );
-                
-            } else {
-                $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
-            }
-            $result = $database->query($sql);
+            $result = $this->getColumns($tableName);
 
 
             $saveContent = '';
@@ -1372,57 +1341,20 @@ content;
         $application = $this->getApplication()->internalApplication;
         $application->init();
         $database = \Pramnos\Database\Database::getInstance();
-        $lastLetter = substr($name, -1);
-        if ($lastLetter == 's') {
-            $tableName = '#PREFIX#' . strtolower($name);
+        if ($this->dbtable != null) {
+            $tableName = $this->dbtable;
         } else {
-            $tableName = '#PREFIX#' . strtolower($name) . 's';
+            $tableName = self::getModelTableName($name);
         }
-
-
-        if (!$database->tableExists($tableName)) {
-            $tableName = '#PREFIX#' . strtolower($name);
-            if (!$database->tableExists($tableName)) {
-                throw new \Exception(
-                    'Table: ' . $tableName . ' does not exist.'
-                );
-            }
-
-        }
-
-        if ($database->type == 'postgresql') {
-            $sql = $database->prepareQuery(
-                "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
-                . "(SELECT col_description((SELECT oid FROM pg_class WHERE relname = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'), a.ordinal_position)) AS \"Comment\", "
-                . "column_name in ( "
-                . "    SELECT column_name "
-                . "    FROM information_schema.table_constraints tc "
-                . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
-                . "    WHERE constraint_type = 'PRIMARY KEY' "
-                . "    AND tc.table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
-                . ") as \"PrimaryKey\", "
-                . "column_name in ( "
-                . "    SELECT column_name "
-                . "    FROM information_schema.key_column_usage "
-                . "    WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "' "
-                . "    AND column_name = a.column_name "
-                . "    AND constraint_name in ( "
-                . "        SELECT constraint_name "
-                . "        FROM information_schema.table_constraints "
-                . "        WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "' "
-                . "        AND constraint_type = 'FOREIGN KEY' "
-                . "    ) "
-                . ") as \"ForeignKey\" "
-                . "FROM information_schema.columns a "
-                . "WHERE table_name = '" . str_replace('#PREFIX#', $database->prefix, $tableName) . "'"
-            );
-
-        } else {
-            $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
-        }
-        $result = $database->query($sql);
         
 
+        if (!$database->tableExists($tableName)) {
+            throw new \Exception(
+                'Table: ' . $tableName . ' does not exist.'
+            );
+        }
+
+        $result = $this->getColumns($tableName);
         
         $path = ROOT . DS . INCLUDES . DS;
 
@@ -1437,13 +1369,9 @@ content;
         }
         $namespace .= '\\Models';
         $path .= 'Models';
-        if ($lastLetter == 's') {
-            $className =  ucfirst(substr($name, 0, -1));
-            $filename = $path . DS . ucfirst(substr($name, 0, -1)) . '.php';
-        } else {
-            $className =  ucfirst($name);
-            $filename = $path . DS . ucfirst($name) . '.php';
-        }
+        
+        $className = self::getProperClassName($name, true);
+        $filename = $path . DS . $className . '.php';
         
         if (class_exists('\\' . $namespace . '\\'. $className)
             && file_exists($filename)) {  
@@ -1473,6 +1401,16 @@ class {$className} extends \Pramnos\Application\Model
 
 content;
 
+        if ($this->schema != '') {
+            $fileContent .= <<<content
+    /**
+     * Database schema
+     * @var string
+     */
+    protected \$_dbschema = '{$this->schema}';
+
+content;
+        }
 
         $arrayFix = '';
         $foreignFixes = '';
@@ -1480,7 +1418,7 @@ content;
         while ($result->fetch()) {
             $primary = false;
             if ($database->type == 'postgresql') {
-                if ($result->fields['PrimaryKey'] == 't') {
+                if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
                     $primaryKey = $result->fields['Field'];
                     $primary = true;
                 }
@@ -1639,6 +1577,123 @@ content;
         . "File: {$filename}\n\nModel created.";
 
 
+    }
+
+
+    /**
+     * Get the fully qualified table name with schema if needed
+     * @param string $table Table name
+     * @param bool $addSchema Add schema to the table name
+     * @return string
+     */
+    protected function getFullTableName($table, $addSchema = true)
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        
+        if (!$addSchema) {
+            return str_replace(
+                '#PREFIX#', $database->prefix, $table
+            );
+        }
+        
+        // For PostgreSQL with schema defined, prepend the schema
+        if ($database->type == 'postgresql' && $this->schema !== null) {
+            return str_replace(
+                '#PREFIX#', $database->prefix, $this->schema . '.' . $table
+            );
+        } elseif ($database->type == 'postgresql' && $database->schema != '') {
+            return str_replace(
+                '#PREFIX#', $database->prefix, $database->schema . '.' . $table
+            );
+        }
+        
+        return str_replace(
+            '#PREFIX#', $database->prefix, $table
+        );
+    }
+
+
+     /**
+     * Get proper class name for a model based on naming conventions
+     * 
+     * @param string $name The input name
+     * @param bool $forceSingular Force return in singular form
+     * @return string Proper class name
+     */
+    public static function getProperClassName($name, $forceSingular = true)
+    {
+        if ($forceSingular) {
+            if (\Pramnos\General\StringHelper::isPlural($name)) {
+                return ucfirst(\Pramnos\General\StringHelper::singularize($name));
+            }
+            return ucfirst($name);
+        } else {
+            if (\Pramnos\General\StringHelper::isPlural($name)) {
+                return ucfirst($name);
+            }
+            return ucfirst(\Pramnos\General\StringHelper::pluralize($name));
+        }
+    }
+    
+    /**
+     * Get model table name from a model name
+     * 
+     * @param string $name Model name
+     * @return string Table name with prefix placeholder
+     */
+    public static function getModelTableName($name)
+    {
+        $name = strtolower($name);
+        if (\Pramnos\General\StringHelper::isPlural($name)) {
+            return '#PREFIX#' . $name;
+        }
+        return '#PREFIX#' . \Pramnos\General\StringHelper::pluralize($name);
+    }
+
+    /**
+     * Get columns from a table
+     * @param string $tableName Table name
+     * @return \Pramnos\Database\Result
+     */
+    protected function getColumns($tableName)
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        if ($database->type == 'postgresql') {
+            $sql = $database->prepareQuery(
+                "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
+                . "(SELECT col_description((SELECT oid FROM pg_class WHERE relname = '" . $this->getFullTableName($tableName, false) . "'), a.ordinal_position)) AS \"Comment\", "
+                . "column_name in ( "
+                . "    SELECT column_name "
+                . "    FROM information_schema.table_constraints tc "
+                . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
+                . "    WHERE constraint_type = 'PRIMARY KEY' "
+                . "    AND tc.table_name = '" . $this->getFullTableName($tableName, false) . "'"
+                . "    AND tc.table_schema = '" . ($this->schema ?? $database->schema) . "'"
+                . ") as \"PrimaryKey\", "
+                . "column_name in ( "
+                . "    SELECT column_name "
+                . "    FROM information_schema.key_column_usage "
+                . "    WHERE table_name = '" . $this->getFullTableName($tableName, false) . "' "
+                . "    AND table_schema = '" . ($this->schema ?? $database->schema) . "' "
+                . "    AND column_name = a.column_name "
+                . "    AND constraint_name in ( "
+                . "        SELECT constraint_name "
+                . "        FROM information_schema.table_constraints "
+                . "        WHERE table_name = '" . $this->getFullTableName($tableName, false) . "' "
+                . "        AND table_schema = '" . ($this->schema ?? $database->schema) . "' "
+                . "        AND constraint_type = 'FOREIGN KEY' "
+                . "    ) "
+                . ") as \"ForeignKey\" "
+                . "FROM information_schema.columns a "
+                . "WHERE table_name = '" . $this->getFullTableName($tableName, false) . "' "
+                . "AND table_schema = '" . ($this->schema ?? $database->schema) . "'"
+            );
+
+        } else {
+            $sql = $database->prepareQuery("SHOW FULL COLUMNS FROM `{$tableName}`");
+        }
+        
+        return $database->query($sql);
     }
 
 
