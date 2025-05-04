@@ -23,6 +23,8 @@ class Create extends Command
      */
     protected $dbtable = null;
 
+    protected OutputInterface $output;
+
     /**
      * Command configuration
      */
@@ -62,6 +64,7 @@ class Create extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+        $this->output = $output;
         $entity = $input->getArgument('entity');
         $name =  $input->getArgument('name');
         $this->schema = $input->getOption('schema');
@@ -255,6 +258,103 @@ migcontent;
         return $content . "\n";
     }
 
+    /**
+     * Look up a model by table name using either class naming conventions or the model registry
+     * 
+     * @param string $name Base name to look up
+     * @param bool $forceSingular Whether to force singular form when checking by convention
+     * @return array|null Found model information or null if not found
+     */
+    protected function lookupModel($name, $forceSingular = true)
+    {
+        $application = $this->getApplication()->internalApplication;
+        $database = \Pramnos\Database\Database::getInstance();
+        
+        // Try to determine table name
+        if ($this->dbtable != null) {
+            $tableName = $this->dbtable;
+        } else {
+            $tableName = self::getModelTableName($name);
+        }
+        
+        // Prepare namespace
+        $namespace = 'Pramnos';
+        if (isset($application->applicationInfo['namespace'])) {
+            $namespace = $application->applicationInfo['namespace'];
+        }
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+        }
+        $namespace .= '\\Models';
+        
+        // Try convention-based approach first
+        $conventionClassName = self::getProperClassName($name, $forceSingular);
+        $fullConventionClassName = '\\' . $namespace . '\\' . $conventionClassName;
+        
+        // Check if the model exists by convention
+        if (class_exists($fullConventionClassName)) {
+            return [
+                'className' => $conventionClassName,
+                'namespace' => $namespace,
+                'fullClassName' => $fullConventionClassName,
+                'foundBy' => 'convention'
+            ];
+        }
+        
+        // If we have a specific table name, try to locate it in the registry
+        $registryFile = ROOT . DS . 'app' . DS . 'model-registry.json';
+        if (file_exists($registryFile)) {
+            $registry = json_decode(file_get_contents($registryFile), true);
+            
+            if (json_last_error() === JSON_ERROR_NONE && is_array($registry)) {
+                // Check the registry for a model matching this table
+                foreach ($registry as $model) {
+                    $registryTableName = $model['table'] ?? '';
+                    $registrySchema = $model['schema'] ?? '';
+                    
+                    // Check if this model matches the table we're looking for
+                    if ($registryTableName === $tableName || 
+                        str_replace('#PREFIX#', $database->prefix, $registryTableName) === $tableName) {
+                        
+                        // If schema is specified, make sure it matches too
+                        if ($this->schema !== null && $registrySchema !== $this->schema) {
+                            continue;
+                        }
+                        
+                        return [
+                            'className' => $model['className'],
+                            'namespace' => $model['namespace'],
+                            'fullClassName' => $model['fullClassName'],
+                            'foundBy' => 'registry'
+                        ];
+                    }
+                }
+                
+                // If we still haven't found it, try a case-insensitive search by name
+                $lowercaseName = strtolower($name);
+                foreach ($registry as $model) {
+                    if (strtolower($model['className']) === $lowercaseName || 
+                        strpos(strtolower($model['table']), $lowercaseName) !== false) {
+                        
+                        return [
+                            'className' => $model['className'],
+                            'namespace' => $model['namespace'],
+                            'fullClassName' => $model['fullClassName'],
+                            'foundBy' => 'registry_name_match'
+                        ];
+                    }
+                }
+            }
+        }
+        
+        // Return the convention-based lookup result as a fallback, even though the class doesn't exist
+        return [
+            'className' => $conventionClassName,
+            'namespace' => $namespace,
+            'fullClassName' => $fullConventionClassName,
+            'foundBy' => 'convention_fallback'
+        ];
+    }
 
     /**
      * Creates a view
@@ -289,12 +389,18 @@ migcontent;
             $database = \Pramnos\Database\Database::getInstance();
             $objectName = ucfirst($name);
 
+            // Look up the model in the registry first
+            $modelInfo = $this->lookupModel($name, true);
+            
+            // Get the model class from the lookup
+            $modelClass = $modelInfo['className'];
+            
+            // Determine table name - either from specified option or from model name
             if ($this->dbtable != null) {
                 $tableName = $this->dbtable;
             } else {
                 $tableName = self::getModelTableName($name);
             }
-
 
             if (!$database->tableExists($tableName)) {
                 throw new \Exception(
@@ -687,7 +793,6 @@ content;
 
     }
 
-
     /**
      * Creates a controller
      * @param string $name Name of the controller to be created
@@ -755,9 +860,15 @@ content;
             $database = \Pramnos\Database\Database::getInstance();
             $viewName = strtolower($name);
             $modelNameSpace = str_replace("Api\Controllers", "Models", $namespace);
-            $modelClass = $className;
-            $modelClassLower = strtolower($modelClass);
-
+            
+            // Look up the model in the registry first
+            $modelInfo = $this->lookupModel($name, true);
+            $modelClass = $modelInfo['className'] ?: $className;
+            
+            // If we found the model in the registry, use its namespace but adjust for the API context
+            if ($modelInfo['foundBy'] === 'registry' || $modelInfo['foundBy'] === 'registry_name_match') {
+                $modelNameSpace = $modelInfo['namespace'];
+            }
 
             if ($this->dbtable != null) {
                 $tableName = $this->dbtable;
@@ -1168,7 +1279,6 @@ content;
 
     }
 
-
     /**
      * Creates a controller
      * @param string $name Name of the controller to be created
@@ -1178,7 +1288,7 @@ content;
     {
         $application = $this->getApplication()->internalApplication;
         $application->init();
-
+        $output = $this->output;
         $path = ROOT . DS . INCLUDES . DS;
 
         if (isset($application->applicationInfo['namespace'])) {
@@ -1333,10 +1443,16 @@ content;
         } else {
             $database = \Pramnos\Database\Database::getInstance();
             $viewName = strtolower($name);
-            $modelNameSpace = str_replace("Controllers", "Models", $namespace);
             
-            // FIX: Use getProperClassName with forceSingular=true to get the correct model name
-            $modelClass = self::getProperClassName($name, true);
+            // Look up the model in the registry first
+            $modelInfo = $this->lookupModel($name, true);
+            $modelNameSpace = $modelInfo['namespace'];
+            $modelClass = $modelInfo['className'];
+            
+            // If we found the model in the registry, use that information
+            if ($modelInfo['foundBy'] === 'registry' || $modelInfo['foundBy'] === 'registry_name_match') {
+                $output->writeln("Using model " . $modelClass . " found in registry");
+            }
 
             if ($this->dbtable != null) {
                 $tableName = $this->dbtable;
@@ -1718,9 +1834,11 @@ content;
         $className = self::getProperClassName($name, true);
         $filename = $path . DS . $className . '.php';
         
+        $isUpdate = false;
         if (class_exists('\\' . $namespace . '\\'. $className)
             && file_exists($filename)) {  
-            return $this->updateModel('\\' . $namespace . '\\'. $className, $result, $filename);
+            $isUpdate = true;
+            $updateResult = $this->updateModel('\\' . $namespace . '\\'. $className, $result, $filename);
         } elseif (class_exists('\\' . $namespace . '\\'. $className)
             && file_exists($filename)) {  
                 throw new \Exception(
@@ -2036,6 +2154,25 @@ content;
 
         file_put_contents($filename, $fileContent);
 
+        // Register the model in the JSON registry before returning
+        $modelInfo = [
+            'className' => $className,
+            'namespace' => $namespace,
+            'fullClassName' => '\\' . $namespace . '\\' . $className,
+            'database' => $database->database,
+            'databaseType' => $database->type,
+            'schema' => $this->schema,
+            'table' => $tableName,
+            'timestamp' => date('Y-m-d H:i:s'),
+            'updated' => $isUpdate
+        ];
+        
+        $this->registerModelInRegistry($modelInfo);
+
+        if ($isUpdate) {
+            return $updateResult;
+        }
+
         return "Namespace: {$namespace}\n"
         . "Class: {$className}\n"
         . "File: {$filename}\n\nModel created.";
@@ -2043,6 +2180,71 @@ content;
 
     }
 
+    /**
+     * Register or update model information in the registry JSON file
+     * 
+     * @param array $modelInfo Information about the model to register
+     * @return bool Success status
+     */
+    protected function registerModelInRegistry(array $modelInfo)
+    {
+        $registryDir = ROOT . DS . 'app';
+        $registryFile = $registryDir . DS . 'model-registry.json';
+        
+        // Create directory if it doesn't exist
+        if (!file_exists($registryDir)) {
+            if (!mkdir($registryDir, 0755, true)) {
+                return false;
+            }
+        }
+        
+        // Load existing registry or create new one
+        $registry = [];
+        if (file_exists($registryFile)) {
+            $fileContents = file_get_contents($registryFile);
+            if (!empty($fileContents)) {
+                $registry = json_decode($fileContents, true);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    $registry = []; // Reset if JSON was invalid
+                }
+            }
+        }
+        
+        // Use model's full class name as the key for easy lookup
+        $modelKey = $modelInfo['fullClassName'];
+        
+        // Check if the model already exists in registry
+        $existingModelEntry = false;
+        foreach ($registry as $index => $entry) {
+            if (isset($entry['fullClassName']) && $entry['fullClassName'] === $modelKey) {
+                $existingModelEntry = true;
+                
+                // Update existing entry but preserve creation timestamp if it exists
+                if (isset($registry[$index]['createdAt'])) {
+                    $modelInfo['createdAt'] = $registry[$index]['createdAt'];
+                } else {
+                    $modelInfo['createdAt'] = $modelInfo['timestamp'];
+                }
+                
+                $modelInfo['updatedAt'] = $modelInfo['timestamp'];
+                $registry[$index] = $modelInfo;
+                break;
+            }
+        }
+        
+        // Add new entry if it doesn't exist
+        if (!$existingModelEntry) {
+            $modelInfo['createdAt'] = $modelInfo['timestamp'];
+            $modelInfo['updatedAt'] = $modelInfo['timestamp'];
+            $registry[] = $modelInfo;
+        }
+        
+        // Write updated registry back to file with pretty formatting
+        return file_put_contents(
+            $registryFile, 
+            json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        ) !== false;
+    }
 
     /**
      * Get the fully qualified table name with schema if needed
