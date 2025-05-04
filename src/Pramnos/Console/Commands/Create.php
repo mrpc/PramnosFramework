@@ -1334,8 +1334,9 @@ content;
             $database = \Pramnos\Database\Database::getInstance();
             $viewName = strtolower($name);
             $modelNameSpace = str_replace("Controllers", "Models", $namespace);
-            $modelClass = substr($className, 0, -1);
-
+            
+            // FIX: Use getProperClassName with forceSingular=true to get the correct model name
+            $modelClass = self::getProperClassName($name, true);
 
             if ($this->dbtable != null) {
                 $tableName = $this->dbtable;
