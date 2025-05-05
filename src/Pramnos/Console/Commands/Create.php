@@ -817,10 +817,10 @@ content;
         $namespace .= '\\Api\\Controllers';
 
         $path .= 'Api/Controllers';
-        $lastLetter = substr($name, -1);
         $className = self::getProperClassName($name, false);
+        $modelClass = $className; // Assuming the model class name matches the controller name
+        $modelClassLower = strtolower($modelClass); // Fix: Define the lowercase version of the model class name
         $filename = $path . DS . $className . '.php';
-
 
         if (class_exists('\\' . $namespace . '\\'. $className)
             || file_exists($filename)) {
