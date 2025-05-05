@@ -907,10 +907,42 @@ class Database extends \Pramnos\Framework\Base
         ) . ') VALUES (';
         reset($data);
         foreach ($data as $key => $value) {
-            $bindVarValue = $this->prepareValue(
-                $value['value'], $value['type']
-            );
-            $insertString .= $bindVarValue . ", ";
+
+
+            if ($value['type'] == 'geometry' && $this->type == 'postgresql') {
+                if (is_string($value['value'])) {
+                    // check if the value is in the form of latitude,longitude
+                    if (preg_match('/^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/', $value['value'], $matches)) {
+                        $latitude = $matches[1];
+                        $longitude = $matches[3];
+                        $insertString .= 'ST_SetSRID(ST_MakePoint(' . $longitude . ', ' . $latitude . '), 4326), ';
+                    } else {
+                        // handle other cases
+                        $insertString .= 'ST_GeomFromText(\'' . $value['value'] . '\'), ';
+                    }
+                } elseif (is_array($value['value'])) {
+                    // check if the value is in the form of latitude,longitude
+                    if (isset($value['value']['latitude']) && isset($value['value']['longitude'])) {
+                        $latitude = $value['value']['latitude'];
+                        $longitude = $value['value']['longitude'];
+                        $insertString .= 'ST_SetSRID(ST_MakePoint(' . $longitude . ', ' . $latitude . '), 4326), ';
+                    } else {
+                        // handle other cases
+                        $insertString .= 'ST_GeomFromText(\'' . $value['value'] . '\'), ';
+                    }
+                } else {
+                    $insertString .= 'NULL, ';
+                }
+
+
+            } else {
+
+
+                $bindVarValue = $this->prepareValue(
+                    $value['value'], $value['type']
+                );
+                $insertString .= $bindVarValue . ", ";
+            }
         }
         $insertString = substr(
             $insertString, 0, strlen($insertString) - 2
@@ -940,16 +972,46 @@ class Database extends \Pramnos\Framework\Base
             $updateString = 'UPDATE ' . $table . ' SET ';
         }
         foreach ($data as $value) {
-            $bindVarValue = $this->prepareValue(
-                $value['value'], $value['type']
-            );
-            if ($this->type == 'postgresql') {
-                $updateString .= '"' . $value['fieldName']
-                    . '"=' . $bindVarValue . ', ';
+            if ($value['type'] == 'geometry' && $this->type == 'postgresql') {
+                if (is_string($value['value'])) {
+                    // check if the value is in the form of latitude,longitude
+                    if (preg_match('/^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/', $value['value'], $matches)) {
+                        $latitude = $matches[1];
+                        $longitude = $matches[3];
+                        $updateString .= '"' . $value['fieldName'] . '"=ST_SetSRID(ST_MakePoint(' . $longitude . ', ' . $latitude . '), 4326), ';
+                    } else {
+                        // handle other cases
+                        $updateString .= '"' . $value['fieldName'] . '"= ST_GeomFromText(\'' . $value['value'] . '\'), ';
+                    }
+                } elseif (is_array($value['value'])) {
+                    // check if the value is in the form of latitude,longitude
+                    if (isset($value['value']['latitude']) && isset($value['value']['longitude'])) {
+                        $latitude = $value['value']['latitude'];
+                        $longitude = $value['value']['longitude'];
+                        $updateString .= '"' . $value['fieldName'] . '"=ST_SetSRID(ST_MakePoint(' . $longitude . ', ' . $latitude . '), 4326), ';
+                    } else {
+                        // handle other cases
+                        $updateString .= '"' . $value['fieldName'] . '"= ST_GeomFromText(\'' . $value['value'] . '\'), ';
+                    }
+                } else {
+                    $updateString .= '"' . $value['fieldName']
+                        . '"= NULL, ';
+                }
+
+
             } else {
-                $updateString .= "`" . $value['fieldName']
-                    . '`=' . $bindVarValue . ', ';
+                $bindVarValue = $this->prepareValue(
+                    $value['value'], $value['type']
+                );
+                if ($this->type == 'postgresql') {
+                    $updateString .= '"' . $value['fieldName']
+                        . '"=' . $bindVarValue . ', ';
+                } else {
+                    $updateString .= "`" . $value['fieldName']
+                        . '`=' . $bindVarValue . ', ';
+                }
             }
+            
             
         }
         $updateString = substr(
@@ -1660,6 +1722,52 @@ class Database extends \Pramnos\Framework\Base
         }
         
         return $this->query($sql, false, 0, "", false, $skipDataFix);
+    }
+
+    /**
+     * Decode EWKB (Extended Well-Known Binary) to a PHP array
+     * @param string $hexWKB Hexadecimal representation of the EWKB
+     * @return array Decoded geometry data
+     */
+    public function decodeEWKB($hexWKB) {
+        // Convert hex to binary
+        $wkb = hex2bin($hexWKB);
+        
+        // Check endianness (first byte)
+        $endian = ord($wkb[0]);
+        $little_endian = ($endian == 1);
+        
+        // Read geometry type (bytes 1-4)
+        $type = unpack($little_endian ? 'V' : 'N', substr($wkb, 1, 4))[1];
+        
+        // Extract SRID if present (PostGIS EWKB format)
+        $hasZ = ($type & 0x80000000) != 0;
+        $hasM = ($type & 0x40000000) != 0;
+        $hasSRID = ($type & 0x20000000) != 0;
+        
+        $baseType = $type & 0x1FFFFFFF;
+        $offset = 5; // After endian and type
+        
+        $srid = null;
+        if ($hasSRID) {
+            $srid = unpack($little_endian ? 'V' : 'N', substr($wkb, $offset, 4))[1];
+            $offset += 4;
+        }
+        
+        // For POINT type
+        if ($baseType == 1) {
+            $x = unpack('d', $little_endian ? substr($wkb, $offset, 8) : strrev(substr($wkb, $offset, 8)))[1];
+            $y = unpack('d', $little_endian ? substr($wkb, $offset + 8, 8) : strrev(substr($wkb, $offset + 8, 8)))[1];
+            
+            return [
+                'type' => 'POINT',
+                'coordinates' => [$x, $y],
+                'srid' => $srid
+            ];
+        }
+        
+        
+        return null;
     }
 
 }

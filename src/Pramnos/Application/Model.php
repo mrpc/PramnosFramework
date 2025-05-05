@@ -193,7 +193,9 @@ class Model extends \Pramnos\Framework\Base
                     } else {
                         $schema = $database->schema;
                     }
-                    $sql = "SELECT column_name as \"Field\", data_type as \"Type\", is_nullable as \"Null\" "
+                    $sql = "SELECT column_name as \"Field\", "
+                    . " CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END as \"Type\", "
+                    . " is_nullable as \"Null\" "
                     . " FROM information_schema.columns "
                     . " WHERE table_schema = '"
                     . $schema
@@ -772,6 +774,8 @@ class Model extends \Pramnos\Framework\Base
             case "real":
             case "double precision":
                 return "float";
+            case "geometry":
+                return "geometry";
             default:
                 return "string";
         }
