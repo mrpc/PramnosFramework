@@ -1533,6 +1533,22 @@ content;
                             'exists' => file_exists($foreignModelFile),
                             'isUserForeignKey' => false
                         ];
+
+                        // Check the model registry for the foreign model
+                        $registryFile = ROOT . DS . 'app' . DS . 'model-registry.json';
+                        if (file_exists($registryFile)) {
+                            $registry = json_decode(file_get_contents($registryFile), true);
+                            if (json_last_error() === JSON_ERROR_NONE && is_array($registry)) {
+                                foreach ($registry as $model) {
+                                    if (isset($model['table']) && $model['table'] === $foreignTable) {
+                                        $foreignKeyModels[$result->fields['Field']]['modelClass'] = $model['className'];
+                                        $foreignKeyModels[$result->fields['Field']]['modelNamespace'] = $model['namespace'];
+                                        $foreignKeyModels[$result->fields['Field']]['exists'] = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         // Special handling for user foreign keys
                         $foreignKeyModels[$result->fields['Field']] = [
