@@ -811,6 +811,7 @@ class Model extends \Pramnos\Framework\Base
         foreach (get_object_vars($this) as $key=>$value) {
             if ($key == '_primaryKey' || $key == '_dbtable'
                 || $key == 'modelname' || $key == 'prefix'
+                || $key == '_dbschema'
                 || $key == '_cacheKey') {
                 continue;
             }
