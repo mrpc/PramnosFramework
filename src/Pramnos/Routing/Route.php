@@ -84,6 +84,20 @@ class Route
         )) {
             return true;
         }
+
+        // Remove query parameters from the URI
+        $uri = parse_url($uri, PHP_URL_PATH);
+        if ($this->uri == $uri) {
+            return true;
+        }
+        if (preg_match(
+            $this->getCompiledRoute()->getRegex(),
+            '/' . $uri,
+            $this->parameters
+        )) {
+            return true;
+        }
+
         return false;
     }
 
