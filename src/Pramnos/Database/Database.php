@@ -933,7 +933,14 @@ class Database extends \Pramnos\Framework\Base
                 } else {
                     $insertString .= 'NULL, ';
                 }
-
+            } elseif ($value['type'] == 'boolean' && $this->type == 'postgresql') {
+                if ($value['value'] == 'true' || $value['value'] == true || $value['value'] == 1) {
+                    $insertString .= '\'t\', ';
+                } elseif ($value['value'] == 'false' || $value['value'] == false || $value['value'] == 0) {
+                    $insertString .= '\'f\', ';
+                } else {
+                    $insertString .= 'NULL, ';
+                }
 
             } else {
 

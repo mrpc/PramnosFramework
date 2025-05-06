@@ -776,6 +776,9 @@ class Model extends \Pramnos\Framework\Base
                 return "float";
             case "geometry":
                 return "geometry";
+            case "boolean":
+            case "bool":
+                return "boolean";
             default:
                 return "string";
         }
