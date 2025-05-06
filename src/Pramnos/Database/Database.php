@@ -1005,6 +1005,15 @@ class Database extends \Pramnos\Framework\Base
                         . '"= NULL, ';
                 }
 
+            } elseif ($value['type'] == 'boolean' && $this->type == 'postgresql') {
+
+                if ($value['value'] == 'true' || $value['value'] == true || $value['value'] == 1) {
+                    $updateString .= '"' . $value['fieldName'] . '"=\'t\', ';
+                } elseif ($value['value'] == 'false' || $value['value'] == false || $value['value'] == 0) {
+                    $updateString .= '"' . $value['fieldName'] . '"=\'f\', ';
+                } else {
+                    $updateString .= '"' . $value['fieldName'] . '"=NULL, ';
+                }
 
             } else {
                 $bindVarValue = $this->prepareValue(
