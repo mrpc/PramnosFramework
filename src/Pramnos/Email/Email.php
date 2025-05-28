@@ -319,7 +319,8 @@ class Email extends \Pramnos\Framework\Base
                 }
             } else {
                 // For other configurations, use the standard transport factory
-                $transport = \Symfony\Component\Mailer\Transport::fromDsn($dsn->toString());
+                $dsnString = sprintf('%s://%s:%s@%s:%d', $scheme, urlencode($user), urlencode($pass), $host, $port);
+                $transport = \Symfony\Component\Mailer\Transport::fromDsn($dsnString);
             }
             
             // Create Mailer
