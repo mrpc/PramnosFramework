@@ -817,9 +817,8 @@ content;
         $namespace .= '\\Api\\Controllers';
 
         $path .= 'Api/Controllers';
-        $className = self::getProperClassName($name, false);
-        $modelClass = $className; // Assuming the model class name matches the controller name
-        $modelClassLower = strtolower($modelClass); // Fix: Define the lowercase version of the model class name
+        // Use the exact entity name provided by the user for API controllers
+        $className = ucfirst($name);
         $filename = $path . DS . $className . '.php';
 
         if (class_exists('\\' . $namespace . '\\'. $className)
@@ -861,13 +860,18 @@ content;
             $viewName = strtolower($name);
             $modelNameSpace = str_replace("Api\Controllers", "Models", $namespace);
             
-            // Look up the model in the registry first
-            $modelInfo = $this->lookupModel($name, true);
-            $modelClass = $modelInfo['className'] ?: $className;
+            // Use the entity name provided by user for the model class name
+            $modelClass = self::getProperClassName($name, true);
+            $modelClassLower = strtolower($modelClass);
             
-            // If we found the model in the registry, use its namespace but adjust for the API context
+            // Look up the model in the registry to get correct namespace if it exists
+            $modelInfo = $this->lookupModel($name, true);
+            
+            // If we found the model in the registry, use its namespace
             if ($modelInfo['foundBy'] === 'registry' || $modelInfo['foundBy'] === 'registry_name_match') {
                 $modelNameSpace = $modelInfo['namespace'];
+                // But still use the user-specified entity name for the class
+                $modelClass = self::getProperClassName($name, true);
             }
 
             if ($this->dbtable != null) {
@@ -955,12 +959,12 @@ content;
                     case "boolean":
                         $returnContent .= '     * @apiSuccess {Boolean} data.' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
                         if (!$primary) { 
-                            $saveContent .= '        $tmpVar = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\');' . "\n";
-                            $saveContent .= '        if ($tmpVar == \'true\' || $tmpVar == \'on\' || $tmpVar == "yes" || $tmpVar === \'1\' || $tmpVar === 1) {' . "\n";
-                            $saveContent .= '            $tmpVar = true; ' . "\n";
-                            $saveContent .= '        } else { ' . "\n";
-                            $saveContent .= '            $tmpVar = false; ' . "\n";
-                            $saveContent .= '        } ' . "\n";
+                            $postContent .= '        $tmpVar = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\');' . "\n";
+                            $postContent .= '        if ($tmpVar == \'true\' || $tmpVar == \'on\' || $tmpVar == "yes" || $tmpVar === \'1\' || $tmpVar === 1) {' . "\n";
+                            $postContent .= '            $tmpVar = true; ' . "\n";
+                            $postContent .= '        } else { ' . "\n";
+                            $postContent .= '            $tmpVar = false; ' . "\n";
+                            $postContent .= '        } ' . "\n";
                             $saveContent .= '      * @apiBody {Boolean} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
                             $postContent .= '        $model->' . $result->fields['Field'] . ' = $tmpVar;' . "\n";   
                         }
@@ -1000,19 +1004,46 @@ content;
             }
 
 
+            // Generate field list for API documentation
+            $fieldList = '';
+            $result = $database->getColumns($tableName, $this->schema);
+            $fields = array();
+            while ($result->fetch()) {
+                $fields[] = $result->fields['Field'];
+            }
+            $fieldList = implode(', ', $fields);
+
             $fileContent .= <<<content
     /**
      * @api {get} 1.0/$modelClassLower List
      * @apiVersion 1.0.0
      * @apiGroup $modelClass
      * @apiName list$modelClass
-     * @apiDescription List of $modelClass objects
+     * @apiDescription List of $modelClass objects with pagination, search, sorting and field selection
      *
      * @apiHeader {String} apiKey Application unique api key
      * @apiHeader {String} accessToken Authenticated user access token
      *
+     * @apiParam  {Number} [page=0] Page number for pagination. Set to 0 to get all results
+     * @apiParam  {Number} [limit=20] Limit number of results per page
+     * @apiParam  {String} [sort] Sort by field. You can use the following fields: $fieldList
+     * @apiParam  {String} [search] Global search term. You can use this to search across all fields.
+     *                              It also supports input for specific search fields using JSON format,
+     *                              like: {\"field1\": \"value1\", \"field2\": \"value2\"}
+     * @apiParam  {String} [fields] Specify which fields you want returned by using the fields parameter 
+     *                              and listing each field. This overrides the defaults and returns only 
+     *                              the fields you specify, and the ID of the object, which is always returned.
+     *                              Can be comma-separated string or JSON array: \"field1,field2\" or [\"field1\",\"field2\"]
      *
      * @apiSuccess {Array} data List of $modelClass objects
+     * @apiSuccess {Object} [pagination] Pagination information (only when page > 0)
+     * @apiSuccess {Number} pagination.currentpage Current page number
+     * @apiSuccess {Number} pagination.itemsperpage Items per page
+     * @apiSuccess {Number} pagination.totalitems Total number of items
+     * @apiSuccess {Number} pagination.totalpages Total number of pages
+     * @apiSuccess {Boolean} pagination.hasnext Whether there is a next page
+     * @apiSuccess {Boolean} pagination.hasprevious Whether there is a previous page
+     * @apiSuccess {Array} fields List of fields included in the response
 $returnContent
      * @apiUse InvalidAccessToken
      * @apiUse APIKeyMissing
@@ -1021,7 +1052,6 @@ $returnContent
      */
     public function display()
     {
-
         if (!isset(\$_SESSION['user']) || !is_object(\$_SESSION['user'])) {
             return array('status' => 401);
         }
@@ -1030,15 +1060,26 @@ $returnContent
             return array('status' => 401);
         }
         
-        
         \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-        \$list = \$model->getList();
         
-        foreach (\$list as \$obj) {
-            \$data[] = \$obj->getData();
-        }
-
-        return array('data' => \$data);
+        // Get parameters from request
+        \$fields = \Pramnos\Http\Request::staticGet('fields', array(), 'get');
+        \$search = \Pramnos\Http\Request::staticGet('search', '', 'get');
+        \$sort = \Pramnos\Http\Request::staticGet('sort', '', 'get');
+        \$page = (int) \Pramnos\Http\Request::staticGet('page', 0, 'get', 'int');
+        \$limit = (int) \Pramnos\Http\Request::staticGet('limit', 20, 'get', 'int');
+        
+        // Use the new getApiList method for enhanced pagination, search, and field selection
+        return \$model->getApiList(
+            \$fields, 
+            \$search, 
+            \$sort, 
+            \$page, 
+            \$limit,
+            false, // debug
+            false, // returnAsModels
+            false   // useGetData
+        );
     }
 
     /**
@@ -1276,7 +1317,6 @@ content;
         return "Namespace: {$namespace}\n"
             . "Class: {$className}\n"
             . "File: {$filename}\n\nController created. \n";
-
     }
 
     /**
@@ -1338,6 +1378,7 @@ class {$className} extends \Pramnos\Application\Controller
         );
         parent::__construct(\$application);
     }
+    
 
 content;
         if (!$full) {
@@ -1436,6 +1477,28 @@ content;
         \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
         \Pramnos\Framework\Factory::getDocument('json');
         return \$model->getJsonList((bool)\Pramnos\Http\Request::staticGet('multiple', 0, 'int', 'get'));
+    }
+
+    /**
+     * Get an API-formatted list with pagination, field selection, and search capabilities
+     * @param array \$fields Array of field names to include in response. If empty, includes all fields
+     * @param string|array \$search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
+     * @param string \$order Order by clause (e.g., "field ASC" or "field DESC")
+     * @param int \$page Current page number (1-based, 0 = no pagination)
+     * @param int \$itemsPerPage Number of items per page (ignored if \$page = 0)
+     * @param bool \$debug Show debug information
+     * @param bool \$returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param bool \$useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @return array API response with pagination info and data
+     */
+    public function getApiList(\$fields = array(), \$search = '', 
+        \$order = '', \$page = 0, \$itemsPerPage = 10, 
+        \$debug = false, \$returnAsModels = false, \$useGetData = true)
+    {
+        return parent::_getApiList(
+            \$fields, \$search, \$order, '', '', '',
+            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
+        );
     }
 
 }
@@ -1592,8 +1655,7 @@ content;
                                 . $result->fields['Field']
                                 . ' = (bool) $request->get(\''
                                 . $result->fields['Field']
-                                . '\', \'\', \'post\');'
-                                . "\n";
+                                . '\', \'\', \'post\');' . "\n";
                             break;
                         default:
                             $saveContent .= '        $model->'
@@ -1722,90 +1784,51 @@ content;
         return \$model->getJsonList((bool)\Pramnos\Http\Request::staticGet('multiple', 0, 'int', 'get'));
     }
 
+    /**
+     * Get an API-formatted list with pagination, field selection, and search capabilities
+     * @param array \$fields Array of field names to include in response. If empty, includes all fields
+     * @param string|array \$search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
+     * @param string \$order Order by clause (e.g., "field ASC" or "field DESC")
+     * @param int \$page Current page number (1-based, 0 = no pagination)
+     * @param int \$itemsPerPage Number of items per page (ignored if \$page = 0)
+     * @param bool \$debug Show debug information
+     * @param bool \$returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param bool \$useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @return array API response with pagination info and data
+     */
+    public function getApiList(\$fields = array(), \$search = '', 
+        \$order = '', \$page = 0, \$itemsPerPage = 10, 
+        \$debug = false, \$returnAsModels = false, \$useGetData = true)
+    {
+        return parent::_getApiList(
+            \$fields, \$search, \$order, '', '', '',
+            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
+        );
+    }
+
 }
 content;
         }
 
         file_put_contents($filename, $fileContent);
 
+
+        if (!$isUpdate) {
+            // Register model in the registry for easier lookup
+            $this->registerModelInRegistry([
+                'className' => $className,
+                'namespace' => $namespace,
+                'fullClassName' => '\\' . $namespace . '\\' . $className,
+                'table' => $tableName,
+                'schema' => $this->schema ?? '',
+                'timestamp' => date('Y-m-d H:i:s'),
+                'generatedBy' => 'createModel'
+            ]);
+        }
+
         return "Namespace: {$namespace}\n"
             . "Class: {$className}\n"
-            . "File: {$filename}\n\nController created.";
-
-    }
-
-    /**
-     * Updates a model
-     * @param string $name Model name
-     * @param \Pramnos\Database\Result $result Database result
-     * @param string $filename Filename of the model
-     */
-    protected function updateModel($name, \Pramnos\Database\Result $result, $filename)
-    {
-        $fileContent = '';
-        
-        while ($result->fetch()) {
-            if (property_exists($name, $result->fields['Field'])) {
-                continue;
-            }
-            $type = 'string';
-            $basicType = explode('(', $result->fields['Type']);
-            switch ($basicType[0]) {
-                case "tinyint":
-                case "smallint":
-                case "integer":
-                case "int":
-                case "mediumint":
-                case "bigint":
-                    $type = 'int';
-                    break;
-                case "decimal":
-                case "numeric":
-                case "float":
-                case "double":
-                    $type = 'float';
-                    break;
-                case "bool":
-                case "boolean":
-                    $type = 'bool';
-                    break;
-                default: 
-                    $type = 'string';
-                    break;
-            }
-
-            $fileContent .= "    /**\n";
-            if ($result->fields['Comment'] != '') {
-                $fileContent .= "     * "
-                    . $result->fields['Comment']
-                    . "\n";
-            }
-            $fileContent .= "     * @var "
-                . $type
-                . "\n"
-                . "     */\n"
-                . "    public $"
-                . $result->fields['Field']
-                . ";\n";
-        }
-        if ($fileContent != '') {
-            
-            // Read the contents of the file
-            $fileContents = file_get_contents($filename);
-            
-            // Find the position of the last property definition
-            $lastPropertyPosition = strrpos($fileContents, 'public $');
-            // Find the position of the end of the last property definition
-            $lastPropertyEndPosition = strpos($fileContents, ';', $lastPropertyPosition);
-            // Insert the new property definitions after the last property definition
-            
-            $fileContents = substr_replace($fileContents, "\n" . $fileContent, $lastPropertyEndPosition + 1, 0);
-            // Write the modified contents back to the file
-            file_put_contents($filename, $fileContents);
-
-            return "File: {$filename}\n\nModel updated.";
-        }
-        return "Model exists and doesnt need an update.";
+            . "File: {$filename}\n\n" . ($isUpdate ? "Model updated." : "Model created.");
     }
 
 
@@ -1855,6 +1878,44 @@ content;
             && file_exists($filename)) {  
             $isUpdate = true;
             $updateResult = $this->updateModel('\\' . $namespace . '\\'. $className, $result, $filename);
+            
+            // Check if getApiList method exists, if not, add it
+            $fileContents = file_get_contents($filename);
+            if (strpos($fileContents, 'function getApiList(') === false) {
+                // Find the position just before the last closing brace
+                $lastBracePosition = strrpos($fileContents, '}');
+                
+                if ($lastBracePosition !== false) {
+                    $getApiListMethod = "
+    /**
+     * Get an API-formatted list with pagination, field selection, and search capabilities
+     * @param array \$fields Array of field names to include in response. If empty, includes all fields
+     * @param string|array \$search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
+     * @param string \$order Order by clause (e.g., \"field ASC\" or \"field DESC\")
+     * @param int \$page Current page number (1-based, 0 = no pagination)
+     * @param int \$itemsPerPage Number of items per page (ignored if \$page = 0)
+     * @param bool \$debug Show debug information
+     * @param bool \$returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param bool \$useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @return array API response with pagination info and data
+     */
+    public function getApiList(\$fields = array(), \$search = '', 
+        \$order = '', \$page = 0, \$itemsPerPage = 10, 
+        \$debug = false, \$returnAsModels = false, \$useGetData = true)
+    {
+        return parent::_getApiList(
+            \$fields, \$search, \$order, '', '', '',
+            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
+        );
+    }
+
+";
+                    
+                    // Insert the method just before the last closing brace
+                    $newFileContents = substr_replace($fileContents, $getApiListMethod, $lastBracePosition, 0);
+                    file_put_contents($filename, $newFileContents);
+                }
+            }
         } elseif (class_exists('\\' . $namespace . '\\'. $className)
             && file_exists($filename)) {  
                 throw new \Exception(
@@ -2170,9 +2231,6 @@ $arrayFix
      * @param array \$fields Array of field names to include in response. If empty, includes all fields
      * @param string|array \$search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
      * @param string \$order Order by clause (e.g., "field ASC" or "field DESC")
-     * @param string \$filter Additional WHERE clause filter
-     * @param string \$join JOIN clause for complex queries
-     * @param string \$group GROUP BY clause
      * @param int \$page Current page number (1-based, 0 = no pagination)
      * @param int \$itemsPerPage Number of items per page (ignored if \$page = 0)
      * @param bool \$debug Show debug information
@@ -2181,11 +2239,11 @@ $arrayFix
      * @return array API response with pagination info and data
      */
     public function getApiList(\$fields = array(), \$search = '', 
-        \$order = '', \$filter = '', \$join = '', \$group = '', 
-        \$page = 0, \$itemsPerPage = 10, \$debug = false, \$returnAsModels = false, \$useGetData = true)
+        \$order = '', \$page = 0, \$itemsPerPage = 10, 
+        \$debug = false, \$returnAsModels = false, \$useGetData = true)
     {
         return parent::_getApiList(
-            \$fields, \$search, \$order, \$filter, \$join, \$group,
+            \$fields, \$search, \$order, '', '', '',
             null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
         );
     }
@@ -2195,30 +2253,70 @@ content;
 
         file_put_contents($filename, $fileContent);
 
-        // Register the model in the JSON registry before returning
-        $modelInfo = [
-            'className' => $className,
-            'namespace' => $namespace,
-            'fullClassName' => '\\' . $namespace . '\\' . $className,
-            'database' => $database->database,
-            'databaseType' => $database->type,
-            'schema' => $this->schema,
-            'table' => $tableName,
-            'timestamp' => date('Y-m-d H:i:s'),
-            'updated' => $isUpdate
-        ];
-        
-        $this->registerModelInRegistry($modelInfo);
-
-        if ($isUpdate) {
-            return $updateResult;
+        if (!$isUpdate) {
+            // Register model in the registry for easier lookup
+            $this->registerModelInRegistry([
+                'className' => $className,
+                'namespace' => $namespace,
+                'fullClassName' => '\\' . $namespace . '\\' . $className,
+                'table' => $tableName,
+                'schema' => $this->schema ?? '',
+                'timestamp' => date('Y-m-d H:i:s'),
+                'generatedBy' => 'createModel'
+            ]);
         }
 
         return "Namespace: {$namespace}\n"
-        . "Class: {$className}\n"
-        . "File: {$filename}\n\nModel created.";
+            . "Class: {$className}\n"
+            . "File: {$filename}\n\n" . ($isUpdate ? "Model updated." : "Model created.");
+    }
 
+    /**
+     * Add getApiList method to an existing model file
+     * @param string $filename Path to the model file
+     * @return bool Success status
+     */
+    protected function addGetApiListMethod($filename)
+    {
+        $fileContents = file_get_contents($filename);
+        
+        // Find the position just before the last closing brace
+        $lastBracePosition = strrpos($fileContents, '}');
+        
+        if ($lastBracePosition === false) {
+            return false;
+        }
+        
+        $getApiListMethod = <<<'METHOD'
 
+    /**
+     * Get an API-formatted list with pagination, field selection, and search capabilities
+     * @param array $fields Array of field names to include in response. If empty, includes all fields
+     * @param string|array $search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
+     * @param string $order Order by clause (e.g., "field ASC" or "field DESC")
+     * @param int $page Current page number (1-based, 0 = no pagination)
+     * @param int $itemsPerPage Number of items per page (ignored if $page = 0)
+     * @param bool $debug Show debug information
+     * @param bool $returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param bool $useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @return array API response with pagination info and data
+     */
+    public function getApiList($fields = array(), $search = '', 
+        $order = '', $page = 0, $itemsPerPage = 10, 
+        $debug = false, $returnAsModels = false, $useGetData = true)
+    {
+        return parent::_getApiList(
+            $fields, $search, $order, '', '', '',
+            null, null, $page, $itemsPerPage, $debug, $returnAsModels, $useGetData
+        );
+    }
+
+METHOD;
+        
+        // Insert the method just before the last closing brace
+        $newFileContents = substr_replace($fileContents, $getApiListMethod, $lastBracePosition, 0);
+        
+        return file_put_contents($filename, $newFileContents) !== false;
     }
 
     /**
@@ -2304,11 +2402,11 @@ content;
         }
         
         // For PostgreSQL with schema defined, prepend the schema
-        if ($database->type == 'postgresql' && $this->schema !== null) {
+        if ($database->type == 'postgresql' && !empty($this->schema)) {
             return str_replace(
                 '#PREFIX#', $database->prefix, $this->schema . '.' . $table
             );
-        } elseif ($database->type == 'postgresql' && $database->schema != '') {
+        } elseif ($database->type == 'postgresql' && !empty($database->schema)) {
             return str_replace(
                 '#PREFIX#', $database->prefix, $database->schema . '.' . $table
             );
