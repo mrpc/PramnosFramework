@@ -498,6 +498,13 @@ class Model extends \Pramnos\Framework\Base
             if ($database->type == 'postgresql') {
                 $group = str_replace('`', '"', $group);
                 $join = str_replace('`', '"', $join);
+                $prefix = $database->prefix;
+                if ($prefix != '') {
+                    $prefix = $prefix . '_';
+                }
+                $join = str_replace('#PREFIX#', $database->prefix, $join);
+
+
             }
             if ($order === NULL || $order === '') {
                 if ($join != '') {
@@ -648,13 +655,16 @@ class Model extends \Pramnos\Framework\Base
         if ($key !== NULL && $key != "") {
             $this->_primaryKey = $key;
         }
+        
         if ($this->_dbtable === NULL) {
             $this->load(0);
         }
+        
         if ($this->_dbtable != NULL) {
             if ($this->_cacheKey === NULL) {
                 $this->_fixDb();
             }
+            
             $primarykey = $this->_primaryKey;
             if ($filter === NULL) {
                 $filter = "";
@@ -666,6 +676,11 @@ class Model extends \Pramnos\Framework\Base
             if ($database->type == 'postgresql') {
                 $group = str_replace('`', '"', $group);
                 $join = str_replace('`', '"', $join);
+                $prefix = $database->prefix;
+                if ($prefix != '') {
+                    $prefix = $prefix . '_';
+                }
+                $join = str_replace('#PREFIX#', $database->prefix, $join);
             }
             if ($order === NULL) {
                 if ($join != '') {
@@ -1027,6 +1042,298 @@ class Model extends \Pramnos\Framework\Base
         return str_replace(
             '#PREFIX#', $database->prefix, $tableName
         );
+    }
+
+    /**
+     * Get an API-formatted list with pagination, field selection, and search capabilities
+     * @param array $fields Array of field names to include in response. If empty, includes all fields
+     * @param string|array $search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
+     * @param string $order Order by clause (e.g., "field ASC" or "field DESC")
+     * @param string $filter Additional WHERE clause filter
+     * @param string $join JOIN clause for complex queries
+     * @param string $group GROUP BY clause
+     * @param string $table Database table
+     * @param string $key Database primary key
+     * @param int $page Current page number (1-based, 0 = no pagination)
+     * @param int $itemsPerPage Number of items per page (ignored if $page = 0)
+     * @param bool $debug Show debug information
+     * @param boolean $returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @return array API response with pagination info and data
+     */
+    public function _getApiList($fields = array(), $search = '', 
+        $order = '', $filter = '', $join = '', $group = '', 
+        $table = null, $key = null,
+        $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, $useGetData = false)
+    {
+        // Handle unified search parameter
+        $globalSearch = '';
+        $fieldSearches = array();
+        
+        if (is_string($search)) {
+            // Check if the string is a JSON object with field-specific searches
+            $decodedSearch = json_decode(urldecode($search), true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decodedSearch)) {
+                $fieldSearches = $decodedSearch;
+            } else {
+                $globalSearch = $search;
+            }
+        } elseif (is_array($search)) {
+            $fieldSearches = $search;
+        }
+
+        if (is_string($fields) && trim($fields) != '') {
+            // check if it's a json array
+            $decodedFields = json_decode(urldecode($fields), true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decodedFields)) {
+                $fields = $decodedFields;
+            } else {
+                // If not JSON, assume it's a comma-separated string
+                $fields = array_map('trim', explode(',', $fields));
+            }
+        } 
+        
+        // Get all available fields if none specified
+        if (empty($fields)) {
+            $fields = $this->_getAllTableFields();
+        }
+        
+        // Validate and sanitize fields
+        $availableFields = $this->_getAllTableFields();
+        $validFields = array();
+        foreach ($fields as $field) {
+            $field = trim($field);
+            if (!empty($field) && in_array($field, $availableFields)) {
+                $validFields[] = $field;
+            }
+        }
+        
+        if (empty($validFields)) {
+            $validFields = $availableFields;
+        }
+        
+        // Always ensure primary key is included
+        if ($key !== null && $key != "") {
+            $primaryKey = $key;
+        } else {
+            $primaryKey = $this->_primaryKey;
+        }
+        
+        if (!in_array($primaryKey, $validFields)) {
+            array_unshift($validFields, $primaryKey);
+        }
+        
+        // Build field selection for query
+        $selectFields = $this->_buildSelectFields($validFields, $join);
+        
+        // Build search conditions
+        $searchConditions = $this->_buildSearchConditions($validFields, $globalSearch, $fieldSearches, $join);
+        
+        // Combine filter and search conditions
+        $finalFilter = ' ' . $this->_combineFilters($filter, $searchConditions);
+        
+        // Check if pagination is requested
+        if ($page > 0) {
+            // Get paginated results
+            $result = $this->_getPaginated(
+                $itemsPerPage, $page, $finalFilter, $order, $table, $key, $debug,
+                $join, $selectFields, $group, $returnAsModels, $useGetData
+            );
+            
+            // Format response for API with pagination
+            return array(
+                'data' => $result['items'],
+                'pagination' => array(
+                    'currentpage' => $page,
+                    'itemsperpage' => $itemsPerPage,
+                    'totalitems' => $result['total'],
+                    'totalpages' => $result['pages'],
+                    'hasnext' => $page < $result['pages'],
+                    'hasprevious' => $page > 1
+                ),
+                'fields' => $validFields
+            );
+        } else {
+            // Get all results without pagination
+            $result = $this->_getList(
+                $finalFilter, $order, $table, $key, $debug,
+                $join, $selectFields, $group, $returnAsModels, $useGetData
+            );
+            
+            // Format response for API without pagination
+            return array(
+                'data' => $result,
+                'pagination' => null,
+                'fields' => $validFields
+            );
+        }
+    }
+    
+    /**
+     * Get all table fields for the current model
+     * @return array Array of field names
+     */
+    private function _getAllTableFields()
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        $fields = array();
+        
+        if (isset(self::$columnCache[$this->getFullTableName()])) {
+            foreach (self::$columnCache[$this->getFullTableName()] as $fieldInfo) {
+                $fields[] = $fieldInfo['Field'];
+            }
+        } else {
+            if ($database->type == 'postgresql') {
+                if ($this->_dbschema != null) {
+                    $schema = $this->_dbschema;
+                } else {
+                    $schema = $database->schema;
+                }
+                $sql = "SELECT column_name as \"Field\" "
+                    . " FROM information_schema.columns "
+                    . " WHERE table_schema = '"
+                    . $schema
+                    . "' AND table_name = '"
+                    . str_replace('#PREFIX#', $database->prefix, $this->_dbtable)
+                    . "';";
+            } else {
+                $sql = "SHOW COLUMNS FROM `" . $this->getFullTableName() . "`";
+            }
+            
+            $result = $database->query($sql);
+            while ($result->fetch()) {
+                $fields[] = $result->fields['Field'];
+                // Cache the results
+                if (!isset(self::$columnCache[$this->getFullTableName()])) {
+                    self::$columnCache[$this->getFullTableName()] = array();
+                }
+                self::$columnCache[$this->getFullTableName()][] = $result->fields;
+            }
+        }
+        
+        return $fields;
+    }
+    
+    /**
+     * Build SELECT fields clause with proper table aliases
+     * @param array $fields Array of field names
+     * @param string $join JOIN clause to determine if table alias is needed
+     * @return string Comma-separated field list for SELECT
+     */
+    private function _buildSelectFields($fields, $join)
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        $selectFields = array();
+        $hasJoin = !empty(trim($join));
+        
+        foreach ($fields as $field) {
+            if (strpos($field, '.') === false && $hasJoin) {
+                // Add table alias for fields without explicit table reference when using joins
+                if ($database->type == 'postgresql') {
+                    $selectFields[] = 'a."' . $field . '"';
+                } else {
+                    $selectFields[] = 'a.`' . $field . '`';
+                }
+            } elseif (strpos($field, '.') === false) {
+                // No join, no alias needed
+                if ($database->type == 'postgresql') {
+                    $selectFields[] = '"' . $field . '"';
+                } else {
+                    $selectFields[] = '`' . $field . '`';
+                }
+            } else {
+                // Field already has table reference
+                $selectFields[] = $field;
+            }
+        }
+        
+        return implode(', ', $selectFields);
+    }
+    
+    /**
+     * Build search conditions for WHERE clause
+     * @param array $fields Available fields for searching
+     * @param string $globalSearch Global search term
+     * @param array $fieldSearches Field-specific searches
+     * @param string $join JOIN clause to determine if table alias is needed
+     * @return string WHERE conditions for search
+     */
+    private function _buildSearchConditions($fields, $globalSearch, $fieldSearches, $join)
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        $conditions = array();
+        $hasJoin = !empty(trim($join));
+        
+        // Global search across all fields
+        if (!empty($globalSearch)) {
+            $globalConditions = array();
+            foreach ($fields as $field) {
+                $fieldRef = $field;
+                if (strpos($field, '.') === false && $hasJoin) {
+                    $fieldRef = 'a.' . ($database->type == 'postgresql' ? '"' . $field . '"' : '`' . $field . '`');
+                } elseif (strpos($field, '.') === false) {
+                    $fieldRef = ($database->type == 'postgresql' ? '"' . $field . '"' : '`' . $field . '`');
+                }
+                
+                if ($database->type == 'postgresql') {
+                    $globalConditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput('%' . $globalSearch . '%') . '\'';
+                } else {
+                    $globalConditions[] = $fieldRef . ' LIKE \'' . $database->prepareInput('%' . $globalSearch . '%') . '\'';
+                }
+            }
+            if (!empty($globalConditions)) {
+                $conditions[] = '(' . implode(' OR ', $globalConditions) . ')';
+            }
+        }
+        
+        // Field-specific searches
+        foreach ($fieldSearches as $field => $searchTerm) {
+            if (empty($searchTerm) || !in_array($field, $fields)) {
+                continue;
+            }
+            
+            $fieldRef = $field;
+            if (strpos($field, '.') === false && $hasJoin) {
+                $fieldRef = 'a.' . ($database->type == 'postgresql' ? '"' . $field . '"' : '`' . $field . '`');
+            } elseif (strpos($field, '.') === false) {
+                $fieldRef = ($database->type == 'postgresql' ? '"' . $field . '"' : '`' . $field . '`');
+            }
+            
+            if ($database->type == 'postgresql') {
+                $conditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput('%' . $searchTerm . '%') . '\'';
+            } else {
+                $conditions[] = $fieldRef . ' LIKE \'' . $database->prepareInput('%' . $searchTerm . '%') . '\'';
+            }
+        }
+        
+        return implode(' AND ', $conditions);
+    }
+    
+    /**
+     * Combine base filter with search conditions
+     * @param string $baseFilter Base WHERE filter
+     * @param string $searchConditions Search conditions
+     * @return string Combined filter
+     */
+    private function _combineFilters($baseFilter, $searchConditions)
+    {
+        $baseFilter = trim($baseFilter);
+        $searchConditions = trim($searchConditions);
+        
+        // Remove 'where' keyword if present
+        if (stripos($baseFilter, 'where') === 0) {
+            $baseFilter = trim(substr($baseFilter, 5));
+        }
+        
+        if (empty($baseFilter) && empty($searchConditions)) {
+            return '';
+        } elseif (empty($baseFilter)) {
+            return 'where ' . $searchConditions;
+        } elseif (empty($searchConditions)) {
+            return 'where ' . $baseFilter;
+        } else {
+            return 'where ' . $baseFilter . ' AND ' . $searchConditions;
+        }
     }
 
 }
