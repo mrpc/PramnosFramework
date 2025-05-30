@@ -119,12 +119,11 @@ class Request extends Base
                 strpos($_SERVER['REQUEST_URI'], '?')
             );
             $slashes = substr_count($request, '/');
-            $request = str_replace("=", "/", $request);
-            $request = str_replace("?", "/", $request);
-            $request = str_replace("&", "/", $request);
+
             $request = str_replace('//', '/', $request);
         }
-        $parts = explode("/", $request);
+        $mainString = explode('?', $request);
+        $parts = explode("/", $mainString[0]);
         if (isset($parts[0]) && $parts[0] !== '') {
             self::$_controller = $parts[0];
         }
@@ -143,7 +142,7 @@ class Request extends Base
             }
             foreach ($parts as $part) {
 
-                if (isset($varname)) {
+                if (isset($varname) && !isset($_GET[$varname]) && trim($varname) != '') {
                     $_GET[$varname] = $part;
                     $_REQUEST[$varname] = $part;
                     unset($varname);
