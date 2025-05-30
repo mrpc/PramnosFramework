@@ -433,6 +433,10 @@ class Model extends \Pramnos\Framework\Base
         return $this;
     }
 
+
+    
+
+
     /**
      * Similar to getList(), good for pagination
      * @param  int     $items  Number of items by page
@@ -442,11 +446,19 @@ class Model extends \Pramnos\Framework\Base
      * @param  string  $table  Database table
      * @param  string  $key    Database primary key
      * @param  boolean $debug  Show debug information
+     * @param  string  $join   Join statement for database query
+     * @param  string  $queryFields Fields to select in query. If $queryFields is NULL, all fields are selected
+     * @param  string  $group  Group by statement for database query
+     * @param  boolean $returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param  boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
      * @return array           Three keys: total, pages, items
      */
     protected function _getPaginated($items=10, $page=1,
         $filter = NULL, $order = NULL, $table = NULL,
-        $key = NULL, $debug=false)
+        $key = NULL, $debug=false,
+        $join = '',
+        $queryFields = NULL,
+        $group = '', $returnAsModels = true, $useGetData = false)
     {
         $items = abs((int)$items);
         $page-=1;
@@ -476,29 +488,111 @@ class Model extends \Pramnos\Framework\Base
             if ($filter === NULL) {
                 $filter = "";
             }
-            if ($order === NULL || $order === '') {
-                $order  = " order by `" . $primarykey . "` DESC ";
+            if ($filter === NULL) {
+                $filter = "";
+            } else {
+                if ($database->type == 'postgresql') {
+                    $filter = str_replace('`', '"', $filter);
+                }
             }
-            $sql = "select * from `" . $this->getFullTableName()
-                . "` " . $filter . ' ' . $order . ' limit '
-                . $page . ', ' . $items;
+            if ($database->type == 'postgresql') {
+                $group = str_replace('`', '"', $group);
+                $join = str_replace('`', '"', $join);
+            }
+            if ($order === NULL || $order === '') {
+                if ($join != '') {
+                    $order  = " order by a." . $primarykey . " DESC ";
+                } else {
+                    $order  = " order by " . $primarykey . " DESC ";
+                }
+            }
 
-            $countSql = "select count(`" . $primarykey . "`) "
-                . "as 'itemsCount'  from `"
-                . $this->getFullTableName() . "` " . $filter . ' ' . $order ;
+            if ($queryFields != NULL) {
+                $fields = $queryFields;
+            } else {
+                $fields = '*';
+            }
+
+            if ($database->type == 'postgresql') {
+                $order = str_replace('`', '"', $order);
+            }
+
+            if ($database->type == 'postgresql') {
+                if ($database->schema != '') {
+                    $sql = "select $fields from " . $database->schema . '.'
+                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
+                        . $items . ' offset ' . $page;
+                    if ($group != '') {
+                        $countSql = "select count(*) as \"itemsCount\" from ("
+                            . "select 1 from " . $database->schema . '.'
+                            . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group
+                            . ") as grouped_query";
+                    } else {
+                        $countSql = "select count(a." . $primarykey . ") "
+                            . "as \"itemsCount\"  from " . $database->schema . '.'
+                            . $this->_dbtable . " " . "  a " . $join . $filter;
+                    }
+                } else {
+                    $sql = "select $fields from "
+                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
+                        . $items . ' offset ' . $page;
+                    if ($group != '') {
+                        $countSql = "select count(*) as \"itemsCount\" from ("
+                            . "select 1 from "
+                            . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group
+                            . ") as grouped_query";
+                    } else {
+                        $countSql = "select count(a." . $primarykey . ") "
+                            . "as \"itemsCount\"  from "
+                            . $this->_dbtable . " " . "  a " . $join . $filter;
+                    }
+                }
+            } else {
+                $sql = "select $fields from `"
+                    . $this->_dbtable . "` " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
+                    . $page . ', ' . $items;
+                if ($group != '') {
+                    $countSql = "select count(*) as 'itemsCount' from ("
+                        . "select 1 from `"
+                        . $this->_dbtable . "` " . "  a " . $join . $filter . ' ' . $group
+                        . ") as grouped_query";
+                } else {
+                    $countSql = "select count(a.`" . $primarykey . "`) "
+                        . "as 'itemsCount'  from `"
+                        . $this->_dbtable . "` " . "  a " . $join . $filter;
+                }
+            }
             $countResult = $database->query(
                 $countSql, true, 600, $this->_cacheKey
             );
             $totalItems = $countResult->fields['itemsCount'];
 
+            if ($totalItems == 0 | $items == 0) {
+                $totalPages = 1;
+            } else {
+                $totalPages = ceil($totalItems / $items);
+            }
+
             if ($debug==true) {
                 die($sql);
             }
 
+            $result = $database->query($sql, true, 600, $this->_cacheKey);
+
             $class = get_class($this);
             
+            if ($returnAsModels == false && $useGetData == false) {
+                $objects = array();
+                while ($result->fetch()) {
+                    $objects[] = $result->fields;
+                }
+                return array(
+                    'total'=>$totalItems,
+                    'pages'=>$totalPages,
+                    'items'=>$objects
+                );
+            }
 
-            $result = $database->query($sql, true, 600, $this->_cacheKey);
             while ($result->fetch()) {
                 $objects[$result->fields[$primarykey]] = new $class(
                     $this->controller
@@ -508,15 +602,11 @@ class Model extends \Pramnos\Framework\Base
                         = $result->fields[$field];
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
+                if ($useGetData == true) {
+                    $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
+                }
             }
         }
-
-        if ($totalItems == 0 | $items == 0) {
-            $totalPages = 1;
-        } else {
-            $totalPages = ceil($totalItems / $items);
-        }
-
 
         return array(
             'total'=>$totalItems,
@@ -535,13 +625,15 @@ class Model extends \Pramnos\Framework\Base
      * @param string $join Join statement for database query
      * @param string $queryFields Fields to select in query. If $queryFields is NULL, all fields are selected
      * @param string $group Group by statement for database query
+     * @param boolean $returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
      * @return array
      */
     public function _getList($filter = NULL, $order = NULL,
         $table = NULL, $key = NULL, $debug=false,
         $join = '',
         $queryFields = NULL,
-        $group = '')
+        $group = '', $returnAsModels = true, $useGetData = false)
     {
         if ($table === NULL && $this->_dbtable === NULL) {
             $table = '#PREFIX#' . $this->prefix . '_' . $this->modelname;
@@ -615,6 +707,13 @@ class Model extends \Pramnos\Framework\Base
                 \Pramnos\Logs\Logger::logError("Error in getList query: " . $sql . " - " . $ex->getMessage(), $ex);
                 $this->controller->application->showError($ex->getMessage());
             }
+            if ($returnAsModels == false && $useGetData == false) {
+                $objects = array();
+                while ($result->fetch()) {
+                    $objects[] = $result->fields;
+                }
+                return $objects;
+            }
             $class = get_class($this);
             while ($result->fetch()) {
 
@@ -625,6 +724,10 @@ class Model extends \Pramnos\Framework\Base
                         = $result->fields[$field];
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
+                if ($useGetData == true) {
+                    $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
+                }
+                
             }
         }
         return $objects;
