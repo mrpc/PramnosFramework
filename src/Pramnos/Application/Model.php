@@ -529,12 +529,19 @@ class Model extends \Pramnos\Framework\Base
      * Get an array of objects from database
      * @param string $filter Filter for where statement in database query
      * @param string $order Order for database query
-     * @param type $table
-     * @param type $key
+     * @param string $table
+     * @param string $key
+     * @param boolean $debug Show debug information
+     * @param string $join Join statement for database query
+     * @param string $queryFields Fields to select in query. If $queryFields is NULL, all fields are selected
+     * @param string $group Group by statement for database query
      * @return array
      */
     public function _getList($filter = NULL, $order = NULL,
-        $table = NULL, $key = NULL, $debug=false)
+        $table = NULL, $key = NULL, $debug=false,
+        $join = '',
+        $queryFields = NULL,
+        $group = '')
     {
         if ($table === NULL && $this->_dbtable === NULL) {
             $table = '#PREFIX#' . $this->prefix . '_' . $this->modelname;
@@ -564,22 +571,40 @@ class Model extends \Pramnos\Framework\Base
                     $filter = str_replace('`', '"', $filter);
                 }
             }
-            if ($order === NULL) {
-                $order  = " order by " . $primarykey . " DESC ";
+            if ($database->type == 'postgresql') {
+                $group = str_replace('`', '"', $group);
+                $join = str_replace('`', '"', $join);
             }
+            if ($order === NULL) {
+                if ($join != '') {
+                    $order  = " order by a." . $primarykey . " DESC ";
+                } else {
+                    $order  = " order by " . $primarykey . " DESC ";
+                }
+            }
+
+            if ($queryFields != NULL) {
+                $fields = $queryFields;
+            } else {
+                $fields = '*';
+            }
+
             if ($database->type == 'postgresql') {
                 $order = str_replace('`', '"', $order);
             }
 
             
             if ($database->type == 'postgresql') {
-                
-                $sql = "select * from " 
-                    . $this->getFullTableName() . " " . $filter . ' ' . $order;
-            
+                if ($database->schema != '') {
+                    $sql = "select $fields from " . $database->schema . '.'
+                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
+                } else {
+                    $sql = "select $fields from "
+                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
+                }
             } else {
-                $sql = "select * from `"
-                    . $this->getFullTableName() . "` " . $filter . ' ' . $order;
+                $sql = "select $fields from `"
+                    . $this->_dbtable . "` " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
             }
             if ($debug==true) {
                 die($sql);
