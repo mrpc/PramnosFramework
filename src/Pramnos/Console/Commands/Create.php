@@ -2165,6 +2165,31 @@ $arrayFix
         return parent::_getList(\$filter, \$order);
     }
 
+    /**
+     * Get an API-formatted list with pagination, field selection, and search capabilities
+     * @param array \$fields Array of field names to include in response. If empty, includes all fields
+     * @param string|array \$search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
+     * @param string \$order Order by clause (e.g., "field ASC" or "field DESC")
+     * @param string \$filter Additional WHERE clause filter
+     * @param string \$join JOIN clause for complex queries
+     * @param string \$group GROUP BY clause
+     * @param int \$page Current page number (1-based, 0 = no pagination)
+     * @param int \$itemsPerPage Number of items per page (ignored if \$page = 0)
+     * @param bool \$debug Show debug information
+     * @param bool \$returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param bool \$useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @return array API response with pagination info and data
+     */
+    public function getApiList(\$fields = array(), \$search = '', 
+        \$order = '', \$filter = '', \$join = '', \$group = '', 
+        \$page = 0, \$itemsPerPage = 10, \$debug = false, \$returnAsModels = false, \$useGetData = true)
+    {
+        return parent::_getApiList(
+            \$fields, \$search, \$order, \$filter, \$join, \$group,
+            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
+        );
+    }
+
 }
 content;
 
