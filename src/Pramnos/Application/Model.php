@@ -524,6 +524,12 @@ class Model extends \Pramnos\Framework\Base
                 $order = str_replace('`', '"', $order);
             }
 
+            if (trim($order) != '' && strpos($order, 'order by') === false) {
+                $order = ' order by ' . $order;
+            }
+            $orderArray = explode(';', $order);
+            $order = $database->prepareQuery($orderArray[0]);
+
             if ($database->type == 'postgresql') {
                 if ($database->schema != '') {
                     $sql = "select $fields from " . $database->schema . '.'
@@ -699,8 +705,13 @@ class Model extends \Pramnos\Framework\Base
             if ($database->type == 'postgresql') {
                 $order = str_replace('`', '"', $order);
             }
-
+            if (trim($order) != '' && strpos($order, 'order by') === false) {
+                $order = ' order by ' . $order;
+            }
+            $orderArray = explode(';', $order);
+            $order = $database->prepareQuery($orderArray[0]);
             
+
             if ($database->type == 'postgresql') {
                 if ($database->schema != '') {
                     $sql = "select $fields from " . $database->schema . '.'
