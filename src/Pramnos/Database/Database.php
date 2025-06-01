@@ -1386,7 +1386,7 @@ class Database extends \Pramnos\Framework\Base
                 $fieldType = pg_field_type($dbResource, $i);
                 $columnTypes[$fieldName] = $fieldType;
             }
-            
+            $obj->columnTypes = $columnTypes;
             $resultArray = pg_fetch_array($dbResource, null, PGSQL_ASSOC);
             pg_result_seek($dbResource, 0);
             

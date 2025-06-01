@@ -57,12 +57,16 @@ class Result
      */
     public $cursor = 0;
 
-     /**
+    /**
      * End of file flag
      * @var bool
      */
      public $eof = true;
-
+    /**
+     * Column types
+     * @var array
+     */
+     public $columnTypes = array();
 
     /**
      * Database result object
@@ -103,10 +107,11 @@ class Result
 
     /**
      * Fetch a result row as an associative array
+     * @param bool $skipDataFix If true, skips the data type conversion
      * @return array|null Returns an array of strings that corresponds to the
      * fetched row or NULL if there are no more rows in resultset.
      */
-    public function fetch()
+    public function fetch($skipDataFix = false)
     {
         $this->cursor++;
         if ($this->isCached) {
@@ -124,11 +129,48 @@ class Result
                 MYSQLI_ASSOC
             );
         } elseif ($this->database->type == 'postgresql' && is_object($this->mysqlResult)) {
+            
             $this->fields = pg_fetch_array(
                 $this->mysqlResult,
                 null,
                 MYSQLI_ASSOC
             );
+            if (is_array($this->fields)) {
+                    
+                foreach($this->fields as $key => $value) {
+                    // Convert numeric types to their PHP equivalents
+                    if (isset($this->columnTypes[$key]) && !$skipDataFix) {
+                        switch ($this->columnTypes[$key]) {
+                            case 'int4':
+                            case 'int8':
+                            case 'int2':
+                            case 'integer':
+                            case 'bigint':
+                            case 'smallint':
+                                $this->fields[$key] = $value === null ? null : (int)$value;
+                                break;
+                            case 'float4':
+                            case 'float8':
+                            case 'numeric':
+                            case 'decimal':
+                            case 'real':
+                            case 'double precision':
+                                $this->fields[$key] = $value === null ? null : (float)$value;
+                                break;
+                            case 'bool':
+                            case 'boolean':
+                                $this->fields[$key] = $value === 't' ? true : ($value === 'f' ? false : $value);
+                                break;
+                            default:
+                                $this->fields[$key] = $value;
+                        }
+                    } else {
+                        $this->fields[$key] = $value;
+                    }
+                }
+            }
+            return $this->fields;
+
         } elseif (is_object($this->mysqlResult)) {
             $this->fields = mysqli_fetch_array(
                 $this->mysqlResult,
