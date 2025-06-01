@@ -405,17 +405,23 @@ class Datasource extends Base
 
 
         $return = array();
-        while ($result->fetch()) {
+        while ($result->fetch(true)) {
             $fielddetails = array_keys($this->fielddetails);
             $i = 0;
             foreach ($result->fields as $field) {
-
-                $field = trim(
-                    str_replace(array("\n", "\t", "\r"), " ", $field ?? '')
-                ); //Fixed for exporting to Excel
-                if ($iconv !== NULL && !is_numeric($field) && $iconv != 'utf-8') {
-                    $field = iconv($iconv, 'utf-8//IGNORE', $field);
+                if (is_string($field)) {
+                    $field = trim(
+                        str_replace(array("\n", "\t", "\r"), " ", $field ?? '')
+                    ); //Fixed for exporting to Excel
+                } elseif (is_null($field)) {
+                    $field = '';
                 }
+                
+                if (is_bool($field)) {
+                    $field = $field ? 't' : 'f';
+                } elseif ($iconv !== NULL && !is_numeric($field) && $iconv != 'utf-8') {
+                    $field = iconv($iconv, 'utf-8//IGNORE', $field);
+                }          
                 if (@$this->fielddetails[$fielddetails[$i]]['format'] == 'date') {
                     if ($field > 0) {
                         $field = date(
