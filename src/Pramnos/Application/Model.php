@@ -524,6 +524,12 @@ class Model extends \Pramnos\Framework\Base
                 $order = str_replace('`', '"', $order);
             }
 
+            if (trim($order) != '' && stripos($order, 'order by') === false) {
+                $order = ' order by ' . $order;
+            }
+            $orderArray = explode(';', $order);
+            $order = $database->prepareQuery($orderArray[0]);
+
             if ($database->type == 'postgresql') {
                 if ($database->schema != '') {
                     $sql = "select $fields from " . $database->schema . '.'
@@ -699,8 +705,13 @@ class Model extends \Pramnos\Framework\Base
             if ($database->type == 'postgresql') {
                 $order = str_replace('`', '"', $order);
             }
-
+            if (trim($order) != '' && stripos($order, 'order by') === false) {
+                $order = ' order by ' . $order;
+            }
+            $orderArray = explode(';', $order);
+            $order = $database->prepareQuery($orderArray[0]);
             
+
             if ($database->type == 'postgresql') {
                 if ($database->schema != '') {
                     $sql = "select $fields from " . $database->schema . '.'
@@ -1129,6 +1140,9 @@ class Model extends \Pramnos\Framework\Base
         // Build search conditions
         $searchConditions = $this->_buildSearchConditions($validFields, $globalSearch, $fieldSearches, $join);
         
+        // Validate and build order clause
+        $validatedOrder = $this->_validateAndBuildOrder($order, $availableFields, $join);
+        
         // Combine filter and search conditions
         $finalFilter = ' ' . $this->_combineFilters($filter, $searchConditions);
         
@@ -1136,7 +1150,7 @@ class Model extends \Pramnos\Framework\Base
         if ($page > 0) {
             // Get paginated results
             $result = $this->_getPaginated(
-                $itemsPerPage, $page, $finalFilter, $order, $table, $key, $debug,
+                $itemsPerPage, $page, $finalFilter, $validatedOrder, $table, $key, $debug,
                 $join, $selectFields, $group, $returnAsModels, $useGetData
             );
             
@@ -1151,12 +1165,17 @@ class Model extends \Pramnos\Framework\Base
                     'hasnext' => $page < $result['pages'],
                     'hasprevious' => $page > 1
                 ),
-                'fields' => $validFields
+                'fields' => $validFields,
+                'debug' => array(
+                    'filter' => $finalFilter,
+                    'order' => $validatedOrder,
+                    'selectFields' => $selectFields
+                )
             );
         } else {
             // Get all results without pagination
             $result = $this->_getList(
-                $finalFilter, $order, $table, $key, $debug,
+                $finalFilter, $validatedOrder, $table, $key, $debug,
                 $join, $selectFields, $group, $returnAsModels, $useGetData
             );
             
@@ -1164,7 +1183,12 @@ class Model extends \Pramnos\Framework\Base
             return array(
                 'data' => $result,
                 'pagination' => null,
-                'fields' => $validFields
+                'fields' => $validFields,
+                'debug' => array(
+                    'filter' => $finalFilter,
+                    'order' => $validatedOrder,
+                    'selectFields' => $selectFields
+                )
             );
         }
     }
@@ -1307,6 +1331,143 @@ class Model extends \Pramnos\Framework\Base
         }
         
         return implode(' AND ', $conditions);
+    }
+    
+    /**
+     * Validate and build ORDER BY clause with field validation and ASC/DESC handling
+     * @param string $order Order specification (e.g., "field1,-field2,+field3")
+     * @param array $availableFields Array of valid field names
+     * @param string $join JOIN clause to determine if table alias is needed
+     * @return string Validated ORDER BY clause
+     */
+    private function _validateAndBuildOrder($order, $availableFields, $join)
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        $orderParts = array();
+        $hasJoin = !empty(trim($join));
+        
+        if (empty(trim($order))) {
+            // Default order by primary key DESC
+            $primaryKey = $this->_primaryKey;
+            if ($hasJoin) {
+                if ($database->type == 'postgresql') {
+                    return 'ORDER BY a."' . $primaryKey . '" DESC';
+                } else {
+                    return 'ORDER BY a.`' . $primaryKey . '` DESC';
+                }
+            } else {
+                if ($database->type == 'postgresql') {
+                    return 'ORDER BY "' . $primaryKey . '" DESC';
+                } else {
+                    return 'ORDER BY `' . $primaryKey . '` DESC';
+                }
+            }
+        }
+        
+        // Split by comma and process each field
+        $fields = array_map('trim', explode(',', $order));
+        
+        foreach ($fields as $field) {
+            $field = trim($field);
+            if (empty($field)) {
+                continue;
+            }
+            
+            $direction = 'ASC';
+            $fieldName = $field;
+            
+            // Check for +/- prefix
+            if (substr($field, 0, 1) === '+') {
+                $direction = 'ASC';
+                $fieldName = substr($field, 1);
+            } elseif (substr($field, 0, 1) === '-') {
+                $direction = 'DESC';
+                $fieldName = substr($field, 1);
+            } else {
+                // Check for explicit ASC/DESC suffix
+                $parts = preg_split('/\s+/', $field);
+                if (count($parts) >= 2) {
+                    $fieldName = $parts[0];
+                    $lastPart = strtoupper(end($parts));
+                    if ($lastPart === 'ASC' || $lastPart === 'DESC') {
+                        $direction = $lastPart;
+                    }
+                }
+            }
+            
+            $fieldName = trim($fieldName);
+            
+            // Sanitize field name - only allow alphanumeric, underscore, and dot
+            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$/', $fieldName)) {
+                continue; // Skip invalid field names
+            }
+            
+            // Validate field exists in available fields OR if it contains a table alias (for joined tables)
+            $isValidField = false;
+            
+            if (strpos($fieldName, '.') === false) {
+                // Simple field name - must be in available fields
+                $isValidField = in_array($fieldName, $availableFields);
+            } else {
+                // Field with table alias - validate format and table alias
+                $parts = explode('.', $fieldName);
+                if (count($parts) === 2) {
+                    $tableAlias = $parts[0];
+                    $field = $parts[1];
+                    
+                    // Validate table alias (allow alphanumeric and underscore, starting with letter)
+                    if (preg_match('/^[a-zA-Z][a-zA-Z0-9_]*$/', $tableAlias) && !empty($field)) {
+                        $isValidField = true;
+                    }
+                }
+            }
+            
+            if ($isValidField) {
+                $fieldRef = $fieldName;
+                if (strpos($fieldName, '.') === false && $hasJoin) {
+                    // Field from main table, add table alias
+                    $fieldRef = 'a.' . ($database->type == 'postgresql' ? '"' . $fieldName . '"' : '`' . $fieldName . '`');
+                } elseif (strpos($fieldName, '.') === false) {
+                    // Field from main table, no join
+                    $fieldRef = ($database->type == 'postgresql' ? '"' . $fieldName . '"' : '`' . $fieldName . '`');
+                } else {
+                    // Field already has table reference (joined table), validate and quote properly
+                    $parts = explode('.', $fieldName);
+                    if (count($parts) === 2) {
+                        $tableAlias = $parts[0];
+                        $field = $parts[1];
+                        
+                        if ($database->type == 'postgresql') {
+                            $fieldRef = $tableAlias . '."' . $field . '"';
+                        } else {
+                            $fieldRef = $tableAlias . '.`' . $field . '`';
+                        }
+                    }
+                }
+                
+                $orderParts[] = $fieldRef . ' ' . $direction;
+            }
+        }
+        
+        if (empty($orderParts)) {
+            // If no valid fields found, use default primary key order
+            $primaryKey = $this->_primaryKey;
+            if ($hasJoin) {
+                if ($database->type == 'postgresql') {
+                    return 'ORDER BY a."' . $primaryKey . '" DESC';
+                } else {
+                    return 'ORDER BY a.`' . $primaryKey . '` DESC';
+                }
+            } else {
+                if ($database->type == 'postgresql') {
+                    return 'ORDER BY "' . $primaryKey . '" DESC';
+                } else {
+                    return 'ORDER BY `' . $primaryKey . '` DESC';
+                }
+            }
+        }
+        
+        return 'ORDER BY ' . implode(', ', $orderParts);
     }
     
     /**
