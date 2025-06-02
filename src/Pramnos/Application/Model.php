@@ -68,6 +68,11 @@ class Model extends \Pramnos\Framework\Base
 
 
     public static $columnCache = array();
+    /**
+     * SQL error if any
+     * @var string
+     */
+    protected $sqlError = null;
 
     /**
      * Class constructor. Sets the model name and the database table
@@ -640,13 +645,14 @@ class Model extends \Pramnos\Framework\Base
      * @param string $group Group by statement for database query
      * @param boolean $returnAsModels If true, return objects as models, otherwise return as arrays
      * @param boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @param boolean $displayerroroutput if true, display error output on database query failure
      * @return array
      */
     public function _getList($filter = NULL, $order = NULL,
         $table = NULL, $key = NULL, $debug=false,
         $join = '',
         $queryFields = NULL,
-        $group = '', $returnAsModels = true, $useGetData = false)
+        $group = '', $returnAsModels = true, $useGetData = false, $displayerroroutput = true)
     {
         if ($table === NULL && $this->_dbtable === NULL) {
             $table = '#PREFIX#' . $this->prefix . '_' . $this->modelname;
@@ -731,7 +737,13 @@ class Model extends \Pramnos\Framework\Base
                 $result = $database->query($sql, true, 600, $this->_cacheKey);
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::logError("Error in getList query: " . $sql . " - " . $ex->getMessage(), $ex);
-                $this->controller->application->showError($ex->getMessage());
+                if ($displayerroroutput == true) {
+                    $this->controller->application->showError($ex->getMessage());
+                } else {
+                    $this->sqlError = $ex->getMessage();
+                    return array();
+                }
+                
             }
             if ($returnAsModels == false && $useGetData == false) {
                 $objects = array();
@@ -1148,11 +1160,28 @@ class Model extends \Pramnos\Framework\Base
         
         // Check if pagination is requested
         if ($page > 0) {
+
+            try {
+                $result = $this->_getPaginated(
+                    $itemsPerPage, $page, $finalFilter, $validatedOrder, $table, $key, $debug,
+                    $join, $selectFields, $group, $returnAsModels, $useGetData
+                );
+            } catch (\Exception $ex) {
+                return array(
+                    'error' => 'Database query failed: ' . $ex->getMessage(),
+                    'data' => array(),
+                    'pagination' => null,
+                    'fields' => $validFields,
+                    'debug' => array(
+                        'filter' => $finalFilter,
+                        'order' => $validatedOrder,
+                        'selectFields' => $selectFields
+                    )
+                );
+            }
+
             // Get paginated results
-            $result = $this->_getPaginated(
-                $itemsPerPage, $page, $finalFilter, $validatedOrder, $table, $key, $debug,
-                $join, $selectFields, $group, $returnAsModels, $useGetData
-            );
+            
             
             // Format response for API with pagination
             return array(
@@ -1174,10 +1203,26 @@ class Model extends \Pramnos\Framework\Base
             );
         } else {
             // Get all results without pagination
+            
             $result = $this->_getList(
                 $finalFilter, $validatedOrder, $table, $key, $debug,
-                $join, $selectFields, $group, $returnAsModels, $useGetData
+                $join, $selectFields, $group, $returnAsModels, $useGetData, false
             );
+            if (empty($result) && $this->sqlError) {
+                return array(
+                    'error' => $this->sqlError,
+                    'data' => array(),
+                    'pagination' => null,
+                    'fields' => $validFields,
+                    'debug' => array(
+                        'filter' => $finalFilter,
+                        'order' => $validatedOrder,
+                        'selectFields' => $selectFields
+                    )
+                );
+            }
+            
+            
             
             // Format response for API without pagination
             return array(
