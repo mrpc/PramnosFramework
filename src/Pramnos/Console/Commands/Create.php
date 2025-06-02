@@ -1026,7 +1026,7 @@ content;
      *
      * @apiParam  {Number} [page=0] Page number for pagination. Set to 0 to get all results
      * @apiParam  {Number} [limit=20] Limit number of results per page
-     * @apiParam  {String} [sort] Sort by field. You can use the following fields: $fieldList
+     * @apiParam  {String} [sort] Sort by field. Syntax: [+-]fieldname,[+-]fieldname. You can use the following fields: $fieldList
      * @apiParam  {String} [search] Global search term. You can use this to search across all fields.
      *                              It also supports input for specific search fields using JSON format,
      *                              like: {\"field1\": \"value1\", \"field2\": \"value2\"}
