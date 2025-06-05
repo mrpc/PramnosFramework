@@ -748,7 +748,8 @@ class Token extends \Pramnos\Framework\Base
         
         // Get token actions - using database type agnostic query
         $actionsQuery = "SELECT ta.actionid, ta.tokenid, ta.urlid, ta.method, ta.servertime,
-                        u.url, ta.params as parameters
+                        u.url, ta.params as parameters, ta.return_status,
+                        ta.execution_time_ms, ta.return_data
                         FROM `#PREFIX#tokenactions` ta
                         LEFT JOIN `#PREFIX#urls` u ON ta.urlid = u.urlid
                         WHERE ta.tokenid = %d
