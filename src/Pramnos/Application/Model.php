@@ -536,7 +536,21 @@ class Model extends \Pramnos\Framework\Base
             $order = $database->prepareQuery($orderArray[0]);
 
             if ($database->type == 'postgresql') {
-                if ($database->schema != '') {
+                if ($this->_dbschema !== null) {
+                    $sql = "select $fields from " . $this->_dbschema . '.'
+                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
+                        . $items . ' offset ' . $page;
+                    if ($group != '') {
+                        $countSql = "select count(*) as \"itemsCount\" from ("
+                            . "select 1 from " . $this->_dbschema . '.'
+                            . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group
+                            . ") as grouped_query";
+                    } else {
+                        $countSql = "select count(a." . $primarykey . ") "
+                            . "as \"itemsCount\"  from " . $this->_dbschema . '.'
+                            . $this->_dbtable . " " . "  a " . $join . $filter;
+                    }
+                } elseif ($database->schema != '') {
                     $sql = "select $fields from " . $database->schema . '.'
                         . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
                         . $items . ' offset ' . $page;
@@ -719,7 +733,10 @@ class Model extends \Pramnos\Framework\Base
             
 
             if ($database->type == 'postgresql') {
-                if ($database->schema != '') {
+                if ($this->_dbschema != null) {
+                    $sql = "select $fields from " . $this->_dbschema . '.'
+                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
+                } elseif ($database->schema != '') {
                     $sql = "select $fields from " . $database->schema . '.'
                         . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
                 } else {
