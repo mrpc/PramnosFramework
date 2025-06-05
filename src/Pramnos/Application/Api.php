@@ -224,6 +224,7 @@ class Api extends Application
             //$this->logAction();
         }
 
+        $startTime = microtime(true);
         if (file_exists(ROOT . '/src/Api/routes.php')) {
             /**
              * Ok, εδώ θα γίνει λίγο της πουτάνας - προσωρινά - αφού φορτώνουμε
@@ -231,10 +232,28 @@ class Api extends Application
              */
             $response = include(ROOT . '/src/Api/routes.php');
             if ($response) {
+                $content = $this->_translateStatus(
+                    $response
+                );
+                $record = array();
+                // if return status is not 2xx, record the return data
+                if (isset($content['status'])
+                    && $content['status'] >= 300) {
+                    $record = $content;
+                }
+                if (isset($_SESSION['usertoken'])
+                    && is_object($_SESSION['usertoken'])) {
+                    $_SESSION['usertoken']->updateAction(
+                        $_SESSION['usertoken']->lastActionId,
+                        $content['status'] ?? 200,
+                        microtime(true) - $startTime,
+                        $record
+                    );
+                }
+
+
                 $doc->addContent(
-                    $this->_translateStatus(
-                        $response
-                    )
+                    $content
                 );
                 return;
             }
@@ -243,14 +262,56 @@ class Api extends Application
         $moduleObject = $this->getController($this->controller);
         $this->activeController = $moduleObject;
         try {
-            $doc->addContent(
-                $this->_translateStatus(
-                    $moduleObject->exec($this->action)
-                )
+
+
+
+
+            $content = $this->_translateStatus(
+                $moduleObject->exec($this->action)
             );
+            $record = array();
+            // if return status is not 2xx, record the return data
+            if (isset($content['status'])
+                && $content['status'] >= 300) {
+                $record = $content;
+            }
+            if (isset($_SESSION['usertoken'])
+                && is_object($_SESSION['usertoken'])) {
+                $_SESSION['usertoken']->updateAction(
+                    $_SESSION['usertoken']->lastActionId,
+                    $content['status'] ?? 200,
+                    microtime(true) - $startTime,
+                    $record
+                );
+            }
+
+
+            $doc->addContent(
+                $content
+            );
+
+
+          
         } catch (\Exception $exception) {
             if ($exception->getCode() == 403) {
                 $lang = \Pramnos\Framework\Factory::getLanguage();
+                if (isset($_SESSION['usertoken'])
+                    && is_object($_SESSION['usertoken'])) {
+                    $_SESSION['usertoken']->updateAction(
+                        $_SESSION['usertoken']->lastActionId,
+                        403,
+                        microtime(true) - $startTime,
+                        array(
+                            'status' => 403,
+                            'message' => $lang->_(
+                                'You are not logged in '
+                                . 'or your session has expired.'
+                            ),
+                            'error' => 'PermissionDenied',
+                            'details' => $exception->getMessage()
+                        )
+                    );
+                }
                 $doc->addContent(
                     $this->_translateStatus(
                         array(
@@ -265,6 +326,9 @@ class Api extends Application
                     )
                 );
             } else {
+
+
+
                 $message = $exception->getMessage();
                 if (strpbrk($message, 'SQL') !== false) {
                     \Pramnos\Logs\Logger::log(
@@ -277,6 +341,17 @@ class Api extends Application
                         . $exception->getTraceAsString()
                     );
                 }
+
+                if (isset($_SESSION['usertoken'])
+                    && is_object($_SESSION['usertoken'])) {
+                    $_SESSION['usertoken']->updateAction(
+                        $_SESSION['usertoken']->lastActionId,
+                        500,
+                        microtime(true) - $startTime
+                    );
+                }
+
+
                 $doc->addContent(
                     $this->_translateStatus(
                         array(
