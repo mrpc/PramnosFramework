@@ -1808,27 +1808,11 @@ content;
 
 }
 content;
-        }
-
-        file_put_contents($filename, $fileContent);
-
-
-        if (!$isUpdate) {
-            // Register model in the registry for easier lookup
-            $this->registerModelInRegistry([
-                'className' => $className,
-                'namespace' => $namespace,
-                'fullClassName' => '\\' . $namespace . '\\' . $className,
-                'table' => $tableName,
-                'schema' => $this->schema ?? '',
-                'timestamp' => date('Y-m-d H:i:s'),
-                'generatedBy' => 'createModel'
-            ]);
-        }
+        }        file_put_contents($filename, $fileContent);
 
         return "Namespace: {$namespace}\n"
             . "Class: {$className}\n"
-            . "File: {$filename}\n\n" . ($isUpdate ? "Model updated." : "Model created.");
+            . "File: {$filename}\n\nController created.";
     }
 
 
