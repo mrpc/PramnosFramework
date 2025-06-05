@@ -99,6 +99,16 @@ class Token extends \Pramnos\Framework\Base
      * @var bool
      */
     protected $_isnew = true;
+    /**
+     * Last action ID
+     * @var int|null
+     */
+    public $lastActionId = null;
+    /**
+     * Last action time in milliseconds
+     * @var int|null
+     */
+    public $lastActionTime = null;
 
 
     /**
@@ -216,6 +226,7 @@ class Token extends \Pramnos\Framework\Base
      */
     public function addAction()
     {
+        $this->lastActionTime = (int) (microtime(true) * 1000);
         $request = \Pramnos\Framework\Factory::getRequest();
         $url = $request->getURL(false);
         $urlHash = crc32($url);
@@ -254,7 +265,7 @@ class Token extends \Pramnos\Framework\Base
                 $inputData = file_get_contents("php://input");
                 break;
         }
-
+        $this->lastActionId = null;
         if ($urlid > 0) {
             $sql = $database->prepareQuery(
                 "insert into `#PREFIX#tokenactions` "
@@ -267,7 +278,19 @@ class Token extends \Pramnos\Framework\Base
                 $inputData,
                 time()
             );
-            @$database->query($sql);
+            try {
+                $database->query($sql);
+            } catch (\Exception $e) {
+                // Handle any exceptions that may occur during the query execution
+                \Pramnos\Logs\Logger::logError(
+                    'Error while adding token action with query: ' 
+                    . $sql . ' - Error: ' 
+                    . $e->getMessage(),
+                    $e
+                );
+                return $this;
+            }
+            $this->lastActionId = $database->getInsertId();
         }
         $this->actions += 1;
         $this->lastused = time();
@@ -291,6 +314,168 @@ class Token extends \Pramnos\Framework\Base
         $this->save();
 
         return $this;
+    }
+
+    /**
+     * Update an action in the token log
+     * @param int $actionid
+     * @param int $return_status
+     * @param int $execution_time_ms
+     * @param mixed $return_data
+     */
+    public function updateAction($actionid, $return_status, $execution_time_ms = 0, $return_data = null)
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        // if database is mysql, return 
+        if ($database->type == 'mysql') {
+            return;
+        }
+        if ($execution_time_ms == 0 && $this->lastActionTime !== null) {
+            $execution_time_ms = (float) (microtime(true) * 1000) - $this->lastActionTime;
+        }
+        
+        if ($return_data === null) {
+            $return_data = json_encode(array());
+        } elseif (is_array($return_data)) {
+            $return_data = json_encode($return_data);
+        } elseif (is_object($return_data)) {
+            $return_data = json_encode(get_object_vars($return_data));
+        } elseif (!is_string($return_data)) {
+            $return_data = json_encode(array('data' => $return_data));
+        }
+        if ($actionid == 0 || $return_status < 0) {
+            return;
+        }
+        
+        $sql = $database->prepareQuery(
+            "UPDATE `#PREFIX#tokenactions` SET "
+                . "`return_status` = %d, "
+                . "`execution_time_ms` = %s, "
+                . "`return_data` = %s "
+                . "WHERE `actionid` = %d",
+            $return_status,
+            $execution_time_ms,
+            $return_data,
+            $actionid
+        );
+        try {
+            $database->query($sql);
+        } catch (\Exception $e) {
+            if ($database->type == 'postgresql' && strpos($e->getMessage(), 'column "return_status"') !== false) {
+                $database->query($database->prepareQuery(
+                    'ALTER TABLE #PREFIX#tokenactions '
+                    . 'ADD COLUMN IF NOT EXISTS return_status INTEGER, '
+                    . 'ADD COLUMN IF NOT EXISTS execution_time_ms NUMERIC(10,3), '
+                    . 'ADD COLUMN IF NOT EXISTS return_data JSONB;'
+                ));
+                $database->query($database->prepareQuery(
+                    'COMMENT ON COLUMN #PREFIX#tokenactions.return_status IS \'HTTP status code returned (200, 404, 500, etc.)\';'
+                ));
+                $database->query($database->prepareQuery(
+                    'COMMENT ON COLUMN #PREFIX#tokenactions.execution_time_ms IS \'Execution time in milliseconds\';'
+                ));
+                $database->query($database->prepareQuery(
+                    'COMMENT ON COLUMN #PREFIX#tokenactions.return_data IS \'JSON response data - use sparingly for debugging/auditing\';'
+                ));
+                $database->query($database->prepareQuery(
+                    'CREATE INDEX IF NOT EXISTS idx_tokenactions_return_status ON #PREFIX#tokenactions(return_status);'
+                ));
+                $database->query($database->prepareQuery(
+                    'CREATE INDEX IF NOT EXISTS idx_tokenactions_execution_time ON #PREFIX#tokenactions(execution_time_ms);'
+                ));
+
+                $database->query($database->prepareQuery(
+                    'ALTER TABLE #PREFIX#tokenactions '
+                    . 'ADD COLUMN IF NOT EXISTS action_time TIMESTAMP WITH TIME ZONE;'
+                ));
+
+                $database->query($database->prepareQuery(
+                    'UPDATE #PREFIX#tokenactions '
+                    . 'SET action_time = TO_TIMESTAMP(servertime) '
+                    . 'WHERE action_time IS NULL AND servertime IS NOT NULL;'
+                ));
+
+                $database->query($database->prepareQuery(
+                    'ALTER TABLE #PREFIX#tokenactions '
+                    . 'ALTER COLUMN action_time SET DEFAULT CURRENT_TIMESTAMP;'
+                ));
+
+                $database->query($database->prepareQuery(
+                    'CREATE OR REPLACE FUNCTION #PREFIX#sync_tokenactions_time() '
+                    . 'RETURNS TRIGGER AS $$ '
+                    . 'BEGIN '
+                    . 'IF NEW.servertime IS NOT NULL THEN '
+                    . 'NEW.action_time = TO_TIMESTAMP(NEW.servertime); '
+                    . 'ELSE '
+                    . 'NEW.action_time = CURRENT_TIMESTAMP; '
+                    . 'NEW.servertime = EXTRACT(EPOCH FROM NEW.action_time)::INTEGER; '
+                    . 'END IF; '
+                    . 'RETURN NEW; '
+                    . 'END; '
+                    . '$$ LANGUAGE plpgsql;'
+                ));
+
+                $database->query($database->prepareQuery(
+                    'CREATE TRIGGER sync_tokenactions_time '
+                    . 'BEFORE INSERT OR UPDATE ON #PREFIX#tokenactions '
+                    . 'FOR EACH ROW EXECUTE FUNCTION #PREFIX#sync_tokenactions_time();'
+                ));
+                $database->query($database->prepareQuery(
+                    'ALTER TABLE #PREFIX#tokenactions '
+                    . 'ALTER COLUMN action_time SET NOT NULL;'
+                ));
+                try {
+                    $database->query($sql);
+                } catch (\Exception $e) {
+                    // Log the error if the query fails again
+                    \Pramnos\Logs\Logger::logError(
+                        'Error while updating token action with query: ' 
+                        . $sql . ' - Error: ' 
+                        . $e->getMessage(),
+                        $e
+                    );
+                    return;
+                }
+            } elseif ($database->type == 'mysql' && strpos($e->getMessage(), 'Unknown column') !== false) {
+                $database->query($database->prepareQuery(
+                    'ALTER TABLE #PREFIX#tokenactions '
+                    . 'ADD COLUMN IF NOT EXISTS return_status INT, '
+                    . 'ADD COLUMN IF NOT EXISTS execution_time_ms DECIMAL(10,3), '
+                    . 'ADD COLUMN IF NOT EXISTS return_data JSON, '
+                    . 'ADD COLUMN IF NOT EXISTS action_time TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP;'
+                ));
+                $database->query($database->prepareQuery(
+                    'CREATE INDEX IF NOT EXISTS idx_tokenactions_return_status ON #PREFIX#tokenactions(return_status);'
+                ));
+                $database->query($database->prepareQuery(
+                    'CREATE INDEX IF NOT EXISTS idx_tokenactions_execution_time ON #PREFIX#tokenactions(execution_time_ms);'
+                ));
+                try {
+                    $database->query($sql);
+                } catch (\Exception $e) {
+                    \Pramnos\Logs\Logger::logError(
+                        'Error while updating token action with query: '
+                        . $sql . ' - Error: '
+                        . $e->getMessage(),
+                        $e
+                    );
+                    return;
+                }
+            } else {
+                // Handle any exceptions that may occur during the query execution
+                \Pramnos\Logs\Logger::logError(
+                    'Error while updating token action with query: ' 
+                    . $sql . ' - Error: ' 
+                    . $e->getMessage(),
+                    $e
+                );
+                return;
+            }
+
+
+            
+        }
+        
     }
 
     /**
