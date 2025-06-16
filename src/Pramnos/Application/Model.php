@@ -166,7 +166,7 @@ class Model extends \Pramnos\Framework\Base
                 foreach (self::$columnCache[$this->getFullTableName()] as $fields) {
                     if ($fields['Field'] != $this->_primaryKey) {
                         $field = $fields['Field'];
-                        if ($fields['Null'] == "NO") {
+                        if (isset($fields['Null']) && $fields['Null'] == "NO") {
                             if ($this->$field === NULL) {
                                 $this->$field = "";
                             }
@@ -183,11 +183,20 @@ class Model extends \Pramnos\Framework\Base
                                 $field, $this->$field, 'post'
                             );
                         }
-                        $itemdata[] = array(
-                            'fieldName' => $fields['Field'],
-                            'value'     => $this->$field,
-                            'type'      => $this->fieldtype($fields['Type'])
-                        );
+                        if (!isset($fields['Type'])) {
+                            $itemdata[] = array(
+                                'fieldName' => $fields['Field'],
+                                'value'     => $this->$field,
+                                'type'      => $this->fieldtype('')
+                            );
+                        } else {
+                            $itemdata[] = array(
+                                'fieldName' => $fields['Field'],
+                                'value'     => $this->$field,
+                                'type'      => $this->fieldtype($fields['Type'])
+                            );
+                        }
+                        
                     }
                 }
             } else {
@@ -456,6 +465,8 @@ class Model extends \Pramnos\Framework\Base
      * @param  string  $group  Group by statement for database query
      * @param  boolean $returnAsModels If true, return objects as models, otherwise return as arrays
      * @param  boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @param  mixed $customGetListMethod if is set, use this method instead of the default getList method
+     * @param array  $addedfields If is set, these fields will not be filtered out
      * @return array           Three keys: total, pages, items
      */
     protected function _getPaginated($items=10, $page=1,
@@ -463,8 +474,12 @@ class Model extends \Pramnos\Framework\Base
         $key = NULL, $debug=false,
         $join = '',
         $queryFields = NULL,
-        $group = '', $returnAsModels = true, $useGetData = false)
+        $group = '', $returnAsModels = true, $useGetData = false,
+        $customGetListMethod = false, $addedfields = array())
     {
+        if (!is_array($addedfields)) {
+            $addedfields = array();
+        }   
         $items = abs((int)$items);
         $page-=1;
         $page = abs((int)$page);
@@ -635,7 +650,33 @@ class Model extends \Pramnos\Framework\Base
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
                 if ($useGetData == true) {
-                    $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
+
+                    if ($customGetListMethod !== false) {
+                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]
+                            ->{$customGetListMethod}();
+                    } else {
+                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]
+                            ->getData();
+                    }
+
+                    
+                    // if queryfields is not null (or *), anything not in queryfields should not be returned
+                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != '' 
+                        && is_array($objects[$result->fields[$primarykey]])) {
+                        $fieldsArray = explode(',', $queryFields);
+                        $fieldsArray = array_map('trim', $fieldsArray);
+                        // remove all quotes from fields
+                        $fieldsArray = array_map(function($field) {
+                            return trim($field, '"');
+                        }, $fieldsArray);
+                        foreach ($objects[$result->fields[$primarykey]] as $key => $value) {
+                            if (!in_array($key, $fieldsArray) && !is_array($value) && !in_array($key, $addedfields)) {
+                                unset($objects[$result->fields[$primarykey]][$key]);
+                            }
+                        }
+                    }
+
+
                 }
             }
         }
@@ -660,14 +701,23 @@ class Model extends \Pramnos\Framework\Base
      * @param boolean $returnAsModels If true, return objects as models, otherwise return as arrays
      * @param boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
      * @param boolean $displayerroroutput if true, display error output on database query failure
+     * @param  mixed $customGetListMethod if is set, use this method instead of the default getList method
+     * @param array  $addedfields If is set, these fields will not be filtered out
      * @return array
      */
     public function _getList($filter = NULL, $order = NULL,
         $table = NULL, $key = NULL, $debug=false,
         $join = '',
         $queryFields = NULL,
-        $group = '', $returnAsModels = true, $useGetData = false, $displayerroroutput = true)
+        $group = '', $returnAsModels = true, $useGetData = false, $displayerroroutput = true,
+        $customGetListMethod = false,
+        $addedfields = false
+        
+        )
     {
+        if (!is_array($addedfields)) {
+            $addedfields = array();
+        }   
         if ($table === NULL && $this->_dbtable === NULL) {
             $table = '#PREFIX#' . $this->prefix . '_' . $this->modelname;
         }
@@ -780,7 +830,31 @@ class Model extends \Pramnos\Framework\Base
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
                 if ($useGetData == true) {
-                    $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
+
+                    if ($customGetListMethod !== false) {
+                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->$customGetListMethod();
+                    } else {
+                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
+                    }
+
+
+
+                    // if queryfields is not null (or *), anything not in queryfields should not be returned
+                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != '' 
+                        && is_array($objects[$result->fields[$primarykey]])) {
+                        $fieldsArray = explode(',', $queryFields);
+                        $fieldsArray = array_map('trim', $fieldsArray);
+                        // remove all quotes from fields
+                        $fieldsArray = array_map(function($field) {
+                            return trim($field, '"');
+                        }, $fieldsArray);
+                        foreach ($objects[$result->fields[$primarykey]] as $key => $value) {
+                            if (!in_array($key, $fieldsArray) && !is_array($value) && !in_array($key, $addedfields)) {
+                                unset($objects[$result->fields[$primarykey]][$key]);
+                            }
+                        }
+                    }
+
                 }
                 
             }
@@ -1099,12 +1173,15 @@ class Model extends \Pramnos\Framework\Base
      * @param bool $debug Show debug information
      * @param boolean $returnAsModels If true, return objects as models, otherwise return as arrays
      * @param boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @param  mixed $customGetListMethod if is set, use this method instead of the default getList method
+     * @param array $addedfields If is set, these fields will not be filtered out
      * @return array API response with pagination info and data
      */
     public function _getApiList($fields = array(), $search = '', 
         $order = '', $filter = '', $join = '', $group = '', 
         $table = null, $key = null,
-        $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, $useGetData = false)
+        $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, 
+        $useGetData = false, $customGetListMethod = false, $addedfields = false)
     {
         // Handle unified search parameter
         $globalSearch = '';
@@ -1177,11 +1254,10 @@ class Model extends \Pramnos\Framework\Base
         
         // Check if pagination is requested
         if ($page > 0) {
-
             try {
                 $result = $this->_getPaginated(
                     $itemsPerPage, $page, $finalFilter, $validatedOrder, $table, $key, $debug,
-                    $join, $selectFields, $group, $returnAsModels, $useGetData
+                    $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
                 );
             } catch (\Exception $ex) {
                 return array(
@@ -1220,10 +1296,9 @@ class Model extends \Pramnos\Framework\Base
             );
         } else {
             // Get all results without pagination
-            
             $result = $this->_getList(
                 $finalFilter, $validatedOrder, $table, $key, $debug,
-                $join, $selectFields, $group, $returnAsModels, $useGetData, false
+                $join, $selectFields, $group, $returnAsModels, $useGetData, false, $customGetListMethod, $addedfields
             );
             if (empty($result) && $this->sqlError) {
                 return array(
