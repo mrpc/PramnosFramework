@@ -1151,12 +1151,22 @@ class User extends \Pramnos\Framework\Base
     public function loadByToken($token, $tokentype='auth', $setSessionApi=true)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "select * from `#PREFIX#usertokens`"
-            . " where `token` = %s and `tokentype` = %s "
-            . " and `status` = 1 and (`expires` = 0 or `expires` > %d or `expires` is null) limit 1",
-            $token, $tokentype, time()
-        );
+        if ($tokentype == 'auth') {
+            $sql = $database->prepareQuery(
+                "select * from `#PREFIX#usertokens`"
+                . " where `token` = %s and `tokentype` in ('auth', 'access_token') "
+                . " and `status` = 1 and (`expires` = 0 or `expires` > %d or `expires` is null) limit 1",
+                $token, time()
+            );
+        } else {
+            $sql = $database->prepareQuery(
+                "select * from `#PREFIX#usertokens`"
+                . " where `token` = %s and `tokentype` = %s "
+                . " and `status` = 1 and (`expires` = 0 or `expires` > %d or `expires` is null) limit 1",
+                $token, $tokentype, time()
+            );
+        }
+        
         $result = $database->query($sql);
         if ($result->numRows > 0) {
             $this->load($result->fields['userid']);

@@ -65,6 +65,28 @@ class JWT
     ];
 
     /**
+     * Get information about the JWT token header
+     * 
+     */
+    public static function getTokenInformation(string $jwt) {
+        $tks = explode('.', $jwt);
+        if (count($tks) != 3) {
+            return false;
+        }
+        list($headb64, $bodyb64, $cryptob64) = $tks;
+        
+        // Decode header
+        $headerJson = self::b64UrlDecode($headb64);
+        $header = json_decode($headerJson);
+        if ($header === null) {
+            return false;
+        }
+        
+        return $header;
+    }
+
+
+    /**
      * Decodes a JWT string into a PHP object.
      *
      * @param string      $jwt           The JWT
