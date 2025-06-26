@@ -1242,6 +1242,14 @@ class Model extends \Pramnos\Framework\Base
             
             
             // Format response for API with pagination
+
+            
+            if (isset($result['items']) && is_array($result['items'])) {
+                $result['items'] = array_values($result['items']);
+            }
+            
+
+
             return array(
                 'data' => $result['items'],
                 'pagination' => array(
@@ -1280,7 +1288,9 @@ class Model extends \Pramnos\Framework\Base
                 );
             }
             
-            
+            if (isset($result) && is_array($result)) {
+                $result = array_values($result);
+            }
             
             // Format response for API without pagination
             return array(
