@@ -641,9 +641,15 @@ class Model extends \Pramnos\Framework\Base
                 $objects[$result->fields[$primarykey]] = new $class(
                     $this->controller
                 );
+                
+                // Reset initial data array for this object
+                $objects[$result->fields[$primarykey]]->_initialData = array();
+                
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
                         = $result->fields[$field];
+                    // Store initial value
+                    $objects[$result->fields[$primarykey]]->_initialData[$field] = $result->fields[$field];
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
                 if ($useGetData == true) {
@@ -786,9 +792,15 @@ class Model extends \Pramnos\Framework\Base
 
                 $objects[$result->fields[$primarykey]]
                     = new $class($this->controller);
+                
+                // Reset initial data array for this object
+                $objects[$result->fields[$primarykey]]->_initialData = array();
+                
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
                         = $result->fields[$field];
+                    // Store initial value
+                    $objects[$result->fields[$primarykey]]->_initialData[$field] = $result->fields[$field];
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
                 if ($useGetData == true) {
