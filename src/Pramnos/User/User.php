@@ -1213,4 +1213,98 @@ class User extends \Pramnos\Framework\Base
         return $data;
     }
 
+    /**
+     * Get data usage statistics
+     * 
+     * @return array
+     */
+    public function getDataUsageStats(): array
+    {
+        if ($this->userid < 2) {
+            return [
+                'total_tokens' => 0,
+                'unique_apps' => 0,
+                'active_days' => 0,
+                'account_created' => null
+            ];
+        }
+        $database = \Pramnos\Framework\Factory::getDatabase();
+
+        // Get token count
+        $sql = $database->prepareQuery("
+            SELECT COUNT(*) as token_count
+            FROM usertokens
+            WHERE userid = %d
+        ", $this->userid);
+        $tokenResult = $database->query($sql);
+        $tokenCount = $tokenResult->fields['token_count'] ?? 0;
+
+        // Get app count
+        $sql = $database->prepareQuery("
+            SELECT COUNT(DISTINCT applicationid) as app_count
+            FROM usertokens
+            WHERE userid = %d
+        ", $this->userid);
+        try {
+            $appResult = $database->query($sql);
+            $appCount = $appResult->fields['app_count'] ?? 0;
+        } catch (\Exception $e) {
+            $appCount = 0;
+        }
+        
+
+        return [
+            'total_tokens' => $tokenCount,
+            'unique_apps' => $appCount,
+            'active_days' => 0, // Can be calculated if needed
+            'account_created' => $this->regdate
+        ];
+    }
+
+
+    /**
+     * Get active sessions (simplified - would need session table)
+     * 
+     * @return array
+     */
+    public function getActiveSessions(): array
+    {
+        // This would need a proper session table implementation
+        // For now, return basic info
+        return [
+            [
+                'session_id' => session_id(),
+                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+                'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+                'last_activity' => date('Y-m-d H:i:s'),
+                'is_current' => true
+            ]
+        ];
+    }
+    
+    /**
+     * Verify user password
+     * 
+     * @param string $password
+     * @return bool
+     */
+    public function verifyPassword(string $password): bool
+    {
+        if ($this->userid < 2) {
+            return false;
+        }
+        $pwd = $password
+            . md5(
+            \Pramnos\Application\Settings::getSetting('securitySalt')
+            . $this->userid
+        );
+        if (password_verify($pwd, $this->password)) {
+            return true;
+        } elseif (md5($password) == $this->password) {
+            return true;
+        } 
+
+        return false;
+    }
+
 }
