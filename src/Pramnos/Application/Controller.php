@@ -17,6 +17,19 @@ class Controller extends \Pramnos\Framework\Base
      * @var array
      */
     public $actions_auth = array();
+
+    /**
+     * Permissions required for an action
+     * @var array
+     */
+    protected $action_permissions = array();
+
+    /**
+     * User permissions
+     * @var array
+     */
+    protected $user_permissions = array();
+
     /**
      * Controller Title
      * @var string
@@ -95,6 +108,31 @@ class Controller extends \Pramnos\Framework\Base
         }
     }
 
+    /**
+     * Adds a required permission to an action
+     * @param string|array $action
+     * @param string|array $permissions
+     */
+    public function addActionPermission($action, $permissions)
+    {
+        if (is_array($action)) {
+            foreach ($action as $act) {
+                $this->addActionPermission($act, $permissions);
+            }
+            return;
+        }
+
+        if (!isset($this->action_permissions[$action])) {
+            $this->action_permissions[$action] = [];
+        }
+
+        if (is_string($permissions)) {
+            $permissions = [$permissions];
+        }
+
+        $this->action_permissions[$action] = array_merge($this->action_permissions[$action], $permissions);
+    }
+
     public function getBreadcrumbs()
     {
         return $this->breadcrumbs;
@@ -120,9 +158,11 @@ class Controller extends \Pramnos\Framework\Base
     /**
      * Controller constructor
      * @param \Pramnos\Application\Application $application
+     * @param array|string $userPermissions
      */
     public function __construct(
-        ?\Pramnos\Application\Application $application = null
+        ?\Pramnos\Application\Application $application = null,
+        $userPermissions = []
     )
     {
         $this->application = $application;
@@ -130,6 +170,7 @@ class Controller extends \Pramnos\Framework\Base
             $this->application
                 = \Pramnos\Application\Application::getInstance();
         }
+        $this->user_permissions = $this->_auth_normalizePermissions($userPermissions);
         $this->controllerName = (new \ReflectionClass($this))->getShortName();
         $this->actions[] = 'display';
         parent::__construct();
@@ -204,6 +245,17 @@ class Controller extends \Pramnos\Framework\Base
                 return false;
             }
         }
+
+        // If we have user permissions, check them
+        if (!empty($this->user_permissions)) {
+            if (isset($this->action_permissions[$action])) {
+                $required_permissions = $this->action_permissions[$action];
+                if (!$this->_auth_hasPermissions($required_permissions, $this->user_permissions)) {
+                    return false;
+                }
+            }
+        }
+
         return true;
     }
 
@@ -258,6 +310,85 @@ class Controller extends \Pramnos\Framework\Base
 
 
 
+
+    /**
+     * Check if a user has the required permissions.
+     *
+     * @param array $requiredPermissions The permissions required by the route
+     * @param array $userPermissions The permissions that the current user has
+     * @return bool True if the user has the required permissions, false otherwise
+     */
+    protected function _auth_hasPermissions($requiredPermissions, $userPermissions = array())
+    {
+        $requiredPermissions = $this->_auth_normalizePermissions($requiredPermissions);
+        $userPermissions = $this->_auth_normalizePermissions($userPermissions);
+
+        if (empty($requiredPermissions)) {
+            return true;
+        }
+
+        foreach ($requiredPermissions as $requiredScope) {
+            if ($this->_auth_hasScope($requiredScope, $userPermissions)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Normalize permissions to an array.
+     *
+     * @param array|string $permissions The permissions to normalize
+     * @return array The normalized permissions
+     */
+    protected function _auth_normalizePermissions($permissions)
+    {
+        if (is_string($permissions)) {
+            return explode(' ', $permissions);
+        }
+        return (array) $permissions;
+    }
+
+    /**
+     * Check if a user has a specific scope.
+     *
+     * @param string $requiredScope The required scope
+     * @param array $userScopes The scopes that the user has
+     * @return bool True if the user has the required scope, false otherwise
+     */
+    protected function _auth_hasScope($requiredScope, $userScopes)
+    {
+        if (in_array($requiredScope, $userScopes)) {
+            return true;
+        }
+
+        // Check for wildcard matches
+        foreach ($userScopes as $userScope) {
+            if ($this->_auth_wildcardMatch($requiredScope, $userScope)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if a required scope matches a user scope with wildcards.
+     *
+     * @param string $requiredScope The required scope (e.g., "posts:edit")
+     * @param string $userScope The user's scope (e.g., "posts:*")
+     * @return bool True if the scopes match, false otherwise
+     */
+    protected function _auth_wildcardMatch($requiredScope, $userScope)
+    {
+        if (strpos($userScope, '*') === false) {
+            return false;
+        }
+
+        $pattern = '/^' . str_replace('\*', '.*', preg_quote($userScope, '/')) . '$/';
+        return preg_match($pattern, $requiredScope) === 1;
+    }
 
     /**
      *
