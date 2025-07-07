@@ -45,6 +45,12 @@ class Route
     protected $compiled = null;
 
     /**
+     * Required permissions for this route
+     * @var array
+     */
+    public $permissions = array();
+
+    /**
      * class constructor
      * @param string $uri
      * @param string $method
@@ -57,6 +63,127 @@ class Route
         $this->method = $method;
     }
 
+    /**
+     * Set required permissions for this route
+     *
+     * @param array|string $permissions The required permissions
+     * @param bool $validateScopes Whether to validate scope format (default: true)
+     * @return \Pramnos\Routing\Route Returns the route instance for method chaining
+     * @throws \InvalidArgumentException If scope validation fails
+     */
+    public function requirePermissions($permissions, $validateScopes = true)
+    {
+        if (is_string($permissions)) {
+            $permissions = array($permissions);
+        }
+        
+        // Validate scopes if requested
+        if ($validateScopes) {
+            foreach ($permissions as $permission) {
+                if (!$this->isValidScope($permission)) {
+                    throw new \InvalidArgumentException("Invalid scope format: {$permission}");
+                }
+            }
+        }
+        
+        $this->permissions = $permissions;
+        return $this;
+    }
+
+    /**
+     * Add additional permissions to this route
+     *
+     * @param array|string $permissions The additional permissions to add
+     * @param bool $validateScopes Whether to validate scope format (default: true)
+     * @return \Pramnos\Routing\Route Returns the route instance for method chaining
+     * @throws \InvalidArgumentException If scope validation fails
+     */
+    public function addPermissions($permissions, $validateScopes = true)
+    {
+        if (is_string($permissions)) {
+            $permissions = array($permissions);
+        }
+        
+        // Validate scopes if requested
+        if ($validateScopes) {
+            foreach ($permissions as $permission) {
+                if (!$this->isValidScope($permission)) {
+                    throw new \InvalidArgumentException("Invalid scope format: {$permission}");
+                }
+            }
+        }
+        
+        $this->permissions = array_unique(array_merge($this->permissions, $permissions));
+        return $this;
+    }
+
+    /**
+     * Remove permissions from this route
+     *
+     * @param array|string $permissions The permissions to remove
+     * @return \Pramnos\Routing\Route Returns the route instance for method chaining
+     */
+    public function removePermissions($permissions)
+    {
+        if (is_string($permissions)) {
+            $permissions = array($permissions);
+        }
+        
+        $this->permissions = array_diff($this->permissions, $permissions);
+        return $this;
+    }
+
+    /**
+     * Validate if a scope follows the expected format
+     *
+     * @param string $scope  The scope to validate
+     * @return bool  True if scope is valid, false otherwise
+     */
+    protected function isValidScope($scope)
+    {
+        // Allow simple permissions without colons
+        if (strpos($scope, ':') === false) {
+            return preg_match('/^[a-zA-Z][a-zA-Z0-9_]*$/', $scope);
+        }
+        
+        // Validate scope format: action:resource[:subresource]
+        if (!preg_match('/^[a-zA-Z*][a-zA-Z0-9_*]*(?::[a-zA-Z*][a-zA-Z0-9_*]*)*$/', $scope)) {
+            return false;
+        }
+        
+        // Check for valid wildcard usage
+        $parts = explode(':', $scope);
+        foreach ($parts as $part) {
+            if ($part === '*') {
+                continue; // Single * is valid
+            }
+            if (strpos($part, '*') !== false) {
+                return false; // * must be standalone in each part
+            }
+        }
+        
+        return true;
+    }
+
+    /**
+     * Get the required permissions for this route
+     *
+     * @return array The required permissions
+     */
+    public function getPermissions()
+    {
+        return $this->permissions;
+    }
+
+    /**
+     * Check if the route has any required permissions
+     *
+     * @return bool True if permissions are required, false otherwise
+     */
+    public function hasPermissions()
+    {
+        return !empty($this->permissions);
+    }
 
     /**
      * Determine if the route matches given request.
