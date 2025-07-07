@@ -166,7 +166,7 @@ class Model extends \Pramnos\Framework\Base
                 foreach (self::$columnCache[$this->getFullTableName()] as $fields) {
                     if ($fields['Field'] != $this->_primaryKey) {
                         $field = $fields['Field'];
-                        if (isset($fields['Null']) && $fields['Null'] == "NO") {
+                        if ($fields['Null'] == "NO") {
                             if ($this->$field === NULL) {
                                 $this->$field = "";
                             }
@@ -183,20 +183,11 @@ class Model extends \Pramnos\Framework\Base
                                 $field, $this->$field, 'post'
                             );
                         }
-                        if (!isset($fields['Type'])) {
-                            $itemdata[] = array(
-                                'fieldName' => $fields['Field'],
-                                'value'     => $this->$field,
-                                'type'      => $this->fieldtype('')
-                            );
-                        } else {
-                            $itemdata[] = array(
-                                'fieldName' => $fields['Field'],
-                                'value'     => $this->$field,
-                                'type'      => $this->fieldtype($fields['Type'])
-                            );
-                        }
-                        
+                        $itemdata[] = array(
+                            'fieldName' => $fields['Field'],
+                            'value'     => $this->$field,
+                            'type'      => $this->fieldtype($fields['Type'])
+                        );
                     }
                 }
             } else {
@@ -344,7 +335,19 @@ class Model extends \Pramnos\Framework\Base
                 $sql = "select count(*) as 'itemsCount' from `"
                     . $this->getFullTableName() . "` " . $filter;
             }
-            $result = $database->query($sql, true, 600, $this->_cacheKey);
+            try {
+                $result = $database->query($sql, true, 600, $this->_cacheKey);
+            } catch (\Exception $e) {
+                \Pramnos\Logs\Logger::logError(
+                    'Error executing getCount query: '
+                     . $sql
+                     . ' - '
+                     . $e->getMessage(),
+                    $e
+                );
+                return 0;
+            }
+            
             return $result->fields['itemsCount'];
         }
         return 0;
@@ -465,8 +468,6 @@ class Model extends \Pramnos\Framework\Base
      * @param  string  $group  Group by statement for database query
      * @param  boolean $returnAsModels If true, return objects as models, otherwise return as arrays
      * @param  boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
-     * @param  mixed $customGetListMethod if is set, use this method instead of the default getList method
-     * @param array  $addedfields If is set, these fields will not be filtered out
      * @return array           Three keys: total, pages, items
      */
     protected function _getPaginated($items=10, $page=1,
@@ -474,12 +475,8 @@ class Model extends \Pramnos\Framework\Base
         $key = NULL, $debug=false,
         $join = '',
         $queryFields = NULL,
-        $group = '', $returnAsModels = true, $useGetData = false,
-        $customGetListMethod = false, $addedfields = array())
+        $group = '', $returnAsModels = true, $useGetData = false)
     {
-        if (!is_array($addedfields)) {
-            $addedfields = array();
-        }   
         $items = abs((int)$items);
         $page-=1;
         $page = abs((int)$page);
@@ -644,39 +641,19 @@ class Model extends \Pramnos\Framework\Base
                 $objects[$result->fields[$primarykey]] = new $class(
                     $this->controller
                 );
+                
+                // Reset initial data array for this object
+                $objects[$result->fields[$primarykey]]->_initialData = array();
+                
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
                         = $result->fields[$field];
+                    // Store initial value
+                    $objects[$result->fields[$primarykey]]->_initialData[$field] = $result->fields[$field];
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
                 if ($useGetData == true) {
-
-                    if ($customGetListMethod !== false) {
-                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]
-                            ->{$customGetListMethod}();
-                    } else {
-                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]
-                            ->getData();
-                    }
-
-                    
-                    // if queryfields is not null (or *), anything not in queryfields should not be returned
-                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != '' 
-                        && is_array($objects[$result->fields[$primarykey]])) {
-                        $fieldsArray = explode(',', $queryFields);
-                        $fieldsArray = array_map('trim', $fieldsArray);
-                        // remove all quotes from fields
-                        $fieldsArray = array_map(function($field) {
-                            return trim($field, '"');
-                        }, $fieldsArray);
-                        foreach ($objects[$result->fields[$primarykey]] as $key => $value) {
-                            if (!in_array($key, $fieldsArray) && !is_array($value) && !in_array($key, $addedfields)) {
-                                unset($objects[$result->fields[$primarykey]][$key]);
-                            }
-                        }
-                    }
-
-
+                    $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
                 }
             }
         }
@@ -701,23 +678,14 @@ class Model extends \Pramnos\Framework\Base
      * @param boolean $returnAsModels If true, return objects as models, otherwise return as arrays
      * @param boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
      * @param boolean $displayerroroutput if true, display error output on database query failure
-     * @param  mixed $customGetListMethod if is set, use this method instead of the default getList method
-     * @param array  $addedfields If is set, these fields will not be filtered out
      * @return array
      */
     public function _getList($filter = NULL, $order = NULL,
         $table = NULL, $key = NULL, $debug=false,
         $join = '',
         $queryFields = NULL,
-        $group = '', $returnAsModels = true, $useGetData = false, $displayerroroutput = true,
-        $customGetListMethod = false,
-        $addedfields = false
-        
-        )
+        $group = '', $returnAsModels = true, $useGetData = false, $displayerroroutput = true)
     {
-        if (!is_array($addedfields)) {
-            $addedfields = array();
-        }   
         if ($table === NULL && $this->_dbtable === NULL) {
             $table = '#PREFIX#' . $this->prefix . '_' . $this->modelname;
         }
@@ -824,37 +792,19 @@ class Model extends \Pramnos\Framework\Base
 
                 $objects[$result->fields[$primarykey]]
                     = new $class($this->controller);
+                
+                // Reset initial data array for this object
+                $objects[$result->fields[$primarykey]]->_initialData = array();
+                
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
                         = $result->fields[$field];
+                    // Store initial value
+                    $objects[$result->fields[$primarykey]]->_initialData[$field] = $result->fields[$field];
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
                 if ($useGetData == true) {
-
-                    if ($customGetListMethod !== false) {
-                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->$customGetListMethod();
-                    } else {
-                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
-                    }
-
-
-
-                    // if queryfields is not null (or *), anything not in queryfields should not be returned
-                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != '' 
-                        && is_array($objects[$result->fields[$primarykey]])) {
-                        $fieldsArray = explode(',', $queryFields);
-                        $fieldsArray = array_map('trim', $fieldsArray);
-                        // remove all quotes from fields
-                        $fieldsArray = array_map(function($field) {
-                            return trim($field, '"');
-                        }, $fieldsArray);
-                        foreach ($objects[$result->fields[$primarykey]] as $key => $value) {
-                            if (!in_array($key, $fieldsArray) && !is_array($value) && !in_array($key, $addedfields)) {
-                                unset($objects[$result->fields[$primarykey]][$key]);
-                            }
-                        }
-                    }
-
+                    $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
                 }
                 
             }
@@ -1120,13 +1070,30 @@ class Model extends \Pramnos\Framework\Base
         
         foreach ($this->_initialData as $field => $initialValue) {
             // Check if the field exists and has changed
-            if (property_exists($this, $field) && $this->$field !== $initialValue) {
-                $changes[$field] = array(
-                    'old' => $initialValue,
-                    'new' => $this->$field
-                );
+            if (property_exists($this, $field)) {
+                $currentValue = $this->$field;
+                
+                // For numeric values, compare using loose comparison to handle type casting
+                if (is_numeric($initialValue) && is_numeric($currentValue)) {
+                    // Convert both to float for comparison to handle int/float differences
+                    if ((float)$initialValue !== (float)$currentValue) {
+                        $changes[$field] = array(
+                            'old' => $initialValue,
+                            'new' => $currentValue
+                        );
+                    }
+                } else {
+                    // For non-numeric values, use strict comparison
+                    if ($currentValue !== $initialValue) {
+                        $changes[$field] = array(
+                            'old' => $initialValue,
+                            'new' => $currentValue
+                        );
+                    }
+                }
             }
         }
+        
         
         return $changes;
     }
@@ -1173,15 +1140,12 @@ class Model extends \Pramnos\Framework\Base
      * @param bool $debug Show debug information
      * @param boolean $returnAsModels If true, return objects as models, otherwise return as arrays
      * @param boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
-     * @param  mixed $customGetListMethod if is set, use this method instead of the default getList method
-     * @param array $addedfields If is set, these fields will not be filtered out
      * @return array API response with pagination info and data
      */
     public function _getApiList($fields = array(), $search = '', 
         $order = '', $filter = '', $join = '', $group = '', 
         $table = null, $key = null,
-        $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, 
-        $useGetData = false, $customGetListMethod = false, $addedfields = false)
+        $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, $useGetData = false)
     {
         // Handle unified search parameter
         $globalSearch = '';
@@ -1254,10 +1218,11 @@ class Model extends \Pramnos\Framework\Base
         
         // Check if pagination is requested
         if ($page > 0) {
+
             try {
                 $result = $this->_getPaginated(
                     $itemsPerPage, $page, $finalFilter, $validatedOrder, $table, $key, $debug,
-                    $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
+                    $join, $selectFields, $group, $returnAsModels, $useGetData
                 );
             } catch (\Exception $ex) {
                 return array(
@@ -1277,6 +1242,14 @@ class Model extends \Pramnos\Framework\Base
             
             
             // Format response for API with pagination
+
+            
+            if (isset($result['items']) && is_array($result['items'])) {
+                $result['items'] = array_values($result['items']);
+            }
+            
+
+
             return array(
                 'data' => $result['items'],
                 'pagination' => array(
@@ -1296,9 +1269,10 @@ class Model extends \Pramnos\Framework\Base
             );
         } else {
             // Get all results without pagination
+            
             $result = $this->_getList(
                 $finalFilter, $validatedOrder, $table, $key, $debug,
-                $join, $selectFields, $group, $returnAsModels, $useGetData, false, $customGetListMethod, $addedfields
+                $join, $selectFields, $group, $returnAsModels, $useGetData, false
             );
             if (empty($result) && $this->sqlError) {
                 return array(
@@ -1314,7 +1288,9 @@ class Model extends \Pramnos\Framework\Base
                 );
             }
             
-            
+            if (isset($result) && is_array($result)) {
+                $result = array_values($result);
+            }
             
             // Format response for API without pagination
             return array(
