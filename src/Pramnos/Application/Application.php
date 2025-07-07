@@ -413,9 +413,10 @@ class Application extends Base
     /**
      * Get a controller
      * @param string $controller
+     * @param array|string $userPermissions
      * @return \Pramnos\Application\Controller
      */
-    public function getController($controller)
+    public function getController($controller, $userPermissions = [])
     {
         $className = ucfirst($controller);
         $namespace = 'Pramnos';
@@ -424,9 +425,9 @@ class Application extends Base
         }
         $nameSpacedClass = '\\' . $namespace . '\\Controllers\\' . $className;
         if (class_exists($nameSpacedClass)) {
-            return new $nameSpacedClass();
+            return new $nameSpacedClass($this, $userPermissions);
         }
-        $controllerObject = $this->getFrameworkController($controller);
+        $controllerObject = $this->getFrameworkController($controller, $userPermissions);
         if ($controllerObject) {
             return $controllerObject;
         }
@@ -547,7 +548,7 @@ class Application extends Base
          */
         try {
             $doc->addContent($controllerObject->exec($this->action));
-        } catch (Exception $exception) {
+        } catch (\Exception $exception) {
             $message = $exception->getMessage();
             if (strpbrk($message, 'SQL') !== false) {
                 \Pramnos\Logs\Logger::log(
@@ -620,14 +621,15 @@ class Application extends Base
      * This should be called for default pramnos_factory controllers when no
      * controller is found
      * @param string $controller
+     * @param array|string $userPermissions
      * @return \pramnos_application_controller
      */
-    protected function getFrameworkController($controller)
+    protected function getFrameworkController($controller, $userPermissions = [])
     {
         $className = ucfirst($controller);
         $nameSpacedClass = '\\Pramnos\\Application\\Controllers\\' . $className;
         if (class_exists($nameSpacedClass)) {
-            return $controller = new $nameSpacedClass();
+            return $controller = new $nameSpacedClass($this, $userPermissions);
         }
 
         return false;
