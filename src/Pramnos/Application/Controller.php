@@ -234,14 +234,13 @@ class Controller extends \Pramnos\Framework\Base
      * Check if a user can execute a controller action
      * @param string $action
      * @return boolean
+     * @throws \Exception
      */
     public function auth($action)
     {
         $session = \Pramnos\Http\Session::getInstance();
         if (array_search($action, $this->actions_auth) !== false) {
-            if ($session->isLogged() == true) {
-                return true;
-            } else {
+            if ($session->isLogged() != true) {
                 return false;
             }
         }
@@ -251,7 +250,10 @@ class Controller extends \Pramnos\Framework\Base
             if (isset($this->action_permissions[$action])) {
                 $required_permissions = $this->action_permissions[$action];
                 if (!$this->_auth_hasPermissions($required_permissions, $this->user_permissions)) {
-                    return false;
+                    throw new \Exception(
+                        'You do not have the required permissions to perform this action.',
+                        403
+                    );
                 }
             }
         }
