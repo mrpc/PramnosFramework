@@ -77,9 +77,9 @@ class Apikey extends \Pramnos\Framework\Base
     public $apiversion = '';
     /**
      * Application Scope
-     * @var array
+     * @var string
      */
-    public $scope = array();
+    public $scope = '';
     /**
      * Is the application public in app directory
      * @var int
@@ -128,11 +128,7 @@ class Apikey extends \Pramnos\Framework\Base
             $this->$field = $dataArray[$field];
         }
         $this->_isnew = false;
-        if (\Pramnos\General\Helpers::checkUnserialize($this->scope)) {
-            $this->scope = unserialize($this->scope);
-        } else {
-            $this->scope = array();
-        }
+        
     }
 
     /**
@@ -277,7 +273,7 @@ class Apikey extends \Pramnos\Framework\Base
             ),
             array(
                 'fieldName' => 'scope',
-                'value' => serialize($this->scope), 'type' => 'string'
+                'value' => $this->scope, 'type' => 'string'
             ),
             array(
                 'fieldName' => 'public',
