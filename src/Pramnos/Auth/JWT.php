@@ -3,6 +3,7 @@ namespace Pramnos\Auth;
 
 use Jose\Component\Core\AlgorithmManager;
 use Jose\Component\Core\JWK;
+use Jose\Component\KeyManagement\JWKFactory;
 use Jose\Component\Signature\Algorithm\HS256;
 use Jose\Component\Signature\Algorithm\HS384;
 use Jose\Component\Signature\Algorithm\HS512;
@@ -62,6 +63,28 @@ class JWT
         'PS384' => ['openssl', 'SHA384'],
         'PS512' => ['openssl', 'SHA512'],
     ];
+
+    /**
+     * Get information about the JWT token header
+     * 
+     */
+    public static function getTokenInformation(string $jwt) {
+        $tks = explode('.', $jwt);
+        if (count($tks) != 3) {
+            return false;
+        }
+        list($headb64, $bodyb64, $cryptob64) = $tks;
+        
+        // Decode header
+        $headerJson = self::b64UrlDecode($headb64);
+        $header = json_decode($headerJson);
+        if ($header === null) {
+            return false;
+        }
+        
+        return $header;
+    }
+
 
     /**
      * Decodes a JWT string into a PHP object.
@@ -296,39 +319,13 @@ class JWT
         $isSymmetric = in_array($alg, ['HS256', 'HS384', 'HS512']);
         
         if ($isSymmetric) {
-            // For HMAC algorithms, use simple key
-            return new JWK([
-                'kty' => 'oct',
-                'k' => self::b64UrlEncode($key),
-            ]);
-        } else if (in_array($alg, ['ES256', 'ES384', 'ES512'])) {
-            // For ECDSA algorithms
-            if (is_resource($key) || (PHP_VERSION_ID >= 80000 && $key instanceof \OpenSSLAsymmetricKey)) {
-                // Convert OpenSSL resource to PEM
-                $details = openssl_pkey_get_details($key);
-                if ($details === false) {
-                    throw new \DomainException('Unable to get key details');
-                }
-                $key = $details['key'];
-            }
-            
-            return JWK::createFromPem($key);
-        } else if ($alg === 'EdDSA') {
-            // For EdDSA algorithms
-            if (is_resource($key) || (PHP_VERSION_ID >= 80000 && $key instanceof \OpenSSLAsymmetricKey)) {
-                // Convert OpenSSL resource to PEM
-                $details = openssl_pkey_get_details($key);
-                if ($details === false) {
-                    throw new \DomainException('Unable to get key details');
-                }
-                $key = $details['key'];
-            }
-            
-            return JWK::createFromPem($key);
+            // For HMAC algorithms, use JWKFactory to create from secret
+            return JWKFactory::createFromSecret($key);
         } else {
-            // For RSA and RSAPSS algorithms
+            // For asymmetric algorithms (RSA, ECDSA, EdDSA)
             if (is_resource($key) || (PHP_VERSION_ID >= 80000 && $key instanceof \OpenSSLAsymmetricKey)) {
                 // Convert OpenSSL resource to PEM
+                /** @var resource|\OpenSSLAsymmetricKey $key */
                 $details = openssl_pkey_get_details($key);
                 if ($details === false) {
                     throw new \DomainException('Unable to get key details');
@@ -336,7 +333,8 @@ class JWT
                 $key = $details['key'];
             }
             
-            return JWK::createFromPem($key);
+            // Create JWK from PEM key
+            return JWKFactory::createFromKey($key);
         }
     }
     

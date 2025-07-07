@@ -4,7 +4,7 @@ namespace Pramnos\User;
 
 /**
  * User tokens
- * @package     CaptainBook
+ * @package     PramnosFramework
  * @copyright   Copyright (C) 2017  Yannis - Pastis Glaros, Pramnos Hosting Ltd.
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  *
@@ -24,7 +24,13 @@ class Token extends \Pramnos\Framework\Base
      */
     public $userid = null;
     /**
-     * Token type. Auth, apns, gcm
+     * Token type
+     * auth: Authentication token
+     * apns: Apple Push Notification Service token
+     * gcm: Google Cloud Messaging token
+     * access_token: Access token for OAuth2
+     * refresh_token: Refresh token for OAuth2
+     * auth_code: Authorization code for OAuth2
      * @var string
      */
     public $tokentype = '';
@@ -159,7 +165,7 @@ class Token extends \Pramnos\Framework\Base
     /**
      * Load a token from the database
      * @param int|string $tokenid
-     * @return \captainbook_token
+     * @return Token
      */
     public function load($tokenid)
     {

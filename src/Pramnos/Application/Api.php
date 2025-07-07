@@ -162,24 +162,71 @@ class Api extends Application
             }
 
             \Pramnos\Auth\JWT::$leeway = 60; // $leeway in seconds
-            try {
-                $jwt = \Pramnos\Auth\JWT::decode(
-                    $_SERVER['HTTP_ACCESSTOKEN'], $this->authenticationKey,
-                    array('HS256')
-                );
-            } catch (\Exception $ex) {
+            $tkn = $_SERVER['HTTP_ACCESSTOKEN'];
+            
+            $tokenInfo = \Pramnos\Auth\JWT::getTokenInformation($tkn);
+            if (!$tokenInfo) {
                 $doc->addContent(
                     $this->_translateStatus(
                         array(
                             'status' => 403,
                             'message' => 'Invalid Access Token.',
                             'error' => 'InvalidAccessToken',
-                            'data' => $ex->getMessage()
+                            'data' => 'Token information could not be retrieved.'
                         )
                     )
                 );
-            return;
+                return;
             }
+
+            if (isset($tokenInfo->alg) && $tokenInfo->alg == 'RS256') {
+                $decodeKey = $this->authenticationKey;
+                $privateKeyPath = ROOT . '/app/keys/public.key';
+                if (file_exists($privateKeyPath)) {
+                    $decodeKey = file_get_contents($privateKeyPath);
+                } elseif (file_exists(ROOT . '/keys/public.key')) {
+                    $decodeKey = file_get_contents(ROOT . '/keys/public.key');
+                }
+                try {
+                    $jwt = \Pramnos\Auth\JWT::decode(
+                        $tkn, $decodeKey,
+                        array('HS256', 'RS256')
+                    );
+                } catch (\Exception $ex) {
+                    $doc->addContent(
+                        $this->_translateStatus(
+                            array(
+                                'status' => 403,
+                                'message' => 'Invalid Access Token.',
+                                'error' => 'InvalidAccessToken',
+                                'data' => $ex->getMessage()
+                            )
+                        )
+                    );
+                return;
+                }
+            } else {
+                try {
+                    $jwt = \Pramnos\Auth\JWT::decode(
+                        $tkn, $this->authenticationKey,
+                        array('HS256')
+                    );
+                } catch (\Exception $ex) {
+                    $doc->addContent(
+                        $this->_translateStatus(
+                            array(
+                                'status' => 403,
+                                'message' => 'Invalid Access Token.',
+                                'error' => 'InvalidAccessToken',
+                                'data' => $ex->getMessage()
+                            )
+                        )
+                    );
+                return;
+                }
+            }
+
+            
             $user->loadByToken($_SERVER['HTTP_ACCESSTOKEN']);
             if ($user->userid > 1) {
                 $_SESSION['logged'] = true;

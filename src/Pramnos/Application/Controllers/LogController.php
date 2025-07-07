@@ -8,7 +8,6 @@ use Pramnos\Framework\Factory;
 use Pramnos\Logs\LogViewer;
 use Pramnos\Logs\LogManager;
 use Pramnos\Logs\Logger;
-use Urbanwater\Utils\FileUtils;
 
 /**
  * Base Logs Controller class for the framework
