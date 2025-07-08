@@ -295,8 +295,8 @@ class Application extends Base
     public function showError($msg='', $title='Maintenance Mode')
     {
         if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
-            $database=&pramnos_factory::getDatabase();
-            $error = pramnos_general::varDumpToString($database->getError());
+            $database = \Pramnos\Framework\Factory::getDatabase();
+            $error = \Pramnos\General\Helpers::varDumpToString($database->getError());
         } else {
             $error = '';
         }
