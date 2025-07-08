@@ -499,7 +499,11 @@ class Helpers
     public static function varDumpToString($var, $format = false)
     {
         ob_start();
-        var_dump($var);
+        if (is_array($var) || is_object($var)) {
+            print_r($var);
+        } else {
+            var_dump($var);
+        }
         $result = ob_get_clean();
         if ($format == true) {
             return '<pre>' . $result . '</pre>';
