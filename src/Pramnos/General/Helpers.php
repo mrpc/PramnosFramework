@@ -494,21 +494,138 @@ class Helpers
      * @param mixed $var
      * @param boolean $format Set true if yoy want to
      * add <pre></pre> to return
+     * @param int $maxDepth Maximum depth for arrays/objects (default: 3)
+     * @param int $maxElements Maximum elements to show (default: 100)
      * @return string
      */
-    public static function varDumpToString($var, $format = false)
+    public static function varDumpToString($var, $format = false, $maxDepth = 3, $maxElements = 100)
     {
-        ob_start();
-        if (is_array($var) || is_object($var)) {
-            print_r($var);
+        // Check memory usage before proceeding
+        $memoryLimit = ini_get('memory_limit');
+        $memoryUsage = memory_get_usage(true);
+        $memoryLimitBytes = self::parseMemoryLimit($memoryLimit);
+        
+        // If we're using more than 80% of memory limit, return a safe representation
+        if ($memoryLimitBytes > 0 && $memoryUsage > ($memoryLimitBytes * 0.8)) {
+            $result = "Memory usage too high to safely dump variable. Type: " . gettype($var);
+            if (is_array($var)) {
+                $result .= ", Array length: " . count($var);
+            } elseif (is_object($var)) {
+                $result .= ", Object class: " . get_class($var);
+            }
         } else {
-            var_dump($var);
+            ob_start();
+            try {
+                if (is_array($var) || is_object($var)) {
+                    // Use a safer approach for large structures
+                    $safeDump = self::safePrintR($var, $maxDepth, $maxElements);
+                    echo $safeDump;
+                } else {
+                    var_dump($var);
+                }
+                $result = ob_get_clean();
+            } catch (\Error $e) {
+                ob_end_clean();
+                $result = "Error dumping variable: " . $e->getMessage() . ". Type: " . gettype($var);
+            } catch (\Exception $e) {
+                ob_end_clean();
+                $result = "Exception dumping variable: " . $e->getMessage() . ". Type: " . gettype($var);
+            }
         }
-        $result = ob_get_clean();
+        
         if ($format == true) {
-            return '<pre>' . $result . '</pre>';
+            return '<pre>' . htmlspecialchars($result) . '</pre>';
         }
         return $result;
+    }
+
+    /**
+     * Parse memory limit string to bytes
+     * @param string $memoryLimit
+     * @return int
+     */
+    private static function parseMemoryLimit($memoryLimit)
+    {
+        if ($memoryLimit == '-1') {
+            return -1; // No limit
+        }
+        
+        $memoryLimit = trim($memoryLimit);
+        $last = strtolower($memoryLimit[strlen($memoryLimit)-1]);
+        $value = (int) $memoryLimit;
+        
+        switch($last) {
+            case 'g':
+                $value *= 1024;
+            case 'm':
+                $value *= 1024;
+            case 'k':
+                $value *= 1024;
+        }
+        
+        return $value;
+    }
+
+    /**
+     * Safe print_r implementation with depth and element limits
+     * @param mixed $var
+     * @param int $maxDepth
+     * @param int $maxElements
+     * @param int $currentDepth
+     * @return string
+     */
+    private static function safePrintR($var, $maxDepth = 3, $maxElements = 100, $currentDepth = 0)
+    {
+        if ($currentDepth >= $maxDepth) {
+            if (is_array($var)) {
+                return "Array[" . count($var) . "] (max depth reached)";
+            } elseif (is_object($var)) {
+                return get_class($var) . " Object (max depth reached)";
+            }
+        }
+        
+        if (is_array($var)) {
+            $result = "Array\n" . str_repeat('    ', $currentDepth) . "(\n";
+            $count = 0;
+            foreach ($var as $key => $value) {
+                if ($count >= $maxElements) {
+                    $result .= str_repeat('    ', $currentDepth + 1) . "... (" . (count($var) - $maxElements) . " more elements)\n";
+                    break;
+                }
+                $result .= str_repeat('    ', $currentDepth + 1) . "[" . $key . "] => ";
+                if (is_array($value) || is_object($value)) {
+                    $result .= self::safePrintR($value, $maxDepth, $maxElements, $currentDepth + 1);
+                } else {
+                    $result .= var_export($value, true);
+                }
+                $result .= "\n";
+                $count++;
+            }
+            $result .= str_repeat('    ', $currentDepth) . ")";
+            return $result;
+        } elseif (is_object($var)) {
+            $result = get_class($var) . " Object\n" . str_repeat('    ', $currentDepth) . "(\n";
+            $properties = get_object_vars($var);
+            $count = 0;
+            foreach ($properties as $key => $value) {
+                if ($count >= $maxElements) {
+                    $result .= str_repeat('    ', $currentDepth + 1) . "... (" . (count($properties) - $maxElements) . " more properties)\n";
+                    break;
+                }
+                $result .= str_repeat('    ', $currentDepth + 1) . "[" . $key . "] => ";
+                if (is_array($value) || is_object($value)) {
+                    $result .= self::safePrintR($value, $maxDepth, $maxElements, $currentDepth + 1);
+                } else {
+                    $result .= var_export($value, true);
+                }
+                $result .= "\n";
+                $count++;
+            }
+            $result .= str_repeat('    ', $currentDepth) . ")";
+            return $result;
+        } else {
+            return var_export($var, true);
+        }
     }
 
     /**
