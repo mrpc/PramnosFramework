@@ -1538,8 +1538,18 @@ class Model extends \Pramnos\Framework\Base
         $database = \Pramnos\Database\Database::getInstance();
         $selectFields = array();
         $hasJoin = !empty(trim($join));
+        $fieldNames = array(); // Track field names to detect duplicates
         
         foreach ($fields as $field) {
+            $originalField = $field;
+            $fieldAlias = '';
+            
+            // Check if field already has an AS clause
+            if (stripos($field, ' as ') !== false) {
+                $selectFields[] = $field;
+                continue;
+            }
+            
             if (strpos($field, '.') === false && $hasJoin) {
                 // Add table alias for fields without explicit table reference when using joins
                 if ($database->type == 'postgresql') {
@@ -1547,6 +1557,7 @@ class Model extends \Pramnos\Framework\Base
                 } else {
                     $selectFields[] = 'a.`' . $field . '`';
                 }
+                $fieldNames[] = $field;
             } elseif (strpos($field, '.') === false) {
                 // No join, no alias needed
                 if ($database->type == 'postgresql') {
@@ -1554,12 +1565,33 @@ class Model extends \Pramnos\Framework\Base
                 } else {
                     $selectFields[] = '`' . $field . '`';
                 }
+                $fieldNames[] = $field;
             } else {
-                // Field already has table reference
-                $selectFields[] = $field;
+                // Field already has table reference (e.g., a.status, b.status)
+                $parts = explode('.', $field);
+                if (count($parts) == 2) {
+                    $tableAlias = $parts[0];
+                    $fieldName = $parts[1];
+                    
+                    // Check if this field name already exists
+                    if (in_array($fieldName, $fieldNames)) {
+                        // Create alias to avoid duplicate field names
+                        $alias = $tableAlias . '_' . $fieldName;
+                        if ($database->type == 'postgresql') {
+                            $selectFields[] = $field . ' AS "' . $alias . '"';
+                        } else {
+                            $selectFields[] = $field . ' AS `' . $alias . '`';
+                        }
+                    } else {
+                        $selectFields[] = $field;
+                        $fieldNames[] = $fieldName;
+                    }
+                } else {
+                    $selectFields[] = $field;
+                }
             }
         }
-        
+
         return implode(', ', $selectFields);
     }
     
