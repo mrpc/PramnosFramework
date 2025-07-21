@@ -468,6 +468,8 @@ class Model extends \Pramnos\Framework\Base
      * @param  string  $group  Group by statement for database query
      * @param  boolean $returnAsModels If true, return objects as models, otherwise return as arrays
      * @param  boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @param  mixed $customGetListMethod if is set, use this method instead of the default getList method
+     * @param array  $addedfields If is set, these fields will not be filtered out
      * @return array           Three keys: total, pages, items
      */
     protected function _getPaginated($items=10, $page=1,
@@ -475,8 +477,12 @@ class Model extends \Pramnos\Framework\Base
         $key = NULL, $debug=false,
         $join = '',
         $queryFields = NULL,
-        $group = '', $returnAsModels = true, $useGetData = false)
+        $group = '', $returnAsModels = true, $useGetData = false,
+        $customGetListMethod = false, $addedfields = array())
     {
+        if (!is_array($addedfields)) {
+            $addedfields = array();
+        }  
         $items = abs((int)$items);
         $page-=1;
         $page = abs((int)$page);
@@ -546,7 +552,6 @@ class Model extends \Pramnos\Framework\Base
             }
             $orderArray = explode(';', $order);
             $order = $database->prepareQuery($orderArray[0]);
-
             if ($database->type == 'postgresql') {
                 if ($this->_dbschema !== null) {
                     $sql = "select $fields from " . $this->_dbschema . '.'
@@ -653,7 +658,27 @@ class Model extends \Pramnos\Framework\Base
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
                 if ($useGetData == true) {
-                    $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
+                    if ($customGetListMethod !== false) {
+                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->{$customGetListMethod}();
+                    } else {
+                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
+                    }    
+
+                    // if queryfields is not null (or *), anything not in queryfields should not be returned
+                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != '' 
+                        && is_array($objects[$result->fields[$primarykey]])) {
+                        $fieldsArray = explode(',', $queryFields);
+                        $fieldsArray = array_map('trim', $fieldsArray);
+                        // remove all quotes from fields
+                        $fieldsArray = array_map(function($field) {
+                            return trim($field, '"');
+                        }, $fieldsArray);
+                        foreach ($objects[$result->fields[$primarykey]] as $key => $value) {
+                            if (!in_array($key, $fieldsArray) && !is_array($value) && !in_array($key, $addedfields)) {
+                                unset($objects[$result->fields[$primarykey]][$key]);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -678,17 +703,24 @@ class Model extends \Pramnos\Framework\Base
      * @param boolean $returnAsModels If true, return objects as models, otherwise return as arrays
      * @param boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
      * @param boolean $displayerroroutput if true, display error output on database query failure
+     * @param  mixed $customGetListMethod if is set, use this method instead of the default getList method
+     * @param array  $addedfields If is set, these fields will not be filtered out
      * @return array
      */
     public function _getList($filter = NULL, $order = NULL,
         $table = NULL, $key = NULL, $debug=false,
         $join = '',
         $queryFields = NULL,
-        $group = '', $returnAsModels = true, $useGetData = false, $displayerroroutput = true)
+        $group = '', $returnAsModels = true, $useGetData = false, $displayerroroutput = true,
+        $customGetListMethod = false,
+        $addedfields = false)
     {
         if ($table === NULL && $this->_dbtable === NULL) {
             $table = '#PREFIX#' . $this->prefix . '_' . $this->modelname;
         }
+        if (!is_array($addedfields)) {
+            $addedfields = array();
+        }   
         $objects = array();
         $database = \Pramnos\Database\Database::getInstance();
         if ($table !== NULL && $table != "") {
@@ -804,7 +836,28 @@ class Model extends \Pramnos\Framework\Base
                 }
                 $objects[$result->fields[$primarykey]]->_isnew = false;
                 if ($useGetData == true) {
-                    $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
+
+                    if ($customGetListMethod !== false) {
+                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->{$customGetListMethod}();
+                    } else {
+                        $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
+                    }
+
+                    // if queryfields is not null (or *), anything not in queryfields should not be returned
+                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != '' 
+                        && is_array($objects[$result->fields[$primarykey]])) {
+                        $fieldsArray = explode(',', $queryFields);
+                        $fieldsArray = array_map('trim', $fieldsArray);
+                        // remove all quotes from fields
+                        $fieldsArray = array_map(function($field) {
+                            return trim($field, '"');
+                        }, $fieldsArray);
+                        foreach ($objects[$result->fields[$primarykey]] as $key => $value) {
+                            if (!in_array($key, $fieldsArray) && !is_array($value) && !in_array($key, $addedfields)) {
+                                unset($objects[$result->fields[$primarykey]][$key]);
+                            }
+                        }
+                    }
                 }
                 
             }
@@ -1140,12 +1193,15 @@ class Model extends \Pramnos\Framework\Base
      * @param bool $debug Show debug information
      * @param boolean $returnAsModels If true, return objects as models, otherwise return as arrays
      * @param boolean $useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @param  mixed $customGetListMethod if is set, use this method instead of the default getList method
+     * @param array $addedfields If is set, these fields will not be filtered out
      * @return array API response with pagination info and data
      */
     public function _getApiList($fields = array(), $search = '', 
         $order = '', $filter = '', $join = '', $group = '', 
         $table = null, $key = null,
-        $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, $useGetData = false)
+        $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, $useGetData = false,
+        $customGetListMethod = false, $addedfields = false)
     {
         // Handle unified search parameter
         $globalSearch = '';
@@ -1174,13 +1230,14 @@ class Model extends \Pramnos\Framework\Base
             }
         } 
         
+        $availableFields = $this->_getAllTableFields($join);
         // Get all available fields if none specified
         if (empty($fields)) {
-            $fields = $this->_getAllTableFields();
+            $fields = $availableFields;
         }
         
         // Validate and sanitize fields
-        $availableFields = $this->_getAllTableFields();
+        
         $validFields = array();
         foreach ($fields as $field) {
             $field = trim($field);
@@ -1191,7 +1248,23 @@ class Model extends \Pramnos\Framework\Base
         
         if (empty($validFields)) {
             $validFields = $availableFields;
+
+            
+
+
         }
+
+        $returnedFields = array();
+
+        // remove table prefixes from validFields
+        foreach ($validFields as $field) {
+            if (strpos($field, '.') !== false) {
+                $returnedFields[substr($field, strpos($field, '.') + 1)] = substr($field, strpos($field, '.') + 1);
+            } else {
+                $returnedFields[$field] = $field;
+            }
+        }
+        $returnedFields = array_values($returnedFields);
         
         // Always ensure primary key is included
         if ($key !== null && $key != "") {
@@ -1222,14 +1295,14 @@ class Model extends \Pramnos\Framework\Base
             try {
                 $result = $this->_getPaginated(
                     $itemsPerPage, $page, $finalFilter, $validatedOrder, $table, $key, $debug,
-                    $join, $selectFields, $group, $returnAsModels, $useGetData
+                    $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
                 );
             } catch (\Exception $ex) {
                 return array(
                     'error' => 'Database query failed: ' . $ex->getMessage(),
                     'data' => array(),
                     'pagination' => null,
-                    'fields' => $validFields,
+                    'fields' => $returnedFields,
                     'debug' => array(
                         'filter' => $finalFilter,
                         'order' => $validatedOrder,
@@ -1260,7 +1333,7 @@ class Model extends \Pramnos\Framework\Base
                     'hasnext' => $page < $result['pages'],
                     'hasprevious' => $page > 1
                 ),
-                'fields' => $validFields,
+                'fields' => $returnedFields,
                 'debug' => array(
                     'filter' => $finalFilter,
                     'order' => $validatedOrder,
@@ -1272,14 +1345,15 @@ class Model extends \Pramnos\Framework\Base
             
             $result = $this->_getList(
                 $finalFilter, $validatedOrder, $table, $key, $debug,
-                $join, $selectFields, $group, $returnAsModels, $useGetData, false
+                $join, $selectFields, $group, $returnAsModels, $useGetData, false,
+                $customGetListMethod, $addedfields
             );
             if (empty($result) && $this->sqlError) {
                 return array(
                     'error' => $this->sqlError,
                     'data' => array(),
                     'pagination' => null,
-                    'fields' => $validFields,
+                    'fields' => $returnedFields,
                     'debug' => array(
                         'filter' => $finalFilter,
                         'order' => $validatedOrder,
@@ -1296,7 +1370,7 @@ class Model extends \Pramnos\Framework\Base
             return array(
                 'data' => $result,
                 'pagination' => null,
-                'fields' => $validFields,
+                'fields' => $returnedFields,
                 'debug' => array(
                     'filter' => $finalFilter,
                     'order' => $validatedOrder,
@@ -1308,13 +1382,15 @@ class Model extends \Pramnos\Framework\Base
     
     /**
      * Get all table fields for the current model
-     * @return array Array of field names
+     * @param string $join Optional JOIN clause to include fields from joined tables
+     * @return array Array of field names (includes table.field format for joined tables)
      */
-    private function _getAllTableFields()
+    private function _getAllTableFields($join = '')
     {
         $database = \Pramnos\Database\Database::getInstance();
         $fields = array();
         
+        // Get main table fields
         if (isset(self::$columnCache[$this->getFullTableName()])) {
             foreach (self::$columnCache[$this->getFullTableName()] as $fieldInfo) {
                 $fields[] = $fieldInfo['Field'];
@@ -1346,6 +1422,106 @@ class Model extends \Pramnos\Framework\Base
                 }
                 self::$columnCache[$this->getFullTableName()][] = $result->fields;
             }
+        }
+        
+        // If join is provided, extract and get fields from joined tables
+        if (!empty(trim($join))) {
+            $joinedFields = $this->_getJoinedTableFields($join);
+            $fields = array_merge($fields, $joinedFields);
+        }
+        
+        return $fields;
+    }
+    
+    /**
+     * Extract table names from JOIN clause and get their fields
+     * @param string $join JOIN clause
+     * @return array Array of field names without table prefixes (e.g., 'field_name')
+     */
+    private function _getJoinedTableFields($join)
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        $fields = array();
+        
+        // Parse JOIN clause to extract table names and aliases
+        // Support various JOIN types: INNER JOIN, LEFT JOIN, RIGHT JOIN, etc.
+        $joinPattern = '/(?:INNER\s+JOIN|LEFT\s+(?:OUTER\s+)?JOIN|RIGHT\s+(?:OUTER\s+)?JOIN|FULL\s+(?:OUTER\s+)?JOIN|CROSS\s+JOIN|JOIN)\s+([`"\w.#]+)\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)/i';
+        
+        preg_match_all($joinPattern, $join, $matches, PREG_SET_ORDER);
+        
+        foreach ($matches as $match) {
+            $tableName = trim($match[1], '`"');
+            $tableAlias = $match[2];
+            
+            // Replace prefixes
+            $fullTableName = str_replace('#PREFIX#', $database->prefix, $tableName);
+            
+            // Get fields for this joined table
+            $tableFields = $this->_getTableFields($fullTableName);
+            
+            // Add fields without table alias prefix
+            foreach ($tableFields as $field) {
+                $fields[] = $tableAlias . '.' . $field;
+            }
+        }
+        
+        return $fields;
+    }
+    
+    /**
+     * Get fields for a specific table
+     * @param string $tableName Full table name
+     * @return array Array of field names
+     */
+    private function _getTableFields($tableName)
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        $fields = array();
+        
+        // Check cache first
+        $cacheKey = $tableName;
+        if (isset(self::$columnCache[$cacheKey])) {
+            foreach (self::$columnCache[$cacheKey] as $fieldInfo) {
+                $fields[] = $fieldInfo['Field'];
+            }
+            return $fields;
+        }
+        
+        try {
+            if ($database->type == 'postgresql') {
+                // For PostgreSQL, we need to handle schema
+                $parts = explode('.', $tableName);
+                if (count($parts) === 2) {
+                    $schema = $parts[0];
+                    $table = $parts[1];
+                } else {
+                    $schema = $this->_dbschema ?: $database->schema;
+                    $table = $tableName;
+                }
+                
+                $sql = "SELECT column_name as \"Field\" "
+                    . " FROM information_schema.columns "
+                    . " WHERE table_schema = '" . $schema . "'"
+                    . " AND table_name = '" . $table . "';";
+            } else {
+                $sql = "SHOW COLUMNS FROM `" . $tableName . "`";
+            }
+            
+            $result = $database->query($sql);
+            
+            // Initialize cache for this table
+            self::$columnCache[$cacheKey] = array();
+            
+            while ($result->fetch()) {
+                $fields[] = $result->fields['Field'];
+                self::$columnCache[$cacheKey][] = $result->fields;
+            }
+        } catch (\Exception $e) {
+            // If we can't get fields for joined table, log error and continue
+            \Pramnos\Logs\Logger::logError(
+                'Could not get fields for joined table: ' . $tableName . ' - ' . $e->getMessage(),
+                $e
+            );
         }
         
         return $fields;
@@ -1401,6 +1577,18 @@ class Model extends \Pramnos\Framework\Base
         $conditions = array();
         $hasJoin = !empty(trim($join));
         
+        // Create a mapping of field names without table prefixes to their full references
+        $fieldMapping = array();
+        foreach ($fields as $field) {
+            if (strpos($field, '.') !== false) {
+                // Extract field name after the dot
+                $fieldName = substr($field, strrpos($field, '.') + 1);
+                $fieldMapping[$fieldName] = $field;
+            } else {
+                $fieldMapping[$field] = $field;
+            }
+        }
+        
         // Global search across all fields
         if (!empty($globalSearch)) {
             $globalConditions = array();
@@ -1424,16 +1612,32 @@ class Model extends \Pramnos\Framework\Base
         }
         
         // Field-specific searches
-        foreach ($fieldSearches as $field => $searchTerm) {
-            if (empty($searchTerm) || !in_array($field, $fields)) {
+        foreach ($fieldSearches as $searchField => $searchTerm) {
+            if (empty($searchTerm)) {
                 continue;
             }
             
-            $fieldRef = $field;
-            if (strpos($field, '.') === false && $hasJoin) {
-                $fieldRef = 'a.' . ($database->type == 'postgresql' ? '"' . $field . '"' : '`' . $field . '`');
-            } elseif (strpos($field, '.') === false) {
-                $fieldRef = ($database->type == 'postgresql' ? '"' . $field . '"' : '`' . $field . '`');
+            $targetField = null;
+            
+            // First try exact match
+            if (in_array($searchField, $fields)) {
+                $targetField = $searchField;
+            } else {
+                // Try to find field by name without table prefix
+                if (isset($fieldMapping[$searchField])) {
+                    $targetField = $fieldMapping[$searchField];
+                }
+            }
+            
+            if ($targetField === null) {
+                continue; // Skip fields that don't exist
+            }
+            
+            $fieldRef = $targetField;
+            if (strpos($targetField, '.') === false && $hasJoin) {
+                $fieldRef = 'a.' . ($database->type == 'postgresql' ? '"' . $targetField . '"' : '`' . $targetField . '`');
+            } elseif (strpos($targetField, '.') === false) {
+                $fieldRef = ($database->type == 'postgresql' ? '"' . $targetField . '"' : '`' . $targetField . '`');
             }
             
             if ($database->type == 'postgresql') {
