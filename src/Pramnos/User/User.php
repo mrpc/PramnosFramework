@@ -1113,8 +1113,8 @@ class User extends \Pramnos\Framework\Base
         
         // Delete the auth tokens only
         $sql = $database->prepareQuery(
-            "UPDATE #PREFIX#usertokens SET `status` = 2 WHERE `userid` = %d AND `lastused` < %d AND `tokentype` in ('auth', 'access_token') ",
-            $this->userid, $oneMonthAgo
+            "UPDATE #PREFIX#usertokens SET `status` = 2 WHERE `userid` = %d AND `created` < %d AND `lastused` < %d AND `tokentype` in ('auth', 'access_token') ",
+            $this->userid, $oneMonthAgo, $oneMonthAgo
         );
         $database->query($sql);
         
@@ -1133,8 +1133,8 @@ class User extends \Pramnos\Framework\Base
         
         // Delete the auth tokens only
         $sql = $database->prepareQuery(
-            "UPDATE #PREFIX#usertokens SET `status` = 2 WHERE `lastused` < %d AND `tokentype` in ('auth', 'access_token') ",
-            $oneMonthAgo
+            "UPDATE #PREFIX#usertokens SET `status` = 2 WHERE `created` < %d AND `lastused` < %d AND `tokentype` in ('auth', 'access_token') ",
+            $oneMonthAgo, $oneMonthAgo
         );
         $database->query($sql);
         
