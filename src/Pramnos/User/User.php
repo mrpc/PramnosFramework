@@ -1023,7 +1023,7 @@ class User extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $sql = $database->prepareQuery(
-            "SELECT * FROM #PREFIX#usertokens WHERE `tokentype` = 'auth' and `status` = 1 and `userid` = %d LIMIT 1", $this->userid
+            "SELECT * FROM #PREFIX#usertokens WHERE `tokentype` in ('auth', 'access_token') and `status` = 1 and `userid` = %d LIMIT 1", $this->userid
         );
         $result = $database->query($sql, true);
         if ($result->numRows == 0) {
