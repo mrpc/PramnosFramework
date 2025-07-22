@@ -146,13 +146,6 @@ class Token extends \Pramnos\Framework\Base
             $this->$field = $dataArray[$field];
         }
         $this->_isnew = false;
-        if (\Pramnos\General\Helpers::checkUnserialize($this->scope)) {
-            $this->scope = unserialize($this->scope);
-        } elseif ($this->scope && json_decode($this->scope) !== null) {
-            $this->scope = json_decode($this->scope, true);
-        } else {
-            $this->scope = array();
-        }
         if (\Pramnos\General\Helpers::checkUnserialize($this->deviceinfo)) {
             $this->deviceinfo = unserialize($this->deviceinfo);
         } elseif ($this->deviceinfo && json_decode($this->deviceinfo) !== null) {
@@ -555,7 +548,7 @@ class Token extends \Pramnos\Framework\Base
             ),
             array(
                 'fieldName' => 'scope',
-                'value' => json_encode($this->scope),
+                'value' => $this->scope,
                 'type' => 'string'
             )
         );
