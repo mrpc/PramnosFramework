@@ -1284,7 +1284,7 @@ class Model extends \Pramnos\Framework\Base
         $searchConditions = $this->_buildSearchConditions($validFields, $globalSearch, $fieldSearches, $join);
         
         // Validate and build order clause
-        $validatedOrder = $this->_validateAndBuildOrder($order, $availableFields, $join);
+        $validatedOrder = $this->_validateAndBuildOrder($order, $validFields, $join);
         
         // Combine filter and search conditions
         $finalFilter = ' ' . $this->_combineFilters($filter, $searchConditions);
@@ -1695,6 +1695,18 @@ class Model extends \Pramnos\Framework\Base
         $orderParts = array();
         $hasJoin = !empty(trim($join));
         
+        // Create a mapping of field names without table prefixes to their full references
+        $fieldMapping = array();
+        foreach ($availableFields as $field) {
+            if (strpos($field, '.') !== false) {
+                // Extract field name after the dot
+                $fieldName = substr($field, strrpos($field, '.') + 1);
+                $fieldMapping[$fieldName] = $field;
+            } else {
+                $fieldMapping[$field] = $field;
+            }
+        }
+        
         if (empty(trim($order))) {
             // Default order by primary key DESC
             $primaryKey = $this->_primaryKey;
@@ -1751,37 +1763,30 @@ class Model extends \Pramnos\Framework\Base
                 continue; // Skip invalid field names
             }
             
-            // Validate field exists in available fields OR if it contains a table alias (for joined tables)
-            $isValidField = false;
+            // Use field mapping to validate and resolve field names
+            $targetField = null;
             
-            if (strpos($fieldName, '.') === false) {
-                // Simple field name - must be in available fields
-                $isValidField = in_array($fieldName, $availableFields);
+            // First try exact match in available fields
+            if (in_array($fieldName, $availableFields)) {
+                $targetField = $fieldName;
             } else {
-                // Field with table alias - validate format and table alias
-                $parts = explode('.', $fieldName);
-                if (count($parts) === 2) {
-                    $tableAlias = $parts[0];
-                    $field = $parts[1];
-                    
-                    // Validate table alias (allow alphanumeric and underscore, starting with letter)
-                    if (preg_match('/^[a-zA-Z][a-zA-Z0-9_]*$/', $tableAlias) && !empty($field)) {
-                        $isValidField = true;
-                    }
+                // Try to find field by name without table prefix using field mapping
+                if (isset($fieldMapping[$fieldName])) {
+                    $targetField = $fieldMapping[$fieldName];
                 }
             }
             
-            if ($isValidField) {
-                $fieldRef = $fieldName;
-                if (strpos($fieldName, '.') === false && $hasJoin) {
+            if ($targetField !== null) {
+                $fieldRef = $targetField;
+                if (strpos($targetField, '.') === false && $hasJoin) {
                     // Field from main table, add table alias
-                    $fieldRef = 'a.' . ($database->type == 'postgresql' ? '"' . $fieldName . '"' : '`' . $fieldName . '`');
-                } elseif (strpos($fieldName, '.') === false) {
+                    $fieldRef = 'a.' . ($database->type == 'postgresql' ? '"' . $targetField . '"' : '`' . $targetField . '`');
+                } elseif (strpos($targetField, '.') === false) {
                     // Field from main table, no join
-                    $fieldRef = ($database->type == 'postgresql' ? '"' . $fieldName . '"' : '`' . $fieldName . '`');
+                    $fieldRef = ($database->type == 'postgresql' ? '"' . $targetField . '"' : '`' . $targetField . '`');
                 } else {
                     // Field already has table reference (joined table), validate and quote properly
-                    $parts = explode('.', $fieldName);
+                    $parts = explode('.', $targetField);
                     if (count($parts) === 2) {
                         $tableAlias = $parts[0];
                         $field = $parts[1];
