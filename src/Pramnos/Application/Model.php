@@ -1631,11 +1631,38 @@ class Model extends \Pramnos\Framework\Base
                 } elseif (strpos($field, '.') === false) {
                     $fieldRef = ($database->type == 'postgresql' ? '"' . $field . '"' : '`' . $field . '`');
                 }
+
+                if (strpos($globalSearch, '%') !== false) {
+                    // If search term already contains wildcards, use it directly
+                    $globalSearch = $database->prepareInput($globalSearch);
+                } else {
+                    // Otherwise, prepare it for LIKE search
+                    $globalSearch = $database->prepareInput('%' . $globalSearch . '%');
+                }
+                if (is_string($globalSearch)) {
+                    // Split search term into words
+                    $words = preg_split('/\s+/', $globalSearch, -1, PREG_SPLIT_NO_EMPTY);
+                    $processedWords = array();
+                    foreach ($words as $word) {
+                        // Detect if word has % at start/end
+                        $prefix = (strpos($word, '%') === 0) ? '%' : '';
+                        $suffix = (strrpos($word, '%') === strlen($word) - 1) ? '%' : '';
+                        // Remove % for processing
+                        $cleanWord = trim($word, '%');
+                        $lastChar = mb_substr($cleanWord, -1, 1, 'UTF-8');
+                        if ($lastChar === 'ς' || $lastChar === 'σ') {
+                            $cleanWord = mb_substr($cleanWord, 0, mb_strlen($cleanWord, 'UTF-8') - 1, 'UTF-8');
+                        }
+                        // Re-add % only where they were
+                        $processedWords[] = $prefix . $cleanWord . $suffix;
+                    }
+                    $globalSearch = implode(' ', $processedWords);
+                }
                 
                 if ($database->type == 'postgresql') {
-                    $globalConditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput('%' . $globalSearch . '%') . '\'';
+                    $globalConditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput($globalSearch) . '\'';
                 } else {
-                    $globalConditions[] = $fieldRef . ' LIKE \'' . $database->prepareInput('%' . $globalSearch . '%') . '\'';
+                    $globalConditions[] = $fieldRef . ' LIKE \'' . $database->prepareInput($globalSearch) . '\'';
                 }
             }
             if (!empty($globalConditions)) {
