@@ -1702,37 +1702,46 @@ class Model extends \Pramnos\Framework\Base
             } elseif (strpos($targetField, '.') === false) {
                 $fieldRef = ($database->type == 'postgresql' ? '"' . $targetField . '"' : '`' . $targetField . '`');
             }
-            if (strpos($searchTerm, '%') !== false) {
-                // If search term already contains wildcards, use it directly
-                $searchTerm = $database->prepareInput($searchTerm);
+            $bool = false;
+            $boolValue = 0;
+            if (is_bool($searchTerm) || $searchTerm == 'true' || $searchTerm == 'false') {
+                $bool = true;
+                $boolValue = ($searchTerm === true || $searchTerm === 'true') ? 1 : 0;
             } else {
-                // Otherwise, prepare it for LIKE search
-                $searchTerm = $database->prepareInput('%' . $searchTerm . '%');
-            }
-            if (is_string($searchTerm)) {
-                // Split search term into words
-                $words = preg_split('/\s+/', $searchTerm, -1, PREG_SPLIT_NO_EMPTY);
-                $processedWords = array();
-                foreach ($words as $word) {
-                    // Detect if word has % at start/end
-                    $prefix = (strpos($word, '%') === 0) ? '%' : '';
-                    $suffix = (strrpos($word, '%') === strlen($word) - 1) ? '%' : '';
-                    // Remove % for processing
-                    $cleanWord = trim($word, '%');
-                    $lastChar = mb_substr($cleanWord, -1, 1, 'UTF-8');
-                    if ($lastChar === 'ς' || $lastChar === 'σ') {
-                        $cleanWord = mb_substr($cleanWord, 0, mb_strlen($cleanWord, 'UTF-8') - 1, 'UTF-8');
-                    }
-                    // Re-add % only where they were
-                    $processedWords[] = $prefix . $cleanWord . $suffix;
+                if (strpos($searchTerm, '%') !== false) {
+                    // If search term already contains wildcards, use it directly
+                    $searchTerm = $database->prepareInput($searchTerm);
+                } else {
+                    // Otherwise, prepare it for LIKE search
+                    $searchTerm = $database->prepareInput('%' . $searchTerm . '%');
                 }
-                $searchTerm = implode(' ', $processedWords);
+                if (is_string($searchTerm)) {
+                    // Split search term into words
+                    $words = preg_split('/\s+/', $searchTerm, -1, PREG_SPLIT_NO_EMPTY);
+                    $processedWords = array();
+                    foreach ($words as $word) {
+                        // Detect if word has % at start/end
+                        $prefix = (strpos($word, '%') === 0) ? '%' : '';
+                        $suffix = (strrpos($word, '%') === strlen($word) - 1) ? '%' : '';
+                        // Remove % for processing
+                        $cleanWord = trim($word, '%');
+                        $lastChar = mb_substr($cleanWord, -1, 1, 'UTF-8');
+                        if ($lastChar === 'ς' || $lastChar === 'σ') {
+                            $cleanWord = mb_substr($cleanWord, 0, mb_strlen($cleanWord, 'UTF-8') - 1, 'UTF-8');
+                        }
+                        // Re-add % only where they were
+                        $processedWords[] = $prefix . $cleanWord . $suffix;
+                    }
+                    $searchTerm = implode(' ', $processedWords);
+                }
             }
             
             
 
             if ($database->type == 'postgresql') {
-                if (\Pramnos\General\StringHelper::containsGreekCharacters($searchTerm)) {
+                if ($bool) {
+                    $conditions[] = $fieldRef . ' = '. $boolValue;
+                } elseif (\Pramnos\General\StringHelper::containsGreekCharacters($searchTerm)) {
                     $conditions[] = 'unaccent(CAST(' . $fieldRef . ' AS TEXT)) ILIKE unaccent(\'' . $database->prepareInput($searchTerm) . '\')';
                 } else {
                     $conditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput($searchTerm) . '\'';
