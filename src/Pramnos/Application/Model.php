@@ -1622,7 +1622,7 @@ class Model extends \Pramnos\Framework\Base
         }
         
         // Global search across all fields
-        if (!empty($globalSearch)) {
+        if (!empty($globalSearch) && trim($globalSearch) != '') {
             $globalConditions = array();
             foreach ($fields as $field) {
                 $fieldRef = $field;
@@ -1676,9 +1676,10 @@ class Model extends \Pramnos\Framework\Base
         
         // Field-specific searches
         foreach ($fieldSearches as $searchField => $searchTerm) {
-            if (empty($searchTerm)) {
+            if (is_string($searchTerm) && trim($searchTerm) == '') {
                 continue;
             }
+            
             
             $targetField = null;
             
