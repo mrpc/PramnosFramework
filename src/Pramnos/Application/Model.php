@@ -1671,11 +1671,17 @@ class Model extends \Pramnos\Framework\Base
             } elseif (strpos($targetField, '.') === false) {
                 $fieldRef = ($database->type == 'postgresql' ? '"' . $targetField . '"' : '`' . $targetField . '`');
             }
-            
-            if ($database->type == 'postgresql') {
-                $conditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput('%' . $searchTerm . '%') . '\'';
+            if (strpos($searchTerm, '%') !== false) {
+                // If search term already contains wildcards, use it directly
+                $searchTerm = $database->prepareInput($searchTerm);
             } else {
-                $conditions[] = $fieldRef . ' LIKE \'' . $database->prepareInput('%' . $searchTerm . '%') . '\'';
+                // Otherwise, prepare it for LIKE search
+                $searchTerm = $database->prepareInput('%' . $searchTerm . '%');
+            }
+            if ($database->type == 'postgresql') {
+                $conditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput($searchTerm) . '\'';
+            } else {
+                $conditions[] = $fieldRef . ' LIKE \'' . $database->prepareInput($searchTerm) . '\'';
             }
         }
         
