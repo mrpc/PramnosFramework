@@ -333,4 +333,18 @@ class StringHelper
             '#PREFIX#', $prefix, $table
         );
     }
+
+    /**
+     * Check if a string contains Greek vowels (which can have accents)
+     * @param string $text Text to check
+     * @return bool True if text contains Greek vowels
+     */
+    public static function containsGreekCharacters($text)
+    {
+        // Greek vowels that can have accents:
+        // Α, Ε, Η, Ι, Ο, Υ, Ω (uppercase)
+        // α, ε, η, ι, ο, υ, ω (lowercase)
+        // Including their accented variants from Greek Extended block
+        return preg_match('/[ΑΕΗΙΟΥΩαεηιουω\x{1F00}-\x{1F15}\x{1F18}-\x{1F1D}\x{1F20}-\x{1F45}\x{1F48}-\x{1F4D}\x{1F50}-\x{1F57}\x{1F59}\x{1F5B}\x{1F5D}\x{1F5F}-\x{1F7D}\x{1F80}-\x{1FAF}\x{1FB0}-\x{1FC4}\x{1FC6}-\x{1FD3}\x{1FD6}-\x{1FDB}\x{1FDD}-\x{1FEF}\x{1FF2}-\x{1FF4}\x{1FF6}-\x{1FFE}]/u', $text);
+    }
 }

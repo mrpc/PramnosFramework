@@ -1660,7 +1660,11 @@ class Model extends \Pramnos\Framework\Base
                 }
                 
                 if ($database->type == 'postgresql') {
-                    $globalConditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput($globalSearch) . '\'';
+                    if (\Pramnos\General\StringHelper::containsGreekCharacters($globalSearch)) {
+                        $globalConditions[] = 'unaccent(CAST(' . $fieldRef . ' AS TEXT)) ILIKE unaccent(\'' . $database->prepareInput($globalSearch) . '\')';
+                    } else {
+                        $globalConditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput($globalSearch) . '\'';
+                    }
                 } else {
                     $globalConditions[] = $fieldRef . ' LIKE \'' . $database->prepareInput($globalSearch) . '\'';
                 }
@@ -1728,7 +1732,11 @@ class Model extends \Pramnos\Framework\Base
             
 
             if ($database->type == 'postgresql') {
-                $conditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput($searchTerm) . '\'';
+                if (\Pramnos\General\StringHelper::containsGreekCharacters($searchTerm)) {
+                    $conditions[] = 'unaccent(CAST(' . $fieldRef . ' AS TEXT)) ILIKE unaccent(\'' . $database->prepareInput($searchTerm) . '\')';
+                } else {
+                    $conditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput($searchTerm) . '\'';
+                }
             } else {
                 $conditions[] = $fieldRef . ' LIKE \'' . $database->prepareInput($searchTerm) . '\'';
             }
@@ -1879,6 +1887,8 @@ class Model extends \Pramnos\Framework\Base
         return 'ORDER BY ' . implode(', ', $orderParts);
     }
     
+    
+
     /**
      * Combine base filter with search conditions
      * @param string $baseFilter Base WHERE filter
