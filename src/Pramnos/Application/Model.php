@@ -1678,6 +1678,28 @@ class Model extends \Pramnos\Framework\Base
                 // Otherwise, prepare it for LIKE search
                 $searchTerm = $database->prepareInput('%' . $searchTerm . '%');
             }
+            if (is_string($searchTerm)) {
+                // Split search term into words
+                $words = preg_split('/\s+/', $searchTerm, -1, PREG_SPLIT_NO_EMPTY);
+                $processedWords = array();
+                foreach ($words as $word) {
+                    // Detect if word has % at start/end
+                    $prefix = (strpos($word, '%') === 0) ? '%' : '';
+                    $suffix = (strrpos($word, '%') === strlen($word) - 1) ? '%' : '';
+                    // Remove % for processing
+                    $cleanWord = trim($word, '%');
+                    $lastChar = mb_substr($cleanWord, -1, 1, 'UTF-8');
+                    if ($lastChar === 'ς' || $lastChar === 'σ') {
+                        $cleanWord = mb_substr($cleanWord, 0, mb_strlen($cleanWord, 'UTF-8') - 1, 'UTF-8');
+                    }
+                    // Re-add % only where they were
+                    $processedWords[] = $prefix . $cleanWord . $suffix;
+                }
+                $searchTerm = implode(' ', $processedWords);
+            }
+            
+            
+
             if ($database->type == 'postgresql') {
                 $conditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput($searchTerm) . '\'';
             } else {
