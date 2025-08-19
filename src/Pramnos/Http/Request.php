@@ -445,7 +445,7 @@ class Request extends Base
     /**
      * Sets a hashed cookie
      * @param string $cookiename
-     * @param string $value
+     * @param mixed $value
      * @param integer $time
      * @return boolean
      */

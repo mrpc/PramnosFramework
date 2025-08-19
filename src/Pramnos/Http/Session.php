@@ -165,7 +165,7 @@ class Session extends Base
      * Sets a hashed cookie
      * @deprecated since version 1.0
      * @param string $cookiename
-     * @param string $value
+     * @param mixed $value
      * @param integer $time
      * @return boolean
      */

@@ -13,7 +13,7 @@ class User extends \Pramnos\Addon\Addon
 
     public function onLogout()
     {
-
+        $request = \Pramnos\Http\Request::getInstance();
         $database = \Pramnos\Framework\Factory::getDatabase();
         if (isset($_SESSION['username'])) {
             $sql = $database->prepareQuery(
@@ -29,11 +29,11 @@ class User extends \Pramnos\Addon\Addon
         }
         $session = \Pramnos\Framework\Factory::getSession();
         $cookietime = time() - 1;
-        $session->cookieset('logged', '', $cookietime);
-        $session->cookieset('uid', '', $cookietime);
-        $session->cookieset('username', '', $cookietime);
-        $session->cookieset('auth', '', $cookietime);
-        $session->cookieset('language', '', $cookietime);
+        $request->cookieset('logged', '', $cookietime);
+        $request->cookieset('uid', '', $cookietime);
+        $request->cookieset('username', '', $cookietime);
+        $request->cookieset('auth', '', $cookietime);
+        $request->cookieset('language', '', $cookietime);
         $session->reset();
     }
 
@@ -45,8 +45,8 @@ class User extends \Pramnos\Addon\Addon
     public function onLogin($info = array())
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $session = \Pramnos\Framework\Factory::getSession();
         $lang = \Pramnos\Framework\Factory::getLanguage();
+        $request = \Pramnos\Http\Request::getInstance();
 
         if (!isset($info['status'])
             || !isset($info['username'])
@@ -66,11 +66,11 @@ class User extends \Pramnos\Addon\Addon
         $remoteIp = $_SERVER["REMOTE_ADDR"];
 
         if ($info['uid'] > 1) {
-            $session->cookieset('logged', true);
-            $session->cookieset('uid', $info['uid']);
-            $session->cookieset('username', $info['username']);
-            $session->cookieset('auth', $info['auth']);
-            $session->cookieset(
+            $request->cookieset('logged', true);
+            $request->cookieset('uid', $info['uid']);
+            $request->cookieset('username', $info['username']);
+            $request->cookieset('auth', $info['auth']);
+            $request->cookieset(
                 'language',
                 \Pramnos\Application\Settings::getSetting('default_language')
             );
