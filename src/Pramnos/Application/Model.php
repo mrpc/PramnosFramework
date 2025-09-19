@@ -73,6 +73,16 @@ class Model extends \Pramnos\Framework\Base
      * @var string
      */
     protected $sqlError = null;
+    /**
+     * Whether to use cache in list retrievals
+     * @var boolean
+     */
+    protected $useCacheInLists = true;
+    /**
+     * Time to live for cache in lists (in seconds)
+     * @var int
+     */
+    protected $cacheInListsTime = 60;
 
     /**
      * Class constructor. Sets the model name and the database table
@@ -266,6 +276,7 @@ class Model extends \Pramnos\Framework\Base
                 } else {
                     $this->$primarykey = $database->getInsertId();
                 }
+                $database->cacheflush($this->_cacheKey);
                 
             } else {
                 $database->updateTableData(
@@ -273,15 +284,18 @@ class Model extends \Pramnos\Framework\Base
                     "`" . $primarykey . "` = '" . $this->$primarykey . "'",
                     $debug
                 );
+
+                // Clear only the specific record's cache, not the entire category
+                if (isset($this->$primarykey) && $this->$primarykey !== null) {
+                    $database->cacheflush($this->_generateSpecificCacheKey($this->$primarykey));
+                } else {
+                    // Fallback: if primary key is not available, clear entire category
+                    $database->cacheflush($this->_cacheKey);
+                }
+
             }
             
-            // Clear only the specific record's cache, not the entire category
-            if (isset($this->$primarykey) && $this->$primarykey !== null) {
-                $database->cacheflush($this->_generateSpecificCacheKey($this->$primarykey));
-            } else {
-                // Fallback: if primary key is not available, clear entire category
-                $database->cacheflush($this->_cacheKey);
-            }
+            
             
             // After successful save, update the initial data to match current state
             $this->_initialData = array();
@@ -343,7 +357,7 @@ class Model extends \Pramnos\Framework\Base
                     . $this->getFullTableName() . "` " . $filter;
             }
             try {
-                $result = $database->query($sql, true, 600, $this->_cacheKey);
+                $result = $database->query($sql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             } catch (\Exception $e) {
                 \Pramnos\Logs\Logger::logError(
                     'Error executing getCount query: '
@@ -625,7 +639,7 @@ class Model extends \Pramnos\Framework\Base
                 }
             }
             $countResult = $database->query(
-                $countSql, true, 600, $this->_cacheKey
+                $countSql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey
             );
             $totalItems = $countResult->fields['itemsCount'];
 
@@ -639,7 +653,7 @@ class Model extends \Pramnos\Framework\Base
                 die($sql);
             }
 
-            $result = $database->query($sql, true, 600, $this->_cacheKey);
+            $result = $database->query($sql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
 
             $class = get_class($this);
             
@@ -814,7 +828,7 @@ class Model extends \Pramnos\Framework\Base
                 die($sql);
             }
             try {
-                $result = $database->query($sql, true, 600, $this->_cacheKey);
+                $result = $database->query($sql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::logError("Error in getList query: " . $sql . " - " . $ex->getMessage(), $ex);
                 if ($displayerroroutput == true) {
