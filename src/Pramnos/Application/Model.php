@@ -1573,17 +1573,24 @@ class Model extends \Pramnos\Framework\Base
                     $tableAlias = $parts[0];
                     $fieldName = $parts[1];
                     
+                    // For PostgreSQL, we need to quote the field name properly
+                    if ($database->type == 'postgresql') {
+                        $quotedField = $tableAlias . '."' . $fieldName . '"';
+                    } else {
+                        $quotedField = $tableAlias . '.`' . $fieldName . '`';
+                    }
+                    
                     // Check if this field name already exists
                     if (in_array($fieldName, $fieldNames)) {
                         // Create alias to avoid duplicate field names
                         $alias = $tableAlias . '_' . $fieldName;
                         if ($database->type == 'postgresql') {
-                            $selectFields[] = $field . ' AS "' . $alias . '"';
+                            $selectFields[] = $quotedField . ' AS "' . $alias . '"';
                         } else {
-                            $selectFields[] = $field . ' AS `' . $alias . '`';
+                            $selectFields[] = $quotedField . ' AS `' . $alias . '`';
                         }
                     } else {
-                        $selectFields[] = $field;
+                        $selectFields[] = $quotedField;
                         $fieldNames[] = $fieldName;
                     }
                 } else {
