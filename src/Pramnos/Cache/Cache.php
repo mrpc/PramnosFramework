@@ -149,9 +149,12 @@ class Cache extends \Pramnos\Framework\Base
             $this->extension = $extension; // Updated to use 'extension'
         }
         if ($this->prefix == '') {
-            $prefix = \Pramnos\Application\Settings::getSetting('database')->prefix;
-            if ($prefix != '') {
-                $this->prefix = $prefix;
+            $databaseSettings = \Pramnos\Application\Settings::getSetting('database');
+            if ($databaseSettings && is_object($databaseSettings) && isset($databaseSettings->prefix)) {
+                $prefix = $databaseSettings->prefix;
+                if ($prefix != '') {
+                    $this->prefix = $prefix;
+                }
             }
         }
 
@@ -172,7 +175,7 @@ class Cache extends \Pramnos\Framework\Base
         switch ($methodKey) {
             case 'redis':
                 if (class_exists('\Redis')) {
-                    $this->adapter = new Adapter\RedisAdapter(
+                    $redisAdapter = new Adapter\RedisAdapter(
                         $this->hostname,
                         $this->port,
                         $this->database,
@@ -180,11 +183,14 @@ class Cache extends \Pramnos\Framework\Base
                         $this->prefix
                     );
                     
-                    if (!$this->adapter->connect()) {
+                    if (!$redisAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
+                        // Don't set the failed adapter, fallback to memcached
                         $this->initializeAdapter('memcached');
                     } else {
                         self::$_connected[$methodKey] = true;
+                        // Only set adapter if connection succeeded
+                        $this->adapter = $redisAdapter;
                     }
                 } else {
                     $this->initializeAdapter('memcached');
@@ -193,18 +199,26 @@ class Cache extends \Pramnos\Framework\Base
 
             case 'memcached':
                 if (class_exists('\Memcached')) {
-                    $this->adapter = new Adapter\MemcachedAdapter(
+                    $databaseSettings = \Pramnos\Application\Settings::getSetting('database');
+                    $database = ($databaseSettings && is_object($databaseSettings) && isset($databaseSettings->database)) 
+                        ? $databaseSettings->database 
+                        : 0;
+                    
+                    $memcachedAdapter = new Adapter\MemcachedAdapter(
                         $this->hostname,
                         $this->port,
-                        \Pramnos\Application\Settings::getSetting('database')->database,
+                        $database,
                         $this->prefix
                     );
                     
-                    if (!$this->adapter->connect()) {
+                    if (!$memcachedAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
+                        // Don't set the failed adapter, fallback to memcache
                         $this->initializeAdapter('memcache');
                     } else {
                         self::$_connected[$methodKey] = true;
+                        // Only set adapter if connection succeeded
+                        $this->adapter = $memcachedAdapter;
                     }
                 } else {
                     $this->initializeAdapter('memcache');
@@ -213,16 +227,17 @@ class Cache extends \Pramnos\Framework\Base
 
             case 'memcache':
                 if (class_exists('\Memcache')) {
-                    $this->adapter = new Adapter\MemcacheAdapter(
+                    $memcacheAdapter = new Adapter\MemcacheAdapter(
                         $this->hostname,
                         $this->port,
                         $this->prefix
                     );
                     
-                    if (!$this->adapter->connect()) {
+                    if (!$memcacheAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
                         $this->initializeAdapter('file');
                     } else {
+                        $this->adapter = $memcacheAdapter;
                         self::$_connected[$methodKey] = true;
                     }
                 } else {
@@ -232,15 +247,18 @@ class Cache extends \Pramnos\Framework\Base
 
             case 'file':
             default:
-                $this->adapter = new Adapter\FileAdapter(
-                    $this->prefix,
-                    $this->extension // Pass 'extension' to FileAdapter
+                // Use a default cache directory if not defined
+                $cacheDir = defined('CACHE_PATH') ? CACHE_PATH : sys_get_temp_dir() . '/pramnos_cache';
+                $fileAdapter = new Adapter\FileAdapter(
+                    $cacheDir,
+                    $this->prefix
                 );
 
-                if (!$this->adapter->connect()) {
+                if (!$fileAdapter->connect()) {
                     self::$_connected[$methodKey] = false;
                     $this->caching = false;
                 } else {
+                    $this->adapter = $fileAdapter;
                     self::$_connected[$methodKey] = true;
                 }
                 break;
@@ -257,26 +275,23 @@ class Cache extends \Pramnos\Framework\Base
     }
 
     /**
-     * Returns a unique hash name for the category
+     * Returns a sanitized category name
      * @param string $category
      * @return string
      */
     public function getCategory($category)
     {
-        $methodKey = strtolower($this->method);
-
         if ($category == '') {
             return '';
         }
-        if ($this->method == 'file') {
-            return $category;
-        }
         
-        if (!isset(self::$_connected[$methodKey]) || !self::$_connected[$methodKey]) {
-            return $category;
-        }
-
-        return self::$_connected[$methodKey]->categoryHash($category, $this->prefix, true);
+        // Sanitize the category name to make it safe for cache keys
+        // Remove spaces, special characters, keep only alphanumeric, underscores, and hyphens
+        return preg_replace(
+            array('/\s+/', '/[^\w\-]/'),
+            array('_', ''),
+            $category
+        );
     }
 
     

@@ -223,8 +223,17 @@ abstract class AbstractAdapter implements AdapterInterface
      */
     public function categoryHash($category, $prefix = '', $reset = false)
     {
-        // Default implementation - just return the category name
-        return $category;
+        if ($category == '') {
+            return '';
+        }
+        
+        // Sanitize the category name to make it safe for cache keys
+        // Remove spaces, special characters, keep only alphanumeric, underscores, and hyphens
+        return preg_replace(
+            array('/\s+/', '/[^\w\-]/'),
+            array('_', ''),
+            $category
+        );
     }
     
     /**

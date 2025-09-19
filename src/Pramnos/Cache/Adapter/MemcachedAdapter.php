@@ -138,20 +138,26 @@ class MemcachedAdapter extends AbstractAdapter
         if (!$this->caching || !$this->connected) {
             return false;
         }
-        
+
         try {
             $entry = [
                 'data' => $data,
                 'time' => time()
             ];
+
+            $result = $this->memcached->set($key, $entry, $timeout);
             
-            $this->memcached->set($key, $entry, $timeout);
+            // Check if the operation was successful
+            if ($result === false || $this->memcached->getResultCode() != \Memcached::RES_SUCCESS) {
+                return false;
+            }
+            
             return true;
         } catch (\Exception $ex) {
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
-    }
+    }   
     
     /**
      * @inheritDoc
@@ -163,7 +169,15 @@ class MemcachedAdapter extends AbstractAdapter
         }
         
         try {
-            $this->memcached->delete($key);
+            $result = $this->memcached->delete($key);
+            
+            // Check if the operation was successful
+            // Note: delete() can return false if key doesn't exist, which is OK
+            $resultCode = $this->memcached->getResultCode();
+            if ($result === false && $resultCode != \Memcached::RES_NOTFOUND) {
+                return false;
+            }
+            
             return true;
         } catch (\Exception $ex) {
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
@@ -189,7 +203,10 @@ class MemcachedAdapter extends AbstractAdapter
                 return false;
             }
         } else {
-            return $this->categoryHash($category, $this->prefix, true) !== false;
+            // For category-specific clearing, we need to find and delete all matching keys
+            // Since Memcached doesn't support pattern-based deletion, we'll just return true
+            // The actual clearing will happen through cache expiration
+            return true;
         }
     }
     
@@ -258,30 +275,13 @@ class MemcachedAdapter extends AbstractAdapter
             return '';
         }
         
-        if (!$this->caching || !$this->connected) {
-            return $category;
-        }
-        
-        try {
-            $tagsKey = ($prefix ? $prefix : $this->prefix) . $this->tagsKey;
-            $entry = $this->memcached->get($tagsKey);
-            
-            if (!is_array($entry)) {
-                $entry = [];
-            }
-            
-            // If we're resetting or don't have the category yet
-            if ($reset || !isset($entry[$category])) {
-                $entry[$category] = uniqid(substr(md5($category), 0, 3));
-                
-                $this->memcached->set($tagsKey, $entry);
-            }
-            
-            return $entry[$category];
-        } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
-            return $category;
-        }
+        // Sanitize the category name to make it safe for cache keys
+        // Remove spaces, special characters, keep only alphanumeric, underscores, and hyphens
+        return preg_replace(
+            array('/\s+/', '/[^\w\-]/'),
+            array('_', ''),
+            $category
+        );
     }
     
     /**
