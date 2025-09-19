@@ -211,8 +211,8 @@ class Model extends \Pramnos\Framework\Base
                     $sql    = "SHOW COLUMNS FROM `" . $this->getFullTableName() . "`";
                 }
 
-                
-                $result = $database->query($sql);
+                $cacheKey = "schema_columns_" . $this->getFullTableName();
+                $result = $database->query($sql, true, 3600, $cacheKey);
                 self::$columnCache[$this->getFullTableName()] = array();
                 while ($result->fetch()) {
                     self::$columnCache[$this->getFullTableName()][] = $result->fields;
@@ -274,7 +274,14 @@ class Model extends \Pramnos\Framework\Base
                     $debug
                 );
             }
-            $database->cacheflush($this->_cacheKey);
+            
+            // Clear only the specific record's cache, not the entire category
+            if (isset($this->$primarykey) && $this->$primarykey !== null) {
+                $database->cacheflush($this->_generateSpecificCacheKey($this->$primarykey));
+            } else {
+                // Fallback: if primary key is not available, clear entire category
+                $database->cacheflush($this->_cacheKey);
+            }
             
             // After successful save, update the initial data to match current state
             $this->_initialData = array();
@@ -404,7 +411,10 @@ class Model extends \Pramnos\Framework\Base
             if ($debug === true) {
                 die($sql);
             }
-            $result = $database->query($sql, $useCache, 600, $this->_cacheKey);
+            
+            // Use specific cache key that includes the primary key value
+            $specificCacheKey = $this->_generateSpecificCacheKey($primaryKey);
+            $result = $database->query($sql, $useCache, 600, $specificCacheKey);
             if ($result->numRows != 0) {
                 // Reset initial data array
                 $this->_initialData = array();
@@ -444,6 +454,9 @@ class Model extends \Pramnos\Framework\Base
                 . " where " . $this->_primaryKey
                 . " = " . (int) $primaryKey;
             $database->query($sql);
+            
+            // Clear only the specific record's cache, not the entire category
+            $database->cacheflush($this->_generateSpecificCacheKey($primaryKey));
             $database->cacheflush($this->_cacheKey);
         }
         $this->_isnew = true;
@@ -901,9 +914,10 @@ class Model extends \Pramnos\Framework\Base
 
             $fields = array();
 
-
-            $sql    = "SHOW COLUMNS FROM `" . $this->getFullTableName() . "`";
-            $result = $database->query($sql);
+            $tableName = $this->getFullTableName();
+            $sql    = "SHOW COLUMNS FROM `" . $tableName . "`";
+            $cacheKey = "schema_columns_{$tableName}";
+            $result = $database->query($sql, true, 3600, $cacheKey);
 
             while ($result->fetch()) {
                 $fields[] = $result->fields['Field'];
@@ -1011,6 +1025,18 @@ class Model extends \Pramnos\Framework\Base
         return $this;
     }
 
+    /**
+     * Generate a cache key specific to a record by including the primary key value
+     * @param mixed $primaryKeyValue The primary key value for the specific record
+     * @return string The cache key for the specific record
+     */
+    protected function _generateSpecificCacheKey($primaryKeyValue)
+    {
+        if ($this->_cacheKey === NULL) {
+            $this->_fixDb();
+        }
+        return $primaryKeyValue . '-' . $this->_cacheKey;
+    }
 
     /**
      * "Translate" database table field types to types used in Database
@@ -1389,6 +1415,8 @@ class Model extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Database\Database::getInstance();
         $fields = array();
+        $tableName = $this->getFullTableName();
+        $cacheKey = "schema_columns_{$tableName}";
         
         // Get main table fields
         if (isset(self::$columnCache[$this->getFullTableName()])) {
@@ -1410,10 +1438,10 @@ class Model extends \Pramnos\Framework\Base
                     . str_replace('#PREFIX#', $database->prefix, $this->_dbtable)
                     . "';";
             } else {
-                $sql = "SHOW COLUMNS FROM `" . $this->getFullTableName() . "`";
+                $sql = "SHOW COLUMNS FROM `" . $tableName . "`";
             }
             
-            $result = $database->query($sql);
+            $result = $database->query($sql, true, 3600, $cacheKey);
             while ($result->fetch()) {
                 $fields[] = $result->fields['Field'];
                 // Cache the results
@@ -1507,7 +1535,8 @@ class Model extends \Pramnos\Framework\Base
                 $sql = "SHOW COLUMNS FROM `" . $tableName . "`";
             }
             
-            $result = $database->query($sql);
+            $cacheKey = "schema_columns_{$tableName}";
+            $result = $database->query($sql, true, 3600, $cacheKey);
             
             // Initialize cache for this table
             self::$columnCache[$cacheKey] = array();

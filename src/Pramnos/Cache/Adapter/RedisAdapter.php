@@ -90,7 +90,10 @@ class RedisAdapter extends AbstractAdapter
                 }
             }
             catch (\Exception $exc) {
-                \pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
+                // Log error if logger is available, otherwise continue silently
+                if (class_exists('\Pramnos\Logs\Logger')) {
+                    \Pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
+                }
                 $this->connected = false;
             }
         }
@@ -209,7 +212,29 @@ class RedisAdapter extends AbstractAdapter
                 return false;
             }
         } else {
-            return $this->categoryHash($category, $this->prefix, true) !== false;
+            // Clear cache entries for the specific category
+            try {
+                // Sanitize the category name to match how keys are stored
+                $sanitizedCategory = preg_replace(
+                    array('/\s+/', '/[^\w\-]/'),
+                    array('_', ''),
+                    $category
+                );
+                
+                // Find all keys that match this category
+                $pattern = $this->prefix . $sanitizedCategory . '_*';
+                $keys = $this->redis->keys($pattern);
+                
+                // Delete all matching keys
+                if (!empty($keys)) {
+                    $this->redis->del($keys);
+                }
+                
+                return true;
+            } catch (\Exception $ex) {
+                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                return false;
+            }
         }
     }
     
@@ -285,8 +310,13 @@ class RedisAdapter extends AbstractAdapter
             // Get all keys from Redis
             $pattern = $this->prefix . '*';
             if ($category !== '') {
-                $categoryHash = $this->categoryHash($category, $this->prefix);
-                $pattern = $this->prefix . $categoryHash . '_*';
+                // Sanitize the category name to match how keys are stored
+                $sanitizedCategory = preg_replace(
+                    array('/\s+/', '/[^\w\-]/'),
+                    array('_', ''),
+                    $category
+                );
+                $pattern = $this->prefix . $sanitizedCategory . '_*';
             }
             
             $keys = $this->redis->keys($pattern);
@@ -336,36 +366,12 @@ class RedisAdapter extends AbstractAdapter
             return '';
         }
         
-        if (!$this->caching || !$this->connected) {
-            return $category;
-        }
-        
-        try {
-            $tagsKey = ($prefix ? $prefix : $this->prefix) . $this->tagsKey;
-            $entry = $this->redis->get($tagsKey);
-            
-            if ($entry) {
-                $entry = json_decode($entry, true);
-            }
-            
-            if (!is_array($entry)) {
-                $entry = [];
-            }
-            
-            // If we're resetting or don't have the category yet
-            if ($reset || !isset($entry[$category])) {
-                $entry[$category] = uniqid(substr(md5($category), 0, 3));
-                
-                $this->redis->set(
-                    $tagsKey, 
-                    json_encode($entry)
-                );
-            }
-            
-            return $entry[$category];
-        } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
-            return $category;
-        }
+        // Sanitize the category name to make it safe for cache keys
+        // Remove spaces, special characters, keep only alphanumeric, underscores, and hyphens
+        return preg_replace(
+            array('/\s+/', '/[^\w\-]/'),
+            array('_', ''),
+            $category
+        );
     }
 }

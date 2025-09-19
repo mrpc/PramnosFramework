@@ -89,6 +89,7 @@ class Result
         if (isset($this->fields[$name])) {
             return $this->fields[$name];
         }
+        return null;
     }
 
     /**
@@ -97,12 +98,16 @@ class Result
      */
     public function fetchAll()
     {
-        if ($this->database->type == 'postgresql' 
+        if ($this->isCached) {
+            return $this->result;
+        } elseif ($this->database->type == 'postgresql' 
             && is_object($this->mysqlResult)) {
             return pg_fetch_all($this->mysqlResult, PGSQL_ASSOC);
         } elseif (is_object($this->mysqlResult)) {
             return mysqli_fetch_all($this->mysqlResult, MYSQLI_ASSOC);
         }
+        
+        return array();
     }
 
     /**
@@ -117,23 +122,25 @@ class Result
         if ($this->isCached) {
             if ($this->cursor >= sizeof($this->result)) {
                 $this->eof = true;
+                return null;
             } else {
                 foreach ($this->result[$this->cursor] as $key => $value) {
                     $this->fields[$key] = $value;
                 }
+                return $this->fields;
             }
         } elseif ($this->database->type == 'postgresql' && is_resource($this->mysqlResult)) {
             $this->fields = pg_fetch_array(
                 $this->mysqlResult,
                 null,
-                MYSQLI_ASSOC
+                PGSQL_ASSOC
             );
         } elseif ($this->database->type == 'postgresql' && is_object($this->mysqlResult)) {
             
             $this->fields = pg_fetch_array(
                 $this->mysqlResult,
                 null,
-                MYSQLI_ASSOC
+                PGSQL_ASSOC
             );
             if (is_array($this->fields)) {
                     
@@ -177,6 +184,15 @@ class Result
                 MYSQLI_ASSOC
             );
         }
+        
+        // Set EOF flag for live results
+        if (!$this->isCached) {
+            if ($this->fields === null || $this->fields === false) {
+                $this->eof = true;
+                return null;
+            }
+        }
+        
         return $this->fields;
     }
 
