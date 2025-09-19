@@ -880,10 +880,11 @@ class Database extends \Pramnos\Framework\Base
 
     /**
      * Insert data to a table
-     * @param string $table
-     * @param array $data
-     * @param string $primarykey
-     * @param bool $debug
+     * @param string $table Table name to insert into
+     * @param array $data Array of data to insert with fieldName, value and type keys
+     * @param string $primarykey Primary key field name (optional)
+     * @param bool $debug Enable debug mode to output the query
+     * @return \mysqli_result|bool|\PgSql\Result Query result
      */
     public function insertDataToTable($table, $data, $primarykey = '', $debug = false)
     {
@@ -966,10 +967,11 @@ class Database extends \Pramnos\Framework\Base
 
     /**
      * Update data on a table
-     * @param string $table
-     * @param array $data
-     * @param string $filter filter for update (EX: where x=x)
-     * @param bool $debug
+     * @param string $table Table name to update
+     * @param array $data Array of data to update with fieldName, value and type keys
+     * @param string $filter Filter for update (EX: where x=x)
+     * @param bool $debug Enable debug mode to output the query
+     * @return \mysqli_result|bool|\PgSql\Result Query result
      */
     public function updateTableData($table, $data, $filter = '', $debug = false)
     {
@@ -1145,13 +1147,29 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
-
-
+    /**
+     * Expire cache entries matching a query pattern and category
+     * @param string $query Cache key pattern to expire
+     * @param string|null $category Cache category (optional)
+     * @return void
+     */
     public function cacheExpire($query, $category = NULL)
     {
-        #$cache = pramnos_factory::getCache($category, 'sql');
-        #$cache->prefix = $this->prefix;
-        #return $cache->remove($this->cache_generate_cache_name($query));
+        $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
+        $cacheMethod = 'memcached'; // default
+        if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
+            $cacheMethod = $cacheSettings['method'];
+        } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
+            $cacheMethod = $cacheSettings->method;
+        }
+        $cache = \Pramnos\Cache\Cache::getInstance($category, 'sql', $cacheMethod);
+        // Fix: Ensure the category is set correctly on the singleton instance
+        if ($category !== NULL) {
+            $cache->category = $category;
+        }
+        $cache->prefix = $this->prefix;
+        $cache_name = md5($query);
+        return $cache->delete($cache_name);
     }
 
 
@@ -1166,12 +1184,37 @@ class Database extends \Pramnos\Framework\Base
     function cacheStore($query, $resultArray,
         $category = NULL, $cachetime=3600)
     {
-        #$cache = pramnos_factory::getCache($category, 'sql');
-        #$cache->prefix = $this->prefix;
-        #$cache_name = $this->cache_generate_cache_name($query);
-        #$cache->extradata=$query;
-        #$cache->timeout=$cachetime;
-        #return $cache->save(serialize($resultArray), $cache_name);
+        $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
+        $cacheMethod = 'memcached'; // default
+        if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
+            $cacheMethod = $cacheSettings['method'];
+        } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
+            $cacheMethod = $cacheSettings->method;
+        }
+        $cache = \Pramnos\Cache\Cache::getInstance($category, 'sql', $cacheMethod);
+        // Fix: Ensure the category is set correctly on the singleton instance
+        if ($category !== NULL) {
+            $cache->category = $category;
+        }
+        $cache->prefix = $this->prefix;
+        $cache_name = md5($query);
+        $cache->extradata = $query;
+        $cache->timeout = $cachetime;
+        
+        // Prepare data for storage
+        $dataToStore = serialize($resultArray);
+        
+        // Apply compression for large datasets
+        if (strlen($dataToStore) > 10240) { // 10KB threshold
+            if (function_exists('gzcompress')) {
+                $compressedData = gzcompress($dataToStore, 6);
+                if ($compressedData !== false && strlen($compressedData) < strlen($dataToStore)) {
+                    $dataToStore = 'GZCOMPRESSED:' . $compressedData;
+                }
+            }
+        }
+        
+        return $cache->save($dataToStore, $cache_name);
     }
 
     /**
@@ -1182,11 +1225,40 @@ class Database extends \Pramnos\Framework\Base
      */
     function cacheRead($query, $category = "")
     {
-        #$cache = pramnos_factory::getCache($category, 'sql');
-        #$cache->prefix = $this->prefix;
-        #$cache_name = $this->cache_generate_cache_name($query);
-        #return $cache->load($cache_name);
-
+        $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
+        $cacheMethod = 'memcached'; // default
+        if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
+            $cacheMethod = $cacheSettings['method'];
+        } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
+            $cacheMethod = $cacheSettings->method;
+        }
+        $cache = \Pramnos\Cache\Cache::getInstance($category, 'sql', $cacheMethod);
+        // Fix: Ensure the category is set correctly on the singleton instance
+        if ($category !== NULL && $category !== "") {
+            $cache->category = $category;
+        }
+        $cache->prefix = $this->prefix;
+        $cache_name = md5($query);
+        $cachedData = $cache->load($cache_name);
+        
+        if ($cachedData === false || $cachedData === null) {
+            return false;
+        }
+        
+        // Check if data is compressed
+        if (is_string($cachedData) && strpos($cachedData, 'GZCOMPRESSED:') === 0) {
+            $compressedData = substr($cachedData, 13); // Remove 'GZCOMPRESSED:' prefix
+            if (function_exists('gzuncompress')) {
+                $uncompressedData = gzuncompress($compressedData);
+                if ($uncompressedData !== false) {
+                    return $uncompressedData;
+                }
+            }
+            // If decompression fails, return false
+            return false;
+        }
+        
+        return $cachedData;
     }
 
     /**
@@ -1196,9 +1268,136 @@ class Database extends \Pramnos\Framework\Base
      */
     function cacheflush($category = "")
     {
-        #$cache = pramnos_factory::getCache($category, 'sql');
-        #$cache->prefix = $this->prefix;
-        #return $cache->clear($category);
+        $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
+        $cacheMethod = 'memcached'; // default
+        if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
+            $cacheMethod = $cacheSettings['method'];
+        } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
+            $cacheMethod = $cacheSettings->method;
+        }
+        $cache = \Pramnos\Cache\Cache::getInstance($category, 'sql', $cacheMethod);
+        // Fix: Ensure the category is set correctly on the singleton instance
+        if ($category !== NULL && $category !== "") {
+            $cache->category = $category;
+        }
+        $cache->prefix = $this->prefix;
+        return $cache->clear($category);
+    }
+
+    /**
+     * Determine if a result set should be cached based on memory constraints
+     * @param array $resultSet The result set to evaluate
+     * @return bool True if the result should be cached, false otherwise
+     */
+    private function shouldCacheResult($resultSet)
+    {
+        if (!is_array($resultSet) || empty($resultSet)) {
+            return true; // Cache empty results
+        }
+
+        $rowCount = count($resultSet);
+        
+        // Get cache limits from settings or use defaults
+        $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
+        $maxRows = 1000; // Default max rows to cache
+        $maxMemoryMB = 50; // Default max memory usage in MB
+        
+        if (is_array($cacheSettings)) {
+            $maxRows = isset($cacheSettings['max_cached_rows']) ? $cacheSettings['max_cached_rows'] : $maxRows;
+            $maxMemoryMB = isset($cacheSettings['max_cache_memory_mb']) ? $cacheSettings['max_cache_memory_mb'] : $maxMemoryMB;
+        } elseif (is_object($cacheSettings)) {
+            $maxRows = isset($cacheSettings->max_cached_rows) ? $cacheSettings->max_cached_rows : $maxRows;
+            $maxMemoryMB = isset($cacheSettings->max_cache_memory_mb) ? $cacheSettings->max_cache_memory_mb : $maxMemoryMB;
+        }
+
+        // Check row count limit
+        if ($rowCount > $maxRows) {
+            return false;
+        }
+
+        // Estimate memory usage
+        $estimatedMemoryMB = $this->estimateResultSetMemory($resultSet);
+        if ($estimatedMemoryMB > $maxMemoryMB) {
+            return false;
+        }
+
+        // Check available system memory
+        $availableMemoryMB = $this->getAvailableMemoryMB();
+        if ($availableMemoryMB !== null && $estimatedMemoryMB > ($availableMemoryMB * 0.1)) {
+            return false; // Don't use more than 10% of available memory
+        }
+
+        return true;
+    }
+
+    /**
+     * Estimate memory usage of a result set in MB
+     * @param array $resultSet
+     * @return float Estimated memory usage in MB
+     */
+    private function estimateResultSetMemory($resultSet)
+    {
+        if (empty($resultSet)) {
+            return 0;
+        }
+
+        // Calculate average row size by sampling first few rows
+        $sampleSize = min(10, count($resultSet));
+        $totalSampleSize = 0;
+        
+        for ($i = 0; $i < $sampleSize; $i++) {
+            $totalSampleSize += strlen(serialize($resultSet[$i]));
+        }
+        
+        $avgRowSize = $totalSampleSize / $sampleSize;
+        $totalEstimatedBytes = $avgRowSize * count($resultSet);
+        
+        // Add overhead for array structure (approximately 50% overhead)
+        $totalEstimatedBytes *= 1.5;
+        
+        return $totalEstimatedBytes / (1024 * 1024); // Convert to MB
+    }
+
+    /**
+     * Get available system memory in MB
+     * @return float|null Available memory in MB or null if cannot determine
+     */
+    private function getAvailableMemoryMB()
+    {
+        // Get PHP memory limit
+        $memoryLimit = ini_get('memory_limit');
+        if ($memoryLimit === '-1') {
+            return null; // No limit
+        }
+        
+        $memoryLimitBytes = $this->parseMemoryLimit($memoryLimit);
+        $currentUsageBytes = memory_get_usage(true);
+        $availableBytes = $memoryLimitBytes - $currentUsageBytes;
+        
+        return max(0, $availableBytes / (1024 * 1024)); // Convert to MB
+    }
+
+    /**
+     * Parse memory limit string to bytes
+     * @param string $memoryLimit
+     * @return int Memory limit in bytes
+     */
+    private function parseMemoryLimit($memoryLimit)
+    {
+        $memoryLimit = trim($memoryLimit);
+        $unit = strtolower(substr($memoryLimit, -1));
+        $value = (int) substr($memoryLimit, 0, -1);
+        
+        switch ($unit) {
+            case 'g':
+                return $value * 1024 * 1024 * 1024;
+            case 'm':
+                return $value * 1024 * 1024;
+            case 'k':
+                return $value * 1024;
+            default:
+                return (int) $memoryLimit;
+        }
     }
 
     /**
@@ -1211,17 +1410,7 @@ class Database extends \Pramnos\Framework\Base
         $this->connect();
     }   
 
-    // /**
-    //  * Generate cache name
-    //  * @param string $query
-    //  * @return string
-    //  */
-    // function generateCacheName($query)
-    // {
-    //     return pramnos_addon::applyFilters(
-    //         'pramnos_database_generate_cache_name', md5($query)
-    //     );
-    //}
+
 
     /**
      * Set the database error
@@ -1280,14 +1469,10 @@ class Database extends \Pramnos\Framework\Base
         $cachetime = 60, $category = "", $dieOnFatalError = false, $skipDataFix = false)
     {
         $cacheData = false;
-        $cache = false;
-        // eof: collect products_id queries
+        $cacheInstance = null;
+        // Check if caching is enabled for this query
         if ($cache) {
-            $cache = \Pramnos\Cache\Cache::getInstance($category, 'sql');
-            $cache->prefix = $this->prefix;
-            $cache_name = md5($sql);
-            $cache->timeout=$cachetime;
-            $cacheData = $cache->load($cache_name);
+            $cacheData = $this->cacheRead($sql, $category);
         }
         $this->currentQuery = $sql;
 
@@ -1322,10 +1507,13 @@ class Database extends \Pramnos\Framework\Base
             } else {
                 $obj = $this->runMysqlQuery($sql, $dieOnFatalError, $skipDataFix);
             }
-            $obj->isCached = true;
+            $obj->isCached = false;
             $obj->result = $obj->fetchAll();
 
-            $this->cacheStore($sql, $obj->result, $category, $cachetime);
+            // Memory optimization: Only cache if result set is reasonable size
+            if ($this->shouldCacheResult($obj->result)) {
+                $this->cacheStore($sql, $obj->result, $category, $cachetime);
+            }
             
             $timeEnd = explode(' ', microtime());
             $queryTime = $timeEnd[1] + $timeEnd[0]
@@ -1547,7 +1735,9 @@ class Database extends \Pramnos\Framework\Base
 
 
     /**
-     * Stop logging
+     * Stop logging and write final logs to files
+     * Closes all log file handlers and writes summary information
+     * @return void
      */
     public function stopLogs()
     {
@@ -1737,7 +1927,10 @@ class Database extends \Pramnos\Framework\Base
             );
         }
         
-        return $this->query($sql, false, 0, "", false, $skipDataFix);
+        // Use aggressive caching since table schemas rarely change
+        // Cache for 1 hour (3600 seconds) with table-specific cache key
+        $cacheKey = "schema_columns_{$tableName}";
+        return $this->query($sql, true, 3600, $cacheKey, false, $skipDataFix);
     }
 
     /**
