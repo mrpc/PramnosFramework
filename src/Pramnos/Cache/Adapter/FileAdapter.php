@@ -391,4 +391,67 @@ class FileAdapter extends AbstractAdapter
         // For file system, we just return the category name
         return $category;
     }
+    
+    /**
+     * @inheritDoc
+     */
+    public function getAllItems($category = '', $limit = 100)
+    {
+        $items = [];
+        
+        if (!$this->caching) {
+            return $items;
+        }
+        
+        try {
+            $searchPath = $this->cacheDir;
+            
+            // If category specified, search in category subdirectory
+            if ($category !== '') {
+                $searchPath = $this->cacheDir . DIRECTORY_SEPARATOR . $category;
+                if (!is_dir($searchPath)) {
+                    return $items;
+                }
+            }
+            
+            $files = $this->listDirectoryFiles($searchPath);
+            
+            // Filter cache files only (skip directories and non-cache files)
+            $cacheFiles = array_filter($files, function($file) {
+                return is_file($file) && !is_dir($file);
+            });
+            
+            // Limit the results
+            $cacheFiles = array_slice($cacheFiles, 0, $limit);
+            
+            foreach ($cacheFiles as $file) {
+                try {
+                    if (file_exists($file)) {
+                        $relativePath = str_replace($this->cacheDir . DIRECTORY_SEPARATOR, '', $file);
+                        $key = basename($file);
+                        
+                        // Check if file is expired
+                        $isExpired = $this->checkIfFileIsExpired($file);
+                        
+                        $items[] = [
+                            'key' => $key,
+                            'size' => filesize($file),
+                            'created_time' => date('Y-m-d H:i:s', filemtime($file)),
+                            'ttl' => $isExpired ? 0 : -1,
+                            'type' => 'file',
+                            'path' => $relativePath,
+                            'expired' => $isExpired
+                        ];
+                    }
+                } catch (\Exception $e) {
+                    // Skip problematic files
+                    continue;
+                }
+            }
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+        }
+        
+        return $items;
+    }
 }

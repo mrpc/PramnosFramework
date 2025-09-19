@@ -472,12 +472,15 @@ class Cache extends \Pramnos\Framework\Base
     }
 
     /**
-     * Returns the Redis object
-     * @return \Redis
+     * Returns the Redis connection object if using Redis adapter
+     * @return \Redis|null
      */
     public function getRedis()
     {
-        return self::$_redis;
+        if ($this->adapter instanceof \Pramnos\Cache\Adapter\RedisAdapter) {
+            return $this->adapter->getConnection();
+        }
+        return null;
     }
     
     /**
@@ -509,5 +512,34 @@ class Cache extends \Pramnos\Framework\Base
         }
         
         return $this->adapter->getStats();
+    }
+    
+    /**
+     * Get all cache items with metadata
+     * @param string $category Optional category to filter by
+     * @param int $limit Optional limit for number of items returned
+     * @return array Array of cache items with metadata
+     */
+    public function getAllItems($category = '', $limit = 100)
+    {
+        if (!$this->caching || $this->adapter === null) {
+            return [];
+        }
+        
+        return $this->adapter->getAllItems($category, $limit);
+    }
+    
+    /**
+     * Get all cache categories
+     * @param string $prefix Optional prefix to filter categories
+     * @return array List of categories
+     */
+    public function getCategories($prefix = '')
+    {
+        if (!$this->caching || $this->adapter === null) {
+            return [];
+        }
+        
+        return $this->adapter->getCategories($prefix);
     }
 }

@@ -73,4 +73,12 @@ interface AdapterInterface
      * @return string The category hash
      */
     public function categoryHash($category, $prefix = '', $reset = false);
+    
+    /**
+     * Get all cache items with metadata
+     * @param string $category Optional category to filter by
+     * @param int $limit Optional limit for number of items returned
+     * @return array Array of cache items with metadata (key, size, created_time, etc.)
+     */
+    public function getAllItems($category = '', $limit = 100);
 }
