@@ -152,6 +152,9 @@ class MemcachedAdapter extends AbstractAdapter
                 return false;
             }
             
+            // Track this key for category-based clearing
+            $this->_trackKeyForCategory($key);
+            
             return true;
         } catch (\Exception $ex) {
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
@@ -178,6 +181,9 @@ class MemcachedAdapter extends AbstractAdapter
                 return false;
             }
             
+            // Remove key from category tracking
+            $this->_removeKeyFromCategory($key);
+            
             return true;
         } catch (\Exception $ex) {
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
@@ -203,10 +209,115 @@ class MemcachedAdapter extends AbstractAdapter
                 return false;
             }
         } else {
-            // For category-specific clearing, we need to find and delete all matching keys
-            // Since Memcached doesn't support pattern-based deletion, we'll just return true
-            // The actual clearing will happen through cache expiration
-            return true;
+            // For category-specific clearing, use key tracking approach
+            try {
+                // Sanitize the category name to match how keys are stored
+                $sanitizedCategory = preg_replace(
+                    array('/\s+/', '/[^\w\-]/'),
+                    array('_', ''),
+                    $category
+                );
+                
+                // Get list of keys for this category
+                $categoryKeysKey = $this->prefix . 'category_keys_' . $sanitizedCategory;
+                $keys = $this->memcached->get($categoryKeysKey);
+                
+                if (is_array($keys) && !empty($keys)) {
+                    // Delete all keys in this category
+                    foreach ($keys as $key) {
+                        $this->memcached->delete($key);
+                    }
+                    
+                    // Clear the category index
+                    $this->memcached->delete($categoryKeysKey);
+                }
+                
+                return true;
+            } catch (\Exception $ex) {
+                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                return false;
+            }
+        }
+    }
+    
+    /**
+     * Track a key for category-based clearing
+     * @param string $key The cache key to track
+     */
+    private function _trackKeyForCategory($key)
+    {
+        if (!$this->connected) {
+            return;
+        }
+        
+        try {
+            // Extract category from key (assumes format: prefix + category + _ + specific_identifier)
+            $keyWithoutPrefix = str_replace($this->prefix, '', $key);
+            
+            // Find the category part (everything before the last underscore or dash)
+            if (preg_match('/^(.+?)[-_][^-_]+$/', $keyWithoutPrefix, $matches)) {
+                $category = $matches[1];
+                
+                // Get existing keys for this category
+                $categoryKeysKey = $this->prefix . 'category_keys_' . $category;
+                $existingKeys = $this->memcached->get($categoryKeysKey);
+                
+                if (!is_array($existingKeys)) {
+                    $existingKeys = array();
+                }
+                
+                // Add this key to the category index
+                if (!in_array($key, $existingKeys)) {
+                    $existingKeys[] = $key;
+                    $this->memcached->set($categoryKeysKey, $existingKeys, 0); // No expiration for index
+                }
+            }
+        } catch (\Exception $ex) {
+            // Silently fail - key tracking is not critical
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+        }
+    }
+    
+    /**
+     * Remove a key from category tracking
+     * @param string $key The cache key to remove from tracking
+     */
+    private function _removeKeyFromCategory($key)
+    {
+        if (!$this->connected) {
+            return;
+        }
+        
+        try {
+            // Extract category from key (assumes format: prefix + category + _ + specific_identifier)
+            $keyWithoutPrefix = str_replace($this->prefix, '', $key);
+            
+            // Find the category part (everything before the last underscore or dash)
+            if (preg_match('/^(.+?)[-_][^-_]+$/', $keyWithoutPrefix, $matches)) {
+                $category = $matches[1];
+                
+                // Get existing keys for this category
+                $categoryKeysKey = $this->prefix . 'category_keys_' . $category;
+                $existingKeys = $this->memcached->get($categoryKeysKey);
+                
+                if (is_array($existingKeys)) {
+                    // Remove this key from the category index
+                    $existingKeys = array_filter($existingKeys, function($existingKey) use ($key) {
+                        return $existingKey !== $key;
+                    });
+                    
+                    if (empty($existingKeys)) {
+                        // If no keys left, delete the category index
+                        $this->memcached->delete($categoryKeysKey);
+                    } else {
+                        // Update the category index
+                        $this->memcached->set($categoryKeysKey, array_values($existingKeys), 0);
+                    }
+                }
+            }
+        } catch (\Exception $ex) {
+            // Silently fail - key tracking is not critical
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
     }
     
