@@ -1770,13 +1770,31 @@ class Model extends \Pramnos\Framework\Base
         
         // Create a mapping of field names without table prefixes to their full references
         $fieldMapping = array();
+        $mainTableFields = array();
+        $joinedTableFields = array();
+        
         foreach ($availableFields as $field) {
             if (strpos($field, '.') !== false) {
                 // Extract field name after the dot
                 $fieldName = substr($field, strrpos($field, '.') + 1);
-                $fieldMapping[$fieldName] = $field;
+                
+                // Store in joined fields array - prioritize joined table fields over main table
+                if (!isset($joinedTableFields[$fieldName])) {
+                    $joinedTableFields[$fieldName] = array();
+                }
+                $joinedTableFields[$fieldName][] = $field;
+                
+                // Also add to general mapping, but joined fields take precedence
+                if (!isset($fieldMapping[$fieldName]) || !isset($mainTableFields[$fieldName])) {
+                    $fieldMapping[$fieldName] = $field;
+                }
             } else {
-                $fieldMapping[$field] = $field;
+                // Main table field
+                $mainTableFields[$field] = $field;
+                // Only add to mapping if not already occupied by a joined field
+                if (!isset($fieldMapping[$field])) {
+                    $fieldMapping[$field] = $field;
+                }
             }
         }
         
@@ -1839,13 +1857,19 @@ class Model extends \Pramnos\Framework\Base
             // Use field mapping to validate and resolve field names
             $targetField = null;
             
-            // First try exact match in available fields
+            // First try exact match in available fields (handles table.field format)
             if (in_array($fieldName, $availableFields)) {
                 $targetField = $fieldName;
             } else {
                 // Try to find field by name without table prefix using field mapping
                 if (isset($fieldMapping[$fieldName])) {
                     $targetField = $fieldMapping[$fieldName];
+                } else {
+                    // If field not found in mapping, check if it's a joined table field
+                    // and try to find the first available match
+                    if (isset($joinedTableFields[$fieldName]) && !empty($joinedTableFields[$fieldName])) {
+                        $targetField = $joinedTableFields[$fieldName][0]; // Use first available joined field
+                    }
                 }
             }
             
