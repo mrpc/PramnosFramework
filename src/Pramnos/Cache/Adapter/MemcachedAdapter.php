@@ -283,4 +283,89 @@ class MemcachedAdapter extends AbstractAdapter
             return $category;
         }
     }
+    
+    /**
+     * @inheritDoc
+     */
+    public function getAllItems($category = '', $limit = 100)
+    {
+        $items = [];
+        
+        if (!$this->caching || !$this->connected) {
+            return $items;
+        }
+        
+        try {
+            // Get all keys from Memcached using getAllKeys if available
+            $keys = $this->memcached->getAllKeys();
+            
+            if (!$keys) {
+                // Fallback: Memcached doesn't have reliable key listing
+                // Return empty array with a note
+                return [
+                    [
+                        'key' => 'memcached_limitation',
+                        'size' => 0,
+                        'created_time' => 'N/A',
+                        'ttl' => 0,
+                        'type' => 'info',
+                        'note' => 'Memcached does not support reliable key enumeration'
+                    ]
+                ];
+            }
+            
+            // Filter keys by prefix
+            $prefixedKeys = [];
+            foreach ($keys as $key) {
+                if (strpos($key, $this->prefix) === 0) {
+                    $prefixedKeys[] = $key;
+                }
+            }
+            
+            // Filter out the tags key
+            $tagsKey = $this->prefix . $this->tagsKey;
+            $prefixedKeys = array_filter($prefixedKeys, function($key) use ($tagsKey) {
+                return $key !== $tagsKey;
+            });
+            
+            // Limit the results
+            $prefixedKeys = array_slice($prefixedKeys, 0, $limit);
+            
+            foreach ($prefixedKeys as $key) {
+                try {
+                    $entry = $this->memcached->get($key);
+                    if ($entry !== false) {
+                        if (is_array($entry) && isset($entry['data'])) {
+                            $size = strlen(serialize($entry));
+                            $items[] = [
+                                'key' => str_replace($this->prefix, '', $key),
+                                'size' => $size,
+                                'created_time' => isset($entry['time']) ? date('Y-m-d H:i:s', $entry['time']) : 'Unknown',
+                                'ttl' => -1, // Memcached doesn't provide TTL info easily
+                                'type' => gettype($entry['data'])
+                            ];
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // Skip problematic keys
+                    continue;
+                }
+            }
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            // Return limitation notice
+            return [
+                [
+                    'key' => 'memcached_error',
+                    'size' => 0,
+                    'created_time' => 'N/A',
+                    'ttl' => 0,
+                    'type' => 'error',
+                    'note' => 'Error retrieving Memcached keys: ' . $ex->getMessage()
+                ]
+            ];
+        }
+        
+        return $items;
+    }
 }

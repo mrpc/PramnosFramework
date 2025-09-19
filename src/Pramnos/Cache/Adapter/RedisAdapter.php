@@ -259,9 +259,8 @@ class RedisAdapter extends AbstractAdapter
             
             // Get number of items
             $stats['items'] = $this->redis->dbSize();
-            
             // Remove one for the tags key
-            if ($stats['items'] > 0) {
+            if ($stats['items'] > 0 && $tagsData) {
                 $stats['items']--;
             }
         } catch (\Exception $ex) {
@@ -269,6 +268,63 @@ class RedisAdapter extends AbstractAdapter
         }
         
         return $stats;
+    }
+    
+    /**
+     * @inheritDoc
+     */
+    public function getAllItems($category = '', $limit = 100)
+    {
+        $items = [];
+        
+        if (!$this->caching || !$this->connected) {
+            return $items;
+        }
+        
+        try {
+            // Get all keys from Redis
+            $pattern = $this->prefix . '*';
+            if ($category !== '') {
+                $categoryHash = $this->categoryHash($category, $this->prefix);
+                $pattern = $this->prefix . $categoryHash . '_*';
+            }
+            
+            $keys = $this->redis->keys($pattern);
+            
+            // Filter out the tags key
+            $tagsKey = $this->prefix . $this->tagsKey;
+            $keys = array_filter($keys, function($key) use ($tagsKey) {
+                return $key !== $tagsKey;
+            });
+            
+            // Limit the results
+            $keys = array_slice($keys, 0, $limit);
+            
+            foreach ($keys as $key) {
+                try {
+                    $entry = $this->redis->get($key);
+                    if ($entry) {
+                        $entry = unserialize($entry);
+                        $size = strlen($this->redis->get($key));
+                        
+                        $items[] = [
+                            'key' => str_replace($this->prefix, '', $key),
+                            'size' => $size,
+                            'created_time' => isset($entry['time']) ? date('Y-m-d H:i:s', $entry['time']) : 'Unknown',
+                            'ttl' => $this->redis->ttl($key),
+                            'type' => gettype($entry['data'] ?? null)
+                        ];
+                    }
+                } catch (\Exception $e) {
+                    // Skip problematic keys
+                    continue;
+                }
+            }
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+        }
+        
+        return $items;
     }
     
     /**

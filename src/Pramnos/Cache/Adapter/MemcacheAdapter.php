@@ -261,4 +261,43 @@ class MemcacheAdapter extends AbstractAdapter
             return $category;
         }
     }
+    
+    /**
+     * @inheritDoc
+     */
+    public function getAllItems($category = '', $limit = 100)
+    {
+        $items = [];
+        
+        if (!$this->caching || !$this->connected) {
+            return $items;
+        }
+        
+        try {
+            // Memcache (older extension) has even more limitations than Memcached
+            // It doesn't support key enumeration at all
+            return [
+                [
+                    'key' => 'memcache_limitation',
+                    'size' => 0,
+                    'created_time' => 'N/A',
+                    'ttl' => 0,
+                    'type' => 'info',
+                    'note' => 'Memcache extension does not support key enumeration'
+                ]
+            ];
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return [
+                [
+                    'key' => 'memcache_error',
+                    'size' => 0,
+                    'created_time' => 'N/A',
+                    'ttl' => 0,
+                    'type' => 'error',
+                    'note' => 'Error with Memcache: ' . $ex->getMessage()
+                ]
+            ];
+        }
+    }
 }
