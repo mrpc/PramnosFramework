@@ -77,7 +77,7 @@ class Model extends \Pramnos\Framework\Base
      * Whether to use cache in list retrievals
      * @var boolean
      */
-    protected $useCacheInLists = true;
+    protected $useCacheInLists = false;
     /**
      * Time to live for cache in lists (in seconds)
      * @var int
@@ -1115,7 +1115,9 @@ class Model extends \Pramnos\Framework\Base
             if ($key == '_primaryKey' || $key == '_dbtable'
                 || $key == 'modelname' || $key == 'prefix'
                 || $key == '_dbschema'
-                || $key == '_cacheKey') {
+                || $key == '_dbschema'
+                || $key == 'cacheInListsTime'
+                || $key == 'useCacheInLists') {
                 continue;
             }
             if (is_numeric($value) || is_string($value)) {
