@@ -222,7 +222,7 @@ class Model extends \Pramnos\Framework\Base
                 }
 
                 $cacheKey = "schema_columns_" . $this->getFullTableName();
-                $result = $database->query($sql, true, 3600, $cacheKey);
+                $result = $database->query($sql, false, 3600, $cacheKey);
                 self::$columnCache[$this->getFullTableName()] = array();
                 while ($result->fetch()) {
                     self::$columnCache[$this->getFullTableName()][] = $result->fields;
