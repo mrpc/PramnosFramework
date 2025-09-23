@@ -1165,7 +1165,8 @@ class Database extends \Pramnos\Framework\Base
                 // This is a database row - preserve types for each field
                 $preparedRow = [];
                 foreach ($row as $fieldName => $fieldValue) {
-                    // Store original value and its type
+                    // Store original value and its type with explicit null handling
+                    // The 'v' key stores the EXACT original value (including null)
                     $preparedRow[$fieldName] = [
                         'v' => $fieldValue,  // Short key to minimize overhead
                         't' => $this->getSimpleType($fieldValue)
@@ -1216,7 +1217,20 @@ class Database extends \Pramnos\Framework\Base
         foreach ($data as $key => $value) {
             if (is_array($value) && isset($value['v']) && isset($value['t'])) {
                 // This is a typed field value, restore it
-                $restoredData[$key] = $this->castToType($value['v'], $value['t']);
+                $originalValue = $value['v'];
+                $restoredValue = $this->castToType($originalValue, $value['t']);
+                
+                // Debug logging for development - can be removed in production
+                if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
+                    if ($originalValue === null && $restoredValue !== null) {
+                        error_log("Type preservation warning: null value became {$restoredValue} for field {$key}");
+                    }
+                    if ($originalValue !== null && $restoredValue === null) {
+                        error_log("Type preservation warning: value {$originalValue} became null for field {$key}");
+                    }
+                }
+                
+                $restoredData[$key] = $restoredValue;
             } elseif (is_array($value)) {
                 // This is a row or nested structure, recurse
                 $restoredData[$key] = $this->restoreTypes($value);
@@ -1251,13 +1265,39 @@ class Database extends \Pramnos\Framework\Base
      */
     private function castToType($value, $type)
     {
+        // CRITICAL: Always check for null first, regardless of type
+        if ($value === null || $value === 'null' || $value === '') {
+            return null;
+        }
+        
         switch ($type) {
-            case 'n': return null;
-            case 'b': return (bool) $value;
-            case 'i': return (int) $value;
-            case 'f': return (float) $value;
+            case 'n': 
+                return null;
+            case 'b': 
+                // Handle boolean conversion more carefully
+                if ($value === 'true' || $value === '1' || $value === 1 || $value === true) {
+                    return true;
+                } elseif ($value === 'false' || $value === '0' || $value === 0 || $value === false) {
+                    return false;
+                } else {
+                    // If it's not a clear boolean value, return null
+                    return null;
+                }
+            case 'i': 
+                // Only convert to int if it's actually a numeric value
+                if (is_numeric($value)) {
+                    return (int) $value;
+                }
+                return null;
+            case 'f': 
+                // Only convert to float if it's actually a numeric value
+                if (is_numeric($value)) {
+                    return (float) $value;
+                }
+                return null;
             case 's':
             default:
+                // For strings, empty string should stay empty string, not become null
                 return (string) $value;
         }
     }
