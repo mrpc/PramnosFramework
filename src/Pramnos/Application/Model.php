@@ -1115,7 +1115,7 @@ class Model extends \Pramnos\Framework\Base
             if ($key == '_primaryKey' || $key == '_dbtable'
                 || $key == 'modelname' || $key == 'prefix'
                 || $key == '_dbschema'
-                || $key == '_dbschema'
+                || $key == '_cacheKey'
                 || $key == 'cacheInListsTime'
                 || $key == 'useCacheInLists') {
                 continue;
