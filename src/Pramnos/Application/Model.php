@@ -428,7 +428,7 @@ class Model extends \Pramnos\Framework\Base
             
             // Use specific cache key that includes the primary key value
             $specificCacheKey = $this->_generateSpecificCacheKey($primaryKey);
-            $result = $database->query($sql, $useCache, 600, $specificCacheKey);
+            $result = $database->query($sql, false, 600, $specificCacheKey);
             if ($result->numRows != 0) {
                 // Reset initial data array
                 $this->_initialData = array();
