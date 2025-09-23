@@ -1148,6 +1148,121 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
+     * Prepare data for type-preserving cache storage (Redis only)
+     * @param array $data The data array to prepare
+     * @return array Array with data and type information
+     */
+    private function prepareDataForCache($data)
+    {
+        if (!is_array($data)) {
+            return $data;
+        }
+
+        $preparedData = [];
+        
+        foreach ($data as $rowIndex => $row) {
+            if (is_array($row)) {
+                // This is a database row - preserve types for each field
+                $preparedRow = [];
+                foreach ($row as $fieldName => $fieldValue) {
+                    // Store original value and its type
+                    $preparedRow[$fieldName] = [
+                        'v' => $fieldValue,  // Short key to minimize overhead
+                        't' => $this->getSimpleType($fieldValue)
+                    ];
+                }
+                $preparedData[$rowIndex] = $preparedRow;
+            } else {
+                // Keep non-array values as-is
+                $preparedData[$rowIndex] = $row;
+            }
+        }
+        
+        // Wrap with minimal metadata
+        return [
+            '_t' => true,  // Type preserved flag
+            'd' => $preparedData
+        ];
+    }
+
+    /**
+     * Restore data types from cache (Redis only)
+     * @param mixed $cachedData The cached data to restore
+     * @return mixed Restored data with original types - EXACT same structure as original
+     */
+    private function restoreDataFromCache($cachedData)
+    {
+        // Check if this is type-preserved data
+        if (is_array($cachedData) && isset($cachedData['_t']) && $cachedData['_t'] === true && isset($cachedData['d'])) {
+            return $this->restoreTypes($cachedData['d']);
+        }
+        
+        // Return as-is for non-type-preserved data
+        return $cachedData;
+    }
+
+    /**
+     * Restore types from prepared data
+     * @param array $data Prepared data with type info
+     * @return array Restored data with exact original structure
+     */
+    private function restoreTypes($data)
+    {
+        if (!is_array($data)) {
+            return $data;
+        }
+
+        $restoredData = [];
+        foreach ($data as $key => $value) {
+            if (is_array($value) && isset($value['v']) && isset($value['t'])) {
+                // This is a typed field value, restore it
+                $restoredData[$key] = $this->castToType($value['v'], $value['t']);
+            } elseif (is_array($value)) {
+                // This is a row or nested structure, recurse
+                $restoredData[$key] = $this->restoreTypes($value);
+            } else {
+                // Plain value, keep as-is
+                $restoredData[$key] = $value;
+            }
+        }
+        
+        return $restoredData;
+    }
+
+    /**
+     * Get simple type identifier for a value
+     * @param mixed $value The value to analyze
+     * @return string Simple type code
+     */
+    private function getSimpleType($value)
+    {
+        if ($value === null) return 'n';
+        if (is_bool($value)) return 'b';
+        if (is_int($value)) return 'i';
+        if (is_float($value)) return 'f';
+        return 's'; // string or other
+    }
+
+    /**
+     * Cast value to its original type
+     * @param mixed $value The value to cast
+     * @param string $type The type code
+     * @return mixed Value cast to original type
+     */
+    private function castToType($value, $type)
+    {
+        switch ($type) {
+            case 'n': return null;
+            case 'b': return (bool) $value;
+            case 'i': return (int) $value;
+            case 'f': return (float) $value;
+            case 's':
+            default:
+                return (string) $value;
+        }
+    }
+
+    /**
      * Expire cache entries matching a query pattern and category
      * @param string $query Cache key pattern to expire
      * @param string|null $category Cache category (optional)
@@ -1201,8 +1316,22 @@ class Database extends \Pramnos\Framework\Base
         $cache->extradata = $query;
         $cache->timeout = $cachetime;
         
-        // Prepare data for storage
-        $dataToStore = serialize($resultArray);
+        // Prepare data for storage with automatic type preservation for Redis
+        $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
+        $cacheMethod = 'memcached'; // default
+        if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
+            $cacheMethod = $cacheSettings['method'];
+        } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
+            $cacheMethod = $cacheSettings->method;
+        }
+        
+        // Use type preservation only for Redis to solve the string conversion issue
+        if ($cacheMethod === 'redis') {
+            $preparedData = $this->prepareDataForCache($resultArray);
+            $dataToStore = serialize($preparedData);
+        } else {
+            $dataToStore = serialize($resultArray);
+        }
         
         // Apply compression for large datasets
         if (strlen($dataToStore) > 10240) { // 10KB threshold
@@ -1251,14 +1380,22 @@ class Database extends \Pramnos\Framework\Base
             if (function_exists('gzuncompress')) {
                 $uncompressedData = gzuncompress($compressedData);
                 if ($uncompressedData !== false) {
-                    return $uncompressedData;
+                    $cachedData = $uncompressedData;
+                } else {
+                    // If decompression fails, return false
+                    return false;
                 }
+            } else {
+                // If decompression fails, return false
+                return false;
             }
-            // If decompression fails, return false
-            return false;
         }
         
-        return $cachedData;
+        // Deserialize the data and automatically restore types if they were preserved
+        $deserializedData = unserialize($cachedData);
+        
+        // Automatically detect and restore type-preserved data (transparent to caller)
+        return $this->restoreDataFromCache($deserializedData);
     }
 
     /**
@@ -1480,18 +1617,29 @@ class Database extends \Pramnos\Framework\Base
             $obj = new Result($this);
             $obj->cursor = 0;
             $obj->isCached = true;
-            $resultArray = unserialize($cacheData);
+            
+            // Check if data is already unserialized (new format) or needs unserialization (old format)
+            if (is_string($cacheData)) {
+                $resultArray = unserialize($cacheData);
+            } else {
+                // Data is already unserialized by the new cacheRead method
+                $resultArray = $cacheData;
+            }
+            
             $obj->result = $resultArray;
-            if ($resultArray === null) {
+            if ($resultArray === null || !is_array($resultArray)) {
                 $obj->numRows = 0;
                 $obj->eof = true;
                 return $obj;
             }
-            $obj->numRows = count($resultArray);
+            $obj->numRows = is_array($resultArray) ? count($resultArray) : 0;
             if ($obj->numRows > 0) {
                 $obj->eof = false;
-                foreach ($resultArray[0] as $key => $value) {
-                    $obj->fields[$key] = $value;
+                // Check if first element exists and is an array before accessing it
+                if (isset($resultArray[0]) && is_array($resultArray[0])) {
+                    foreach ($resultArray[0] as $key => $value) {
+                        $obj->fields[$key] = $value;
+                    }
                 }
                 return $obj;
             } else {
