@@ -99,12 +99,51 @@ class Result
     public function fetchAll()
     {
         if ($this->isCached) {
+            // For cached results, data types should already be properly restored
             return $this->result;
         } elseif ($this->database->type == 'postgresql' 
             && is_object($this->mysqlResult)) {
-            return pg_fetch_all($this->mysqlResult, PGSQL_ASSOC);
+            $results = pg_fetch_all($this->mysqlResult, PGSQL_ASSOC);
+            
+            // Apply type conversion if column types are available
+            if (!empty($this->columnTypes) && is_array($results)) {
+                foreach ($results as $rowIndex => $row) {
+                    foreach ($row as $columnName => $value) {
+                        if ($value !== null && isset($this->columnTypes[$columnName])) {
+                            $results[$rowIndex][$columnName] = $this->convertPostgresValue(
+                                $value, 
+                                $this->columnTypes[$columnName]
+                            );
+                        }
+                    }
+                }
+            }
+            
+            return $results;
         } elseif (is_object($this->mysqlResult)) {
-            return mysqli_fetch_all($this->mysqlResult, MYSQLI_ASSOC);
+            $results = mysqli_fetch_all($this->mysqlResult, MYSQLI_ASSOC);
+            
+            // Apply type conversion for MySQL results
+            if (is_array($results) && !empty($results)) {
+                $fields = mysqli_fetch_fields($this->mysqlResult);
+                $fieldTypes = [];
+                foreach ($fields as $field) {
+                    $fieldTypes[$field->name] = $field->type;
+                }
+                
+                foreach ($results as $rowIndex => $row) {
+                    foreach ($row as $columnName => $value) {
+                        if ($value !== null && isset($fieldTypes[$columnName])) {
+                            $results[$rowIndex][$columnName] = $this->convertMysqlValue(
+                                $value, 
+                                $fieldTypes[$columnName]
+                            );
+                        }
+                    }
+                }
+            }
+            
+            return $results;
         }
         
         return array();
@@ -283,5 +322,64 @@ class Result
     public function __destruct()
     {
         $this->free();
+    }
+
+    /**
+     * Convert PostgreSQL value to proper PHP type
+     * @param mixed $value
+     * @param string $pgType
+     * @return mixed
+     */
+    protected function convertPostgresValue($value, $pgType)
+    {
+        if ($value === null) {
+            return null;
+        }
+        
+        switch ($pgType) {
+            case 'int4':
+            case 'int8':
+            case 'int2':
+            case 'integer':
+            case 'bigint':
+            case 'smallint':
+                return (int)$value;
+            case 'float4':
+            case 'float8':
+            case 'numeric':
+            case 'decimal':
+            case 'real':
+            case 'double precision':
+                return (float)$value;
+            case 'bool':
+            case 'boolean':
+                return $value === 't' ? true : ($value === 'f' ? false : $value);
+            default:
+                return $value;
+        }
+    }
+
+    /**
+     * Convert MySQL value to proper PHP type
+     * @param mixed $value
+     * @param int $mysqlType
+     * @return mixed
+     */
+    protected function convertMysqlValue($value, $mysqlType)
+    {
+        if ($value === null) {
+            return null;
+        }
+        
+        if ($mysqlType == MYSQLI_TYPE_TINY || $mysqlType == MYSQLI_TYPE_SHORT || 
+            $mysqlType == MYSQLI_TYPE_LONG || $mysqlType == MYSQLI_TYPE_INT24 || 
+            $mysqlType == MYSQLI_TYPE_LONGLONG) {
+            return (int)$value;
+        } else if ($mysqlType == MYSQLI_TYPE_FLOAT || $mysqlType == MYSQLI_TYPE_DOUBLE || 
+                   $mysqlType == MYSQLI_TYPE_DECIMAL || $mysqlType == MYSQLI_TYPE_NEWDECIMAL) {
+            return (float)$value;
+        }
+        
+        return $value;
     }
 }
