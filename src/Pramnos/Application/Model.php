@@ -660,7 +660,9 @@ class Model extends \Pramnos\Framework\Base
             if ($returnAsModels == false && $useGetData == false) {
                 $objects = array();
                 while ($result->fetch()) {
-                    $objects[] = $result->fields;
+                    $item = $result->fields;
+                    $item = $this->_processJsonFields($item, $join);
+                    $objects[] = $item;
                 }
                 return array(
                     'total'=>$totalItems,
@@ -842,7 +844,9 @@ class Model extends \Pramnos\Framework\Base
             if ($returnAsModels == false && $useGetData == false) {
                 $objects = array();
                 while ($result->fetch()) {
-                    $objects[] = $result->fields;
+                    $item = $result->fields;
+                    $item = $this->_processJsonFields($item, $join);
+                    $objects[] = $item;
                 }
                 return $objects;
             }
@@ -1060,7 +1064,7 @@ class Model extends \Pramnos\Framework\Base
     private function fieldtype($type)
     {
         $type = explode("(", $type);
-        $type = $type[0];
+        $type = strtolower($type[0]);
         switch ($type) {
 
             case "int":
@@ -1079,6 +1083,9 @@ class Model extends \Pramnos\Framework\Base
             case "boolean":
             case "bool":
                 return "boolean";
+            case "json":
+            case "jsonb":
+                return "json";
             default:
                 return "string";
         }
@@ -1218,6 +1225,97 @@ class Model extends \Pramnos\Framework\Base
         return str_replace(
             '#PREFIX#', $database->prefix, $tableName
         );
+    }
+
+    /**
+     * Get field types for the current table and any joined tables using the existing fieldtype method
+     * @param string $join Optional JOIN clause to include fields from joined tables
+     * @return array Array with field names as keys and their types as values
+     */
+    protected function _getFieldTypes($join = '')
+    {
+        $fieldTypes = array();
+        $tableName = $this->getFullTableName();
+        
+        // Ensure column cache is populated for main table
+        if (!isset(self::$columnCache[$tableName])) {
+            $this->_getAllTableFields($join);
+        }
+        
+        // Get field types from main table
+        if (isset(self::$columnCache[$tableName])) {
+            foreach (self::$columnCache[$tableName] as $fieldInfo) {
+                if (isset($fieldInfo['Type']) && isset($fieldInfo['Field'])) {
+                    $fieldTypes[$fieldInfo['Field']] = $this->fieldtype($fieldInfo['Type']);
+                }
+            }
+        }
+        
+        // Get field types from joined tables if JOIN is provided
+        if (!empty(trim($join))) {
+            $database = \Pramnos\Database\Database::getInstance();
+            
+            // Parse JOIN clause to extract table names and aliases
+            $joinPattern = '/(?:INNER\s+JOIN|LEFT\s+(?:OUTER\s+)?JOIN|RIGHT\s+(?:OUTER\s+)?JOIN|FULL\s+(?:OUTER\s+)?JOIN|CROSS\s+JOIN|JOIN)\s+([`"\w.#]+)\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)/i';
+            
+            preg_match_all($joinPattern, $join, $matches, PREG_SET_ORDER);
+            
+            foreach ($matches as $match) {
+                $tableName = trim($match[1], '`"');
+                $tableAlias = $match[2];
+                
+                // Replace prefixes
+                $fullTableName = str_replace('#PREFIX#', $database->prefix, $tableName);
+                $cacheKey = "schema_columns_{$fullTableName}";
+                
+                // Ensure this joined table's cache is populated
+                if (!isset(self::$columnCache[$cacheKey])) {
+                    $this->_getTableFields($fullTableName);
+                }
+                
+                // Get field types from this joined table
+                if (isset(self::$columnCache[$cacheKey])) {
+                    foreach (self::$columnCache[$cacheKey] as $fieldInfo) {
+                        if (isset($fieldInfo['Type']) && isset($fieldInfo['Field'])) {
+                            // For joined tables, we need to map both the aliased and non-aliased field names
+                            $fieldName = $fieldInfo['Field'];
+                            $fieldType = $this->fieldtype($fieldInfo['Type']);
+                            
+                            // Add both table_alias.field_name and just field_name
+                            $fieldTypes[$tableAlias . '.' . $fieldName] = $fieldType;
+                            $fieldTypes[$fieldName] = $fieldType;
+                        }
+                    }
+                }
+            }
+        }
+        
+        return $fieldTypes;
+    }
+
+    /**
+     * Process an array of data and decode JSON fields using field type information
+     * @param array $data Array of data to process
+     * @param string $join Optional JOIN clause to include fields from joined tables
+     * @return array Processed data with JSON fields decoded
+     */
+    protected function _processJsonFields($data, $join = '')
+    {
+        if (!is_array($data)) {
+            return $data;
+        }
+        
+        $fieldTypes = $this->_getFieldTypes($join);
+        foreach ($fieldTypes as $fieldName => $fieldType) {
+            if ($fieldType === 'json' && isset($data[$fieldName]) && is_string($data[$fieldName]) && !empty($data[$fieldName])) {
+                $decoded = json_decode($data[$fieldName], true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $data[$fieldName] = $decoded;
+                }
+            }
+        }
+        
+        return $data;
     }
 
     /**
@@ -1361,6 +1459,13 @@ class Model extends \Pramnos\Framework\Base
             
             if (isset($result['items']) && is_array($result['items'])) {
                 $result['items'] = array_values($result['items']);
+                
+                // Process JSON fields for each item
+                foreach ($result['items'] as $index => $item) {
+                    if (is_array($item)) {
+                        $result['items'][$index] = $this->_processJsonFields($item, $join);
+                    }
+                }
             }
             
 
@@ -1406,6 +1511,13 @@ class Model extends \Pramnos\Framework\Base
             
             if (isset($result) && is_array($result)) {
                 $result = array_values($result);
+                
+                // Process JSON fields for each item
+                foreach ($result as $index => $item) {
+                    if (is_array($item)) {
+                        $result[$index] = $this->_processJsonFields($item, $join);
+                    }
+                }
             }
             
             // Format response for API without pagination
@@ -1446,7 +1558,9 @@ class Model extends \Pramnos\Framework\Base
                 } else {
                     $schema = $database->schema;
                 }
-                $sql = "SELECT column_name as \"Field\" "
+                $sql = "SELECT column_name as \"Field\", "
+                    . " CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END as \"Type\", "
+                    . " is_nullable as \"Null\" "
                     . " FROM information_schema.columns "
                     . " WHERE table_schema = '"
                     . $schema
@@ -1543,7 +1657,9 @@ class Model extends \Pramnos\Framework\Base
                     $table = $tableName;
                 }
                 
-                $sql = "SELECT column_name as \"Field\" "
+                $sql = "SELECT column_name as \"Field\", "
+                    . " CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END as \"Type\", "
+                    . " is_nullable as \"Null\" "
                     . " FROM information_schema.columns "
                     . " WHERE table_schema = '" . $schema . "'"
                     . " AND table_name = '" . $table . "';";
