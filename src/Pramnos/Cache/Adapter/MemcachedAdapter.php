@@ -157,7 +157,7 @@ class MemcachedAdapter extends AbstractAdapter
             
             return true;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }   
