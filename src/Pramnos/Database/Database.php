@@ -1081,6 +1081,7 @@ class Database extends \Pramnos\Framework\Base
                 }
                 return (int) $value;
             case 'string':
+            case 'json':
             case 'currency':
             case 'date':
                 return '\'' . $this->prepareInput($value) . '\'';
