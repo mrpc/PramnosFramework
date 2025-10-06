@@ -373,10 +373,15 @@ migcontent;
         $path .= 'Views';
         $viewPath = $path . DS . strtolower($name);
 
+        // Check if directory exists and is not empty
         if (file_exists($viewPath)) {
-            throw new \Exception('View already exists.');
+            $files = array_diff(scandir($viewPath), array('.', '..'));
+            if (!empty($files)) {
+                throw new \Exception('View already exists and contains files.');
+            }
+        } else {
+            mkdir($viewPath, 0755, true);
         }
-        mkdir($viewPath);
 
         $files = array();
 
@@ -1552,6 +1557,7 @@ content;
                         $primaryKey = $result->fields['Field'];
                         $primary = true;
                 }
+                
                 // Store the second field as the first non-primary field for display
                 if ($count == 2 && !$primary) {
                     $firstField = $result->fields['Field'];
@@ -1922,6 +1928,16 @@ namespace {$namespace};
  */
 class {$className} extends \Pramnos\Application\Model
 {
+
+    /**
+     * {$className} model constructor
+     * @param Application \$application
+     */
+    public function __construct(?\Pramnos\Application\Application \$application = null)
+    {
+        parent::__construct(\$application);
+    }
+    
 
 content;
 
