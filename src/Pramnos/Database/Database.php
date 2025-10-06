@@ -2047,16 +2047,37 @@ class Database extends \Pramnos\Framework\Base
         // Use provided schema or fallback to the database schema
         $schemaToUse = $schema ?? $this->schema;
         
+        // Resolve table name with prefix replacement first
+        $resolvedTableName = $tableName;
+        if (strpos($tableName, '#PREFIX#') !== false) {
+            $prefix = $this->prefix ?? '';
+            $resolvedTableName = str_replace('#PREFIX#', $prefix, $tableName);
+        }
+        
+        // For PostgreSQL, we need to separate the schema from table name if they're combined
+        $actualTableName = $resolvedTableName;
+        if ($this->type == 'postgresql') {
+            // If resolvedTableName contains schema prefix (like "public.tablename"), extract just the table name
+            if (strpos($resolvedTableName, '.') !== false) {
+                $parts = explode('.', $resolvedTableName);
+                $actualTableName = end($parts); // Get the last part (table name)
+                // If no schema was explicitly provided, use the schema from the table name
+                if ($schema === null) {
+                    $schemaToUse = $parts[0];
+                }
+            }
+        }
+        
         if ($this->type == 'postgresql') {
             $sql = $this->prepareQuery(
                 "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
-                . "(SELECT col_description((SELECT oid FROM pg_class WHERE relname = '" . $tableName . "' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '" . $schemaToUse . "')), a.ordinal_position)) AS \"Comment\", "
+                . "(SELECT col_description((SELECT oid FROM pg_class WHERE relname = '" . $actualTableName . "' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '" . $schemaToUse . "')), a.ordinal_position)) AS \"Comment\", "
                 . "column_name in ( "
                 . "    SELECT column_name "
                 . "    FROM information_schema.table_constraints tc "
                 . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
                 . "    WHERE constraint_type = 'PRIMARY KEY' "
-                . "    AND tc.table_name = '" . $tableName . "'"
+                . "    AND tc.table_name = '" . $actualTableName . "'"
                 . "    AND tc.table_schema = '" . $schemaToUse . "'"
                 . ") as \"PrimaryKey\", "
                 . "EXISTS ( "
@@ -2064,7 +2085,7 @@ class Database extends \Pramnos\Framework\Base
                 . "    FROM information_schema.table_constraints tc "
                 . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
                 . "    WHERE tc.constraint_type = 'FOREIGN KEY' "
-                . "    AND tc.table_name = '" . $tableName . "'"
+                . "    AND tc.table_name = '" . $actualTableName . "'"
                 . "    AND tc.table_schema = '" . $schemaToUse . "'"
                 . "    AND ccu.column_name = a.column_name"
                 . ") as \"ForeignKey\", "
@@ -2073,7 +2094,7 @@ class Database extends \Pramnos\Framework\Base
                 . "    JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = rc.constraint_name AND kcu.constraint_schema = rc.constraint_schema "
                 . "    JOIN information_schema.key_column_usage kcu2 ON kcu2.constraint_name = rc.unique_constraint_name AND kcu2.constraint_schema = rc.unique_constraint_schema "
                 . "    WHERE kcu.table_schema = '" . $schemaToUse . "' "
-                . "    AND kcu.table_name = '" . $tableName . "' "
+                . "    AND kcu.table_name = '" . $actualTableName . "' "
                 . "    AND kcu.column_name = a.column_name "
                 . "    LIMIT 1), '') as \"ForeignTable\", "
                 . "COALESCE((SELECT kcu2.table_schema "
@@ -2081,7 +2102,7 @@ class Database extends \Pramnos\Framework\Base
                 . "    JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = rc.constraint_name AND kcu.constraint_schema = rc.constraint_schema "
                 . "    JOIN information_schema.key_column_usage kcu2 ON kcu2.constraint_name = rc.unique_constraint_name AND kcu2.constraint_schema = rc.unique_constraint_schema "
                 . "    WHERE kcu.table_schema = '" . $schemaToUse . "' "
-                . "    AND kcu.table_name = '" . $tableName . "' "
+                . "    AND kcu.table_name = '" . $actualTableName . "' "
                 . "    AND kcu.column_name = a.column_name "
                 . "    LIMIT 1), '') as \"ForeignSchema\", "
                 . "COALESCE((SELECT kcu2.column_name "
@@ -2089,11 +2110,11 @@ class Database extends \Pramnos\Framework\Base
                 . "    JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = rc.constraint_name AND kcu.constraint_schema = rc.constraint_schema "
                 . "    JOIN information_schema.key_column_usage kcu2 ON kcu2.constraint_name = rc.unique_constraint_name AND kcu2.constraint_schema = rc.unique_constraint_schema "
                 . "    WHERE kcu.table_schema = '" . $schemaToUse . "' "
-                . "    AND kcu.table_name = '" . $tableName . "' "
+                . "    AND kcu.table_name = '" . $actualTableName . "' "
                 . "    AND kcu.column_name = a.column_name "
                 . "    LIMIT 1), '') as \"ForeignColumn\" "
                 . "FROM information_schema.columns a "
-                . "WHERE table_name = '" . $tableName . "' "
+                . "WHERE table_name = '" . $actualTableName . "' "
                 . "AND table_schema = '" . $schemaToUse . "'"
             );
         } else {
