@@ -1929,14 +1929,7 @@ namespace {$namespace};
 class {$className} extends \Pramnos\Application\Model
 {
 
-    /**
-     * {$className} model constructor
-     * @param Application \$application
-     */
-    public function __construct(?\Pramnos\Application\Application \$application = null)
-    {
-        parent::__construct(\$application);
-    }
+
     
 
 content;
