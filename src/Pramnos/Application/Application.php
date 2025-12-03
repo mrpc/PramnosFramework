@@ -252,7 +252,7 @@ class Application extends Base
         $lang = \Pramnos\Translator\Language::getInstance($this->language);
         $lang->load($this->language);
         \Pramnos\Addon\Addon::triger('AppInit', 'system');
-
+        $this->database->setTrackingInfo();
     }
 
     /**
