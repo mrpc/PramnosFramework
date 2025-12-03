@@ -1588,6 +1588,64 @@ class Database extends \Pramnos\Framework\Base
         $this->connect();
     }   
 
+    /**
+     * Set tracking information for the database connection
+     * @param int|null $userId User ID (optional)
+     * @param string $appName Application name (optional)
+     * @return void
+     */
+    public function setTrackingInfo($userId = null, $appName = '') {
+        // Set application_name (visible in pg_stat_activity)
+        
+        if ($appName == '') {
+            $app = \Pramnos\Application\Application::getInstance();
+            if (is_array($app->applicationInfo) && isset($app->applicationInfo['name'])) {
+                $appName = str_replace(' ', '', ucfirst($app->applicationInfo['name']));
+            } else{
+                $appName = 'PramnosApp';
+            }
+        }
+
+        if ($userId === null) {
+            if (isset($_SESSION['uid'])) {
+                $userId = $_SESSION['uid'];
+            }
+        }
+
+        if ($userId !== null) {
+            $appName .= '_u' . $userId;
+        } 
+        
+
+        if (isset($_SERVER['REMOTE_ADDR'])) {
+            $appName .= '_' . substr($_SERVER['REMOTE_ADDR'], 0, 15);
+        }
+            
+
+        if ($this->type == 'postgresql') {
+            @pg_query($this->_dbConnection, "SET application_name TO '$appName'");
+        }
+
+        
+        
+        // Set custom tracking variables
+        $vars = [
+            'app.userid' => $userId ?? 'guest',
+            'app.session_id' => session_id(),
+            'app.client_ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+            'app.user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+            'app.request_path' => $_SERVER['REQUEST_URI'] ?? '',
+            'app.http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+            'app.request_time' => date('Y-m-d H:i:s')
+        ];
+        if ($this->type == 'postgresql') {
+            foreach ($vars as $key => $value) {
+                $escaped = pg_escape_string($this->_dbConnection, $value);
+                @pg_query($this->_dbConnection, "SET $key = '$escaped'");
+            }
+        }
+    }
+
 
 
     /**
