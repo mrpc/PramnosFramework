@@ -1627,7 +1627,9 @@ class Database extends \Pramnos\Framework\Base
         
 
         if (isset($_SERVER['REMOTE_ADDR'])) {
-            $appName .= '_' . substr($_SERVER['REMOTE_ADDR'], 0, 15);
+            if ($_SERVER['REMOTE_ADDR'] != '127.0.0.1') {
+                $appName .= '_' . substr($_SERVER['REMOTE_ADDR'], 0, 15);
+            }
         }
             
 
