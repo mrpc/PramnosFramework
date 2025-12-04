@@ -1592,9 +1592,10 @@ class Database extends \Pramnos\Framework\Base
      * Set tracking information for the database connection
      * @param int|null $userId User ID (optional)
      * @param string $appName Application name (optional)
+     * @param array $userData Additional user data (optional)
      * @return void
      */
-    public function setTrackingInfo($userId = null, $appName = '') {
+    public function setTrackingInfo($userId = null, $appName = '', $userData = []) {
         // Set application_name (visible in pg_stat_activity)
         
         if ($appName == '') {
@@ -1638,6 +1639,9 @@ class Database extends \Pramnos\Framework\Base
             'app.http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
             'app.request_time' => date('Y-m-d H:i:s')
         ];
+        foreach ($userData as $key => $value) {
+            $vars['app.' . $key] = $value;
+        }
         if ($this->type == 'postgresql') {
             foreach ($vars as $key => $value) {
                 $escaped = pg_escape_string($this->_dbConnection, $value);
