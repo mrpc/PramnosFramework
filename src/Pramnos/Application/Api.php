@@ -256,9 +256,26 @@ class Api extends Application
                 $_SESSION['user'] = $user;
             }
         }
+        $userdata = array();
+        $userdata['username'] = $user->username ?? 'guest';
+        $userdata['userid'] = $user->userid ?? null;
+        try {
+            $this->database->setTrackingInfo(
+                $user->userid ?? null,
+                $this->applicationInfo['name'],
+                $userdata
+            );
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::logError(
+                'Error setting tracking info: ' . $ex->getMessage(),
+                $ex
+            );
+        }
+        
 
         if (isset($_SESSION['usertoken'])
             && is_object($_SESSION['usertoken'])) {
+            $userdata['tokenid'] = $_SESSION['usertoken']->tokenid;
             try {
                 $_SESSION['usertoken']->addAction();
             } catch (\Exception $ex) {

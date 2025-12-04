@@ -1599,16 +1599,22 @@ class Database extends \Pramnos\Framework\Base
         // Set application_name (visible in pg_stat_activity)
         
         if ($appName == '') {
-            $app = \Pramnos\Application\Application::getInstance();
-            if (is_array($app->applicationInfo) && isset($app->applicationInfo['name'])) {
-                $appName = str_replace(' ', '', ucfirst($app->applicationInfo['name']));
-            } else{
-                $appName = 'PramnosApp';
+            if (isset($_SERVER['HTTP_USER_AGENT']) && $_SERVER['HTTP_USER_AGENT'] == 'cli') {
+                $appName = 'CLI';
+            } else {
+                $app = \Pramnos\Application\Application::getInstance();
+                if (is_array($app->applicationInfo) && isset($app->applicationInfo['name'])) {
+                    $appName = str_replace(' ', '', ucfirst($app->applicationInfo['name']));
+                } else{
+                    $appName = 'PramnosApp';
+                }
             }
         }
 
         if ($userId === null) {
-            if (isset($_SESSION['uid']) && (int) $_SESSION['uid'] > 1) {
+            if (isset($userData['userid'])) {
+                $userId = $userData['userid'];
+            } elseif (isset($_SESSION['uid']) && (int) $_SESSION['uid'] > 1) {
                 $userId = $_SESSION['uid'];
             }
         }
