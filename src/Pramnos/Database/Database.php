@@ -1607,7 +1607,7 @@ class Database extends \Pramnos\Framework\Base
         }
 
         if ($userId === null) {
-            if (isset($_SESSION['uid'])) {
+            if (isset($_SESSION['uid']) && (int) $_SESSION['uid'] > 1) {
                 $userId = $_SESSION['uid'];
             }
         }
