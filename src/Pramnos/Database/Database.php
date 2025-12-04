@@ -1609,6 +1609,8 @@ class Database extends \Pramnos\Framework\Base
                     $appName = 'PramnosApp';
                 }
             }
+        } else {
+            $appName = str_replace(' ', '', ucfirst($appName));
         }
 
         if ($userId === null) {
