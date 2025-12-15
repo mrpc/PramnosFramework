@@ -43,6 +43,8 @@ class Router extends Base implements RouterInterface
      */
     public $failback;
 
+    private $_invalidScope = null;
+
     /**
      * Class constructor
      * @param \Pramnos\Framework\Container $container IoC Container
@@ -88,6 +90,9 @@ class Router extends Base implements RouterInterface
         if ($route) {
             // Check permissions before executing
             if (!$this->hasPermissions($route, $userPermissions)) {
+                if ($this->_invalidScope !== null) {
+                    throw new \Exception('Insufficient permissions to access this route. Missing scope: ' . $this->_invalidScope, 403);
+                }
                 throw new \Exception('Insufficient permissions to access this route', 403);
             }
             return $route->execute($this->container);
@@ -350,6 +355,7 @@ class Router extends Base implements RouterInterface
         // Check if user has all required permissions using scope matching
         foreach ($requiredPermissions as $requiredPermission) {
             if (!$this->hasScope($requiredPermission, $userPermissions)) {
+                $this->_invalidScope = $requiredPermission;
                 return false;
             }
         }
