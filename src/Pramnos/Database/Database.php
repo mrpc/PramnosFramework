@@ -859,6 +859,20 @@ class Database extends \Pramnos\Framework\Base
                 }
             }
             $args = array_values($values);
+            /*
+             * Fix NULL comparisons in WHERE/HAVING clauses
+             * In SQL, "field = NULL" must be "field IS NULL"
+             * and "field != NULL" / "field <> NULL" must be "field IS NOT NULL"
+             * Only apply after WHERE to preserve "SET field = NULL" in UPDATEs
+             */
+            if (preg_match('/\bWHERE\b/i', $query, $whereMatch, PREG_OFFSET_CAPTURE)) {
+                $wherePos = $whereMatch[0][1];
+                $beforeWhere = substr($query, 0, $wherePos);
+                $afterWhere = substr($query, $wherePos);
+                $afterWhere = preg_replace('/(<>|!=)\s*null\b/i', 'IS NOT NULL', $afterWhere);
+                $afterWhere = preg_replace('/=\s*null\b/i', 'IS NULL', $afterWhere);
+                $query = $beforeWhere . $afterWhere;
+            }
         }
         /*
          * EOF Replace nulls
