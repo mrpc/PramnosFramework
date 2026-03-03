@@ -1668,8 +1668,12 @@ class Database extends \Pramnos\Framework\Base
         }
         if ($this->type == 'postgresql') {
             foreach ($vars as $key => $value) {
-                $escaped = pg_escape_string($this->_dbConnection, $value);
-                @pg_query($this->_dbConnection, "SET $key = '$escaped'");
+                    if ($value === null) {
+                        @pg_query($this->_dbConnection, "SET $key = NULL");
+                    } else {
+                        $escaped = pg_escape_string($this->_dbConnection, (string)$value);
+                        @pg_query($this->_dbConnection, "SET $key = '$escaped'");
+                    }
             }
         }
     }
