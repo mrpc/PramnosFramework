@@ -73,9 +73,6 @@ if (!function_exists("parseEnvValue")) {
             case 'null':
             case '(null)':
                 return null;
-            case 'empty':
-            case '(empty)':
-                return '';
         }
 
         if (
