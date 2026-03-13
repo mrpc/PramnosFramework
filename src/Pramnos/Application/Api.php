@@ -294,27 +294,70 @@ class Api extends Application
              * Ok, εδώ θα γίνει λίγο της πουτάνας - προσωρινά - αφού φορτώνουμε
              * κομμάτια του PramnosFramework2 για να έχουμε καλύτερο routing
              */
-            $response = include(ROOT . '/src/Api/routes.php');
-            if ($response) {
-                $content = $this->_translateStatus(
-                    $response
+            try {
+                $response = include(ROOT . '/src/Api/routes.php');
+            } catch (\Pramnos\Validation\ValidationException $ex) {
+                $doc->addContent(
+                    $this->_translateStatus(
+                        array(
+                            'status' => 422,
+                            'message' => $ex->getMessage(),
+                            'error' => 'ValidationError',
+                            'errors' => $ex->errors()
+                        )
+                    )
                 );
-                $record = array();
-                // if return status is not 2xx, record the return data
-                if (isset($content['status'])
-                    && $content['status'] >= 300) {
-                    $record = $content;
+
+                return;
+            } catch (\Exception $ex) {
+                if ($ex->getCode() == 403) {
+                    $doc->addContent(
+                        $this->_translateStatus(
+                            array(
+                                'status' => 403,
+                                'message' => $ex->getMessage(),
+                                'error' => 'InvalidPermissions'
+                            )
+                        )
+                    );
+                } else {
+                    $doc->addContent(
+                        $this->_translateStatus(
+                            array(
+                                'status' => 500,
+                                'message' => 'Error loading routes.',
+                                'error' => 'RoutesLoadError',
+                                'details' => $ex->getMessage()
+                            )
+                        )
+                    );
                 }
+
+                return;
+            }
+
+            if ($response) {
+                $content = $this->_translateStatus($response);
+                $record = array();
+
+                // if return status is not 2xx, record the return data
+                if (is_array($response)
+                    && isset($response['status'])
+                    && $response['status'] >= 300) {
+                    $record = $response;
+                }
+
                 if (isset($_SESSION['usertoken'])
                     && is_object($_SESSION['usertoken'])) {
                     $_SESSION['usertoken']->updateAction(
                         $_SESSION['usertoken']->lastActionId,
-                        $content['status'] ?? 200,
+                        (is_array($response) && isset($response['status']))
+                            ? $response['status']
+                            : 200,
                         microtime(true) - $startTime,
                         $record
                     );
                 }
-
 
                 $doc->addContent(
                     $content
@@ -326,36 +369,53 @@ class Api extends Application
         $moduleObject = $this->getController($this->controller);
         $this->activeController = $moduleObject;
         try {
-
-
-
-
-            $content = $this->_translateStatus(
-                $moduleObject->exec($this->action)
-            );
+            $response = $moduleObject->exec($this->action);
+            $content = $this->_translateStatus($response);
             $record = array();
+
             // if return status is not 2xx, record the return data
-            if (isset($content['status'])
-                && $content['status'] >= 300) {
-                $record = $content;
+            if (is_array($response)
+                && isset($response['status'])
+                && $response['status'] >= 300) {
+                $record = $response;
             }
+
             if (isset($_SESSION['usertoken'])
                 && is_object($_SESSION['usertoken'])) {
                 $_SESSION['usertoken']->updateAction(
                     $_SESSION['usertoken']->lastActionId,
-                    $content['status'] ?? 200,
+                    (is_array($response) && isset($response['status']))
+                        ? $response['status']
+                        : 200,
                     microtime(true) - $startTime,
                     $record
                 );
             }
 
-
             $doc->addContent(
                 $content
             );
+        } catch (\Pramnos\Validation\ValidationException $exception) {
+            $errorResponse = array(
+                'status' => 422,
+                'message' => $exception->getMessage(),
+                'error' => 'ValidationError',
+                'errors' => $exception->errors()
+            );
 
+            if (isset($_SESSION['usertoken'])
+                && is_object($_SESSION['usertoken'])) {
+                $_SESSION['usertoken']->updateAction(
+                    $_SESSION['usertoken']->lastActionId,
+                    422,
+                    microtime(true) - $startTime,
+                    $errorResponse
+                );
+            }
 
-          
+            $doc->addContent(
+                $this->_translateStatus($errorResponse)
+            );
         } catch (\Exception $exception) {
             if ($exception->getCode() == 403) {
                 $lang = \Pramnos\Framework\Factory::getLanguage();
@@ -390,9 +450,6 @@ class Api extends Application
                     )
                 );
             } else {
-
-
-
                 $message = $exception->getMessage();
                 if (strpbrk($message, 'SQL') !== false) {
                     \Pramnos\Logs\Logger::log(
@@ -415,7 +472,6 @@ class Api extends Application
                     );
                 }
 
-
                 $doc->addContent(
                     $this->_translateStatus(
                         array(
@@ -425,8 +481,6 @@ class Api extends Application
                 );
             }
         }
-
-
 
 
 
@@ -550,6 +604,8 @@ class Api extends Application
                 return 'Precondition Failed';
             case "413":
                 return 'Request Entity Too Large';
+            case "422":
+                return 'Unprocessable Entity';
             case "500":
                 return 'Internal Server Error';
             case "501":
