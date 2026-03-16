@@ -548,6 +548,13 @@ class Application extends Base
          */
         try {
             $doc->addContent($controllerObject->exec($this->action));
+        } catch (\Pramnos\Validation\ValidationException $exception) {
+            $request = new \Pramnos\Http\Request();
+            $_SESSION['_validation_errors'] = $exception->errors();
+            $_SESSION['_old_input'] = $request->allCurrent();
+
+            $redirectTo = $_SERVER['HTTP_REFERER'] ?? URL;
+            $this->redirect($redirectTo);
         } catch (\Exception $exception) {
             $message = $exception->getMessage();
             if (strpbrk($message, 'SQL') !== false) {
@@ -561,6 +568,17 @@ class Application extends Base
                     . $exception->getTraceAsString()
                 );
             }
+
+            if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
+                echo '<h1>Unhandled Exception</h1>';
+                echo '<p><strong>Class:</strong> ' . htmlspecialchars(get_class($exception), ENT_QUOTES, 'UTF-8') . '</p>';
+                echo '<p><strong>Message:</strong> ' . htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8') . '</p>';
+                echo '<p><strong>File:</strong> ' . htmlspecialchars($exception->getFile(), ENT_QUOTES, 'UTF-8') . '</p>';
+                echo '<p><strong>Line:</strong> ' . (int) $exception->getLine() . '</p>';
+                echo '<pre>' . htmlspecialchars($exception->getTraceAsString(), ENT_QUOTES, 'UTF-8') . '</pre>';
+                $this->close();
+            }
+
             $this->redirect(URL);
         }
     }

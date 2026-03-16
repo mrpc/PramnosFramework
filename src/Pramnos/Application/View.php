@@ -50,6 +50,18 @@ class View extends \Pramnos\Framework\Base
     public $controller = null;
 
     /**
+     * Current request object
+     * @var \Pramnos\Http\Request
+     */
+    public $request = null;
+
+    /**
+     * Validation errors flashed for the current request
+     * @var array
+     */
+    public $errors = array();
+
+    /**
      * Render and return the view contents
      * @param string $tpl template file to load
      * @param bool $render if is set to true, output will not buffered
@@ -81,6 +93,10 @@ class View extends \Pramnos\Framework\Base
         $this->name=$name;
         $this->type=$type;
         $this->defaultModel=$name;
+
+        $this->request = new \Pramnos\Http\Request();
+        $this->errors = $this->request->errors();
+
         parent::__construct();
     }
 
@@ -170,7 +186,7 @@ class View extends \Pramnos\Framework\Base
             try {
                 $lang = \Pramnos\Framework\Factory::getLanguage();
                 include $tplfile;
-            } catch (Exception $ex) {
+            } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::log(
                     'Error in view: ' . $this->name . ' and template file: '
                     . $tplfile . '. ' . $ex->getMessage()
