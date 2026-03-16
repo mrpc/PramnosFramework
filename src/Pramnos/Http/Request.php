@@ -3,6 +3,7 @@
 namespace Pramnos\Http;
 
 use Pramnos\Framework\Base;
+use Pramnos\Validation\ValidationException;
 
 /**
  * Get user request and translate it
@@ -48,6 +49,18 @@ class Request extends Base
 
     public static $putData = array();
     public static $deleteData = array();
+
+    /**
+     * Flashed validation errors available for the current request only
+     * @var array
+     */
+    protected static $validationErrors = null;
+
+    /**
+     * Flashed old input available for the current request only
+     * @var array
+     */
+    protected static $oldInput = null;
 
     public static function &getInstance()
     {
@@ -96,7 +109,7 @@ class Request extends Base
 
     /**
      * Calculate the parameters of request
-     * @param type $requestParam
+     * @param $requestParam
      */
     public function calcParams($requestParam=null)
     {
@@ -239,6 +252,8 @@ class Request extends Base
                 }
             }
         }
+
+        $this->loadFlashedValidationState();
 
         parent::__construct();
     }
@@ -523,4 +538,177 @@ class Request extends Base
         return self::$requestUri;
     }
 
+    /**
+     * Get all input data from a specific method source
+     * @param string|null $method
+     * @return array
+     */
+    public function all($method = null): array
+    {
+        if ($method === null) {
+            return $this->allCurrent();
+        }
+
+        $method = strtoupper($method);
+
+        switch ($method) {
+            case 'REQUEST':
+                return $_REQUEST;
+            case 'GET':
+                return $_GET;
+            case 'POST':
+                return $_POST;
+            case 'PUT':
+                return self::$putData;
+            case 'DELETE':
+                return self::$deleteData;
+            case 'FILES':
+                return $_FILES;
+            case 'COOKIE':
+                return $_COOKIE;
+            case 'ENV':
+                return $_ENV;
+            case 'SESSION':
+                return $_SESSION;
+            case 'SERVER':
+                return $_SERVER;
+            default:
+                return $_REQUEST;
+        }
+    }
+
+    /**
+     * Get all input data for the current request method
+     * @return array
+     */
+    public function allCurrent(): array
+    {
+        switch (strtoupper($this->getRequestMethod())) {
+            case 'POST':
+                return $_POST;
+            case 'PUT':
+                return self::$putData;
+            case 'DELETE':
+                return self::$deleteData;
+            case 'GET':
+            default:
+                return $_GET;
+        }
+    }
+
+    /**
+     * Get only the specified keys from the input
+     * @param array $keys
+     * @param string|null $method
+     * @return array
+     */
+    public function only(array $keys, $method = null): array
+    {
+        $data = $this->all($method);
+        $result = [];
+
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $data)) {
+                $result[$key] = $data[$key];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Validate request input data
+     *
+     * @param array $rules
+     * @param array $messages
+     * @param array $attributes
+     * @param string|null $method
+     * @return array
+     *
+     * @throws ValidationException
+     */
+    public function validate(
+        array $rules,
+        array $messages = [],
+        array $attributes = [],
+              $method = null
+    ): array {
+        return \Pramnos\Validation\Validator::validate(
+            $this->all($method),
+            $rules,
+            $messages,
+            $attributes
+        );
+    }
+
+    /**
+     * Get flashed validation errors from session and optionally clear them
+     *
+     * @return array
+     */
+    public function errors(): array
+    {
+        if (self::$validationErrors === null) {
+            $this->loadFlashedValidationState();
+        }
+
+        return is_array(self::$validationErrors) ? self::$validationErrors : array();
+    }
+
+    /**
+     * Get old input from session and optionally clear it
+     *
+     * @param string|null $key
+     * @param null $default
+     * @return mixed
+     */
+    public function old($key = null, $default = null)
+    {
+        if (self::$oldInput === null) {
+            $this->loadFlashedValidationState();
+        }
+
+        if ($key === null) {
+            return self::$oldInput;
+        }
+
+        return self::$oldInput[$key] ?? $default;
+    }
+
+    /**
+     * @return void
+     */
+    public function clearValidationState(): void
+    {
+        self::$validationErrors = array();
+        self::$oldInput = array();
+
+        unset($_SESSION['_validation_errors'], $_SESSION['_old_input']);
+    }
+
+    /**
+     * Load flashed validation data from session for the current request.
+     * Data is removed from session after loading, but remains available
+     * in this request through static properties.
+     *
+     * @return void
+     */
+    protected function loadFlashedValidationState()
+    {
+        if (self::$validationErrors !== null && self::$oldInput !== null) {
+            return;
+        }
+
+        self::$validationErrors = isset($_SESSION['_validation_errors'])
+        && is_array($_SESSION['_validation_errors'])
+            ? $_SESSION['_validation_errors']
+            : array();
+
+        self::$oldInput = isset($_SESSION['_old_input'])
+        && is_array($_SESSION['_old_input'])
+            ? $_SESSION['_old_input']
+            : array();
+
+        unset($_SESSION['_validation_errors'], $_SESSION['_old_input']);
+    }
 }
