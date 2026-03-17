@@ -151,6 +151,27 @@ class Settings extends \Pramnos\Framework\Base
             }
             return self::$settings[$setting];
         }
+
+        // Backward compatibility for legacy configs
+        // where DB-related settings are nested under "database"
+        if (isset(self::$settings['database']) && is_array(self::$settings['database']) && $force == false) {
+            $databaseSettingKeys = [
+                'hostname',
+                'database',
+                'schema',
+                'user',
+                'password',
+                'collation',
+                'prefix',
+                'type',
+            ];
+
+            if (in_array($setting, $databaseSettingKeys, true)
+                && array_key_exists($setting, self::$settings['database'])) {
+                return self::$settings['database'][$setting];
+            }
+        }
+
         if (is_object(self::$database)) {
             $sql = self::$database->prepareQuery(
                 "select `value` from `#PREFIX#settings` "
@@ -165,8 +186,6 @@ class Settings extends \Pramnos\Framework\Base
                 return self::$settings[$setting];
             }
         }
-
-
 
         return $defaultValue;
     }
