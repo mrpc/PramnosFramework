@@ -337,63 +337,34 @@ class Database extends \Pramnos\Framework\Base
      * Connect function - Connects to the database using all
      * database data
      */
-    public function connect()
+    public function connect($throwOnFailure = true)
     {
         if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
             $this->startLogs();
         }
-        switch ($this->type) {
-            default:
-                try {
-                    if ($this->persistency) {
-                        $host = 'p:' . $this->server; 
-                    } else {
-                        $host = $this->server;
-                    }
-                    $this->_dbConnection = mysqli_connect(
-                        $host, $this->user, $this->password, $this->database, $this->port
-                    );
-                } catch (\Exception $ex) {
-                    die($ex->getMessage());
-                    return false;
-                }
-                break;
-            case "postgresql":
-                try {
-                    if ($this->port === null ){
-                        $this->_dbConnection = pg_connect(
-                            "host=" 
-                            . $this->server 
-                            . " dbname=" 
-                            . $this->database 
-                            . " user=" 
-                            . $this->user 
-                            . " password=" 
-                            . $this->password
-                        ) or die('Could not connect: ' . pg_last_error());
-                    } else {
-                        $this->_dbConnection = pg_connect(
-                            "host=" 
-                            . $this->server 
-                            . ' port=' 
-                            . $this->port
-                            . " dbname=" 
-                            . $this->database 
-                            . " user=" 
-                            . $this->user 
-                            . " password=" 
-                            . $this->password
-                        ) or die('Could not connect: ' . pg_last_error());
-                    }
-                    
-                    
-                } catch (\Exception $ex) {
-                    die($ex->getMessage());
-                    return false;
-                }
-                break;
+        $this->connected = false;
+        $this->_dbConnection = null;
+
+        if (function_exists('error_clear_last')) {
+            error_clear_last();
         }
-        
+
+        try {
+            switch ($this->type) {
+                default:
+                    $this->_dbConnection = $this->connectMysql();
+                    break;
+                case "postgresql":
+                    $this->_dbConnection = $this->connectPostgresql();
+                    break;
+            }
+        } catch (\Throwable $ex) {
+            if ($throwOnFailure) {
+                throw new \RuntimeException($this->getConnectionErrorMessage(), 0, $ex);
+            }
+
+            return false;
+        }
 
         if ($this->_dbConnection) {
             $this->connected = true;
@@ -409,8 +380,9 @@ class Database extends \Pramnos\Framework\Base
                     . $this->collation . ";"
                 );
             }
-            if ((defined('DEVELOPMENT') && DEVELOPMENT == true)
-                || (defined('LOG_SLOW_QUERIES') && LOG_SLOW_QUERIES == true)) {
+            if ((\defined('DEVELOPMENT') && DEVELOPMENT == true)
+                || (\defined('LOG_SLOW_QUERIES')
+                    && \constant('LOG_SLOW_QUERIES') == true)) {
                 $this->logSlowQueries();
 
 
@@ -418,8 +390,88 @@ class Database extends \Pramnos\Framework\Base
 
             return true;
         } else {
+            if ($throwOnFailure) {
+                throw new \RuntimeException($this->getConnectionErrorMessage());
+            }
+
             return false;
         }
+    }
+
+    /**
+     * Attempt a non-fatal reconnect.
+     *
+     * @return bool
+     */
+    public function tryReconnect()
+    {
+        return $this->refresh(false);
+    }
+
+    /**
+     * Open a MySQL connection.
+     *
+     * @return \mysqli|false
+     */
+    protected function connectMysql()
+    {
+        $host = $this->persistency ? 'p:' . $this->server : $this->server;
+
+        return @mysqli_connect(
+            $host,
+            $this->user,
+            $this->password,
+            $this->database,
+            $this->port
+        );
+    }
+
+    /**
+     * Open a PostgreSQL connection.
+     *
+     * @return \PgSql\Connection|false
+     */
+    protected function connectPostgresql()
+    {
+        $connectionParts = [
+            'host=' . $this->server,
+            'dbname=' . $this->database,
+            'user=' . $this->user,
+            'password=' . $this->password,
+        ];
+
+        if ($this->port !== null) {
+            $connectionParts[] = 'port=' . $this->port;
+        }
+
+        $flags = defined('PGSQL_CONNECT_FORCE_NEW') ? PGSQL_CONNECT_FORCE_NEW : 0;
+
+        return @pg_connect(implode(' ', $connectionParts), $flags);
+    }
+
+    /**
+     * Build a useful connection error message.
+     *
+     * @return string
+     */
+    protected function getConnectionErrorMessage()
+    {
+        if ($this->type === 'postgresql') {
+            $lastError = error_get_last();
+
+            if (is_array($lastError) && isset($lastError['message'])) {
+                return $lastError['message'];
+            }
+
+            return 'Could not connect to PostgreSQL database';
+        }
+
+        $message = mysqli_connect_error();
+        if ($message) {
+            return $message;
+        }
+
+        return 'Could not connect to database';
     }
 
 
@@ -501,26 +553,28 @@ class Database extends \Pramnos\Framework\Base
      */
     public function close()
     {
-        if ($this->_dbConnection) {
+        $connection = $this->_dbConnection;
+        $this->_dbConnection = null;
+        $this->connected = false;
 
-            foreach ($this->statements as $key=>$statement) {
-                try {
-                    @$statement['statement']->close();
-                    unset($this->statements[$key]);
-                } catch (\Exception $ex) {
-                    \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
-                }
+        foreach ($this->statements as $key=>$statement) {
+            try {
+                @$statement['statement']->close();
+                unset($this->statements[$key]);
+            } catch (\Exception $ex) {
+                \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             }
-
-            if ($this->type == 'postgresql') {
-                return pg_close($this->_dbConnection);
-            } else {
-                return mysqli_close($this->_dbConnection);
-            }
-            
-        } else {
-            return false;
         }
+
+        if ($connection) {
+            if ($this->type == 'postgresql') {
+                return pg_close($connection);
+            }
+
+            return mysqli_close($connection);
+        }
+
+        return false;
     }
 
     /**
@@ -1594,12 +1648,13 @@ class Database extends \Pramnos\Framework\Base
 
     /**
      * Refresh the database connection
+     * @param bool $throwOnFailure
      * @return void
      */
-    public function refresh()
+    public function refresh($throwOnFailure = true)
     {
         $this->close();
-        $this->connect();
+        return $this->connect($throwOnFailure);
     }   
 
     /**
