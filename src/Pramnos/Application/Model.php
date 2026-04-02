@@ -1323,7 +1323,16 @@ class Model extends \Pramnos\Framework\Base
      * @param array $fields Array of field names to include in response. If empty, includes all fields
      * @param string|array $search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
      * @param string $order Order by clause (e.g., "field ASC" or "field DESC")
-     * @param string $filter Additional WHERE clause filter
+     * @param string|array $filter Additional WHERE clause filter. Two forms accepted:
+     *   - string: raw SQL fragment (e.g. "where a.`deyaid` = 5"). Caller is responsible
+     *             for safety — use only for app-generated expressions, never raw user input.
+     *   - array:  structured condition list, escaped and quoted automatically. Each entry:
+     *       Single condition:  ['field' => 'name', 'op' => '=', 'value' => 'x']
+     *       OR group:          ['or' => [['field'=>'f1','op'=>'LIKE','value'=>'%x%'], ...]]
+     *       Raw fragment:      ['raw' => 'app-generated SQL only']
+     *     Supported ops: =  !=  <>  <  >  <=  >=  LIKE  ILIKE  IN  NOT IN  IS NULL  IS NOT NULL
+     *     For IN / NOT IN, value must be a non-empty array of scalars.
+     *     Unknown fields are silently skipped.
      * @param string $join JOIN clause for complex queries
      * @param string $group GROUP BY clause
      * @param string $table Database table
@@ -1422,10 +1431,20 @@ class Model extends \Pramnos\Framework\Base
         
         // Build search conditions
         $searchConditions = $this->_buildSearchConditions($validFields, $globalSearch, $fieldSearches, $join);
-        
+
         // Validate and build order clause
         $validatedOrder = $this->_validateAndBuildOrder($order, $validFields, $join);
-        
+
+        // If $filter is an array, build a safe SQL fragment from structured conditions.
+        // Each entry: ['field' => 'name', 'op' => '=', 'value' => 'x']
+        // Operators without a value: IS NULL, IS NOT NULL
+        // For IN / NOT IN, value must be an array.
+        // Unknown fields are silently skipped.
+        // If $filter is a string it is passed through as-is (backward compatible).
+        if (is_array($filter)) {
+            $filter = $this->_buildFilterFromConditions($filter, $availableFields, $join);
+        }
+
         // Combine filter and search conditions
         $finalFilter = ' ' . $this->_combineFilters($filter, $searchConditions);
         
@@ -2090,6 +2109,178 @@ class Model extends \Pramnos\Framework\Base
     }
     
     
+
+    /**
+     * Build a safe SQL WHERE fragment from a structured conditions array.
+     *
+     * Top-level conditions are joined with AND.
+     * Each entry is either:
+     *
+     * A single condition:
+     *   ['field' => 'name', 'op' => '=', 'value' => 'x']
+     *   Supported ops: = != <> < > <= >= LIKE ILIKE IN NOT IN IS NULL IS NOT NULL
+     *   For IN / NOT IN, value must be a non-empty array of scalars.
+     *   IS NULL / IS NOT NULL require no value key.
+     *
+     * An OR group (conditions inside joined with OR, wrapped in parens):
+     *   ['or' => [
+     *       ['field' => 'firstname', 'op' => 'LIKE', 'value' => '%foo%'],
+     *       ['field' => 'lastname',  'op' => 'LIKE', 'value' => '%foo%'],
+     *   ]]
+     *
+     * A raw SQL fragment (caller is responsible for safety — use only for
+     * app-generated expressions such as integer ID comparisons, never user input):
+     *   ['raw' => "a.`locationid` IN (1,2,3)"]
+     *
+     * Fields are validated against $availableFields and properly quoted.
+     * Values are escaped via prepareInput(). Unknown fields are silently skipped.
+     *
+     * @param array  $conditions      Structured conditions
+     * @param array  $availableFields Whitelist of valid field names
+     * @param string $join            JOIN clause (used to decide table alias quoting)
+     * @return string Raw SQL WHERE body (without the WHERE keyword)
+     */
+    private function _buildFilterFromConditions(array $conditions, array $availableFields, string $join = ''): string
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        $hasJoin  = !empty(trim($join));
+        $parts    = [];
+
+        // Build a field-name → full reference map (same pattern as _buildSearchConditions)
+        $fieldMapping = [];
+        foreach ($availableFields as $f) {
+            $fieldName = strpos($f, '.') !== false
+                ? substr($f, strrpos($f, '.') + 1)
+                : $f;
+            $fieldMapping[$fieldName] = $f;
+        }
+
+        foreach ($conditions as $condition) {
+            // OR group: ['or' => [...conditions...]]
+            if (isset($condition['or']) && is_array($condition['or'])) {
+                $orParts = [];
+                foreach ($condition['or'] as $orCondition) {
+                    $expr = $this->_buildSingleCondition($orCondition, $availableFields, $fieldMapping, $hasJoin, $database);
+                    if ($expr !== null) {
+                        $orParts[] = $expr;
+                    }
+                }
+                if (!empty($orParts)) {
+                    $parts[] = '(' . implode(' OR ', $orParts) . ')';
+                }
+                continue;
+            }
+
+            // Raw SQL fragment — caller is responsible for safety (app-generated SQL only)
+            // Usage: ['raw' => 'a.`locationid` = 5']
+            if (isset($condition['raw']) && is_string($condition['raw'])) {
+                $raw = trim($condition['raw']);
+                if ($raw !== '') {
+                    $parts[] = $raw;
+                }
+                continue;
+            }
+
+            // Regular single condition
+            $expr = $this->_buildSingleCondition($condition, $availableFields, $fieldMapping, $hasJoin, $database);
+            if ($expr !== null) {
+                $parts[] = $expr;
+            }
+        }
+
+        return implode(' AND ', $parts);
+    }
+
+    /**
+     * Build a single SQL condition expression from a condition array.
+     * Returns null if the condition is invalid or the field is unknown.
+     *
+     * @param array  $condition
+     * @param array  $availableFields
+     * @param array  $fieldMapping     field-name → full reference map
+     * @param bool   $hasJoin
+     * @param object $database
+     * @return string|null
+     */
+    private function _buildSingleCondition(array $condition, array $availableFields, array $fieldMapping, bool $hasJoin, $database): ?string
+    {
+        $allowedOps = ['=', '!=', '<>', '<', '>', '<=', '>=', 'LIKE', 'ILIKE', 'IN', 'NOT IN', 'IS NULL', 'IS NOT NULL'];
+
+        if (!isset($condition['field'], $condition['op'])) {
+            return null;
+        }
+
+        $fieldName = $condition['field'];
+        $op        = strtoupper(trim($condition['op']));
+
+        if (!in_array($op, $allowedOps, true)) {
+            return null;
+        }
+
+        // Resolve and validate field reference
+        $targetField = null;
+        if (in_array($fieldName, $availableFields, true)) {
+            $targetField = $fieldName;
+        } elseif (isset($fieldMapping[$fieldName])) {
+            $targetField = $fieldMapping[$fieldName];
+        }
+
+        if ($targetField === null) {
+            return null; // Unknown field — skip silently
+        }
+
+        // Quote the field reference
+        if (strpos($targetField, '.') === false) {
+            if ($hasJoin) {
+                $fieldRef = $database->type === 'postgresql'
+                    ? 'a."' . $targetField . '"'
+                    : 'a.`' . $targetField . '`';
+            } else {
+                $fieldRef = $database->type === 'postgresql'
+                    ? '"' . $targetField . '"'
+                    : '`' . $targetField . '`';
+            }
+        } else {
+            $fieldRef = $targetField; // Already has table prefix
+        }
+
+        // Operators that take no value
+        if ($op === 'IS NULL' || $op === 'IS NOT NULL') {
+            return $fieldRef . ' ' . $op;
+        }
+
+        if (!array_key_exists('value', $condition)) {
+            return null;
+        }
+
+        $value = $condition['value'];
+
+        // IN / NOT IN — value must be a non-empty array
+        if ($op === 'IN' || $op === 'NOT IN') {
+            if (!is_array($value) || empty($value)) {
+                return null;
+            }
+            $escaped = array_map(function ($v) use ($database) {
+                return "'" . $database->prepareInput((string)$v) . "'";
+            }, $value);
+            return $fieldRef . ' ' . $op . ' (' . implode(', ', $escaped) . ')';
+        }
+
+        // LIKE / ILIKE — normalise to the correct operator for the DB engine
+        if ($op === 'LIKE' || $op === 'ILIKE') {
+            $actualOp = ($database->type === 'postgresql') ? 'ILIKE' : 'LIKE';
+            return $fieldRef . ' ' . $actualOp . " '" . $database->prepareInput((string)$value) . "'";
+        }
+
+        // Scalar comparisons: =  !=  <>  <  >  <=  >=
+        if (is_null($value)) {
+            return $fieldRef . ' ' . ($op === '=' ? 'IS NULL' : 'IS NOT NULL');
+        } elseif (is_int($value) || is_float($value)) {
+            return $fieldRef . ' ' . $op . ' ' . $value;
+        } else {
+            return $fieldRef . ' ' . $op . " '" . $database->prepareInput((string)$value) . "'";
+        }
+    }
 
     /**
      * Combine base filter with search conditions
