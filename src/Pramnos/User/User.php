@@ -58,6 +58,7 @@ class User extends \Pramnos\Framework\Base
 
     public $phone = '';
     public $mobile = '';
+    public $fax = '';
     public $birthdate = 0;
 
     public $website = '';
@@ -474,6 +475,11 @@ class User extends \Pramnos\Framework\Base
             array(
                 'fieldName' => 'mobile',
                 'value' => $this->mobile,
+                'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'fax',
+                'value' => $this->fax,
                 'type' => 'string'
             ),
             array(
@@ -1322,6 +1328,8 @@ class User extends \Pramnos\Framework\Base
                     birthdate bigint NOT NULL DEFAULT 0,
                     photo integer DEFAULT NULL,
                     phone varchar(50) NOT NULL DEFAULT '',
+                    mobile varchar(50) NOT NULL DEFAULT '',
+                    fax varchar(50) NOT NULL DEFAULT '',
                     website varchar(255) NOT NULL DEFAULT '',
                     modified integer NOT NULL DEFAULT 0
                 );",
@@ -1366,6 +1374,8 @@ class User extends \Pramnos\Framework\Base
                     `birthdate` bigint(20) NOT NULL DEFAULT '0',
                     `photo` int(11) DEFAULT NULL,
                     `phone` varchar(50) NOT NULL DEFAULT '',
+                    `mobile` varchar(50) NOT NULL DEFAULT '',
+                    `fax` varchar(50) NOT NULL DEFAULT '',
                     `website` varchar(255) NOT NULL DEFAULT '',
                     `modified` int(11) NOT NULL DEFAULT '0',
                     PRIMARY KEY (`userid`)
