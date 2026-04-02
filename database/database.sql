@@ -244,6 +244,7 @@ CREATE TABLE `users` (
   `photo` int(11) DEFAULT NULL COMMENT 'usageid',
   `phone` varchar(50) NOT NULL,
   `mobile` varchar(50) NOT NULL,
+  `fax` varchar(50) NOT NULL,
   `website` varchar(255) NOT NULL,
   `modified` int(11) NOT NULL,
   PRIMARY KEY (`userid`),
