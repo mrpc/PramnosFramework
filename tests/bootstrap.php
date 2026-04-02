@@ -20,6 +20,9 @@ if (!defined('sURL')) {
 if (!defined('ROOT')) {
     define('ROOT', dirname(dirname(__FILE__)));
 }
+if (!defined('APP_PATH')) {
+    define('APP_PATH', __DIR__ . DIRECTORY_SEPARATOR . 'fixtures' . DIRECTORY_SEPARATOR . 'app');
+}
 if (!defined('DS')) {
     define('DS', DIRECTORY_SEPARATOR);
 }

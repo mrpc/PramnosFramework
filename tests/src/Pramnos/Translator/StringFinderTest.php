@@ -4,12 +4,9 @@ namespace Pramnos\Tests;
 
 use Pramnos\Translator\StringFinder;
 
-/**
- * @package     pramnosFrameworkTests
- * @copyright   2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
- * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- */
-class StringFinderTest extends \PHPUnit_Framework_TestCase
+
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Translator\StringFinder::class)]
+class StringFinderTest extends \PHPUnit\Framework\TestCase
 {
 
     /**
@@ -20,7 +17,7 @@ class StringFinderTest extends \PHPUnit_Framework_TestCase
     /**
      * Create the instance of StringFinder
      */
-    protected function setUp()
+    protected function setUp(): void
     {
         $language = new \Pramnos\Translator\Language();
         $filesystem = new \Pramnos\Filesystem\Filesystem();
@@ -30,14 +27,12 @@ class StringFinderTest extends \PHPUnit_Framework_TestCase
     /**
      * Destroy the instance of StringFinder
      */
-    protected function tearDown()
+    protected function tearDown(): void
     {
         $this->object = null;
     }
 
-    /**
-     * @covers \Pramnos\Translator\StringFinder::__construct
-     */
+    
     public function testConstructor()
     {
         $language = new \Pramnos\Translator\Language();
@@ -46,14 +41,10 @@ class StringFinderTest extends \PHPUnit_Framework_TestCase
         $this->assertInstanceOf('Pramnos\Translator\StringFinder', $object);
     }
 
-    /**
-     * @covers \Pramnos\Translator\StringFinder::Search
-     */
+    
     public function testSearchShouldReturnAnArray()
     {
-        $this->assertInternalType(
-            'array', $this->object->search(ROOT)
-        );
+        $this->assertIsArray($this->object->search(ROOT));
     }
 
 }
