@@ -20,3 +20,4 @@ Icon
 desktop.ini
 /.vagrant
 .phpunit.result.cache
+/coverage
