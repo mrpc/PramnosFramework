@@ -181,10 +181,10 @@ class Application extends Base
             define('DB_USERSTABLE', "#PREFIX#users");
         }
         if (!defined('DB_USERGROUPSTABLE')) {
-            define('DB_USERGROUPSTABLE', "#PREFIX#groups");
+            define('DB_USERGROUPSTABLE', "#PREFIX#usergroups");
         }
         if (!defined('DB_USERGROUPSUBSCRIPTIONS')) {
-            define('DB_USERGROUPSUBSCRIPTIONS', "#PREFIX#groupmembers");
+            define('DB_USERGROUPSUBSCRIPTIONS', "#PREFIX#userstogroups");
         }
         if (!defined('DB_USERDETAILSTABLE')) {
             define('DB_USERDETAILSTABLE', "#PREFIX#userdetails");

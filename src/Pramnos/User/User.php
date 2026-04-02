@@ -47,7 +47,7 @@ class User extends \Pramnos\Framework\Base
      * User type
      * @var int
      */
-    public $usertype;
+    public $usertype = 0;
     /**
      * User gender. 0: Unknown 1: Male 2: Female
      * @var int
@@ -57,7 +57,6 @@ class User extends \Pramnos\Framework\Base
     public $photo = null;
 
     public $phone = '';
-    public $fax = '';
     public $mobile = '';
     public $birthdate = 0;
 
@@ -78,6 +77,7 @@ class User extends \Pramnos\Framework\Base
     public $language = "";
     public $timezone = "+2";
     public $dateformat = "";
+    public $avatarurl = '';
     public $otherinfo = array();
     protected $originalOtherinfo = array();
     protected $_isnew = 0;
@@ -108,6 +108,13 @@ class User extends \Pramnos\Framework\Base
             );
             $database->query($sql);
             $this->_isnew = 1;
+            $database->cacheflush('userlist');
+            if (is_array(self::$_usercache) && isset(self::$_usercache[$this->userid])) {
+                unset(self::$_usercache[$this->userid]);
+            }
+            if (is_array(self::$usersCache) && isset(self::$usersCache[$this->userid])) {
+                unset(self::$usersCache[$this->userid]);
+            }
         }
         return $this;
     }
@@ -120,19 +127,18 @@ class User extends \Pramnos\Framework\Base
         if ($this->_isnew == false) {
             $this->active = true;
             $database = \Pramnos\Framework\Factory::getDatabase();
-            if ($database->type == 'postgresql') {
-                $sql = $database->prepareQuery(
-                    "update `#PREFIX#users`"
-                    . " set `active` = 't' where `userid` = %d", $this->userid
-                );
-            } else {
-                $sql = $database->prepareQuery(
-                    "update `#PREFIX#users`"
-                    . " set `active` = 1 where `userid` = %d", $this->userid
-                );
-            }
+            $sql = $database->prepareQuery(
+                "update `#PREFIX#users`"
+                . " set `active` = %s where `userid` = %d", 
+                $database->convertBool(true), 
+                $this->userid
+            );
             
             $database->query($sql);
+            $database->cacheflush('userlist');
+            if (is_array(self::$_usercache) && isset(self::$_usercache[$this->userid])) {
+                unset(self::$_usercache[$this->userid]);
+            }
         }
         else {
             $this->active = true;
@@ -149,9 +155,15 @@ class User extends \Pramnos\Framework\Base
             $database = \Pramnos\Framework\Factory::getDatabase();
             $sql = $database->prepareQuery(
                 "update `#PREFIX#users` "
-                . "set `active` = 0 where `userid` = %d", $this->userid
+                . "set `active` = %s where `userid` = %d", 
+                $database->convertBool(false),
+                $this->userid
             );
             $database->query($sql);
+            $database->cacheflush('userlist');
+            if (is_array(self::$_usercache) && isset(self::$_usercache[$this->userid])) {
+                unset(self::$_usercache[$this->userid]);
+            }
         }
         else {
             $this->active = 0;
@@ -226,8 +238,13 @@ class User extends \Pramnos\Framework\Base
     {
         if (isset($this->otherinfo[$name])) {
             return $this->otherinfo[$name];
-        }
-        else {
+        } else {
+            if (strpos($name, 'getinfo_') === 0) {
+                $setName = 'setinfo_' . substr($name, 8);
+                if (isset($this->otherinfo[$setName])) {
+                    return $this->otherinfo[$setName];
+                }
+            }
             return NULL;
         }
     }
@@ -302,7 +319,7 @@ class User extends \Pramnos\Framework\Base
 
     /**
      * Returns an array with all groups the user is subscribed to
-     * @return \pramnos_user_group
+     * @return \stdClass    
      */
     public function getGroups()
     {
@@ -313,22 +330,26 @@ class User extends \Pramnos\Framework\Base
         $sql = $database->prepareQuery(
             "select * from `"
             . DB_USERGROUPSUBSCRIPTIONS
-            . " `where `userid` = %d", $this->userid
+            . "` where `userid` = %d", $this->userid
         );
         try {
             $result = $database->query($sql, true, 60);
         }
-        catch (Exception $exc) {
-            pramnos_logs::log($exc->getMessage());
+        catch (\Exception $exc) {
+            \Pramnos\Logs\Logger::log($exc->getMessage());
             return array();
         }
         $return = array();
-        $return[$this->maingroup] = new pramnos_user_group($this->maingroup);
+        $maingroup = new \stdClass();
+        $maingroup->group_id = $this->maingroup;
+        $return[$this->maingroup] = $maingroup;
+        
         while ($result->fetch()) {
-            if (!isset($return[$result->fields['group_id']])) {
-                $return[$result->fields['group_id']] = new pramnos_user_group(
-                    $result->fields['group_id']
-                );
+            $groupId = isset($result->fields['groupid']) ? $result->fields['groupid'] : (isset($result->fields['group_id']) ? $result->fields['group_id'] : null);
+            if ($groupId !== null && !isset($return[$groupId])) {
+                $obj = new \stdClass();
+                $obj->group_id = $groupId;
+                $return[$groupId] = $obj;
             }
         }
         return $return;
@@ -451,11 +472,6 @@ class User extends \Pramnos\Framework\Base
                 'type' => 'string'
             ),
             array(
-                'fieldName' => 'fax',
-                'value' => $this->fax,
-                'type' => 'string'
-            ),
-            array(
                 'fieldName' => 'mobile',
                 'value' => $this->mobile,
                 'type' => 'string'
@@ -468,10 +484,8 @@ class User extends \Pramnos\Framework\Base
             array(
                 'fieldName' => 'modified',
                 'value' => $this->modified,
-                'type' => 'string'
+                'type' => 'integer'
             )
-
-
         );
         if ($database->type !=  'postgresql'){
             $itemdata[] = array(
@@ -481,6 +495,7 @@ class User extends \Pramnos\Framework\Base
             );
         }
 
+        /*
         if ($groupSupport == true) {
             $itemdata[] = array(
                 'fieldName' => 'maingroup',
@@ -488,6 +503,7 @@ class User extends \Pramnos\Framework\Base
                 'type' => 'integer'
             );
         }
+        */
 
         $itemdata = $this->_alterFields($itemdata);
         if ($this->_isnew === 1 || $this->userid == 1) {
@@ -508,7 +524,7 @@ class User extends \Pramnos\Framework\Base
                     $this->addError($error['message']);
                     return $this;
                 }
-                $this->userid = pg_fetch_result($dbresult, 0, 'userid');
+                $this->userid = \pg_fetch_result($dbresult, 0, 'userid');
             } else {
                 if (!$database->insertDataToTable(
                     $database->prefix . "users", $itemdata, 'userid'
@@ -519,8 +535,6 @@ class User extends \Pramnos\Framework\Base
                 }
                 $this->userid = $database->getInsertId();
             }
-
-            
         } else {
             if (!$database->updateTableData(
                 $database->prefix . "users", $itemdata,
@@ -540,6 +554,11 @@ class User extends \Pramnos\Framework\Base
                     . "where `userid` = %d and `fieldname` = %s ", 
                     $this->userid, $fieldname
                 );
+                try {
+                    $database->query($sql);
+                } catch (\Exception $ex) {
+                    \Pramnos\Logs\Logger::log($ex->getMessage());
+                }
             } elseif (is_object($this->$fieldname)
                 || is_array($this->$fieldname)) {
 
@@ -547,67 +566,34 @@ class User extends \Pramnos\Framework\Base
                     && substr($fixname, 0, 1) != '_'
                     && substr($fieldname, 0, 1) != '_') {
 
-                    if ($database->type == 'postgresql') {
-                        $sql = $database->prepareQuery(
-                            "insert into #PREFIX#userdetails "
-                            . " (userid, fieldname, value) "
-                            . " values (%d, %s, %s) "
-                            . " ON CONFLICT (userid, fieldname) DO UPDATE SET value = %s ",
-                            $this->userid, $fieldname,
-                            serialize($this->$fieldname),
-                            serialize($this->$fieldname)
-                        );
-                    } else {
-                        $sql = $database->prepareQuery(
-                            "insert into `#PREFIX#userdetails` "
-                            . " (`userid`, `fieldname`, `value`) "
-                            . " values (%d, %s, %s) "
-                            . " ON DUPLICATE KEY UPDATE `value` = %s ",
-                            $this->userid, $fieldname,
-                            serialize($this->$fieldname),
-                            serialize($this->$fieldname)
-                        );
-                    }
+                    $upsertData = [
+                        ['fieldName' => 'userid', 'value' => $this->userid, 'type' => 'integer'],
+                        ['fieldName' => 'fieldname', 'value' => $fieldname, 'type' => 'string'],
+                        ['fieldName' => 'value', 'value' => serialize($this->$fieldname), 'type' => 'string']
+                    ];
+                    $database->upsert('#PREFIX#userdetails', $upsertData, ['userid', 'fieldname']);
                 }
 
             } elseif (!isset($this->originalOtherinfo[$fieldname])
                 || $this->originalOtherinfo[$fieldname] != $this->$fieldname
                 && substr($fixname, 0, 1) != '_'
                 && substr($fieldname, 0, 1) != '_') {
-                if ($database->type == 'postgresql') {
-                    $sql = $database->prepareQuery(
-                        "insert into #PREFIX#userdetails "
-                        . " (userid, fieldname, value) "
-                        . " values (%d, %s, %s) "
-                        . " ON CONFLICT (userid, fieldname) DO UPDATE SET value = %s ",
-                        $this->userid, $fieldname,
-                        $this->$fieldname, $this->$fieldname
-                    );
-                } else {
-                    $sql = $database->prepareQuery(
-                        "insert into `#PREFIX#userdetails` "
-                        . " (`userid`, `fieldname`, `value`) "
-                        . " values (%d, %s, %s) "
-                        . " ON DUPLICATE KEY UPDATE `value` = %s ",
-                        $this->userid, $fieldname,
-                        $this->$fieldname, $this->$fieldname
-                    );
-                }
+                
+                $upsertData = [
+                    ['fieldName' => 'userid', 'value' => $this->userid, 'type' => 'integer'],
+                    ['fieldName' => 'fieldname', 'value' => $fieldname, 'type' => 'string'],
+                    ['fieldName' => 'value', 'value' => $this->$fieldname, 'type' => 'string']
+                ];
+                $database->upsert('#PREFIX#userdetails', $upsertData, ['userid', 'fieldname']);
             }
-
-            try {
-                if (isset($sql)) {
-                    $database->query($sql);
-                    unset($sql);
-                }
-            } catch (\Exception $ex) {
-                $error = $database->getError();
-                $this->addError($error['message']);
-                \Pramnos\Logs\Logger::log($ex->getMessage());
-            }
-
         }
         $database->cacheflush('userlist');
+        if (is_array(self::$_usercache) && isset(self::$_usercache[$this->userid])) {
+            unset(self::$_usercache[$this->userid]);
+        }
+        if (is_array(self::$usersCache) && isset(self::$usersCache[$this->userid])) {
+            unset(self::$usersCache[$this->userid]);
+        }
         return $this;
     }
 
@@ -640,7 +626,7 @@ class User extends \Pramnos\Framework\Base
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
         $sql = $database->prepareQuery(
-            "SELECT * FROM #PREFIX#users WHERE `userid` = %d LIMIT 1", $uid
+            "SELECT * FROM #PREFIX#users WHERE `userid` = %d", $uid
         );
         $result = $database->query($sql, 1, 10, 'userlist');
         if ($result->numRows == 0) {
@@ -1307,4 +1293,109 @@ class User extends \Pramnos\Framework\Base
         return false;
     }
 
+    /**
+     * Setup the database tables for the users
+     */
+    public static function setupDb()
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        if ($database->type == 'postgresql') {
+            $statements = [
+                "CREATE TABLE IF NOT EXISTS #PREFIX#users (
+                    userid bigserial PRIMARY KEY,
+                    username varchar(50) NOT NULL DEFAULT '',
+                    password varchar(100) NOT NULL DEFAULT '',
+                    email varchar(150) NOT NULL DEFAULT '',
+                    lastname varchar(128) NOT NULL DEFAULT '',
+                    firstname varchar(128) NOT NULL DEFAULT '',
+                    regdate integer NOT NULL DEFAULT 0,
+                    regcompletion integer DEFAULT NULL,
+                    lasttermsagreed integer DEFAULT NULL,
+                    lastlogin integer NOT NULL DEFAULT 0,
+                    active smallint NOT NULL DEFAULT 1,
+                    validated smallint NOT NULL DEFAULT 1,
+                    language varchar(50) NOT NULL DEFAULT '',
+                    timezone char(3) NOT NULL DEFAULT '',
+                    dateformat varchar(15) NOT NULL DEFAULT 'd/m/Y H:i',
+                    usertype smallint NOT NULL DEFAULT 0,
+                    sex smallint NOT NULL DEFAULT 0,
+                    birthdate bigint NOT NULL DEFAULT 0,
+                    photo integer DEFAULT NULL,
+                    phone varchar(50) NOT NULL DEFAULT '',
+                    website varchar(255) NOT NULL DEFAULT '',
+                    modified integer NOT NULL DEFAULT 0
+                );",
+                "CREATE TABLE IF NOT EXISTS #PREFIX#userdetails (
+                    userid bigint NOT NULL,
+                    fieldname varchar(35) NOT NULL,
+                    value varchar(255) NOT NULL,
+                    PRIMARY KEY (userid, fieldname)
+                );",
+                "CREATE TABLE IF NOT EXISTS #PREFIX#usergroups (
+                    groupid serial PRIMARY KEY,
+                    name varchar(80) NOT NULL,
+                    description text NOT NULL,
+                    \"order\" smallint DEFAULT NULL
+                );",
+                "CREATE TABLE IF NOT EXISTS #PREFIX#userstogroups (
+                    userid bigint NOT NULL REFERENCES #PREFIX#users(userid) ON DELETE CASCADE ON UPDATE CASCADE,
+                    groupid integer NOT NULL REFERENCES #PREFIX#usergroups(groupid) ON DELETE CASCADE ON UPDATE CASCADE,
+                    PRIMARY KEY (userid, groupid)
+                );"
+            ];
+        } else {
+            $statements = [
+                "CREATE TABLE IF NOT EXISTS `#PREFIX#users` (
+                    `userid` bigint(20) NOT NULL AUTO_INCREMENT,
+                    `username` varchar(50) NOT NULL DEFAULT '',
+                    `password` varchar(100) NOT NULL DEFAULT '',
+                    `email` varchar(150) NOT NULL DEFAULT '',
+                    `lastname` varchar(128) NOT NULL DEFAULT '',
+                    `firstname` varchar(128) NOT NULL DEFAULT '',
+                    `regdate` int(11) NOT NULL DEFAULT '0',
+                    `regcompletion` int(10) UNSIGNED DEFAULT NULL,
+                    `lasttermsagreed` int(10) UNSIGNED DEFAULT NULL,
+                    `lastlogin` int(11) NOT NULL DEFAULT '0',
+                    `active` tinyint(1) NOT NULL DEFAULT '1',
+                    `validated` tinyint(4) NOT NULL DEFAULT '1',
+                    `language` varchar(50) NOT NULL DEFAULT '',
+                    `timezone` char(3) NOT NULL DEFAULT '',
+                    `dateformat` varchar(15) NOT NULL DEFAULT 'd/m/Y H:i',
+                    `usertype` tinyint(4) NOT NULL DEFAULT '0',
+                    `sex` tinyint(3) UNSIGNED NOT NULL DEFAULT '0',
+                    `birthdate` bigint(20) NOT NULL DEFAULT '0',
+                    `photo` int(11) DEFAULT NULL,
+                    `phone` varchar(50) NOT NULL DEFAULT '',
+                    `website` varchar(255) NOT NULL DEFAULT '',
+                    `modified` int(11) NOT NULL DEFAULT '0',
+                    PRIMARY KEY (`userid`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;",
+                "CREATE TABLE IF NOT EXISTS `#PREFIX#userdetails` (
+                  `userid` bigint(20) NOT NULL,
+                  `fieldname` varchar(35) NOT NULL,
+                  `value` varchar(255) NOT NULL,
+                  PRIMARY KEY (`userid`,`fieldname`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;",
+                "CREATE TABLE IF NOT EXISTS `#PREFIX#usergroups` (
+                  `groupid` mediumint(8) UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `name` varchar(80) NOT NULL COMMENT 'Group Name',
+                  `description` text NOT NULL COMMENT 'Group Description',
+                  `order` tinyint(4) DEFAULT NULL,
+                  PRIMARY KEY (`groupid`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='User Groups';",
+                "CREATE TABLE IF NOT EXISTS `#PREFIX#userstogroups` (
+                  `userid` bigint(20) NOT NULL,
+                  `groupid` mediumint(8) UNSIGNED NOT NULL,
+                  PRIMARY KEY (`userid`,`groupid`),
+                  KEY `groupid` (`groupid`),
+                  FOREIGN KEY (`userid`) REFERENCES `#PREFIX#users` (`userid`) ON DELETE CASCADE ON UPDATE CASCADE,
+                  FOREIGN KEY (`groupid`) REFERENCES `#PREFIX#usergroups` (`groupid`) ON DELETE CASCADE ON UPDATE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Users to groups';"
+            ];
+        }
+
+        foreach ($statements as $sql) {
+            $database->query($database->prepareQuery($sql));
+        }
+    }
 }

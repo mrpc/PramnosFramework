@@ -193,7 +193,10 @@ class Database extends \Pramnos\Framework\Base
             $this->user = $dbSettings->user;
             $this->password = $dbSettings->password;
             $this->collation = $dbSettings->collation;
-            $this->prefix = $dbSettings->prefix . '_';
+            $this->prefix = $dbSettings->prefix;
+            if ($this->prefix !== '' && \substr($this->prefix, -1) !== '_') {
+                $this->prefix .= '_';
+            }
             if ($this->prefix == '_') {
                 $this->prefix = '';
             }
@@ -246,6 +249,9 @@ class Database extends \Pramnos\Framework\Base
             $name = 'default';
         }
         if (!isset($instance[$name])) {
+            if ($settingsObject === null) {
+                $settingsObject = \Pramnos\Framework\Factory::getSettings();
+            }
             $instance[$name] = new Database($settingsObject);
         }
         return $instance[$name];
@@ -1820,6 +1826,91 @@ class Database extends \Pramnos\Framework\Base
     {
         $app = \Pramnos\Application\Application::getInstance();
         $app->showError($this->error_number . ' ' . $this->error_text);
+    }
+
+    /**
+     * Helper to handle cross-driver Upsert (Insert or Update on conflict)
+     * @param string $table Table name (with prefix if needed)
+     * @param array $data Array of field data (fieldName, value, type)
+     * @param string|array $conflictTarget Column name(s) that define the conflict (for Postgres)
+     * @return Result|bool
+     */
+    public function upsert($table, $data, $conflictTarget)
+    {
+        $table = str_replace('#PREFIX#', $this->prefix, $table);
+        
+        if ($this->type == 'postgresql') {
+            $fields = [];
+            $placeholders = [];
+            $updates = [];
+            $params = [];
+            $i = 1;
+
+            foreach ($data as $item) {
+                $fields[] = '"' . $item['fieldName'] . '"';
+                $placeholders[] = '$' . $i++;
+                $params[] = $item['value'];
+                
+                // For updates, we exclude the conflict targets
+                $targets = (array)$conflictTarget;
+                if (!\in_array($item['fieldName'], $targets)) {
+                    $updates[] = '"' . $item['fieldName'] . '" = EXCLUDED."' . $item['fieldName'] . '"';
+                }
+            }
+
+            $sql = 'INSERT INTO ' . $table . ' (' . \implode(', ', $fields) . ') '
+                 . 'VALUES (' . \implode(', ', $placeholders) . ') '
+                 . 'ON CONFLICT (' . (\is_array($conflictTarget) ? \implode(', ', $conflictTarget) : \implode(', ', (array)$conflictTarget)) . ') '
+                 . 'DO UPDATE SET ' . \implode(', ', $updates);
+
+            $stmtName = 'upsert_' . \md5($sql);
+            if (!isset($this->preparedStatements[$stmtName])) {
+                \pg_prepare($this->_dbConnection, $stmtName, $sql);
+                $this->preparedStatements[$stmtName] = $sql;
+            }
+            
+            $this->queryResult = \pg_execute($this->_dbConnection, $stmtName, $params);
+            if ($this->queryResult === false) {
+                 \Pramnos\Logs\Logger::logError('Upsert error: ' . \pg_last_error($this->_dbConnection) . ' for query: ' . $sql, null);
+                 return false;
+            }
+            return new Result($this, $this->queryResult);
+        } else {
+            // MySQL ON DUPLICATE KEY UPDATE
+            $fields = [];
+            $values = [];
+            $updates = [];
+            
+            foreach ($data as $item) {
+                $fields[] = '`' . $item['fieldName'] . '`';
+                $val = $this->prepareValue($item['value'], $item['type']);
+                $values[] = $val;
+                
+                $targets = (array)$conflictTarget;
+                if (!\in_array($item['fieldName'], $targets)) {
+                    $updates[] = '`' . $item['fieldName'] . '` = ' . $val;
+                }
+            }
+            
+            $sql = 'INSERT INTO ' . $table . ' (' . \implode(', ', $fields) . ') '
+                 . 'VALUES (' . \implode(', ', $values) . ') '
+                 . 'ON DUPLICATE KEY UPDATE ' . \implode(', ', $updates);
+                 
+            return $this->query($sql);
+        }
+    }
+
+    /**
+     * Convert boolean value to driver-specific representation
+     * @param bool $value
+     * @return string|int
+     */
+    public function convertBool($value)
+    {
+        if ($this->type == 'postgresql') {
+            return $value ? 't' : 'f';
+        }
+        return $value ? 1 : 0;
     }
 
     /**
