@@ -166,7 +166,21 @@ class Database extends \Pramnos\Framework\Base
      */
     private $_dbConnection;
 
+    /**
+     * Active prepared statements indexed by statement ID.
+     * Used by prepare() / execute() for both MySQL and PostgreSQL.
+     * @var array
+     */
     protected $statements = array();
+
+    /**
+     * Cache of PostgreSQL named prepared statement names used by upsert().
+     * Keyed by MD5 of the SQL so that pg_prepare() is called only once
+     * per connection. Must be cleared whenever a new connection is opened
+     * (see connect()) because prepared statements are connection-scoped.
+     * @var array<string, string>
+     */
+    protected $preparedStatements = array();
 
     /**
      * Return current database connection link
@@ -350,6 +364,7 @@ class Database extends \Pramnos\Framework\Base
         }
         $this->connected = false;
         $this->_dbConnection = null;
+        $this->preparedStatements = [];
 
         if (\function_exists('error_clear_last')) {
             \error_clear_last();
