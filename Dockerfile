@@ -5,10 +5,11 @@ RUN apt-get update && apt-get install -y \
     libonig-dev \
     libzip-dev \
     libicu-dev \
+    libpq-dev \
     unzip \
     git \
     && docker-php-ext-configure intl \
-    && docker-php-ext-install pdo_mysql mbstring zip intl \
+    && docker-php-ext-install mysqli pdo_mysql pdo_pgsql pgsql mbstring zip intl \
     && pecl install redis xdebug \
     && docker-php-ext-enable redis xdebug
 

@@ -183,7 +183,7 @@ class Database extends \Pramnos\Framework\Base
      */
     public function __construct($settingsObject = null)
     {
-        if (is_resource($settingsObject)) {
+        if (\is_resource($settingsObject)) {
             $this->addExternalConnection($settingsObject);
         }
         if ($settingsObject instanceof \Pramnos\Application\Settings) {
@@ -203,8 +203,8 @@ class Database extends \Pramnos\Framework\Base
             
             if (isset($dbSettings->type)) {
                 if ($dbSettings->type == 'postgresql') {
-                    if (!extension_loaded('pgsql') 
-                        || !function_exists('pg_connect')) {
+                    if (!\extension_loaded('pgsql') 
+                        || !\function_exists('pg_connect')) {
                         die('Postgresql extension is not installed');
                     }
                     if (isset($dbSettings->schema) && $dbSettings->schema != '') {
@@ -339,14 +339,14 @@ class Database extends \Pramnos\Framework\Base
      */
     public function connect($throwOnFailure = true)
     {
-        if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
+        if (\defined('DEVELOPMENT') && DEVELOPMENT == true) {
             $this->startLogs();
         }
         $this->connected = false;
         $this->_dbConnection = null;
 
-        if (function_exists('error_clear_last')) {
-            error_clear_last();
+        if (\function_exists('error_clear_last')) {
+            \error_clear_last();
         }
 
         try {
@@ -374,7 +374,7 @@ class Database extends \Pramnos\Framework\Base
              * to get the data in the right format.
              */
             if ($this->collation <> false && $this->type == 'mysql') {
-                mysqli_query(
+                \mysqli_query(
                     $this->_dbConnection,
                     "SET NAMES "
                     . $this->collation . ";"
@@ -417,7 +417,7 @@ class Database extends \Pramnos\Framework\Base
     {
         $host = $this->persistency ? 'p:' . $this->server : $this->server;
 
-        return @mysqli_connect(
+        return @\mysqli_connect(
             $host,
             $this->user,
             $this->password,
@@ -444,9 +444,9 @@ class Database extends \Pramnos\Framework\Base
             $connectionParts[] = 'port=' . $this->port;
         }
 
-        $flags = defined('PGSQL_CONNECT_FORCE_NEW') ? PGSQL_CONNECT_FORCE_NEW : 0;
+        $flags = \defined('PGSQL_CONNECT_FORCE_NEW') ? \constant('PGSQL_CONNECT_FORCE_NEW') : 0;
 
-        return @pg_connect(implode(' ', $connectionParts), $flags);
+        return @\pg_connect(\implode(' ', $connectionParts), $flags);
     }
 
     /**
@@ -466,7 +466,7 @@ class Database extends \Pramnos\Framework\Base
             return 'Could not connect to PostgreSQL database';
         }
 
-        $message = mysqli_connect_error();
+        $message = \mysqli_connect_error();
         if ($message) {
             return $message;
         }
@@ -490,23 +490,23 @@ class Database extends \Pramnos\Framework\Base
         $longpathquery = str_replace('\\', '/', $lngPthQueryOriginal);
         $this->_logSlowQueries=true;
         if ($mode === 1 && $this->type != 'postgresql') {
-            mysqli_query(
+            \mysqli_query(
                 $this->_dbConnection,
                 "set global slow_query_log_file = '"
                 . $longpathquery
                 . "';"
             );
-            mysqli_query(
+            \mysqli_query(
                 $this->_dbConnection,
                 "SET GLOBAL long_query_time = "
                 . $this->longQueryTime
                 . ";"
             );
-            mysqli_query(
+            \mysqli_query(
                 $this->_dbConnection,
                 "SET GLOBAL LOG_SLOW_QUERIES = ON;"
             );
-            mysqli_query(
+            \mysqli_query(
                 $this->_dbConnection,
                 "SET GLOBAL SLOW_QUERY_LOG = ON;"
             );
@@ -526,11 +526,11 @@ class Database extends \Pramnos\Framework\Base
                     || $LOG_SLOW_QUERIES != 1
                     || $SLOW_QUERY_LOG != 1
                     || $slow_query_log_file != $longpathquery) {
-                mysqli_query(
+                \mysqli_query(
                     $this->_dbConnection,
                     "SET GLOBAL LOG_SLOW_QUERIES = OFF;"
                 );
-                mysqli_query(
+                \mysqli_query(
                     $this->_dbConnection,
                     "SET GLOBAL SLOW_QUERY_LOG = OFF;"
                 );
@@ -559,7 +559,11 @@ class Database extends \Pramnos\Framework\Base
 
         foreach ($this->statements as $key=>$statement) {
             try {
-                @$statement['statement']->close();
+                if ($this->type == 'postgresql') {
+                    @pg_free_result($statement['statement']);
+                } else {
+                    @$statement['statement']->close();
+                }
                 unset($this->statements[$key]);
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
@@ -568,10 +572,10 @@ class Database extends \Pramnos\Framework\Base
 
         if ($connection) {
             if ($this->type == 'postgresql') {
-                return pg_close($connection);
+                return \pg_close($connection);
             }
 
-            return mysqli_close($connection);
+            return \mysqli_close($connection);
         }
 
         return false;
@@ -589,12 +593,12 @@ class Database extends \Pramnos\Framework\Base
             $this->queriesCount++;
             $time = -microtime(true);
             if ($this->type == 'postgresql') {
-                $this->queryResult = @pg_query($this->_dbConnection, $query);
+                $this->queryResult = @\pg_query($this->_dbConnection, $query);
                 if ($this->queryResult === false) {
-                    \Pramnos\Logs\Logger::logError('Postgres error: ' . pg_last_error($this->_dbConnection) . ' for query: ' . $query, null);
+                    \Pramnos\Logs\Logger::logError('Postgres error: ' . \pg_last_error($this->_dbConnection) . ' for query: ' . $query, null);
                 }
             } else {
-                $this->queryResult = mysqli_query($this->_dbConnection, $query);
+                $this->queryResult = \mysqli_query($this->_dbConnection, $query);
             }
             
             $time += microtime(true);
@@ -667,11 +671,12 @@ class Database extends \Pramnos\Framework\Base
      * Prepare an SQL statement for execution (as a prepared statement)
      * Used mostly to run a query multiple times
      * @param string $sql
-     * @return \mysqli_stmt class
+     * @return \mysqli_stmt|\stdClass|bool class
      */
     public function prepare($sql)
     {
         if ($this->type == 'postgresql') {
+            $schema = '';
             if ($this->schema != '') {
                 $schema = $this->schema . '.';
             }
@@ -691,12 +696,38 @@ class Database extends \Pramnos\Framework\Base
         $types = array();
         $numOfTypes = preg_match_all('/\%(i|d|s|b)/i', $query, $types);
         if ($numOfTypes > 0) {
-            $query = str_replace(array('%d', '%i', '%s', '%b'), '?', $query);
+            if ($this->type == 'postgresql') {
+                $count = 1;
+                $query = preg_replace_callback('/\%(i|d|s|b)/i', function($matches) use (&$count) {
+                    return '$' . $count++;
+                }, $query);
+            } else {
+                $query = str_replace(array('%d', '%i', '%s', '%b'), '?', $query);
+            }
             $types = implode($types[1]);
         }
         if (is_array($types)) {
             $types = '';
         }
+
+        if ($this->type == 'postgresql') {
+            $stmtName = 'plan_' . md5($query);
+            $result = @pg_prepare($this->_dbConnection, $stmtName, $query);
+            if ($result) {
+                // Return a lightweight object to store the statement metadata
+                $statement = new \stdClass();
+                $statement->id = $stmtName;
+                $this->statements[$stmtName] = array(
+                    'statement' => $result,
+                    'types' => $types,
+                    'query' => $query,
+                    'stmtName' => $stmtName
+                );
+                return $statement;
+            }
+            return false;
+        }
+
         $statement = $this->_dbConnection->prepare($query);
         if ($statement) {
             $this->statements[$statement->id] = array(
@@ -720,10 +751,10 @@ class Database extends \Pramnos\Framework\Base
      *     $userid<br>
      * );
      * </code>
-     * @param string|mysqli_stmt $sql An sql query, either as a string
+     * @param string|\mysqli_stmt|\stdClass $sql An sql query, either as a string
      *                                or as a prepared statement object
      * @param mixed $arguments
-     * @return \pramnos_database_result
+     * @return Result
      */
     public function execute($sql, &...$arguments)
     {
@@ -734,7 +765,7 @@ class Database extends \Pramnos\Framework\Base
             $statement = $this->prepare($sql);
             $free = true;
         }
-        if (isset($this->statements[$statement->id])) {
+        if ($this->type != 'postgresql' && isset($this->statements[$statement->id])) {
             $arguments = array_merge(
                 array($this->statements[$statement->id]['types']),
                 $arguments
@@ -748,30 +779,42 @@ class Database extends \Pramnos\Framework\Base
         }
 
 
-        if (count($arguments) > 1) {
-            call_user_func_array(
-                array($statement, 'bind_param'), $arguments
-            );
-        }
-        if ($statement->execute()) {
-            $dbResource = $statement->get_result();
+        if ($this->type == 'postgresql') {
+            $stmtName = $this->statements[$statement->id]['stmtName'];
+            $dbResource = @pg_execute($this->_dbConnection, $stmtName, $arguments);
+            if (!$dbResource) {
+                $this->setError(
+                    '0',
+                    @pg_last_error($this->_dbConnection),
+                    false
+                );
+            }
         } else {
-            $dbResource = null;
+            if (count($arguments) > 1) {
+                call_user_func_array(
+                    array($statement, 'bind_param'), $arguments
+                );
+            }
+            if ($statement->execute()) {
+                $dbResource = $statement->get_result();
+            } else {
+                $dbResource = null;
+            }
+
+            if (!$dbResource) {
+                $this->setError(
+                    @mysqli_errno($this->_dbConnection),
+                    @mysqli_error($this->_dbConnection),
+                    false
+                );
+            }
         }
+
         if ($free) {
             unset($this->statements[$statement->id]);
-            $statement->close();
-        }
-
-
-
-
-        if (!$dbResource) {
-            $this->setError(
-                @mysqli_errno($this->_dbConnection),
-                @mysqli_error($this->_dbConnection),
-                false
-            );
+            if ($this->type != 'postgresql') {
+                $statement->close();
+            }
         }
 
         $obj->mysqlResult = $dbResource;
@@ -780,8 +823,13 @@ class Database extends \Pramnos\Framework\Base
 
         if ($obj->getNumRows() > 0) {
             $obj->eof = false;
-            $resultArray = mysqli_fetch_array($dbResource, MYSQLI_ASSOC);
-            mysqli_data_seek($dbResource, 0);
+            if ($this->type == 'postgresql') {
+                $resultArray = pg_fetch_array($dbResource, 0, PGSQL_ASSOC);
+                pg_result_seek($dbResource, 0);
+            } else {
+                $resultArray = mysqli_fetch_array($dbResource, MYSQLI_ASSOC);
+                mysqli_data_seek($dbResource, 0);
+            }
             if ($resultArray) {
                 foreach($resultArray as $key=>$value) {
                     $obj->fields[$key] = $value;
