@@ -21,3 +21,4 @@ desktop.ini
 /.vagrant
 .phpunit.result.cache
 /coverage
+/var/*
