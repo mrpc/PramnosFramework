@@ -81,8 +81,8 @@ class Request extends Base
     public static function create($uri, $method="GET")
     {
         $request = new Request();
-        $request->requestUri = $uri;
-        $request->requestMethod = strtoupper($method);
+        self::$requestUri = $uri;
+        self::$requestMethod = strtoupper($method);
         return $request;
     }
 
