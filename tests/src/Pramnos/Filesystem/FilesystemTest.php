@@ -4,12 +4,9 @@ namespace Pramnos\Tests;
 
 use Pramnos\Filesystem\Filesystem;
 
-/**
- * @package     pramnosFrameworkTests
- * @copyright   2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
- * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- */
-class FilesystemTest extends \PHPUnit_Framework_TestCase
+
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Filesystem\Filesystem::class)]
+class FilesystemTest extends \PHPUnit\Framework\TestCase
 {
 
     /**
@@ -20,7 +17,7 @@ class FilesystemTest extends \PHPUnit_Framework_TestCase
     /**
      * Create the instance of StringFinder
      */
-    protected function setUp()
+    protected function setUp(): void
     {
         $this->object = new Filesystem();
     }
@@ -28,14 +25,12 @@ class FilesystemTest extends \PHPUnit_Framework_TestCase
     /**
      * Destroy the instance of StringFinder
      */
-    protected function tearDown()
+    protected function tearDown(): void
     {
         $this->object = null;
     }
 
-    /**
-     * @covers \Pramnos\Filesystem\Filesystem::getInstance
-     */
+    
     public function testConstructor()
     {
 
@@ -44,14 +39,10 @@ class FilesystemTest extends \PHPUnit_Framework_TestCase
         );
     }
 
-    /**
-     * @covers \Pramnos\Filesystem\Filesystem::listDirectoryFiles
-     */
+    
     public function testListDirectoryFilesShoudReturnAnArray()
     {
-        $this->assertInternalType(
-            'array', $this->object->listDirectoryFiles(ROOT)
-        );
+        $this->assertIsArray($this->object->listDirectoryFiles(ROOT));
     }
 
 }
