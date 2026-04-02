@@ -33,7 +33,7 @@ class Result
     public $fields = array();
     /**
      * Database Result Object
-     * @var \mysqli_result|bool|\PgSql\Result
+     * @var \mysqli_result|bool|\PgSql\Result|resource
      */
     public $mysqlResult = null;
     /**
@@ -102,8 +102,8 @@ class Result
             // For cached results, data types should already be properly restored
             return $this->result;
         } elseif ($this->database->type == 'postgresql' 
-            && is_object($this->mysqlResult)) {
-            $results = pg_fetch_all($this->mysqlResult, PGSQL_ASSOC);
+            && \is_object($this->mysqlResult)) {
+            $results = \pg_fetch_all($this->mysqlResult, PGSQL_ASSOC);
             
             // Apply type conversion if column types are available
             if (!empty($this->columnTypes) && is_array($results)) {
@@ -120,12 +120,12 @@ class Result
             }
             
             return $results;
-        } elseif (is_object($this->mysqlResult)) {
-            $results = mysqli_fetch_all($this->mysqlResult, MYSQLI_ASSOC);
+        } elseif (\is_object($this->mysqlResult)) {
+            $results = \mysqli_fetch_all($this->mysqlResult, MYSQLI_ASSOC);
             
             // Apply type conversion for MySQL results
-            if (is_array($results) && !empty($results)) {
-                $fields = mysqli_fetch_fields($this->mysqlResult);
+            if (\is_array($results) && !empty($results)) {
+                $fields = \mysqli_fetch_fields($this->mysqlResult);
                 $fieldTypes = [];
                 foreach ($fields as $field) {
                     $fieldTypes[$field->name] = $field->type;
@@ -168,20 +168,14 @@ class Result
                 }
                 return $this->fields;
             }
-        } elseif ($this->database->type == 'postgresql' && is_resource($this->mysqlResult)) {
-            $this->fields = pg_fetch_array(
-                $this->mysqlResult,
-                null,
-                PGSQL_ASSOC
-            );
-        } elseif ($this->database->type == 'postgresql' && is_object($this->mysqlResult)) {
+        } elseif ($this->database->type == 'postgresql' && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
             
-            $this->fields = pg_fetch_array(
+            $this->fields = \pg_fetch_array(
                 $this->mysqlResult,
                 null,
                 PGSQL_ASSOC
             );
-            if (is_array($this->fields)) {
+            if (\is_array($this->fields)) {
                     
                 foreach($this->fields as $key => $value) {
                     // Convert numeric types to their PHP equivalents
@@ -217,8 +211,8 @@ class Result
             }
             return $this->fields;
 
-        } elseif (is_object($this->mysqlResult)) {
-            $this->fields = mysqli_fetch_array(
+        } elseif (\is_object($this->mysqlResult)) {
+            $this->fields = \mysqli_fetch_array(
                 $this->mysqlResult,
                 MYSQLI_ASSOC
             );
@@ -245,10 +239,10 @@ class Result
     public function getInsertId()
     {
         if ($this->database->type == 'postgresql' 
-            && is_resource($this->mysqlResult)) {
-            return pg_last_oid($this->mysqlResult);
+            && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
+            return \pg_last_oid($this->mysqlResult);
         } else {
-            return mysqli_insert_id($this->database->getConnectionLink());
+            return \mysqli_insert_id($this->database->getConnectionLink());
         }
     }
 
@@ -259,10 +253,10 @@ class Result
     public function getAffectedRows()
     {
         if ($this->database->type == 'postgresql' 
-            && is_resource($this->mysqlResult)) {
-            return pg_affected_rows($this->mysqlResult);
-        } elseif (is_resource($this->mysqlResult)) {
-            return mysqli_affected_rows($this->mysqlResult);
+            && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
+            return \pg_affected_rows($this->mysqlResult);
+        } elseif (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \mysqli_result) {
+            return \mysqli_affected_rows($this->mysqlResult);
         }
 
         return 0;
@@ -275,10 +269,10 @@ class Result
     public function getNumFields()
     {
         if ($this->database->type == 'postgresql' 
-            && is_resource($this->mysqlResult)) {
-            return pg_num_fields($this->mysqlResult);
-        } elseif (is_object($this->mysqlResult)) {
-            return mysqli_num_fields($this->mysqlResult);
+            && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
+            return \pg_num_fields($this->mysqlResult);
+        } elseif (\is_object($this->mysqlResult)) {
+            return \mysqli_num_fields($this->mysqlResult);
         }
 
         return 0;
@@ -290,9 +284,9 @@ class Result
     public function free()
     {
         if ($this->database->type == 'postgresql' 
-            && is_resource($this->mysqlResult)) {
-            pg_free_result($this->mysqlResult);
-        } elseif (is_object($this->mysqlResult) 
+            && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
+            \pg_free_result($this->mysqlResult);
+        } elseif (\is_object($this->mysqlResult) 
             && $this->database->type == 'mysql') {
             $this->mysqlResult->free();
             $this->mysqlResult = null;
@@ -306,11 +300,11 @@ class Result
     public function getNumRows()
     {
         if ($this->database->type == 'postgresql' 
-            && is_resource($this->mysqlResult)) {
-                return pg_num_rows($this->mysqlResult);
-        } elseif (is_object($this->mysqlResult) 
+            && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
+                return \pg_num_rows($this->mysqlResult);
+        } elseif (\is_object($this->mysqlResult) 
             && $this->database->type == 'mysql') {
-            return mysqli_num_rows($this->mysqlResult);
+            return \mysqli_num_rows($this->mysqlResult);
         }
 
         return $this->numRows;

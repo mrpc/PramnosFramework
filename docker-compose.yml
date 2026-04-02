@@ -10,13 +10,15 @@ services:
     volumes:
       - .:/var/www/html
     environment:
-      - DB_HOST=db
-      - DB_USER=root
+      - DB_HOST=timescaledb
+      - DB_USER=postgres
       - DB_PASS=secret
       - DB_NAME=pramnos_test
+      - DB_TYPE=postgresql
       - CACHE_HOST=redis
     depends_on:
       - db
+      - timescaledb
       - redis
 
   db:
@@ -27,6 +29,16 @@ services:
       - MYSQL_DATABASE=pramnos_test
     ports:
       - "3306"
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
+    container_name: pramnos_timescaledb
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=pramnos_test
+    ports:
+      - "5432"
 
   redis:
     image: redis:alpine
