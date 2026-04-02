@@ -1,0 +1,35 @@
+
+services:
+  php-apache-environment:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pramnos_php
+    ports:
+      - "18081:80"
+    volumes:
+      - .:/var/www/html
+    environment:
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASS=secret
+      - DB_NAME=pramnos_test
+      - CACHE_HOST=redis
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: mysql:8.0
+    container_name: pramnos_db
+    environment:
+      - MYSQL_ROOT_PASSWORD=secret
+      - MYSQL_DATABASE=pramnos_test
+    ports:
+      - "3306"
+
+  redis:
+    image: redis:alpine
+    container_name: pramnos_redis
+    ports:
+      - "6379"

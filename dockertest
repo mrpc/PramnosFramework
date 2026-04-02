@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+nobrowser=false
+coverage=false
+testdox=false
+passthrough=()
+for arg in "$@"; do
+    if [[ "$arg" == "--nobrowser" ]]; then
+        nobrowser=true
+    elif [[ "$arg" == "--coverage" ]]; then
+        coverage=true
+    elif [[ "$arg" == "--testdox" ]]; then
+        testdox=true
+    else
+        passthrough+=("$arg")
+    fi
+done
+
+# Check if containers are running
+if ! docker-compose ps | grep -q "pramnos_php.*Up"; then
+    echo "Containers not running. Starting them..."
+    docker-compose up -d
+    echo "Waiting for services to be ready..."
+    sleep 10
+fi
+
+# Check if database is initialized by accessing the app
+echo "Ensuring database is initialized..."
+curl -s http://localhost:18081/ > /dev/null 2>&1
+
+# Ensure dependencies are installed
+if ! docker-compose exec php-apache-environment test -f vendor/bin/phpunit; then
+    echo "Installing composer dependencies..."
+    docker-compose exec php-apache-environment composer install
+fi
+
+# Run tests
+echo -e "\e[32mRunning PHPUnit tests...\e[0m"
+extra_flags="--configuration phpunit.xml --display-deprecations --display-warnings --display-incomplete --display-skipped"
+[[ "$testdox" == true ]] && extra_flags="$extra_flags --testdox"
+
+if [[ "$coverage" == true ]]; then
+    docker-compose exec php-apache-environment vendor/bin/phpunit --coverage-html coverage $extra_flags "${passthrough[@]}"
+else
+    docker-compose exec php-apache-environment vendor/bin/phpunit $extra_flags "${passthrough[@]}"
+fi
+
+# Open coverage report if generated and not suppressed
+if [[ "$coverage" == true && "$nobrowser" == false && -f ./coverage/index.html ]]; then
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "linux-gnu"* && "$(uname -r)" == *"Microsoft"* || -n "$WSL_DISTRO_NAME" ]]; then
+        win_path=$(wslpath -w "$(pwd)")
+        explorer.exe "$win_path\coverage\index.html"
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        xdg-open ./coverage/index.html
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        open ./coverage/index.html
+    fi
+fi
