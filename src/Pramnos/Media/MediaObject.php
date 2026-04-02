@@ -118,6 +118,11 @@ class MediaObject extends \Pramnos\Framework\Base
      * @var int
      */
     public $othermodules = 0;
+    /**
+     * Extra info in JSON format
+     * @var string
+     */
+    public $extrainfo = '';
     protected $_isnew = true;
     /**
      * Max Thumbnail Width
@@ -1518,6 +1523,11 @@ class MediaObject extends \Pramnos\Framework\Base
                 'fieldName' => 'othermodules',
                 'value' => $this->othermodules,
                 'type' => 'integer'
+            ),
+            array(
+                'fieldName' => 'extrainfo',
+                'value' => $this->extrainfo,
+                'type' => 'string'
             )
         );
         $database->cacheflush('media');

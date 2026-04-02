@@ -61,14 +61,14 @@ class Permissions extends \Pramnos\Framework\Base
     public function removePermission($subject, $resource, $privilege,
         $resourceElement = '', $resourceType = 'module', $subjectType = 'user')
     {
-        $database = pramnos_database::getInstance();
+        $database = \Pramnos\Framework\Factory::getDatabase();
         if ($subjectType == 'user') {
             $sql = $database->prepareQuery(
                 "DELETE FROM `" . DB_PERMISSIONSTABLE . "` "
                 . " WHERE `userid` = %d "
                 . " AND `resource` = %s AND `resourcetype`= %s "
                 . " AND `privilege` = %s AND `resourceelement` = %s "
-                . " AND `subjecttype` = 'user' LIMIT 1",
+                . " AND `subjecttype` = 'user'",
                 $subject, $resource, $resourceType, $privilege,
                 $resourceElement
             );
@@ -80,8 +80,7 @@ class Permissions extends \Pramnos\Framework\Base
                 AND `resourcetype`= %s
                 AND `privilege` = %s
                 AND `subjecttype` = %s
-                AND `resourceelement` = %s
-                LIMIT 1",
+                AND `resourceelement` = %s",
                 $subject, $resource, $resourceType, $privilege,
                 $subjectType, $resourceElement
             );
@@ -117,93 +116,39 @@ class Permissions extends \Pramnos\Framework\Base
                 $resourceElement, $resourceType, $subjectType
             );
         }
-        $database = pramnos_database::getInstance();
+        
+        $database = \Pramnos\Framework\Factory::getDatabase();
         $database->cacheflush('permissions');
+        $this->_cache = array(); // Invalidate local instance cache
+
+        // Delete any existing permission record first (since permissions table lacks a unique index)
         if ($subjectType == 'user') {
-            $sql = $database->prepareQuery(
-                "SELECT * FROM `" . DB_PERMISSIONSTABLE . "`
-                WHERE `userid` = %d
-                AND `resource` = %s
-                AND `resourcetype`= %s
-                AND `privilege` = %s
-                AND `resourceelement` = %s
-                AND `subjecttype` = 'user'
-                LIMIT 1", $subject, $resource, $resourceType, $privilege,
-                $resourceElement
-            );
+            $sql = "DELETE FROM `" . DB_PERMISSIONSTABLE . "` WHERE `userid` = %d AND `resource` = %s AND `resourcetype` = %s AND `privilege` = %s AND `resourceelement` = %s AND `subjecttype` = %s";
+            $database->query($database->prepareQuery($sql, $subject, $resource, $resourceType, $privilege, $resourceElement, $subjectType));
         } else {
-            $sql = $database->prepareQuery(
-                "SELECT * FROM `" . DB_PERMISSIONSTABLE . "`
-                WHERE `subject` = %s
-                AND `resource` = %s
-                AND `resourcetype`= %s
-                AND `privilege` = %s
-                AND `subjecttype` = %s
-                AND `resourceelement` = %s
-                LIMIT 1", $subject, $resource, $resourceType, $privilege,
-                $subjectType, $resourceElement
-            );
+            $sql = "DELETE FROM `" . DB_PERMISSIONSTABLE . "` WHERE `subject` = %s AND `resource` = %s AND `resourcetype` = %s AND `privilege` = %s AND `resourceelement` = %s AND `subjecttype` = %s";
+            $database->query($database->prepareQuery($sql, $subject, $resource, $resourceType, $privilege, $resourceElement, $subjectType));
         }
-        $result = $database->query($sql, true, 600, 'permissions');
-        if ($result->numRows != 0) { // we need to update the permission
-            //Or we don't because it's already what we want
-            if ($result->fields['value'] != (int) $value) {
-                if ($subjectType == 'user') {
-                    $sql = $database->prepareQuery(
-                        "UPDATE `" . DB_PERMISSIONSTABLE . "`
-                        SET `value` = %d
-                        WHERE `userid` = %d
-                        AND `resource` = %s
-                        AND `resourcetype`= %s
-                        AND `privilege` = %s
-                        AND `subjecttype` = 'user'
-                        AND `resourceelement` = %s
-                        LIMIT 1", (int) $value, $subject, $resource,
-                        $resourceType, $privilege, $resourceElement
-                    );
-                } else {
-                    $sql = $database->prepareQuery(
-                        "UPDATE `" . DB_PERMISSIONSTABLE . "`
-                        SET `value` = %d
-                        WHERE `subject` = %d
-                        AND `resource` = %s
-                        AND `resourcetype`= %s
-                        AND `privilege` = %s
-                        AND `subjecttype` = %s
-                        AND `resourceelement` = %s
-                        LIMIT 1", (int) $value, $subject, $resource,
-                        $resourceType, $privilege, $subjectType,
-                        $resourceElement
-                    );
-                }
-                $database->query($sql);
-                $database->cacheflush('permissions');
-            }
-        } else { // we need to insert the permission
-            if ($subjectType == 'user') {
-                $sql = $database->prepareQuery(
-                    "INSERT INTO `" . DB_PERMISSIONSTABLE . "`
-                    (`userid`, `resource`, `resourcetype`,
-                    `privilege`, `subjecttype`, `resourceelement`, `value`)
-                    values
-                    (%d, %s, %s, %s, 'user', %s, %d);", $subject, $resource,
-                    $resourceType, $privilege, $resourceElement,
-                    (int) $value
-                );
-            } else {
-                $sql = $database->prepareQuery(
-                    "INSERT INTO `" . DB_PERMISSIONSTABLE . "`
-                    (`subject`, `resource`, `resourcetype`, `privilege`,
-                    `subjecttype`, `resourceelement`, `value`)
-                    values
-                    (%d, %s, %s, %s, %s, %s, %d);", $subject, $resource,
-                    $resourceType, $privilege, $subjectType,
-                    $resourceElement, (int) $value
-                );
-            }
-            $database->query($sql);
-            $database->cacheflush('permissions');
+
+        $data = [
+            ['fieldName' => 'resource', 'value' => $resource, 'type' => 'string'],
+            ['fieldName' => 'resourcetype', 'value' => $resourceType, 'type' => 'string'],
+            ['fieldName' => 'privilege', 'value' => $privilege, 'type' => 'string'],
+            ['fieldName' => 'resourceelement', 'value' => $resourceElement, 'type' => 'string'],
+            ['fieldName' => 'subjecttype', 'value' => $subjectType, 'type' => 'string'],
+            ['fieldName' => 'value', 'value' => $database->convertBool($value), 'type' => 'integer']
+        ];
+        
+        if ($subjectType == 'user') {
+            $data[] = ['fieldName' => 'userid', 'value' => (int)$subject, 'type' => 'integer'];
+        } else {
+            $data[] = ['fieldName' => 'subject', 'value' => $subject, 'type' => 'string'];
         }
+
+        $table = str_replace('#PREFIX#', $database->prefix, DB_PERMISSIONSTABLE);
+        $database->insertDataToTable($table, $data);
+        $database->cacheflush('permissions');
+        
         return $this;
     }
 
@@ -327,7 +272,7 @@ class Permissions extends \Pramnos\Framework\Base
             $resourceElement = '', $resourceType = 'module',
             $subjectType = 'user', $nonExistEqualsFalse = true)
     {
-        $database = pramnos_database::getInstance();
+        $database = \Pramnos\Framework\Factory::getDatabase();
 
         //If we are dealing with a module and subject is admin of this module,
         // then we can grand access to everything
@@ -366,13 +311,12 @@ class Permissions extends \Pramnos\Framework\Base
                     AND `resourcetype`= %s
                     AND `privilege` = %s
                     AND `subjecttype` = %s
-                    AND `resourceelement` = %s
-                    LIMIT 1", $subject, $resource, $resourceType, $privilege,
+                    AND `resourceelement` = %s", $subject, $resource, $resourceType, $privilege,
                     $subjectType, $resourceElement
                 );
                 $result = $database->query($sql, true, 600, 'permissions');
             }
-            catch (Exception $exc) {
+            catch (\Exception $exc) {
                 return false;
             }
 
@@ -382,7 +326,7 @@ class Permissions extends \Pramnos\Framework\Base
             if ($nonExistEqualsFalse == false) {
                 return $permission;
             }
-            $user = new pramnos_user($subject);
+            $user = new \Pramnos\User\User($subject);
             if ($user->userid != 0) {
                 $groups = $user->getGroups();
 
@@ -415,8 +359,7 @@ class Permissions extends \Pramnos\Framework\Base
                     AND `resourcetype`= %s
                     AND `privilege` = %s
                     AND `subjecttype` = %s
-                    AND `resourceelement` = %s
-                    LIMIT 1", $subject, $resource, $resourceType, $privilege,
+                    AND `resourceelement` = %s", $subject, $resource, $resourceType, $privilege,
                     $subjectType, $resourceElement
                 );
                 $result = $database->query($sql, true, 600, 'permissions');
@@ -444,44 +387,64 @@ class Permissions extends \Pramnos\Framework\Base
      */
     public static function setupDb($foreignKeys = true)
     {
-        $database = &pramnos_factory::getDatabase();
-        $statement = $database->prepareQuery(
-            "CREATE TABLE IF NOT EXISTS `" . DB_PERMISSIONSTABLE . "` (
-            `userid` bigint(20) DEFAULT NULL,
-            `subject` varchar(80) DEFAULT NULL,
-            `resource` varchar(255) NOT NULL DEFAULT '',
-            `resourceelement` varchar(255) NOT NULL DEFAULT '',
-            `value` TINYINT(1) NOT NULL DEFAULT '0',
-            `privilege` varchar(80) NOT NULL DEFAULT '',
-            `resourcetype` varchar(80) NOT NULL DEFAULT 'module',
-            `subjecttype` varchar(80) NOT NULL DEFAULT 'user',
-            KEY `userid` (`userid`),
-            KEY `resource` (`resource`),
-            KEY `resourcetype` (`resourcetype`)
-          ) ENGINE=InnoDB DEFAULT CHARSET=utf8; "
-        );
-
-        try {
-            $database->query($statement);
-        }
-        catch (Exception $exc) {
-            pramnos_logs::log($exc->getTraceAsString());
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        if ($database->type == 'postgresql') {
+            $statements = [
+                "CREATE TABLE IF NOT EXISTS " . DB_PERMISSIONSTABLE . " (
+                    userid bigint DEFAULT NULL,
+                    subject varchar(80) DEFAULT NULL,
+                    resource varchar(255) NOT NULL DEFAULT '',
+                    resourceelement varchar(255) NOT NULL DEFAULT '',
+                    value smallint NOT NULL DEFAULT 0,
+                    privilege varchar(80) NOT NULL DEFAULT '',
+                    resourcetype varchar(80) NOT NULL DEFAULT 'module',
+                    subjecttype varchar(80) NOT NULL DEFAULT 'user'
+                );",
+                "CREATE INDEX IF NOT EXISTS idx_permissions_userid ON " . DB_PERMISSIONSTABLE . " (userid);",
+                "CREATE INDEX IF NOT EXISTS idx_permissions_resource ON " . DB_PERMISSIONSTABLE . " (resource);",
+                "CREATE INDEX IF NOT EXISTS idx_permissions_resourcetype ON " . DB_PERMISSIONSTABLE . " (resourcetype);"
+            ];
+            foreach ($statements as $sql) {
+                $database->query($database->prepareQuery($sql));
+            }
+        } else {
+            $statements = [
+                "CREATE TABLE IF NOT EXISTS `" . DB_PERMISSIONSTABLE . "` (
+                `userid` bigint(20) DEFAULT NULL,
+                `subject` varchar(80) DEFAULT NULL,
+                `resource` varchar(255) NOT NULL DEFAULT '',
+                `resourceelement` varchar(255) NOT NULL DEFAULT '',
+                `value` TINYINT(1) NOT NULL DEFAULT '0',
+                `privilege` varchar(80) NOT NULL DEFAULT '',
+                `resourcetype` varchar(80) NOT NULL DEFAULT 'module',
+                `subjecttype` varchar(80) NOT NULL DEFAULT 'user',
+                KEY `userid` (`userid`),
+                KEY `resource` (`resource`),
+                KEY `resourcetype` (`resourcetype`)
+              ) ENGINE=InnoDB DEFAULT CHARSET=utf8; "
+            ];
+            foreach ($statements as $sql) {
+                $database->query($database->prepareQuery($sql));
+            }
         }
 
         if ($foreignKeys == true) {
             try {
-                $database->query(
-                    $database->prepareQuery(
-                        "ALTER TABLE `" . DB_PERMISSIONSTABLE
-                        . "` ADD CONSTRAINT `permissions_to_users` "
-                        . "FOREIGN KEY (`userid`) REFERENCES `"
-                        . DB_USERSTABLE . "` (`userid`)  "
-                        . "ON DELETE CASCADE ON UPDATE CASCADE;"
-                    )
-                );
+                if ($database->type == 'postgresql') {
+                    $fkSql = "ALTER TABLE " . DB_PERMISSIONSTABLE
+                        . " ADD CONSTRAINT permissions_ibfk_1 "
+                        . "FOREIGN KEY (userid) REFERENCES #PREFIX#users (userid)  "
+                        . "ON DELETE CASCADE ON UPDATE CASCADE;";
+                } else {
+                    $fkSql = "ALTER TABLE `" . DB_PERMISSIONSTABLE
+                            . "` ADD CONSTRAINT `permissions_ibfk_1` "
+                            . "FOREIGN KEY (`userid`) REFERENCES `#PREFIX#users` (`userid`)  "
+                            . "ON DELETE CASCADE ON UPDATE CASCADE;";
+                }
+                $database->query($database->prepareQuery($fkSql));
             }
-            catch (Exception $exc) {
-                pramnos_logs::log($exc->getTraceAsString());
+            catch (\Exception $exc) {
+                 // Handle or log trace
             }
         }
     }
