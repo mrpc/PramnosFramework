@@ -199,6 +199,49 @@ $session->regenerateToken();
 
 ---
 
+### Security: Content Security Policy (CSP)
+
+Pramnos Framework provides built-in support for a **Nonce-based Content Security Policy**. This approach allows for a highly restrictive `script-src` and `style-src` while still permitting legitimate inline content throughout your application.
+
+#### 1. How It Works
+1.  **Nonce Generation**: A unique, cryptographically secure nonce is generated once per request in `Application::exec()`. This value is accessible via `Application::getInstance()->cspNonce`.
+2.  **Header Emission**: The `Content-Security-Policy` header is automatically sent to the browser before any content is rendered.
+3.  **Auto-Injection**: The framework's HTML rendering layer (`DocumentTypes\Html`) automatically post-processes the output to inject the `nonce` attribute into all:
+    -   Inline `<script>` tags (those without a `src` attribute).
+    -   Internal `<style>` tags.
+
+#### 2. Configuring CSP Domains
+While the framework provides secure defaults, you must explicitly whitelist external domains used by your application in `app/app.php` under the `csp` key:
+
+```php
+// app/app.php
+'csp' => [
+    'script-src' => [
+        'https://maps.googleapis.com',
+        'https://cdn.jsdelivr.net'
+    ],
+    'style-src' => [
+        'https://fonts.googleapis.com',
+        'https://cdnjs.cloudflare.com'
+    ],
+    'img-src' => [
+        'https://maps.gstatic.com',
+        'https://*.tile.openstreetmap.org'
+    ],
+    'font-src' => [
+        'https://fonts.gstatic.com'
+    ],
+    'connect-src' => [
+        'https://maps.googleapis.com'
+    ]
+]
+```
+
+#### 3. Apache Configuration
+When using the framework's built-in CSP, ensure you remove any manual `Content-Security-Policy` headers from your Apache `.htaccess` or VirtualHost files to prevent header duplication or conflicts.
+
+---
+
 ## Views and Templates
 
 ### View Structure

@@ -42,6 +42,7 @@ composer require mrpc/pramnosframework
 - **Permission System** - Granular access control and user permissions
 - **OAuth2 Support** - Built-in OAuth2 server capabilities
 - **CSRF Protection** - Request validation and security
+- **Nonce-based CSP** - Automatic Content Security Policy with per-request nonces
 
 ### 💾 Database & Caching
 - **Database Abstraction** - Support for MySQL, PostgreSQL
@@ -298,6 +299,16 @@ return [
             'version' => '3.6.0',
             'footer' => false
         ]
+    ],
+    /**
+     * Content Security Policy (CSP)
+     */
+    'csp' => [
+        'script-src' => ['https://maps.googleapis.com'],
+        'style-src' => ['https://fonts.googleapis.com'],
+        'font-src' => ['https://fonts.gstatic.com'],
+        'img-src' => ['https://maps.gstatic.com'],
+        'connect-src' => ['https://maps.googleapis.com']
     ]
 ];
 ```
