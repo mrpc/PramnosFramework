@@ -222,8 +222,9 @@ class Validator
                 return in_array((string) $value, $parameters, true);
 
             case 'csrf':
-                // CSRF must match the session token and the field value must be strictly '1'
-                return $value === '1' && $field === \Pramnos\Http\Session::getInstance()->getToken();
+                // CSRF must match the session token and the field value must match the fingerprint
+                $session = \Pramnos\Http\Session::getInstance();
+                return $field === $session->getToken() && $session->checkTokenValue($value);
 
             case 'url':
                 $normalized = self::checkLink($value);
@@ -396,8 +397,10 @@ class Validator
         if (function_exists('json_validate')) {
             return json_validate($string);
         }
+        // @codeCoverageIgnoreStart
         json_decode($string);
         return (json_last_error() === JSON_ERROR_NONE);
+        // @codeCoverageIgnoreEnd
     }
 
     /**

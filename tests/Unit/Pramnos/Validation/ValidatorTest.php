@@ -47,8 +47,9 @@ class ValidatorTest extends TestCase
     {
         $session = Session::getInstance();
         $token = $session->getToken();
+        $fingerprint = $session->getFingerprint();
         
-        $data = [$token => '1', 'name' => 'John'];
+        $data = [$token => $fingerprint, 'name' => 'John'];
         $rules = [
             $token => 'csrf',
             'name' => 'required'
@@ -65,9 +66,9 @@ class ValidatorTest extends TestCase
         
         $rules = [$token => 'csrf'];
         
-        // Wrong value
+        // Wrong value (the old value '1' is now invalid)
         try {
-            Validator::validate([$token => '0'], $rules);
+            Validator::validate([$token => '1'], $rules);
             $this->fail('Expected ValidationException was not thrown');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey($token, $e->errors());
@@ -75,7 +76,7 @@ class ValidatorTest extends TestCase
         
         // Wrong field name (using a different token)
         try {
-            Validator::validate(['wrong_token' => '1'], $rules);
+            Validator::validate(['wrong_token' => $session->getFingerprint()], $rules);
             $this->fail('Expected ValidationException was not thrown');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey($token, $e->errors());
@@ -309,5 +310,85 @@ class ValidatorTest extends TestCase
         $i1 = Validator::getInstance();
         $i2 = Validator::getInstance();
         $this->assertSame($i1, $i2);
+    }
+    public function testRequiredFieldExistsButIsEmpty()
+    {
+        $rules = ['name' => 'required'];
+        
+        $this->expectException(ValidationException::class);
+        Validator::validate(['name' => ''], $rules);
+    }
+
+    public function testRulesAsArray()
+    {
+        $data = ['name' => 'John'];
+        $rules = ['name' => ['required', 'string']];
+        
+        $validated = Validator::validate($data, $rules);
+        $this->assertEquals($data, $validated);
+    }
+
+    public function testUnsupportedTypesInMinMax()
+    {
+        // min with unsupported type
+        try {
+            Validator::validate(['v' => null], ['v' => 'min:5']);
+            $this->fail('Expected ValidationException was not thrown');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('v', $e->errors());
+        }
+
+        // max with unsupported type
+        try {
+            Validator::validate(['v' => (object)[]], ['v' => 'max:5']);
+            $this->fail('Expected ValidationException was not thrown');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('v', $e->errors());
+        }
+    }
+
+    public function testSkippingNonImplicitRulesForMissingFields()
+    {
+        $rules = ['email' => 'email'];
+        $data = [];
+        
+        $validated = Validator::validate($data, $rules);
+        $this->assertEmpty($validated);
+    }
+
+    public function testExplicitRequiredInsideLoop()
+    {
+        $rules = ['name' => 'required|string'];
+        $data = ['name' => 'John'];
+        
+        $validated = Validator::validate($data, $rules);
+        $this->assertEquals('John', $validated['name']);
+    }
+
+    public function testParseRulesWithPipeGaps()
+    {
+        $rules = ['name' => 'required| |string'];
+        $data = ['name' => 'John'];
+        
+        $validated = Validator::validate($data, $rules);
+        $this->assertEquals('John', $validated['name']);
+    }
+
+    public function testMissingFieldWithImplicitAndNonImplicitRules()
+    {
+        $session = Session::getInstance();
+        $token = $session->getToken();
+        
+        // Field is missing, but has both an implicit rule (csrf) and a non-implicit one (string)
+        $rules = [$token => 'csrf|string'];
+        $data = [];
+        
+        try {
+            Validator::validate($data, $rules);
+            $this->fail('Expected ValidationException was not thrown');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey($token, $e->errors());
+            // It should fail on CSRF, and skip the 'string' rule inside the loop
+        }
     }
 }
