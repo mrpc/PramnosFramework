@@ -426,7 +426,15 @@ class Request extends Base
         self::$action = $action;
 
         return $this;
+    }
 
+    /**
+     * Check if the current request is over HTTPS
+     * @return boolean
+     */
+    public function isHttps()
+    {
+        return isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on';
     }
 
     /**
@@ -473,9 +481,16 @@ class Request extends Base
         if ($time == 0) {
             $time = time() + 3600 * 24 * 14; //2 weeks
         }
-        #str_replace('index.php', '', $_SERVER['PHP_SELF'])
+
         if (!headers_sent()) {
-            return setcookie($name, $value, $time, '/');
+            return setcookie($name, (string)$value, [
+                'expires' => $time,
+                'path' => '/',
+                'domain' => '',
+                'secure' => $this->isHttps(),
+                'httponly' => true,
+                'samesite' => 'Lax'
+            ]);
         } else {
             return false;
         }
@@ -513,7 +528,7 @@ class Request extends Base
      * Set request controller
      * @deprecated since version 1.0
      * @param string $module
-     * @return string
+     * @return Request
      */
     public function setModule($module)
     {
@@ -659,7 +674,7 @@ class Request extends Base
      * Get old input from session and optionally clear it
      *
      * @param string|null $key
-     * @param null $default
+     * @param mixed|null $default
      * @return mixed
      */
     public function old($key = null, $default = null)

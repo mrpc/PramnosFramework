@@ -129,7 +129,75 @@ $doc = \Pramnos\Framework\Factory::getDocument();
 $doc->title = 'Browser Title';
 ```
 
+### Security: CSRF Protection
 
+Pramnos Framework includes built-in CSRF (Cross-Site Request Forgery) protection. It uses a session-stable, random parameter name to prevent malicious form submissions.
+
+#### 1. In your Template/View
+Use the `Session::getTokenField()` method to include the protection in your forms:
+
+```html
+<form action="<?php echo sURL; ?>User/save" method="POST">
+    <!-- This generates the hidden CSRF field -->
+    <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+    
+    <input type="text" name="username" />
+    <button type="submit">Save</button>
+</form>
+```
+
+#### 2. In your Controller (Option A: Direct Check)
+Validate the token before processing the POST data:
+
+```php
+public function save()
+{
+    $session = \Pramnos\Http\Session::getInstance();
+    
+    if (!$session->checkToken('POST')) {
+        $this->addError('Security token invalid or expired. Please try again.');
+        return $this->redirect(sURL . 'User/profile');
+    }
+    
+    // Process form data safely...
+}
+```
+
+#### 2. In your Controller (Option B: Validation Rule)
+You can also use the `csrf` validation rule for a cleaner approach:
+
+```php
+public function save()
+{
+    $request = new \Pramnos\Http\Request();
+    $session = \Pramnos\Http\Session::getInstance();
+    $token = $session->getToken();
+
+    $data = $request->validate([
+        $token => 'csrf', // Automated CSRF validation
+        'name' => 'required|string',
+    ]);
+    
+    // Continues only if validation (including CSRF) passes
+}
+```
+
+#### 3. Manual Token Regeneration
+For maximum security, you should regenerate the CSRF token after sensitive events like User Login or Logout:
+
+```php
+// After successful login
+$session = \Pramnos\Http\Session::getInstance();
+$session->regenerateToken();
+```
+
+> [!TIP]
+> The `Session::reset()` method automatically calls `regenerateToken()`, so resetting your session state for a new user also secures their future forms.
+
+> [!TIP]
+> The CSRF token is stable per session, meaning multiple tabs can be open simultaneously without breaking the protection.
+
+---
 
 ## Views and Templates
 
