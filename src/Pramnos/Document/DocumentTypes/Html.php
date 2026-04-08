@@ -119,6 +119,35 @@ class Html extends \Pramnos\Document\Document
         $content .= self::_getContent();
         $content .= $this->parse($this->foot);
         $content .= "\n</body>\n</html>";
+
+        /**
+         * Post-process the rendered HTML to inject CSP nonces into all 
+         * inline <script> and <style> tags. This ensures that manually 
+         * authored views and themes are automatically covered by the CSP.
+         */
+        $app = \Pramnos\Application\Application::getInstance();
+        if ($app && property_exists($app, 'cspNonce') && $app->cspNonce !== '') {
+            $nonce = htmlspecialchars($app->cspNonce, ENT_QUOTES);
+
+            // Inline <script> tags (no src= attribute)
+            $content = preg_replace_callback(
+                '/<script(?![^>]*\bsrc\s*=)([^>]*)>/i',
+                static function (array $matches) use ($nonce): string {
+                    return '<script nonce="' . $nonce . '"' . $matches[1] . '>';
+                },
+                $content
+            );
+
+            // Inline <style> blocks
+            $content = preg_replace_callback(
+                '/<style([^>]*)>/i',
+                static function (array $matches) use ($nonce): string {
+                    return '<style nonce="' . $nonce . '"' . $matches[1] . '>';
+                },
+                $content
+            );
+        }
+
         return $content;
     }
 

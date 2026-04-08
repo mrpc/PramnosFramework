@@ -18,6 +18,11 @@ class Application extends Base
 
     public $currentUser = null;
     /**
+     * Per-request CSP nonce. Generated once in exec() and used in render()
+     * @var string
+     */
+    public $cspNonce = '';
+    /**
      * Main Application Information
      * @var string
      */
@@ -459,6 +464,8 @@ class Application extends Base
      */
     public function exec($coontrollerName = '')
     {
+        $this->cspNonce = base64_encode(random_bytes(16));
+        $this->sendCspHeader();
         /*
          * Run any needed updates
          */
@@ -633,6 +640,63 @@ class Application extends Base
             }
         }
         return self::$appInstances[$app];
+    }
+
+    /**
+     * Build and send the Content-Security-Policy header.
+     * 
+     * This method constructs a CSP header string based on the application's
+     * configuration and the per-request nonce. It includes directives for
+     * script-src, style-src, img-src, etc., allowing for both secure
+     * defaults and application-specific overrides.
+     * 
+     * @return void
+     */
+    protected function sendCspHeader()
+    {
+        if (headers_sent()) {
+            return;
+        }
+
+        $csp = $this->applicationInfo['csp'] ?? [];
+
+        $policy = [
+            "default-src 'none'",
+            "manifest-src 'self'",
+            "script-src 'self' 'nonce-{$this->cspNonce}'" . $this->getCspDomains($csp, 'script-src'),
+            "style-src 'self' 'nonce-{$this->cspNonce}'" . $this->getCspDomains($csp, 'style-src'),
+            "style-src-attr 'unsafe-inline'",
+            "img-src 'self' data:" . $this->getCspDomains($csp, 'img-src'),
+            "font-src 'self'" . $this->getCspDomains($csp, 'font-src'),
+            "connect-src 'self'" . $this->getCspDomains($csp, 'connect-src'),
+            "frame-src 'self'",
+            "frame-ancestors 'self'",
+            "object-src 'none'",
+            "worker-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+            "upgrade-insecure-requests"
+        ];
+
+        header("Content-Security-Policy: " . implode('; ', $policy));
+    }
+
+    /**
+     * Helper to get domains from config for a specific CSP directive.
+     * 
+     * Extracts an array of domains from the 'csp' configuration array
+     * and joins them into a space-separated string.
+     * 
+     * @param array  $csp       The CSP configuration array.
+     * @param string $directive The directive name (e.g., 'script-src').
+     * @return string A space-prefixed string of domains, or empty string if none.
+     */
+    protected function getCspDomains(array $csp, string $directive): string
+    {
+        if (isset($csp[$directive]) && is_array($csp[$directive]) && !empty($csp[$directive])) {
+            return ' ' . implode(' ', $csp[$directive]);
+        }
+        return '';
     }
 
     /**
