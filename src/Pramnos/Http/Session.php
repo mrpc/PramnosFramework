@@ -22,6 +22,7 @@ class Session extends Base
      */
     public function getToken()
     {
+        $this->ensureStarted();
         return $this->_token;
     }
 
@@ -66,12 +67,33 @@ class Session extends Base
         }
     }
 
-    public function checkToken($method = 'request', $prefix = '')
+    /**
+     * Get a unique fingerprint for the current user's browser environment.
+     * Used as the value for CSRF tokens to prevent token reuse in different environments.
+     * @param bool $useIp Whether to include the IP address in the fingerprint (IP pinning)
+     * @return string
+     */
+    private function getFingerprint(bool $useIp = false): string
     {
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'none';
+        $ip = $useIp ? ($_SERVER['REMOTE_ADDR'] ?? 'none') : '';
+        return md5($ua . $ip . $this->_token);
+    }
+
+    /**
+     * Check if the CSRF token provided in the request is valid.
+     * @param string $method Request method (request, post, get, etc.)
+     * @param string $prefix Optional prefix for the token field name
+     * @param bool $useIpHash Whether to verify the IP fingerprint (IP pinning)
+     * @return bool
+     */
+    public function checkToken($method = 'request', $prefix = '', $useIpHash = false)
+    {
+        $this->ensureStarted();
         $request = new Request();
-        // Fixed: Now checks against the current token which is stable per session
         $token = $request->get($prefix . $this->_token, false, $method);
-        if ($token == '1') {
+        
+        if ($token === $this->getFingerprint($useIpHash)) {
             return true;
         } else {
             return false;
@@ -80,11 +102,13 @@ class Session extends Base
 
     /**
      * Returns a hidden input field for CSRF protection
+     * @param bool $useIpHash Whether to include the IP address in the fingerprint (IP pinning)
      * @return string
      */
-    public function getTokenField()
+    public function getTokenField($useIpHash = false)
     {
-        return '<input type="hidden" name="' . $this->_token . '" value="1" />';
+        $this->ensureStarted();
+        return '<input type="hidden" name="' . $this->_token . '" value="' . $this->getFingerprint($useIpHash) . '" />';
     }
 
     /**
@@ -94,9 +118,23 @@ class Session extends Base
      */
     public function regenerateToken(): void
     {
+        $this->ensureStarted();
         $_SESSION['token'] = bin2hex(random_bytes(5));
         $this->_token = $_SESSION['token'];
         $this->_lastToken = $_SESSION['token'];
+    }
+
+    /**
+     * Ensure the session is started and the CSRF token is initialized.
+     * This keeps the Session public API safe even if callers did not invoke
+     * start() explicitly before using token helpers.
+     * @return void
+     */
+    private function ensureStarted()
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE || empty($this->_token)) {
+            $this->start();
+        }
     }
 
 
