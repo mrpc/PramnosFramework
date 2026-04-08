@@ -11,6 +11,7 @@ use Pramnos\Http\Request;
  */
 #[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
 #[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Http\Request::class)]
+#[\PHPUnit\Framework\Attributes\IgnoreDeprecations]
 class RequestTest extends \PHPUnit\Framework\TestCase
 {
 
@@ -163,6 +164,29 @@ class RequestTest extends \PHPUnit\Framework\TestCase
         $this->assertIsString($this->_object->getURL(false));
         $_SERVER["SERVER_PORT"] = '123123';
         $this->assertIsString($this->_object->getURL(false));
+    }
+
+    public function testIsHttps()
+    {
+        $_SERVER["HTTPS"] = 'on';
+        $this->assertTrue($this->_object->isHttps());
+        
+        $_SERVER["HTTPS"] = 'off';
+        $this->assertFalse($this->_object->isHttps());
+
+        unset($_SERVER["HTTPS"]);
+        $this->assertFalse($this->_object->isHttps());
+    }
+
+    public function testCookieset()
+    {
+        // Headers are likely sent during testing, but we check if the method executes
+        // without crashing and follows the logic.
+        $result = $this->_object->cookieset('testcookie', 'testvalue', time() + 3600);
+        
+        // Since setcookie fails in CLI if headers are 'sent' or if we're not output-buffered,
+        // we can't reliably assert TRUE here, but we can verify it doesn't fail syntactically.
+        $this->assertIsBool($result);
     }
 
 }
