@@ -73,7 +73,7 @@ class Session extends Base
      * @param bool $useIp Whether to include the IP address in the fingerprint (IP pinning)
      * @return string
      */
-    private function getFingerprint(bool $useIp = false): string
+    public function getFingerprint(bool $useIp = false): string
     {
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'none';
         $ip = $useIp ? ($_SERVER['REMOTE_ADDR'] ?? 'none') : '';
@@ -93,11 +93,19 @@ class Session extends Base
         $request = new Request();
         $token = $request->get($prefix . $this->_token, false, $method);
         
-        if ($token === $this->getFingerprint($useIpHash)) {
-            return true;
-        } else {
-            return false;
-        }
+        return $this->checkTokenValue($token, $useIpHash);
+    }
+
+    /**
+     * Check if a given token value matches the session fingerprint.
+     * @param mixed $value The token value to verify
+     * @param bool $useIpHash Whether to verify the IP fingerprint (IP pinning)
+     * @return bool
+     */
+    public function checkTokenValue($value, $useIpHash = false): bool
+    {
+        $this->ensureStarted();
+        return $value === $this->getFingerprint($useIpHash);
     }
 
     /**
