@@ -137,8 +137,25 @@ class Session extends \Pramnos\Addon\Addon
         } else {
             $guest = 1;
             $uid = 'NULL';
-            $session->reset();
             $uname = "Anonymous";
+            if (!isset($_SESSION['logged'])) {
+                $_SESSION['logged'] = false;
+            }
+            if (!isset($_SESSION['uid'])) {
+                $_SESSION['uid'] = 1;
+            }
+            if (!isset($_SESSION['username'])) {
+                $_SESSION['username'] = '';
+            }
+            if (!isset($_SESSION['cookie'])) {
+                $_SESSION['cookie'] = 0;
+            }
+            if (!isset($_SESSION['remember'])) {
+                $_SESSION['remember'] = false;
+            }
+            if (!isset($_SESSION['language'])) {
+                $_SESSION['language'] = "english";
+            }
             
             // Bot detection optimization - using array of patterns
             $botPatterns = [
