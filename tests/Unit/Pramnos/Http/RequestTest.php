@@ -48,6 +48,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
     }
 
     
+    /**
+     * Test singleton instance retrieval
+     */
     public function testGetInstance()
     {
         $_GET['r'] = 'controller/action.html/option';
@@ -58,6 +61,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
     }
 
     
+    /**
+     * Test static factory create method
+     */
     public function testCreate()
     {
         $this->assertInstanceOf(
@@ -66,6 +72,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
     }
 
     
+    /**
+     * Test retrieval of the URL option segment
+     */
     public function testGetOption()
     {
         unset($_GET['_option']);
@@ -75,6 +84,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
     }
 
     
+    /**
+     * Test static retrieval of the URL option segment
+     */
     public function testStaticGetOption()
     {
         if (isset($_GET['_option'])) {
@@ -86,6 +98,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
     }
 
     
+    /**
+     * Test basic data retrieval from various sources
+     */
     public function testGet()
     {
         $_GET['test'] = 'test';
@@ -98,6 +113,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
     }
 
     
+    /**
+     * Test static data retrieval from various sources
+     */
     public function testStaticGet()
     {
         $this->assertEquals(
@@ -138,6 +156,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
     }
 
     
+    /**
+     * Test module (controller) getter and setter
+     */
     public function testGetAndSetModule()
     {
         $this->_object->setModule('test');
@@ -146,6 +167,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
     }
 
     
+    /**
+     * Test action getter and setter
+     */
     public function testSetAndGetAction()
     {
         $this->assertEquals('display', $this->_object->getAction());
@@ -156,6 +180,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
 
 
     
+    /**
+     * Test URL generation
+     */
     public function testGetURL()
     {
         $this->assertIsString($this->_object->getURL());
@@ -166,6 +193,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
         $this->assertIsString($this->_object->getURL(false));
     }
 
+    /**
+     * Test HTTPS protocol detection
+     */
     public function testIsHttps()
     {
         $_SERVER["HTTPS"] = 'on';
@@ -178,6 +208,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
         $this->assertFalse($this->_object->isHttps());
     }
 
+    /**
+     * Test cookie setting logic
+     */
     public function testCookieset()
     {
         // Headers are likely sent during testing, but we check if the method executes
@@ -189,4 +222,239 @@ class RequestTest extends \PHPUnit\Framework\TestCase
         $this->assertIsBool($result);
     }
 
+    /**
+     * Test basic cookie retrieval logic
+     */
+    public function testCookieget()
+    {
+        $cookiename = 'testcookie';
+        $value = 'testvalue';
+        
+        $realCookiename = str_rot13($cookiename);
+        $prefix = substr(md5('pcms'), 0, 10);
+        
+        $_COOKIE[$prefix][$realCookiename] = $value;
+        
+        $this->assertEquals($value, $this->_object->cookieget($cookiename));
+        $this->assertNull($this->_object->cookieget('nonexistent'));
+    }
+
+    /**
+     * Test URL parameter calculation with various segments
+     */
+    public function testCalcParams()
+    {
+        // Test with query string simulation
+        $_SERVER['REQUEST_URI'] = '/controller/action/param/value?extra=1';
+        $this->_object->calcParams('controller/action/param/value');
+        
+        $this->assertEquals('controller', $this->_object->getController());
+        $this->assertEquals('action', $this->_object->getAction());
+        $this->assertEquals('value', $_GET['param']);
+        $this->assertEquals('1', $_GET['extra']);
+
+        // Test with _option fallback
+        $this->_object->calcParams('controller/action/single-option');
+        $this->assertEquals('single-option', $_GET['_option']);
+    }
+
+    /**
+     * Test PUT and DELETE method data handling
+     */
+    public function testPutAndDeleteHandling()
+    {
+        // Test PUT with JSON
+        Request::setRawInput(json_encode(['foo' => 'bar']));
+        $_SERVER['REQUEST_METHOD'] = 'PUT';
+        $request = new Request();
+        
+        $this->assertEquals('bar', $request->get('foo', null, 'put'));
+        
+        // Test DELETE
+        Request::setRawInput('id=123');
+        $_SERVER['REQUEST_METHOD'] = 'DELETE';
+        $request = new Request();
+        
+        $this->assertEquals('123', $request->get('id', null, 'delete'));
+    }
+
+    /**
+     * Test JSON expansion from GET keys
+     */
+    public function testJsonInGetKeys()
+    {
+        // Feature: JSON encoded in GET keys is expanded
+        $jsonKey = str_replace(' ', '_', json_encode(['data' => 'expanded']));
+        $_GET[$jsonKey] = '1';
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        
+        $request = new Request();
+        $this->assertEquals('expanded', $request->get('data', null, 'get'));
+    }
+
+    /**
+     * Test all() and only() data helper methods
+     */
+    public function testAllAndOnlyMethods()
+    {
+        $_POST = ['a' => 1, 'b' => 2];
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $request = new Request();
+        
+        $this->assertEquals($_POST, $request->all());
+        $this->assertEquals($_POST, $request->all('post'));
+        $this->assertEquals(['a' => 1], $request->only(['a']));
+        
+        $_GET = ['x' => 10];
+        $this->assertEquals($_GET, $request->all('get'));
+    }
+
+    /**
+     * Test getArray() conversion to objects
+     */
+    public function testGetArray()
+    {
+        $_GET['data'] = ['key' => 'val'];
+        $result = $this->_object->getArray('data', null, 'get');
+        
+        $this->assertIsObject($result);
+        $this->assertEquals('val', $result->key);
+        
+        $this->assertEquals('fallback', $this->_object->getArray('none', 'fallback'));
+    }
+
+    /**
+     * Test loading and clearing flashed validation state
+     */
+    public function testValidationStateHandling()
+    {
+        // Reset static properties to force loading from session
+        $reflection = new \ReflectionClass(Request::class);
+        $errorsProp = $reflection->getProperty('validationErrors');
+        $errorsProp->setAccessible(true);
+        $errorsProp->setValue(null, null);
+        
+        $oldProp = $reflection->getProperty('oldInput');
+        $oldProp->setAccessible(true);
+        $oldProp->setValue(null, null);
+
+        $_SESSION['_validation_errors'] = ['field' => ['error']];
+        $_SESSION['_old_input'] = ['name' => 'John'];
+        
+        // Constructor loads state
+        $request = new Request();
+        
+        $this->assertEquals(['field' => ['error']], $request->errors());
+        $this->assertEquals('John', $request->old('name'));
+        $this->assertEquals(['name' => 'John'], $request->old());
+        
+        $request->clearValidationState();
+        $this->assertEmpty($request->errors());
+        $this->assertEmpty($request->old());
+        $this->assertArrayNotHasKey('_validation_errors', $_SESSION);
+    }
+
+    /**
+     * Test absolute URL generation with different ports
+     */
+    public function testGetURLWithDifferentPorts()
+    {
+        $_SERVER['REQUEST_URI'] = '/test';
+        $_SERVER['SERVER_NAME'] = 'example.com';
+        
+        $_SERVER['SERVER_PORT'] = '8080';
+        unset($_SERVER['HTTPS']);
+        $this->assertEquals('http://example.com:8080/test', $this->_object->getURL(false));
+        
+        $_SERVER['SERVER_PORT'] = '80';
+        $this->assertEquals('http://example.com/test', $this->_object->getURL(false));
+    }
+
+    /**
+     * Test the validate() helper method
+     */
+    public function testValidateHelper()
+    {
+        $_POST = ['name' => 'John'];
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $request = new Request();
+        
+        $validated = $request->validate(['name' => 'required'], [], [], 'post');
+        $this->assertEquals(['name' => 'John'], $validated);
+    }
+
+    /**
+     * Test URL parsing with odd number of segments
+     */
+    public function testCalcParamsWithOddParts()
+    {
+        // controller/action/param (odd number of parts after controller/action)
+        $_GET = [];
+        unset($_GET['_option']);
+        $this->_object->calcParams('controller/action/param');
+        
+        $this->assertArrayNotHasKey('param', $_GET);
+        $this->assertEquals('param', $_GET['_option']);
+    }
+
+    /**
+     * Test POST requests with JSON payloads
+     */
+    public function testPostWithJson()
+    {
+        $_POST = [];
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        Request::setRawInput(json_encode(['post_json' => 'ok']));
+        
+        $request = new Request();
+        $this->assertEquals('ok', $_POST['post_json']);
+    }
+
+    /**
+     * Test PUT requests with form-encoded data
+     */
+    public function testPutWithNonJson()
+    {
+        $_SERVER['REQUEST_METHOD'] = 'PUT';
+        Request::setRawInput('a=1&b=2');
+        
+        $request = new Request();
+        $this->assertEquals('1', $request->get('a', null, 'put'));
+    }
+
+    /**
+     * Test default cookie expiration time calculation
+     */
+    public function testCookiesetDefaultTime()
+    {
+        // Passing 0 as time should trigger default time calculation
+        $result = $this->_object->cookieset('default_time_cookie', 'val', 0);
+        $this->assertIsBool($result);
+    }
+
+    /**
+     * Test staticGet fallback behavior
+     */
+    public function testStaticGetDefaultCase()
+    {
+        $_REQUEST['def'] = 'val';
+        $this->assertEquals('val', Request::staticGet('def', null, 'UNKNOWN_METHOD'));
+    }
+
+    /**
+     * Test retrieving all data from various sources
+     */
+    public function testAllSourcesDetailed()
+    {
+        if (!isset($_SESSION)) {
+            $_SESSION = [];
+        }
+        if (!isset($_ENV)) {
+            $_ENV = [];
+        }
+        $sources = ['FILES', 'COOKIE', 'ENV', 'SESSION', 'SERVER'];
+        foreach ($sources as $source) {
+            $this->assertIsArray($this->_object->all($source));
+        }
+    }
 }

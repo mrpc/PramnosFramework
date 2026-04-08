@@ -19,6 +19,9 @@ class ValidatorTest extends TestCase
         Session::getInstance()->start();
     }
 
+    /**
+     * Test the 'required' validation rule
+     */
     public function testBasicRequiredRule()
     {
         $data = ['name' => 'John'];
@@ -31,6 +34,9 @@ class ValidatorTest extends TestCase
         Validator::validate([], $rules);
     }
 
+    /**
+     * Test 'string', 'min', and 'max' validation rules
+     */
     public function testStringAndMinMaxRules()
     {
         $data = ['name' => 'abc'];
@@ -43,6 +49,9 @@ class ValidatorTest extends TestCase
         Validator::validate(['name' => 'a'], $rules);
     }
 
+    /**
+     * Test successful CSRF token validation
+     */
     public function testCsrfRuleSuccess()
     {
         $session = Session::getInstance();
@@ -59,6 +68,9 @@ class ValidatorTest extends TestCase
         $this->assertEquals($data, $validated);
     }
 
+    /**
+     * Test CSRF token validation failures
+     */
     public function testCsrfRuleFailure()
     {
         $session = Session::getInstance();
@@ -83,6 +95,9 @@ class ValidatorTest extends TestCase
         }
     }
 
+    /**
+     * Test the 'url' validation rule
+     */
     public function testUrlRule()
     {
         $rules = ['website' => 'url'];
@@ -97,6 +112,9 @@ class ValidatorTest extends TestCase
         Validator::validate(['website' => 'not-a-url'], $rules);
     }
 
+    /**
+     * Test the 'json' validation rule
+     */
     public function testJsonRule()
     {
         $rules = ['data' => 'json'];
@@ -109,6 +127,9 @@ class ValidatorTest extends TestCase
         Validator::validate(['data' => 'not-json'], $rules);
     }
 
+    /**
+     * Test legacy static helper methods directly
+     */
     public function testLegacyMethods()
     {
         $this->assertEquals('test@example.com', Validator::checkEmail(' TEST@example.com '));
@@ -122,6 +143,9 @@ class ValidatorTest extends TestCase
         $this->assertFalse(Validator::checkLink('invalid'));
     }
 
+    /**
+     * Test compatibility with the legacy Validator class wrapper
+     */
     public function testLegacyWrapper()
     {
         // Testing that the legacy namespace class still works (delegating to the new one)
@@ -135,6 +159,9 @@ class ValidatorTest extends TestCase
         $this->assertInstanceOf(\Pramnos\General\Validator::class, $instance);
     }
 
+    /**
+     * Test that using the legacy class triggers a deprecation notice
+     */
     public function testDeprecationNotice()
     {
         $deprecatedMessage = '';
@@ -149,6 +176,9 @@ class ValidatorTest extends TestCase
         $this->assertStringContainsString('Pramnos\General\Validator is deprecated', $deprecatedMessage);
     }
 
+    /**
+     * Test the 'between' validation rule for numbers and strings
+     */
     public function testBetweenRule()
     {
         $rules = ['age' => 'between:18,99', 'name' => 'between:3,10'];
@@ -182,6 +212,9 @@ class ValidatorTest extends TestCase
         }
     }
 
+    /**
+     * Test coverage for various basic validation rules (boolean, numeric, integer, in)
+     */
     public function testRulesCoverage()
     {
         $rules = [
@@ -224,6 +257,9 @@ class ValidatorTest extends TestCase
         } catch (ValidationException $e) {}
     }
 
+    /**
+     * Test 'min' and 'max' rules with both numbers and arrays
+     */
     public function testMinMaxWithArraysAndNumbers()
     {
         // Numeric
@@ -254,6 +290,9 @@ class ValidatorTest extends TestCase
         try { Validator::validate(['v' => null], ['v' => 'min:5']); $this->fail(); } catch(ValidationException $e){}
     }
 
+    /**
+     * Test custom validation messages and attribute names
+     */
     public function testCustomMessagesAndAttributes()
     {
         $rules = ['email_address' => 'required|email'];
@@ -274,6 +313,9 @@ class ValidatorTest extends TestCase
         }
     }
 
+    /**
+     * Test the 'nullable' rule behavior
+     */
     public function testNullableBehavior()
     {
         $rules = ['bio' => 'nullable|string|min:10'];
@@ -287,12 +329,18 @@ class ValidatorTest extends TestCase
         $this->assertEquals('A long enough bio string', $validated['bio']);
     }
 
+    /**
+     * Test behavior when an unknown validation rule is encountered
+     */
     public function testUnknownRule()
     {
         $this->expectException(\InvalidArgumentException::class);
         Validator::validate(['f' => 'v'], ['f' => 'unknown_rule']);
     }
 
+    /**
+     * Test various edge cases for direct helper methods
+     */
     public function testHelperEdgeCases()
     {
         // checkEmail sanitization (filter_var)
@@ -311,6 +359,9 @@ class ValidatorTest extends TestCase
         $i2 = Validator::getInstance();
         $this->assertSame($i1, $i2);
     }
+    /**
+     * Test that fields present in data but empty trigger required validation
+     */
     public function testRequiredFieldExistsButIsEmpty()
     {
         $rules = ['name' => 'required'];
@@ -319,6 +370,9 @@ class ValidatorTest extends TestCase
         Validator::validate(['name' => ''], $rules);
     }
 
+    /**
+     * Test that rules can be passed as an array
+     */
     public function testRulesAsArray()
     {
         $data = ['name' => 'John'];
@@ -328,6 +382,9 @@ class ValidatorTest extends TestCase
         $this->assertEquals($data, $validated);
     }
 
+    /**
+     * Test validation behavior with unsupported data types
+     */
     public function testUnsupportedTypesInMinMax()
     {
         // min with unsupported type
@@ -347,6 +404,9 @@ class ValidatorTest extends TestCase
         }
     }
 
+    /**
+     * Test that non-implicit rules are skipped when fields are missing
+     */
     public function testSkippingNonImplicitRulesForMissingFields()
     {
         $rules = ['email' => 'email'];
@@ -356,6 +416,9 @@ class ValidatorTest extends TestCase
         $this->assertEmpty($validated);
     }
 
+    /**
+     * Test required rule processing within the main rule loop
+     */
     public function testExplicitRequiredInsideLoop()
     {
         $rules = ['name' => 'required|string'];
@@ -365,6 +428,9 @@ class ValidatorTest extends TestCase
         $this->assertEquals('John', $validated['name']);
     }
 
+    /**
+     * Test parsing of rules with extra whitespace or empty segments
+     */
     public function testParseRulesWithPipeGaps()
     {
         $rules = ['name' => 'required| |string'];
@@ -374,6 +440,9 @@ class ValidatorTest extends TestCase
         $this->assertEquals('John', $validated['name']);
     }
 
+    /**
+     * Test missing fields that contain a mix of implicit and regular rules
+     */
     public function testMissingFieldWithImplicitAndNonImplicitRules()
     {
         $session = Session::getInstance();
