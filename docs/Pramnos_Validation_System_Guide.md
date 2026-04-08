@@ -151,16 +151,52 @@ Rules are declared as strings separated by `|`.
 | `numeric` | The field must be numeric |
 | `min:x` | Minimum numeric value or minimum string length |
 | `max:x` | Maximum numeric value or maximum string length |
+| `between:min,max` | Value or length must be within the specified interval |
 | `in:a,b,c` | The field value must be one of the allowed values |
+| `csrf` | The security token must be valid for the session |
+| `url` | The field must be a valid URL format |
+| `json` | The field must be a valid JSON string |
+
+### Rule Details
+
+#### `min`, `max`, and `between`
+These rules are type-aware and adapt their behavior based on the input:
+- **Strings**: Validates the **number of characters** (using `mb_strlen`).
+- **Numbers**: Validates the **numeric value**.
+- **Arrays**: Validates the **number of elements** in the array.
+
+| Rule | String Example | Numeric Example | Array Example |
+|------|----------------|-----------------|---------------|
+| `min:3` | At least 3 chars | Value >= 3 | At least 3 items |
+| `max:10` | At most 10 chars | Value <= 10 | At most 10 items |
+| `between:1,5` | 1 to 5 chars | Value from 1 to 5 | 1 to 5 items |
+
+#### `csrf`
+The `csrf` rule verifies the security token for the request. Because Pramnos uses dynamic parameter names for CSRF tokens, the rule automatically verifies that:
+1. The field name matches the current session token (`Session::getToken()`).
+2. The field value is set to `'1'`.
+
+*Note: This rule requires an active session.*
+
+#### `url`
+Validates that the input is a valid URL. It automatically adds `http://` if a protocol is missing (e.g., `google.com` becomes `http://google.com`).
+
+#### `json`
+Validates that the input is a valid JSON string. Uses `json_validate()` on PHP 8.3+ for better performance.
 
 ### Example
 
 ```php
+$session = \Pramnos\Http\Session::getInstance();
+$token = $session->getToken();
+
 $request->validate([
+    $token => 'csrf', // Dynamic CSRF validation
     'name' => 'required|string|min:3|max:255',
     'type' => 'required|integer|in:0,1',
     'interval' => 'nullable|integer|min:0',
-    'value' => 'nullable|numeric',
+    'value' => 'nullable|numeric|between:0,100',
+    'website' => 'nullable|url',
 ]);
 ```
 

@@ -118,7 +118,7 @@ class Helpers
     /**
      * Get time with time difference
      * @param int  $time
-     * @param real $difference
+     * @param float $difference
      * @return integer
      */
     public static function getTime($time = NULL, $difference = 0)
@@ -220,7 +220,7 @@ class Helpers
     /**
      *
      * @param string $agent
-     * @return type
+     * @return object
      */
     public static function getBrowser($agent) {
 
@@ -695,7 +695,7 @@ class Helpers
      * Find a percentage
      * @param int $numAmount
      * @param int $numTotal
-     * @return null|int
+     * @return null|string
      */
     public static function percent($numAmount, $numTotal)
     {
@@ -817,7 +817,7 @@ class Helpers
      */
     public static function checkJSON($string)
     {
-        return \Pramnos\General\Validator::isJson($string);
+        return \Pramnos\Validation\Validator::isJson($string);
     }
 
     /**

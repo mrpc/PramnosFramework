@@ -1,0 +1,313 @@
+<?php
+
+namespace Pramnos\Tests\Unit\Validation;
+
+use PHPUnit\Framework\TestCase;
+use Pramnos\Validation\Validator;
+use Pramnos\Validation\ValidationException;
+use Pramnos\Http\Session;
+
+#[\PHPUnit\Framework\Attributes\CoversClass(Validator::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\General\Validator::class)]
+#[\PHPUnit\Framework\Attributes\IgnoreDeprecations]
+class ValidatorTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        // Mock session for CSRF testing
+        $_SESSION = [];
+        Session::getInstance()->start();
+    }
+
+    public function testBasicRequiredRule()
+    {
+        $data = ['name' => 'John'];
+        $rules = ['name' => 'required'];
+        
+        $validated = Validator::validate($data, $rules);
+        $this->assertEquals($data, $validated);
+        
+        $this->expectException(ValidationException::class);
+        Validator::validate([], $rules);
+    }
+
+    public function testStringAndMinMaxRules()
+    {
+        $data = ['name' => 'abc'];
+        $rules = ['name' => 'string|min:2|max:5'];
+        
+        $validated = Validator::validate($data, $rules);
+        $this->assertEquals($data, $validated);
+        
+        $this->expectException(ValidationException::class);
+        Validator::validate(['name' => 'a'], $rules);
+    }
+
+    public function testCsrfRuleSuccess()
+    {
+        $session = Session::getInstance();
+        $token = $session->getToken();
+        
+        $data = [$token => '1', 'name' => 'John'];
+        $rules = [
+            $token => 'csrf',
+            'name' => 'required'
+        ];
+        
+        $validated = Validator::validate($data, $rules);
+        $this->assertEquals($data, $validated);
+    }
+
+    public function testCsrfRuleFailure()
+    {
+        $session = Session::getInstance();
+        $token = $session->getToken();
+        
+        $rules = [$token => 'csrf'];
+        
+        // Wrong value
+        try {
+            Validator::validate([$token => '0'], $rules);
+            $this->fail('Expected ValidationException was not thrown');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey($token, $e->errors());
+        }
+        
+        // Wrong field name (using a different token)
+        try {
+            Validator::validate(['wrong_token' => '1'], $rules);
+            $this->fail('Expected ValidationException was not thrown');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey($token, $e->errors());
+        }
+    }
+
+    public function testUrlRule()
+    {
+        $rules = ['website' => 'url'];
+        
+        $validated = Validator::validate(['website' => 'https://google.com'], $rules);
+        $this->assertEquals('https://google.com', $validated['website']);
+        
+        $validated = Validator::validate(['website' => 'google.com'], $rules);
+        $this->assertEquals('http://google.com', $validated['website']);
+        
+        $this->expectException(ValidationException::class);
+        Validator::validate(['website' => 'not-a-url'], $rules);
+    }
+
+    public function testJsonRule()
+    {
+        $rules = ['data' => 'json'];
+        
+        $json = json_encode(['foo' => 'bar']);
+        $validated = Validator::validate(['data' => $json], $rules);
+        $this->assertEquals($json, $validated['data']);
+        
+        $this->expectException(ValidationException::class);
+        Validator::validate(['data' => 'not-json'], $rules);
+    }
+
+    public function testLegacyMethods()
+    {
+        $this->assertEquals('test@example.com', Validator::checkEmail(' TEST@example.com '));
+        $this->assertFalse(Validator::checkEmail('invalid-email'));
+        
+        $this->assertTrue(Validator::isJson('{"a":1}'));
+        $this->assertFalse(Validator::isJson('not json'));
+        
+        $this->assertEquals('http://google.com', Validator::checkLink('google.com'));
+        $this->assertEquals('https://google.com', Validator::checkLink('https://google.com'));
+        $this->assertFalse(Validator::checkLink('invalid'));
+    }
+
+    public function testLegacyWrapper()
+    {
+        // Testing that the legacy namespace class still works (delegating to the new one)
+        $this->assertEquals('test@example.com', \Pramnos\General\Validator::checkEmail('test@example.com'));
+        $this->assertTrue(\Pramnos\General\Validator::isJson('[]'));
+        $this->assertEquals('http://google.com', \Pramnos\General\Validator::checkLink('google.com'));
+        
+        // Testing singleton compatibility
+        $instance = \Pramnos\General\Validator::getInstance();
+        $this->assertInstanceOf(\Pramnos\Validation\Validator::class, $instance);
+        $this->assertInstanceOf(\Pramnos\General\Validator::class, $instance);
+    }
+
+    public function testDeprecationNotice()
+    {
+        $deprecatedMessage = '';
+        set_error_handler(function($errno, $errstr) use (&$deprecatedMessage) {
+            $deprecatedMessage = $errstr;
+            return true;
+        }, E_USER_DEPRECATED);
+
+        \Pramnos\General\Validator::checkEmail('test@example.com');
+        restore_error_handler();
+
+        $this->assertStringContainsString('Pramnos\General\Validator is deprecated', $deprecatedMessage);
+    }
+
+    public function testBetweenRule()
+    {
+        $rules = ['age' => 'between:18,99', 'name' => 'between:3,10'];
+        
+        // Success
+        $validated = Validator::validate(['age' => 25, 'name' => 'John'], $rules);
+        $this->assertEquals(25, $validated['age']);
+        
+        // Failure - Numeric
+        try {
+            Validator::validate(['age' => 17], ['age' => 'between:18,99']);
+            $this->fail('Expected ValidationException was not thrown');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('age', $e->errors());
+        }
+        
+        // Failure - String
+        try {
+            Validator::validate(['name' => 'Jo'], ['name' => 'between:3,10']);
+            $this->fail('Expected ValidationException was not thrown');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('name', $e->errors());
+        }
+
+        // Invalid parameters (should fail validation gracefully)
+        try {
+            Validator::validate(['v' => 10], ['v' => 'between:10']);
+            $this->fail('Expected ValidationException was not thrown');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('v', $e->errors());
+        }
+    }
+
+    public function testRulesCoverage()
+    {
+        $rules = [
+            'is_valid' => 'boolean',
+            'score'    => 'numeric',
+            'count'    => 'integer',
+            'category' => 'in:a,b,c'
+        ];
+
+        $data = [
+            'is_valid' => '1',
+            'score'    => '10.5',
+            'count'    => '10',
+            'category' => 'b'
+        ];
+
+        $validated = Validator::validate($data, $rules);
+        $this->assertEquals('1', $validated['is_valid']);
+        $this->assertEquals('10.5', $validated['score']);
+        
+        // Failure cases
+        try {
+            Validator::validate(['score' => 'not-numeric'], ['score' => 'numeric']);
+            $this->fail();
+        } catch (ValidationException $e) {}
+
+        try {
+            Validator::validate(['count' => 'not-int'], ['count' => 'integer']);
+            $this->fail();
+        } catch (ValidationException $e) {}
+
+        try {
+            Validator::validate(['is_valid' => 'not-bool'], ['is_valid' => 'boolean']);
+            $this->fail();
+        } catch (ValidationException $e) {}
+
+        try {
+            Validator::validate(['category' => 'd'], ['category' => 'in:a,b,c']);
+            $this->fail();
+        } catch (ValidationException $e) {}
+    }
+
+    public function testMinMaxWithArraysAndNumbers()
+    {
+        // Numeric
+        $v1 = Validator::validate(['v' => 10], ['v' => 'min:5']);
+        $this->assertEquals(10, $v1['v']);
+        
+        $v2 = Validator::validate(['v' => 5], ['v' => 'max:10']);
+        $this->assertEquals(5, $v2['v']);
+        
+        // Array
+        $v3 = Validator::validate(['v' => [1,2,3]], ['v' => 'min:2']);
+        $this->assertCount(3, $v3['v']);
+        
+        $v4 = Validator::validate(['v' => [1]], ['v' => 'max:2']);
+        $this->assertCount(1, $v4['v']);
+
+        // Failures
+        try { Validator::validate(['v' => 4], ['v' => 'min:5']); $this->fail(); } catch(ValidationException $e){}
+        try { Validator::validate(['v' => 11], ['v' => 'max:10']); $this->fail(); } catch(ValidationException $e){}
+        try { Validator::validate(['v' => [1]], ['v' => 'min:2']); $this->fail(); } catch(ValidationException $e){}
+        try { Validator::validate(['v' => [1,2,3]], ['v' => 'max:2']); $this->fail(); } catch(ValidationException $e){}
+        
+        // Invalid non-numeric parameters for min/max
+        try { Validator::validate(['v' => 10], ['v' => 'min:abc']); $this->fail(); } catch(ValidationException $e){ $this->assertArrayHasKey('v', $e->errors()); }
+        try { Validator::validate(['v' => 1], ['v' => 'max:abc']); $this->fail(); } catch(ValidationException $e){ $this->assertArrayHasKey('v', $e->errors()); }
+        
+        // Unsupported types for min/max
+        try { Validator::validate(['v' => null], ['v' => 'min:5']); $this->fail(); } catch(ValidationException $e){}
+    }
+
+    public function testCustomMessagesAndAttributes()
+    {
+        $rules = ['email_address' => 'required|email'];
+        $messages = ['email_address.required' => 'We need your :attribute!'];
+        $attributes = ['email_address' => 'official email'];
+
+        try {
+            Validator::validate([], $rules, $messages, $attributes);
+        } catch (ValidationException $e) {
+            $this->assertEquals('We need your official email!', $e->errors()['email_address'][0]);
+        }
+
+        // Generic rule message
+        try {
+            Validator::validate(['f' => 'not-email'], ['f' => 'email'], ['email' => 'BAD EMAIL']);
+        } catch (ValidationException $e) {
+            $this->assertEquals('BAD EMAIL', $e->errors()['f'][0]);
+        }
+    }
+
+    public function testNullableBehavior()
+    {
+        $rules = ['bio' => 'nullable|string|min:10'];
+        
+        // Exists but null/empty
+        $validated = Validator::validate(['bio' => ''], $rules);
+        $this->assertEquals('', $validated['bio']);
+        
+        // Exists and valid
+        $validated = Validator::validate(['bio' => 'A long enough bio string'], $rules);
+        $this->assertEquals('A long enough bio string', $validated['bio']);
+    }
+
+    public function testUnknownRule()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        Validator::validate(['f' => 'v'], ['f' => 'unknown_rule']);
+    }
+
+    public function testHelperEdgeCases()
+    {
+        // checkEmail sanitization (filter_var)
+        $this->assertEquals('test@example.com', Validator::checkEmail('test@example.com '));
+        
+        // isJson
+        $this->assertTrue(Validator::isJson('{"key":"value"}'));
+        $this->assertFalse(Validator::isJson('invalid'));
+
+        // checkLink edge cases
+        $this->assertFalse(Validator::checkLink('google')); // No dot
+        $this->assertFalse(Validator::checkLink('invalid-url-$$$'));
+        
+        // getInstance
+        $i1 = Validator::getInstance();
+        $i2 = Validator::getInstance();
+        $this->assertSame($i1, $i2);
+    }
+}

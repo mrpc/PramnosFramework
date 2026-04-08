@@ -69,12 +69,34 @@ class Session extends Base
     public function checkToken($method = 'request', $prefix = '')
     {
         $request = new Request();
-        $token = $request->get($prefix . $this->_lastToken, false, $method);
+        // Fixed: Now checks against the current token which is stable per session
+        $token = $request->get($prefix . $this->_token, false, $method);
         if ($token == '1') {
             return true;
         } else {
             return false;
         }
+    }
+
+    /**
+     * Returns a hidden input field for CSRF protection
+     * @return string
+     */
+    public function getTokenField()
+    {
+        return '<input type="hidden" name="' . $this->_token . '" value="1" />';
+    }
+
+    /**
+     * Manually regenerates the CSRF token.
+     * Useful after login, logout, or other sensitive operations.
+     * @return void
+     */
+    public function regenerateToken(): void
+    {
+        $_SESSION['token'] = bin2hex(random_bytes(5));
+        $this->_token = $_SESSION['token'];
+        $this->_lastToken = $_SESSION['token'];
     }
 
 
@@ -89,7 +111,7 @@ class Session extends Base
     {
         //Override the normal session status if we are in unit testing
         //and set the global $unittesting_logged to true
-        if (defined('UNITTESTING') && UNITTESTING == true) {
+        if (defined('UNITTESTING') && constant('UNITTESTING') == true) {
             global $unittesting_logged;
             if (isset($unittesting_logged)
                     && $unittesting_logged == true) {
@@ -106,7 +128,7 @@ class Session extends Base
 
     /**
      * Check if user is logged in or not
-     * @return type
+     * @return boolean
      */
     public function isLogged()
     {
@@ -115,7 +137,7 @@ class Session extends Base
 
     /**
      * Factory method
-     * @staticvar null $instance
+     * @staticvar Session|null $instance
      * @return Session
      */
     public static function &getInstance()
@@ -134,13 +156,26 @@ class Session extends Base
     function start()
     {
         if (session_id() == '' && !headers_sent()) {
+            $secure = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on');
+            session_set_cookie_params([
+                'lifetime' => 0,
+                'path' => '/',
+                'domain' => '',
+                'secure' => $secure,
+                'httponly' => true,
+                'samesite' => 'Lax'
+            ]);
             @session_start();
         }
-        $this->_token = substr(md5(time() . getUrl()), 0, 10);
-        if (isset($_SESSION['token'])) {
-            $this->_lastToken = $_SESSION['token'];
+
+        // Generate a stable token per session to support multiple tabs
+        if (!isset($_SESSION['token'])) {
+            $_SESSION['token'] = bin2hex(random_bytes(5));
         }
-        $_SESSION['token'] = $this->_token;
+        
+        $this->_token = $_SESSION['token'];
+        $this->_lastToken = $_SESSION['token'];
+        
         return session_id();
     }
 
@@ -157,7 +192,7 @@ class Session extends Base
         if (isset($_SESSION['language']) == false) {
             $_SESSION['language'] = "english";
         }
-
+        $this->regenerateToken();
     }
 
 
