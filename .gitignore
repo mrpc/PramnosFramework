@@ -22,3 +22,4 @@ desktop.ini
 .phpunit.result.cache
 /coverage
 /var/*
+/coverage.xml
