@@ -34,9 +34,9 @@
 
     },
     "bin": "bin/pramnos",
+    "config": {
+        "platform-check": false
+    },
     "scripts": {
-        "post-create-project-cmd": [
-            "@php bin/pramnos init"
-        ]
     }
 }
