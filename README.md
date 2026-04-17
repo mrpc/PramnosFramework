@@ -24,9 +24,21 @@ For comprehensive documentation, please refer to:
 
 ## Installation
 
+The recommended way to start a new project is using the **Pramnos Application**, which provides a one-line setup experience:
+
 ```bash
-composer require mrpc/pramnosframework
+composer create-project mrpc/PramnosApplication my-app
 ```
+
+Alternatively, you can manually add the framework as a dependency to an existing project:
+
+```bash
+mkdir my-app && cd my-app
+composer require mrpc/pramnosframework
+php vendor/bin/pramnos init
+```
+
+The `init` command will guide you through the setup with smart defaults (e.g., automatic namespace generation and database naming).
 
 ## ✨ Key Features
 
@@ -426,6 +438,20 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - Write tests for new features
 - Update documentation when adding features
 - Use the existing code style and patterns
+
+### Testing Changes Locally
+
+If you are developing the framework and want to test the full "new project" experience locally:
+
+1. Navigate to your projects directory (which should contain both `PramnosFramework` and `PramnosApplication` folders):
+   ```bash
+   cd ~/projects
+   ```
+2. Run `create-project` using the **PramnosApplication** template:
+   ```bash
+   composer create-project --repository='{"type": "path", "url": "PramnosApplication", "options": {"symlink": false}}' mrpc/pramnos-application:dev-main test-app
+   ```
+   *This command uses your local template version, which in turn pulls your local framework version, allowing you to test the end-to-end initialization flow.*
 
 ## 🆘 Support
 

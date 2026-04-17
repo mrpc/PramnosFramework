@@ -45,6 +45,7 @@ class Application extends \Symfony\Component\Console\Application
      */
     protected function registerCommands()
     {
+        $this->add(new \Pramnos\Console\Commands\Init());
         $this->add(new \Pramnos\Console\Commands\Create());
         $this->add(new \Pramnos\Console\Commands\Serve());
         $this->add(new \Pramnos\Console\Commands\MigrateLogs());
