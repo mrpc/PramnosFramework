@@ -27,7 +27,7 @@ For comprehensive documentation, please refer to:
 The recommended way to start a new project is using the **Pramnos Application**, which provides a one-line setup experience:
 
 ```bash
-composer create-project mrpc/PramnosApplication my-app
+composer create-project mrpc/pramnos-application my-app
 ```
 
 Alternatively, you can manually add the framework as a dependency to an existing project:
