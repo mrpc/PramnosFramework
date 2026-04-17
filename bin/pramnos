@@ -16,12 +16,17 @@ foreach ($possibleAutoloadPaths as $possibleAutoloadPath) {
 }
 
 if (!defined('ROOT')) {
-    // Check if we are running from a vendor directory (installed as dependency)
-    if (strpos(__FILE__, DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR) !== false) {
-        // If we are in vendor/mrpc/pramnosframework/bin/pramnos
+    $cwd = getcwd();
+    // Path if we are in a project that has us as a dependency (handles symlinks)
+    $projectVendorPath = $cwd . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'mrpc' . DIRECTORY_SEPARATOR . 'pramnosframework';
+    
+    if (file_exists($projectVendorPath)) {
+        define('ROOT', $cwd);
+    } elseif (strpos(__FILE__, DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR) !== false) {
+        // Standard installation (non-symlinked vendor)
         define('ROOT', dirname(__DIR__, 4));
     } else {
-        // We are in the framework repository itself (local dev)
+        // Local framework development repository
         define('ROOT', dirname(__DIR__));
     }
 }

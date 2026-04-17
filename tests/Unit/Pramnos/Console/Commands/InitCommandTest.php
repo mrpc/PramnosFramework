@@ -143,16 +143,31 @@ class InitCommandTest extends TestCase
             '2'             // Memcached
         ]);
 
+        // Pre-create a dummy composer.json to test modification
+        file_put_contents($this->tempDir . '/composer.json', json_encode([
+            'name' => 'mrpc/pramnos-application',
+            'autoload' => ['psr-4' => ['PramnosSkeleton\\' => 'src/']],
+            'scripts' => ['post-create-project-cmd' => ['@php vendor/bin/pramnos init']]
+        ]));
+
         $commandTester->execute([]);
 
         $composeContent = file_get_contents($this->tempDir . '/docker-compose.yml');
         $this->assertStringContainsString('image: postgres:latest', $composeContent);
         $this->assertStringContainsString('image: memcached:latest', $composeContent);
         $this->assertStringContainsString('8085:80', $composeContent);
+        $this->assertStringContainsString('container_name: pgmemapp_php', $composeContent);
+        $this->assertStringContainsString('container_name: pgmemapp_db', $composeContent);
         
         $settings = include($this->tempDir . '/app/config/settings.php');
         $this->assertEquals('postgresql', $settings['database']['type']);
         $this->assertEquals('pg_', $settings['database']['prefix']);
+
+        // Verify composer.json was updated
+        $composer = json_decode(file_get_contents($this->tempDir . '/composer.json'), true);
+        $this->assertEquals('app/pg-mem-app', $composer['name']);
+        $this->assertEquals('PGMemApp\\', array_key_first($composer['autoload']['psr-4']));
+        $this->assertArrayNotHasKey('post-create-project-cmd', $composer['scripts'] ?? []);
     }
 
     public function test_it_handles_no_cache_no_tests()
