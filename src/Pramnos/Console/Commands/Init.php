@@ -65,7 +65,7 @@ class Init extends Command
 
         // 2. Database Config
         $randomPass = bin2hex(random_bytes(10));
-        $dbType = $helper->ask($input, $output, new ChoiceQuestion('Database Type: ', ['mysql', 'postgresql', 'timescaledb'], 3));
+        $dbType = $helper->ask($input, $output, new ChoiceQuestion('Database Type: ', ['mysql', 'postgresql', 'timescaledb'], 2));
         $dbHost = $helper->ask($input, $output, new Question('Database Host [localhost]: ', 'localhost'));
         
         $dbSuffix = strtolower(str_replace(['-', ' '], '_', $appName));
