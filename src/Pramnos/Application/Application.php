@@ -614,9 +614,11 @@ class Application extends Base
             }
             try {
                 if ($app == 'default') {
-                    $tmpConfig = require APP_PATH . DS . 'app.php';
+                    $configFile = APP_PATH . DS . 'app.php';
+                    $tmpConfig = file_exists($configFile) ? require $configFile : ['namespace' => 'Pramnos'];
                 } else {
-                    $tmpConfig = require APP_PATH . DS . $app . '.php';
+                    $configFile = APP_PATH . DS . $app . '.php';
+                    $tmpConfig = file_exists($configFile) ? require $configFile : ['namespace' => 'Pramnos'];
                 }
 
                 if (isset($tmpConfig['namespace'])) {
