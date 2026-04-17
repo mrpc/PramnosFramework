@@ -439,19 +439,11 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - Update documentation when adding features
 - Use the existing code style and patterns
 
-### Testing Changes Locally
+If you are developing the framework and want to test the full "new project" experience locally, you can use this one-liner (adjust `APP_NAME` and the path to `PramnosFramework` as needed):
 
-If you are developing the framework and want to test the full "new project" experience locally:
-
-1. Navigate to your projects directory (which should contain both `PramnosFramework` and `PramnosApplication` folders):
-   ```bash
-   cd ~/projects
-   ```
-2. Run `create-project` using the **PramnosApplication** template:
-   ```bash
-   composer create-project --repository='{"type": "path", "url": "PramnosApplication", "options": {"symlink": false}}' mrpc/pramnos-application:dev-main test-app
-   ```
-   *This command uses your local template version, which in turn pulls your local framework version, allowing you to test the end-to-end initialization flow.*
+```bash
+APP_NAME=test-app; mkdir $APP_NAME && cd $APP_NAME && composer init -n && composer config version dev-main && composer config minimum-stability dev && composer config repositories.pramnos path ../PramnosFramework && composer require mrpc/pramnosframework:dev-main && php vendor/bin/pramnos init
+```
 
 ## 🆘 Support
 

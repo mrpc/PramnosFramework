@@ -24,6 +24,12 @@ class Init extends Command
     public $targetBaseDir;
 
     /**
+     * Whether the automated composer dump-autoload succeeded.
+     * @var bool
+     */
+    private $autoloadSuccess = true;
+
+    /**
      * Configure the command metadata.
      */
     protected function configure()
@@ -84,7 +90,7 @@ class Init extends Command
  
         if ($useDocker) {
             $dockerPort = $helper->ask($input, $output, new Question('Local mapping port [8080]: ', 8080));
-            $cacheSystem = $helper->ask($input, $output, new ChoiceQuestion('Cache System: ', ['none', 'redis', 'memcached'], 2));
+            $cacheSystem = $helper->ask($input, $output, new ChoiceQuestion('Cache System: ', ['none', 'redis', 'memcached'], 1));
         }
 
         // 4. Tests setup - Always Y as requested
@@ -136,13 +142,22 @@ class Init extends Command
             $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker);
         }
 
+        // --- Finalize Metadata ---
+        $this->updateComposerJson($appName, $namespace);
+
         $output->writeln("\n<info>Project initialized successfully!</info>");
         $output->writeln("Next steps:");
         if ($useDocker) {
             $output->writeln(" 1. Run <comment>docker-compose up -d</comment>");
             $output->writeln(" 2. Access your app at <comment>http://localhost:$dockerPort</comment>");
             $output->writeln(" 3. Use <comment>./dockerbash</comment> to enter the container");
+            if (!$this->autoloadSuccess) {
+                $output->writeln(" 4. <warning>Warning: Autoloader sync failed.</warning> Run <comment>composer dump-autoload</comment> manually.");
+            }
         } else {
+            if (!$this->autoloadSuccess) {
+                $output->writeln(" 1. <warning>Warning: Autoloader sync failed.</warning> Run <comment>composer dump-autoload</comment> manually.");
+            }
             $output->writeln(" 1. Configure your web server to point to the <comment>www/</comment> directory.");
             $output->writeln(" 2. Run <comment>php bin/pramnos serve</comment> (if implemented).");
         }
@@ -235,14 +250,15 @@ PHP;
         
         $dbService = ($dbType === 'mysql') ? 'mysql' : 'postgres';
         $isPostgres = ($dbType === 'postgresql' || $dbType === 'timescaledb');
+        $slug = strtolower(str_replace([' ', '_'], '-', $namespace));
         
-        $compose = "services:\n  app:\n    build: .\n    ports:\n      - \"$port:80\"\n    volumes:\n      - .:/var/www/html/" . strtolower($namespace) . "\n    depends_on:\n      - db\n";
+        $compose = "services:\n  app:\n    container_name: {$slug}_php\n    build: .\n    ports:\n      - \"$port:80\"\n    volumes:\n      - .:/var/www/html/" . strtolower($namespace) . "\n    depends_on:\n      - db\n";
         
         if ($cacheSystem !== 'none') {
             $compose .= "      - cache\n";
         }
 
-        $compose .= "  db:\n    image: $image\n    environment:\n";
+        $compose .= "  db:\n    container_name: {$slug}_db\n    image: $image\n    environment:\n";
         if ($isPostgres) {
             $compose .= "      POSTGRES_DB: $dbName\n      POSTGRES_USER: $dbUser\n      POSTGRES_PASSWORD: $dbPass\n";
         } else {
@@ -250,7 +266,7 @@ PHP;
         }
 
         if ($cacheSystem !== 'none') {
-            $compose .= "  cache:\n    image: $cacheSystem:latest\n";
+            $compose .= "  cache:\n    container_name: {$slug}_cache\n    image: $cacheSystem:latest\n";
         }
 
         $this->writeFile('docker-compose.yml', $compose);
@@ -406,5 +422,59 @@ XML;
 
         $exampleTest = "<?php\nnamespace Tests\Unit;\n\nuse Tests\BaseTestCase;\n\nclass ExampleTest extends BaseTestCase\n{\n    public function test_it_works()\n    {\n        \$this->assertTrue(true);\n    }\n}\n";
         $this->writeFile('tests/Unit/ExampleTest.php', $exampleTest);
+    }
+
+    /**
+     * Update the project's composer.json with actual project metadata.
+     * 
+     * @param string $appName
+     * @param string $namespace
+     */
+    private function updateComposerJson($appName, $namespace)
+    {
+        $composerPath = $this->targetBaseDir . '/composer.json';
+        if (!file_exists($composerPath)) {
+            return;
+        }
+
+        $composer = json_decode(file_get_contents($composerPath), true);
+        if (!$composer) {
+            return;
+        }
+
+        // Slugify app name for package name
+        $slug = strtolower(str_replace([' ', '_'], '-', $appName));
+        
+        $composer['name'] = "app/$slug";
+        $composer['description'] = "Pramnos Application: $appName";
+        
+        // Update autoloading
+        if (!isset($composer['autoload'])) {
+            $composer['autoload'] = ['psr-4' => []];
+        }
+        
+        $composer['autoload']['psr-4'] = [
+            "$namespace\\" => "src/"
+        ];
+
+        // Remove the initialization script from the project
+        if (isset($composer['scripts']['post-create-project-cmd'])) {
+            unset($composer['scripts']['post-create-project-cmd']);
+        }
+        
+        // Clean up keywords and potentially other template-only fields
+        $composer['keywords'] = ['pramnos', 'framework', 'application', $slug];
+
+        file_put_contents($composerPath, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        // Automatically run composer dump-autoload to sync the new namespace
+        echo "\n<info>Regenerating autoloader...</info>\n";
+        $output = [];
+        $resultCode = 0;
+        @exec('composer dump-autoload 2>&1', $output, $resultCode);
+        
+        if ($resultCode !== 0) {
+            $this->autoloadSuccess = false;
+        }
     }
 }
