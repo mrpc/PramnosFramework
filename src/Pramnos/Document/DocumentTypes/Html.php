@@ -55,17 +55,31 @@ class Html extends \Pramnos\Document\Document
 
 
 
-        $this->proccessHeader();
+        $this->processHeader();
         \Pramnos\Addon\Addon::doAction('send_headers');
         if (!headers_sent()) {
-            header('Content-type: text/html; charset=' . $lang->_('CHARSET'));
+            $contentCharset = $lang->_('CHARSET');
+            if ($contentCharset === 'CHARSET') {
+                $contentCharset = 'UTF-8';
+            }
+            header('Content-type: text/html; charset=' . $contentCharset);
+        }
+
+        $langShort = $lang->_('LangShort');
+        if ($langShort === 'LangShort') {
+            $langShort = 'en';
+        }
+
+        $charset = $lang->_('CHARSET');
+        if ($charset === 'CHARSET') {
+            $charset = 'UTF-8';
         }
 
         $content = '<!doctype html>
-<html ' . $this->extraHtmlTag . ' lang="' . $lang->_('LangShort') . '" xmlns:og="http://ogp.me/ns#"
+<html ' . $this->extraHtmlTag . ' lang="' . $langShort . '" xmlns:og="http://ogp.me/ns#"
     xmlns:fb="https://www.facebook.com/2008/fbml">
     <head class="no-js" ' . $this->headContent . '>
-        <meta charset="' . $lang->_('CHARSET') . '">
+        <meta charset="' . $charset . '">
         <title>' . $this->title . '</title>
         <meta name="description" content="' . $this->description . '" />
         <meta property="og:title" content="' . $this->og_title . '" />

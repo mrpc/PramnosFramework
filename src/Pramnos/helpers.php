@@ -171,12 +171,14 @@ if (!function_exists("getUrl")) {
             $s = 's';
         }
         $port = '';
-        if ($_SERVER["SERVER_PORT"] == "80"
-            || $_SERVER["SERVER_PORT"] == "443"
+        $serverPort = $_SERVER["SERVER_PORT"] ?? null;
+        if ($serverPort == "80"
+            || $serverPort == "443"
+            || $serverPort === null
         ) {
             $port = '';
         } else {
-            $port = ":" . $_SERVER["SERVER_PORT"];
+            $port = ":" . $serverPort;
         }
         if (isset($_SERVER['SERVER_NAME'])) {
             $url = 'http' . $s . "://"

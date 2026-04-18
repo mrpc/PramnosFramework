@@ -1953,6 +1953,7 @@ class Database extends \Pramnos\Framework\Base
     public function query($sql, $cache = false,
         $cachetime = 60, $category = "", $dieOnFatalError = false, $skipDataFix = false)
     {
+        $sql = str_replace('#PREFIX#', $this->prefix, $sql);
         $cacheData = false;
         $cacheInstance = null;
         // Check if caching is enabled for this query

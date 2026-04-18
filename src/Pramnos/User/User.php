@@ -11,8 +11,8 @@ namespace Pramnos\User;
 class User extends \Pramnos\Framework\Base
 {
 
-    private $_userstable = DB_USERSTABLE;
-    private $_userdetailstable = DB_USERSTABLE;
+    private $_userstable = null;
+    private $_userdetailstable = null;
     /**
      * User ID
      * @var int
@@ -92,6 +92,12 @@ class User extends \Pramnos\Framework\Base
         }
         else {
             return $this->load($userid);
+        }
+        if ($this->_userstable === null) {
+            $this->_userstable = defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users';
+        }
+        if ($this->_userdetailstable === null) {
+            $this->_userdetailstable = defined('DB_USERDETAILSTABLE') ? DB_USERDETAILSTABLE : '#PREFIX#userdetails';
         }
         parent::__construct();
     }
@@ -1349,7 +1355,8 @@ class User extends \Pramnos\Framework\Base
                     userid bigint NOT NULL REFERENCES #PREFIX#users(userid) ON DELETE CASCADE ON UPDATE CASCADE,
                     groupid integer NOT NULL REFERENCES #PREFIX#usergroups(groupid) ON DELETE CASCADE ON UPDATE CASCADE,
                     PRIMARY KEY (userid, groupid)
-                );"
+                );",
+                "INSERT INTO #PREFIX#users (userid, username, active) VALUES (1, 'Guest', 1) ON CONFLICT (userid) DO NOTHING;"
             ];
         } else {
             $statements = [
@@ -1400,7 +1407,8 @@ class User extends \Pramnos\Framework\Base
                   KEY `groupid` (`groupid`),
                   FOREIGN KEY (`userid`) REFERENCES `#PREFIX#users` (`userid`) ON DELETE CASCADE ON UPDATE CASCADE,
                   FOREIGN KEY (`groupid`) REFERENCES `#PREFIX#usergroups` (`groupid`) ON DELETE CASCADE ON UPDATE CASCADE
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Users to groups';"
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Users to groups';",
+                "INSERT IGNORE INTO `#PREFIX#users` (`userid`, `username`, `active`) VALUES (1, 'Guest', 1);"
             ];
         }
 

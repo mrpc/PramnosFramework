@@ -54,10 +54,47 @@ class Document extends \Pramnos\Framework\Base
      */
     public $themeObject;
     public $breadcrumb = NULL;
+    /**
+     * Registered scripts
+     * @var array
+     */
     protected $_js = array();
+
+    /**
+     * Registered stylesheets
+     * @var array
+     */
     protected $_css = array();
+
+    /**
+     * Queued assets for enqueuing
+     * @var array
+     */
     protected $_queue = array();
+
+    /**
+     * Temporary buffer for enqueued head assets
+     * @var string
+     */
     protected $_queueContent = '';
+    /**
+     * Enqueued Style content (CSS links)
+     * @var string
+     */
+    protected $_cssContent = '';
+
+    /**
+     * Enqueued Script content (JS tags for head)
+     * @var string
+     */
+    protected $_jsContent = '';
+
+    /**
+     * Flag to prevent double processing of header queue.
+     * 
+     * @var boolean
+     */
+    protected $_headerProcessed = false;
 
     /**
      * Object constructor. It registers all default scripts and stylesheets.
@@ -426,10 +463,18 @@ class Document extends \Pramnos\Framework\Base
     }
 
     /**
-     * Proccess JS and CSS queues
+     * Process JS and CSS queues to prepare them for rendering.
+     * 
+     * This method resolves dependencies and populates the CSS and JS buffers.
+     * It ensures the queue is only processed once.
+     * 
+     * @return $this
      */
-    protected function proccessHeader()
+    protected function processHeader()
     {
+        if ($this->_headerProcessed) {
+            return $this;
+        }
 
         if (isset($this->_queue['css'])) {
             foreach ($this->_queue['css'] as $key => $css) {
@@ -447,7 +492,35 @@ class Document extends \Pramnos\Framework\Base
         }
 
         $this->header = $this->_queueContent . $this->header;
+        $this->_headerProcessed = true;
         return $this;
+    }
+
+    /**
+     * Render and echo the enqueued CSS links.
+     * 
+     * @return void
+     */
+    public function renderCss()
+    {
+        $this->processHeader();
+        echo $this->_cssContent;
+    }
+
+    /**
+     * Render and echo the enqueued JavaScript tags.
+     * 
+     * Normally called in the footer to output all enqueued scripts,
+     * including those specifically marked for the head (if not already rendered)
+     * and those marked for the footer.
+     * 
+     * @return void
+     */
+    public function renderJs()
+    {
+        $this->processHeader();
+        echo $this->_jsContent;
+        echo $this->foot;
     }
 
     /**
@@ -479,10 +552,12 @@ class Document extends \Pramnos\Framework\Base
                         . $script
                         . "\"></script>";
                 } else {
-                    $this->_queueContent .= "\n        "
+                    $tag = "\n        "
                         . "<script type=\"text/javascript\" src=\""
                         . $script
                         . "\"></script>";
+                    $this->_queueContent .= $tag;
+                    $this->_jsContent .= $tag;
                 }
                 $this->_js[$handle]['loaded'] = true;
             }
@@ -517,19 +592,21 @@ class Document extends \Pramnos\Framework\Base
                     $this->_enqueueStyle($dep);
                 }
                 if ($media != '') {
-                    $this->_queueContent .= "\n        "
+                    $tag = "\n        "
                         . "<link rel=\"stylesheet\" id=\""
                         . $handle . "\" href=\""
                         . $this->_css[$handle]['src']
                         . "\" type=\"text/css\" media=\""
                         . $this->_css[$handle]['media'] . "\" />";
                 } else {
-                    $this->_queueContent .= "\n        "
+                    $tag = "\n        "
                         . "<link rel=\"stylesheet\" id=\""
                         . $handle . "\" href=\""
                         . $this->_css[$handle]['src']
                         . "\" type=\"text/css\"  />";
                 }
+                $this->_queueContent .= $tag;
+                $this->_cssContent .= $tag;
                 $this->_css[$handle]['loaded'] = true;
             } else {
                 return $this;

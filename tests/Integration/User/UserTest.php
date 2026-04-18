@@ -24,11 +24,16 @@ class UserTest extends TestCase
         // Explicitly load test settings
         $settingsFile = \ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php';
         \Pramnos\Application\Settings::loadSettings($settingsFile);
+        \Pramnos\Application\Application::getInstance();
 
         $this->db = \Pramnos\Framework\Factory::getDatabase();
         if (!$this->db->connected) {
             $this->db->connect();
         }
+
+        // Clear Guest user to ensure seeding logic in setupDb triggers predictably
+        $userTable = defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users';
+        $this->db->query("DELETE FROM " . $userTable . " WHERE userid = 1");
 
         \Pramnos\User\User::setupDb();
 
