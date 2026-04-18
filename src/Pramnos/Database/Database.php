@@ -495,7 +495,7 @@ class Database extends \Pramnos\Framework\Base
             return 'Could not connect to PostgreSQL database';
         }
 
-        $message = \mysqli_connect_error();
+        $message = function_exists('mysqli_connect_error') ? \mysqli_connect_error() : null;
         if ($message) {
             return $message;
         }
