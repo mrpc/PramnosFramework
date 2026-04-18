@@ -259,7 +259,7 @@ class InitCommandTest extends TestCase
             '',             // App Name (ENTER -> my-auto-app)
             '',             // Namespace (ENTER -> MyAutoApp)
             'n',            // Setup Docker (n)
-            '0',            // DB Type (mysql)
+            '',             // DB Type (ENTER -> now TimescaleDB/postgresql)
             'localhost',    // Host
             '',             // DB Name (ENTER -> my_auto_app_db)
             '',             // DB User (ENTER -> my_auto_app_user)
@@ -270,6 +270,8 @@ class InitCommandTest extends TestCase
         $commandTester->execute([]);
 
         $settings = include($specificDir . '/app/config/settings.php');
+        $this->assertEquals('postgresql', $settings['database']['type']);
+        $this->assertTrue($settings['database']['timescale']);
         $this->assertEquals('my_auto_app_db', $settings['database']['database']);
         $this->assertEquals('my_auto_app_user', $settings['database']['user']);
         

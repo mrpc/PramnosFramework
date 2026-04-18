@@ -116,7 +116,7 @@ class Init extends Command
         if ($dbTypeOption !== null) {
             $dbType = $dbTypeOption;
         } else {
-            $dbType = $helper->ask($input, $output, new ChoiceQuestion('Database Type: ', $dbTypeChoices, 0)); // Changed default to 0 (mysql) for better compatibility
+            $dbType = $helper->ask($input, $output, new ChoiceQuestion('Database Type: ', $dbTypeChoices, 2)); // Default to TimescaleDB
         }
         
         $defaultDbHost = $useDocker ? 'db' : 'localhost';
@@ -342,8 +342,8 @@ PHP;
         $docRoot = "/var/www/html/www";
         
         $dockerfile = "FROM php:8.4-apache\n";
-        $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev git unzip\n";
-        $dockerfile .= "RUN docker-php-ext-install pdo $phpExts intl\n";
+        $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev libonig-dev libzip-dev git unzip\n";
+        $dockerfile .= "RUN docker-php-ext-install pdo $phpExts intl mbstring zip bcmath\n";
         $dockerfile .= "RUN a2enmod rewrite\n";
         $dockerfile .= "ENV APACHE_DOCUMENT_ROOT $docRoot\n";
         $dockerfile .= "RUN sed -ri -e 's!/var/www/html!$docRoot!g' /etc/apache2/sites-available/*.conf\n";
