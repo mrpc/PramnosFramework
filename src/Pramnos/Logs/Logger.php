@@ -10,9 +10,14 @@ namespace Pramnos\Logs;
 class Logger
 {
     /**
-     * Default log directory paths
+     * Get the default log directory path.
+     * 
+     * @return string
      */
-    private const DEFAULT_LOG_PATH = LOG_PATH . DS . 'logs';
+    private static function getDefaultLogPath(): string
+    {
+        return \LOG_PATH . \DS . 'logs';
+    }
 
     /**
      * Log levels based on PSR-3 standards
@@ -31,11 +36,11 @@ class Logger
      */
     private static function ensureLogDirectories(): void
     {
-        if (!file_exists(LOG_PATH)) {
-            @mkdir(LOG_PATH, 0777, true);
+        if (!file_exists(\LOG_PATH)) {
+            @mkdir(\LOG_PATH, 0777, true);
         }
-        if (!file_exists(self::DEFAULT_LOG_PATH)) {
-            @mkdir(self::DEFAULT_LOG_PATH, 0777, true);
+        if (!file_exists(self::getDefaultLogPath())) {
+            @mkdir(self::getDefaultLogPath(), 0777, true);
         }
     }
 
@@ -103,7 +108,7 @@ class Logger
             }
         }
 
-        $filepath = self::DEFAULT_LOG_PATH . DS . $file . '.' . $ext;
+        $filepath = self::getDefaultLogPath() . \DS . $file . '.' . $ext;
         $formattedEntry = self::formatLogEntry($message, $context) . "\n";
 
         if ($startoffile && file_exists($filepath)) {
@@ -343,7 +348,7 @@ class Logger
         bool $rotate = true,
         int $maxBackups = 5
     ): bool {
-        $filepath = self::DEFAULT_LOG_PATH . DS . $file . '.' . $ext;
+        $filepath = self::getDefaultLogPath() . \DS . $file . '.' . $ext;
         
         if (!file_exists($filepath)) {
             return false;
@@ -420,7 +425,7 @@ class Logger
      */
     public static function clearLog(string $file, string $ext = 'log'): bool
     {
-        $filepath = self::DEFAULT_LOG_PATH . DS . $file . '.' . $ext;
+        $filepath = self::getDefaultLogPath() . \DS . $file . '.' . $ext;
         
         if (!file_exists($filepath)) {
             return false;
@@ -437,6 +442,6 @@ class Logger
      */
     public static function getLogPath(string $file, string $ext = 'log'): string
     {
-        return self::DEFAULT_LOG_PATH . DS . $file . '.' . $ext;
+        return self::getDefaultLogPath() . \DS . $file . '.' . $ext;
     }
 }

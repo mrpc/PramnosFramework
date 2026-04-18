@@ -25,6 +25,18 @@ class Init extends Command
     public $targetBaseDir;
 
     /**
+     * Whether to skip the actual docker-compose up command (useful for tests).
+     * @var bool
+     */
+    public $skipDockerRun = false;
+
+    /**
+     * Whether the automated docker-compose up command succeeded.
+     * @var bool
+     */
+    private $dockerSuccess = false;
+
+    /**
      * Whether the automated composer dump-autoload succeeded.
      * @var bool
      */
@@ -140,17 +152,36 @@ class Init extends Command
         // 4. Tests setup - Always Y as requested
         $useTests = true;
 
+        // 5. Author Info
+        $userName = $helper->ask($input, $output, new Question("<question>Enter Project Author Name:</question> ", 'Pramnos Developer'));
+        
+        $userEmail = '';
+        while (true) {
+            $userEmail = $helper->ask($input, $output, new Question("<question>Enter Project Author Email:</question> ", 'developer@pramnos.com'));
+            if (\Pramnos\Validation\Validator::checkEmail($userEmail)) {
+                break;
+            }
+            $output->writeln("<error>Invalid email address. Please try again.</error>");
+        }
+
+        $dbRootPass = bin2hex(random_bytes(10));
+
         $output->writeln("\n<info>Scaffolding project structure...</info>");
 
         // --- Scaffold Directories ---
         // Create the basic directory structure for a Pramnos application
         $this->mkdir('www');
+        $this->mkdir('www/assets');
+        $this->mkdir('www/assets/css');
+        $this->mkdir('www/assets/js');
+        $this->mkdir('www/assets/img');
         $this->mkdir('src/Controllers');
         $this->mkdir('src/Models');
         $this->mkdir('src/Views/home');
         $this->mkdir('app/config');
         $this->mkdir('app/Migrations');
         $this->mkdir('app/themes/default');
+        $this->mkdir('app/language');
         $this->mkdir('var/cache');
         $this->mkdir('var/logs');
 
@@ -160,7 +191,10 @@ class Init extends Command
         $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true);
         
         // app/app.php
-        $this->writeFile('app/app.php', "<?php\nreturn [\n    'namespace' => '$namespace',\n    'theme' => 'default',\n    'csp' => [\n        'script-src' => [],\n        'style-src' => []\n    ]\n];\n");
+        $this->writeFile('app/app.php', "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n    'csp' => [\n        'script-src' => [],\n        'style-src' => []\n    ]\n];\n");
+
+        // app/language/en.php
+        $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
 
         // www/index.php
         $this->writeFile('www/index.php', $this->getIndexTemplate());
@@ -172,7 +206,7 @@ class Init extends Command
         $this->writeFile('src/Application.php', "<?php\nnamespace $namespace;\n\nclass Application extends \\Pramnos\\Application\\Application\n{\n}\n");
 
         // src/Controllers/Home.php
-        $this->writeFile('src/Controllers/Home.php', "<?php\nnamespace $namespace\\Controllers;\n\nuse Pramnos\\Application\\Controller;\n\nclass Home extends Controller\n{\n    public function display()\n    {\n        \$view = \$this->getView('home');\n        return \$view->display('home');\n    }\n}\n");
+        $this->writeFile('src/Controllers/Home.php', "<?php\nnamespace $namespace\\Controllers;\n\nuse Pramnos\\Application\\Controller;\n\nclass Home extends Controller\n{\n    public function display()\n    {\n        \$doc = \Pramnos\Framework\Factory::getDocument();\n        \$doc->title = 'Welcome to ' . \\Pramnos\\Application\\Application::getInstance()->applicationInfo['name'];\n        \$view = \$this->getView('home');\n        return \$view->display('home');\n    }\n}\n");
 
         // src/Views/home/home.html.php
         $this->writeFile('src/Views/home/home.html.php', "<h1>Welcome to $appName</h1>\n<p>Your Pramnos project is ready.</p>\n");
@@ -182,7 +216,7 @@ class Init extends Command
 
         // --- Docker ---
         if ($useDocker) {
-            $this->scaffoldDocker($namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem);
+            $this->scaffoldDocker($namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem, $dbRootPass);
         }
 
         // --- Tests ---
@@ -191,23 +225,53 @@ class Init extends Command
         }
 
         // --- Finalize Metadata ---
-        $this->updateComposerJson($appName, $namespace, $output);
+        $this->updateComposerJson($appName, $namespace, $userName, $userEmail, $output);
 
         $output->writeln("\n<info>Project initialized successfully!</info>");
-        $output->writeln("Next steps:");
+        if ($useDocker && !$this->skipDockerRun) {
+            $this->dockerSuccess = ($this->runProcessWithSpinner('docker-compose up -d --build 2>/dev/null', "Starting Docker environment", $output) === 0);
+            
+            if ($this->dockerSuccess) {
+                // Sync dependencies INSIDE the container where all PHP extensions are present
+                // Use full composer update to ensure vendor/ is populated
+                $syncStatus = $this->runProcessWithSpinner('docker-compose exec -T app composer update --no-interaction 2>/dev/null', "Syncing dependencies (in container)", $output);
+                $syncAutoloadStatus = $this->runProcessWithSpinner('docker-compose exec -T app composer dump-autoload --no-interaction 2>/dev/null', "Regenerating autoloader (in container)", $output);
+                
+                if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {
+                    $this->autoloadSuccess = false;
+                }
+            }
+        } elseif (!$useDocker) {
+            // Fallback for non-docker setup: run on host
+            $syncStatus = $this->runProcessWithSpinner('composer update --no-interaction --ignore-platform-reqs 2>/dev/null', "Syncing dependencies", $output);
+            $syncAutoloadStatus = $this->runProcessWithSpinner('composer dump-autoload --no-interaction 2>/dev/null', "Regenerating autoloader", $output);
+            
+            if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {
+                $this->autoloadSuccess = false;
+            }
+        }
+        
+        $output->writeln("\nNext steps:");
+        $steps = [];
+        
         if ($useDocker) {
-            $output->writeln(" 1. Run <comment>docker-compose up -d</comment>");
-            $output->writeln(" 2. Access your app at <comment>http://localhost:$dockerPort</comment>");
-            $output->writeln(" 3. Use <comment>./dockerbash</comment> to enter the container");
-            if (!$this->autoloadSuccess) {
-                $output->writeln(" 4. <warning>Warning: Autoloader sync failed.</warning> Run <comment>composer dump-autoload</comment> manually.");
+            if (!$this->dockerSuccess && !$this->skipDockerRun) {
+                $steps[] = "Run <comment>docker-compose up -d --build</comment>";
             }
-        } else {
-            if (!$this->autoloadSuccess) {
-                $output->writeln(" 1. <warning>Warning: Autoloader sync failed.</warning> Run <comment>composer dump-autoload</comment> manually.");
-            }
-            $output->writeln(" 1. Configure your web server to point to the <comment>www/</comment> directory.");
-            $output->writeln(" 2. Run <comment>php bin/pramnos serve</comment> (if implemented).");
+            $steps[] = "Access your app at <comment>http://localhost:$dockerPort</comment>";
+            $toolPort = (int)$dockerPort + 1;
+            $toolName = ($dbType === 'mysql') ? 'PHPMyAdmin' : 'Adminer';
+            $steps[] = "Access $toolName at <comment>http://localhost:$toolPort</comment>";
+            $steps[] = "Use <comment>./dockerbash</comment> to enter the container";
+            $steps[] = "Database Info:\n    User: <comment>$dbUser</comment> / Pass: <comment>$dbPass</comment>" . ($dbType === 'mysql' ? "\n    Root Pass: <comment>$dbRootPass</comment>" : "");
+        }
+        
+        if (!$this->autoloadSuccess) {
+            $steps[] = "<warning>Warning: Autoloader sync failed.</warning> Run <comment>composer dump-autoload</comment> manually.";
+        }
+
+        foreach ($steps as $index => $step) {
+            $output->writeln(" " . ($index + 1) . ". $step");
         }
 
         return 0;
@@ -254,7 +318,7 @@ class Init extends Command
         $realType = ($type === 'timescaledb') ? 'postgresql' : $type;
         $timescaleFlag = ($type === 'timescaledb') ? ",\n        'timescale' => true" : "";
         
-        $content = "<?php\nreturn [\n    'database' => [\n        'type' => '$realType',\n        'hostname' => '$host',\n        'database' => '$name',\n        'user' => '$user',\n        'password' => '$pass',\n        'prefix' => '$prefix'$timescaleFlag\n    ],\n    'development' => " . ($dev ? 'true' : 'false') . ",\n    'forcessl' => false\n];\n";
+        $content = "<?php\nreturn [\n    'database' => [\n        'type' => '$realType',\n        'hostname' => '$host',\n        'database' => '$name',\n        'user' => '$user',\n        'password' => '$pass',\n        'prefix' => '$prefix'$timescaleFlag\n    ],\n    'dbsettings' => false,\n    'language' => 'en',\n    'development' => " . ($dev ? 'true' : 'false') . ",\n    'forcessl' => false\n];\n";
         $this->writeFile($path, $content);
     }
 
@@ -290,7 +354,7 @@ PHP;
      * @param string $dbPass Database password
      * @param string $cacheSystem Cache system (none, redis, memcached)
      */
-    private function scaffoldDocker($namespace, $port, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem)
+    private function scaffoldDocker($namespace, $port, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem, $dbRootPass)
     {
         $image = 'postgres:latest';
         if ($dbType === 'timescaledb') {
@@ -325,15 +389,33 @@ PHP;
             $compose .= "      - cache\n";
         }
 
-        $compose .= "  db:\n    container_name: {$slug}_db\n    image: $image\n    environment:\n";
+        $compose .= "  db:\n    container_name: {$slug}_db\n    image: $image\n";
+        
+        if ($dbType === 'mysql') {
+            $compose .= "    volumes:\n      - ./docker/mysql-init:/docker-entrypoint-initdb.d\n";
+        }
+
+        $compose .= "    environment:\n";
         if ($isPostgres) {
             $compose .= "      POSTGRES_DB: $dbName\n      POSTGRES_USER: $dbUser\n      POSTGRES_PASSWORD: $dbPass\n";
         } else {
-            $compose .= "      MYSQL_DATABASE: $dbName\n      MYSQL_USER: $dbUser\n      MYSQL_PASSWORD: $dbPass\n      MYSQL_ROOT_PASSWORD: $dbPass\n";
+            $compose .= "      MYSQL_DATABASE: $dbName\n      MYSQL_USER: $dbUser\n      MYSQL_PASSWORD: $dbPass\n      MYSQL_ROOT_PASSWORD: $dbRootPass\n";
+            $compose .= "    command: mysqld --default-authentication-plugin=mysql_native_password --sql_mode=\"NO_AUTO_VALUE_ON_ZERO\" --general-log=1 --general-log-file=/var/lib/mysql/general-log.log\n";
+            
+            // Generate initialization script to grant permissions for test databases
+            $this->mkdir('docker/mysql-init');
+            $this->writeFile('docker/mysql-init/init.sql', "GRANT ALL PRIVILEGES ON *.* TO '$dbUser'@'%';\nFLUSH PRIVILEGES;\n");
         }
 
         if ($cacheSystem !== 'none') {
             $compose .= "  cache:\n    container_name: {$slug}_cache\n    image: $cacheSystem:latest\n";
+        }
+
+        $toolPort = (int)$port + 1;
+        if ($isPostgres) {
+            $compose .= "  adminer:\n    container_name: {$slug}_adminer\n    image: adminer\n    ports:\n      - \"$toolPort:8080\"\n";
+        } else {
+            $compose .= "  phpmyadmin:\n    container_name: {$slug}_pma\n    image: phpmyadmin/phpmyadmin\n    ports:\n      - \"$toolPort:80\"\n    environment:\n      PMA_HOST: db\n      UPLOAD_LIMIT: 5G\n      PHP_UPLOAD_MAX_FILESIZE: 5G\n      PHP_POST_MAX_SIZE: 5G\n";
         }
 
         $this->writeFile('docker-compose.yml', $compose);
@@ -342,14 +424,21 @@ PHP;
         $docRoot = "/var/www/html/www";
         
         $dockerfile = "FROM php:8.4-apache\n";
-        $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev libonig-dev libzip-dev git unzip\n";
+        $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev libonig-dev libzip-dev libxml2-dev git unzip\n";
+        $dockerfile .= "COPY --from=composer:latest /usr/bin/composer /usr/bin/composer\n";
+        $dockerfile .= "RUN docker-php-ext-configure intl\n";
         $dockerfile .= "RUN docker-php-ext-install pdo $phpExts intl mbstring zip bcmath\n";
+        $dockerfile .= "RUN pecl install xdebug && docker-php-ext-enable xdebug\n";
+        $dockerfile .= "RUN echo \"xdebug.mode=coverage\" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini\n";
         $dockerfile .= "RUN a2enmod rewrite\n";
         $dockerfile .= "ENV APACHE_DOCUMENT_ROOT $docRoot\n";
         $dockerfile .= "RUN sed -ri -e 's!/var/www/html!$docRoot!g' /etc/apache2/sites-available/*.conf\n";
         $dockerfile .= "RUN printf \"<Directory $docRoot/>\\n\\tOptions Indexes FollowSymLinks\\n\\tAllowOverride All\\n\\tRequire all granted\\n</Directory>\" > /etc/apache2/conf-available/pramnos.conf && a2enconf pramnos\n";
         $dockerfile .= "WORKDIR /var/www/html\n";
+        $dockerfile .= "COPY composer.json composer.lock* ./\n";
+        $dockerfile .= "RUN composer install --no-scripts --no-autoloader || true\n";
         $dockerfile .= "COPY . .\n";
+        $dockerfile .= "RUN composer dump-autoload\n";
         
         $this->writeFile('Dockerfile', $dockerfile);
 
@@ -401,8 +490,14 @@ fi
 echo "Ensuring application is reachable..."
 curl -s http://localhost:$port/$nsLower/www/ > /dev/null 2>&1
 
+# Check if vendor folder exists, otherwise install dependencies
+if [ ! -f "vendor/bin/phpunit" ]; then
+    echo "Dependencies missing. Running composer install inside the container..."
+    docker-compose exec app composer install
+fi
+
 # Run tests
-extra_flags="--display-deprecations --display-warnings --display-notices --display-phpunit-notices"
+extra_flags="--display-deprecations --display-warnings --display-notices --display-phpunit-deprecations"
 [[ "\$testdox" == true ]] && extra_flags="\$extra_flags --testdox"
 
 if [[ "\$coverage" == true ]]; then
@@ -507,9 +602,11 @@ XML;
      * 
      * @param string $appName
      * @param string $namespace
+     * @param string $userName
+     * @param string $userEmail
      * @param \Symfony\Component\Console\Output\OutputInterface $output
      */
-    private function updateComposerJson($appName, $namespace, $output)
+    private function updateComposerJson($appName, $namespace, $userName, $userEmail, $output)
     {
         $composerPath = $this->targetBaseDir . '/composer.json';
         if (!file_exists($composerPath)) {
@@ -527,6 +624,19 @@ XML;
         $composer['name'] = "app/$slug";
         $composer['description'] = "Pramnos Application: $appName";
         
+        $composer['authors'] = [
+            [
+                'name' => $userName,
+                'email' => $userEmail
+            ]
+        ];
+
+        // Add PHPUnit to require-dev
+        if (!isset($composer['require-dev'])) {
+            $composer['require-dev'] = [];
+        }
+        $composer['require-dev']['phpunit/phpunit'] = '^11.0';
+        
         // Update autoloading
         if (!isset($composer['autoload'])) {
             $composer['autoload'] = ['psr-4' => []];
@@ -534,6 +644,12 @@ XML;
         
         $composer['autoload']['psr-4'] = [
             "$namespace\\" => "src/"
+        ];
+
+        $composer['autoload-dev'] = [
+            'psr-4' => [
+                'Tests\\' => 'tests/'
+            ]
         ];
 
         // Remove the initialization script from the project
@@ -547,14 +663,7 @@ XML;
         file_put_contents($composerPath, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         // Automatically run composer dump-autoload to sync the new namespace
-        $output->writeln("\n<info>Regenerating autoloader...</info>");
-        $execOutput = [];
-        $resultCode = 0;
-        @exec('composer dump-autoload 2>&1', $execOutput, $resultCode);
-        
-        if ($resultCode !== 0) {
-            $this->autoloadSuccess = false;
-        }
+        $output->writeln("");
     }
 
     /**
@@ -592,7 +701,7 @@ XML;
         $this->writeFile($themeDir . '/footer.php', $this->getThemeFooterTemplate());
         
         // style.css
-        $this->writeFile($themeDir . '/style.css', $this->getThemeCssTemplate());
+        $this->writeFile('www/assets/css/style.css', $this->getThemeCssTemplate());
     }
 
     /**
@@ -622,22 +731,16 @@ PHP;
     private function getThemeHeaderTemplate($appName)
     {
         return <<<PHP
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo \$appName; ?></title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="<?php echo sURL; ?>assets/css/style.css">
     <?php \$this->document->renderCss(); ?>
-</head>
-<body>
     <header class="main-header">
         <div class="container">
             <a href="<?php echo sURL; ?>" class="logo">
-                $appName
+                <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>
             </a>
             <nav class="main-nav">
                 <ul>
@@ -666,8 +769,6 @@ PHP;
         </div>
     </footer>
     <?php $this->document->renderJs(); ?>
-</body>
-</html>
 PHP;
     }
 
@@ -815,5 +916,95 @@ p {
     }
 }
 CSS;
+    }
+
+    /**
+     * Run a shell command with an animated console spinner.
+     * 
+     * @param string $command
+     * @param string $message
+     * @param OutputInterface $output
+     * @return int Exit code of the command.
+     */
+    private function runProcessWithSpinner($command, $message, $output)
+    {
+        $isVerbose = $output->getVerbosity() >= OutputInterface::VERBOSITY_VERBOSE;
+        
+        if ($isVerbose) {
+            $output->writeln("<info>$message...</info>");
+            // Remove redirection if verbose to let output through
+            $command = str_replace(' 2>/dev/null', '', $command);
+        } else {
+            $output->write("$message ");
+        }
+
+        $symbols = ['/', '-', '\\', '|'];
+        $i = 0;
+
+        $descriptorspec = [
+            1 => ['pipe', 'w'], // stdout
+            2 => ['pipe', 'w']  // stderr
+        ];
+
+        $process = proc_open($command, $descriptorspec, $pipes);
+
+        if (!is_resource($process)) {
+            $output->writeln("<error>FAILED</error>");
+            return 1;
+        }
+
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+
+        while (true) {
+            $status = proc_get_status($process);
+            if (!$status['running']) {
+                break;
+            }
+
+            if ($isVerbose) {
+                // In verbose mode, just stream the output
+                if ($stdout = stream_get_contents($pipes[1])) {
+                    $output->write($stdout);
+                }
+                if ($stderr = stream_get_contents($pipes[2])) {
+                    $output->write($stderr);
+                }
+            } else {
+                // In normal mode, show spinner without tags to avoid UI glitches
+                $output->write("\r\033[K" . $message . ' ' . $symbols[$i % 4]);
+            }
+            
+            $i++;
+            usleep(100000);
+        }
+
+        // Final drain of pipes
+        if ($isVerbose) {
+            $output->write(stream_get_contents($pipes[1]));
+            $output->write(stream_get_contents($pipes[2]));
+        }
+
+        foreach ($pipes as $pipe) {
+            fclose($pipe);
+        }
+
+        $exitCode = proc_close($process);
+
+        if ($isVerbose) {
+            if ($exitCode === 0) {
+                $output->writeln("<info>$message: DONE</info>");
+            } else {
+                $output->writeln("<error>$message: FAILED (Exit Code: $exitCode)</error>");
+            }
+        } else {
+            if ($exitCode === 0) {
+                $output->write("\r\033[K" . $message . " <info>DONE</info>\n");
+            } else {
+                $output->write("\r\033[K" . $message . " <error>FAILED</error>\n");
+            }
+        }
+
+        return $exitCode;
     }
 }
