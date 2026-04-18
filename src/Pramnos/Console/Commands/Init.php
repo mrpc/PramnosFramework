@@ -7,6 +7,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
+use Symfony\Component\Console\Input\InputOption;
 
 /**
  * Initialize a new Pramnos Application project.
@@ -36,6 +37,17 @@ class Init extends Command
     {
         $this->setName('init');
         $this->setDescription('Initialize a new Pramnos project structure');
+        $this->addOption('app-name', null, InputOption::VALUE_OPTIONAL, 'The name of the application');
+        $this->addOption('namespace', null, InputOption::VALUE_OPTIONAL, 'The PHP namespace for the application');
+        $this->addOption('docker', null, InputOption::VALUE_OPTIONAL, 'Whether to setup Docker environment (y/n)');
+        $this->addOption('docker-port', null, InputOption::VALUE_OPTIONAL, 'Local port for Docker mapping');
+        $this->addOption('cache-system', null, InputOption::VALUE_OPTIONAL, 'Cache system (none, redis, memcached)');
+        $this->addOption('db-type', null, InputOption::VALUE_OPTIONAL, 'Database type (mysql, postgresql, timescaledb)');
+        $this->addOption('db-host', null, InputOption::VALUE_OPTIONAL, 'Database host');
+        $this->addOption('db-name', null, InputOption::VALUE_OPTIONAL, 'Database name');
+        $this->addOption('db-user', null, InputOption::VALUE_OPTIONAL, 'Database user');
+        $this->addOption('db-pass', null, InputOption::VALUE_OPTIONAL, 'Database password');
+        $this->addOption('db-prefix', null, InputOption::VALUE_OPTIONAL, 'Database table prefix');
     }
 
     /**
@@ -63,14 +75,20 @@ class Init extends Command
 
         // 1. Basic Metadata
         $defaultAppName = basename($this->targetBaseDir);
-        $appName = $helper->ask($input, $output, new Question("Application Name [$defaultAppName]: ", $defaultAppName));
+        $appName = $input->getOption('app-name') ?: $helper->ask($input, $output, new Question("Application Name [$defaultAppName]: ", $defaultAppName));
         
         // Default Namespace: CamelCase of app name
         $defaultNamespace = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $appName)));
-        $namespace = $helper->ask($input, $output, new Question("Namespace [$defaultNamespace]: ", $defaultNamespace));
+        $namespace = $input->getOption('namespace') ?: $helper->ask($input, $output, new Question("Namespace [$defaultNamespace]: ", $defaultNamespace));
 
         // 2. Docker setup
-        $useDocker = $helper->ask($input, $output, new ConfirmationQuestion('Setup Docker environment? [y/N] ', true));
+        $dockerOption = $input->getOption('docker');
+        if ($dockerOption !== null) {
+            $useDocker = in_array(strtolower($dockerOption), ['y', 'yes', '1', 'true']);
+        } else {
+            $useDocker = $helper->ask($input, $output, new ConfirmationQuestion('Setup Docker environment? [y/N] ', true));
+        }
+        
         $dockerPort = 8080;
         $cacheSystem = 'none';
 
@@ -80,26 +98,44 @@ class Init extends Command
                 $dockerPort++;
             }
 
-            $dockerPort = $helper->ask($input, $output, new Question("Local mapping port [$dockerPort]: ", $dockerPort));
-            $cacheSystem = $helper->ask($input, $output, new ChoiceQuestion('Cache System: ', ['none', 'redis', 'memcached'], 1));
+            $dockerPort = $input->getOption('docker-port') ?: $helper->ask($input, $output, new Question("Local mapping port [$dockerPort]: ", $dockerPort));
+            
+            $cacheSystemOption = $input->getOption('cache-system');
+            if ($cacheSystemOption !== null) {
+                $cacheSystem = $cacheSystemOption;
+            } else {
+                $cacheSystem = $helper->ask($input, $output, new ChoiceQuestion('Cache System: ', ['none', 'redis', 'memcached'], 1));
+            }
         }
 
         // 3. Database Config
         $randomPass = bin2hex(random_bytes(10));
         $dbTypeChoices = ['mysql', 'postgresql', 'timescaledb'];
-        $dbType = $helper->ask($input, $output, new ChoiceQuestion('Database Type: ', $dbTypeChoices, 2));
+        
+        $dbTypeOption = $input->getOption('db-type');
+        if ($dbTypeOption !== null) {
+            $dbType = $dbTypeOption;
+        } else {
+            $dbType = $helper->ask($input, $output, new ChoiceQuestion('Database Type: ', $dbTypeChoices, 0)); // Changed default to 0 (mysql) for better compatibility
+        }
         
         $defaultDbHost = $useDocker ? 'db' : 'localhost';
-        $dbHost = $helper->ask($input, $output, new Question("Database Host [$defaultDbHost]: ", $defaultDbHost));
+        $dbHost = $input->getOption('db-host') ?: $helper->ask($input, $output, new Question("Database Host [$defaultDbHost]: ", $defaultDbHost));
         
         $dbSuffix = strtolower(str_replace(['-', ' '], '_', $appName));
         $dbNameDefault = $dbSuffix . '_db';
         $dbUserDefault = $dbSuffix . '_user';
         
-        $dbName = $helper->ask($input, $output, new Question("Database Name [$dbNameDefault]: ", $dbNameDefault));
-        $dbUser = $helper->ask($input, $output, new Question("Database User [$dbUserDefault]: ", $dbUserDefault));
-        $dbPass = $helper->ask($input, $output, new Question("Database Password [$randomPass]: ", $randomPass));
-        $dbPrefix = $helper->ask($input, $output, new Question('Database Table Prefix [optional]: ', ''));
+        $dbName = $input->getOption('db-name') ?: $helper->ask($input, $output, new Question("Database Name [$dbNameDefault]: ", $dbNameDefault));
+        $dbUser = $input->getOption('db-user') ?: $helper->ask($input, $output, new Question("Database User [$dbUserDefault]: ", $dbUserDefault));
+        $dbPass = $input->getOption('db-pass') ?: $helper->ask($input, $output, new Question("Database Password [$randomPass]: ", $randomPass));
+        
+        $dbPrefixOption = $input->getOption('db-prefix');
+        if ($dbPrefixOption !== null) {
+            $dbPrefix = $dbPrefixOption;
+        } else {
+            $dbPrefix = $helper->ask($input, $output, new Question('Database Table Prefix [optional]: ', ''));
+        }
 
         // 4. Tests setup - Always Y as requested
         $useTests = true;
@@ -107,6 +143,7 @@ class Init extends Command
         $output->writeln("\n<info>Scaffolding project structure...</info>");
 
         // --- Scaffold Directories ---
+        // Create the basic directory structure for a Pramnos application
         $this->mkdir('www');
         $this->mkdir('src/Controllers');
         $this->mkdir('src/Models');
@@ -140,6 +177,9 @@ class Init extends Command
         // src/Views/home/home.html.php
         $this->writeFile('src/Views/home/home.html.php', "<h1>Welcome to $appName</h1>\n<p>Your Pramnos project is ready.</p>\n");
 
+        // --- Theme ---
+        $this->scaffoldTheme($appName);
+
         // --- Docker ---
         if ($useDocker) {
             $this->scaffoldDocker($namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem);
@@ -151,7 +191,7 @@ class Init extends Command
         }
 
         // --- Finalize Metadata ---
-        $this->updateComposerJson($appName, $namespace);
+        $this->updateComposerJson($appName, $namespace, $output);
 
         $output->writeln("\n<info>Project initialized successfully!</info>");
         $output->writeln("Next steps:");
@@ -467,8 +507,9 @@ XML;
      * 
      * @param string $appName
      * @param string $namespace
+     * @param \Symfony\Component\Console\Output\OutputInterface $output
      */
-    private function updateComposerJson($appName, $namespace)
+    private function updateComposerJson($appName, $namespace, $output)
     {
         $composerPath = $this->targetBaseDir . '/composer.json';
         if (!file_exists($composerPath)) {
@@ -506,10 +547,10 @@ XML;
         file_put_contents($composerPath, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         // Automatically run composer dump-autoload to sync the new namespace
-        echo "\n<info>Regenerating autoloader...</info>\n";
-        $output = [];
+        $output->writeln("\n<info>Regenerating autoloader...</info>");
+        $execOutput = [];
         $resultCode = 0;
-        @exec('composer dump-autoload 2>&1', $output, $resultCode);
+        @exec('composer dump-autoload 2>&1', $execOutput, $resultCode);
         
         if ($resultCode !== 0) {
             $this->autoloadSuccess = false;
@@ -530,5 +571,249 @@ XML;
             return false;
         }
         return true;
+    }
+
+    /**
+     * Scaffold the default theme.
+     * 
+     * @param string $appName
+     */
+    private function scaffoldTheme($appName)
+    {
+        $themeDir = 'app/themes/default';
+        
+        // theme.html.php
+        $this->writeFile($themeDir . '/theme.html.php', $this->getThemeHtmlTemplate());
+        
+        // header.php
+        $this->writeFile($themeDir . '/header.php', $this->getThemeHeaderTemplate($appName));
+        
+        // footer.php
+        $this->writeFile($themeDir . '/footer.php', $this->getThemeFooterTemplate());
+        
+        // style.css
+        $this->writeFile($themeDir . '/style.css', $this->getThemeCssTemplate());
+    }
+
+    /**
+     * Get the HTML wrapper template for the default theme.
+     * 
+     * @return string
+     */
+    private function getThemeHtmlTemplate()
+    {
+        return <<<'PHP'
+<?php $this->get_Header(); ?>
+<main class="main-content">
+    <div class="container">
+        [MODULE]
+    </div>
+</main>
+<?php $this->get_Footer(); ?>
+PHP;
+    }
+
+    /**
+     * Get the Header template for the default theme.
+     * 
+     * @param string $appName
+     * @return string
+     */
+    private function getThemeHeaderTemplate($appName)
+    {
+        return <<<PHP
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?php echo \$appName; ?></title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <?php \$this->document->renderCss(); ?>
+</head>
+<body>
+    <header class="main-header">
+        <div class="container">
+            <a href="<?php echo sURL; ?>" class="logo">
+                $appName
+            </a>
+            <nav class="main-nav">
+                <ul>
+                    <li><a href="<?php echo sURL; ?>">Home</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+PHP;
+    }
+
+    /**
+     * Get the Footer template for the default theme.
+     * 
+     * @return string
+     */
+    private function getThemeFooterTemplate()
+    {
+        return <<<'PHP'
+    <footer class="main-footer">
+        <div class="container">
+            <div class="footer-content">
+                <p>&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
+                <p class="powered">Powered by <a href="https://github.com/mrpc/PramnosFramework" target="_blank">PramnosFramework</a></p>
+            </div>
+        </div>
+    </footer>
+    <?php $this->document->renderJs(); ?>
+</body>
+</html>
+PHP;
+    }
+
+    /**
+     * Get the CSS template for the default theme.
+     * 
+     * @return string
+     */
+    private function getThemeCssTemplate()
+    {
+        return <<<'CSS'
+:root {
+    --primary-color: #2563eb;
+    --primary-hover: #1d4ed8;
+    --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    --text-main: #1e293b;
+    --text-muted: #64748b;
+    --white: #ffffff;
+    --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --glass-bg: rgba(255, 255, 255, 0.8);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    color: var(--text-main);
+    background: var(--bg-gradient);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 2rem;
+}
+
+.main-header {
+    background: var(--white);
+    padding: 1.5rem 0;
+    box-shadow: var(--shadow);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.main-header .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    text-decoration: none;
+    letter-spacing: -0.025em;
+}
+
+.main-nav ul {
+    list-style: none;
+    display: flex;
+    gap: 2rem;
+}
+
+.main-nav a {
+    text-decoration: none;
+    color: var(--text-main);
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+.main-nav a:hover {
+    color: var(--primary-color);
+}
+
+.main-content {
+    flex: 1;
+    padding: 4rem 0;
+}
+
+.main-content .container {
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    padding: 3rem;
+    border-radius: 1rem;
+    box-shadow: var(--shadow);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.main-footer {
+    background: var(--white);
+    padding: 3rem 0;
+    margin-top: auto;
+    border-top: 1px solid #e2e8f0;
+}
+
+.footer-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.footer-content a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.footer-content a:hover {
+    text-decoration: underline;
+}
+
+h1 {
+    font-size: 3rem;
+    font-weight: 800;
+    margin-bottom: 1.5rem;
+    color: var(--text-main);
+    letter-spacing: -0.05em;
+}
+
+p {
+    margin-bottom: 1rem;
+    font-size: 1.125rem;
+}
+
+@media (max-width: 768px) {
+    .main-content {
+        padding: 2rem 0;
+    }
+    .main-content .container {
+        padding: 1.5rem;
+    }
+    h1 {
+        font-size: 2rem;
+    }
+}
+CSS;
     }
 }
