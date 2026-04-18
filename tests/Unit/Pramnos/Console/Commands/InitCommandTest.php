@@ -158,10 +158,20 @@ class InitCommandTest extends TestCase
         $this->assertStringContainsString('8085:80', $composeContent);
         $this->assertStringContainsString('container_name: pgmemapp_php', $composeContent);
         $this->assertStringContainsString('container_name: pgmemapp_db', $composeContent);
+        $this->assertStringContainsString('- .:/var/www/html', $composeContent);
         
         $settings = include($this->tempDir . '/app/config/settings.php');
         $this->assertEquals('postgresql', $settings['database']['type']);
         $this->assertEquals('pg_', $settings['database']['prefix']);
+
+        // Verify .htaccess placement and content
+        $this->assertFileExists($this->tempDir . '/www/.htaccess');
+        $this->assertStringContainsString('RewriteRule ^$ index.php [L]', file_get_contents($this->tempDir . '/www/.htaccess'));
+
+        // Verify Dockerfile DocumentRoot fix
+        $dockerfileContent = file_get_contents($this->tempDir . '/Dockerfile');
+        $this->assertStringContainsString('AllowOverride All', $dockerfileContent);
+        $this->assertStringContainsString('ENV APACHE_DOCUMENT_ROOT /var/www/html/www', $dockerfileContent);
 
         // Verify composer.json was updated
         $composer = json_decode(file_get_contents($this->tempDir . '/composer.json'), true);
@@ -269,6 +279,20 @@ class InitCommandTest extends TestCase
         
         $dockerfileContent = file_get_contents($this->tempDir . '/Dockerfile');
         $this->assertStringContainsString('pdo_pgsql pgsql', $dockerfileContent);
+    public function test_is_port_available()
+    {
+        $command = new Init();
+        $reflection = new \ReflectionClass($command);
+        $method = $reflection->getMethod('isPortAvailable');
+        $method->setAccessible(true);
+
+        // Test with a port that is likely to be boolean (true or false depending on env)
+        $result = $method->invoke($command, 8080);
+        $this->assertIsBool($result);
+        
+        // Test with a very unlikely port
+        $resultHigh = $method->invoke($command, 55555);
+        $this->assertIsBool($resultHigh);
     }
 
     private function removeDirectory($path)
