@@ -152,24 +152,27 @@ class Settings extends \Pramnos\Framework\Base
             return self::$settings[$setting];
         }
 
-        // Backward compatibility for legacy configs
-        // where DB-related settings are nested under "database"
-        if (isset(self::$settings['database']) && is_array(self::$settings['database']) && $force == false) {
-            $databaseSettingKeys = [
-                'hostname',
-                'database',
-                'schema',
-                'user',
-                'password',
-                'collation',
-                'prefix',
-                'type',
-            ];
+        $databaseSettingKeys = [
+            'hostname',
+            'database',
+            'schema',
+            'user',
+            'password',
+            'collation',
+            'prefix',
+            'type',
+            'cache', // Added cache to avoid recursion in Database::cacheStore/Read
+        ];
 
-            if (in_array($setting, $databaseSettingKeys, true)
-                && array_key_exists($setting, self::$settings['database'])) {
-                return self::$settings['database'][$setting];
+        // Skip database query for connection-related or recursion-prone settings
+        if (in_array($setting, $databaseSettingKeys, true)) {
+            // Backward compatibility for legacy configs where DB settings are nested
+            if (isset(self::$settings['database']) && is_array(self::$settings['database'])) {
+                if (array_key_exists($setting, self::$settings['database'])) {
+                    return self::$settings['database'][$setting];
+                }
             }
+            return $defaultValue;
         }
 
         if (is_object(self::$database)) {
