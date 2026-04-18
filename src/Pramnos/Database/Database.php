@@ -98,11 +98,12 @@ class Database extends \Pramnos\Framework\Base
      * @var string
      */
     public $controllerPrefix = "";
-    /**
-     * Database type. Accepted values: mysql, postgresql
-     * @var string
-     */
     public $type = "mysql";
+    /**
+     * Is this a TimescaleDB database?
+     * @var bool
+     */
+    public $timescale = false;
 
     /**
      * Query log handler (fopen resource)
@@ -206,8 +207,8 @@ class Database extends \Pramnos\Framework\Base
             $this->database = $dbSettings->database;
             $this->user = $dbSettings->user;
             $this->password = $dbSettings->password;
-            $this->collation = $dbSettings->collation;
-            $this->prefix = $dbSettings->prefix;
+            $this->collation = isset($dbSettings->collation) ? $dbSettings->collation : false;
+            $this->prefix = isset($dbSettings->prefix) ? $dbSettings->prefix : '';
             if ($this->prefix !== '' && \substr($this->prefix, -1) !== '_') {
                 $this->prefix .= '_';
             }
@@ -219,7 +220,15 @@ class Database extends \Pramnos\Framework\Base
             }
             
             if (isset($dbSettings->type)) {
-                if ($dbSettings->type == 'postgresql') {
+                $this->type = $dbSettings->type;
+                if ($this->type == 'postgresql' || $this->type == 'timescaledb') {
+                    if ($this->type == 'timescaledb') {
+                        $this->type = 'postgresql';
+                        $this->timescale = true;
+                    }
+                    if (isset($dbSettings->timescale) && $dbSettings->timescale == true) {
+                        $this->timescale = true;
+                    }
                     if (!\extension_loaded('pgsql') 
                         || !\function_exists('pg_connect')) {
                         die('Postgresql extension is not installed');
@@ -230,7 +239,6 @@ class Database extends \Pramnos\Framework\Base
                         $this->schema = 'public';
                     }
                 }
-                $this->type = $dbSettings->type;
             }
         }
         parent::__construct();
@@ -595,7 +603,7 @@ class Database extends \Pramnos\Framework\Base
             if ($this->type == 'postgresql') {
                 return \pg_close($connection);
             }
-
+ 
             return \mysqli_close($connection);
         }
 

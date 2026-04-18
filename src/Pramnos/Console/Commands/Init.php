@@ -69,10 +69,28 @@ class Init extends Command
         $defaultNamespace = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $appName)));
         $namespace = $helper->ask($input, $output, new Question("Namespace [$defaultNamespace]: ", $defaultNamespace));
 
-        // 2. Database Config
+        // 2. Docker setup
+        $useDocker = $helper->ask($input, $output, new ConfirmationQuestion('Setup Docker environment? [y/N] ', true));
+        $dockerPort = 8080;
+        $cacheSystem = 'none';
+
+        if ($useDocker) {
+            // Suggest the first available port starting from 8080
+            while (!$this->isPortAvailable($dockerPort)) {
+                $dockerPort++;
+            }
+
+            $dockerPort = $helper->ask($input, $output, new Question("Local mapping port [$dockerPort]: ", $dockerPort));
+            $cacheSystem = $helper->ask($input, $output, new ChoiceQuestion('Cache System: ', ['none', 'redis', 'memcached'], 1));
+        }
+
+        // 3. Database Config
         $randomPass = bin2hex(random_bytes(10));
-        $dbType = $helper->ask($input, $output, new ChoiceQuestion('Database Type: ', ['mysql', 'postgresql', 'timescaledb'], 2));
-        $dbHost = $helper->ask($input, $output, new Question('Database Host [localhost]: ', 'localhost'));
+        $dbTypeChoices = ['mysql', 'postgresql', 'timescaledb'];
+        $dbType = $helper->ask($input, $output, new ChoiceQuestion('Database Type: ', $dbTypeChoices, 2));
+        
+        $defaultDbHost = $useDocker ? 'db' : 'localhost';
+        $dbHost = $helper->ask($input, $output, new Question("Database Host [$defaultDbHost]: ", $defaultDbHost));
         
         $dbSuffix = strtolower(str_replace(['-', ' '], '_', $appName));
         $dbNameDefault = $dbSuffix . '_db';
@@ -82,16 +100,6 @@ class Init extends Command
         $dbUser = $helper->ask($input, $output, new Question("Database User [$dbUserDefault]: ", $dbUserDefault));
         $dbPass = $helper->ask($input, $output, new Question("Database Password [$randomPass]: ", $randomPass));
         $dbPrefix = $helper->ask($input, $output, new Question('Database Table Prefix [optional]: ', ''));
- 
-        // 3. Docker setup
-        $useDocker = $helper->ask($input, $output, new ConfirmationQuestion('Setup Docker environment? [y/N] ', true));
-        $dockerPort = 8080;
-        $cacheSystem = 'none';
- 
-        if ($useDocker) {
-            $dockerPort = $helper->ask($input, $output, new Question('Local mapping port [8080]: ', 8080));
-            $cacheSystem = $helper->ask($input, $output, new ChoiceQuestion('Cache System: ', ['none', 'redis', 'memcached'], 1));
-        }
 
         // 4. Tests setup - Always Y as requested
         $useTests = true;
@@ -120,14 +128,14 @@ class Init extends Command
         // www/index.php
         $this->writeFile('www/index.php', $this->getIndexTemplate());
 
-        // .htaccess
-        $this->writeFile('.htaccess', "RewriteEngine On\nRewriteRule ^$ www/index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ www/index.php?url=$1 [QSA,L]\n");
+        // www/.htaccess
+        $this->writeFile('www/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?url=$1 [QSA,L]\n");
 
         // src/Application.php
         $this->writeFile('src/Application.php', "<?php\nnamespace $namespace;\n\nclass Application extends \\Pramnos\\Application\\Application\n{\n}\n");
 
-        // src/Controllers/HomeController.php
-        $this->writeFile('src/Controllers/HomeController.php', "<?php\nnamespace $namespace\\Controllers;\n\nuse Pramnos\\Application\\Controller;\n\nclass Home extends Controller\n{\n    public function display()\n    {\n        return \$this->render('home/home.html');\n    }\n}\n");
+        // src/Controllers/Home.php
+        $this->writeFile('src/Controllers/Home.php', "<?php\nnamespace $namespace\\Controllers;\n\nuse Pramnos\\Application\\Controller;\n\nclass Home extends Controller\n{\n    public function display()\n    {\n        \$view = \$this->getView('home');\n        return \$view->display('home');\n    }\n}\n");
 
         // src/Views/home/home.html.php
         $this->writeFile('src/Views/home/home.html.php', "<h1>Welcome to $appName</h1>\n<p>Your Pramnos project is ready.</p>\n");
@@ -203,7 +211,10 @@ class Init extends Command
      */
     private function scaffoldSettings($path, $type, $host, $name, $user, $pass, $prefix, $dev)
     {
-        $content = "<?php\nreturn [\n    'database' => [\n        'type' => '$type',\n        'hostname' => '$host',\n        'database' => '$name',\n        'user' => '$user',\n        'password' => '$pass',\n        'prefix' => '$prefix'\n    ],\n    'development' => " . ($dev ? 'true' : 'false') . ",\n    'forcessl' => false\n];\n";
+        $realType = ($type === 'timescaledb') ? 'postgresql' : $type;
+        $timescaleFlag = ($type === 'timescaledb') ? ",\n        'timescale' => true" : "";
+        
+        $content = "<?php\nreturn [\n    'database' => [\n        'type' => '$realType',\n        'hostname' => '$host',\n        'database' => '$name',\n        'user' => '$user',\n        'password' => '$pass',\n        'prefix' => '$prefix'$timescaleFlag\n    ],\n    'development' => " . ($dev ? 'true' : 'false') . ",\n    'forcessl' => false\n];\n";
         $this->writeFile($path, $content);
     }
 
@@ -252,7 +263,23 @@ PHP;
         $isPostgres = ($dbType === 'postgresql' || $dbType === 'timescaledb');
         $slug = strtolower(str_replace([' ', '_'], '-', $namespace));
         
-        $compose = "services:\n  app:\n    container_name: {$slug}_php\n    build: .\n    ports:\n      - \"$port:80\"\n    volumes:\n      - .:/var/www/html/" . strtolower($namespace) . "\n    depends_on:\n      - db\n";
+        // Detect if framework is local (symlinked via path repository)
+        $extraVolumes = "";
+        $composerPath = $this->targetBaseDir . '/composer.json';
+        if (file_exists($composerPath)) {
+            $composer = json_decode(file_get_contents($composerPath), true);
+            foreach ($composer['repositories'] ?? [] as $repo) {
+                if (($repo['type'] ?? '') === 'path' && (strpos($repo['url'] ?? '', 'PramnosFramework') !== false)) {
+                    // Extract the framework path and map it to /var/www/PramnosFramework
+                    // Most likely it's ../PramnosFramework
+                    $fwPath = $repo['url'];
+                    $extraVolumes = "      - $fwPath:/var/www/PramnosFramework\n";
+                    break;
+                }
+            }
+        }
+
+        $compose = "services:\n  app:\n    container_name: {$slug}_php\n    build: .\n    ports:\n      - \"$port:80\"\n    volumes:\n      - .:/var/www/html\n$extraVolumes    depends_on:\n      - db\n";
         
         if ($cacheSystem !== 'none') {
             $compose .= "      - cache\n";
@@ -272,7 +299,18 @@ PHP;
         $this->writeFile('docker-compose.yml', $compose);
         
         $phpExts = $isPostgres ? 'pdo_pgsql pgsql' : 'pdo_mysql mysqli';
-        $dockerfile = "FROM php:8.4-apache\nRUN apt-get update && apt-get install -y libpq-dev libicu-dev git unzip\nRUN docker-php-ext-install pdo $phpExts intl\nRUN a2enmod rewrite\nWORKDIR /var/www/html/" . strtolower($namespace) . "\nCOPY . .\n";
+        $docRoot = "/var/www/html/www";
+        
+        $dockerfile = "FROM php:8.4-apache\n";
+        $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev git unzip\n";
+        $dockerfile .= "RUN docker-php-ext-install pdo $phpExts intl\n";
+        $dockerfile .= "RUN a2enmod rewrite\n";
+        $dockerfile .= "ENV APACHE_DOCUMENT_ROOT $docRoot\n";
+        $dockerfile .= "RUN sed -ri -e 's!/var/www/html!$docRoot!g' /etc/apache2/sites-available/*.conf\n";
+        $dockerfile .= "RUN printf \"<Directory $docRoot/>\\n\\tOptions Indexes FollowSymLinks\\n\\tAllowOverride All\\n\\tRequire all granted\\n</Directory>\" > /etc/apache2/conf-available/pramnos.conf && a2enconf pramnos\n";
+        $dockerfile .= "WORKDIR /var/www/html\n";
+        $dockerfile .= "COPY . .\n";
+        
         $this->writeFile('Dockerfile', $dockerfile);
 
         $this->writeFile('dockerbash', $this->getDockerBashTemplate());
@@ -476,5 +514,21 @@ XML;
         if ($resultCode !== 0) {
             $this->autoloadSuccess = false;
         }
+    }
+
+    /**
+     * Check if a port is available on localhost.
+     * 
+     * @param int $port
+     * @return bool
+     */
+    private function isPortAvailable($port)
+    {
+        $connection = @fsockopen('localhost', $port, $errno, $errstr, 0.1);
+        if (is_resource($connection)) {
+            fclose($connection);
+            return false;
+        }
+        return true;
     }
 }
