@@ -363,11 +363,6 @@ class Theme extends \Pramnos\Framework\Base
         $foot = substr($this->body, (strpos($this->body, "[MODULE]") + 8));
         $return .= "\n<!-- End of Module Content -->\n";
         $return .= $foot;
-        $return .= "<!-- \n";
-        $return .= "Website engine: PramnosFramework \n";
-        $return .= "Developed  by:  Pramnos  Hosting Ltd\n";
-        $return .= "http://www.pramhost.com\n";
-        $return .= "-->\n\n";
         return $return;
     }
 
