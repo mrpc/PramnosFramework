@@ -175,6 +175,11 @@ class Settings extends \Pramnos\Framework\Base
             return $defaultValue;
         }
 
+        // Skip database query if DB settings lookup is disabled
+        if (isset(self::$settings['dbsettings']) && self::$settings['dbsettings'] == false && $setting !== 'dbsettings') {
+            return $defaultValue;
+        }
+
         if (is_object(self::$database)) {
             $sql = self::$database->prepareQuery(
                 "select `value` from `#PREFIX#settings` "
