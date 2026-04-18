@@ -44,6 +44,7 @@ class InitCommandTest extends TestCase
         $command = $application->find('init');
         // Redirection to temp directory
         $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
         $commandTester = new CommandTester($command);
 
         // Simulate interactive inputs
@@ -56,7 +57,9 @@ class InitCommandTest extends TestCase
             'testdb',       // DB Name
             'root',         // User
             '',             // Pass
-            ''              // Prefix
+            '',             // Prefix
+            'Test Author',  // Author Name
+            'test@example.com' // Author Email
         ]);
 
         $commandTester->execute([]);
@@ -83,6 +86,7 @@ class InitCommandTest extends TestCase
 
         $command = $application->find('init');
         $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
         $commandTester = new CommandTester($command);
 
         $commandTester->setInputs([
@@ -96,7 +100,9 @@ class InitCommandTest extends TestCase
             'dockerdb',
             'user',
             'pass',
-            ''              // Prefix
+            '',             // Prefix
+            'Docker Author',
+            'docker@example.com'
         ]);
 
         $commandTester->execute([]);
@@ -120,6 +126,7 @@ class InitCommandTest extends TestCase
 
         $command = $application->find('init');
         $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
         $commandTester = new CommandTester($command);
 
         $commandTester->setInputs([
@@ -131,7 +138,9 @@ class InitCommandTest extends TestCase
             'mindb',
             'root',
             '',
-            ''              // Prefix
+            '',             // Prefix
+            'Minimal Author',
+            'min@example.com'
         ]);
 
         $commandTester->execute([]);
@@ -152,6 +161,7 @@ class InitCommandTest extends TestCase
 
         $command = $application->find('init');
         $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
         $commandTester = new CommandTester($command);
 
         $commandTester->setInputs([
@@ -165,7 +175,9 @@ class InitCommandTest extends TestCase
             'pgmemdb',
             'pguser',
             'pgpass',
-            'pg_'           // Prefix
+            'pg_',          // Prefix
+            'Complex Author',
+            'complex@example.com'
         ]);
 
         // Pre-create a dummy composer.json to test modification
@@ -203,6 +215,13 @@ class InitCommandTest extends TestCase
         $this->assertEquals('app/pg-mem-app', $composer['name']);
         $this->assertEquals('PGMemApp\\', array_key_first($composer['autoload']['psr-4']));
         $this->assertArrayNotHasKey('post-create-project-cmd', $composer['scripts'] ?? []);
+        
+        // Verify Authors
+        $this->assertEquals('Complex Author', $composer['authors'][0]['name']);
+        $this->assertEquals('complex@example.com', $composer['authors'][0]['email']);
+        
+        // Verify PHPUnit requirement
+        $this->assertArrayHasKey('phpunit/phpunit', $composer['require-dev']);
     }
 
     /**
@@ -215,6 +234,7 @@ class InitCommandTest extends TestCase
 
         $command = $application->find('init');
         $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
         $commandTester = new CommandTester($command);
 
         $commandTester->setInputs([
@@ -228,7 +248,9 @@ class InitCommandTest extends TestCase
             'nocachedb',
             'root',
             '',
-            ''              // Prefix
+            '',             // Prefix
+            'No Cache Author',
+            'nocache@example.com'
         ]);
 
         $commandTester->execute([]);
@@ -253,6 +275,7 @@ class InitCommandTest extends TestCase
 
         $command = $application->find('init');
         $command->targetBaseDir = $specificDir;
+        $command->skipDockerRun = true;
         $commandTester = new CommandTester($command);
 
         $commandTester->setInputs([
@@ -264,7 +287,9 @@ class InitCommandTest extends TestCase
             '',             // DB Name (ENTER -> my_auto_app_db)
             '',             // DB User (ENTER -> my_auto_app_user)
             'mypass',       // Pass
-            ''              // Prefix
+            '',             // Prefix
+            '',             // Author Name (ENTER)
+            ''              // Author Email (ENTER)
         ]);
 
         $commandTester->execute([]);
@@ -280,6 +305,15 @@ class InitCommandTest extends TestCase
         
         $homeContent = file_get_contents($specificDir . '/src/Views/home/home.html.php');
         $this->assertStringContainsString('Welcome to my-auto-app', $homeContent);
+
+        // Verify Application Name in app/app.php
+        $appConfig = include($specificDir . '/app/app.php');
+        $this->assertEquals('my-auto-app', $appConfig['name']);
+
+        // Verify Language Scaffolding
+        $this->assertFileExists($specificDir . '/app/language/en.php');
+        $langConfig = include($specificDir . '/app/language/en.php');
+        $this->assertEquals('UTF-8', $langConfig['CHARSET']);
     }
 
     /**
@@ -292,6 +326,7 @@ class InitCommandTest extends TestCase
 
         $command = $application->find('init');
         $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
         $commandTester = new CommandTester($command);
 
         $commandTester->setInputs([
@@ -299,13 +334,15 @@ class InitCommandTest extends TestCase
             'TimescaleApp',
             'y',            // Setup Docker (y)
             '8088',         // Port
-            '1',            // Redis (Index 1 in ['none', 'redis', 'memcached'])
-            '2',            // TimescaleDB (Index 2 in ['mysql', 'postgresql', 'timescaledb'])
+            '1',            // Redis
+            '2',            // TimescaleDB
             'localhost',
             'timescaledb',
             'user',
-            '',             // Empty password (should use random default)
-            ''              // Prefix
+            '',             // Empty password
+            '',             // Prefix
+            'Timescale Author',
+            'timescale@example.com'
         ]);
 
         $commandTester->execute([]);
@@ -328,6 +365,7 @@ class InitCommandTest extends TestCase
 
         $command = $application->find('init');
         $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
         $commandTester = new CommandTester($command);
 
         $commandTester->setInputs([
@@ -339,7 +377,9 @@ class InitCommandTest extends TestCase
             'themedb',
             'root',
             '',
-            ''              // Prefix
+            '',             // Prefix
+            'Theme Author',
+            'theme@example.com'
         ]);
 
         $commandTester->execute([]);
@@ -349,7 +389,7 @@ class InitCommandTest extends TestCase
         $this->assertFileExists($themeDir . '/theme.html.php');
         $this->assertFileExists($themeDir . '/header.php');
         $this->assertFileExists($themeDir . '/footer.php');
-        $this->assertFileExists($themeDir . '/style.css');
+        $this->assertFileExists($this->tempDir . '/www/assets/css/style.css');
 
         $themeHtml = file_get_contents($themeDir . '/theme.html.php');
         $this->assertStringContainsString('[MODULE]', $themeHtml);
@@ -357,10 +397,11 @@ class InitCommandTest extends TestCase
         $this->assertStringContainsString('get_Footer()', $themeHtml);
 
         $header = file_get_contents($themeDir . '/header.php');
-        $this->assertStringContainsString('<title><?php echo $appName; ?></title>', $header);
+        $this->assertStringContainsString('applicationInfo[\'name\']', $header);
+        $this->assertStringNotContainsString('<!DOCTYPE html>', $header);
         $this->assertStringContainsString('fonts.googleapis.com', $header);
 
-        $style = file_get_contents($themeDir . '/style.css');
+        $style = file_get_contents($this->tempDir . '/www/assets/css/style.css');
         $this->assertStringContainsString(':root', $style);
         $this->assertStringContainsString('--primary-color', $style);
     }
@@ -397,6 +438,7 @@ class InitCommandTest extends TestCase
 
         $command = $application->find('init');
         $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
         $commandTester = new CommandTester($command);
 
         // Run with options and NO input sequence
