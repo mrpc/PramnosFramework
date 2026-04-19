@@ -30,7 +30,7 @@ The `init` command will guide you through the setup with smart defaults:
 - **Application Name**: Defaults to the folder name (`my-app`).
 - **Namespace**: Automatically converted to CamelCase (`MyApp`).
 - **Database**: Suggested name (`my_app_db`) and user (`my_app_user`).
-- **Testing**: Pre-configured setup (PHPUnit) is automatically generated.
+- **Docker**: Optional but highly recommended containerized setup.
 
 ## Using Docker
 
@@ -59,19 +59,17 @@ A typical Pramnos project following initialization looks like this:
 - **`var/`**: Logs and cache files.
 - **`tests/`**: Unit and Integration tests.
 
-## Running Tests
-
 To run your tests, use the following command:
 
 ```bash
-# Locally (requires PHP 8.2+)
-vendor/bin/phpunit
-
 # Using Docker (Recommended)
 ./dockertest
+
+# With coverage
+./dockertest --coverage
 ```
 
-The `./dockertest` command runs PHPUnit inside the Docker container (PHP 8.4), ensuring all dependencies and environmental requirements are met.
+The `./dockertest` command runs PHPUnit inside the Docker container (PHP 8.4), ensuring all dependencies and environmental requirements are met. It automatically handles container startup and composer installation if needed.
 
 ## Creating Entities
 
