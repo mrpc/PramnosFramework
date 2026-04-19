@@ -17,7 +17,8 @@ For comprehensive documentation, please refer to:
 
 ## Requirements
 
-- PHP 7.4 or higher (8.0+ recommended)
+- Docker and Docker Compose (Recommended for development)
+- PHP 7.4 or higher (if running natively)
 - ext-mbstring extension
 - ext-pdo extension (for database support)
 - Optional: Redis/Memcached for caching
@@ -196,7 +197,7 @@ while ($result->fetch()) {
 
 ## Console Commands
 
-The framework includes powerful console commands for development:
+The framework includes powerful console commands for development. If using Docker, run these via `docker-compose exec php-apache-environment ...`.
 
 ```bash
 # Generate a new controller
@@ -426,18 +427,41 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ### Development Setup
 
-1. Clone the repository
-2. Run `composer install`
-3. Copy configuration files from examples
-4. Set up your database and cache
-5. Run tests with `vendor/bin/phpunit`
+The framework includes a fully containerized development and testing environment.
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/mrpc/PramnosFramework.git
+   cd PramnosFramework
+   ```
+
+2. Start the Docker environment:
+   ```bash
+   docker-compose up -d
+   ```
+   This will start PHP 8.4 (for testing), MySQL, PostgreSQL/TimescaleDB, and Redis.
+
+3. Install dependencies and initialize:
+   ```bash
+   docker-compose exec php-apache-environment composer install
+   ```
+
+4. Run tests:
+   ```bash
+   # Using the provided wrapper script
+   ./dockertest
+   
+   # With coverage report
+   ./dockertest --coverage
+   ```
 
 ### Guidelines
 
-- Follow PSR-4 autoloading standards
-- Write tests for new features
-- Update documentation when adding features
-- Use the existing code style and patterns
+- Core framework code (`src/Pramnos/`) must remain **PHP 7.4 compatible**.
+- Tests (`tests/`) run on **PHP 8.4** and can use modern PHP features.
+- Follow PSR-4 autoloading standards.
+- Write tests for new features using PHPUnit 11 with native attributes.
+- Update documentation when adding features.
 
 If you are developing the framework and want to test the full "new project" experience locally, you can use this one-liner (adjust `APP_NAME` and the path to `PramnosFramework` as needed):
 
