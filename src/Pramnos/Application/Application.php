@@ -662,14 +662,20 @@ class Application extends Base
 
         $csp = $this->applicationInfo['csp'] ?? [];
 
+        $scriptDomains = $this->getCspDomains($csp, 'script-src');
+        $styleDomains = $this->getCspDomains($csp, 'style-src');
+
+        $scriptNonce = strpos($scriptDomains, "'unsafe-inline'") === false ? " 'nonce-{$this->cspNonce}'" : "";
+        $styleNonce = strpos($styleDomains, "'unsafe-inline'") === false ? " 'nonce-{$this->cspNonce}'" : "";
+
         $policy = [
             "default-src 'none'",
             "manifest-src 'self'",
-            "script-src 'self' 'nonce-{$this->cspNonce}'" . $this->getCspDomains($csp, 'script-src'),
-            "style-src 'self' 'nonce-{$this->cspNonce}'" . $this->getCspDomains($csp, 'style-src'),
+            "script-src 'self'{$scriptNonce}" . $scriptDomains,
+            "style-src 'self'{$styleNonce}" . $styleDomains,
             "style-src-attr 'unsafe-inline'",
             "img-src 'self' data:" . $this->getCspDomains($csp, 'img-src'),
-            "font-src 'self'" . $this->getCspDomains($csp, 'font-src'),
+            "font-src 'self' data:" . $this->getCspDomains($csp, 'font-src'),
             "connect-src 'self'" . $this->getCspDomains($csp, 'connect-src'),
             "frame-src 'self'",
             "frame-ancestors 'self'",
