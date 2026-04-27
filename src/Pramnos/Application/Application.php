@@ -126,8 +126,12 @@ class Application extends Base
         }
         $this->appName = $appName;
         if ($appName == '') {
+            self::$appInstances['default'] = $this;
+            self::$lastUsedApplication = 'default';
             $this->applicationInfo = require APP_PATH . DS . 'app.php';
         } else {
+            self::$appInstances[$appName] = $this;
+            self::$lastUsedApplication = $appName;
             $this->applicationInfo = require APP_PATH . DS . $appName . '.php';
         }
         if (!defined('URL')) {
