@@ -465,7 +465,6 @@ class Application extends Base
     public function exec($coontrollerName = '')
     {
         $this->cspNonce = base64_encode(random_bytes(16));
-        $this->sendCspHeader();
         /*
          * Run any needed updates
          */
@@ -732,8 +731,28 @@ class Application extends Base
     public function render()
     {
         $this->redirect(); //Redirect if it's needed
+        $this->sendCspHeader();
         $doc = \Pramnos\Framework\Factory::getDocument();
         return $doc->render();
+    }
+
+    /**
+     * Dynamically allow unsafe-inline for a specific CSP directive.
+     * 
+     * @param string $directive The CSP directive (e.g., 'script-src' or 'style-src')
+     * @return void
+     */
+    public function allowUnsafeInline(string $directive)
+    {
+        if (!isset($this->applicationInfo['csp'])) {
+            $this->applicationInfo['csp'] = [];
+        }
+        if (!isset($this->applicationInfo['csp'][$directive])) {
+            $this->applicationInfo['csp'][$directive] = [];
+        }
+        if (!in_array("'unsafe-inline'", $this->applicationInfo['csp'][$directive])) {
+            $this->applicationInfo['csp'][$directive][] = "'unsafe-inline'";
+        }
     }
 
     /**
