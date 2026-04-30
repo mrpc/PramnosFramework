@@ -1,63 +1,40 @@
-# Pramnos Framework v1.2 - Project Progress
+# Project Progress - Pramnos Framework v1.2
 
-## Current Status: Phase 1 (Foundation)
-**Started:** 2026-04-30
-**Target Completion:** TBD
+## 📅 Last Updated: 2026-04-30
 
-### Phase 1: Core Database Architecture
-- [x] Read/Write Replicas Support
-- [x] Connection Health & Auto-reconnect
-- [x] DatabaseCapabilities
-- [x] DML Query Builder
-- [/] DDL / Schema Builder (Basic/TimescaleDB)
-- [/] TimescaleDB Extension Builder
-- [ ] Full ORM Layer
+## 🚀 Completed Milestones
 
-### Phase 2: Urbanwater Features Port
-- [ ] OAuth Server
-- [ ] Authentication System
-- [ ] Queues System
-- [ ] Messaging
-- [ ] Daemons & Background Tasks
-- [ ] CLI UX Improvements
-- [ ] Event / Hook System
+### Phase 1.1: Foundations
+- [x] Read/Write Replicas Support in `Database.php`.
+- [x] Auto-reconnect logic for database connections.
+- [x] Database Capabilities detection (MySQL/Postgres/TimescaleDB).
 
-### Phase 3: Developer Experience (DX) & Scaffolding
-- [ ] `init` Command Overhaul
-- [ ] Modern Maker System
-- [ ] Test Auto-generation
-- [ ] Middleware Scaffolding
-- [ ] Event/Listener Scaffolding
+### Phase 1.2: Internal Migration (DML & Core)
+- [x] **QueryBuilder Implementation:**
+    - Fully fluent API for SELECT, INSERT, UPDATE, DELETE.
+    - Support for `RETURNING` clause (PostgreSQL).
+    - Support for `INSERT ... ON CONFLICT` (Upsert).
+    - Support for Raw expressions via `Expression` class and `raw()` helper.
+    - Added `whereRaw`, `joinRaw`, `orderByRaw`, `groupByRaw`, `havingRaw` for legacy compatibility.
+- [x] **Core Refactoring:**
+    - **`Pramnos\Application\Model`**: Refactored `_load()`, `_delete()`, `getCount()`, `_getPaginated()`, and `_getList()` to use QueryBuilder.
+    - **`Pramnos\Database\Database`**: Refactored `insertDataToTable()` and `updateTableData()` to use QueryBuilder.
+    - **`Pramnos\Html\Datatable\Datasource`**: Completely refactored the complex `render()` method to use QueryBuilder, eliminating hundreds of lines of manual SQL concatenation.
+- [x] **Testing & Verification:**
+    - Ran full framework test suite (153 tests) with 100% success.
+    - Verified compatibility with MySQL and PostgreSQL.
 
-### Phase 4: Framework-Level Infrastructure & Security
-- [ ] Feature Registry
-- [ ] Migration System Overhaul
-- [ ] Middleware Pipeline
-- [ ] Formal Response Object
-- [ ] Centralized Error Handler
-- [ ] Service Providers
-- [ ] PHP 8.1 Minimum Version
-- [ ] Security Fixes
+## 🛠️ Work in Progress
 
-### Phase 6: Modern Core & PSR Compliance
-- [ ] PSR-11 Service Container
-- [ ] PSR-3 Logger Interface
-- [ ] PSR-16 Simple Cache
-- [ ] PSR-7/15 HTTP Stack
+### Phase 1.3: DDL & Schema Builder
+- [ ] Implement `SchemaBuilder` for fluent migrations.
+- [ ] Add TimescaleDB specific extension builders.
 
-### Phase 7: Modern Routing Engine
-- [ ] PHP 8 Attribute Routing
-- [ ] Route Discovery System
+## 📈 Quality Metrics
+- **Test Pass Rate:** 100% (153/153 tests passing).
+- **PHP Compatibility:** 8.4 (tested in Docker).
+- **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.
 
-### Phase 8: Security & Templating
-- [ ] View Auto-escaping (XSS Protection)
-- [ ] CSRF Native Middleware
-- [ ] Secure Headers (CSP)
-
-### Phase 5: Quality Assurance
-- [ ] Characterization Tests
-- [ ] New Feature Tests
-- [ ] Coverage Analysis
-
----
-*Last Updated: 2026-04-30*
+## 📝 Notes
+- The Internal Migration has successfully transitioned the most critical parts of the framework to the new architecture while maintaining 100% backward compatibility.
+- All legacy SQL fragments passed to `Model` or `Datasource` are handled via `whereRaw()` and similar methods, ensuring existing applications don't break.

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git config *)",
+      "Bash(git checkout *)",
+      "Skill(update-config)",
+      "Bash(tree -L 2 -I 'node_modules|vendor' //wsl.localhost/Ubuntu/home/mrpc/projects/PramnosFramework)",
+      "Read(///wsl.localhost/Ubuntu/home/mrpc/projects/**)",
+      "Bash(wc -l \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\mrpc\\\\projects\\\\PramnosFramework\\\\ROADMAP_1.2.md\")",
+      "Read(///wsl.localhost/Ubuntu/home/mrpc/**)",
+      "Read(//c/Users/mrpc6/**)",
+      "Bash(php -r ' *)",
+      "Read(///wsl.localhost/Ubuntu/home/**)",
+      "Read(///wsl.localhost/Ubuntu/home/mrpc/projects/PramnosFramework/**)"
+    ]
+  }
+}

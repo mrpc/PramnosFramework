@@ -130,6 +130,56 @@ $sql = $this->application->database->prepareQuery("SELECT * FROM users WHERE ema
 $result = $this->application->database->query($sql);
 ```
 
+## The Modern Way: Fluent Query Builder (v1.2+)
+
+While `prepareQuery()` and `query()` are the foundational patterns, v1.2 introduces a fluent **Query Builder** for cleaner, more maintainable code, especially for complex queries.
+
+### Advantages:
+- No need to remember `%s` / `%d` specifiers.
+- Automatic table quoting.
+- Easier joins and conditions.
+- Better cross-database compatibility (MySQL/PostgreSQL).
+
+### Examples:
+
+```php
+// SELECT with conditions and ordering
+$users = $this->application->database->queryBuilder()
+    ->from('users')
+    ->where('status', 1)
+    ->where('role', 'admin')
+    ->orderBy('last_login', 'desc')
+    ->limit(10)
+    ->get();
+
+// Complex JOINs
+$applications = $this->application->database->queryBuilder()
+    ->select('a.*', 'u.username as owner_name')
+    ->from('applications a')
+    ->join('users u', 'u.id', '=', 'a.user_id')
+    ->where('a.status', 'active')
+    ->get();
+
+// INSERT with auto-binding
+$newId = $this->application->database->queryBuilder()
+    ->table('users')
+    ->insert([
+        'username' => 'newuser',
+        'email' => 'user@example.com',
+        'status' => 1
+    ]);
+```
+
+#### Raw Expressions
+If you need database-specific functions (like PostGIS or native MySQL functions), use `raw()`:
+
+```php
+$locations = $this->application->database->queryBuilder()
+    ->from('locations')
+    ->whereRaw("ST_Distance(geom, ST_MakePoint(?, ?)) < 1000", [23.7, 37.9])
+    ->get();
+```
+
 ### INSERT Operations
 
 ```php

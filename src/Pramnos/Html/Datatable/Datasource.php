@@ -97,311 +97,147 @@ class Datasource extends Base
             }
         }
         
-        // Handle schema-qualified table names
-        $tableQuoted = $table;
-        if ($database->type == 'postgresql') {
-            if (strpos($table, '.') !== false) {
-                $tableParts = explode('.', $table);
-                $schema = $tableParts[0];
-                $tableName = $tableParts[1];
-                $tableQuoted = '"' . $schema . '"."' . $tableName . '"';
-            } else {
-                $tableQuoted = '"' . $table . '"';
-            }
-        } else {
-            $tableQuoted = '`' . $table . '`';
+        $fields = $this->fields;
+        if (!is_array($fields)) {
+            $fields = [$fields];
         }
 
-        $fields = $this->fields;
+        $qb = $database->queryBuilder()->from($table . ' a');
+        
+        // Select fields with aliases if needed
+        $selectFields = [];
+        foreach ($fields as $field) {
+            if ($field == $distinctField) continue;
+            if (strpos($field, '.') === false) {
+                $selectFields[] = "a.`$field`";
+            } else {
+                $selectFields[] = $field;
+            }
+        }
+        
+        if ($distinctField != '') {
+            $qb->distinct();
+            if (strpos($distinctField, '.') === false) {
+                array_unshift($selectFields, "a.`$distinctField`");
+            } else {
+                array_unshift($selectFields, $distinctField);
+            }
+        }
+        $qb->select($selectFields);
+
         $where = str_ireplace('where', ' ', $whereStatement);
         if ($debug == true) {
             echo "<pre>DEBUG MODE\n\n</pre>";
         }
-        $db = \Pramnos\Framework\Factory::getDatabase();
         $request = \Pramnos\Framework\Factory::getRequest();
         if ($iconv !== NULL) {
             foreach ($_POST as $key => $value) {
                 $_POST[$key] = iconv('utf-8', $iconv . '//IGNORE', $value);
             }
         }
-        $Awhere = "";
         if ($join != '') {
-            $join = $db->prepareQuery($join);
+            $qb->joinRaw($join);
         }
         if ($where != '') {
-            $Awhere = ' '. $whereWord . ' ' . $where;
-        }
-        if (!is_array($fields)) {
-            $field = $fields;
-            $fields = array();
-            $fields[] = $field;
+            $qb->whereRaw($where);
         }
 
         /* Paging */
-        $sLimit = "";
         if (isset($_POST['iDisplayStart'])) {
-            if ($request->get('iDisplayLength', '', 'post') != "-1") {
-                if ($database->type =='postgresql') {
-                    $sLimit = "LIMIT " 
-                        . $database->prepareInput(
-                            $request->get(
-                                'iDisplayLength', $this->maxlimit, 'post'
-                            )
-                            . ' OFFSET '
-                            . $database->prepareInput(
-                                $request->get('iDisplayStart', '0', 'post')
-                            )                     
-                        );
-                } else {
-                    $sLimit = "LIMIT " . $database->prepareInput(
-                        $request->get('iDisplayStart', '0', 'post')
-                        ) . ", " . $database->prepareInput(
-                            $request->get(
-                                'iDisplayLength', $this->maxlimit, 'post'
-                            )
-                        );
-                }
-                
+            $length = $request->get('iDisplayLength', $this->maxlimit, 'post');
+            if ($length != "-1") {
+                $qb->limit((int)$length)->offset((int)$request->get('iDisplayStart', '0', 'post'));
             }
         } else {
-            $sLimit = "LIMIT " . $database->prepareInput($this->maxlimit);
+            $qb->limit((int)$this->maxlimit);
         }
-        $sOrder = '';
+
         /* Ordering */
         if (isset($_POST['iSortCol_0'])) {
-            $sOrder = "ORDER BY  ";
-            for ($i = 0; $i < $database->prepareInput(
-                $request->get('iSortingCols', '', 'post')
-            ); $i++) {
-                $sortcol = '';
-                if (isset($fields[$database->prepareInput(
-                    $request->get('iSortCol_' . $i, '', 'post'))]
-                )) {
-                    $sortcol = $fields[$database->prepareInput(
-                        $request->get('iSortCol_' . $i, '', 'post')
-                    )];
-                } else {
-                    $sortcol = $fields[0];
+            $sortingCols = (int)$request->get('iSortingCols', '0', 'post');
+            for ($i = 0; $i < $sortingCols; $i++) {
+                $sortColIndex = (int)$request->get('iSortCol_' . $i, '0', 'post');
+                $sortDir = $request->get('sSortDir_' . $i, 'asc', 'post');
+                
+                if (isset($fields[$sortColIndex])) {
+                    $sortField = $fields[$sortColIndex];
+                    if (strpos($sortField, ' as ') !== false) {
+                        $sortField = substr($sortField, 0, strpos($sortField, ' as '));
+                    }
+                    $qb->orderBy($sortField, $sortDir);
                 }
-                if (strpos($sortcol, ' as ') !== false) {
-                    $sortcol = substr($sortcol, 0, strpos($sortcol, ' as '));
+        }
+
+        /* Filtering */
+        $searchTerm = $request->get('sSearch', '', 'post');
+        if ($searchTerm != "") {
+            $qb->where(function($query) use ($fields, $searchTerm, $database) {
+                foreach ($fields as $i => $field) {
+                    if (isset($_POST['bSearchable_' . $i]) && $_POST['bSearchable_' . $i] == "true") {
+                        if (strpos($field, ' as ') !== false) {
+                            $field = explode(' as ', $field)[0];
+                        }
+                        
+                        $column = strpos($field, '.') === false ? "a.`$field`" : $field;
+                        $query->orWhere($column, 'LIKE', '%' . $searchTerm . '%');
+                    }
                 }
-                $sOrder .= $sortcol . " " . $database->prepareInput(
-                    $request->get('sSortDir_' . $i, '', 'post')
-                ) . ", ";
-            }
-            $sOrder = substr_replace($sOrder, "", -2);
-            if ($database->type =='postgresql') { 
-                $sOrder = str_replace('`', '"', $sOrder);
-            }
+            });
         }
-
-        $sql = $db->prepareQuery(
-            "SELECT COUNT(a.`" . $fields[0] . "`) as 'num' from "
-            . $tableQuoted . " a  $join  " . $Awhere
-        );
-
-        if ($debug == true) {
-            echo '<pre>First Count: ' . $sql . "\n\n</pre>";
-        }
-        try {
-            $num = $db->query($sql, $cache, $cachetime, $cachecategory);
-        } catch (\Exception $ex) {
-            $message = 'Error in getJsonList (first count): '
-                . $ex->getMessage() . '. Sql Query:'
-                . str_replace(array("\n", "\t", "\r"), " ", $sql);
-            \Pramnos\Logs\Logger::log(
-                $message
-            );
-        }
-
-        if (!isset($num) || !$num || !isset($num->fields['num'])) {
-            $num = new \stdClass();
-            $num->fields = ['num' => 0];
-        }
-        $total = $num->fields['num'];
-
-        /* Filtering - NOTE this does not match the
-         * built-in DataTables filtering which does it
-         * word by word on any field. It's possible to do here,
-         * but concerned about efficiency
-         * on very large tables, and MySQL's regex
-         * functionality is very limited
-         */
-        $sWhere = "";
-        if (isset($_POST['sSearch']) && $_POST['sSearch'] != "") {
-            if ($where != '') {
-                $sWhere = $whereWord . ' ' . $where . ' AND (';
-            } else {
-                $sWhere = $whereWord . ' (';
-            }
-            $comma = '';
-            $i = 0;
-            foreach ($fields as $field) {
-
-                if (isset($_POST['bSearchable_' . $i])
-                    && $_POST['bSearchable_' . $i] == "true") {
-                    $startWildcard = '%';
-                    $endWildcard = '%';
-                    if (strpos($field, ' as ') !== false) {
-                        //Αφαίρεση πεδίου " as "
-                        $fieldTmpArray = explode(' as ', $field);
-                        $field = $fieldTmpArray[0];
-                    }
-
-                    if (strpos($field, '.') === false) {
-                        $sWhere .= $comma . " a.`" . $field
-                            . "` LIKE '" . $startWildcard
-                            . trim(
-                                $database->prepareInput($_POST['sSearch'])
-                            ) . $endWildcard . "'";
-                    } else {
-                        $sWhere .= $comma . " " . $field . " LIKE '"
-                            . $startWildcard . trim(
-                                $database->prepareInput($_POST['sSearch'])
-                            ) . $endWildcard . "'";
-                    }
-                    $comma = ' OR ';
-                    }
-                $i++;
-            }
-
-            $sWhere .= ' )';
-
-        } elseif ($where != '') {
-            $sWhere = ' ' . $whereWord . ' ' . $where;
-        }
-
-        $selectfields = '';
-        $comma = '';
-        foreach ($fields as $field) {
-            if ($field == $distinctField) {
-                continue;
-            }
-            if (strpos($field, '.') === false) {
-                $selectfields .= $comma . " a.`" . $field . "`";
-            } else {
-                $selectfields .= $comma . " " . $field;
-            }
-            $comma = ',';
-        }
-        if ($distinctField != '' && strpos($distinctField, '.') === false) {
-            $distinctField = 'a.`' . $distinctField . '`';
-        }
-
 
         /* Individual column filtering */
-        for ($i = 0; $i < count($fields); $i++) {
-            if (@$this->fielddetails[$fields[$i]]['startWildcard'] == true) {
-                $startWildcard = '%';
-            } else {
-                $startWildcard = '';
-            }
-            if (@$this->fielddetails[$fields[$i]]['endWildcard'] == true) {
-                $endWildcard = '%';
-            } else {
-                $endWildcard = '';
-            }
-            if (isset($_POST['bSearchable_' . $i])
-                && $_POST['bSearchable_' . $i] == "true"
-                && $_POST['sSearch_' . $i] != '') {
-                if ($sWhere == "") {
-                    $sWhere = $whereWord . " ";
-                } else {
-                    $sWhere .= " AND ";
+        foreach ($fields as $i => $field) {
+            $colSearch = $request->get('sSearch_' . $i, '', 'post');
+            if ($colSearch != "" && isset($_POST['bSearchable_' . $i]) && $_POST['bSearchable_' . $i] == "true") {
+                $startWildcard = (@$this->fielddetails[$field]['startWildcard'] == true) ? '%' : '';
+                $endWildcard = (@$this->fielddetails[$field]['endWildcard'] == true) ? '%' : '';
+                
+                if (strpos($field, ' as ') !== false) {
+                    $field = explode(' as ', $field)[0];
                 }
-                $sField = explode(' as ', $fields[$i]);
-                if (strpos($fields[$i], '.') === false) {
-                    $sWhere .= 'a.`' . $sField[0] . "` LIKE '"
-                        . $startWildcard . $database->prepareInput(
-                            $_POST['sSearch_' . $i]
-                        ) . $endWildcard . "' ";
-                } else {
-                    $sWhere .= $sField[0] . " LIKE '"
-                        . $startWildcard
-                        . $database->prepareInput($_POST['sSearch_' . $i])
-                        . $endWildcard . "' ";
-                }
+                
+                $column = strpos($field, '.') === false ? "a.`$field`" : $field;
+                $qb->where($column, 'LIKE', $startWildcard . $colSearch . $endWildcard);
             }
         }
-        if ($database->type == 'postgresql') {
-            $sWhere = str_replace('`', '"', $sWhere);
-            $sWhere = preg_replace_callback(
-                '/(\S+)\s+LIKE\s+(\S+)/i',
-                function ($matches) {
-                    return 'CAST(' . $matches[1] . ' AS TEXT) ILIKE ' . $matches[2];
-                },
-                $sWhere
-            );
+
+        // First count: Total records without filtering
+        $totalQb = $database->queryBuilder()->from($table . ' a');
+        if ($join != '') $totalQb->joinRaw($join);
+        if ($where != '') $totalQb->whereRaw($where);
+        
+        $totalSql = "SELECT COUNT(a.`" . $fields[0] . "`) as num FROM (" . $totalQb->toSql() . ") as total_query";
+        try {
+            $num = $database->query($totalSql, $cache, $cachetime, $cachecategory);
+            $total = $num->fields['num'] ?? 0;
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::log('Error in Datasource total count: ' . $ex->getMessage());
+            $total = 0;
         }
 
-        if ($distinctField != '') {
-            $sql = $db->prepareQuery(
-                'select distinct('.$distinctField.'), '
-                . $selectfields . ' from '
-                . $tableQuoted . ' a   ' . $join . '   '
-            ) . $sWhere . ' ' . $sOrder . ' ' . $sLimit;
-        } else {
-            $sql = $db->prepareQuery(
-                'select distinct ' . $selectfields . ' from '
-                . $tableQuoted . ' a   ' . $join . '   '
-            ) . $sWhere . ' ' . $sOrder . ' ' . $sLimit;
+        // Second count: Total records with filtering (but no limit)
+        $displayQb = clone $qb;
+        $displayQb->limit(null)->offset(null);
+        $displaySql = "SELECT COUNT(a.`" . $fields[0] . "`) as num FROM (" . $displayQb->toSql() . ") as display_query";
+        try {
+            $displayResult = $database->query($displaySql, $cache, $cachetime, $cachecategory);
+            $totalDisplay = $displayResult->fields['num'] ?? 0;
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::log('Error in Datasource filtered count: ' . $ex->getMessage());
+            $totalDisplay = 0;
         }
 
-
-
-        if ($debug == true) {
-            echo '<pre>Distinct: ' . $sql . "\n\n</pre>";
+        if ($debug) {
+            echo '<pre>Final Query: ' . $qb->toSql() . "\n\n</pre>";
         }
 
         try {
-            $result = $db->query($sql, $cache, $cachetime, $cachecategory);
+            $result = $qb->get($cache, $cachetime, $cachecategory);
         } catch (\Exception $ex) {
-            $message = 'Error in getJsonList: '
-                . $ex->getMessage() . '. Sql Query:'
-                . str_replace(array("\n", "\t", "\r"), " ", $sql ?? '');
-            \Pramnos\Logs\Logger::log(
-                $message
-            );
+            $message = 'Error in Datasource render: ' . $ex->getMessage() . '. SQL: ' . $qb->toSql();
+            \Pramnos\Logs\Logger::log($message);
             die($message);
         }
-
-        if ($debug == true) {
-
-            echo '<pre>';
-            var_dump($result);
-            die('</pre>');
-        }
-
-        if (strpos($sWhere, 'group by') !== false) {
-            $sql = $db->prepareQuery(
-            "select COUNT(distinct(a.`" . $fields[0] . "`)) "
-            . "as 'num' from " . $tableQuoted . " a  " . $join . "  "
-        ) . str_replace('group by a.`' . $fields[0] . '`', '', $sWhere);
-        } else {
-            $sql = $db->prepareQuery(
-            "select COUNT(a.`" . $fields[0] . "`) "
-            . "as 'num' from " . $tableQuoted . " a  " . $join . "  "
-        ) . $sWhere;
-        }
-
-        try {
-            $sQueryR = $db->query($sql, $cache, $cachetime, $cachecategory);
-        } catch (\Exception $ex) {
-            $message = 'Error in getJsonList: '
-                . $ex->getMessage() . '. Sql Query:'
-                . str_replace(array("\n", "\t", "\r"), " ", $sql ?? '');
-            \Pramnos\Logs\Logger::log(
-                $message
-            );
-            die($message);
-        }
-
-
-        if (!isset($sQueryR->fields['num'])) {
-            $sQueryR->fields['num'] = 0;
-        }
-        $totalDisplay = $sQueryR->fields['num'];
 
 
         $return = array();

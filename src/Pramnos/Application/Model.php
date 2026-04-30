@@ -349,15 +349,12 @@ class Model extends \Pramnos\Framework\Base
             if ($filter === NULL) {
                 $filter = "";
             }
-            if ($database->type == 'postgresql') {                
-                $sql = "select count(*) as \"itemsCount\" from "
-                    . $this->getFullTableName() . " " . $filter;
-            } else {
-                $sql = "select count(*) as 'itemsCount' from `"
-                    . $this->getFullTableName() . "` " . $filter;
-            }
             try {
-                $result = $database->query($sql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
+                $result = $database->queryBuilder()
+                    ->from($this->getFullTableName())
+                    ->select('count(*) as itemsCount')
+                    ->whereRaw($filter) // $filter is usually a string fragment for where
+                    ->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             } catch (\Exception $e) {
                 \Pramnos\Logs\Logger::logError(
                     'Error executing getCount query: '
@@ -400,35 +397,18 @@ class Model extends \Pramnos\Framework\Base
             if ($this->_cacheKey === NULL) {
                 $this->_fixDb();
             }
-            if ($database->type == 'postgresql') {
-                
-                $sql = $database->prepareQuery(
-                    "select * from "
-                    . $this->getFullTableName()
-                    . " where `"
-                    . $this->_primaryKey
-                    . "` = %s limit 1",
-                    $primaryKey
-                );
-            
-            } else {
-                $sql = $database->prepareQuery(
-                    "select * from "
-                    . $this->getFullTableName()
-                    . " where `"
-                    . $this->_primaryKey
-                    . "` = %s limit 1",
-                    $primaryKey
-                );
-            }
-            
             if ($debug === true) {
-                die($sql);
+                // toSql() is useful for debug
+                die($database->queryBuilder()->from($this->getFullTableName())->where($this->_primaryKey, $primaryKey)->limit(1)->toSql());
             }
             
             // Use specific cache key that includes the primary key value
             $specificCacheKey = $this->_generateSpecificCacheKey($primaryKey);
-            $result = $database->query($sql, false, 600, $specificCacheKey);
+            $result = $database->queryBuilder()
+                ->from($this->getFullTableName())
+                ->where($this->_primaryKey, $primaryKey)
+                ->limit(1)
+                ->get(false, 600, $specificCacheKey);
             if ($result->numRows != 0) {
                 // Reset initial data array
                 $this->_initialData = array();
@@ -464,14 +444,11 @@ class Model extends \Pramnos\Framework\Base
             if ($this->_cacheKey === NULL) {
                 $this->_fixDb();
             }
-            $sql = "delete from " . $this->getFullTableName()
-                . " where " . $this->_primaryKey
-                . " = " . (int) $primaryKey;
-            $database->query($sql);
-            
-            // Clear only the specific record's cache, not the entire category
-            $database->cacheflush($this->_generateSpecificCacheKey($primaryKey));
-            $database->cacheflush($this->_cacheKey);
+            if ($database->queryBuilder()->from($this->getFullTableName())->where($this->_primaryKey, $primaryKey)->delete()) {
+                // Clear only the specific record's cache, not the entire category
+                $database->cacheflush($this->_generateSpecificCacheKey($primaryKey));
+                $database->cacheflush($this->_cacheKey);
+            }
         }
         $this->_isnew = true;
         return $this;
@@ -535,125 +512,54 @@ class Model extends \Pramnos\Framework\Base
                 $this->_fixDb();
             }
             $primarykey = $this->_primaryKey;
-            if ($filter === NULL) {
-                $filter = "";
+            $qb = $database->queryBuilder()
+                ->from($this->getFullTableName() . ' a')
+                ->select($fields);
+
+            if ($join != '') {
+                $qb->joinRaw($join);
             }
-            if ($filter === NULL) {
-                $filter = "";
+
+            if ($filter != '') {
+                $qb->whereRaw($filter);
+            }
+
+            if ($group != '') {
+                $qb->groupByRaw($group);
+            }
+
+            if ($order != '') {
+                $qb->orderByRaw($order);
+            }
+
+            // Get total count
+            if ($group != '') {
+                $countQb = clone $qb;
+                $countQb->select('1');
+                $countSql = "SELECT COUNT(*) as itemsCount FROM (" . $countQb->toSql() . ") as grouped_query";
+                $countResult = $database->query($countSql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             } else {
-                if ($database->type == 'postgresql') {
-                    $filter = str_replace('`', '"', $filter);
-                }
+                $countQb = clone $qb;
+                $countQb->select('count(a.' . $primarykey . ') as itemsCount');
+                $countResult = $countQb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             }
-            if ($database->type == 'postgresql') {
-                $group = str_replace('`', '"', $group);
-                $join = str_replace('`', '"', $join);
-                $prefix = $database->prefix;
-                if ($prefix != '') {
-                    $prefix = $prefix . '_';
-                }
-                $join = str_replace('#PREFIX#', $database->prefix, $join);
+            
+            $totalItems = $countResult->fields['itemsCount'] ?? 0;
 
-
-            }
-            if ($order === NULL || $order === '') {
-                if ($join != '') {
-                    $order  = " order by a." . $primarykey . " DESC ";
-                } else {
-                    $order  = " order by " . $primarykey . " DESC ";
-                }
-            }
-
-            if ($queryFields != NULL) {
-                $fields = $queryFields;
-            } else {
-                $fields = '*';
-            }
-
-            if ($database->type == 'postgresql') {
-                $order = str_replace('`', '"', $order);
-            }
-
-            if (trim($order) != '' && stripos($order, 'order by') === false) {
-                $order = ' order by ' . $order;
-            }
-            $orderArray = explode(';', $order);
-            $order = $database->prepareQuery($orderArray[0]);
-            if ($database->type == 'postgresql') {
-                if ($this->_dbschema !== null) {
-                    $sql = "select $fields from " . $this->_dbschema . '.'
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
-                        . $items . ' offset ' . $page;
-                    if ($group != '') {
-                        $countSql = "select count(*) as \"itemsCount\" from ("
-                            . "select 1 from " . $this->_dbschema . '.'
-                            . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group
-                            . ") as grouped_query";
-                    } else {
-                        $countSql = "select count(a." . $primarykey . ") "
-                            . "as \"itemsCount\"  from " . $this->_dbschema . '.'
-                            . $this->_dbtable . " " . "  a " . $join . $filter;
-                    }
-                } elseif ($database->schema != '') {
-                    $sql = "select $fields from " . $database->schema . '.'
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
-                        . $items . ' offset ' . $page;
-                    if ($group != '') {
-                        $countSql = "select count(*) as \"itemsCount\" from ("
-                            . "select 1 from " . $database->schema . '.'
-                            . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group
-                            . ") as grouped_query";
-                    } else {
-                        $countSql = "select count(a." . $primarykey . ") "
-                            . "as \"itemsCount\"  from " . $database->schema . '.'
-                            . $this->_dbtable . " " . "  a " . $join . $filter;
-                    }
-                } else {
-                    $sql = "select $fields from "
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
-                        . $items . ' offset ' . $page;
-                    if ($group != '') {
-                        $countSql = "select count(*) as \"itemsCount\" from ("
-                            . "select 1 from "
-                            . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group
-                            . ") as grouped_query";
-                    } else {
-                        $countSql = "select count(a." . $primarykey . ") "
-                            . "as \"itemsCount\"  from "
-                            . $this->_dbtable . " " . "  a " . $join . $filter;
-                    }
-                }
-            } else {
-                $sql = "select $fields from `"
-                    . $this->_dbtable . "` " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
-                    . $page . ', ' . $items;
-                if ($group != '') {
-                    $countSql = "select count(*) as 'itemsCount' from ("
-                        . "select 1 from `"
-                        . $this->_dbtable . "` " . "  a " . $join . $filter . ' ' . $group
-                        . ") as grouped_query";
-                } else {
-                    $countSql = "select count(a.`" . $primarykey . "`) "
-                        . "as 'itemsCount'  from `"
-                        . $this->_dbtable . "` " . "  a " . $join . $filter;
-                }
-            }
-            $countResult = $database->query(
-                $countSql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey
-            );
-            $totalItems = $countResult->fields['itemsCount'];
-
-            if ($totalItems == 0 | $items == 0) {
+            if ($totalItems == 0 || $items == 0) {
                 $totalPages = 1;
             } else {
                 $totalPages = ceil($totalItems / $items);
             }
 
-            if ($debug==true) {
-                die($sql);
+            // Set limit and offset for the main query
+            $qb->limit($items)->offset($page);
+
+            if ($debug == true) {
+                die($qb->toSql());
             }
 
-            $result = $database->query($sql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
+            $result = $qb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
 
             $class = get_class($this);
             
@@ -771,75 +677,39 @@ class Model extends \Pramnos\Framework\Base
             }
             
             $primarykey = $this->_primaryKey;
-            if ($filter === NULL) {
-                $filter = "";
-            } else {
-                if ($database->type == 'postgresql') {
-                    $filter = str_replace('`', '"', $filter);
-                }
-            }
-            if ($database->type == 'postgresql') {
-                $group = str_replace('`', '"', $group);
-                $join = str_replace('`', '"', $join);
-                $prefix = $database->prefix;
-                if ($prefix != '') {
-                    $prefix = $prefix . '_';
-                }
-                $join = str_replace('#PREFIX#', $database->prefix, $join);
-            }
-            if ($order === NULL) {
-                if ($join != '') {
-                    $order  = " order by a." . $primarykey . " DESC ";
-                } else {
-                    $order  = " order by " . $primarykey . " DESC ";
-                }
+            $qb = $database->queryBuilder()
+                ->from($this->getFullTableName() . ' a')
+                ->select($fields);
+
+            if ($join != '') {
+                $qb->joinRaw($join);
             }
 
-            if ($queryFields != NULL) {
-                $fields = $queryFields;
-            } else {
-                $fields = '*';
+            if ($filter != '') {
+                $qb->whereRaw($filter);
             }
 
-            if ($database->type == 'postgresql') {
-                $order = str_replace('`', '"', $order);
+            if ($group != '') {
+                $qb->groupByRaw($group);
             }
-            if (trim($order) != '' && stripos($order, 'order by') === false) {
-                $order = ' order by ' . $order;
-            }
-            $orderArray = explode(';', $order);
-            $order = $database->prepareQuery($orderArray[0]);
-            
 
-            if ($database->type == 'postgresql') {
-                if ($this->_dbschema != null) {
-                    $sql = "select $fields from " . $this->_dbschema . '.'
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
-                } elseif ($database->schema != '') {
-                    $sql = "select $fields from " . $database->schema . '.'
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
-                } else {
-                    $sql = "select $fields from "
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
-                }
-            } else {
-                $sql = "select $fields from `"
-                    . $this->_dbtable . "` " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
+            if ($order != '') {
+                $qb->orderByRaw($order);
             }
-            if ($debug==true) {
-                die($sql);
+
+            if ($debug == true) {
+                die($qb->toSql());
             }
             try {
-                $result = $database->query($sql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
+                $result = $qb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             } catch (\Exception $ex) {
-                \Pramnos\Logs\Logger::logError("Error in getList query: " . $sql . " - " . $ex->getMessage(), $ex);
+                \Pramnos\Logs\Logger::logError("Error in getList query: " . $qb->toSql() . " - " . $ex->getMessage(), $ex);
                 if ($displayerroroutput == true) {
                     $this->controller->application->showError($ex->getMessage());
                 } else {
                     $this->sqlError = $ex->getMessage();
                     return array();
                 }
-                
             }
             if ($returnAsModels == false && $useGetData == false) {
                 $objects = array();
