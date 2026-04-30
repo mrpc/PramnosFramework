@@ -85,22 +85,22 @@
 ## 🎯 Φάση 1: Core Database Architecture (Foundation)
 *Ενίσχυση του συστήματος διαχείρισης δεδομένων. Υποστήριξη MySQL, PostgreSQL και TimescaleDB σε όλα τα επίπεδα.*
 
-- [ ] **Read/Write Replicas Support:** Αναβάθμιση της `Pramnos\Database\Database` class ώστε να μπορεί να συνδέεται σε πολλαπλές βάσεις (π.χ. μία για writes, άλλες για reads).
-- [ ] **Connection Health & Auto-reconnect:** Αυτόματη ανίχνευση dropped connection και διαφανής επανασύνδεση χωρίς επανεκκίνηση του worker ή της εφαρμογής.
+- [x] **Read/Write Replicas Support:** Αναβάθμιση της `Pramnos\Database\Database` class ώστε να μπορεί να συνδέεται σε πολλαπλές βάσεις (π.χ. μία για writes, άλλες για reads).
+- [x] **Connection Health & Auto-reconnect:** Αυτόματη ανίχνευση dropped connection και διαφανής επανασύνδεση χωρίς επανεκκίνηση του worker ή της εφαρμογής.
 
 ### 🔨 Query Builder & ORM (Unified Multi-Dialect Layer)
 *Ενιαίο σύστημα που λειτουργεί ως fluent query builder, ως schema/DDL builder, και ως πλήρες ORM — χωρίς να καταργηθούν οι υπάρχουσες μέθοδοι της `Database` class.*
 
 > **BC Strategy:** Η `Database` class και οι μέθοδοί της (`prepareQuery()`, `query()`, κλπ.) παραμένουν αμετάβλητες. Το νέο `QueryBuilder` λαμβάνει instance της `Database` ως dependency και εκτελεί queries μέσω αυτής. Το υπάρχον `Model` αποκτά νέα opt-in capabilities (relationships, scopes, casting) μέσω traits — ο υπάρχων κώδικας που extend-άρει το `Model` δεν χρειάζεται αλλαγές.
 
-- [ ] **DML Query Builder:** Fluent interface για όλες τις κλασικές DML πράξεις:
-  - `SELECT` με aliases, `DISTINCT`, column expressions
-  - `INSERT`, `INSERT IGNORE`, `INSERT ... ON CONFLICT` (upsert για PostgreSQL/TimescaleDB)
-  - `UPDATE` με conditional logic
-  - `DELETE` / `TRUNCATE`
-  - JOINs: `INNER`, `LEFT`, `RIGHT`, `FULL`, `CROSS`
-  - Conditions: `where()`, `orWhere()`, `whereIn()`, `whereNull()`, `whereBetween()`, `whereRaw()`
-  - `groupBy()`, `having()`, `orderBy()`, `limit()`, `offset()`
+- [/] **DML Query Builder:** Fluent interface για όλες τις κλασικές DML πράξεις:
+  - [x] `SELECT` με aliases, `DISTINCT`, column expressions
+  - [x] `INSERT`, `INSERT IGNORE`, `INSERT ... ON CONFLICT` (upsert για PostgreSQL/TimescaleDB)
+  - [x] `UPDATE` με conditional logic
+  - [x] `DELETE` / `TRUNCATE`
+  - [x] JOINs: `INNER`, `LEFT`, `RIGHT`, `FULL`, `CROSS`
+  - [x] Conditions: `where()`, `orWhere()`, `whereIn()`, `whereNull()`, `whereBetween()`, `whereRaw()`
+  - [x] `groupBy()`, `having()`, `orderBy()`, `limit()`, `offset()`
   - `UNION` / `UNION ALL`
   - Common Table Expressions (CTEs) με `with()`
   - Subqueries ως columns, conditions ή πηγές δεδομένων
@@ -129,9 +129,9 @@
   - `timeBucket($interval, $column)` — helper για `time_bucket()` expressions σε queries
   - Πρόσβαση στα TimescaleDB informational views (`timescaledb_information.*`)
 
-- [ ] **`DatabaseCapabilities` — Runtime Detection & Graceful Fallback:** Κλάση που ανιχνεύει τις δυνατότητες του τρέχοντος database backend και επιτρέπει capability-conditional DDL. **Κάθε TimescaleDB feature πρέπει να έχει silent fallback για MySQL και plain PostgreSQL** — κανένα migration ή query δεν επιτρέπεται να αποτύχει με fatal error σε non-TimescaleDB περιβάλλον.
-  - `DatabaseCapabilities::has(string $capability): bool` — runtime detection (check `pg_extension` για TimescaleDB)
-  - `DatabaseCapabilities::isMySQL()` / `isPostgreSQL()` / `hasTimescaleDB()`
+- [x] **`DatabaseCapabilities` — Runtime Detection & Graceful Fallback:** Κλάση που ανιχνεύει τις δυνατότητες του τρέχοντος database backend και επιτρέπει capability-conditional DDL. **Κάθε TimescaleDB feature πρέπει να έχει silent fallback για MySQL και plain PostgreSQL** — κανένα migration ή query δεν επιτρέπεται να αποτύχει με fatal error σε non-TimescaleDB περιβάλλον.
+  - [x] `DatabaseCapabilities::has(string $capability): bool` — runtime detection (check `pg_extension` για TimescaleDB)
+  - [x] `DatabaseCapabilities::isMySQL()` / `isPostgreSQL()` / `hasTimescaleDB()`
   - Schema Builder `->ifCapable(capability, callable $ifTrue, ?callable $ifFalse)` — conditional DDL execution
   - **`time_bucket()` dialect translation:** TimescaleDB → `time_bucket()`, plain PG → `DATE_TRUNC()`, MySQL → `DATE_FORMAT()` — transparent μέσω `QueryBuilder::timeBucket()`
   - **Retention policy fallback:** Queue-based daily DELETE job όταν `add_retention_policy()` δεν είναι διαθέσιμο
@@ -465,3 +465,24 @@
 ---
 
 *Σημείωση: Οποιεσδήποτε υπάρχουσες μέθοδοι αντικαθίστανται από νεότερες, θα χαρακτηρίζονται ως `@deprecated` στα σχόλια, αλλά θα συνεχίσουν να υποστηρίζονται κανονικά σε αυτό το release circle.*
+
+---
+
+## 🚀 Νέες Φάσεις Εκσυγχρονισμού (v1.2+)
+
+### 🏗️ Φάση 6: Dependency Injection & PSR Compliance
+- [ ] **PSR-11 Service Container:** Υλοποίηση IoC Container για διαχείριση dependencies.
+- [ ] **Constructor Injection:** Υποστήριξη αυτόματης επίλυσης εξαρτήσεων στους controllers.
+- [ ] **PSR-3 Logger Implementation:** Συμβατότητα του `Logger` με το PSR-3 interface.
+- [ ] **PSR-16 Simple Cache:** Wrapper για το υπάρχον caching system.
+- [ ] **PSR-7/15 HTTP Stack:** Υποστήριξη PSR compliant requests/responses και middleware pipeline.
+
+### 🛣️ Φάση 7: Modern Routing Engine
+- [ ] **Attribute-based Routing:** Υποστήριξη `#[Route]` attributes πάνω από τις μεθόδους των controllers.
+- [ ] **Route Discovery:** Αυτόματο scanning φακέλων για ανακάλυψη routes.
+- [ ] **Named Routes & URL Generation:** Βελτίωση της παραγωγής URLs βάσει ονόματος route.
+
+### 🛡️ Φάση 8: Security & Templating
+- [ ] **View Auto-escaping:** Σύστημα προστασίας XSS με αυτόματο escaping των μεταβλητών στα templates (με δυνατότητα `raw` bypass).
+- [ ] **CSRF Protection:** Native middleware για αυτόματο έλεγχο CSRF tokens σε POST requests.
+- [ ] **Secure Headers:** Εύκολος ορισμός CSP (Content Security Policy) και άλλων security headers.
