@@ -162,8 +162,32 @@ class Database extends \Pramnos\Framework\Base
     private $_numSlowqueries = 0;
 
     /**
-     * Database connection link
-     * @var \mysqli|\pgsql\connection
+     * Read connection link
+     * @var \mysqli|\PgSql\Connection
+     */
+    private $_readConnection;
+
+    /**
+     * Write connection link
+     * @var \mysqli|\PgSql\Connection
+     */
+    private $_writeConnection;
+
+    /**
+     * Read configuration
+     * @var array
+     */
+    protected $readConfig = [];
+
+    /**
+     * Write configuration
+     * @var array
+     */
+    protected $writeConfig = [];
+
+    /**
+     * Database connection link (Legacy property, now points to active connection)
+     * @var \mysqli|\PgSql\Connection
      */
     private $_dbConnection;
 
@@ -184,12 +208,156 @@ class Database extends \Pramnos\Framework\Base
     protected $preparedStatements = array();
 
     /**
-     * Return current database connection link
-     * @return resource
+     * Return a new SchemaBuilder instance for this connection.
+     * 
+     * @return \Pramnos\Database\SchemaBuilder
+     */
+    public function schemaBuilder()
+    {
+        return new SchemaBuilder($this);
+    }
+
+    /**
+     * Return a new QueryBuilder instance for this connection.
+     * 
+     * @return \Pramnos\Database\QueryBuilder
+     */
+    public function queryBuilder()
+    {
+        return new QueryBuilder($this);
+    }
+
+    /**
+     * Return current database connection link.
+     * For backward compatibility, it returns the current active connection.
+     * @return \mysqli|\PgSql\Connection
      */
     public function getConnectionLink()
     {
-        return $this->_dbConnection;
+        return $this->_dbConnection ?: $this->getConnection(true);
+    }
+
+    /**
+     * Get the appropriate connection link (Read or Write).
+     *
+     * @param bool $isWrite Whether to return the write connection.
+     * @return \mysqli|\PgSql\Connection
+     */
+    public function getConnection($isWrite = false)
+    {
+        if ($isWrite) {
+            if (!$this->_writeConnection || !$this->isConnectionAlive($this->_writeConnection)) {
+                $this->connectToReplica('write');
+            }
+            $this->_dbConnection = $this->_writeConnection;
+            return $this->_writeConnection;
+        }
+
+        if (!$this->_readConnection || !$this->isConnectionAlive($this->_readConnection)) {
+            $this->connectToReplica('read');
+        }
+        $this->_dbConnection = $this->_readConnection;
+        return $this->_readConnection;
+    }
+
+    /**
+     * Check if a connection is still alive.
+     *
+     * @param \mysqli|\PgSql\Connection $connection
+     * @return bool
+     */
+    public function isConnectionAlive($connection)
+    {
+        if (!$connection) {
+            return false;
+        }
+
+        if ($this->type === 'postgresql') {
+            return pg_connection_status($connection) === PGSQL_CONNECTION_OK;
+        }
+
+        try {
+            return (bool)@mysqli_query($connection, "SELECT 1");
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Connect to a specific replica (read or write).
+     *
+     * @param string $type 'read' or 'write'
+     * @return bool
+     */
+    protected function connectToReplica($type)
+    {
+        $config = ($type === 'write') ? $this->writeConfig : $this->readConfig;
+        
+        // If no specific config, use the default properties
+        $server = $config['hostname'] ?? $this->server;
+        $user = $config['user'] ?? $this->user;
+        $password = $config['password'] ?? $this->password;
+        $database = $config['database'] ?? $this->database;
+        $port = $config['port'] ?? $this->port;
+
+        // Temporarily swap properties to use existing connect logic
+        $oldServer = $this->server;
+        $oldUser = $this->user;
+        $oldPass = $this->password;
+        $oldDb = $this->database;
+        $oldPort = $this->port;
+
+        $this->server = $server;
+        $this->user = $user;
+        $this->password = $password;
+        $this->database = $database;
+        $this->port = $port;
+
+        try {
+            $connection = null;
+            switch ($this->type) {
+                default:
+                    $connection = $this->connectMysql();
+                    if ($connection && $this->collation !== false) {
+                        \mysqli_query($connection, "SET NAMES " . $this->collation . ";");
+                    }
+                    break;
+                case "postgresql":
+                    $connection = $this->connectPostgresql();
+                    break;
+            }
+
+            if ($type === 'write') {
+                $this->_writeConnection = $connection;
+            } else {
+                $this->_readConnection = $connection;
+            }
+        } finally {
+            // Restore original properties
+            $this->server = $oldServer;
+            $this->user = $oldUser;
+            $this->password = $oldPass;
+            $this->database = $oldDb;
+            $this->port = $oldPort;
+        }
+
+        return (bool)$connection;
+    }
+
+    /**
+     * Determine if a query is a write query.
+     *
+     * @param string $sql
+     * @return bool
+     */
+    public function isWriteQuery($sql)
+    {
+        $sql = ltrim($sql);
+        // Common read-only keywords
+        $readKeywords = ['SELECT', 'SHOW', 'EXPLAIN', 'DESC', 'DESCRIBE'];
+        $firstWord = strtoupper(explode(' ', $sql)[0]);
+        
+        return !in_array($firstWord, $readKeywords);
     }
 
     /**
@@ -203,10 +371,25 @@ class Database extends \Pramnos\Framework\Base
         }
         if ($settingsObject instanceof \Pramnos\Application\Settings) {
             $dbSettings = $settingsObject->database;
-            $this->server = $dbSettings->hostname;
-            $this->database = $dbSettings->database;
-            $this->user = $dbSettings->user;
-            $this->password = $dbSettings->password;
+            
+            // Handle Read/Write replica configuration
+            if (isset($dbSettings->read) || isset($dbSettings->write)) {
+                $this->readConfig = isset($dbSettings->read) ? (array)$dbSettings->read : [];
+                $this->writeConfig = isset($dbSettings->write) ? (array)$dbSettings->write : [];
+                
+                // Set default server/user/pass from write config if available for BC
+                $baseConfig = !empty($this->writeConfig) ? $this->writeConfig : $this->readConfig;
+                $this->server = $baseConfig['hostname'] ?? 'localhost';
+                $this->database = $baseConfig['database'] ?? '';
+                $this->user = $baseConfig['user'] ?? 'root';
+                $this->password = $baseConfig['password'] ?? '';
+            } else {
+                $this->server = $dbSettings->hostname;
+                $this->database = $dbSettings->database;
+                $this->user = $dbSettings->user;
+                $this->password = $dbSettings->password;
+            }
+
             $this->collation = isset($dbSettings->collation) ? $dbSettings->collation : false;
             $this->prefix = isset($dbSettings->prefix) ? $dbSettings->prefix : '';
             if ($this->prefix !== '' && \substr($this->prefix, -1) !== '_') {
@@ -371,6 +554,8 @@ class Database extends \Pramnos\Framework\Base
             $this->startLogs();
         }
         $this->connected = false;
+        $this->_readConnection = null;
+        $this->_writeConnection = null;
         $this->_dbConnection = null;
         $this->preparedStatements = [];
 
@@ -379,13 +564,14 @@ class Database extends \Pramnos\Framework\Base
         }
 
         try {
-            switch ($this->type) {
-                default:
-                    $this->_dbConnection = $this->connectMysql();
-                    break;
-                case "postgresql":
-                    $this->_dbConnection = $this->connectPostgresql();
-                    break;
+            // Connect to both if configured, otherwise connect once
+            if (!empty($this->readConfig) || !empty($this->writeConfig)) {
+                $readOk = $this->connectToReplica('read');
+                $writeOk = $this->connectToReplica('write');
+                $ok = $readOk && $writeOk;
+            } else {
+                $ok = $this->connectToReplica('write');
+                $this->_readConnection = $this->_writeConnection;
             }
         } catch (\Throwable $ex) {
             if ($throwOnFailure) {
@@ -395,26 +581,14 @@ class Database extends \Pramnos\Framework\Base
             return false;
         }
 
-        if ($this->_dbConnection) {
+        if ($ok) {
             $this->connected = true;
+            $this->_dbConnection = $this->_writeConnection;
 
-            /**
-             * If collation is set, change connection collation
-             * to get the data in the right format.
-             */
-            if ($this->collation <> false && $this->type == 'mysql') {
-                \mysqli_query(
-                    $this->_dbConnection,
-                    "SET NAMES "
-                    . $this->collation . ";"
-                );
-            }
             if ((\defined('DEVELOPMENT') && DEVELOPMENT == true)
                 || (\defined('LOG_SLOW_QUERIES')
                     && \constant('LOG_SLOW_QUERIES') == true)) {
                 $this->logSlowQueries();
-
-
             }
 
             return true;
@@ -619,15 +793,33 @@ class Database extends \Pramnos\Framework\Base
     {
         unset($this->queryResult);
         if ($query != "") {
+            $isWrite = $this->isWriteQuery($query);
+            $connection = $this->getConnection($isWrite);
+
             $this->queriesCount++;
             $time = -microtime(true);
-            if ($this->type == 'postgresql') {
-                $this->queryResult = @\pg_query($this->_dbConnection, $query);
-                if ($this->queryResult === false) {
-                    \Pramnos\Logs\Logger::logError('Postgres error: ' . \pg_last_error($this->_dbConnection) . ' for query: ' . $query, null);
+            
+            $retry = true;
+            while (true) {
+                if ($this->type == 'postgresql') {
+                    $this->queryResult = @\pg_query($connection, $query);
+                    if ($this->queryResult === false && $retry && !$this->isConnectionAlive($connection)) {
+                        $connection = $this->getConnection($isWrite);
+                        $retry = false;
+                        continue;
+                    }
+                    if ($this->queryResult === false) {
+                        \Pramnos\Logs\Logger::logError('Postgres error: ' . \pg_last_error($connection) . ' for query: ' . $query, null);
+                    }
+                } else {
+                    $this->queryResult = @\mysqli_query($connection, $query);
+                    if ($this->queryResult === false && $retry && (\mysqli_errno($connection) == 2006 || \mysqli_errno($connection) == 2013)) {
+                        $connection = $this->getConnection($isWrite);
+                        $retry = false;
+                        continue;
+                    }
                 }
-            } else {
-                $this->queryResult = \mysqli_query($this->_dbConnection, $query);
+                break;
             }
             
             $time += microtime(true);
@@ -704,6 +896,9 @@ class Database extends \Pramnos\Framework\Base
      */
     public function prepare($sql)
     {
+        $isWrite = $this->isWriteQuery($sql);
+        $connection = $this->getConnection($isWrite);
+
         if ($this->type == 'postgresql') {
             $schema = '';
             if ($this->schema != '') {
@@ -741,7 +936,7 @@ class Database extends \Pramnos\Framework\Base
 
         if ($this->type == 'postgresql') {
             $stmtName = 'plan_' . md5($query);
-            $result = @pg_prepare($this->_dbConnection, $stmtName, $query);
+            $result = @pg_prepare($connection, $stmtName, $query);
             if ($result) {
                 // Return a lightweight object to store the statement metadata
                 $statement = new \stdClass();
@@ -750,19 +945,23 @@ class Database extends \Pramnos\Framework\Base
                     'statement' => $result,
                     'types' => $types,
                     'query' => $query,
-                    'stmtName' => $stmtName
+                    'stmtName' => $stmtName,
+                    'connection' => $connection,
+                    'isWrite' => $isWrite
                 );
                 return $statement;
             }
             return false;
         }
 
-        $statement = $this->_dbConnection->prepare($query);
+        $statement = $connection->prepare($query);
         if ($statement) {
             $this->statements[$statement->id] = array(
                 'statement' => $statement,
                 'types' => $types,
-                'query' => $query
+                'query' => $query,
+                'connection' => $connection,
+                'isWrite' => $isWrite
             );
         }
 
@@ -794,9 +993,18 @@ class Database extends \Pramnos\Framework\Base
             $statement = $this->prepare($sql);
             $free = true;
         }
-        if ($this->type != 'postgresql' && isset($this->statements[$statement->id])) {
+        
+        if (!isset($this->statements[$statement->id])) {
+             return false;
+        }
+        
+        $stmtData = $this->statements[$statement->id];
+        $connection = $stmtData['connection'];
+        $isWrite = $stmtData['isWrite'];
+
+        if ($this->type != 'postgresql') {
             $arguments = array_merge(
-                array($this->statements[$statement->id]['types']),
+                array($stmtData['types']),
                 $arguments
             );
         }
@@ -807,36 +1015,55 @@ class Database extends \Pramnos\Framework\Base
             $this->setError('0', "Database is not connected");
         }
 
-
-        if ($this->type == 'postgresql') {
-            $stmtName = $this->statements[$statement->id]['stmtName'];
-            $dbResource = @pg_execute($this->_dbConnection, $stmtName, $arguments);
-            if (!$dbResource) {
-                $this->setError(
-                    '0',
-                    @pg_last_error($this->_dbConnection),
-                    false
-                );
-            }
-        } else {
-            if (count($arguments) > 1) {
-                call_user_func_array(
-                    array($statement, 'bind_param'), $arguments
-                );
-            }
-            if ($statement->execute()) {
-                $dbResource = $statement->get_result();
+        $retry = true;
+        while (true) {
+            if ($this->type == 'postgresql') {
+                $stmtName = $stmtData['stmtName'];
+                $dbResource = @pg_execute($connection, $stmtName, $arguments);
+                if (!$dbResource && $retry && !$this->isConnectionAlive($connection)) {
+                    // Re-prepare on new connection
+                    $statement = $this->prepare($stmtData['query']);
+                    $stmtData = $this->statements[$statement->id];
+                    $connection = $stmtData['connection'];
+                    $retry = false;
+                    continue;
+                }
+                if (!$dbResource) {
+                    $this->setError(
+                        '0',
+                        @pg_last_error($connection),
+                        false
+                    );
+                }
             } else {
-                $dbResource = null;
-            }
+                if (count($arguments) > 1) {
+                    call_user_func_array(
+                        array($statement, 'bind_param'), $arguments
+                    );
+                }
+                if ($statement->execute()) {
+                    $dbResource = $statement->get_result();
+                } else {
+                    $dbResource = null;
+                    if ($retry && (\mysqli_errno($connection) == 2006 || \mysqli_errno($connection) == 2013)) {
+                        // Re-prepare on new connection
+                        $statement = $this->prepare($stmtData['query']);
+                        $stmtData = $this->statements[$statement->id];
+                        $connection = $stmtData['connection'];
+                        $retry = false;
+                        continue;
+                    }
+                }
 
-            if (!$dbResource) {
-                $this->setError(
-                    @mysqli_errno($this->_dbConnection),
-                    @mysqli_error($this->_dbConnection),
-                    false
-                );
+                if (!$dbResource && @mysqli_errno($connection) !== 0) {
+                    $this->setError(
+                        @mysqli_errno($connection),
+                        @mysqli_error($connection),
+                        false
+                    );
+                }
             }
+            break;
         }
 
         if ($free) {
@@ -854,10 +1081,8 @@ class Database extends \Pramnos\Framework\Base
             $obj->eof = false;
             if ($this->type == 'postgresql') {
                 $resultArray = pg_fetch_array($dbResource, 0, PGSQL_ASSOC);
-                pg_result_seek($dbResource, 0);
             } else {
                 $resultArray = mysqli_fetch_array($dbResource, MYSQLI_ASSOC);
-                mysqli_data_seek($dbResource, 0);
             }
             if ($resultArray) {
                 foreach($resultArray as $key=>$value) {
@@ -1848,7 +2073,11 @@ class Database extends \Pramnos\Framework\Base
     public function displayError()
     {
         $app = \Pramnos\Application\Application::getInstance();
-        $app->showError($this->error_number . ' ' . $this->error_text);
+        if ($app) {
+            $app->showError($this->error_number . ' ' . $this->error_text);
+        } else {
+            error_log('Database Error: ' . $this->error_number . ' ' . $this->error_text);
+        }
     }
 
     /**
@@ -2042,16 +2271,15 @@ class Database extends \Pramnos\Framework\Base
         if (!$this->connected) {
             $this->setError('0', "Database is not connected");
         }
-        $dbResource = $this->runQuery($sql, $this->_dbConnection);
+        $dbResource = $this->runQuery($sql);
+        $connection = $this->_dbConnection;
         if (!$dbResource) {
             $this->setError(
                 0,
-                pg_last_error($this->_dbConnection),
+                pg_last_error($connection),
                 $dieOnFatalError
             );
-            \Pramnos\Logs\Logger::logError('Postgres error:' . pg_last_error($this->_dbConnection) . ' for query: ' . $sql, null, 'postgreserrors');
-            
-        
+            \Pramnos\Logs\Logger::logError('Postgres error:' . pg_last_error($connection) . ' for query: ' . $sql, null, 'postgreserrors');
         }
 
         $obj->mysqlResult = $dbResource;
@@ -2137,11 +2365,12 @@ class Database extends \Pramnos\Framework\Base
         if (!$this->connected) {
             $this->setError('0', "Database is not connected");
         }
-        $dbResource = @$this->runQuery($sql, $this->_dbConnection);
+        $dbResource = @$this->runQuery($sql);
+        $connection = $this->_dbConnection;
         if (!$dbResource) {
             $this->setError(
-                @mysqli_errno($this->_dbConnection),
-                @mysqli_error($this->_dbConnection),
+                @mysqli_errno($connection),
+                @mysqli_error($connection),
                 $dieOnFatalError
             );
         }
