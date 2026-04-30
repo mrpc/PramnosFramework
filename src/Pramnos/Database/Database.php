@@ -1258,81 +1258,44 @@ class Database extends \Pramnos\Framework\Base
      */
     public function insertDataToTable($table, $data, $primarykey = '', $debug = false)
     {
-        $insertString = "";
-        if ($this->type == 'postgresql' && $this->schema != '' && strpos($table, '.') === false) {
-            $insertString = "INSERT INTO " . $this->schema . '.' . $table . " (";
-        } else {
-            $insertString = "INSERT INTO " . $table . " (";
+        $qb = $this->queryBuilder()->from($table);
+        if ($primarykey != '') {
+            $qb->returning($primarykey);
         }
-        
-        foreach ($data as $key => $value) {
-            if ($this->type == 'postgresql') {
-                $insertString .= '"' . $value['fieldName'] . '", ';
-            } else {
-                $insertString .= "`" . $value['fieldName'] . "`, ";
-            }
-            
-        }
-        $insertString = substr(
-            $insertString, 0, strlen($insertString) - 2
-        ) . ') VALUES (';
-        reset($data);
-        foreach ($data as $key => $value) {
 
+        $values = [];
+        foreach ($data as $item) {
+            $fieldName = $item['fieldName'];
+            $val = $item['value'];
+            $type = $item['type'];
 
-            if ($value['type'] == 'geometry' && $this->type == 'postgresql') {
-                if (is_string($value['value'])) {
-                    // check if the value is in the form of latitude,longitude
-                    if (preg_match('/^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/', $value['value'], $matches)) {
-                        $latitude = $matches[1];
-                        $longitude = $matches[3];
-                        $insertString .= 'ST_SetSRID(ST_MakePoint(' . $longitude . ', ' . $latitude . '), 4326), ';
+            if ($type == 'geometry' && $this->type == 'postgresql') {
+                if (is_string($val)) {
+                    if (preg_match('/^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/', $val, $matches)) {
+                        $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . $matches[3] . ', ' . $matches[1] . '), 4326)');
                     } else {
-                        // handle other cases
-                        $insertString .= 'ST_GeomFromText(\'' . $value['value'] . '\'), ';
+                        $val = $qb->raw('ST_GeomFromText(\'' . $val . '\')');
                     }
-                } elseif (is_array($value['value'])) {
-                    // check if the value is in the form of latitude,longitude
-                    if (isset($value['value']['latitude']) && isset($value['value']['longitude'])) {
-                        $latitude = $value['value']['latitude'];
-                        $longitude = $value['value']['longitude'];
-                        $insertString .= 'ST_SetSRID(ST_MakePoint(' . $longitude . ', ' . $latitude . '), 4326), ';
-                    } else {
-                        // handle other cases
-                        $insertString .= 'ST_GeomFromText(\'' . $value['value'] . '\'), ';
-                    }
-                } else {
-                    $insertString .= 'NULL, ';
+                } elseif (is_array($val) && isset($val['latitude']) && isset($val['longitude'])) {
+                    $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . $val['longitude'] . ', ' . $val['latitude'] . '), 4326)');
                 }
-            } elseif ($value['type'] == 'boolean' && $this->type == 'postgresql') {
-                if ($value['value'] == 'true' || $value['value'] == true || $value['value'] == 1) {
-                    $insertString .= '\'t\', ';
-                } elseif ($value['value'] == 'false' || $value['value'] == false || $value['value'] == 0) {
-                    $insertString .= '\'f\', ';
-                } else {
-                    $insertString .= 'NULL, ';
+            } elseif ($type == 'boolean' && $this->type == 'postgresql') {
+                if ($val === 'true' || $val === true || $val === 1 || $val === '1') {
+                    $val = $qb->raw('\'t\'');
+                } elseif ($val === 'false' || $val === false || $val === 0 || $val === '0') {
+                    $val = $qb->raw('\'f\'');
                 }
-
-            } else {
-
-
-                $bindVarValue = $this->prepareValue(
-                    $value['value'], $value['type']
-                );
-                $insertString .= $bindVarValue . ", ";
             }
+
+            $values[$fieldName] = $val;
         }
-        $insertString = substr(
-            $insertString, 0, strlen($insertString) - 2
-        ) . ')';
-        if ($this->type == 'postgresql' && $primarykey != '') {
-            $insertString .= " RETURNING " . $primarykey;
-        }
+
         if ($debug) {
-            echo "\n\n" . $insertString . "\n\n";
+            echo "\n\n" . $qb->insert($values) . "\n\n";
+            return $this->lastResult;
         }
-        return $this->runQuery($insertString);
 
+        return $qb->insert($values);
     }
 
     /**
@@ -1345,79 +1308,44 @@ class Database extends \Pramnos\Framework\Base
      */
     public function updateTableData($table, $data, $filter = '', $debug = false)
     {
-        if ($this->type == 'postgresql' && $this->schema != '' && strpos($table, '.') === false) {
-            $updateString = "UPDATE " . $this->schema . '.' . $table . ' SET ';
-        } else {
-            $updateString = 'UPDATE ' . $table . ' SET ';
-        }
-        foreach ($data as $value) {
-            if ($value['type'] == 'geometry' && $this->type == 'postgresql') {
-                if (is_string($value['value'])) {
-                    // check if the value is in the form of latitude,longitude
-                    if (preg_match('/^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/', $value['value'], $matches)) {
-                        $latitude = $matches[1];
-                        $longitude = $matches[3];
-                        $updateString .= '"' . $value['fieldName'] . '"=ST_SetSRID(ST_MakePoint(' . $longitude . ', ' . $latitude . '), 4326), ';
-                    } else {
-                        // handle other cases
-                        $updateString .= '"' . $value['fieldName'] . '"= ST_GeomFromText(\'' . $value['value'] . '\'), ';
-                    }
-                } elseif (is_array($value['value'])) {
-                    // check if the value is in the form of latitude,longitude
-                    if (isset($value['value']['latitude']) && isset($value['value']['longitude'])) {
-                        $latitude = $value['value']['latitude'];
-                        $longitude = $value['value']['longitude'];
-                        $updateString .= '"' . $value['fieldName'] . '"=ST_SetSRID(ST_MakePoint(' . $longitude . ', ' . $latitude . '), 4326), ';
-                    } else {
-                        // handle other cases
-                        $updateString .= '"' . $value['fieldName'] . '"= ST_GeomFromText(\'' . $value['value'] . '\'), ';
-                    }
-                } else {
-                    $updateString .= '"' . $value['fieldName']
-                        . '"= NULL, ';
-                }
-
-            } elseif ($value['type'] == 'boolean' && $this->type == 'postgresql') {
-
-                if ($value['value'] == 'true' || $value['value'] == true || $value['value'] == 1) {
-                    $updateString .= '"' . $value['fieldName'] . '"=\'t\', ';
-                } elseif ($value['value'] == 'false' || $value['value'] == false || $value['value'] == 0) {
-                    $updateString .= '"' . $value['fieldName'] . '"=\'f\', ';
-                } else {
-                    $updateString .= '"' . $value['fieldName'] . '"=NULL, ';
-                }
-
-            } else {
-                $bindVarValue = $this->prepareValue(
-                    $value['value'], $value['type']
-                );
-                if ($this->type == 'postgresql') {
-                    $updateString .= '"' . $value['fieldName']
-                        . '"=' . $bindVarValue . ', ';
-                } else {
-                    $updateString .= "`" . $value['fieldName']
-                        . '`=' . $bindVarValue . ', ';
-                }
-            }
-            
-            
-        }
-        $updateString = substr(
-            $updateString, 0, strlen($updateString) - 2
-        );
+        $qb = $this->queryBuilder()->from($table);
         if ($filter != '') {
-            if ($this->type == 'postgresql') {
-                $updateString .= ' WHERE ' . str_replace('`', '"', $filter);
-            } else {
-                $updateString .= ' WHERE ' . $filter;
-            }
-            
+            $qb->whereRaw($filter);
         }
-        if ($debug) {
-            echo "\n\n" . $updateString . "\n\n";
-        }
-        return $this->runQuery($updateString);
 
+        $values = [];
+        foreach ($data as $item) {
+            $fieldName = $item['fieldName'];
+            $val = $item['value'];
+            $type = $item['type'];
+
+            if ($type == 'geometry' && $this->type == 'postgresql') {
+                if (is_string($val)) {
+                    if (preg_match('/^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/', $val, $matches)) {
+                        $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . $matches[3] . ', ' . $matches[1] . '), 4326)');
+                    } else {
+                        $val = $qb->raw('ST_GeomFromText(\'' . $val . '\')');
+                    }
+                } elseif (is_array($val) && isset($val['latitude']) && isset($val['longitude'])) {
+                    $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . $val['longitude'] . ', ' . $val['latitude'] . '), 4326)');
+                }
+            } elseif ($type == 'boolean' && $this->type == 'postgresql') {
+                if ($val === 'true' || $val === true || $val === 1 || $val === '1') {
+                    $val = $qb->raw('\'t\'');
+                } elseif ($val === 'false' || $val === false || $val === 0 || $val === '0') {
+                    $val = $qb->raw('\'f\'');
+                }
+            }
+
+            $values[$fieldName] = $val;
+        }
+
+        if ($debug) {
+            echo "\n\n" . $qb->update($values) . "\n\n";
+            return $this->lastResult;
+        }
+
+        return $qb->update($values);
     }
 
     /**
