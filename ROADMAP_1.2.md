@@ -93,7 +93,7 @@
 
 > **BC Strategy:** Η `Database` class και οι μέθοδοί της (`prepareQuery()`, `query()`, κλπ.) παραμένουν αμετάβλητες. Το νέο `QueryBuilder` λαμβάνει instance της `Database` ως dependency και εκτελεί queries μέσω αυτής. Το υπάρχον `Model` αποκτά νέα opt-in capabilities (relationships, scopes, casting) μέσω traits — ο υπάρχων κώδικας που extend-άρει το `Model` δεν χρειάζεται αλλαγές.
 
-- [/] **DML Query Builder:** Fluent interface για όλες τις κλασικές DML πράξεις:
+- [x] **DML Query Builder:** Fluent interface για όλες τις κλασικές DML πράξεις:
   - [x] `SELECT` με aliases, `DISTINCT`, column expressions
   - [x] `INSERT`, `INSERT IGNORE`, `INSERT ... ON CONFLICT` (upsert για PostgreSQL/TimescaleDB)
   - [x] `UPDATE` με conditional logic
@@ -101,11 +101,11 @@
   - [x] JOINs: `INNER`, `LEFT`, `RIGHT`, `FULL`, `CROSS`
   - [x] Conditions: `where()`, `orWhere()`, `whereIn()`, `whereNull()`, `whereBetween()`, `whereRaw()`
   - [x] `groupBy()`, `having()`, `orderBy()`, `limit()`, `offset()`
-  - `UNION` / `UNION ALL`
-  - Common Table Expressions (CTEs) με `with()`
-  - Subqueries ως columns, conditions ή πηγές δεδομένων
-  - Window functions (`OVER`, `PARTITION BY`, `RANK`, `ROW_NUMBER`) — PostgreSQL/TimescaleDB
-  - Raw expressions με `raw()` για dialect-specific syntax
+  - [x] `UNION` / `UNION ALL`
+  - [x] Common Table Expressions (CTEs) με `with()`
+  - [x] Subqueries ως columns, conditions ή πηγές δεδομένων
+  - [x] Window functions (`OVER`, `PARTITION BY`, `RANK`, `ROW_NUMBER`) — PostgreSQL/TimescaleDB
+  - [x] Raw expressions με `raw()` για dialect-specific syntax
 
 - [ ] **DDL / Schema Builder:** Fluent interface για ορισμό και τροποποίηση schema:
   - `createTable()`, `alterTable()`, `dropTable()`, `renameTable()`
@@ -157,8 +157,8 @@
 
 > ⚠️ **Απαραίτητη Προϋπόθεση:** Αυτό το βήμα εκτελείται **μόνο αφού** ολοκληρωθούν τα Characterization Tests της Φάσης 5. Τα tests αποτελούν τη μοναδική απόδειξη ότι η εσωτερική αλλαγή δεν έχει επηρεάσει τη συμπεριφορά.
 
-- [ ] **`Pramnos\Application\Model`** — Όλα τα internal SQL calls (CRUD, column introspection, caching hooks) ξαναγράφονται μέσω QueryBuilder.
-- [ ] **`Pramnos\Html\DataTable`** — Τα dynamic query building, filtering, sorting και pagination calls αντικαθίστανται από QueryBuilder expressions.
+- [x] **`Pramnos\Application\Model`** — Όλα τα internal SQL calls (CRUD, column introspection, caching hooks) ξαναγράφονται μέσω QueryBuilder.
+- [x] **`Pramnos\Html\DataTable`** — Τα dynamic query building, filtering, sorting και pagination calls αντικαθίστανται από QueryBuilder expressions (μέσω του `Datasource` refactor).
 - [ ] **`Pramnos\Database\Migration`** — Το DDL execution εσωτερικά χρησιμοποιεί τον Schema Builder.
 - [ ] **`Pramnos\Database\Adjacencylist`** — Τα hierarchical queries (parent/children traversal) ξαναγράφονται με CTEs ή recursive QueryBuilder expressions.
 - [ ] **`Pramnos\Auth\Auth`** — Τα queries για credential lookup, session persistence, και permission resolution περνούν από QueryBuilder.
@@ -403,13 +403,13 @@
 
 > ⚠️ **Κάθε characterization test εκτελείται υποχρεωτικά και στις τρεις βάσεις** (MySQL, PostgreSQL, TimescaleDB) μέσω του Docker environment. Ένα test που γράφεται μόνο για MySQL δεν θεωρείται ολοκληρωμένο.
 
-- [ ] **Characterization Tests — `Model`:** Κάλυψη `get()`, `save()`, `delete()`, column introspection, change tracking, και caching integration — **× 3 databases**.
-- [ ] **Characterization Tests — `DataTable`:** Κάλυψη dynamic filtering, multi-column sorting, pagination, και παραγόμενο SQL output — **× 3 databases**.
+- [x] **Characterization Tests — `Model`:** Κάλυψη `get()`, `save()`, `delete()`, column introspection, change tracking, και caching integration — **× 3 databases**.
+- [x] **Characterization Tests — `DataTable`:** Κάλυψη dynamic filtering, multi-column sorting, pagination, και παραγόμενο SQL output — **× 3 databases**.
 - [ ] **Characterization Tests — `Migration`:** Κάλυψη schema creation/alteration/rollback — **× 3 databases**. Περιλαμβάνει: σωστή ταξινόμηση (priority/deps/datetime), σεβασμό του `migration_cutoff`, συμπεριφορά autorun=false, καταγραφή αποτυχίας στο history.
 - [ ] **Characterization Tests — `Adjacencylist`:** Κάλυψη parent/children traversal, depth queries, και tree reconstruction — **× 3 databases**.
-- [ ] **Characterization Tests — `Auth`:** Κάλυψη credential lookup, session persistence, permission resolution, JWT issuance και login/logout flows — **× 3 databases**.
-- [ ] **Characterization Tests — `User`:** Κάλυψη create, update, lookup, role assignment — **× 3 databases**.
-- [ ] **Characterization Tests — `Logs`:** Κάλυψη log insertion και query — **× 3 databases**, με ξεχωριστές assertions για το TimescaleDB hypertable path.
+- [x] **Characterization Tests — `Auth`:** Κάλυψη credential lookup, session persistence, permission resolution, JWT issuance και login/logout flows — **× 3 databases**.
+- [x] **Characterization Tests — `User`:** Κάλυψη create, update, lookup, role assignment — **× 3 databases**.
+- [x] **Characterization Tests — `Logs`:** Κάλυψη log insertion και query — **× 3 databases**, με ξεχωριστές assertions για το TimescaleDB hypertable path.
 
 ### New Feature Tests (>90% coverage, στόχος 100%)
 *Κάθε νέο feature που παραδίδεται στη v1.2 πρέπει να συνοδεύεται από tests που καλύπτουν τουλάχιστον το 90% του κώδικά του. Database-related features εκτελούνται × 3.*
