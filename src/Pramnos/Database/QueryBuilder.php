@@ -87,6 +87,11 @@ class QueryBuilder
     ];
 
     /**
+     * @var array
+     */
+    protected $returning = [];
+
+    /**
      * Constructor
      * 
      * @param Database $db
@@ -94,6 +99,17 @@ class QueryBuilder
     public function __construct(Database $db)
     {
         $this->db = $db;
+    }
+
+    /**
+     * Create a raw SQL expression.
+     * 
+     * @param string $value
+     * @return Expression
+     */
+    public function raw($value)
+    {
+        return new Expression($value);
     }
 
     /**
@@ -207,6 +223,29 @@ class QueryBuilder
     }
 
     /**
+     * Add a raw where clause.
+     * 
+     * @param string $sql
+     * @param array $bindings
+     * @param string $boolean
+     * @return $this
+     */
+    public function whereRaw($sql, array $bindings = [], $boolean = 'and')
+    {
+        $this->wheres[] = [
+            'type' => 'Raw',
+            'sql' => $sql,
+            'boolean' => $boolean
+        ];
+
+        if (!empty($bindings)) {
+            $this->addBinding($bindings, 'where');
+        }
+
+        return $this;
+    }
+
+    /**
      * Add a nested where clause.
      * 
      * @param \Closure $callback
@@ -246,6 +285,21 @@ class QueryBuilder
     }
 
     /**
+     * Add a raw join clause.
+     * 
+     * @param string $sql
+     * @return $this
+     */
+    public function joinRaw($sql)
+    {
+        $this->joins[] = [
+            'type' => 'Raw',
+            'sql' => $sql
+        ];
+        return $this;
+    }
+
+    /**
      * Add a left join clause.
      * 
      * @param string $table
@@ -273,6 +327,21 @@ class QueryBuilder
     }
 
     /**
+     * Add a raw order by clause.
+     * 
+     * @param string $sql
+     * @return $this
+     */
+    public function orderByRaw($sql)
+    {
+        $this->orders[] = [
+            'type' => 'Raw',
+            'sql' => $sql
+        ];
+        return $this;
+    }
+
+    /**
      * Add a group by clause.
      * 
      * @param array|string $columns
@@ -282,6 +351,18 @@ class QueryBuilder
     {
         $columns = is_array($columns) ? $columns : func_get_args();
         $this->groups = array_merge($this->groups, $columns);
+        return $this;
+    }
+
+    /**
+     * Add a raw group by clause.
+     * 
+     * @param string $sql
+     * @return $this
+     */
+    public function groupByRaw($sql)
+    {
+        $this->groups[] = $this->raw($sql);
         return $this;
     }
 
@@ -304,6 +385,42 @@ class QueryBuilder
         $this->havings[] = compact('column', 'operator', 'value', 'boolean');
         $this->addBinding($value, 'having');
 
+        return $this;
+    }
+
+    /**
+     * Add a raw having clause.
+     * 
+     * @param string $sql
+     * @param array $bindings
+     * @param string $boolean
+     * @return $this
+     */
+    public function havingRaw($sql, array $bindings = [], $boolean = 'and')
+    {
+        $this->havings[] = [
+            'type' => 'Raw',
+            'sql' => $sql,
+            'boolean' => $boolean
+        ];
+
+        if (!empty($bindings)) {
+            $this->addBinding($bindings, 'having');
+        }
+
+        return $this;
+    }
+
+    /**
+     * Add a returning clause.
+     * 
+     * @param array|string $columns
+     * @return $this
+     */
+    public function returning($columns)
+    {
+        $columns = is_array($columns) ? $columns : func_get_args();
+        $this->returning = array_merge($this->returning, $columns);
         return $this;
     }
 
@@ -383,7 +500,11 @@ class QueryBuilder
         $sql .= " FROM " . $this->from;
 
         foreach ($this->joins as $join) {
-            $sql .= " " . strtoupper($join['type']) . " JOIN " . $join['table'] . " ON " . $join['first'] . " " . $join['operator'] . " " . $join['second'];
+            if (isset($join['type']) && $join['type'] === 'Raw') {
+                $sql .= " " . $join['sql'];
+            } else {
+                $sql .= " " . strtoupper($join['type']) . " JOIN " . $join['table'] . " ON " . $join['first'] . " " . $join['operator'] . " " . $join['second'];
+            }
         }
 
         if (!empty($this->wheres)) {
@@ -402,7 +523,11 @@ class QueryBuilder
             $sql .= " ORDER BY ";
             $orders = [];
             foreach ($this->orders as $order) {
-                $orders[] = $order['column'] . " " . strtoupper($order['direction']);
+                if (isset($order['type']) && $order['type'] === 'Raw') {
+                    $orders[] = $order['sql'];
+                } else {
+                    $orders[] = $order['column'] . " " . strtoupper($order['direction']);
+                }
             }
             $sql .= implode(', ', $orders);
         }
@@ -449,6 +574,9 @@ class QueryBuilder
                 case 'Nested':
                     $part .= "(" . $where['query']->compileWheres() . ")";
                     break;
+                case 'Raw':
+                    $part .= $where['sql'];
+                    break;
             }
             $parts[] = $part;
         }
@@ -469,7 +597,11 @@ class QueryBuilder
                 $part .= strtoupper($having['boolean']) . " ";
             }
 
-            $part .= $having['column'] . " " . $having['operator'] . " " . $this->getPlaceholder($having['value']);
+            if (isset($having['type']) && $having['type'] === 'Raw') {
+                $part .= $having['sql'];
+            } else {
+                $part .= $having['column'] . " " . $having['operator'] . " " . $this->getPlaceholder($having['value']);
+            }
             $parts[] = $part;
         }
         return implode(' ', $parts);
@@ -483,6 +615,7 @@ class QueryBuilder
      */
     protected function getPlaceholder($value)
     {
+        if ($value instanceof Expression) return (string)$value;
         if (is_int($value)) return '%i';
         if (is_float($value)) return '%d';
         if (is_bool($value)) return '%b';
@@ -552,6 +685,11 @@ class QueryBuilder
         $placeholdersStr = implode(', ', $placeholders);
         
         $sql = "INSERT INTO " . $this->from . " (" . $columns . ") VALUES (" . $placeholdersStr . ")";
+        
+        if (!empty($this->returning) && $this->db->type == 'postgresql') {
+            $sql .= " RETURNING " . implode(', ', $this->returning);
+        }
+
         $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
         
         return $this->db->execute($sql, ...$this->getBindings());
@@ -578,6 +716,10 @@ class QueryBuilder
         if (!empty($this->wheres)) {
             $sql .= " WHERE " . $this->compileWheres();
         }
+
+        if (!empty($this->returning) && $this->db->type == 'postgresql') {
+            $sql .= " RETURNING " . implode(', ', $this->returning);
+        }
         
         $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
         
@@ -595,6 +737,10 @@ class QueryBuilder
         $sql = "DELETE FROM " . $this->from;
         if (!empty($this->wheres)) {
             $sql .= " WHERE " . $this->compileWheres();
+        }
+
+        if (!empty($this->returning) && $this->db->type == 'postgresql') {
+            $sql .= " RETURNING " . implode(', ', $this->returning);
         }
         
         $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
@@ -639,5 +785,28 @@ class QueryBuilder
             $sql .= " WHERE " . $this->compileWheres();
         }
         return $sql;
+    }
+}
+
+/**
+ * Raw Expression wrapper.
+ */
+class Expression
+{
+    protected $value;
+
+    public function __construct($value)
+    {
+        $this->value = $value;
+    }
+
+    public function getValue()
+    {
+        return $this->value;
+    }
+
+    public function __toString()
+    {
+        return (string)$this->getValue();
     }
 }
