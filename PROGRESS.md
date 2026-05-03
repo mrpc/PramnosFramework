@@ -109,6 +109,15 @@
 - [x] Hardened cache test isolation (`FileAdapterCharacterizationTest`) to avoid suite-order side effects from `CACHE_PATH` and removed warning-producing path assumptions.
 - [x] Re-verified full suite with `./dockertest` → 736 tests, 1353 assertions, green (PHPUnit deprecations only).
 
+### Phase 5: Characterization Coverage Wave 15 (2026-05-03, session 15)
+
+- [x] Added `tests/Characterization/Application/ModelListApiCharacterizationTest.php` (7 tests) to lock list/count/API contracts for `Model`: `getCount()`, `_getList()`, `_getApiList()`, structured filter arrays, legacy `WHERE`-prefixed filter compatibility, and JSON field decoding path.
+- [x] Captured two current implementation limitations as executable contracts:
+	- `_getList()` with `useGetData=true` + `queryFields` can collapse payloads to empty arrays.
+	- `_getApiList()` paginated mode can return an error envelope for specific field-selection inputs.
+- [x] Verified with `./dockertest --filter ModelListApiCharacterizationTest` (7 tests, 25 assertions, all passing).
+- [x] Re-verified full suite with `./dockertest` → 743 tests, 1378 assertions, green (PHPUnit deprecations only).
+
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
 - [x] Auto-reconnect logic for database connections.
