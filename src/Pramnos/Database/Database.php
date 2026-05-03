@@ -1057,7 +1057,13 @@ class Database extends \Pramnos\Framework\Base
             while (true) {
                 if ($this->type == 'postgresql') {
                     $stmtName = $stmtData['stmtName'];
-                    $dbResource = @pg_execute($connection, $stmtName, $arguments);
+                    // pg_execute passes params as strings; PHP false → '' which
+                    // PostgreSQL rejects for boolean columns. Convert explicitly.
+                    $pgArgs = array_map(
+                        fn($v) => is_bool($v) ? ($v ? 'true' : 'false') : $v,
+                        $arguments
+                    );
+                    $dbResource = @pg_execute($connection, $stmtName, $pgArgs);
                     if (!$dbResource && $retry && !$this->isConnectionAlive($connection)) {
                         // Re-prepare on new connection
                         $statement = $this->prepare($stmtData['query']);
