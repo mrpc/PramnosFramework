@@ -139,6 +139,12 @@
 - [x] Verified with `./dockertest --filter ApplicationRuntimeCharacterizationTest` (7 tests, 19 assertions, all passing).
 - [x] Re-verified full suite with `./dockertest` → 777 tests, 1451 assertions, green (PHPUnit deprecations only).
 
+### Phase 5: Characterization Coverage Wave 19 (2026-05-03, session 15)
+
+- [x] Added `tests/Characterization/Application/LogControllerCharacterizationTest.php` (5 tests) to lock deterministic `LogController` helper behavior: whitelist auto-population/blacklist filtering/sorting, action-button rendering contract, and date-aware line processing callbacks.
+- [x] Verified with `./dockertest --filter LogControllerCharacterizationTest` (5 tests, 26 assertions, all passing).
+- [x] Re-verified full suite with `./dockertest` → 782 tests, 1477 assertions, green (PHPUnit deprecations only).
+
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
 - [x] Auto-reconnect logic for database connections.
