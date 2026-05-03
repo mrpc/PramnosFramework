@@ -395,6 +395,125 @@ class MigrationRunnerMySQLTest extends TestCase
         $this->assertSame([], $result['rolledBack'] ?? [], 'Rollback on empty history must return empty list');
     }
 
+    /**
+     * rollback() with the batch option must roll back the specified batch
+     * rather than the most recent one, leaving other batches intact.
+     */
+    public function testRollbackWithBatchOptionRollsBackSpecificBatch(): void
+    {
+        // Arrange – run two separate batches: batch 1 = roles, batch 2 = users
+        $roles  = new CreateMrMyRoles($this->app);
+        $users  = new CreateMrMyUsers($this->app);
+        $runner = new MigrationRunner($this->db, $this->historyTable);
+
+        $runner->run([$roles]);  // batch 1
+        $runner->run([$users]);  // batch 2
+
+        // Act – roll back batch 1 (not the most recent batch)
+        $result = $runner->rollback([$roles, $users], ['batch' => 1]);
+
+        // Assert – roles was rolled back
+        $this->assertContains('create_mr_my_roles', $result['rolledBack']);
+        $this->assertTableNotExists('mr_my_roles', 'Batch 1 migration must be rolled back');
+
+        // Assert – users (batch 2) is still recorded in history
+        $row = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT result FROM `{$this->historyTable}` WHERE migration = %s",
+                'create_mr_my_users'
+            )
+        );
+        $this->assertSame('1', (string) $row->fields['result'], 'Batch 2 migration must remain in history');
+    }
+
+    // -------------------------------------------------------------------------
+    // rollbackAll()
+    // -------------------------------------------------------------------------
+
+    /**
+     * rollbackAll() must roll back every batch in reverse order, leaving the
+     * history table completely empty and all affected tables dropped.
+     */
+    public function testRollbackAllRemovesAllBatches(): void
+    {
+        // Arrange – create two batches
+        $roles  = new CreateMrMyRoles($this->app);
+        $users  = new CreateMrMyUsers($this->app);
+        $runner = new MigrationRunner($this->db, $this->historyTable);
+
+        $runner->run([$roles]);
+        $runner->run([$users]);
+
+        // Act
+        $result = $runner->rollbackAll([$roles, $users]);
+
+        // Assert – all migrations are listed in the result
+        $this->assertContains('create_mr_my_roles', $result['rolledBack']);
+        $this->assertContains('create_mr_my_users', $result['rolledBack']);
+
+        // Assert – history table is now empty
+        $count = $this->db->query("SELECT COUNT(*) as cnt FROM `{$this->historyTable}`");
+        $this->assertSame('0', (string) $count->fields['cnt'], 'History must be empty after rollbackAll()');
+
+        // Assert – both tables were dropped
+        $this->assertTableNotExists('mr_my_roles');
+        $this->assertTableNotExists('mr_my_users');
+    }
+
+    // -------------------------------------------------------------------------
+    // getHistory()
+    // -------------------------------------------------------------------------
+
+    /**
+     * getHistory() must return an array with one row per executed migration,
+     * including all metadata columns (scope, feature, batch, result, ran_at).
+     */
+    public function testGetHistoryReturnsAllRows(): void
+    {
+        // Arrange – run both migrations across two batches
+        $roles  = new CreateMrMyRoles($this->app);
+        $users  = new CreateMrMyUsers($this->app);
+        $runner = new MigrationRunner($this->db, $this->historyTable);
+
+        $runner->run([$roles]);
+        $runner->run([$users]);
+
+        // Act
+        $history = $runner->getHistory();
+
+        // Assert – two rows, one per migration
+        $this->assertCount(2, $history, 'getHistory() must return one row per executed migration');
+
+        $slugs = array_column($history, 'migration');
+        $this->assertContains('create_mr_my_roles', $slugs);
+        $this->assertContains('create_mr_my_users', $slugs);
+
+        // Assert – rows contain expected metadata
+        foreach ($history as $row) {
+            $this->assertArrayHasKey('scope',          $row, 'History row must contain scope');
+            $this->assertArrayHasKey('batch',          $row, 'History row must contain batch');
+            $this->assertArrayHasKey('result',         $row, 'History row must contain result');
+            $this->assertArrayHasKey('execution_time', $row, 'History row must contain execution_time');
+        }
+    }
+
+    /**
+     * getHistory() on an empty history table must return an empty array
+     * without throwing.
+     */
+    public function testGetHistoryReturnsEmptyArrayWhenNoMigrationsRan(): void
+    {
+        // Arrange – ensure history table exists but is empty
+        $runner = new MigrationRunner($this->db, $this->historyTable);
+        $runner->ensureHistoryTable();
+
+        // Act
+        $history = $runner->getHistory();
+
+        // Assert
+        $this->assertSame([], $history, 'getHistory() must return [] when no migrations have run');
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
