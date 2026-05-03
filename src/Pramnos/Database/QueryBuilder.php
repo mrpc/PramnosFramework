@@ -90,12 +90,13 @@ class QueryBuilder
      * @var array
      */
     protected $bindings = [
+        'cte'    => [],   // bindings from CTE sub-queries — must precede main query bindings
         'select' => [],
-        'from' => [],
-        'join' => [],
-        'where' => [],
+        'from'   => [],
+        'join'   => [],
+        'where'  => [],
         'having' => [],
-        'order' => [],
+        'order'  => [],
         'values' => [],
     ];
 
@@ -725,9 +726,17 @@ class QueryBuilder
             $query = $sub;
         }
 
-        $sql = $query instanceof QueryBuilder
-            ? $this->grammar->compileSelect($query)
-            : (string)$query;
+        if ($query instanceof QueryBuilder) {
+            // Merge the sub-query's bindings into our own 'cte' slot so that
+            // Database::prepare() finds the values in the correct left-to-right
+            // order (CTE SQL is emitted before the main SELECT).
+            foreach ($query->getBindings() as $binding) {
+                $this->bindings['cte'][] = $binding;
+            }
+            $sql = $this->grammar->compileSelect($query);
+        } else {
+            $sql = (string)$query;
+        }
 
         $this->ctes[] = ['name' => $name, 'sql' => $sql, 'recursive' => $recursive];
         return $this;
@@ -864,6 +873,7 @@ class QueryBuilder
     public function getBindings()
     {
         $bindings = array_merge(
+            $this->bindings['cte'],    // CTE sub-query values — must come first (CTE SQL is emitted first)
             $this->bindings['select'],
             $this->bindings['values'],
             $this->bindings['from'],

@@ -570,7 +570,7 @@ class SchemaBuilder
         string $forEach = 'ROW'
     ): void {
         $resolved = $this->resolveTable($table);
-        $sql = $this->grammar->compileCreateTrigger($name, $resolved, $timing, $event, $body, $forEach);
+        $sql = $this->getGrammar()->compileCreateTrigger($name, $resolved, $timing, $event, $body, $forEach);
         $this->db->query($sql);
     }
 
@@ -585,7 +585,7 @@ class SchemaBuilder
     public function dropTrigger(string $name, string $table, bool $ifExists = true): void
     {
         $resolved = $this->resolveTable($table);
-        $sql = $this->grammar->compileDropTrigger($name, $resolved, $ifExists);
+        $sql = $this->getGrammar()->compileDropTrigger($name, $resolved, $ifExists);
         $this->db->query($sql);
     }
 
@@ -613,7 +613,7 @@ class SchemaBuilder
         ?int $maxValue = null,
         bool $cycle = false
     ): void {
-        $sql = $this->grammar->compileCreateSequence($name, $start, $increment, $minValue, $maxValue, $cycle);
+        $sql = $this->getGrammar()->compileCreateSequence($name, $start, $increment, $minValue, $maxValue, $cycle);
         if ($sql !== '') {
             $this->db->query($sql);
         }
@@ -629,7 +629,7 @@ class SchemaBuilder
      */
     public function dropSequence(string $name, bool $ifExists = true): void
     {
-        $sql = $this->grammar->compileDropSequence($name, $ifExists);
+        $sql = $this->getGrammar()->compileDropSequence($name, $ifExists);
         if ($sql !== '') {
             $this->db->query($sql);
         }
