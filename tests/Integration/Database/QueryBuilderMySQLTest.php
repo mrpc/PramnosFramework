@@ -599,9 +599,9 @@ class QueryBuilderMySQLTest extends TestCase
         $q2 = $this->db->queryBuilder()
             ->select('category')->from('qb_products')->where('category', 'fruit');
 
-        // UNION ALL keeps both rows
+        // UNION ALL keeps all rows (3 fruit rows × 2 queries = 6)
         $result = $q1->unionAll($q2)->get();
-        $this->assertEquals(2, $result->numRows);
+        $this->assertEquals(6, $result->numRows);
     }
 
     public function testUnionWithBindings(): void

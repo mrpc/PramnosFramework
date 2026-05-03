@@ -157,27 +157,28 @@ class Result
      *
      * Unlike fetch(), this method correctly handles the pre-fetched state from
      * execute(): on the first call it returns the already-loaded row 0 without
-     * re-querying the database (whose cursor is already at row 1). On
-     * subsequent calls it delegates to the normal fetch() behaviour.
+     * re-querying the database (whose cursor is already at row 0 due to reset
+     * by execute()). On subsequent calls it delegates to the normal fetch().
      *
      * Use this in while loops instead of fetch() when iterating all rows:
      *   while ($result->fetchNext()) { ... $result->fields ... }
      *
+     * Returns true when a row is available (fields is populated), false at EOF.
+     *
      * @param bool $skipDataFix
-     * @return array|null
+     * @return bool
      */
     public function fetchNext($skipDataFix = false)
     {
         if ($this->cursor === -1 && !$this->isCached && !$this->eof) {
             // First iteration on a non-cached result from execute(): row 0 is
-            // already in $this->fields and the DB cursor is at row 0 (reset by
-            // execute()). Return the pre-fetched row and advance DB cursor to 1
-            // so the next fetch() call reads row 1 rather than row 0 again.
+            // already in $this->fields. Advance DB cursor to row 1 so the next
+            // fetch() call reads row 1 rather than row 0 again.
             $this->cursor = 0;
             if ($this->database->type == 'postgresql'
                 && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
                 // If seek fails the result has exactly 1 row — mark EOF so the
-                // next fetch() call returns null instead of re-reading row 0.
+                // next call returns false instead of re-reading row 0.
                 if (!\pg_result_seek($this->mysqlResult, 1)) {
                     $this->eof = true;
                 }
@@ -186,9 +187,9 @@ class Result
                     $this->eof = true;
                 }
             }
-            return $this->fields;
+            return true;
         }
-        return $this->fetch($skipDataFix);
+        return $this->fetch($skipDataFix) !== null;
     }
 
     /**

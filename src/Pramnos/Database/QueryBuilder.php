@@ -199,7 +199,7 @@ class QueryBuilder
 
     /**
      * Add an "or where" clause.
-     * 
+     *
      * @param string|callable $column
      * @param mixed $operator
      * @param mixed $value
@@ -207,6 +207,10 @@ class QueryBuilder
      */
     public function orWhere($column, $operator = null, $value = null)
     {
+        if (func_num_args() === 2) {
+            $value = $operator;
+            $operator = '=';
+        }
         return $this->where($column, $operator, $value, 'or');
     }
 
@@ -1060,10 +1064,8 @@ class QueryBuilder
         $this->type = 'INSERT';
         $this->bindings['values'] = [];
 
-        if (empty($updateValues)) {
-            $updateValues = array_diff_key($values, array_flip($conflictColumns));
-        }
-
+        // $updateValues is always a list of column names (e.g. ['name', 'qty']).
+        // Empty list → INSERT IGNORE / ON CONFLICT DO NOTHING.
         $bindableValues = array_values(array_filter($values, fn($v) => !($v instanceof Expression)));
         $this->addBinding($bindableValues, 'values');
 
@@ -1086,7 +1088,7 @@ class QueryBuilder
                 $sql .= " DO NOTHING";
             } else {
                 $sets = [];
-                foreach (array_keys($updateValues) as $col) {
+                foreach ($updateValues as $col) {
                     $sets[] = '"' . $col . '" = EXCLUDED."' . $col . '"';
                 }
                 $sql .= " DO UPDATE SET " . implode(', ', $sets);
@@ -1099,7 +1101,7 @@ class QueryBuilder
                     . " VALUES (" . implode(', ', $placeholders) . ")";
             } else {
                 $sets = [];
-                foreach (array_keys($updateValues) as $col) {
+                foreach ($updateValues as $col) {
                     $sets[] = '`' . $col . '` = VALUES(`' . $col . '`)';
                 }
                 $sql .= " ON DUPLICATE KEY UPDATE " . implode(', ', $sets);
