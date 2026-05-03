@@ -29,6 +29,21 @@ if (!defined('DS')) {
 if (!defined('SP')) {
     define('SP', 1); //Start point - to avoid running files without one.
 }
+if (!defined('DB_USERSTABLE')) {
+    define('DB_USERSTABLE', '#PREFIX#users');
+}
+if (!defined('DB_USERGROUPSTABLE')) {
+    define('DB_USERGROUPSTABLE', '#PREFIX#usergroups');
+}
+if (!defined('DB_USERGROUPSUBSCRIPTIONS')) {
+    define('DB_USERGROUPSUBSCRIPTIONS', '#PREFIX#userstogroups');
+}
+if (!defined('DB_USERDETAILSTABLE')) {
+    define('DB_USERDETAILSTABLE', '#PREFIX#userdetails');
+}
+if (!defined('DB_PERMISSIONSTABLE')) {
+    define('DB_PERMISSIONSTABLE', '#PREFIX#permissions');
+}
 /**
 * EOF REQUIRED DEFINES
 */
