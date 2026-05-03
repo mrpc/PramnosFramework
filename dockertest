@@ -40,7 +40,7 @@ extra_flags="--configuration phpunit.xml --display-deprecations --display-warnin
 [[ "$testdox" == true ]] && extra_flags="$extra_flags --testdox"
 
 if [[ "$coverage" == true ]]; then
-    docker-compose exec php-apache-environment vendor/bin/phpunit --coverage-html coverage --coverage-clover coverage/clover.xml $extra_flags "${passthrough[@]}"
+    docker-compose exec php-apache-environment vendor/bin/phpunit --coverage-html coverage $extra_flags "${passthrough[@]}"
 else
     docker-compose exec php-apache-environment vendor/bin/phpunit $extra_flags "${passthrough[@]}"
 fi
