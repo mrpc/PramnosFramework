@@ -536,7 +536,7 @@ class User extends \Pramnos\Framework\Base
                     $this->addError($error['message']);
                     return $this;
                 }
-                $this->userid = \pg_fetch_result($dbresult, 0, 'userid');
+                $this->userid = $dbresult->fields['userid'];
             } else {
                 if (!$database->insertDataToTable(
                     $database->prefix . "users", $itemdata, 'userid'

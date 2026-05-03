@@ -77,6 +77,7 @@ class Result
         $this->database = $database;
         $this->result = $result;
         $this->isCached = false;
+        $this->cursor = -1;
     }
 
     /**
@@ -101,8 +102,9 @@ class Result
         if ($this->isCached) {
             // For cached results, data types should already be properly restored
             return $this->result;
-        } elseif ($this->database->type == 'postgresql' 
+        } elseif ($this->database->type == 'postgresql'
             && \is_object($this->mysqlResult)) {
+            \pg_result_seek($this->mysqlResult, 0);
             $results = \pg_fetch_all($this->mysqlResult, PGSQL_ASSOC);
             
             // Apply type conversion if column types are available
@@ -119,8 +121,9 @@ class Result
                 }
             }
             
-            return $results;
+            return is_array($results) ? $results : array();
         } elseif (\is_object($this->mysqlResult)) {
+            \mysqli_data_seek($this->mysqlResult, 0);
             $results = \mysqli_fetch_all($this->mysqlResult, MYSQLI_ASSOC);
             
             // Apply type conversion for MySQL results
@@ -143,10 +146,49 @@ class Result
                 }
             }
             
-            return $results;
+            return is_array($results) ? $results : array();
         }
         
         return array();
+    }
+
+    /**
+     * Fetch the next row for iteration loops.
+     *
+     * Unlike fetch(), this method correctly handles the pre-fetched state from
+     * execute(): on the first call it returns the already-loaded row 0 without
+     * re-querying the database (whose cursor is already at row 1). On
+     * subsequent calls it delegates to the normal fetch() behaviour.
+     *
+     * Use this in while loops instead of fetch() when iterating all rows:
+     *   while ($result->fetchNext()) { ... $result->fields ... }
+     *
+     * @param bool $skipDataFix
+     * @return array|null
+     */
+    public function fetchNext($skipDataFix = false)
+    {
+        if ($this->cursor === -1 && !$this->isCached && !$this->eof) {
+            // First iteration on a non-cached result from execute(): row 0 is
+            // already in $this->fields and the DB cursor is at row 0 (reset by
+            // execute()). Return the pre-fetched row and advance DB cursor to 1
+            // so the next fetch() call reads row 1 rather than row 0 again.
+            $this->cursor = 0;
+            if ($this->database->type == 'postgresql'
+                && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
+                // If seek fails the result has exactly 1 row — mark EOF so the
+                // next fetch() call returns null instead of re-reading row 0.
+                if (!\pg_result_seek($this->mysqlResult, 1)) {
+                    $this->eof = true;
+                }
+            } elseif (\is_object($this->mysqlResult) && $this->database->type == 'mysql') {
+                if (!\mysqli_data_seek($this->mysqlResult, 1)) {
+                    $this->eof = true;
+                }
+            }
+            return $this->fields;
+        }
+        return $this->fetch($skipDataFix);
     }
 
     /**
@@ -157,6 +199,9 @@ class Result
      */
     public function fetch($skipDataFix = false)
     {
+        if ($this->eof) {
+            return null;
+        }
         $this->cursor++;
         if ($this->isCached) {
             if ($this->cursor >= sizeof($this->result)) {
@@ -169,14 +214,15 @@ class Result
                 return $this->fields;
             }
         } elseif ($this->database->type == 'postgresql' && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
-            
-            $this->fields = \pg_fetch_array(
-                $this->mysqlResult,
-                null,
-                PGSQL_ASSOC
-            );
+
+            $pgFetchResult = \pg_fetch_array($this->mysqlResult, null, PGSQL_ASSOC);
+            if ($pgFetchResult === false) {
+                $this->eof = true;
+                return null;
+            }
+            $this->fields = $pgFetchResult;
             if (\is_array($this->fields)) {
-                    
+
                 foreach($this->fields as $key => $value) {
                     // Convert numeric types to their PHP equivalents
                     if (isset($this->columnTypes[$key]) && !$skipDataFix) {
@@ -310,13 +356,6 @@ class Result
         return $this->numRows;
     }
 
-    /**
-     * free the memory
-     */
-    public function __destruct()
-    {
-        $this->free();
-    }
 
     /**
      * Convert PostgreSQL value to proper PHP type
