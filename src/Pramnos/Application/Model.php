@@ -272,18 +272,24 @@ class Model extends \Pramnos\Framework\Base
                     throw new \Exception($error['message']);
                 }
                 if ($database->type == 'postgresql') {
-                    $this->$primarykey = pg_fetch_result($result, 0, $primarykey);
+                    $this->$primarykey = $result->fields[$primarykey] ?? null;
                 } else {
                     $this->$primarykey = $database->getInsertId();
                 }
                 $database->cacheflush($this->_cacheKey);
                 
             } else {
-                $database->updateTableData(
-                    $this->getFullTableName(), $itemdata,
-                    "`" . $primarykey . "` = '" . $this->$primarykey . "'",
-                    $debug
-                );
+                try {
+                    $database->updateTableData(
+                        $this->getFullTableName(), $itemdata,
+                        "`" . $primarykey . "` = '" . $this->$primarykey . "'",
+                        $debug
+                    );
+                } catch (\Throwable $ex) {
+                    \Pramnos\Logs\Logger::logError("Error in _save update: " . $ex->getMessage(), $ex);
+                    $this->sqlError = $ex->getMessage();
+                    return $this;
+                }
 
                 // Clear only the specific record's cache, not the entire category
                 if (isset($this->$primarykey) && $this->$primarykey !== null) {
@@ -352,21 +358,19 @@ class Model extends \Pramnos\Framework\Base
             try {
                 $result = $database->queryBuilder()
                     ->from($this->getFullTableName())
-                    ->select('count(*) as itemsCount')
-                    ->whereRaw($filter) // $filter is usually a string fragment for where
+                    ->select('count(*) as itemscount')
+                    ->whereRaw($this->_stripSqlKeyword($filter, 'WHERE'))
                     ->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             } catch (\Exception $e) {
                 \Pramnos\Logs\Logger::logError(
                     'Error executing getCount query: '
-                     . $sql
-                     . ' - '
                      . $e->getMessage(),
                     $e
                 );
                 return 0;
             }
-            
-            return $result->fields['itemsCount'];
+
+            return $result->fields['itemscount'];
         }
         return 0;
     }
@@ -514,37 +518,37 @@ class Model extends \Pramnos\Framework\Base
             $primarykey = $this->_primaryKey;
             $qb = $database->queryBuilder()
                 ->from($this->getFullTableName() . ' a')
-                ->select($fields);
+                ->select($queryFields ?? '*');
 
             if ($join != '') {
                 $qb->joinRaw($join);
             }
 
             if ($filter != '') {
-                $qb->whereRaw($filter);
+                $qb->whereRaw($this->_stripSqlKeyword($filter, 'WHERE'));
             }
 
             if ($group != '') {
-                $qb->groupByRaw($group);
+                $qb->groupByRaw($this->_stripSqlKeyword($group, 'GROUP BY'));
             }
 
             if ($order != '') {
-                $qb->orderByRaw($order);
+                $qb->orderByRaw($this->_stripSqlKeyword($order, 'ORDER BY'));
             }
 
             // Get total count
             if ($group != '') {
                 $countQb = clone $qb;
-                $countQb->select('1');
-                $countSql = "SELECT COUNT(*) as itemsCount FROM (" . $countQb->toSql() . ") as grouped_query";
+                $countQb->select('1')->clearOrderingAndPaging();
+                $countSql = "SELECT COUNT(*) as itemscount FROM (" . $countQb->toSql() . ") as grouped_query";
                 $countResult = $database->query($countSql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             } else {
                 $countQb = clone $qb;
-                $countQb->select('count(a.' . $primarykey . ') as itemsCount');
+                $countQb->select('count(a.' . $primarykey . ') as itemscount')->clearOrderingAndPaging();
                 $countResult = $countQb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             }
-            
-            $totalItems = $countResult->fields['itemsCount'] ?? 0;
+
+            $totalItems = $countResult->fields['itemscount'] ?? 0;
 
             if ($totalItems == 0 || $items == 0) {
                 $totalPages = 1;
@@ -559,13 +563,21 @@ class Model extends \Pramnos\Framework\Base
                 die($qb->toSql());
             }
 
-            $result = $qb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
+            try {
+                $result = $qb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
+                if ($result === false || $result === null) {
+                    throw new \Exception("Query failed to execute: " . $qb->toSql());
+                }
+            } catch (\Throwable $ex) {
+                \Pramnos\Logs\Logger::logError("Error in getPaginated query: " . $qb->toSql() . " - " . $ex->getMessage(), $ex);
+                throw new \Exception($ex->getMessage(), (int) $ex->getCode(), $ex);
+            }
 
             $class = get_class($this);
-            
+
             if ($returnAsModels == false && $useGetData == false) {
                 $objects = array();
-                while ($result->fetch()) {
+                while ($result->fetchNext()) {
                     $item = $result->fields;
                     $item = $this->_processJsonFields($item, $join);
                     $objects[] = $item;
@@ -577,14 +589,14 @@ class Model extends \Pramnos\Framework\Base
                 );
             }
 
-            while ($result->fetch()) {
+            while ($result->fetchNext()) {
                 $objects[$result->fields[$primarykey]] = new $class(
                     $this->controller
                 );
-                
+
                 // Reset initial data array for this object
                 $objects[$result->fields[$primarykey]]->_initialData = array();
-                
+
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
                         = $result->fields[$field];
@@ -597,10 +609,10 @@ class Model extends \Pramnos\Framework\Base
                         $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->{$customGetListMethod}();
                     } else {
                         $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
-                    }    
+                    }
 
                     // if queryfields is not null (or *), anything not in queryfields should not be returned
-                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != '' 
+                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != ''
                         && is_array($objects[$result->fields[$primarykey]])) {
                         $fieldsArray = explode(',', $queryFields);
                         $fieldsArray = array_map('trim', $fieldsArray);
@@ -679,22 +691,28 @@ class Model extends \Pramnos\Framework\Base
             $primarykey = $this->_primaryKey;
             $qb = $database->queryBuilder()
                 ->from($this->getFullTableName() . ' a')
-                ->select($fields);
+                ->select($queryFields ?? '*');
 
             if ($join != '') {
                 $qb->joinRaw($join);
             }
 
             if ($filter != '') {
-                $qb->whereRaw($filter);
+                $qb->whereRaw($this->_stripSqlKeyword($filter, 'WHERE'));
             }
 
             if ($group != '') {
-                $qb->groupByRaw($group);
+                $qb->groupByRaw($this->_stripSqlKeyword($group, 'GROUP BY'));
             }
 
             if ($order != '') {
-                $qb->orderByRaw($order);
+                $qb->orderByRaw($this->_stripSqlKeyword($order, 'ORDER BY'));
+            } else {
+                if ($join != '') {
+                    $qb->orderByRaw('a.' . $primarykey . ' DESC');
+                } else {
+                    $qb->orderByRaw($primarykey . ' DESC');
+                }
             }
 
             if ($debug == true) {
@@ -702,18 +720,20 @@ class Model extends \Pramnos\Framework\Base
             }
             try {
                 $result = $qb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
-            } catch (\Exception $ex) {
+            } catch (\Throwable $ex) {
                 \Pramnos\Logs\Logger::logError("Error in getList query: " . $qb->toSql() . " - " . $ex->getMessage(), $ex);
                 if ($displayerroroutput == true) {
                     $this->controller->application->showError($ex->getMessage());
-                } else {
-                    $this->sqlError = $ex->getMessage();
-                    return array();
                 }
+                $this->sqlError = $ex->getMessage();
+                return array();
+            }
+            if ($result === false || $result === null) {
+                return array();
             }
             if ($returnAsModels == false && $useGetData == false) {
                 $objects = array();
-                while ($result->fetch()) {
+                while ($result->fetchNext()) {
                     $item = $result->fields;
                     $item = $this->_processJsonFields($item, $join);
                     $objects[] = $item;
@@ -721,14 +741,14 @@ class Model extends \Pramnos\Framework\Base
                 return $objects;
             }
             $class = get_class($this);
-            while ($result->fetch()) {
+            while ($result->fetchNext()) {
 
                 $objects[$result->fields[$primarykey]]
                     = new $class($this->controller);
-                
+
                 // Reset initial data array for this object
                 $objects[$result->fields[$primarykey]]->_initialData = array();
-                
+
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
                         = $result->fields[$field];
@@ -745,7 +765,7 @@ class Model extends \Pramnos\Framework\Base
                     }
 
                     // if queryfields is not null (or *), anything not in queryfields should not be returned
-                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != '' 
+                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != ''
                         && is_array($objects[$result->fields[$primarykey]])) {
                         $fieldsArray = explode(',', $queryFields);
                         $fieldsArray = array_map('trim', $fieldsArray);
@@ -760,7 +780,7 @@ class Model extends \Pramnos\Framework\Base
                         }
                     }
                 }
-                
+
             }
         }
         return $objects;
@@ -894,6 +914,20 @@ class Model extends \Pramnos\Framework\Base
      * Try to find the best _cacheKey to automate database caching
      * @return Model
      */
+    /**
+     * Strip a leading SQL keyword from a clause string so it can be passed to
+     * QB raw methods that add the keyword themselves (whereRaw, orderByRaw, groupByRaw).
+     * BC: callers have historically passed "where x=y", "order by x", "group by x".
+     */
+    private function _stripSqlKeyword(string $sql, string $keyword): string
+    {
+        return preg_replace(
+            '/^\s*' . preg_quote($keyword, '/') . '\s+/i',
+            '',
+            $sql
+        );
+    }
+
     private function _fixDb()
     {
         $database = \Pramnos\Database\Database::getInstance();
@@ -947,6 +981,9 @@ class Model extends \Pramnos\Framework\Base
             case "float":
             case "real":
             case "double precision":
+            case "numeric":
+            case "decimal":
+            case "money":
                 return "float";
             case "geometry":
                 return "geometry";
@@ -956,6 +993,15 @@ class Model extends \Pramnos\Framework\Base
             case "json":
             case "jsonb":
                 return "json";
+            case "timestamp":
+            case "timestamp without time zone":
+            case "timestamp with time zone":
+            case "timestamptz":
+            case "time":
+            case "time without time zone":
+            case "time with time zone":
+            case "timetz":
+                return "timestamp";
             default:
                 return "string";
         }
