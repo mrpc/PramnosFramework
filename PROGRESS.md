@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 2)
+## 📅 Last Updated: 2026-05-03 (session 3)
 
 ## 🚀 Completed Milestones
 
@@ -68,6 +68,14 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 - [x] `tests/Integration/Database/PostgreSQLPreparedStatementTest.php` — Regression test for duplicate prepared statement bug (requires TimescaleDB container).
 - [x] `tests/Integration/Database/QueryBuilderMySQLTest.php` — 35 integration tests against MySQL. Schema: `qb_products` + `qb_tags`. Covers: SELECT/DISTINCT/first, all WHERE variants (null/notNull/between/notBetween/in/raw/nested/or*), INNER JOIN/LEFT JOIN/joinRaw, GROUP BY/HAVING/havingRaw, ORDER BY/LIMIT/OFFSET, clearOrderingAndPaging, raw expressions, INSERT/UPDATE/DELETE, TRUNCATE, insertOrIgnore, upsert (3 variants), fetchAll, fetchNext.
 - [x] `tests/Integration/Database/QueryBuilderPostgreSQLTest.php` — 37 integration tests against PostgreSQL/TimescaleDB. Same schema + PostgreSQL-specific: RETURNING on INSERT/UPDATE/DELETE (4 tests), insertOrIgnore with RETURNING, upsert with RETURNING, ILIKE, single-row fetchNext eof guard.
+
+### Phase 1.2: Database Class Coverage (2026-05-03, session 3)
+
+- [x] **`tests/Unit/Database/DatabaseCapabilitiesTest.php`** — 40 unit tests (mocked DB). Covers: `has()` for all 8 features/engines, TimescaleDB detection via query mock + cache hit, `isMySQL`/`isPostgreSQL`/`hasTimescaleDB`, `ifCapable()` all 3 paths.
+- [x] **`tests/Unit/Database/QueryBuilderUnitTest.php`** — 12 unit tests. Covers: `compileDelete()` via `toSql()` (no-where and with-where), `orderByRaw` compiled SQL, `groupByRaw` compiled SQL, INSERT/UPDATE stub dispatch.
+- [x] **`QueryBuilderMySQLTest`** extended — 6 new integration tests: `Result::__get`, `getInsertId`, `getAffectedRows`, `getNumFields`, `free`.
+- [x] **Bug fix — `Result::getAffectedRows()` MySQL**: Was calling `mysqli_affected_rows($mysqli_result)` (wrong type). Fixed to `mysqli_affected_rows($this->database->getConnectionLink())`.
+- [x] **Bug fix — `DatabaseCapabilities::ifCapable()` PHP 8.4 deprecation**: `callable $ifFalse = null` → `?callable $ifFalse = null`.
 
 ---
 
