@@ -99,6 +99,16 @@ class Application extends Base
     protected static $lastUsedApplication = null;
 
     /**
+     * Service providers queued for bootstrap.
+     *
+     * Populated by addProvider() before init() and by bootServiceProviders()
+     * from FeatureRegistry during init().
+     *
+     * @var ServiceProvider[]
+     */
+    protected array $serviceProviders = [];
+
+    /**
      * Extra paths to look when getting models or views
      * @var array
      */
@@ -208,6 +218,41 @@ class Application extends Base
     }
 
     /**
+     * Queues a service provider for bootstrapping.
+     *
+     * Must be called before init(). The provider will be registered and booted
+     * alongside feature-registry providers during init().
+     *
+     * @param ServiceProvider $provider
+     */
+    public function addProvider(ServiceProvider $provider): void
+    {
+        $this->serviceProviders[] = $provider;
+    }
+
+    /**
+     * Instantiates providers from enabled FeatureRegistry features, merges
+     * them with any manually-added providers, then runs register() on all
+     * followed by boot() on all.
+     */
+    protected function bootServiceProviders(): void
+    {
+        foreach (FeatureRegistry::getEnabled() as $feature) {
+            $class = FeatureRegistry::getProvider($feature);
+            if ($class !== null && class_exists($class)) {
+                $this->serviceProviders[] = new $class($this);
+            }
+        }
+
+        foreach ($this->serviceProviders as $provider) {
+            $provider->register();
+        }
+        foreach ($this->serviceProviders as $provider) {
+            $provider->boot();
+        }
+    }
+
+    /**
      * Load the database, session and settings classes
      */
     public function init($settingsFile = '')
@@ -227,6 +272,7 @@ class Application extends Base
         \Pramnos\Application\Settings::setDatabase($this->database);
         $this->initialized = true;
         FeatureRegistry::loadFromConfig($this->applicationInfo['features'] ?? []);
+        $this->bootServiceProviders();
         /**
          * Start Session
          */
