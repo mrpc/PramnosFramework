@@ -281,11 +281,12 @@ class QueryBuilderPostgreSQLTest extends TestCase
     public function testGroupByHaving(): void
     {
         $this->seedProducts();
+        // PostgreSQL does not allow column aliases in HAVING; use the aggregate directly.
         $result = $this->db->queryBuilder()
             ->select('category', $this->db->queryBuilder()->raw('COUNT(*) as cnt'))
             ->from('qb_products')
             ->groupBy('category')
-            ->having('cnt', '>=', 3)
+            ->havingRaw('COUNT(*) >= %i', [3])
             ->get();
 
         $this->assertEquals(1, $result->numRows);
@@ -361,8 +362,9 @@ class QueryBuilderPostgreSQLTest extends TestCase
         $q1 = $this->db->queryBuilder()->select('category')->from('qb_products')->where('category', 'fruit');
         $q2 = $this->db->queryBuilder()->select('category')->from('qb_products')->where('category', 'fruit');
 
+        // UNION ALL keeps all rows (3 fruit rows × 2 queries = 6)
         $result = $q1->unionAll($q2)->get();
-        $this->assertEquals(2, $result->numRows);
+        $this->assertEquals(6, $result->numRows);
     }
 
     // -------------------------------------------------------------------------
