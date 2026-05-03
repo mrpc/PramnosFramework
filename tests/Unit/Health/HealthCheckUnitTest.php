@@ -1,0 +1,463 @@
+<?php
+
+namespace Pramnos\Tests\Unit\Health;
+
+use PHPUnit\Framework\TestCase;
+use Pramnos\Health\HealthCheck;
+use Pramnos\Health\HealthCheckResult;
+use Pramnos\Health\HealthRegistry;
+use Pramnos\Health\HealthStatus;
+use Pramnos\Health\Checks\DiskSpaceCheck;
+use Pramnos\Health\Checks\MemoryLimitCheck;
+
+/**
+ * Unit tests for the Health Check subsystem.
+ *
+ * These tests cover HealthStatus, HealthCheckResult, HealthRegistry, and the
+ * built-in checks that do not require a database connection (DiskSpaceCheck,
+ * MemoryLimitCheck).  DatabaseConnectivityCheck is covered by integration
+ * tests (requires a live DB).
+ */
+class HealthCheckUnitTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        HealthRegistry::reset();
+    }
+
+    // =========================================================================
+    // HealthStatus
+    // =========================================================================
+
+    /**
+     * HealthStatus::worst() must return the more severe of two statuses.
+     * Severity order: Ok < Degraded < Down.
+     */
+    public function testWorstReturnsMoreSevereStatus(): void
+    {
+        // Arrange & Act & Assert
+        $this->assertSame(HealthStatus::Degraded, HealthStatus::Ok->worst(HealthStatus::Degraded));
+        $this->assertSame(HealthStatus::Down,     HealthStatus::Degraded->worst(HealthStatus::Down));
+        $this->assertSame(HealthStatus::Down,     HealthStatus::Ok->worst(HealthStatus::Down));
+    }
+
+    /**
+     * worst() must be commutative when the two statuses are different — the
+     * result must be the same regardless of which side is the receiver.
+     */
+    public function testWorstIsNotOrderDependent(): void
+    {
+        // Arrange
+        $a = HealthStatus::Ok;
+        $b = HealthStatus::Down;
+
+        // Act & Assert — both orderings must give the same (worst) result
+        $this->assertSame(HealthStatus::Down, $a->worst($b));
+        $this->assertSame(HealthStatus::Down, $b->worst($a));
+    }
+
+    /**
+     * worst() of equal statuses must return the same status.
+     */
+    public function testWorstOfEqualStatusReturnsSameStatus(): void
+    {
+        foreach (HealthStatus::cases() as $status) {
+            $this->assertSame($status, $status->worst($status));
+        }
+    }
+
+    /**
+     * HealthStatus values must serialise to their string representations.
+     */
+    public function testStatusValues(): void
+    {
+        $this->assertSame('ok',       HealthStatus::Ok->value);
+        $this->assertSame('degraded', HealthStatus::Degraded->value);
+        $this->assertSame('down',     HealthStatus::Down->value);
+    }
+
+    // =========================================================================
+    // HealthCheckResult
+    // =========================================================================
+
+    /**
+     * Named constructors ok(), degraded(), down() must create results with the
+     * correct status enum and default message.
+     */
+    public function testNamedConstructorsSetCorrectStatus(): void
+    {
+        // Arrange & Act
+        $ok       = HealthCheckResult::ok('test', 'all good');
+        $degraded = HealthCheckResult::degraded('test', 'slow');
+        $down     = HealthCheckResult::down('test', 'unreachable');
+
+        // Assert
+        $this->assertSame(HealthStatus::Ok,       $ok->status);
+        $this->assertSame(HealthStatus::Degraded, $degraded->status);
+        $this->assertSame(HealthStatus::Down,     $down->status);
+    }
+
+    /**
+     * ok() with no explicit message must default to the string 'OK'.
+     */
+    public function testOkDefaultsMessage(): void
+    {
+        $result = HealthCheckResult::ok('test');
+        $this->assertSame('OK', $result->message);
+    }
+
+    /**
+     * toArray() must return all four canonical keys with the correct types and
+     * values, ready for JSON serialisation.
+     */
+    public function testToArrayContainsAllKeys(): void
+    {
+        // Arrange
+        $result = HealthCheckResult::ok('db', 'Reachable', ['latency_ms' => 1.5]);
+
+        // Act
+        $arr = $result->toArray();
+
+        // Assert
+        $this->assertSame('ok',         $arr['status']);
+        $this->assertSame('db',         $arr['name']);
+        $this->assertSame('Reachable',  $arr['message']);
+        $this->assertSame(['latency_ms' => 1.5], $arr['details']);
+    }
+
+    /**
+     * Results must be immutable — the readonly properties must not be
+     * settable after construction.
+     */
+    public function testResultPropertiesAreReadonly(): void
+    {
+        // Arrange
+        $ref = new \ReflectionClass(HealthCheckResult::class);
+
+        // Assert — all four properties are readonly
+        foreach (['status', 'name', 'message', 'details'] as $prop) {
+            $this->assertTrue(
+                $ref->getProperty($prop)->isReadOnly(),
+                "Property '{$prop}' must be readonly"
+            );
+        }
+    }
+
+    // =========================================================================
+    // HealthRegistry
+    // =========================================================================
+
+    /**
+     * A registered check must be retrievable by name via get().
+     */
+    public function testRegisterAndGetCheck(): void
+    {
+        // Arrange
+        $check = $this->makeCheck('db', HealthStatus::Ok);
+
+        // Act
+        HealthRegistry::register($check);
+
+        // Assert
+        $this->assertSame($check, HealthRegistry::get('db'));
+    }
+
+    /**
+     * Registering a check with the same name twice must replace the first
+     * registration (last write wins).
+     */
+    public function testRegisterOverwritesSameName(): void
+    {
+        // Arrange
+        $first  = $this->makeCheck('db', HealthStatus::Ok, 'first');
+        $second = $this->makeCheck('db', HealthStatus::Down, 'second');
+
+        // Act
+        HealthRegistry::register($first);
+        HealthRegistry::register($second);
+
+        // Assert — second check replaces the first
+        $this->assertSame($second, HealthRegistry::get('db'));
+    }
+
+    /**
+     * get() must return null for an unknown check name rather than throwing.
+     */
+    public function testGetReturnsNullForUnknownName(): void
+    {
+        $this->assertNull(HealthRegistry::get('nonexistent'));
+    }
+
+    /**
+     * getNames() must return all registered check names.
+     */
+    public function testGetNamesReturnsAllNames(): void
+    {
+        // Arrange
+        HealthRegistry::register($this->makeCheck('db'));
+        HealthRegistry::register($this->makeCheck('disk'));
+
+        // Act
+        $names = HealthRegistry::getNames();
+
+        // Assert
+        $this->assertContains('db',   $names);
+        $this->assertContains('disk', $names);
+    }
+
+    /**
+     * run() must execute the check and return its result.
+     */
+    public function testRunExecutesCheck(): void
+    {
+        // Arrange
+        $check = $this->makeCheck('memory', HealthStatus::Ok, 'all fine');
+        HealthRegistry::register($check);
+
+        // Act
+        $result = HealthRegistry::run('memory');
+
+        // Assert
+        $this->assertSame(HealthStatus::Ok, $result->status);
+        $this->assertSame('all fine', $result->message);
+    }
+
+    /**
+     * run() must throw InvalidArgumentException for an unregistered name.
+     */
+    public function testRunThrowsForUnknownCheck(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        HealthRegistry::run('does_not_exist');
+    }
+
+    /**
+     * runAll() must aggregate results and set the overall status to the worst
+     * individual status.
+     */
+    public function testRunAllAggregatesWorstStatus(): void
+    {
+        // Arrange — one OK check and one Down check
+        HealthRegistry::register($this->makeCheck('a', HealthStatus::Ok));
+        HealthRegistry::register($this->makeCheck('b', HealthStatus::Down));
+
+        // Act
+        $report = HealthRegistry::runAll();
+
+        // Assert — overall must be 'down'
+        $this->assertSame('down', $report['status']);
+        $this->assertArrayHasKey('a', $report['checks']);
+        $this->assertArrayHasKey('b', $report['checks']);
+    }
+
+    /**
+     * runAll() on an empty registry must return status 'ok' with no checks.
+     */
+    public function testRunAllWithNoChecksReturnsOk(): void
+    {
+        // Arrange — registry is empty after setUp() reset
+        // Act
+        $report = HealthRegistry::runAll();
+
+        // Assert
+        $this->assertSame('ok', $report['status']);
+        $this->assertEmpty($report['checks']);
+    }
+
+    /**
+     * reset() must remove all registered checks so the registry is clean for
+     * the next test.
+     */
+    public function testResetClearsAllChecks(): void
+    {
+        // Arrange
+        HealthRegistry::register($this->makeCheck('db'));
+        $this->assertNotEmpty(HealthRegistry::getNames());
+
+        // Act
+        HealthRegistry::reset();
+
+        // Assert
+        $this->assertEmpty(HealthRegistry::getNames());
+    }
+
+    // =========================================================================
+    // Built-in checks (no DB required)
+    // =========================================================================
+
+    /**
+     * DiskSpaceCheck must return a result (any status) without throwing.
+     * The actual status depends on available disk on the test machine.
+     */
+    public function testDiskSpaceCheckRuns(): void
+    {
+        // Arrange
+        $check = new DiskSpaceCheck();
+
+        // Act — must not throw
+        $result = $check->run();
+
+        // Assert — a valid HealthCheckResult is returned
+        $this->assertInstanceOf(HealthCheckResult::class, $result);
+        $this->assertSame('disk_space', $result->name);
+        $this->assertArrayHasKey('free_mb', $result->details);
+        $this->assertArrayHasKey('used_pct', $result->details);
+    }
+
+    /**
+     * DiskSpaceCheck must report Down when free space is below the down
+     * threshold.  We achieve this by setting both thresholds extremely high
+     * (always above any real value).
+     */
+    public function testDiskSpaceCheckReportsDownWhenBelowDownThreshold(): void
+    {
+        // Arrange — thresholds impossibly high to force a Down result
+        $check = new DiskSpaceCheck('.', PHP_INT_MAX, PHP_INT_MAX);
+
+        // Act
+        $result = $check->run();
+
+        // Assert
+        $this->assertSame(HealthStatus::Down, $result->status);
+    }
+
+    /**
+     * DiskSpaceCheck must report Degraded when free space is between the
+     * degraded threshold and the down threshold.
+     */
+    public function testDiskSpaceCheckReportsDegradedWhenBelowDegradedThreshold(): void
+    {
+        // Arrange — degradedThreshold = very high, downThreshold = 0
+        // This means free > downThreshold but free < degradedThreshold → Degraded
+        $check = new DiskSpaceCheck('.', PHP_INT_MAX, 0);
+
+        // Act
+        $result = $check->run();
+
+        // Assert
+        $this->assertSame(HealthStatus::Degraded, $result->status);
+    }
+
+    /**
+     * DiskSpaceCheck must report OK when free space exceeds both thresholds.
+     */
+    public function testDiskSpaceCheckReportsOkWhenAboveThresholds(): void
+    {
+        // Arrange — thresholds of 0 MB mean any free space is "above"
+        $check = new DiskSpaceCheck('.', 0, 0);
+
+        // Act
+        $result = $check->run();
+
+        // Assert
+        $this->assertSame(HealthStatus::Ok, $result->status);
+    }
+
+    /**
+     * MemoryLimitCheck must return a result without throwing.
+     */
+    public function testMemoryLimitCheckRuns(): void
+    {
+        // Arrange
+        $check = new MemoryLimitCheck();
+
+        // Act
+        $result = $check->run();
+
+        // Assert
+        $this->assertInstanceOf(HealthCheckResult::class, $result);
+        $this->assertSame('memory_limit', $result->name);
+    }
+
+    /**
+     * MemoryLimitCheck must report Down when current usage exceeds the down
+     * threshold (set to 0% to always trigger).
+     */
+    public function testMemoryLimitCheckReportsDownAtZeroThreshold(): void
+    {
+        // Arrange — 0% thresholds mean any usage is "above down threshold"
+        $check = new MemoryLimitCheck(0.0, 0.0);
+
+        // Act
+        $result = $check->run();
+
+        // Assert — any memory usage (>0%) should be at least Down
+        $limitBytes = (int) ini_get('memory_limit');
+        if ($limitBytes === -1) {
+            // No limit — check returns Ok with a note; nothing to assert about status
+            $this->assertSame('memory_limit', $result->name);
+        } else {
+            $this->assertSame(HealthStatus::Down, $result->status);
+        }
+    }
+
+    /**
+     * MemoryLimitCheck must report OK when thresholds are set extremely high
+     * (current usage will never exceed them in a test environment).
+     */
+    public function testMemoryLimitCheckReportsOkAtHighThresholds(): void
+    {
+        // Arrange — thresholds of 100% mean only 100% usage is "over threshold"
+        $check = new MemoryLimitCheck(100.0, 100.0);
+
+        // Act
+        $result = $check->run();
+
+        // Assert
+        $this->assertNotSame(HealthStatus::Down, $result->status);
+    }
+
+    // =========================================================================
+    // HealthCheck interface
+    // =========================================================================
+
+    /**
+     * Any class that implements HealthCheck and never throws in run() must be
+     * accepted by HealthRegistry without modification — this verifies the
+     * open/closed property: add new checks without touching the registry.
+     */
+    public function testCustomCheckCanBeRegisteredAndRun(): void
+    {
+        // Arrange — anonymous implementation of HealthCheck
+        $custom = new class implements HealthCheck {
+            public function getName(): string { return 'custom'; }
+            public function run(): HealthCheckResult {
+                return HealthCheckResult::degraded($this->getName(), 'Slightly slow');
+            }
+        };
+
+        // Act
+        HealthRegistry::register($custom);
+        $report = HealthRegistry::runAll();
+
+        // Assert
+        $this->assertSame('degraded', $report['status']);
+        $this->assertSame('degraded', $report['checks']['custom']['status']);
+    }
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    /**
+     * Creates a simple HealthCheck stub that always returns a fixed result.
+     */
+    private function makeCheck(
+        string       $name,
+        HealthStatus $status  = HealthStatus::Ok,
+        string       $message = ''
+    ): HealthCheck {
+        return new class($name, $status, $message) implements HealthCheck {
+            public function __construct(
+                private string       $n,
+                private HealthStatus $s,
+                private string       $m
+            ) {}
+
+            public function getName(): string      { return $this->n; }
+            public function run(): HealthCheckResult {
+                return new HealthCheckResult($this->s, $this->n, $this->m ?: 'ok');
+            }
+        };
+    }
+}
