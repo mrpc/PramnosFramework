@@ -46,7 +46,9 @@
       "Bash(chmod 777 /home/mrpc/projects/urbanwater/var/)",
       "Bash(sudo -S chmod 777 /home/mrpc/projects/urbanwater/var/ /home/mrpc/projects/urbanwater/var/phpunit-bootstrap.lock)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(awk '/<file name=\"\\\\/var\\\\/www\\\\/html\\\\/src\\\\/Pramnos\\\\/Database\\\\/QueryBuilder.php\"/{flag=1} flag && /<\\\\/file>/{print; flag=0} flag' /home/mrpc/projects/PramnosFramework/coverage/clover.xml)",
+      "Bash(python3 *)"
     ]
   }
 }

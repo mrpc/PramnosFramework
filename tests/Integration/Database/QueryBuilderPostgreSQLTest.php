@@ -623,4 +623,93 @@ class QueryBuilderPostgreSQLTest extends TestCase
         $this->assertFalse($result->fetchNext()); // eof after single row
         $this->assertTrue($result->eof);
     }
+
+    // -------------------------------------------------------------------------
+    // Grammar: upsert DO NOTHING on conflict (PostgreSQLGrammar line 75)
+    // -------------------------------------------------------------------------
+
+    public function testUpsertWithEmptyUpdateColumnsActsAsInsertIgnore(): void
+    {
+        $this->db->execute("DROP TABLE IF EXISTS qb_pg_ignore");
+        $this->db->execute("CREATE TABLE qb_pg_ignore (
+            id    SERIAL PRIMARY KEY,
+            email VARCHAR(100) UNIQUE NOT NULL,
+            name  VARCHAR(100)
+        )");
+
+        $this->db->queryBuilder()
+            ->table('qb_pg_ignore')
+            ->upsert(['email' => 'x@test.com', 'name' => 'First'], ['email'], []);
+
+        // Second call with same email and empty updateValues → ON CONFLICT DO NOTHING
+        $this->db->queryBuilder()
+            ->table('qb_pg_ignore')
+            ->upsert(['email' => 'x@test.com', 'name' => 'Second'], ['email'], []);
+
+        $row = $this->db->execute("SELECT * FROM qb_pg_ignore WHERE email = 'x@test.com'")->fields;
+        $this->assertEquals('First', $row['name']); // original preserved
+
+        $this->db->execute("DROP TABLE IF EXISTS qb_pg_ignore");
+    }
+
+    // -------------------------------------------------------------------------
+    // Result utility methods — PostgreSQL paths
+    // -------------------------------------------------------------------------
+
+    public function testResultGetInsertId(): void
+    {
+        $result = $this->db->execute(
+            "INSERT INTO qb_products (name, category, price, stock) VALUES ('PgInsertIdTest', 'fruit', 1.00, 1)"
+        );
+
+        // For PostgreSQL, pg_last_oid() is used; modern PG may return 0 — just verify it doesn't throw
+        $id = $result->getInsertId();
+        $this->assertTrue($id >= 0);
+    }
+
+    public function testResultGetAffectedRows(): void
+    {
+        $this->seedProducts();
+
+        $result = $this->db->execute(
+            "UPDATE qb_products SET stock = 999 WHERE category = 'fruit'"
+        );
+
+        $this->assertEquals(3, $result->getAffectedRows());
+    }
+
+    public function testResultGetNumFields(): void
+    {
+        $this->seedProducts();
+        $result = $this->db->execute("SELECT id, name, category FROM qb_products LIMIT 1");
+
+        $this->assertEquals(3, $result->getNumFields());
+    }
+
+    public function testResultFreeDoesNotThrow(): void
+    {
+        $this->seedProducts();
+        $result = $this->db->queryBuilder()->from('qb_products')->get();
+
+        // free() on a PgSql\Result should not throw
+        $result->free();
+        $this->assertTrue(true);
+    }
+
+    public function testFetchSkipDataFixBypassesTypeConversion(): void
+    {
+        // skipDataFix=true causes fetch() to assign values without type conversion,
+        // covering the else branch at Result.php line 255
+        $this->seedProducts();
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Apple')
+            ->get();
+
+        $row = $result->fetch(true); // skipDataFix = true
+        $this->assertIsArray($row);
+        $this->assertEquals('Apple', $row['name']);
+        // With skipDataFix=true, numeric columns come back as strings
+        $this->assertIsString($row['stock']);
+    }
 }
