@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Characterization\Application;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Settings;
 
@@ -156,9 +157,8 @@ class SettingsCharacterizationTest extends TestCase
      * 'collation', 'cache' are intercepted before any DB lookup to prevent
      * recursion during connection establishment.  Without a database object
      * they must fall back to $defaultValue.
-     *
-     * @dataProvider databaseKeyProvider
      */
+    #[DataProvider('databaseKeyProvider')]
     public function testDatabaseConnectionKeysReturnDefaultWithoutDatabase(string $key): void
     {
         // Act
