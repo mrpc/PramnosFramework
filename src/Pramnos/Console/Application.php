@@ -49,6 +49,12 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\Create());
         $this->add(new \Pramnos\Console\Commands\Serve());
         $this->add(new \Pramnos\Console\Commands\MigrateLogs());
+        // Migration CLI commands (Phase 4)
+        $this->add(new \Pramnos\Console\Commands\Migrate());
+        $this->add(new \Pramnos\Console\Commands\MigrateRollback());
+        $this->add(new \Pramnos\Console\Commands\MigrateReset());
+        $this->add(new \Pramnos\Console\Commands\MigrateRefresh());
+        $this->add(new \Pramnos\Console\Commands\MigrateStatus());
     }
 
 }

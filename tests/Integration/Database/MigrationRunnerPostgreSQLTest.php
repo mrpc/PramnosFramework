@@ -314,6 +314,77 @@ class MigrationRunnerPostgreSQLTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // rollbackAll()
+    // -------------------------------------------------------------------------
+
+    /**
+     * rollbackAll() must roll back every batch, leaving the history table empty
+     * and all affected tables dropped on PostgreSQL.
+     */
+    public function testRollbackAllRemovesAllBatches(): void
+    {
+        // Arrange – two separate batches
+        $roles  = new CreateMrPgRoles($this->app);
+        $users  = new CreateMrPgUsers($this->app);
+        $runner = new MigrationRunner($this->db, $this->historyTable);
+
+        $runner->run([$roles]);
+        $runner->run([$users]);
+
+        // Act
+        $result = $runner->rollbackAll([$roles, $users]);
+
+        // Assert – all slugs present in rolled-back list
+        $this->assertContains('create_mr_pg_roles', $result['rolledBack']);
+        $this->assertContains('create_mr_pg_users', $result['rolledBack']);
+
+        // Assert – history is empty
+        $count = $this->db->query("SELECT COUNT(*) as cnt FROM \"{$this->historyTable}\"");
+        $this->assertSame('0', (string) $count->fields['cnt'], 'History must be empty after rollbackAll()');
+
+        // Assert – tables were dropped
+        $this->assertTableNotExists('mr_pg_roles');
+        $this->assertTableNotExists('mr_pg_users');
+    }
+
+    // -------------------------------------------------------------------------
+    // getHistory()
+    // -------------------------------------------------------------------------
+
+    /**
+     * getHistory() must return all executed migrations with full metadata on
+     * PostgreSQL.
+     */
+    public function testGetHistoryReturnsAllRows(): void
+    {
+        // Arrange – run both migrations in separate batches
+        $roles  = new CreateMrPgRoles($this->app);
+        $users  = new CreateMrPgUsers($this->app);
+        $runner = new MigrationRunner($this->db, $this->historyTable);
+
+        $runner->run([$roles]);
+        $runner->run([$users]);
+
+        // Act
+        $history = $runner->getHistory();
+
+        // Assert – two rows returned
+        $this->assertCount(2, $history, 'getHistory() must return one row per executed migration');
+
+        $slugs = array_column($history, 'migration');
+        $this->assertContains('create_mr_pg_roles', $slugs);
+        $this->assertContains('create_mr_pg_users', $slugs);
+
+        // Assert – rows contain all required metadata columns
+        foreach ($history as $row) {
+            $this->assertArrayHasKey('scope',          $row, 'History row must contain scope');
+            $this->assertArrayHasKey('batch',          $row, 'History row must contain batch');
+            $this->assertArrayHasKey('result',         $row, 'History row must contain result');
+            $this->assertArrayHasKey('execution_time', $row, 'History row must contain execution_time');
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
