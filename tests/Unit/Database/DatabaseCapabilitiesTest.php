@@ -117,6 +117,17 @@ class DatabaseCapabilitiesTest extends TestCase
         $this->assertFalse($caps->has(DatabaseCapabilities::FEATURE_TIMESCALEDB));
     }
 
+    public function testTimescaleDBFalseWhenQueryThrows(): void
+    {
+        $db = $this->makeDb('postgresql', false);
+        $db->expects($this->once())
+            ->method('query')
+            ->willThrowException(new \RuntimeException('connection lost'));
+
+        $caps = new DatabaseCapabilities($db);
+        $this->assertFalse($caps->has(DatabaseCapabilities::FEATURE_TIMESCALEDB));
+    }
+
     public function testTimescaleDBResultIsCached(): void
     {
         $db = $this->makeDb('postgresql', false);

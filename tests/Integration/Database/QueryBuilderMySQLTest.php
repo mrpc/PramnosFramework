@@ -835,4 +835,26 @@ class QueryBuilderMySQLTest extends TestCase
         $result->free();
         $this->assertNull($result->mysqlResult);
     }
+
+    public function testFetchNextOnSingleRowResult(): void
+    {
+        $this->seedProducts();
+
+        // first() returns a 1-row result; fetchNext() on it should cover the
+        // MySQL single-row seek-to-1 failure path (sets eof=true on first call)
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->orderBy('price')
+            ->first();
+
+        $this->assertEquals(1, $result->numRows);
+
+        // First fetchNext() — pre-fetched row 0 is available, seek to row 1 fails,
+        // eof is set to true, but returns true (row 0 is in fields)
+        $this->assertTrue($result->fetchNext());
+        $this->assertEquals('Banana', $result->fields['name']);
+
+        // Second fetchNext() — eof is already true → returns false
+        $this->assertFalse($result->fetchNext());
+    }
 }
