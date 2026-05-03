@@ -137,20 +137,41 @@ abstract class Migration extends \Pramnos\Framework\Base
      */
     public function getSlug(): string
     {
-        $name = (new \ReflectionClass($this))->getShortName();
-        return static::extractSlugFromName($name);
+        // Prefer the filename (YYYY_MM_DD_HHmmss_slug.php) because PHP class
+        // names cannot start with a digit, so timestamp-prefix filenames are
+        // the canonical source of truth for slug + ordering.
+        $ref      = new \ReflectionClass($this);
+        $fileName = $ref->getFileName();
+        if ($fileName !== false) {
+            $base = basename($fileName, '.php');
+            if (preg_match('/^\d{4}_\d{2}_\d{2}_\d{6}_(.+)$/', $base, $m)) {
+                return strtolower($m[1]);
+            }
+        }
+        return static::extractSlugFromName($ref->getShortName());
     }
 
     /**
-     * Returns the YYYY_MM_DD_HHmmss timestamp prefix from the class name, or
-     * null if the class name does not follow the timestamped convention.
+     * Returns the YYYY_MM_DD_HHmmss timestamp prefix, or null when unavailable.
+     *
+     * Checks the migration file's basename first (because PHP class names
+     * cannot start with a digit), then falls back to the class short name for
+     * legacy non-timestamped conventions.
      *
      * @return string|null
      */
     public function getTimestamp(): ?string
     {
-        $name = (new \ReflectionClass($this))->getShortName();
-        return static::extractTimestampFromName($name);
+        $ref      = new \ReflectionClass($this);
+        $fileName = $ref->getFileName();
+        if ($fileName !== false) {
+            $base = basename($fileName, '.php');
+            $ts   = static::extractTimestampFromName($base);
+            if ($ts !== null) {
+                return $ts;
+            }
+        }
+        return static::extractTimestampFromName($ref->getShortName());
     }
 
     // =========================================================================

@@ -143,10 +143,13 @@ class MigrationRunner
     }
 
     /**
-     * Rolls back all migrations in the most recent batch by calling their
-     * down() methods and removing the corresponding history rows.
+     * Rolls back all migrations in the specified batch (or the most recent
+     * batch when no batch is given) by calling their down() methods and
+     * removing the corresponding history rows.
      *
      * @param Migration[] $migrations Full list of migrations (needed to resolve down() calls).
+     * @param array{batch?: int} $options
+     *   - batch: specific batch number to roll back; defaults to the last batch.
      * @return array{rolledBack: string[]} Slugs of migrations that were rolled back.
      */
     public function rollback(array $migrations, array $options = []): array
@@ -157,13 +160,13 @@ class MigrationRunner
 
         $this->ensureHistoryTable();
 
-        $lastBatch = $this->getLastBatch();
-        if ($lastBatch === null) {
+        $targetBatch = isset($options['batch']) ? (int) $options['batch'] : $this->getLastBatch();
+        if ($targetBatch === null) {
             return ['rolledBack' => []];
         }
 
-        // Fetch slugs of migrations in the last batch (reverse order for rollback)
-        $rows = $this->fetchBatchRows($lastBatch);
+        // Fetch slugs of migrations in the target batch (reverse order for rollback)
+        $rows = $this->fetchBatchRows($targetBatch);
         if (empty($rows)) {
             return ['rolledBack' => []];
         }
@@ -195,6 +198,50 @@ class MigrationRunner
         }
 
         return ['rolledBack' => $rolledBack];
+    }
+
+    /**
+     * Rolls back ALL batches in reverse batch order (highest batch first).
+     * Equivalent to migrate:reset — returns the full system to a clean state.
+     *
+     * @param Migration[] $migrations Full list of migrations for down() dispatch.
+     * @return array{rolledBack: string[]} All slugs that were rolled back.
+     */
+    public function rollbackAll(array $migrations): array
+    {
+        $rolledBack = [];
+
+        do {
+            $result     = $this->rollback($migrations);
+            $rolledBack = array_merge($rolledBack, $result['rolledBack']);
+        } while (!empty($result['rolledBack']));
+
+        return ['rolledBack' => $rolledBack];
+    }
+
+    /**
+     * Returns all rows from the history table, ordered by batch then id.
+     * Used by migrate:status to show the full migration state.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getHistory(): array
+    {
+        $db    = $this->requireDb();
+        $quote = $db->type === 'postgresql' ? '"' : '`';
+
+        $this->ensureHistoryTable();
+
+        $result = $db->query(
+            "SELECT * FROM {$quote}{$this->historyTable}{$quote} ORDER BY batch ASC, id ASC"
+        );
+
+        $rows = [];
+        while ($result->fetchNext()) {
+            $rows[] = $result->fields;
+        }
+
+        return $rows;
     }
 
     /**
@@ -422,12 +469,12 @@ class MigrationRunner
             "SELECT migration FROM {$quote}{$this->historyTable}{$quote} WHERE result = 1"
         );
 
+        // Use while(fetchNext()) exclusively — never pre-read fields before the
+        // loop. Result::fetchNext() returns true on the first call at cursor=-1,
+        // so a pre-read followed by the loop would double-count the first row.
         $slugs = [];
-        if (!empty($result->fields)) {
+        while ($result->fetchNext()) {
             $slugs[] = $result->fields['migration'];
-            while ($result->fetchNext()) {
-                $slugs[] = $result->fields['migration'];
-            }
         }
 
         return $slugs;
@@ -478,11 +525,8 @@ class MigrationRunner
         );
 
         $rows = [];
-        if (!empty($result->fields)) {
+        while ($result->fetchNext()) {
             $rows[] = ['migration' => $result->fields['migration']];
-            while ($result->fetchNext()) {
-                $rows[] = ['migration' => $result->fields['migration']];
-            }
         }
 
         return $rows;
