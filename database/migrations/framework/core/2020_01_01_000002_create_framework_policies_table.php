@@ -5,16 +5,20 @@ namespace Pramnos\Framework\Migrations\Core;
 use Pramnos\Database\Migration;
 
 /**
- * Creates the framework_policies table used by the Policy Engine daemon.
+ * Creates the framework_policies table for scheduled database maintenance tasks.
+ *
+ * On TimescaleDB, native policies (retention, compression, continuous aggregates)
+ * handle their own scheduling. On MySQL and plain PostgreSQL, the PolicyEngine
+ * reads this table and executes the appropriate SQL for each enabled policy.
  *
  * @package PramnosFramework
  */
 class CreateFrameworkPoliciesTable extends Migration
 {
-    public string $feature     = 'core';
-    public string $scope       = 'framework';
-    public int    $priority    = 10;
-    public string $description = 'Creates the framework_policies table for the Policy Engine';
+    public string  $feature      = 'core';
+    public string  $scope        = 'framework';
+    public int     $priority     = 30;
+    public string  $description  = 'Creates the framework_policies table';
 
     public function up(): void
     {
@@ -25,16 +29,29 @@ class CreateFrameworkPoliciesTable extends Migration
         }
 
         $schema->createTable('framework_policies', function ($table) {
-            $table->increments('policyid');
-            $table->string('policy_type', 50);
-            $table->string('target', 255);
-            $table->json('config');
-            $table->boolean('enabled')->default(true);
-            $table->timestamp('last_run')->nullable();
-            $table->timestamp('next_run')->nullable();
-            $table->text('last_result')->nullable();
-            $table->text('last_error')->nullable();
-            $table->timestamp('created_at')->useCurrent();
+            $table->comment('Scheduled database maintenance policies executed by PolicyEngine (MySQL/plain PG only; no-op on TimescaleDB)');
+
+            $table->increments('policyid')
+                ->comment('Auto-increment primary key');
+            $table->string('policy_type', 50)
+                ->comment('Policy category: retention | aggregate_refresh | compression | cache_rebuild');
+            $table->string('target', 255)
+                ->comment('Target table or view name on which the policy operates');
+            $table->json('config')
+                ->comment('Type-specific configuration object (e.g. {interval:"24 months",time_column:"created_at"})');
+            $table->boolean('enabled')->default(true)
+                ->comment('Whether this policy is active and will be executed by the PolicyEngine');
+            $table->timestamp('last_run')->nullable()
+                ->comment('Timestamp of the most recent successful execution');
+            $table->timestamp('next_run')->nullable()
+                ->comment('Scheduled time for the next execution; NULL = run as soon as possible');
+            $table->text('last_result')->nullable()
+                ->comment('Human-readable summary of the last execution result');
+            $table->text('last_error')->nullable()
+                ->comment('Error message from the last failed execution; NULL if last run was successful');
+            $table->timestamp('created_at')->useCurrent()
+                ->comment('Row creation timestamp');
+
             $table->index(['policy_type', 'enabled'], 'idx_framework_policies_type_enabled');
             $table->index(['next_run'], 'idx_framework_policies_next_run');
         });

@@ -150,7 +150,22 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
             }
         }
 
+        // ---- post-CREATE: table/column comments (dialect-specific) ----
+        foreach ($this->compileCommentStatements($blueprint, $table) as $stmt) {
+            $statements[] = $stmt;
+        }
+
         return $statements;
+    }
+
+    /**
+     * Returns additional SQL statements for table and column comments.
+     * MySQL emits comments inline (COMMENT= / COMMENT '...'), so this returns [].
+     * PostgreSQL overrides this to emit COMMENT ON TABLE / COMMENT ON COLUMN.
+     */
+    protected function compileCommentStatements(Blueprint $blueprint, string $table): array
+    {
+        return [];
     }
 
     /** Inline UNIQUE syntax — overridden by MySQL to emit UNIQUE KEY name (...). */
