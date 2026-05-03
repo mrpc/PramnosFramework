@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Characterization\Console;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Console\Commands\Create;
 use Pramnos\Console\Commands\Serve;
@@ -84,9 +85,7 @@ class CommandsCharacterizationTest extends TestCase
         $this->assertSame('Articles', $result);
     }
 
-    /**
-     * @dataProvider classNameProvider
-     */
+    #[DataProvider('classNameProvider')]
     public function testGetProperClassNameVariousCases(
         string $input, bool $forceSingular, string $expected
     ): void {
