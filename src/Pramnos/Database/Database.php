@@ -904,6 +904,9 @@ class Database extends \Pramnos\Framework\Base
             if ($this->schema != '') {
                 $schema = $this->schema . '.';
             }
+            $sql = str_replace('`', '"', $sql);
+            // Convert single-quoted column aliases (MySQL syntax) to double-quoted (PostgreSQL syntax)
+            $sql = preg_replace('/\bAS\s+\'([^\']+)\'/i', 'AS "$1"', $sql);
             $query = str_replace(
                 array('"#PREFIX#', '#PREFIX#', "#CP#"),
                 array($schema . '"' . $this->prefix, $schema . $this->prefix, $this->controllerPrefix),
@@ -918,15 +921,34 @@ class Database extends \Pramnos\Framework\Base
         }
         
         $types = array();
-        $numOfTypes = preg_match_all('/\%(i|d|s|b)/i', $query, $types);
+        // Count %X placeholders only outside SQL string literals to avoid
+        // matching % inside LIKE/ILIKE patterns such as '%display-read-%'
+        $maskedQuery = preg_replace("/'(?:''|[^'])*'/s", "''", $query);
+        $numOfTypes = preg_match_all('/\%(i|d|s|b)/i', $maskedQuery, $types);
         if ($numOfTypes > 0) {
             if ($this->type == 'postgresql') {
                 $count = 1;
-                $query = preg_replace_callback('/\%(i|d|s|b)/i', function($matches) use (&$count) {
-                    return '$' . $count++;
-                }, $query);
+                $query = preg_replace_callback(
+                    "/'(?:''|[^'])*'|%(i|d|s|b)/si",
+                    function($matches) use (&$count) {
+                        if ($matches[0][0] === "'") {
+                            return $matches[0];
+                        }
+                        return '$' . $count++;
+                    },
+                    $query
+                );
             } else {
-                $query = str_replace(array('%d', '%i', '%s', '%b'), '?', $query);
+                $query = preg_replace_callback(
+                    "/'(?:''|[^'])*'|%[idsb]/si",
+                    function($matches) {
+                        if ($matches[0][0] === "'") {
+                            return $matches[0];
+                        }
+                        return '?';
+                    },
+                    $query
+                );
             }
             $types = implode($types[1]);
         }
@@ -936,7 +958,22 @@ class Database extends \Pramnos\Framework\Base
 
         if ($this->type == 'postgresql') {
             $stmtName = 'plan_' . md5($query);
+
+            // Return cached statement if already prepared in this session
+            if (isset($this->statements[$stmtName])) {
+                $statement = new \stdClass();
+                $statement->id = $stmtName;
+                return $statement;
+            }
+
             $result = @pg_prepare($connection, $stmtName, $query);
+            if (!$result) {
+                // Plan may already exist in the PostgreSQL session (e.g., left from a prior exception).
+                // Deallocate it and re-prepare so the statement is fresh.
+                @pg_query($connection, 'DEALLOCATE "' . $stmtName . '"');
+                $result = @pg_prepare($connection, $stmtName, $query);
+            }
+
             if ($result) {
                 // Return a lightweight object to store the statement metadata
                 $statement = new \stdClass();
@@ -993,11 +1030,11 @@ class Database extends \Pramnos\Framework\Base
             $statement = $this->prepare($sql);
             $free = true;
         }
-        
-        if (!isset($this->statements[$statement->id])) {
+
+        if (!$statement || !isset($this->statements[$statement->id])) {
              return false;
         }
-        
+
         $stmtData = $this->statements[$statement->id];
         $connection = $stmtData['connection'];
         $isWrite = $stmtData['isWrite'];
@@ -1016,36 +1053,12 @@ class Database extends \Pramnos\Framework\Base
         }
 
         $retry = true;
-        while (true) {
-            if ($this->type == 'postgresql') {
-                $stmtName = $stmtData['stmtName'];
-                $dbResource = @pg_execute($connection, $stmtName, $arguments);
-                if (!$dbResource && $retry && !$this->isConnectionAlive($connection)) {
-                    // Re-prepare on new connection
-                    $statement = $this->prepare($stmtData['query']);
-                    $stmtData = $this->statements[$statement->id];
-                    $connection = $stmtData['connection'];
-                    $retry = false;
-                    continue;
-                }
-                if (!$dbResource) {
-                    $this->setError(
-                        '0',
-                        @pg_last_error($connection),
-                        false
-                    );
-                }
-            } else {
-                if (count($arguments) > 1) {
-                    call_user_func_array(
-                        array($statement, 'bind_param'), $arguments
-                    );
-                }
-                if ($statement->execute()) {
-                    $dbResource = $statement->get_result();
-                } else {
-                    $dbResource = null;
-                    if ($retry && (\mysqli_errno($connection) == 2006 || \mysqli_errno($connection) == 2013)) {
+        try {
+            while (true) {
+                if ($this->type == 'postgresql') {
+                    $stmtName = $stmtData['stmtName'];
+                    $dbResource = @pg_execute($connection, $stmtName, $arguments);
+                    if (!$dbResource && $retry && !$this->isConnectionAlive($connection)) {
                         // Re-prepare on new connection
                         $statement = $this->prepare($stmtData['query']);
                         $stmtData = $this->statements[$statement->id];
@@ -1053,23 +1066,52 @@ class Database extends \Pramnos\Framework\Base
                         $retry = false;
                         continue;
                     }
-                }
+                    if (!$dbResource) {
+                        $this->setError(
+                            '0',
+                            @pg_last_error($connection),
+                            false
+                        );
+                    }
+                } else {
+                    if (count($arguments) > 1) {
+                        call_user_func_array(
+                            array($statement, 'bind_param'), $arguments
+                        );
+                    }
+                    if ($statement->execute()) {
+                        $dbResource = $statement->get_result();
+                    } else {
+                        $dbResource = null;
+                        if ($retry && (\mysqli_errno($connection) == 2006 || \mysqli_errno($connection) == 2013)) {
+                            // Re-prepare on new connection
+                            $statement = $this->prepare($stmtData['query']);
+                            $stmtData = $this->statements[$statement->id];
+                            $connection = $stmtData['connection'];
+                            $retry = false;
+                            continue;
+                        }
+                    }
 
-                if (!$dbResource && @mysqli_errno($connection) !== 0) {
-                    $this->setError(
-                        @mysqli_errno($connection),
-                        @mysqli_error($connection),
-                        false
-                    );
+                    if (!$dbResource && @mysqli_errno($connection) !== 0) {
+                        $this->setError(
+                            @mysqli_errno($connection),
+                            @mysqli_error($connection),
+                            false
+                        );
+                    }
                 }
+                break;
             }
-            break;
-        }
-
-        if ($free) {
-            unset($this->statements[$statement->id]);
-            if ($this->type != 'postgresql') {
-                $statement->close();
+        } finally {
+            if ($free) {
+                if ($this->type == 'postgresql') {
+                    @pg_query($connection, 'DEALLOCATE "' . $statement->id . '"');
+                }
+                unset($this->statements[$statement->id]);
+                if ($this->type != 'postgresql') {
+                    $statement->close();
+                }
             }
         }
 
@@ -1080,13 +1122,51 @@ class Database extends \Pramnos\Framework\Base
         if ($obj->getNumRows() > 0) {
             $obj->eof = false;
             if ($this->type == 'postgresql') {
+                // Get column types to properly convert numeric values
+                $columnTypes = [];
+                $numFields = pg_num_fields($dbResource);
+                for ($i = 0; $i < $numFields; $i++) {
+                    $fieldName = pg_field_name($dbResource, $i);
+                    $fieldType = pg_field_type($dbResource, $i);
+                    $columnTypes[$fieldName] = $fieldType;
+                }
+                $obj->columnTypes = $columnTypes;
                 $resultArray = pg_fetch_array($dbResource, 0, PGSQL_ASSOC);
+                pg_result_seek($dbResource, 0);
             } else {
                 $resultArray = mysqli_fetch_array($dbResource, MYSQLI_ASSOC);
+                mysqli_data_seek($dbResource, 0);
             }
             if ($resultArray) {
                 foreach($resultArray as $key=>$value) {
-                    $obj->fields[$key] = $value;
+                    if (isset($columnTypes[$key])) {
+                        switch ($columnTypes[$key]) {
+                            case 'int4':
+                            case 'int8':
+                            case 'int2':
+                            case 'integer':
+                            case 'bigint':
+                            case 'smallint':
+                                $obj->fields[$key] = $value === null ? null : (int)$value;
+                                break;
+                            case 'float4':
+                            case 'float8':
+                            case 'numeric':
+                            case 'decimal':
+                            case 'real':
+                            case 'double precision':
+                                $obj->fields[$key] = $value === null ? null : (float)$value;
+                                break;
+                            case 'bool':
+                            case 'boolean':
+                                $obj->fields[$key] = $value === 't' ? true : ($value === 'f' ? false : $value);
+                                break;
+                            default:
+                                $obj->fields[$key] = $value;
+                        }
+                    } else {
+                        $obj->fields[$key] = $value;
+                    }
                 }
                 $obj->eof = false;
             } else {
@@ -1280,10 +1360,24 @@ class Database extends \Pramnos\Framework\Base
                     $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . $val['longitude'] . ', ' . $val['latitude'] . '), 4326)');
                 }
             } elseif ($type == 'boolean' && $this->type == 'postgresql') {
-                if ($val === 'true' || $val === true || $val === 1 || $val === '1') {
+                if ($val === null || $val === 'NULL') {
+                    $val = null;
+                } elseif ($val === 'true' || $val === true || $val === 1 || $val === '1' || $val === 't') {
                     $val = $qb->raw('\'t\'');
-                } elseif ($val === 'false' || $val === false || $val === 0 || $val === '0') {
+                } else {
                     $val = $qb->raw('\'f\'');
+                }
+            } elseif ($type === 'integer') {
+                if ($val === null || $val === 'NULL') {
+                    $val = null;
+                } else {
+                    $val = (int) $val;
+                }
+            } elseif ($type === 'float') {
+                if ($val === null || $val === 'NULL' || $val === '') {
+                    $val = null;
+                } else {
+                    $val = (float) str_replace(',', '.', (string) $val);
                 }
             }
 
@@ -1295,7 +1389,13 @@ class Database extends \Pramnos\Framework\Base
             return $this->lastResult;
         }
 
-        return $qb->insert($values);
+        try {
+            return $qb->insert($values);
+        } catch (\Throwable $ex) {
+            $this->error_number = 0;
+            $this->error_text = $ex->getMessage();
+            return false;
+        }
     }
 
     /**
@@ -1330,10 +1430,24 @@ class Database extends \Pramnos\Framework\Base
                     $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . $val['longitude'] . ', ' . $val['latitude'] . '), 4326)');
                 }
             } elseif ($type == 'boolean' && $this->type == 'postgresql') {
-                if ($val === 'true' || $val === true || $val === 1 || $val === '1') {
+                if ($val === null || $val === 'NULL') {
+                    $val = null;
+                } elseif ($val === 'true' || $val === true || $val === 1 || $val === '1' || $val === 't') {
                     $val = $qb->raw('\'t\'');
-                } elseif ($val === 'false' || $val === false || $val === 0 || $val === '0') {
+                } else {
                     $val = $qb->raw('\'f\'');
+                }
+            } elseif ($type === 'integer') {
+                if ($val === null || $val === 'NULL') {
+                    $val = null;
+                } else {
+                    $val = (int) $val;
+                }
+            } elseif ($type === 'float') {
+                if ($val === null || $val === 'NULL' || $val === '') {
+                    $val = null;
+                } else {
+                    $val = (float) str_replace(',', '.', (string) $val);
                 }
             }
 
@@ -1345,7 +1459,13 @@ class Database extends \Pramnos\Framework\Base
             return $this->lastResult;
         }
 
-        return $qb->update($values);
+        try {
+            return $qb->update($values);
+        } catch (\Throwable $ex) {
+            $this->error_number = 0;
+            $this->error_text = $ex->getMessage();
+            return false;
+        }
     }
 
     /**
@@ -1522,10 +1642,10 @@ class Database extends \Pramnos\Framework\Base
                 // Debug logging for development - can be removed in production
                 if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
                     if ($originalValue === null && $restoredValue !== null) {
-                        error_log("Type preservation warning: null value became {$restoredValue} for field {$key}");
+                        \Pramnos\Logs\Logger::log("Type preservation warning: null value became {$restoredValue} for field {$key}");
                     }
                     if ($originalValue !== null && $restoredValue === null) {
-                        error_log("Type preservation warning: value {$originalValue} became null for field {$key}");
+                        \Pramnos\Logs\Logger::log("Type preservation warning: value {$originalValue} became null for field {$key}");
                     }
                 }
                 
@@ -1765,7 +1885,7 @@ class Database extends \Pramnos\Framework\Base
      * @param array $resultSet The result set to evaluate
      * @return bool True if the result should be cached, false otherwise
      */
-    private function shouldCacheResult($resultSet)
+    public function shouldCacheResult($resultSet)
     {
         if (!is_array($resultSet) || empty($resultSet)) {
             return true; // Cache empty results
@@ -2121,7 +2241,7 @@ class Database extends \Pramnos\Framework\Base
 
         if ($cache && $cacheData) {
             $obj = new Result($this);
-            $obj->cursor = 0;
+            $obj->cursor = -1;
             $obj->isCached = true;
             
             // Check if data is already unserialized (new format) or needs unserialization (old format)
@@ -2161,8 +2281,10 @@ class Database extends \Pramnos\Framework\Base
             } else {
                 $obj = $this->runMysqlQuery($sql, $dieOnFatalError, $skipDataFix);
             }
-            $obj->isCached = false;
-            $obj->result = $obj->fetchAll();
+            $data = $obj->fetchAll();
+            $obj->result = $data;
+            $obj->isCached = true;
+            $obj->cursor = -1;
 
             // Memory optimization: Only cache if result set is reasonable size
             if ($this->shouldCacheResult($obj->result)) {
