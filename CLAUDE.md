@@ -23,14 +23,27 @@ Before modifying any of `Auth`, `User`, `Logs`, `Adjacencylist`, `Migration`, en
 
 Implementation order: **Phase 1 (Grammar → DDL) → Phase 4 (Infra) → Phase 2 (Backports)**. Do not start Phase 2 backport work without Feature Registry, Service Providers, and Migration System in place.
 
-### 4. Commit discipline
+### 4. Always run tests via `./dockertest`
+
+**Never** run `vendor/bin/phpunit` directly. Always use:
+
+```bash
+./dockertest                         # full suite
+./dockertest --filter TestName       # single test / class
+./dockertest --coverage              # with HTML coverage report
+./dockertest --testdox               # human-readable output
+```
+
+The script ensures the Docker containers are up, dependencies are installed, and the PHP environment inside the container is used (PHP 8.4 + correct extensions). Running phpunit outside Docker may use a different PHP version, miss extensions, or skip database integration tests entirely.
+
+### 5. Commit discipline
 
 - Every logical unit of work (bug fix, feature, doc update) is a separate commit.
 - Commit message format: `type(scope): short description` — e.g. `feat(querybuilder): add whereNull/whereNotNull`, `fix(database): prepare() skips string literals for %X`.
 - Never commit debug `error_log()` calls.
 - `PROGRESS.md` is updated in the same commit that closes a task.
 
-### 5. BC is a hard constraint
+### 6. BC is a hard constraint
 
 No existing public method signature may change. New capabilities are additive. See `ROADMAP_1.2.md` → "Αρχή Σχεδιασμού: Backward Compatibility" for the full rule set.
 

@@ -92,6 +92,11 @@ class QueryBuilder
     protected $returning = [];
 
     /**
+     * @var array
+     */
+    protected $unions = [];
+
+    /**
      * Constructor
      * 
      * @param Database $db
@@ -223,8 +228,112 @@ class QueryBuilder
     }
 
     /**
+     * Add a "where null" clause.
+     *
+     * @param string $column
+     * @param string $boolean
+     * @param bool $not
+     * @return $this
+     */
+    public function whereNull($column, $boolean = 'and', $not = false)
+    {
+        $type = $not ? 'NotNull' : 'Null';
+        $this->wheres[] = compact('type', 'column', 'boolean');
+        return $this;
+    }
+
+    /**
+     * Add a "where not null" clause.
+     *
+     * @param string $column
+     * @param string $boolean
+     * @return $this
+     */
+    public function whereNotNull($column, $boolean = 'and')
+    {
+        return $this->whereNull($column, $boolean, true);
+    }
+
+    /**
+     * Add an "or where null" clause.
+     *
+     * @param string $column
+     * @return $this
+     */
+    public function orWhereNull($column)
+    {
+        return $this->whereNull($column, 'or');
+    }
+
+    /**
+     * Add an "or where not null" clause.
+     *
+     * @param string $column
+     * @return $this
+     */
+    public function orWhereNotNull($column)
+    {
+        return $this->whereNull($column, 'or', true);
+    }
+
+    /**
+     * Add a "where between" clause.
+     *
+     * @param string $column
+     * @param array $values  Two-element array: [min, max]
+     * @param string $boolean
+     * @param bool $not
+     * @return $this
+     */
+    public function whereBetween($column, array $values, $boolean = 'and', $not = false)
+    {
+        $type = $not ? 'NotBetween' : 'Between';
+        $this->wheres[] = compact('type', 'column', 'values', 'boolean');
+        $this->addBinding($values[0], 'where');
+        $this->addBinding($values[1], 'where');
+        return $this;
+    }
+
+    /**
+     * Add a "where not between" clause.
+     *
+     * @param string $column
+     * @param array $values  Two-element array: [min, max]
+     * @param string $boolean
+     * @return $this
+     */
+    public function whereNotBetween($column, array $values, $boolean = 'and')
+    {
+        return $this->whereBetween($column, $values, $boolean, true);
+    }
+
+    /**
+     * Add an "or where between" clause.
+     *
+     * @param string $column
+     * @param array $values
+     * @return $this
+     */
+    public function orWhereBetween($column, array $values)
+    {
+        return $this->whereBetween($column, $values, 'or');
+    }
+
+    /**
+     * Add an "or where not between" clause.
+     *
+     * @param string $column
+     * @param array $values
+     * @return $this
+     */
+    public function orWhereNotBetween($column, array $values)
+    {
+        return $this->whereBetween($column, $values, 'or', true);
+    }
+
+    /**
      * Add a raw where clause.
-     * 
+     *
      * @param string $sql
      * @param array $bindings
      * @param string $boolean
@@ -468,8 +577,32 @@ class QueryBuilder
     }
 
     /**
+     * Add a UNION clause.
+     *
+     * @param QueryBuilder $query
+     * @param bool $all  true for UNION ALL, false for UNION (deduplicates)
+     * @return $this
+     */
+    public function union(QueryBuilder $query, $all = false)
+    {
+        $this->unions[] = compact('query', 'all');
+        return $this;
+    }
+
+    /**
+     * Add a UNION ALL clause (preserves duplicates).
+     *
+     * @param QueryBuilder $query
+     * @return $this
+     */
+    public function unionAll(QueryBuilder $query)
+    {
+        return $this->union($query, true);
+    }
+
+    /**
      * Add a binding value.
-     * 
+     *
      * @param mixed $value
      * @param string $type
      * @return $this
@@ -559,6 +692,10 @@ class QueryBuilder
             $sql .= " OFFSET " . (int)$this->offset;
         }
 
+        foreach ($this->unions as $union) {
+            $sql .= " " . ($union['all'] ? "UNION ALL" : "UNION") . " " . $union['query']->compileSelect();
+        }
+
         return str_replace('#PREFIX#', $this->db->prefix, $sql);
     }
 
@@ -595,6 +732,24 @@ class QueryBuilder
                     $placeholdersStr = implode(', ', $placeholders);
                     $operator = $where['type'] === 'In' ? 'IN' : 'NOT IN';
                     $part .= $where['column'] . " " . $operator . " (" . $placeholdersStr . ")";
+                    break;
+                case 'Null':
+                    $part .= $where['column'] . " IS NULL";
+                    break;
+                case 'NotNull':
+                    $part .= $where['column'] . " IS NOT NULL";
+                    break;
+                case 'Between':
+                    $part .= $where['column'] . " BETWEEN "
+                        . $this->getPlaceholder($where['values'][0])
+                        . " AND "
+                        . $this->getPlaceholder($where['values'][1]);
+                    break;
+                case 'NotBetween':
+                    $part .= $where['column'] . " NOT BETWEEN "
+                        . $this->getPlaceholder($where['values'][0])
+                        . " AND "
+                        . $this->getPlaceholder($where['values'][1]);
                     break;
                 case 'Nested':
                     $part .= "(" . $where['query']->compileWheres() . ")";
@@ -708,25 +863,24 @@ class QueryBuilder
 
 
     /**
-     * Get the first record.
-     * 
-     * @return mixed
+     * Add LIMIT 1 and execute. Returns the Result object (check numRows before accessing fields).
+     *
+     * @return Result
      */
     public function first()
     {
         $this->limit(1);
-        $result = $this->get();
-        return $result && $result->numRows > 0 ? $result->fields : null;
+        return $this->get();
     }
 
     /**
-     * Get all bindings.
-     * 
+     * Get all bindings in SQL placeholder order.
+     *
      * @return array
      */
     public function getBindings()
     {
-        return array_merge(
+        $bindings = array_merge(
             $this->bindings['select'],
             $this->bindings['values'],
             $this->bindings['from'],
@@ -735,6 +889,12 @@ class QueryBuilder
             $this->bindings['having'],
             $this->bindings['order']
         );
+
+        foreach ($this->unions as $union) {
+            $bindings = array_merge($bindings, $union['query']->getBindings());
+        }
+
+        return $bindings;
     }
 
     /**
@@ -832,9 +992,132 @@ class QueryBuilder
     }
 
     /**
+     * Truncate the table (removes all rows, resets auto-increment).
+     *
+     * @return Result
+     */
+    public function truncate()
+    {
+        $sql = "TRUNCATE TABLE " . $this->from;
+        $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
+        return $this->db->execute($sql);
+    }
+
+    /**
+     * Insert a record, silently ignoring duplicate-key conflicts.
+     * MySQL: INSERT IGNORE — skips the row on any key violation.
+     * PostgreSQL: INSERT ... ON CONFLICT DO NOTHING.
+     *
+     * @param array $values
+     * @return Result
+     */
+    public function insertOrIgnore(array $values)
+    {
+        $this->type = 'INSERT';
+        $this->bindings['values'] = [];
+        $bindableValues = array_values(array_filter($values, fn($v) => !($v instanceof Expression)));
+        $this->addBinding($bindableValues, 'values');
+
+        $isPostgres = $this->db->type === 'postgresql';
+        $quotedCols = array_map(
+            fn($col) => $isPostgres ? '"' . $col . '"' : '`' . $col . '`',
+            array_keys($values)
+        );
+        $placeholders = array_map(fn($v) => $this->getPlaceholder($v), array_values($values));
+
+        if ($isPostgres) {
+            $sql = "INSERT INTO " . $this->from
+                . " (" . implode(', ', $quotedCols) . ")"
+                . " VALUES (" . implode(', ', $placeholders) . ")"
+                . " ON CONFLICT DO NOTHING";
+        } else {
+            $sql = "INSERT IGNORE INTO " . $this->from
+                . " (" . implode(', ', $quotedCols) . ")"
+                . " VALUES (" . implode(', ', $placeholders) . ")";
+        }
+
+        if (!empty($this->returning) && $isPostgres) {
+            $sql .= " RETURNING " . implode(', ', $this->returning);
+        }
+
+        $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
+        return $this->db->execute($sql, ...$this->getBindings());
+    }
+
+    /**
+     * Insert a record, updating specified columns on conflict (upsert).
+     *
+     * MySQL:      INSERT INTO ... ON DUPLICATE KEY UPDATE col = VALUES(col), ...
+     * PostgreSQL: INSERT INTO ... ON CONFLICT (conflictCols) DO UPDATE SET col = EXCLUDED.col, ...
+     *
+     * @param array  $values           Column → value map for the INSERT
+     * @param array  $conflictColumns  Columns that define the conflict target (PG) / trigger (MySQL)
+     * @param array  $updateValues     Columns to update on conflict; defaults to all non-conflict columns
+     * @return Result
+     */
+    public function upsert(array $values, array $conflictColumns, array $updateValues = [])
+    {
+        $this->type = 'INSERT';
+        $this->bindings['values'] = [];
+
+        if (empty($updateValues)) {
+            $updateValues = array_diff_key($values, array_flip($conflictColumns));
+        }
+
+        $bindableValues = array_values(array_filter($values, fn($v) => !($v instanceof Expression)));
+        $this->addBinding($bindableValues, 'values');
+
+        $isPostgres = $this->db->type === 'postgresql';
+        $quotedCols = array_map(
+            fn($col) => $isPostgres ? '"' . $col . '"' : '`' . $col . '`',
+            array_keys($values)
+        );
+        $placeholders = array_map(fn($v) => $this->getPlaceholder($v), array_values($values));
+
+        $sql = "INSERT INTO " . $this->from
+            . " (" . implode(', ', $quotedCols) . ")"
+            . " VALUES (" . implode(', ', $placeholders) . ")";
+
+        if ($isPostgres) {
+            $quotedConflict = array_map(fn($c) => '"' . $c . '"', $conflictColumns);
+            $sql .= " ON CONFLICT (" . implode(', ', $quotedConflict) . ")";
+
+            if (empty($updateValues)) {
+                $sql .= " DO NOTHING";
+            } else {
+                $sets = [];
+                foreach (array_keys($updateValues) as $col) {
+                    $sets[] = '"' . $col . '" = EXCLUDED."' . $col . '"';
+                }
+                $sql .= " DO UPDATE SET " . implode(', ', $sets);
+            }
+        } else {
+            if (empty($updateValues)) {
+                // No columns to update → behave like INSERT IGNORE
+                $sql = "INSERT IGNORE INTO " . $this->from
+                    . " (" . implode(', ', $quotedCols) . ")"
+                    . " VALUES (" . implode(', ', $placeholders) . ")";
+            } else {
+                $sets = [];
+                foreach (array_keys($updateValues) as $col) {
+                    $sets[] = '`' . $col . '` = VALUES(`' . $col . '`)';
+                }
+                $sql .= " ON DUPLICATE KEY UPDATE " . implode(', ', $sets);
+            }
+        }
+
+        if (!empty($this->returning) && $isPostgres) {
+            $sql .= " RETURNING " . implode(', ', $this->returning);
+        }
+
+        $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
+        return $this->db->execute($sql, ...$this->getBindings());
+    }
+
+    /**
      * Compile an insert statement.
      * (Currently handled directly in insert() but kept for toSql() consistency)
-     * 
+     *
      * @return string
      */
     protected function compileInsert()
