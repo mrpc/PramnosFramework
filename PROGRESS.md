@@ -1,8 +1,15 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 6)
+## 📅 Last Updated: 2026-05-03 (session 7)
 
 ## 🚀 Completed Milestones
+
+### Phase 5: Characterization Coverage Wave 1 (2026-05-03, session 7)
+
+- [x] Added `tests/Characterization` suite to `phpunit.xml` so characterization tests run through `./dockertest`.
+- [x] Added `tests/Characterization/Auth/AuthCharacterizationTest.php` with coverage of singleton behavior, addon-driven auth success/failure flows, `authCheck()` trigger behavior, and `logout()` session/hook side effects.
+- [x] Added `tests/Characterization/Auth/JWTCharacterizationTest.php` with coverage of malformed token parsing, HS256 round-trip encode/decode, allowed/unsupported algorithm guards, expiration/leeway behavior, and `sign()` contract checks.
+- [x] Verified with `./dockertest --filter 'AuthCharacterizationTest|JWTCharacterizationTest'` (14 tests, 28 assertions, all passing).
 
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
