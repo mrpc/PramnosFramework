@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 10)
+## 📅 Last Updated: 2026-05-03 (session 11)
 
 ## 🚀 Completed Milestones
 
@@ -32,6 +32,12 @@
 - [x] Added test harness setup for logger side effects (`LOG_PATH`) required by Datasource error/logging paths.
 - [x] Verified with `./dockertest --filter DatasourceCharacterizationTest` (3 tests, 14 assertions, all passing).
 - [x] Re-verified combined characterization suite with `./dockertest --filter 'AuthCharacterizationTest|JWTCharacterizationTest|AdjacencylistCharacterizationTest|MigrationCharacterizationTest|DatasourceCharacterizationTest'` (26 tests, 59 assertions, all passing).
+
+### Phase 5: Characterization Coverage Wave 5 (2026-05-03, session 11)
+
+- [x] Added `tests/Characterization/User/UserCharacterizationTest.php` to lock `User` contracts for lifecycle (create/load/update/activate/deactivate/delete), password branch behavior (`userid <= 1` vs `userid > 1`), and `User::getUser()` cache identity semantics.
+- [x] Verified with `./dockertest --filter UserCharacterizationTest` (3 tests, 12 assertions, all passing).
+- [x] Re-verified combined characterization suite with `./dockertest --filter 'AuthCharacterizationTest|JWTCharacterizationTest|AdjacencylistCharacterizationTest|MigrationCharacterizationTest|DatasourceCharacterizationTest|UserCharacterizationTest'` (29 tests, 71 assertions, all passing).
 
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
