@@ -23,26 +23,16 @@ class DatabaseCapabilities
     const ENGINE_POSTGRESQL = 'postgresql';
 
     // -------------------------------------------------------------------------
-    // Feature constants — Backport Spec aligned names
+    // Feature constants
     // -------------------------------------------------------------------------
 
     const TIMESCALEDB        = 'timescaledb';
     const JSONB              = 'jsonb';
     const MATERIALIZED_VIEWS = 'materialized_views';
     const ENUMS              = 'enums';
-
-    // -------------------------------------------------------------------------
-    // Feature constants — legacy names (kept for backward compatibility)
-    // -------------------------------------------------------------------------
-
-    /** @deprecated Use TIMESCALEDB */
-    const FEATURE_TIMESCALEDB = 'timescaledb';
-    /** @deprecated Use JSONB */
-    const FEATURE_JSONB       = 'jsonb';
-
-    const FEATURE_JSON     = 'json';
-    const FEATURE_FULLTEXT = 'fulltext';
-    const FEATURE_SPATIAL  = 'spatial';
+    const FEATURE_JSON       = 'json';
+    const FEATURE_FULLTEXT   = 'fulltext';
+    const FEATURE_SPATIAL    = 'spatial';
 
     // -------------------------------------------------------------------------
     // State
@@ -78,7 +68,7 @@ class DatabaseCapabilities
     /**
      * Returns true if the connected server supports the given capability.
      *
-     * @param  string $feature  One of the ENGINE_* or FEATURE_* / spec constants.
+     * @param  string $feature  One of the ENGINE_* or feature constants.
      * @return bool
      */
     public function has($feature): bool
@@ -177,11 +167,9 @@ class DatabaseCapabilities
             case self::ENGINE_POSTGRESQL:
                 return $this->db->type === 'postgresql';
 
-            // 'timescaledb' — same value for TIMESCALEDB and FEATURE_TIMESCALEDB
             case self::TIMESCALEDB:
                 return $this->detectTimescaleDB();
 
-            // 'jsonb' — same value for JSONB and FEATURE_JSONB
             case self::JSONB:
                 return $this->db->type === 'postgresql';
 

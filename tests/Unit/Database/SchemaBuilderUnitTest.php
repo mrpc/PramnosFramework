@@ -677,16 +677,6 @@ class SchemaBuilderUnitTest extends TestCase
         $this->assertFalse($this->makeCaps('mysql')->hasEnums());
     }
 
-    public function testTimescaleDBConstantAliasMatchesFEATURE(): void
-    {
-        $this->assertEquals(DatabaseCapabilities::TIMESCALEDB, DatabaseCapabilities::FEATURE_TIMESCALEDB);
-    }
-
-    public function testJSONBConstantAliasMatchesFEATURE(): void
-    {
-        $this->assertEquals(DatabaseCapabilities::JSONB, DatabaseCapabilities::FEATURE_JSONB);
-    }
-
     // =========================================================================
     // Blueprint helpers
     // =========================================================================
