@@ -244,6 +244,17 @@
 - [x] **`docs/1.2-new-features.md`** — Section 13 added.
 - [x] Re-verified full suite with `./dockertest` → **892 tests, 1765 assertions, 0 failures**.
 
+### Phase 4: Scheduled Tasks System (2026-05-03, session 18)
+
+- [x] **`CronExpression`** (new `src/Pramnos/Scheduling/CronExpression.php`): 5-field cron parser. Supports wildcards, ranges (`N-M`), steps (`*/N`, `N-M/N`), comma lists, combinations. `isDue(\DateTimeInterface)` evaluates against a given moment. `withTime('HH:MM')` clones with updated hour/minute fields.
+- [x] **`ScheduledTask`** (new `src/Pramnos/Scheduling/ScheduledTask.php`): Wraps callable/command/job with timing. Fluent API: `everyMinute()`, `everyNMinutes()`, `everyFiveMinutes()`, `hourly()`, `daily()`, `weekly()`, `monthly()`, `yearly()`, `cron()`, `at()`, `withoutOverlapping()`, `description()`. `run()` dispatches to the right execution path. `getSummary()` for CLI display.
+- [x] **`Scheduler`** (new `src/Pramnos/Scheduling/Scheduler.php`): Static factory + registry. `command()`, `call()`, `job()`, `all()`, `getDue()`, `reset()`. Designed for registration in `ServiceProvider::boot()`.
+- [x] **`schedule:run` CLI command** (new): Runs due tasks. `--pretend` for dry-run. Exit 0/1 for success/failure. Registered in Console Application.
+- [x] **`schedule:list` CLI command** (new): Table of all registered tasks. Registered in Console Application.
+- [x] **Unit tests** (`tests/Unit/Scheduling/SchedulingUnitTest.php`) — 29 tests: CronExpression parsing (wildcard, exact, range, step, list, day-of-week, monthly), isDue() correct/incorrect, withTime(), ScheduledTask fluent methods (daily, hourly, everyFiveMinutes, at, weekly, monthly), callable run, job handle(), Scheduler factory methods, all(), getDue() filtering, reset().
+- [x] **`docs/1.2-new-features.md`** — Section 14 added.
+- [x] Re-verified full suite with `./dockertest` → **921 tests, 1837 assertions, 0 failures**.
+
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
 - [x] Auto-reconnect logic for database connections.
