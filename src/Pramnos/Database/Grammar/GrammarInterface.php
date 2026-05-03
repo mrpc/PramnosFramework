@@ -44,6 +44,12 @@ interface GrammarInterface
     public function compileWheres(QueryBuilder $qb): string;
     public function compileHavings(QueryBuilder $qb): string;
 
+    /**
+     * Compile the WITH [RECURSIVE] … preamble for a query that has CTEs.
+     * Returns an empty string when there are no CTEs.
+     */
+    public function compileCtes(QueryBuilder $qb): string;
+
     // -------------------------------------------------------------------------
     // DML compilation
     // -------------------------------------------------------------------------
