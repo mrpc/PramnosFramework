@@ -118,6 +118,14 @@
 - [x] Verified with `./dockertest --filter ModelListApiCharacterizationTest` (7 tests, 25 assertions, all passing).
 - [x] Re-verified full suite with `./dockertest` → 743 tests, 1378 assertions, green (PHPUnit deprecations only).
 
+### Phase 5: Characterization Coverage Wave 16 (2026-05-03, session 15)
+
+- [x] Added `tests/Characterization/Application/ApiCharacterizationTest.php` (28 tests) to lock `Api` helper contracts for HTTP status text translation and response-envelope translation (`_httpStatusToText()`, `_translateStatus()`).
+- [x] Verified known status-code mapping matrix and default-fallback behavior (`unknown => OK`).
+- [x] Verified `_translateStatus()` contracts for string/array/non-array inputs, non-200 auto statusmessage injection, custom statusmessage preservation, and JSON output stability.
+- [x] Verified with `./dockertest --filter ApiCharacterizationTest` (28 tests, 62 assertions, all passing).
+- [x] Re-verified full suite with `./dockertest` → 764 tests, 1415 assertions, green (PHPUnit deprecations only).
+
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
 - [x] Auto-reconnect logic for database connections.
