@@ -2,10 +2,18 @@
 
 namespace Pramnos\Database;
 
+use Pramnos\Database\Grammar\GrammarInterface;
+use Pramnos\Database\Grammar\MySQLGrammar;
+use Pramnos\Database\Grammar\PostgreSQLGrammar;
+use Pramnos\Database\Grammar\TimescaleDBGrammar;
+
 /**
  * Fluent Query Builder for DML operations.
  * Supports multiple dialects (MySQL, PostgreSQL, TimescaleDB).
- * 
+ *
+ * SQL compilation is delegated to a Grammar instance so dialect-specific
+ * logic lives in one place rather than scattered if-checks.
+ *
  * @package     PramnosFramework
  * @subpackage  Database
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
@@ -17,6 +25,11 @@ class QueryBuilder
      * @var Database
      */
     protected $db;
+
+    /**
+     * @var GrammarInterface
+     */
+    protected $grammar;
 
     /**
      * @var string
@@ -98,13 +111,62 @@ class QueryBuilder
 
     /**
      * Constructor
-     * 
-     * @param Database $db
+     *
+     * @param Database          $db
+     * @param GrammarInterface|null $grammar  Override the auto-detected grammar (useful in tests).
      */
-    public function __construct(Database $db)
+    public function __construct(Database $db, ?GrammarInterface $grammar = null)
     {
-        $this->db = $db;
+        $this->db      = $db;
+        $this->grammar = $grammar ?? $this->makeGrammar();
     }
+
+    /**
+     * Instantiate the Grammar matching the current database driver.
+     */
+    private function makeGrammar(): GrammarInterface
+    {
+        if ($this->db->type === 'postgresql') {
+            return $this->db->timescale
+                ? new TimescaleDBGrammar()
+                : new PostgreSQLGrammar();
+        }
+        return new MySQLGrammar();
+    }
+
+    /**
+     * Replace the active grammar (useful for testing or custom dialects).
+     */
+    public function setGrammar(GrammarInterface $grammar): self
+    {
+        $this->grammar = $grammar;
+        return $this;
+    }
+
+    /**
+     * Return the active grammar.
+     */
+    public function getGrammar(): GrammarInterface
+    {
+        return $this->grammar;
+    }
+
+    // -------------------------------------------------------------------------
+    // State accessors (used by Grammar — read-only view of builder state)
+    // -------------------------------------------------------------------------
+
+    public function getFrom(): ?string          { return $this->from; }
+    public function getColumns(): array         { return $this->columns; }
+    public function isDistinct(): bool          { return $this->distinct; }
+    public function getJoins(): array           { return $this->joins; }
+    public function getWheres(): array          { return $this->wheres; }
+    public function getGroups(): array          { return $this->groups; }
+    public function getHavings(): array         { return $this->havings; }
+    public function getOrders(): array          { return $this->orders; }
+    public function getLimit(): ?int            { return $this->limit ?? null; }
+    public function getOffset(): ?int           { return $this->offset ?? null; }
+    public function getUnions(): array          { return $this->unions; }
+    public function getReturning(): array       { return $this->returning; }
 
     /**
      * Create a raw SQL expression.
@@ -630,180 +692,18 @@ class QueryBuilder
 
     /**
      * Compile the query into SQL.
-     * 
+     *
+     * SELECT and DELETE are supported; INSERT and UPDATE are not compilable
+     * without the values array — use insert() / update() directly.
+     *
      * @return string
      */
-    public function toSql()
+    public function toSql(): string
     {
-        switch ($this->type) {
-            case 'INSERT': return $this->compileInsert();
-            case 'UPDATE': return $this->compileUpdate();
-            case 'DELETE': return $this->compileDelete();
-            default: return $this->compileSelect();
+        if ($this->type === 'DELETE') {
+            return str_replace('#PREFIX#', $this->db->prefix, $this->grammar->compileDelete($this));
         }
-    }
-
-    /**
-     * Compile a select query.
-     * 
-     * @return string
-     */
-    protected function compileSelect()
-    {
-        $sql = "SELECT ";
-        if ($this->distinct) $sql .= "DISTINCT ";
-        $sql .= implode(', ', $this->columns);
-        $sql .= " FROM " . $this->from;
-
-        foreach ($this->joins as $join) {
-            if (isset($join['type']) && $join['type'] === 'Raw') {
-                $sql .= " " . $join['sql'];
-            } else {
-                $sql .= " " . strtoupper($join['type']) . " JOIN " . $join['table'] . " ON " . $join['first'] . " " . $join['operator'] . " " . $join['second'];
-            }
-        }
-
-        if (!empty($this->wheres)) {
-            $sql .= " WHERE " . $this->compileWheres();
-        }
-
-        if (!empty($this->groups)) {
-            $sql .= " GROUP BY " . implode(', ', $this->groups);
-        }
-
-        if (!empty($this->havings)) {
-            $sql .= " HAVING " . $this->compileHavings();
-        }
-
-        if (!empty($this->orders)) {
-            $sql .= " ORDER BY ";
-            $orders = [];
-            foreach ($this->orders as $order) {
-                if (isset($order['type']) && $order['type'] === 'Raw') {
-                    $orders[] = $order['sql'];
-                } else {
-                    $orders[] = $order['column'] . " " . strtoupper($order['direction']);
-                }
-            }
-            $sql .= implode(', ', $orders);
-        }
-
-        if (isset($this->limit)) {
-            $sql .= " LIMIT " . (int)$this->limit;
-        }
-
-        if (isset($this->offset)) {
-            $sql .= " OFFSET " . (int)$this->offset;
-        }
-
-        foreach ($this->unions as $union) {
-            $sql .= " " . ($union['all'] ? "UNION ALL" : "UNION") . " " . $union['query']->compileSelect();
-        }
-
-        return str_replace('#PREFIX#', $this->db->prefix, $sql);
-    }
-
-    /**
-     * Compile where clauses.
-     * 
-     * @return string
-     */
-    protected function compileWheres()
-    {
-        $parts = [];
-        foreach ($this->wheres as $where) {
-            $part = "";
-            if (!empty($parts)) {
-                $part .= strtoupper($where['boolean']) . " ";
-            }
-
-            switch ($where['type']) {
-                case 'Basic':
-                    $col = $where['column'];
-                    $op = strtoupper($where['operator']);
-                    // PostgreSQL LIKE requires text; cast to avoid "operator does not exist: integer ~~ unknown"
-                    if ($this->db->type === 'postgresql' && ($op === 'LIKE' || $op === 'ILIKE' || $op === 'NOT LIKE' || $op === 'NOT ILIKE')) {
-                        $col = $col . '::text';
-                    }
-                    $part .= $col . " " . $where['operator'] . " " . $this->getPlaceholder($where['value']);
-                    break;
-                case 'In':
-                case 'NotIn':
-                    $placeholders = [];
-                    foreach ($where['values'] as $v) {
-                        $placeholders[] = $this->getPlaceholder($v);
-                    }
-                    $placeholdersStr = implode(', ', $placeholders);
-                    $operator = $where['type'] === 'In' ? 'IN' : 'NOT IN';
-                    $part .= $where['column'] . " " . $operator . " (" . $placeholdersStr . ")";
-                    break;
-                case 'Null':
-                    $part .= $where['column'] . " IS NULL";
-                    break;
-                case 'NotNull':
-                    $part .= $where['column'] . " IS NOT NULL";
-                    break;
-                case 'Between':
-                    $part .= $where['column'] . " BETWEEN "
-                        . $this->getPlaceholder($where['values'][0])
-                        . " AND "
-                        . $this->getPlaceholder($where['values'][1]);
-                    break;
-                case 'NotBetween':
-                    $part .= $where['column'] . " NOT BETWEEN "
-                        . $this->getPlaceholder($where['values'][0])
-                        . " AND "
-                        . $this->getPlaceholder($where['values'][1]);
-                    break;
-                case 'Nested':
-                    $part .= "(" . $where['query']->compileWheres() . ")";
-                    break;
-                case 'Raw':
-                    $part .= $where['sql'];
-                    break;
-            }
-            $parts[] = $part;
-        }
-        return implode(' ', $parts);
-    }
-
-    /**
-     * Compile having clauses.
-     * 
-     * @return string
-     */
-    protected function compileHavings()
-    {
-        $parts = [];
-        foreach ($this->havings as $having) {
-            $part = "";
-            if (!empty($parts)) {
-                $part .= strtoupper($having['boolean']) . " ";
-            }
-
-            if (isset($having['type']) && $having['type'] === 'Raw') {
-                $part .= $having['sql'];
-            } else {
-                $part .= $having['column'] . " " . $having['operator'] . " " . $this->getPlaceholder($having['value']);
-            }
-            $parts[] = $part;
-        }
-        return implode(' ', $parts);
-    }
-
-    /**
-     * Get the placeholder for a value.
-     * 
-     * @param mixed $value
-     * @return string
-     */
-    protected function getPlaceholder($value)
-    {
-        if ($value instanceof Expression) return (string)$value;
-        if (is_int($value)) return '%i';
-        if (is_float($value)) return '%d';
-        if (is_bool($value)) return '%b';
-        return '%s';
+        return str_replace('#PREFIX#', $this->db->prefix, $this->grammar->compileSelect($this));
     }
 
     /**
@@ -903,95 +803,53 @@ class QueryBuilder
 
     /**
      * Insert a new record.
-     * 
+     *
      * @param array $values
      * @return bool
      */
     public function insert(array $values)
     {
         $this->type = 'INSERT';
-        $this->bindings['values'] = []; // Clear previous values
-        // Expression objects are inlined in SQL, not bound as parameters
-        $bindableValues = array_values(array_filter($values, fn($v) => !($v instanceof Expression)));
-        $this->addBinding($bindableValues, 'values');
-
-        $isPostgres = $this->db->type === 'postgresql';
-        $quotedColumns = array_map(
-            fn($col) => $isPostgres ? '"' . $col . '"' : '`' . $col . '`',
-            array_keys($values)
+        $this->bindings['values'] = [];
+        $this->addBinding(
+            array_values(array_filter($values, fn($v) => !($v instanceof Expression))),
+            'values'
         );
-        $columns = implode(', ', $quotedColumns);
-        $placeholders = [];
-        foreach ($values as $v) {
-            $placeholders[] = $this->getPlaceholder($v);
-        }
-        $placeholdersStr = implode(', ', $placeholders);
 
-        $sql = "INSERT INTO " . $this->from . " (" . $columns . ") VALUES (" . $placeholdersStr . ")";
-        
-        if (!empty($this->returning) && $this->db->type == 'postgresql') {
-            $sql .= " RETURNING " . implode(', ', $this->returning);
-        }
-
+        $sql = $this->grammar->compileInsert($this, $values);
         $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
-        
         return $this->db->execute($sql, ...$this->getBindings());
     }
 
     /**
      * Update records.
-     * 
+     *
      * @param array $values
      * @return bool
      */
     public function update(array $values)
     {
         $this->type = 'UPDATE';
-        $this->bindings['values'] = []; // Clear previous values
-        // Expression objects are inlined in SQL, not bound as parameters
-        $bindableValues = array_values(array_filter($values, fn($v) => !($v instanceof Expression)));
-        $this->addBinding($bindableValues, 'values');
+        $this->bindings['values'] = [];
+        $this->addBinding(
+            array_values(array_filter($values, fn($v) => !($v instanceof Expression))),
+            'values'
+        );
 
-        $isPostgres = $this->db->type === 'postgresql';
-        $sets = [];
-        foreach ($values as $column => $value) {
-            $quotedCol = $isPostgres ? '"' . $column . '"' : '`' . $column . '`';
-            $sets[] = $quotedCol . " = " . $this->getPlaceholder($value);
-        }
-
-        $sql = "UPDATE " . $this->from . " SET " . implode(', ', $sets);
-        if (!empty($this->wheres)) {
-            $sql .= " WHERE " . $this->compileWheres();
-        }
-
-        if (!empty($this->returning) && $this->db->type == 'postgresql') {
-            $sql .= " RETURNING " . implode(', ', $this->returning);
-        }
-        
+        $sql = $this->grammar->compileUpdate($this, $values);
         $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
-        
         return $this->db->execute($sql, ...$this->getBindings());
     }
 
     /**
      * Delete records.
-     * 
+     *
      * @return bool
      */
     public function delete()
     {
         $this->type = 'DELETE';
-        $sql = "DELETE FROM " . $this->from;
-        if (!empty($this->wheres)) {
-            $sql .= " WHERE " . $this->compileWheres();
-        }
-
-        if (!empty($this->returning) && $this->db->type == 'postgresql') {
-            $sql .= " RETURNING " . implode(', ', $this->returning);
-        }
-        
-        $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
-        
+        $sql = str_replace('#PREFIX#', $this->db->prefix, $this->grammar->compileDelete($this));
         return $this->db->execute($sql, ...$this->getBindings());
     }
 
@@ -1002,8 +860,7 @@ class QueryBuilder
      */
     public function truncate()
     {
-        $sql = "TRUNCATE TABLE " . $this->from;
-        $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
+        $sql = str_replace('#PREFIX#', $this->db->prefix, $this->grammar->compileTruncate($this));
         return $this->db->execute($sql);
     }
 
@@ -1019,31 +876,12 @@ class QueryBuilder
     {
         $this->type = 'INSERT';
         $this->bindings['values'] = [];
-        $bindableValues = array_values(array_filter($values, fn($v) => !($v instanceof Expression)));
-        $this->addBinding($bindableValues, 'values');
-
-        $isPostgres = $this->db->type === 'postgresql';
-        $quotedCols = array_map(
-            fn($col) => $isPostgres ? '"' . $col . '"' : '`' . $col . '`',
-            array_keys($values)
+        $this->addBinding(
+            array_values(array_filter($values, fn($v) => !($v instanceof Expression))),
+            'values'
         );
-        $placeholders = array_map(fn($v) => $this->getPlaceholder($v), array_values($values));
 
-        if ($isPostgres) {
-            $sql = "INSERT INTO " . $this->from
-                . " (" . implode(', ', $quotedCols) . ")"
-                . " VALUES (" . implode(', ', $placeholders) . ")"
-                . " ON CONFLICT DO NOTHING";
-        } else {
-            $sql = "INSERT IGNORE INTO " . $this->from
-                . " (" . implode(', ', $quotedCols) . ")"
-                . " VALUES (" . implode(', ', $placeholders) . ")";
-        }
-
-        if (!empty($this->returning) && $isPostgres) {
-            $sql .= " RETURNING " . implode(', ', $this->returning);
-        }
-
+        $sql = $this->grammar->compileInsertOrIgnore($this, $values);
         $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
         return $this->db->execute($sql, ...$this->getBindings());
     }
@@ -1056,125 +894,21 @@ class QueryBuilder
      *
      * @param array  $values           Column → value map for the INSERT
      * @param array  $conflictColumns  Columns that define the conflict target (PG) / trigger (MySQL)
-     * @param array  $updateValues     Columns to update on conflict; defaults to all non-conflict columns
+     * @param array  $updateValues     Columns to update on conflict (empty = INSERT IGNORE semantics)
      * @return Result
      */
     public function upsert(array $values, array $conflictColumns, array $updateValues = [])
     {
         $this->type = 'INSERT';
         $this->bindings['values'] = [];
-
         // $updateValues is always a list of column names (e.g. ['name', 'qty']).
-        // Empty list → INSERT IGNORE / ON CONFLICT DO NOTHING.
-        $bindableValues = array_values(array_filter($values, fn($v) => !($v instanceof Expression)));
-        $this->addBinding($bindableValues, 'values');
-
-        $isPostgres = $this->db->type === 'postgresql';
-        $quotedCols = array_map(
-            fn($col) => $isPostgres ? '"' . $col . '"' : '`' . $col . '`',
-            array_keys($values)
+        $this->addBinding(
+            array_values(array_filter($values, fn($v) => !($v instanceof Expression))),
+            'values'
         );
-        $placeholders = array_map(fn($v) => $this->getPlaceholder($v), array_values($values));
 
-        $sql = "INSERT INTO " . $this->from
-            . " (" . implode(', ', $quotedCols) . ")"
-            . " VALUES (" . implode(', ', $placeholders) . ")";
-
-        if ($isPostgres) {
-            $quotedConflict = array_map(fn($c) => '"' . $c . '"', $conflictColumns);
-            $sql .= " ON CONFLICT (" . implode(', ', $quotedConflict) . ")";
-
-            if (empty($updateValues)) {
-                $sql .= " DO NOTHING";
-            } else {
-                $sets = [];
-                foreach ($updateValues as $col) {
-                    $sets[] = '"' . $col . '" = EXCLUDED."' . $col . '"';
-                }
-                $sql .= " DO UPDATE SET " . implode(', ', $sets);
-            }
-        } else {
-            if (empty($updateValues)) {
-                // No columns to update → behave like INSERT IGNORE
-                $sql = "INSERT IGNORE INTO " . $this->from
-                    . " (" . implode(', ', $quotedCols) . ")"
-                    . " VALUES (" . implode(', ', $placeholders) . ")";
-            } else {
-                $sets = [];
-                foreach ($updateValues as $col) {
-                    $sets[] = '`' . $col . '` = VALUES(`' . $col . '`)';
-                }
-                $sql .= " ON DUPLICATE KEY UPDATE " . implode(', ', $sets);
-            }
-        }
-
-        if (!empty($this->returning) && $isPostgres) {
-            $sql .= " RETURNING " . implode(', ', $this->returning);
-        }
-
+        $sql = $this->grammar->compileUpsert($this, $values, $conflictColumns, $updateValues);
         $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
         return $this->db->execute($sql, ...$this->getBindings());
-    }
-
-    /**
-     * Compile an insert statement.
-     * (Currently handled directly in insert() but kept for toSql() consistency)
-     *
-     * @return string
-     */
-    protected function compileInsert()
-    {
-        // This is a placeholder since insert() handles its own compilation for now
-        return "";
-    }
-
-    /**
-     * Compile an update statement.
-     * 
-     * @return string
-     */
-    protected function compileUpdate()
-    {
-        $sets = [];
-        // Note: we can't easily know values here without passing them, 
-        // so toSql() might be limited for UPDATE if values aren't set yet.
-        return "";
-    }
-
-    /**
-     * Compile a delete statement.
-     * 
-     * @return string
-     */
-    protected function compileDelete()
-    {
-        $sql = "DELETE FROM " . $this->from;
-        if (!empty($this->wheres)) {
-            $sql .= " WHERE " . $this->compileWheres();
-        }
-        return $sql;
-    }
-}
-
-/**
- * Raw Expression wrapper.
- */
-class Expression
-{
-    protected $value;
-
-    public function __construct($value)
-    {
-        $this->value = $value;
-    }
-
-    public function getValue()
-    {
-        return $this->value;
-    }
-
-    public function __toString()
-    {
-        return (string)$this->getValue();
     }
 }
