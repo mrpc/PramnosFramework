@@ -226,6 +226,7 @@ class Application extends Base
         }
         \Pramnos\Application\Settings::setDatabase($this->database);
         $this->initialized = true;
+        FeatureRegistry::loadFromConfig($this->applicationInfo['features'] ?? []);
         /**
          * Start Session
          */

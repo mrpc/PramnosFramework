@@ -210,6 +210,14 @@
 - [x] **Integration tests** added to MySQL and PostgreSQL runner test files: `testRollbackWithBatchOptionRollsBackSpecificBatch`, `testRollbackAllRemovesAllBatches`, `testGetHistoryReturnsAllRows`, `testGetHistoryReturnsEmptyArrayWhenNoMigrationsRan`.
 - [x] Re-verified full suite with `./dockertest` → **833 tests, 1651 assertions, 0 failures**.
 
+### Phase 4: Feature Registry (2026-05-03, session 18)
+
+- [x] **`UnknownFeatureException`** (new `src/Pramnos/Application/UnknownFeatureException.php`): Thrown when `loadFromConfig()` is called with an unregistered key. Message includes the unknown key and the full list of known keys. `getFeatureKey()` provides programmatic access.
+- [x] **`FeatureRegistry`** (new `src/Pramnos/Application/FeatureRegistry.php`): Static registry separating *known* (registered) features from *enabled* (app-configured) ones. API: `register()`, `loadFromConfig()`, `isEnabled()`, `getEnabled()`, `getKnown()`, `getProvider()`, `getMigrationPaths()`, `getDefinition()`, `initDefaults()`, `reset()`. Built-ins: `core`, `auth`, `authserver`, `messaging`, `queue`. `core` is always enabled. Defaults load lazily on first call.
+- [x] **`Application::init()` integration** (`src/Pramnos/Application/Application.php`): Calls `FeatureRegistry::loadFromConfig($this->applicationInfo['features'] ?? [])` immediately after establishing the DB connection, so all subsequent code can rely on `isEnabled()`.
+- [x] **Unit tests** (`tests/Unit/Application/FeatureRegistryUnitTest.php`) — 20 tests covering: core always enabled, enabled/disabled state, unknown key exception (message + `getFeatureKey()`), accumulation across multiple `loadFromConfig()` calls, empty array no-op, `getEnabled()` always includes core, `getKnown()` lists all built-ins, custom feature registration, overwrite semantics, `getProvider()` null and FQCN, `getMigrationPaths()` empty and set, `getDefinition()` null for unknown, `initDefaults()` after reset, lazy default loading, `reset()` clears state, `UnknownFeatureException` with/without known keys, extends RuntimeException.
+- [x] **`docs/1.2-new-features.md`** — Section 11 added (Feature Registry, UnknownFeatureException, Application integration, usage patterns, BC notes).
+
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
 - [x] Auto-reconnect logic for database connections.
