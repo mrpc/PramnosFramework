@@ -156,6 +156,30 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
     }
 
     // =========================================================================
+    // Comments (PostgreSQL: separate COMMENT ON TABLE / COMMENT ON COLUMN)
+    // =========================================================================
+
+    protected function compileCommentStatements(Blueprint $blueprint, string $table): array
+    {
+        $stmts = [];
+
+        if ($comment = $blueprint->getComment()) {
+            $stmts[] = 'COMMENT ON TABLE ' . $this->quoteTable($table)
+                . " IS '" . addslashes($comment) . "'";
+        }
+
+        foreach ($blueprint->getColumns() as $col) {
+            if ($colComment = $col->get('comment')) {
+                $stmts[] = 'COMMENT ON COLUMN ' . $this->quoteTable($table)
+                    . '.' . $this->quoteColumn($col->name)
+                    . " IS '" . addslashes($colComment) . "'";
+            }
+        }
+
+        return $stmts;
+    }
+
+    // =========================================================================
     // Index DDL (PostgreSQL: DROP INDEX is standalone, not per-table)
     // =========================================================================
 

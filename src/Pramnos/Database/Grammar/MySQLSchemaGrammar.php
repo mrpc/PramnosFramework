@@ -144,7 +144,11 @@ class MySQLSchemaGrammar extends SchemaGrammar
 
     protected function compileTableOptions(Blueprint $blueprint): string
     {
-        return ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+        $opt = ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+        if ($comment = $blueprint->getComment()) {
+            $opt .= " COMMENT='" . addslashes($comment) . "'";
+        }
+        return $opt;
     }
 
     // =========================================================================

@@ -60,6 +60,11 @@ class SchemaBuilder
         return $this;
     }
 
+    public function getCapabilities(): DatabaseCapabilities
+    {
+        return $this->capabilities;
+    }
+
     protected function makeGrammar(): SchemaGrammarInterface
     {
         if ($this->db->type === 'postgresql') {
