@@ -44,6 +44,16 @@ class TokenCharacterizationTest extends TestCase
 
         User::setupDb();
         $this->ensureTokenTableExists();
+
+        // Token::load() caches results for 3600 s under the 'usertokens' group.
+        // Flush that cache so that tokenid-based lookups always hit the real database
+        // rather than returning a stale row from a previous test run.
+        $this->db->cacheflush('usertokens');
+
+        // Remove any orphaned rows left by an earlier run whose tearDown did not
+        // complete (e.g. process killed mid-test). All rows created by this test
+        // carry notes = 'characterization', so the DELETE is safe and targeted.
+        $this->db->query("DELETE FROM `#PREFIX#usertokens` WHERE `notes` = 'characterization'");
     }
 
     protected function tearDown(): void
@@ -56,6 +66,9 @@ class TokenCharacterizationTest extends TestCase
             );
             $this->db->query($sql);
         }
+
+        // Flush cached query results so the next test run starts with a clean cache.
+        $this->db->cacheflush('usertokens');
     }
 
     /**

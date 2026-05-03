@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 19)
+## 📅 Last Updated: 2026-05-04 (session 20)
 
 ## 🚀 Completed Milestones
 
@@ -266,20 +266,30 @@
 - [x] **`docs/1.2-new-features.md`** — Section 15 added.
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
+### Phase 4: Framework System Migrations — MySQL integration tests + PostgreSQL tests (2026-05-04, session 20)
+
+- [x] **Rewrote all framework migrations** to match UW production schema (commit 5ebf589) — old placeholder schemas replaced with real column sets, proper types, indexes, FKs, and PKCE columns on `usertokens`.
+- [x] **`FrameworkMigrationsMySQLTest`** (`tests/Integration/Database/`) — 17 tests covering all migrations against MySQL 8.0: table existence, column types, index presence, FK constraints, `TINYINT` status on `queueitems`, idempotency.
+- [x] **`FrameworkMigrationsPostgreSQLTest`** (`tests/Integration/Database/`) — 22 tests against TimescaleDB/PG 14: same as MySQL + authserver schema placement, `queue_status` ENUM in `pg_type`, JSONB columns on `audit_log` and `tokenactions`, hypertable registration via `timescaledb_information.hypertables`.
+- [x] **`SchemaBuilder::hasTable()` false-positive fix** — added `resolveSchema()` that uses `$this->db->database` on MySQL to scope `information_schema.tables` queries to the current database only (prevents `performance_schema.users` from being seen as `users`).
+- [x] **`SchemaBuilder::createTable()` / `dropTableIfExists()`** — wrap with `SET FOREIGN_KEY_CHECKS = 0/1` on MySQL to allow creates/drops of tables involved in FK relationships without requiring dependency order.
+- [x] **`SchemaBuilder::createHypertable()`** — interval options (`chunk_time_interval`, `compress_after`, `drop_after`) now emitted as `INTERVAL '...'` not bare string literals (PostgreSQL rejects `unknown`-typed args to polymorphic INTERVAL parameter).
+- [x] **`PostgreSQLSchemaGrammar::compileCommentStatements()`** — replaced `addslashes()` with `str_replace("'", "''", ...)` for correct standard SQL apostrophe escaping (PostgreSQL does not support `\'`).
+- [x] **Migration schema corrections**: signed `BIGINT` on `users.userid` (matches BIGSERIAL semantics and legacy `userstogroups` FK), `unsignedInteger` on `massmessagerecipients.messageid` (matches `massmessages.messageid INT UNSIGNED`), removed TEXT column defaults (MySQL forbids inline defaults on BLOB/TEXT).
+- [x] **`TokenCharacterizationTest`** — fixed stale query-cache false positives: `cacheflush('usertokens')` added to `setUp()` and `tearDown()`; orphaned characterization rows cleaned up by `notes = 'characterization'` guard.
+- [x] **`UserTest::setUp()`** — swapped order: `User::setupDb()` called before `DELETE WHERE userid=1` to prevent "table doesn't exist" errors when MigrationRunner tests drop `users` in tearDown.
+- [x] **`SchemaBuilderUnitTest::testSchemaBuilderResolvesPrefix`** — updated mock to `willReturnCallback` to tolerate the `SET FK_CHECKS` calls that now precede `DROP TABLE`.
+- [x] **`docs/1.2-new-features.md`** — Section 16 fully updated: correct file listing, real UW schemas, integration test table.
+- [x] Re-verified full suite with `./dockertest` → **966 tests, 2450 assertions, 0 failures**.
+
 ### Phase 4: Framework System Migrations (2026-05-03, session 19)
 
-- [x] **Moved system migrations out of `src/`**: Deleted `src/Pramnos/Database/SystemMigrations/` (in-dev artefact, never shipped). All framework migrations now live in `database/migrations/framework/{feature}/` — outside the autoload tree, loaded by `MigrationLoader::loadFromDirectory()`.
-- [x] **Updated `FeatureRegistry::initDefaults()`** (`src/Pramnos/Application/FeatureRegistry.php`): Migration paths for all 5 built-in features now point to `database/migrations/framework/{feature}/`. Path calculated via `dirname(__DIR__, 3)` (project root from `src/Pramnos/Application`).
-- [x] **`core` feature** (`database/migrations/framework/core/`): 1 migration — `framework_policies` table.
-- [x] **`auth` feature** (`database/migrations/framework/auth/`): 4 migrations — `roles`, `users`, `user_roles`, `password_resets`.
-- [x] **`authserver` feature** (`database/migrations/framework/authserver/`): 4 migrations — `oauth_clients`, `oauth_scopes`, `oauth_authorization_codes`, `oauth_tokens`.
-- [x] **`messaging` feature** (`database/migrations/framework/messaging/`): 3 migrations — `message_threads`, `messages`, `message_recipients`.
-- [x] **`queue` feature** (`database/migrations/framework/queue/`): 3 migrations — `jobs`, `failed_jobs`, `job_batches`.
-- [x] All 15 migration files use `SchemaBuilder` / `Blueprint` API (`createTable`, `hasTable`, `dropTableIfExists`) — no raw SQL.
-- [x] All migrations are idempotent (`hasTable()` guard in `up()`, `dropTableIfExists()` in `down()`).
-- [x] Cross-table dependencies declared via `$dependencies` property; `MigrationRunner::sort()` topological sort resolves them.
-- [x] 2020 timestamp prefix ensures installations with `migration_cutoff` skip framework tables automatically.
-- [x] **`docs/1.2-new-features.md`** — Section 16 added (full schema reference for all 15 tables, namespace map, idempotency notes, timestamp rationale, BC notes).
+- [x] **Moved system migrations out of `src/`**: All framework migrations now live in `database/migrations/framework/{feature}/`.
+- [x] **Updated `FeatureRegistry::initDefaults()`** — migration paths point to `database/migrations/framework/{feature}/`.
+- [x] `core`, `auth`, `authserver`, `messaging`, `queue` features all have migration files using `SchemaBuilder` / `Blueprint` API.
+- [x] All migrations idempotent (`hasTable()` guard + `dropTableIfExists()`). Cross-table dependencies via `$dependencies`.
+- [x] 2020 timestamp prefix — installations with `migration_cutoff` skip framework tables automatically.
+- [x] **`docs/1.2-new-features.md`** — Section 16 added (schema reference, namespace map, idempotency notes, timestamp rationale, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
 ### Phase 1.1: Foundations
@@ -432,7 +442,7 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 ---
 
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 833/833 pass (0 failures, 0 errors) — includes unit, integration, and characterization suites.
+- **Framework Test Pass Rate:** 966/966 pass (0 failures, 0 errors) — includes unit, integration, and characterization suites.
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.

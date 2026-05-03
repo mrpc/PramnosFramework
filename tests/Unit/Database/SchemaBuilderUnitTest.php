@@ -582,15 +582,28 @@ class SchemaBuilderUnitTest extends TestCase
 
     public function testSchemaBuilderResolvesPrefix(): void
     {
+        // Arrange — on MySQL, dropTableIfExists wraps the DROP in FK-check toggles, so
+        // query() is called three times: SET FK_CHECKS=0, DROP TABLE, SET FK_CHECKS=1.
+        // We verify that at least one call contains the resolved table name.
         $db = $this->makeDB('mysql');
         $db->prefix = 'app_';
 
-        $db->expects($this->atLeastOnce())
+        $dropCalled = false;
+        $db->expects($this->any())
             ->method('query')
-            ->with($this->stringContains('app_users'));
+            ->willReturnCallback(function ($sql) use (&$dropCalled) {
+                if (str_contains((string) $sql, 'app_users')) {
+                    $dropCalled = true;
+                }
+                return null;
+            });
 
+        // Act
         $sb = new SchemaBuilder($db);
         $sb->dropTableIfExists('#PREFIX#users');
+
+        // Assert — prefix was resolved and the DROP SQL contained the resolved name
+        $this->assertTrue($dropCalled, 'query() must be called with SQL containing the resolved table name "app_users"');
     }
 
     // =========================================================================

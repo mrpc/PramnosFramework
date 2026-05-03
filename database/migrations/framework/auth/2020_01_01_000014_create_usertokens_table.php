@@ -62,9 +62,9 @@ class CreateUsertokensTable extends Migration
                 ->comment('Counter for number of API actions performed with this token');
             $table->integer('removedate')->default(0)
                 ->comment('Unix timestamp when the token was deactivated (0 = still active)');
-            $table->text('deviceinfo')->default('')
+            $table->text('deviceinfo')
                 ->comment('JSON-encoded device/client information (browser, OS, IP at token creation)');
-            $table->text('scope')->default('')
+            $table->text('scope')
                 ->comment('Space-separated list of OAuth scopes granted to this token');
             $table->integer('expires')->nullable()
                 ->comment('Unix timestamp when the token expires; NULL = never expires');
@@ -80,7 +80,6 @@ class CreateUsertokensTable extends Migration
             $table->index(['userid', 'status'], 'idx_usertokens_userid_status');
             $table->index(['tokentype', 'status'], 'idx_usertokens_type_status');
             $table->index(['applicationid'], 'idx_usertokens_applicationid');
-            $table->index(['token'], 'idx_usertokens_token');
 
             $table->foreign('userid')
                 ->references('userid')

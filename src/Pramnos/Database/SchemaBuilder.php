@@ -92,8 +92,20 @@ class SchemaBuilder
         $callback($blueprint);
 
         $resolved = $this->resolveTable($table);
+        // Disable FK checks on MySQL during CREATE TABLE so that pre-existing broken
+        // FK constraints (dangling references from previous test teardowns) do not
+        // prevent the new table from being created. The FK constraints defined in
+        // this table's own Blueprint are still written to the schema and will be
+        // enforced at DML time.
+        $mysql = $this->capabilities->isMySQL();
+        if ($mysql) {
+            $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+        }
         foreach ($this->getGrammar()->compileCreate($blueprint, $resolved) as $sql) {
             $this->db->query($sql);
+        }
+        if ($mysql) {
+            $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
         }
     }
 
@@ -142,7 +154,17 @@ class SchemaBuilder
     public function dropTableIfExists(string $table): void
     {
         $resolved = $this->resolveTable($table);
+        // Disable FK checks on MySQL so that a table can be dropped even when other
+        // tables have FK constraints pointing to it — unconditional "drop if exists"
+        // semantics require this on MySQL. Re-enable immediately after.
+        $mysql = $this->capabilities->isMySQL();
+        if ($mysql) {
+            $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+        }
         $this->db->query($this->getGrammar()->compileDropIfExists($resolved));
+        if ($mysql) {
+            $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+        }
     }
 
     /** @deprecated Use dropTableIfExists() */
@@ -198,7 +220,7 @@ class SchemaBuilder
     public function hasTable(string $table, ?string $schema = null): bool
     {
         $resolved = $this->resolveTable($table);
-        $schema   = $schema ?? ($this->db->schema ?? '');
+        $schema   = $schema ?? $this->resolveSchema();
         $sql      = $this->getGrammar()->compileHasTable($resolved, $schema);
         $result   = $this->db->query($sql);
         return $result && $result->numRows > 0;
@@ -215,7 +237,7 @@ class SchemaBuilder
     public function hasColumn(string $table, string $column, ?string $schema = null): bool
     {
         $resolved = $this->resolveTable($table);
-        $schema   = $schema ?? ($this->db->schema ?? '');
+        $schema   = $schema ?? $this->resolveSchema();
         $sql      = $this->getGrammar()->compileHasColumn($resolved, $column, $schema);
         $result   = $this->db->query($sql);
         return $result && $result->numRows > 0;
@@ -394,11 +416,18 @@ class SchemaBuilder
         $resolved = $this->resolveTable($table);
         $sql = "SELECT create_hypertable('{$resolved}', '{$timeColumn}'";
 
+        // Options that represent a time duration must be passed as INTERVAL literals.
+        // Plain string literals have type 'unknown' in PostgreSQL and are rejected
+        // by create_hypertable's polymorphic INTERVAL parameter.
+        $intervalOptions = ['chunk_time_interval', 'compress_after', 'drop_after'];
+
         foreach ($options as $key => $value) {
             if (is_bool($value)) {
                 $value = $value ? 'true' : 'false';
             } elseif (is_string($value)) {
-                $value = "'{$value}'";
+                $value = in_array($key, $intervalOptions, true)
+                    ? "INTERVAL '{$value}'"
+                    : "'{$value}'";
             }
             $sql .= ", {$key} => {$value}";
         }
@@ -650,5 +679,27 @@ class SchemaBuilder
     protected function resolveTable(string $table): string
     {
         return str_replace('#PREFIX#', $this->db->prefix ?? '', $table);
+    }
+
+    /**
+     * Resolve the schema name for introspection queries.
+     *
+     * On MySQL the "schema" is the database name. Using an empty schema causes
+     * information_schema queries to search ALL databases, which produces false
+     * positives when system databases (e.g. performance_schema) contain tables
+     * with the same name (e.g. performance_schema.users). Fall back to the
+     * connected database name so that only the current database is searched.
+     *
+     * On PostgreSQL the schema is the PG schema (e.g. 'public', 'authserver').
+     * An empty schema is valid — the PostgreSQL grammar handles that case by
+     * excluding system schemas instead.
+     */
+    protected function resolveSchema(): string
+    {
+        $schema = $this->db->schema ?? '';
+        if ($schema === '' && $this->capabilities->isMySQL()) {
+            $schema = $this->db->database ?? '';
+        }
+        return $schema;
     }
 }
