@@ -17,6 +17,18 @@ namespace Pramnos\Database\Grammar;
  */
 class TimescaleDBGrammar extends PostgreSQLGrammar
 {
-    // All behavior inherited from PostgreSQLGrammar.
-    // TimescaleDB-specific compile methods will be added here in Phase 1.3.
+    // -------------------------------------------------------------------------
+    // Time-bucket (native TimescaleDB)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Native time_bucket() call — supports arbitrary intervals including
+     * "15 minutes", "6 hours", "7 days", etc.
+     *
+     * {@inheritdoc}
+     */
+    public function compileTimeBucket(string $interval, string $column): string
+    {
+        return "time_bucket('{$interval}', {$column})";
+    }
 }

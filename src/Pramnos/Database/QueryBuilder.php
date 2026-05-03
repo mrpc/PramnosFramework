@@ -170,13 +170,37 @@ class QueryBuilder
 
     /**
      * Create a raw SQL expression.
-     * 
+     *
      * @param string $value
      * @return Expression
      */
     public function raw($value)
     {
         return new Expression($value);
+    }
+
+    /**
+     * Return a dialect-appropriate time-bucket expression.
+     *
+     * The returned Expression can be used anywhere a column reference is accepted:
+     * as a SELECT column, in GROUP BY, ORDER BY, or WHERE clauses.
+     *
+     *   $qb->select([$qb->timeBucket('1 hour', 'recorded_at'), 'AVG(value)'])
+     *      ->groupBy([$qb->timeBucket('1 hour', 'recorded_at')])
+     *
+     * Dialect translation:
+     *   TimescaleDB  → time_bucket('1 hour', recorded_at)
+     *   PostgreSQL   → date_trunc('hour', recorded_at)
+     *   MySQL        → FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(recorded_at) / 3600) * 3600)
+     *
+     * @param  string          $interval  Human-readable interval: "1 hour", "15 minutes", etc.
+     * @param  string|Expression $column  Column name or Expression
+     * @return Expression
+     */
+    public function timeBucket(string $interval, $column): Expression
+    {
+        $col = $column instanceof Expression ? (string)$column : $column;
+        return $this->raw($this->grammar->compileTimeBucket($interval, $col));
     }
 
     /**

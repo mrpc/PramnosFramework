@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 4)
+## 📅 Last Updated: 2026-05-03 (session 5)
 
 ## 🚀 Completed Milestones
 
@@ -94,6 +94,15 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 - [x] **New methods** — `hasMaterializedViews(): bool`, `hasEnums(): bool`.
 - [x] Old `FEATURE_*` constants retained with `@deprecated` docblocks for BC.
 
+### Phase 1.4: timeBucket() Dialect Translation (2026-05-03, session 5)
+
+- [x] **`GrammarInterface::compileTimeBucket()`** — new contract method.
+- [x] **`Grammar` (base/MySQL)** — `FROM_UNIXTIME` arithmetic for sub-month intervals; `DATE_FORMAT` for month/year. Static helpers: `parseInterval()`, `unitToSeconds()`, `unitToDateTruncPrecision()`.
+- [x] **`PostgreSQLGrammar::compileTimeBucket()`** — `date_trunc` for count=1 standard units; `to_timestamp(floor(extract(epoch…) / N) * N)` for arbitrary sub-month intervals.
+- [x] **`TimescaleDBGrammar::compileTimeBucket()`** — native `time_bucket('interval', col)`.
+- [x] **`QueryBuilder::timeBucket(string $interval, string|Expression $column): Expression`** — delegates to the injected grammar; returned `Expression` is usable in `select`, `groupBy`, `orderBy`, `where`, `having`.
+- [x] **Tests** — 31 new unit tests added to `QueryBuilderUnitTest.php`: all three dialects × standard intervals × arbitrary intervals × Expression column passthrough × GROUP BY integration.
+
 ### Phase 1.4: DDL / Schema Builder (2026-05-03, session 4)
 
 **New classes:**
@@ -129,13 +138,13 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 ## 🛠️ Work in Progress
 
 ### Phase 1.4: TimescaleDB Extension Builder
-- [ ] `time_bucket()` dialect translation in QueryBuilder
+- [x] `time_bucket()` dialect translation in QueryBuilder
 - [ ] Continuous aggregate CLI/migration support
 
 ---
 
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 421/421 pass (0 failures, 0 errors).
+- **Framework Test Pass Rate:** 438/438 pass (0 failures, 0 errors).
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.

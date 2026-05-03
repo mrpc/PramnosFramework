@@ -265,4 +265,119 @@ abstract class Grammar implements GrammarInterface
     {
         return 'TRUNCATE TABLE ' . $qb->getFrom();
     }
+
+    // -------------------------------------------------------------------------
+    // Time-bucket (MySQL / default implementation)
+    // -------------------------------------------------------------------------
+
+    /**
+     * MySQL time-bucket via UNIX_TIMESTAMP arithmetic for sub-month intervals,
+     * and DATE_FORMAT for month/year truncation.
+     *
+     * {@inheritdoc}
+     */
+    public function compileTimeBucket(string $interval, string $column): string
+    {
+        $parsed = self::parseInterval($interval);
+
+        if ($parsed === null) {
+            return "DATE({$column})";
+        }
+
+        ['count' => $count, 'unit' => $unit] = $parsed;
+
+        // Month / year: use DATE_FORMAT (can't do UNIX arithmetic across months)
+        if ($unit === 'year') {
+            return "DATE_FORMAT({$column}, '%Y-01-01')";
+        }
+        if ($unit === 'month') {
+            return "DATE_FORMAT({$column}, '%Y-%m-01')";
+        }
+
+        // All sub-month intervals: map to seconds and use UNIX_TIMESTAMP arithmetic
+        $seconds = self::unitToSeconds($unit, $count);
+        if ($seconds === null) {
+            return "DATE({$column})";
+        }
+
+        return "FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP({$column}) / {$seconds}) * {$seconds})";
+    }
+
+    // =========================================================================
+    // Interval helpers (shared across grammars)
+    // =========================================================================
+
+    /**
+     * Parse an interval string such as "1 hour", "15 minutes", "2 days" into
+     * an array ['count' => int, 'unit' => string] where unit is the canonical
+     * singular lowercase form (second, minute, hour, day, week, month, year).
+     *
+     * Returns null for unrecognised formats.
+     *
+     * @param  string $interval
+     * @return array{count:int,unit:string}|null
+     */
+    protected static function parseInterval(string $interval): ?array
+    {
+        $interval = trim(strtolower($interval));
+
+        if (!preg_match('/^(\d+)\s+(second|minute|hour|day|week|month|year)s?$/', $interval, $m)) {
+            return null;
+        }
+
+        return ['count' => (int)$m[1], 'unit' => $m[2]];
+    }
+
+    /**
+     * Convert a count + unit to total seconds.  Returns null for calendar units
+     * (month, year) that have variable length.
+     *
+     * @param  string $unit   canonical singular unit (second, minute, …, week)
+     * @param  int    $count
+     * @return int|null
+     */
+    protected static function unitToSeconds(string $unit, int $count): ?int
+    {
+        $multipliers = [
+            'second' => 1,
+            'minute' => 60,
+            'hour'   => 3600,
+            'day'    => 86400,
+            'week'   => 604800,
+        ];
+
+        if (!isset($multipliers[$unit])) {
+            return null;
+        }
+
+        return $multipliers[$unit] * $count;
+    }
+
+    /**
+     * Map a count+unit to the precision string required by DATE_TRUNC (PostgreSQL).
+     * Only returns a precision for intervals that correspond to an exact single-unit
+     * truncation (count = 1 and unit is one of PG's supported precisions).
+     *
+     * @param  int    $count
+     * @param  string $unit
+     * @return string|null
+     */
+    protected static function unitToDateTruncPrecision(int $count, string $unit): ?string
+    {
+        if ($count !== 1) {
+            return null;
+        }
+
+        $map = [
+            'second' => 'second',
+            'minute' => 'minute',
+            'hour'   => 'hour',
+            'day'    => 'day',
+            'week'   => 'week',
+            'month'  => 'month',
+            'year'   => 'year',
+        ];
+
+        return $map[$unit] ?? null;
+    }
 }
