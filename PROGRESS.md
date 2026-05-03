@@ -126,6 +126,13 @@
 - [x] Verified with `./dockertest --filter ApiCharacterizationTest` (28 tests, 62 assertions, all passing).
 - [x] Re-verified full suite with `./dockertest` → 764 tests, 1415 assertions, green (PHPUnit deprecations only).
 
+### Phase 5: Characterization Coverage Wave 17 (2026-05-03, session 15)
+
+- [x] Added `tests/Characterization/Application/ApikeyCharacterizationTest.php` (6 tests) covering `Apikey` constructor-fill, insert/save, update/save, load-by-id, load-by-apikey, and `getData()` status/timestamp formatting.
+- [x] Added deterministic setup for `applications` table (create-if-missing) and isolated cleanup by test prefix.
+- [x] Verified with `./dockertest --filter ApikeyCharacterizationTest` (6 tests, 17 assertions, all passing).
+- [x] Re-verified full suite with `./dockertest` → 770 tests, 1432 assertions, green (PHPUnit deprecations only).
+
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
 - [x] Auto-reconnect logic for database connections.
