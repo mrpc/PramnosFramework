@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 7)
+## 📅 Last Updated: 2026-05-03 (session 8)
 
 ## 🚀 Completed Milestones
 
@@ -10,6 +10,13 @@
 - [x] Added `tests/Characterization/Auth/AuthCharacterizationTest.php` with coverage of singleton behavior, addon-driven auth success/failure flows, `authCheck()` trigger behavior, and `logout()` session/hook side effects.
 - [x] Added `tests/Characterization/Auth/JWTCharacterizationTest.php` with coverage of malformed token parsing, HS256 round-trip encode/decode, allowed/unsupported algorithm guards, expiration/leeway behavior, and `sign()` contract checks.
 - [x] Verified with `./dockertest --filter 'AuthCharacterizationTest|JWTCharacterizationTest'` (14 tests, 28 assertions, all passing).
+
+### Phase 5: Characterization Coverage Wave 2 (2026-05-03, session 8)
+
+- [x] Added `tests/Characterization/Database/AdjacencylistCharacterizationTest.php` to lock current behavior of path generation and SQL assembly for `getArray()` and `getPath()`.
+- [x] Captured current `getPathAsArray()` runtime behavior as characterization: method currently throws due `Pramnos\\Database\\stdClass` resolution.
+- [x] Verified with `./dockertest --filter AdjacencylistCharacterizationTest` (5 tests, 10 assertions, all passing).
+- [x] Re-verified combined characterization suite with `./dockertest --filter 'AuthCharacterizationTest|JWTCharacterizationTest|AdjacencylistCharacterizationTest'` (19 tests, 38 assertions, all passing).
 
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
