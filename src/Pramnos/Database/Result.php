@@ -366,10 +366,6 @@ class Result
      */
     protected function convertPostgresValue($value, $pgType)
     {
-        if ($value === null) {
-            return null;
-        }
-        
         switch ($pgType) {
             case 'int4':
             case 'int8':
@@ -401,10 +397,6 @@ class Result
      */
     protected function convertMysqlValue($value, $mysqlType)
     {
-        if ($value === null) {
-            return null;
-        }
-        
         if ($mysqlType == MYSQLI_TYPE_TINY || $mysqlType == MYSQLI_TYPE_SHORT || 
             $mysqlType == MYSQLI_TYPE_LONG || $mysqlType == MYSQLI_TYPE_INT24 || 
             $mysqlType == MYSQLI_TYPE_LONGLONG) {

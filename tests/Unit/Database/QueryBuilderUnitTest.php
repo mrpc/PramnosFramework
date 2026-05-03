@@ -155,6 +155,72 @@ class QueryBuilderUnitTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // TimescaleDB grammar path (makeGrammar with timescale=true)
+    // -------------------------------------------------------------------------
+
+    public function testTimescaleDBGetsTimescaleDBGrammar(): void
+    {
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $db->type      = 'postgresql';
+        $db->timescale = true;
+        $db->prefix    = '';
+
+        $qb = new QueryBuilder($db);
+        $this->assertInstanceOf(\Pramnos\Database\Grammar\TimescaleDBGrammar::class, $qb->getGrammar());
+    }
+
+    // -------------------------------------------------------------------------
+    // whereRaw('') guard — returns $this without adding a where clause
+    // -------------------------------------------------------------------------
+
+    public function testWhereRawEmptyStringGuard(): void
+    {
+        $qb  = $this->makeQB()->select('*')->from('users');
+        $qb->whereRaw('');
+        $this->assertEmpty($qb->getWheres());
+    }
+
+    public function testWhereRawNullGuard(): void
+    {
+        $qb = $this->makeQB()->select('*')->from('users');
+        $qb->whereRaw(null);
+        $this->assertEmpty($qb->getWheres());
+    }
+
+    // -------------------------------------------------------------------------
+    // having() 2-argument shorthand (having('col', value) → operator defaults to '=')
+    // -------------------------------------------------------------------------
+
+    public function testHavingTwoArgUsesEqualsOperator(): void
+    {
+        $qb  = $this->makeQB()->select('*')->from('items')->groupBy('type')->having('cnt', 5);
+        $sql = $qb->toSql();
+        $this->assertStringContainsString('HAVING cnt = %i', $sql);
+    }
+
+    // -------------------------------------------------------------------------
+    // compileHavings with multiple HAVING clauses (AND boolean connector, Grammar.php line 195)
+    // -------------------------------------------------------------------------
+
+    public function testMultipleHavingsCompileWithAndConnector(): void
+    {
+        $qb = $this->makeQB()
+            ->select('category')
+            ->from('products')
+            ->groupBy('category')
+            ->having('cnt', '>', 2)
+            ->having('total', '>', 100.0);
+
+        $sql = $qb->toSql();
+        $this->assertStringContainsString('HAVING', $sql);
+        $this->assertStringContainsString('AND', $sql);
+        $this->assertStringContainsString('cnt > %i', $sql);
+        $this->assertStringContainsString('total > %d', $sql);
+    }
+
+    // -------------------------------------------------------------------------
     // Grammar injection via setGrammar / getGrammar
     // -------------------------------------------------------------------------
 
@@ -176,5 +242,119 @@ class QueryBuilderUnitTest extends TestCase
     {
         $qb = $this->makeQB('postgresql');
         $this->assertInstanceOf(\Pramnos\Database\Grammar\PostgreSQLGrammar::class, $qb->getGrammar());
+    }
+
+    // -------------------------------------------------------------------------
+    // addBinding() invalid type throws InvalidArgumentException
+    // -------------------------------------------------------------------------
+
+    public function testAddBindingInvalidTypeThrows(): void
+    {
+        $qb     = $this->makeQB();
+        $method = new \ReflectionMethod(QueryBuilder::class, 'addBinding');
+        $method->setAccessible(true);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $method->invoke($qb, 'value', 'nonexistent_type');
+    }
+
+    // -------------------------------------------------------------------------
+    // get() with cache — cache HIT path (QB lines 720-740)
+    // -------------------------------------------------------------------------
+
+    private function makeCachingQB(array $cacheReadReturn): QueryBuilder
+    {
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $db->type   = 'mysql';
+        $db->prefix = '';
+        $db->method('cacheRead')->willReturn($cacheReadReturn);
+        return new QueryBuilder($db);
+    }
+
+    public function testGetCacheHitReturnsPopulatedResult(): void
+    {
+        $rows = [['name' => 'Alice', 'age' => 30]];
+        $qb   = $this->makeCachingQB($rows);
+
+        $result = $qb->select('*')->from('users')->get(true);
+
+        $this->assertTrue($result->isCached);
+        $this->assertEquals(1, $result->numRows);
+        $this->assertEquals('Alice', $result->fields['name']);
+        $this->assertFalse($result->eof);
+    }
+
+    public function testGetCacheHitWithEmptyResultSetsEof(): void
+    {
+        $qb     = $this->makeCachingQB([]);
+        $result = $qb->select('*')->from('users')->get(true);
+
+        $this->assertTrue($result->isCached);
+        $this->assertEquals(0, $result->numRows);
+        $this->assertTrue($result->eof);
+    }
+
+    // -------------------------------------------------------------------------
+    // get() with cache — cache MISS + cache WRITE path (QB lines 747-760)
+    // -------------------------------------------------------------------------
+
+    public function testGetCacheMissExecutesAndWritesCache(): void
+    {
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $db->type   = 'mysql';
+        $db->prefix = '';
+
+        // Cache miss
+        $db->method('cacheRead')->willReturn(false);
+
+        // Fake result from execute() — set up as cached so fetchAll() works
+        $fakeResult           = new \Pramnos\Database\Result($db);
+        $fakeResult->isCached = true;
+        $fakeResult->result   = [['name' => 'Bob']];
+        $fakeResult->numRows  = 1;
+        $fakeResult->cursor   = -1;
+        $fakeResult->fields   = ['name' => 'Bob'];
+        $fakeResult->eof      = false;
+
+        $db->method('execute')->willReturn($fakeResult);
+        $db->method('shouldCacheResult')->willReturn(true);
+        $db->expects($this->once())->method('cacheStore');
+
+        $qb     = new QueryBuilder($db);
+        $result = $qb->select('*')->from('users')->get(true);
+
+        $this->assertTrue($result->isCached);
+        $this->assertEquals(1, $result->numRows);
+        $this->assertEquals('Bob', $result->fields['name']);
+    }
+
+    public function testGetCacheMissExecutesNoWriteWhenShouldNotCache(): void
+    {
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $db->type   = 'mysql';
+        $db->prefix = '';
+        $db->method('cacheRead')->willReturn(false);
+
+        $fakeResult           = new \Pramnos\Database\Result($db);
+        $fakeResult->isCached = true;
+        $fakeResult->result   = [];
+        $fakeResult->numRows  = 0;
+        $fakeResult->cursor   = -1;
+        $fakeResult->eof      = true;
+
+        $db->method('execute')->willReturn($fakeResult);
+        $db->method('shouldCacheResult')->willReturn(false);
+        $db->expects($this->never())->method('cacheStore');
+
+        $qb     = new QueryBuilder($db);
+        $result = $qb->select('*')->from('users')->get(true);
+
+        $this->assertEquals(0, $result->numRows);
     }
 }
