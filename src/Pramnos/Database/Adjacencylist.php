@@ -144,7 +144,7 @@ class Adjacencylist extends \Pramnos\Framework\Base
                 $result->fields[$this->parentField], $array
             );
         }
-        $item = new stdClass();
+        $item = new \stdClass();
         foreach ($result->fields as $key => $value) {
             $item->$key = $value;
         }

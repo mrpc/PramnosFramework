@@ -184,12 +184,14 @@ class AdjacencylistCharacterizationTest extends TestCase
     }
 
     /**
-     * Ensures getPathAsArray currently throws because stdClass is referenced
-     * without a global namespace prefix inside Pramnos\Database namespace.
+     * Ensures getPathAsArray returns the full ancestor chain from root to the
+     * requested node, each item as an stdClass with the row fields.
+     * Previously this method threw an Error because stdClass was referenced as
+     * Pramnos\Database\stdClass (missing leading backslash). That bug is now fixed.
      */
-    public function testGetPathAsArrayCurrentlyThrowsForStdClassResolution(): void
+    public function testGetPathAsArrayReturnsAncestorChainFromRootToNode(): void
     {
-        // Arrange
+        // Arrange – mock DB returns a three-level tree: Root → Child → Leaf
         $db = $this->makeDatabaseMock();
 
         $db->method('prepareQuery')
@@ -220,10 +222,22 @@ class AdjacencylistCharacterizationTest extends TestCase
 
         $adjacency = new Adjacencylist($db, 'tree', 'id', 'parent_id', 'title');
 
-        // Act + Assert
-        $this->expectException(\Error::class);
-        $this->expectExceptionMessage('Pramnos\\Database\\stdClass');
-        $adjacency->getPathAsArray(3);
+        // Act – traverse up from Leaf (id=3)
+        $path = $adjacency->getPathAsArray(3);
+
+        // Assert – three items returned in root-first order
+        $this->assertIsArray($path);
+        $this->assertCount(3, $path, 'Path must contain Root, Child, and Leaf');
+
+        // Each element must be a plain stdClass (not Pramnos\Database\stdClass)
+        foreach ($path as $item) {
+            $this->assertInstanceOf(\stdClass::class, $item);
+        }
+
+        // Root first, Leaf last — proves ancestor order is preserved
+        $this->assertSame('Root', $path[0]->title);
+        $this->assertSame('Child', $path[1]->title);
+        $this->assertSame('Leaf', $path[2]->title);
     }
 
     /**
