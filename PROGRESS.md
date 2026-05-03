@@ -133,6 +133,12 @@
 - [x] Verified with `./dockertest --filter ApikeyCharacterizationTest` (6 tests, 17 assertions, all passing).
 - [x] Re-verified full suite with `./dockertest` → 770 tests, 1432 assertions, green (PHPUnit deprecations only).
 
+### Phase 5: Characterization Coverage Wave 18 (2026-05-03, session 15)
+
+- [x] Added `tests/Characterization/Application/ApplicationRuntimeCharacterizationTest.php` (7 tests) for deterministic `Application` helper contracts: redirect flow with `_redirect`, breadcrumb rendering, controller-info storage, start-page flag toggle, extra-path map behavior, and maintenance mode file lifecycle.
+- [x] Verified with `./dockertest --filter ApplicationRuntimeCharacterizationTest` (7 tests, 19 assertions, all passing).
+- [x] Re-verified full suite with `./dockertest` → 777 tests, 1451 assertions, green (PHPUnit deprecations only).
+
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
 - [x] Auto-reconnect logic for database connections.
