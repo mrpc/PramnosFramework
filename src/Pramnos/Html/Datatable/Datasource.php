@@ -166,6 +166,7 @@ class Datasource extends Base
                     }
                     $qb->orderBy($sortField, $sortDir);
                 }
+            }
         }
 
         /* Filtering */
@@ -233,15 +234,20 @@ class Datasource extends Base
 
         try {
             $result = $qb->get($cache, $cachetime, $cachecategory);
-        } catch (\Exception $ex) {
+        } catch (\Throwable $ex) {
             $message = 'Error in Datasource render: ' . $ex->getMessage() . '. SQL: ' . $qb->toSql();
             \Pramnos\Logs\Logger::log($message);
-            die($message);
+            throw new \Exception($message, (int)$ex->getCode(), $ex);
         }
 
+        if ($result === false || $result === null) {
+            $message = 'Error in Datasource render: query returned no result. SQL: ' . $qb->toSql();
+            \Pramnos\Logs\Logger::log($message);
+            throw new \Exception($message);
+        }
 
         $return = array();
-        while ($result->fetch(true)) {
+        while ($result->fetchNext(true)) {
             $fielddetails = array_keys($this->fielddetails);
             $i = 0;
             foreach ($result->fields as $field) {

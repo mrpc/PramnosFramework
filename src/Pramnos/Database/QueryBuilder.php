@@ -232,6 +232,10 @@ class QueryBuilder
      */
     public function whereRaw($sql, array $bindings = [], $boolean = 'and')
     {
+        if ($sql === '' || $sql === null) {
+            return $this;
+        }
+
         $this->wheres[] = [
             'type' => 'Raw',
             'sql' => $sql,
@@ -438,13 +442,28 @@ class QueryBuilder
 
     /**
      * Set the offset.
-     * 
+     *
      * @param int $value
      * @return $this
      */
     public function offset($value)
     {
         $this->offset = $value;
+        return $this;
+    }
+
+    /**
+     * Remove all ORDER BY, LIMIT, and OFFSET clauses.
+     * Useful when building a COUNT subquery from a cloned builder.
+     *
+     * @return $this
+     */
+    public function clearOrderingAndPaging()
+    {
+        $this->orders = [];
+        unset($this->limit);
+        unset($this->offset);
+        $this->bindings['order'] = [];
         return $this;
     }
 
@@ -559,7 +578,13 @@ class QueryBuilder
 
             switch ($where['type']) {
                 case 'Basic':
-                    $part .= $where['column'] . " " . $where['operator'] . " " . $this->getPlaceholder($where['value']);
+                    $col = $where['column'];
+                    $op = strtoupper($where['operator']);
+                    // PostgreSQL LIKE requires text; cast to avoid "operator does not exist: integer ~~ unknown"
+                    if ($this->db->type === 'postgresql' && ($op === 'LIKE' || $op === 'ILIKE' || $op === 'NOT LIKE' || $op === 'NOT ILIKE')) {
+                        $col = $col . '::text';
+                    }
+                    $part .= $col . " " . $where['operator'] . " " . $this->getPlaceholder($where['value']);
                     break;
                 case 'In':
                 case 'NotIn':
@@ -627,13 +652,60 @@ class QueryBuilder
      * 
      * @return Result
      */
-    public function get()
+    public function get($cache = false, $cachetime = 60, $category = "")
     {
         $sql = $this->toSql();
         $bindings = $this->getBindings();
-        
-        return $this->db->execute($sql, ...$bindings);
+
+        if ($cache) {
+            $cacheKey = $sql . serialize($bindings);
+            $cacheData = $this->db->cacheRead($cacheKey, $category);
+            
+            if ($cacheData !== false) {
+                $obj = new \Pramnos\Database\Result($this->db);
+                $obj->cursor = -1;
+                $obj->isCached = true;
+                $obj->result = $cacheData;
+                $obj->numRows = is_array($cacheData) ? count($cacheData) : 0;
+                
+                if ($obj->numRows > 0) {
+                    $obj->eof = false;
+                    if (isset($cacheData[0]) && is_array($cacheData[0])) {
+                        foreach ($cacheData[0] as $key => $value) {
+                            $obj->fields[$key] = $value;
+                        }
+                    }
+                } else {
+                    $obj->eof = true;
+                }
+                return $obj;
+            }
+        }
+
+        $result = $this->db->execute($sql, ...$bindings);
+
+        if ($cache && $result) {
+            $data = $result->fetchAll();
+            $result->result = $data;
+            $result->isCached = true;
+            $result->cursor = -1;
+            $result->numRows = count($data);
+            
+            if ($result->numRows > 0 && isset($data[0])) {
+                $result->fields = $data[0];
+                $result->eof = false;
+            }
+
+            if ($this->db->shouldCacheResult($data)) {
+                $cacheKey = $sql . serialize($bindings);
+                $this->db->cacheStore($cacheKey, $data, $category, $cachetime);
+            }
+        }
+
+        return $result;
     }
+
+
 
     /**
      * Get the first record.
@@ -675,15 +747,22 @@ class QueryBuilder
     {
         $this->type = 'INSERT';
         $this->bindings['values'] = []; // Clear previous values
-        $this->addBinding(array_values($values), 'values');
-        
-        $columns = implode(', ', array_keys($values));
+        // Expression objects are inlined in SQL, not bound as parameters
+        $bindableValues = array_values(array_filter($values, fn($v) => !($v instanceof Expression)));
+        $this->addBinding($bindableValues, 'values');
+
+        $isPostgres = $this->db->type === 'postgresql';
+        $quotedColumns = array_map(
+            fn($col) => $isPostgres ? '"' . $col . '"' : '`' . $col . '`',
+            array_keys($values)
+        );
+        $columns = implode(', ', $quotedColumns);
         $placeholders = [];
         foreach ($values as $v) {
             $placeholders[] = $this->getPlaceholder($v);
         }
         $placeholdersStr = implode(', ', $placeholders);
-        
+
         $sql = "INSERT INTO " . $this->from . " (" . $columns . ") VALUES (" . $placeholdersStr . ")";
         
         if (!empty($this->returning) && $this->db->type == 'postgresql') {
@@ -705,13 +784,17 @@ class QueryBuilder
     {
         $this->type = 'UPDATE';
         $this->bindings['values'] = []; // Clear previous values
-        $this->addBinding(array_values($values), 'values');
+        // Expression objects are inlined in SQL, not bound as parameters
+        $bindableValues = array_values(array_filter($values, fn($v) => !($v instanceof Expression)));
+        $this->addBinding($bindableValues, 'values');
 
+        $isPostgres = $this->db->type === 'postgresql';
         $sets = [];
         foreach ($values as $column => $value) {
-            $sets[] = $column . " = " . $this->getPlaceholder($value);
+            $quotedCol = $isPostgres ? '"' . $column . '"' : '`' . $column . '`';
+            $sets[] = $quotedCol . " = " . $this->getPlaceholder($value);
         }
-        
+
         $sql = "UPDATE " . $this->from . " SET " . implode(', ', $sets);
         if (!empty($this->wheres)) {
             $sql .= " WHERE " . $this->compileWheres();
