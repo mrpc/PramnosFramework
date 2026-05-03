@@ -26,6 +26,11 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
 
     public function quoteTable(string $table): string
     {
+        // Schema-qualified names (e.g. "authserver.roles") → "authserver"."roles"
+        if (strpos($table, '.') !== false) {
+            [$schema, $name] = explode('.', $table, 2);
+            return '"' . $schema . '"."' . $name . '"';
+        }
         return '"' . $table . '"';
     }
 
@@ -165,14 +170,14 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
 
         if ($comment = $blueprint->getComment()) {
             $stmts[] = 'COMMENT ON TABLE ' . $this->quoteTable($table)
-                . " IS '" . addslashes($comment) . "'";
+                . " IS '" . str_replace("'", "''", $comment) . "'";
         }
 
         foreach ($blueprint->getColumns() as $col) {
             if ($colComment = $col->get('comment')) {
                 $stmts[] = 'COMMENT ON COLUMN ' . $this->quoteTable($table)
                     . '.' . $this->quoteColumn($col->name)
-                    . " IS '" . addslashes($colComment) . "'";
+                    . " IS '" . str_replace("'", "''", $colComment) . "'";
             }
         }
 
@@ -210,6 +215,11 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
 
     public function compileHasTable(string $table, string $schema): string
     {
+        // Schema-qualified table names (e.g. "authserver.roles") take precedence over $schema arg
+        if (strpos($table, '.') !== false) {
+            [$schema, $table] = explode('.', $table, 2);
+        }
+
         $schemaFilter = $schema !== ''
             ? " AND table_schema = '" . addslashes($schema) . "'"
             : " AND table_schema NOT IN ('pg_catalog','information_schema')";
@@ -221,6 +231,11 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
 
     public function compileHasColumn(string $table, string $column, string $schema): string
     {
+        // Schema-qualified table names (e.g. "authserver.roles") take precedence over $schema arg
+        if (strpos($table, '.') !== false) {
+            [$schema, $table] = explode('.', $table, 2);
+        }
+
         $schemaFilter = $schema !== ''
             ? " AND table_schema = '" . addslashes($schema) . "'"
             : " AND table_schema NOT IN ('pg_catalog','information_schema')";

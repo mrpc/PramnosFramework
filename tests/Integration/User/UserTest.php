@@ -31,11 +31,13 @@ class UserTest extends TestCase
             $this->db->connect();
         }
 
-        // Clear Guest user to ensure seeding logic in setupDb triggers predictably
+        // Create the users table first (idempotent), then clear the guest user seed
+        // so that setupDb() re-inserts a fresh guest row. The reverse order caused a
+        // fatal query when another test class dropped the users table in its tearDown.
+        \Pramnos\User\User::setupDb();
+
         $userTable = defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users';
         $this->db->query("DELETE FROM " . $userTable . " WHERE userid = 1");
-
-        \Pramnos\User\User::setupDb();
 
         $this->testUsername = 'testuser_' . \bin2hex(\random_bytes(4));
     }

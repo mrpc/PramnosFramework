@@ -40,7 +40,7 @@ class CreateMassmessagesTable extends Migration
                 ->comment('Message body (same content sent to all recipients)');
             $table->integer('type')->default(1)
                 ->comment('Delivery channel: 0 = Email, 1 = Internal message, 2 = Push notification');
-            $table->text('locationid')->default('')
+            $table->text('locationid')
                 ->comment('Location filter — plain location ID or JSON array of IDs; used to target recipients by geography');
             $table->integer('deyaid')->nullable()
                 ->comment('DEYA (utility organisation) filter; NULL = all organisations');

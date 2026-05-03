@@ -31,7 +31,10 @@ class CreateUsersTable extends Migration
         $schema->createTable('users', function ($table) {
             $table->comment('User account registry — one row per registered user');
 
-            $table->bigIncrements('userid')
+            // BIGSERIAL in PostgreSQL is a SIGNED bigint — use bigInteger+autoIncrement
+            // to produce BIGINT AUTO_INCREMENT (signed) on MySQL, matching the legacy
+            // userstogroups FK constraint which declares userid as plain BIGINT.
+            $table->bigInteger('userid')->autoIncrement()->primary()
                 ->comment('Auto-increment user identifier (BIGSERIAL on PostgreSQL)');
             $table->string('username', 50)->default('')
                 ->comment('Unique login name chosen by the user');
