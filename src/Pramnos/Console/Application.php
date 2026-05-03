@@ -60,6 +60,8 @@ class Application extends \Symfony\Component\Console\Application
         // Scheduled tasks (Phase 4)
         $this->add(new \Pramnos\Console\Commands\ScheduleRun());
         $this->add(new \Pramnos\Console\Commands\ScheduleList());
+        // Policy Engine (Phase 4)
+        $this->add(new \Pramnos\Console\Commands\PolicyEngine());
     }
 
 }

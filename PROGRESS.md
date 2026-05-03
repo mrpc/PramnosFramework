@@ -255,6 +255,17 @@
 - [x] **`docs/1.2-new-features.md`** — Section 14 added.
 - [x] Re-verified full suite with `./dockertest` → **921 tests, 1837 assertions, 0 failures**.
 
+### Phase 4: Policy Engine (2026-05-03, session 18)
+
+- [x] **`framework_policies` system migration** (new `src/Pramnos/Database/SystemMigrations/Core/2020_01_01_000002_create_framework_policies_table.php`): Creates `framework_policies` table for `core` feature. MySQL and PostgreSQL DDL variants. 2020 timestamp so installations with `migration_cutoff` skip it.
+- [x] **`FeatureRegistry::initDefaults()`** updated: `core` feature now includes `migrations` path pointing to `src/Pramnos/Database/SystemMigrations/Core`.
+- [x] **`PolicyRecord`** (new `src/Pramnos/Policy/PolicyRecord.php`): Immutable value object for `framework_policies` rows. `fromRow()` handles JSON config decoding, null fields, bool casting. All properties readonly.
+- [x] **`PolicyEngine`** (new `src/Pramnos/Policy/PolicyEngine.php`): Reads and executes due policies. No-op on TimescaleDB. Policy types: `retention` (DELETE older than interval), `aggregate_refresh` (REFRESH MATERIALIZED VIEW / TRUNCATE+INSERT), `compression` (no-op), `cache_rebuild` (TRUNCATE+INSERT). MySQL `INTERVAL` conversion. `quoteIdentifier()` for SQL injection prevention. Methods: `run()`, `getAllEnabled()`, `register()`, `setEnabled()`, `remove()`.
+- [x] **`service:policy-engine` CLI command** (new `src/Pramnos/Console/Commands/PolicyEngine.php`): `--list`, `--pretend`. Registered in Console Application. Exit 0/1 for success/failure.
+- [x] **Unit tests** (`tests/Unit/Policy/PolicyRecordUnitTest.php`) — 6 tests: full row mapping, JSON config decoding, pre-decoded config array, missing optional fields null, disabled policy bool, all properties readonly.
+- [x] **`docs/1.2-new-features.md`** — Section 15 added.
+- [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
+
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
 - [x] Auto-reconnect logic for database connections.

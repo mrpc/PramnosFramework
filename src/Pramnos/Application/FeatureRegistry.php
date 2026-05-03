@@ -231,6 +231,9 @@ class FeatureRegistry
 
         static::register('core', [
             'description' => 'Core framework — always active',
+            'migrations'  => [
+                dirname(__DIR__) . '/Database/SystemMigrations/Core',
+            ],
         ]);
         static::register('auth', [
             'description' => 'Basic Authentication and Authorization',
