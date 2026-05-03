@@ -762,4 +762,77 @@ class QueryBuilderMySQLTest extends TestCase
         $this->assertEquals('Elderberry', $names[4]);
         $this->assertTrue($result->eof);
     }
+
+    // -------------------------------------------------------------------------
+    // Result utility methods
+    // -------------------------------------------------------------------------
+
+    public function testResultMagicGet(): void
+    {
+        $this->seedProducts();
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Apple')
+            ->first();
+
+        // __get proxies to $fields array
+        $this->assertEquals('Apple', $result->name);
+        $this->assertNull($result->nonexistent_field);
+    }
+
+    public function testGetInsertId(): void
+    {
+        $result = $this->db->query(
+            "INSERT INTO `qb_products` (name, category, price, stock) VALUES ('InsertIdTest', 'fruit', 1.00, 1)"
+        );
+
+        $id = $result->getInsertId();
+        $this->assertIsInt($id);
+        $this->assertGreaterThan(0, $id);
+
+        // Verify the row actually has that ID
+        $row = $this->db->query(
+            "SELECT id FROM `qb_products` WHERE name = 'InsertIdTest'"
+        )->fields;
+        $this->assertEquals($id, (int)$row['id']);
+    }
+
+    public function testGetAffectedRows(): void
+    {
+        $this->seedProducts();
+
+        $result = $this->db->query(
+            "UPDATE `qb_products` SET stock = 999 WHERE category = 'fruit'"
+        );
+
+        // 3 fruit rows: Apple, Banana, Elderberry
+        $this->assertEquals(3, $result->getAffectedRows());
+    }
+
+    public function testGetAffectedRowsOnDelete(): void
+    {
+        $this->seedProducts();
+
+        $result = $this->db->query("DELETE FROM `qb_products` WHERE active = 0");
+        // Daikon is the only inactive product
+        $this->assertEquals(1, $result->getAffectedRows());
+    }
+
+    public function testGetNumFields(): void
+    {
+        $this->seedProducts();
+        $result = $this->db->query("SELECT id, name, category FROM `qb_products` LIMIT 1");
+
+        $this->assertEquals(3, $result->getNumFields());
+    }
+
+    public function testFreeReleasesResult(): void
+    {
+        $this->seedProducts();
+        $result = $this->db->queryBuilder()->from('qb_products')->get();
+
+        // free() should not throw; mysqlResult is set to null afterwards
+        $result->free();
+        $this->assertNull($result->mysqlResult);
+    }
 }

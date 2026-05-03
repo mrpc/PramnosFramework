@@ -146,7 +146,7 @@ class DatabaseCapabilities
      * @param callable|null $ifFalse
      * @return mixed
      */
-    public function ifCapable($capability, callable $ifTrue, callable $ifFalse = null)
+    public function ifCapable($capability, callable $ifTrue, ?callable $ifFalse = null)
     {
         if ($this->has($capability)) {
             return $ifTrue($this->db);
