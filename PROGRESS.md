@@ -77,16 +77,23 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 - [x] **Bug fix — `Result::getAffectedRows()` MySQL**: Was calling `mysqli_affected_rows($mysqli_result)` (wrong type). Fixed to `mysqli_affected_rows($this->database->getConnectionLink())`.
 - [x] **Bug fix — `DatabaseCapabilities::ifCapable()` PHP 8.4 deprecation**: `callable $ifFalse = null` → `?callable $ifFalse = null`.
 
+### Phase 1.3: Grammar/Adapter Pattern (2026-05-03, session 3)
+
+- [x] **`GrammarInterface`** — defines the full compile contract: `compileSelect`, `compileWheres`, `compileHavings`, `compileInsert`, `compileInsertOrIgnore`, `compileUpsert`, `compileUpdate`, `compileDelete`, `compileTruncate`, `quoteColumn`, `getPlaceholder`.
+- [x] **`Grammar` (abstract)** — shared dialect-neutral implementation with template-method hooks: `compileReturning()` (empty by default) and `wrapColumnForOperator()` (identity by default).
+- [x] **`MySQLGrammar`** — backtick quoting, `INSERT IGNORE`, `ON DUPLICATE KEY UPDATE`.
+- [x] **`PostgreSQLGrammar`** — double-quote quoting, `ON CONFLICT DO NOTHING / DO UPDATE SET`, `RETURNING`, `::text` cast for LIKE/ILIKE on non-text columns.
+- [x] **`TimescaleDBGrammar`** — extends PostgreSQLGrammar (stub; hooks ready for time_bucket, hypertable DDL in Phase 1.4).
+- [x] **`Expression`** — extracted to `Expression.php` for PSR-4 autoloader hygiene.
+- [x] **`QueryBuilder` refactored** — grammar injected in constructor (auto-selected from `$db->type` / `$db->timescale`); `setGrammar()` / `getGrammar()` added; state accessors added for Grammar read-only access; all compile logic removed from QB. QB: 1180 → 914 lines.
+
 ---
 
 ## 🛠️ Work in Progress
 
-### Phase 1.3: QueryBuilder Grammar/Adapter Pattern
-*Prerequisite for DDL Schema Builder.*
-- [ ] `Grammar` interface / abstract class
-- [ ] `MySQLGrammar`, `PostgreSQLGrammar`, `TimescaleDBGrammar`
-- [ ] Dialect logic migrated from `Database::prepare()` into Grammars
-- [ ] Complete missing DML features (`whereNull`, `whereBetween`, `UNION`, CTEs, subqueries, window functions)
+### Phase 1.4: DDL / Schema Builder
+*Next step after Grammar is in place.*
+- [ ] Fluent DDL interface (`createTable`, `alterTable`, `dropTable`, indexes, constraints, views)
 
 ### Phase 1.4: DDL / Schema Builder
 - [ ] Fluent DDL interface (`createTable`, `alterTable`, `dropTable`, indexes, constraints, views)
