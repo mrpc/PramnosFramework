@@ -47,10 +47,16 @@ class QueryBuilderTest extends TestCase
             ->get();
 
         $this->assertEquals(2, $results->numRows);
+        // Row 0 (John, age=30) is pre-fetched into fields after get().
         $this->assertEquals('John', $results->fields['name']);
-        
-        $results->fetch();
+
+        // Use fetchNext() to iterate: first call returns pre-fetched row 0,
+        // second call reads row 1.
+        $this->assertTrue($results->fetchNext());
+        $this->assertEquals('John', $results->fields['name']);
+        $this->assertTrue($results->fetchNext());
         $this->assertEquals('Jane', $results->fields['name']);
+        $this->assertFalse($results->fetchNext());
     }
 
     public function testWhereClauses()
