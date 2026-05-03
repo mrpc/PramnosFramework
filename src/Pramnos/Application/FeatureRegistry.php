@@ -232,20 +232,32 @@ class FeatureRegistry
         static::register('core', [
             'description' => 'Core framework — always active',
             'migrations'  => [
-                dirname(__DIR__) . '/Database/SystemMigrations/Core',
+                dirname(__DIR__, 3) . '/database/migrations/framework/core',
             ],
         ]);
         static::register('auth', [
             'description' => 'Basic Authentication and Authorization',
+            'migrations'  => [
+                dirname(__DIR__, 3) . '/database/migrations/framework/auth',
+            ],
         ]);
         static::register('authserver', [
             'description' => 'OAuth 2.0 Authorization Server',
+            'migrations'  => [
+                dirname(__DIR__, 3) . '/database/migrations/framework/authserver',
+            ],
         ]);
         static::register('messaging', [
             'description' => 'Messaging System (threads and recipients)',
+            'migrations'  => [
+                dirname(__DIR__, 3) . '/database/migrations/framework/messaging',
+            ],
         ]);
         static::register('queue', [
             'description' => 'Background Job Queue',
+            'migrations'  => [
+                dirname(__DIR__, 3) . '/database/migrations/framework/queue',
+            ],
         ]);
     }
 
