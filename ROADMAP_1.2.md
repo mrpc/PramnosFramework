@@ -98,79 +98,73 @@
 - [x] **DML Query Builder:** Fluent interface για κλασικές DML πράξεις:
   - [x] `SELECT` με aliases, `DISTINCT`, column expressions
   - [x] `INSERT` (βασικό), `RETURNING` clause (PostgreSQL)
-  - [ ] `INSERT IGNORE` (MySQL), `INSERT ... ON CONFLICT` / upsert (PostgreSQL/TimescaleDB)
+  - [x] `INSERT IGNORE` (MySQL), `INSERT ... ON CONFLICT` / upsert (PostgreSQL/TimescaleDB)
   - [x] `UPDATE` με conditional logic, `RETURNING` clause (PostgreSQL)
   - [x] `DELETE`, `RETURNING` clause (PostgreSQL)
-  - [ ] `TRUNCATE`
+  - [x] `TRUNCATE`
   - [x] JOINs: `INNER`, `LEFT` — `join($table, ..., $type)` δέχεται οποιοδήποτε type string (`right`, `full`, `cross`) αλλά δεν υπάρχουν convenience methods
   - [x] Conditions: `where()`, `orWhere()`, `whereIn()`, `whereRaw()`, nested where via Closure
-  - [ ] `whereNull()` / `whereNotNull()`, `whereBetween()` / `whereNotBetween()`
+  - [x] `whereNull()` / `whereNotNull()`, `whereBetween()` / `whereNotBetween()` (και or* παραλλαγές)
   - [x] `groupBy()`, `groupByRaw()`, `having()`, `havingRaw()`, `orderBy()`, `orderByRaw()`, `limit()`, `offset()`
   - [x] `clearOrderingAndPaging()` — αφαιρεί ORDER BY/LIMIT/OFFSET (χρήσιμο σε COUNT subqueries)
-  - [ ] `UNION` / `UNION ALL`
+  - [x] `UNION` / `UNION ALL`
   - [ ] Common Table Expressions (CTEs) με `with()`
   - [ ] Subqueries ως SELECT columns ή FROM πηγή
   - [ ] Window functions (`OVER`, `PARTITION BY`, `RANK`, `ROW_NUMBER`) — PostgreSQL/TimescaleDB
   - [x] Raw expressions με `raw()` / `Expression` class για dialect-specific syntax
 
-- [ ] **QueryBuilder Grammar/Adapter Pattern** *(απαραίτητο πριν το Schema Builder)*:
+- [x] **QueryBuilder Grammar/Adapter Pattern:**
   Αρχιτεκτονική βελτίωση που διαχωρίζει την **κατασκευή query** (QB) από τη **μετάφρασή του σε SQL** (Grammar). Αντί για `if ($this->db->type == 'postgresql')` checks σκορπισμένα στον κώδικα, κάθε dialect έχει το δικό του Grammar class.
 
   ```
   QueryBuilder (dialect-agnostic — χτίζει AST)
       └─ Grammar (interface)
-           ├─ MySQLGrammar       (backtick quoting, ? params, AUTO_INCREMENT DDL)
-           ├─ PostgreSQLGrammar  ($1/$2 params, double-quote quoting, SERIAL DDL)
-           └─ TimescaleDBGrammar (extends PostgreSQL + time_bucket, hypertable DDL)
+           ├─ MySQLGrammar       (backtick quoting, % params, INSERT IGNORE, ON DUPLICATE KEY)
+           ├─ PostgreSQLGrammar  (double-quote quoting, ON CONFLICT, RETURNING, ::text ILIKE cast)
+           └─ TimescaleDBGrammar (extends PostgreSQL + time_bucket)
   ```
 
-  - [ ] `Grammar` interface / abstract class με `compileSelect()`, `compileInsert()`, `compileUpdate()`, `compileDelete()`, `compileWhere()` κλπ.
-  - [ ] `MySQLGrammar` — backtick quoting, `?` parameters, `INSERT IGNORE`, `ON DUPLICATE KEY`
-  - [ ] `PostgreSQLGrammar` — double-quote quoting, `$1/$2` parameters, `ON CONFLICT`, `RETURNING`
-  - [ ] `TimescaleDBGrammar` (extends PostgreSQL) — `time_bucket()`, hypertable DDL, continuous aggregates
-  - [ ] `Database` injects το κατάλληλο Grammar στον QueryBuilder κατά τη δημιουργία του
-  - [ ] Μεταφορά της dialect λογικής από `Database::prepare()` στο Grammar (backtick conversion, parameter substitution)
-  - [ ] `time_bucket()` dialect translation: TimescaleDB → `time_bucket()`, plain PG → `DATE_TRUNC()`, MySQL → `DATE_FORMAT()`
+  - [x] `GrammarInterface` — `compileSelect`, `compileInsert`, `compileUpdate`, `compileDelete`, `compileWheres`, `compileHavings`, `compileTruncate`, `compileTimeBucket`
+  - [x] `Grammar` (abstract base) — dialect-neutral DML compilation with template-method hooks
+  - [x] `MySQLGrammar` — backtick quoting, `INSERT IGNORE`, `ON DUPLICATE KEY UPDATE`
+  - [x] `PostgreSQLGrammar` — double-quote quoting, `ON CONFLICT`, `RETURNING`, ILIKE `::text` cast
+  - [x] `TimescaleDBGrammar` (extends PostgreSQL) — native `time_bucket()`
+  - [x] `Database` injects το κατάλληλο Grammar στον QueryBuilder κατά τη δημιουργία του
+  - [x] `time_bucket()` dialect translation: TimescaleDB → `time_bucket()`, plain PG → `DATE_TRUNC()` / epoch arithmetic, MySQL → `FROM_UNIXTIME()` / `DATE_FORMAT()`
 
   > **BC Strategy:** Εντελώς εσωτερική αλλαγή. Το public API του QueryBuilder και το εξωτερικό συμπεριφοριακό αποτέλεσμα παραμένουν πανομοιότυπα. Υπάρχοντα `whereRaw()` / `orderByRaw()` calls λειτουργούν αμετάβλητα.
 
-- [ ] **DDL / Schema Builder:** Fluent interface για ορισμό και τροποποίηση schema:
-  - `createTable()`, `alterTable()`, `dropTable()`, `renameTable()`
-  - Column types με αυτόματη μετατροπή ανά dialect (`TEXT`, `JSONB`, `TIMESTAMPTZ`, `BIGSERIAL`, κλπ.)
-  - `addColumn()`, `modifyColumn()`, `dropColumn()`, `renameColumn()`
-  - Primary keys, foreign keys, unique constraints, check constraints
-  - Indexes: `createIndex()`, `createUniqueIndex()`, `dropIndex()`
-  - **Views:** `createView()`, `createOrReplaceView()`, `dropView()`
-  - **Materialized Views (PostgreSQL/TimescaleDB):** `createMaterializedView()`, `refreshMaterializedView()`, `dropMaterializedView()`
-  - **Triggers (MySQL + PostgreSQL):** `createTrigger()` με `BEFORE`/`AFTER` και `INSERT`/`UPDATE`/`DELETE` support, `dropTrigger()`
-  - Sequences (PostgreSQL): `createSequence()`, `nextVal()`, `setVal()`
+- [x] **DDL / Schema Builder:** Fluent interface για ορισμό και τροποποίηση schema:
+  - [x] `createTable()`, `alterTable()`, `dropTable()`, `renameTable()`
+  - [x] Column types με αυτόματη μετατροπή ανά dialect (`TEXT`, `JSONB`, `TIMESTAMPTZ`, `BIGSERIAL`, κλπ.)
+  - [x] `dropColumn()`, `renameColumn()` (modifyColumn not yet)
+  - [x] Primary keys, foreign keys, unique constraints, check constraints
+  - [x] Indexes: `createIndex()`, `createUniqueIndex()`, `dropIndex()`
+  - [x] **Views:** `createView()`, `createOrReplaceView()`, `dropView()`
+  - [x] **Materialized Views (PostgreSQL/TimescaleDB):** `createMaterializedView()`, `refreshMaterializedView()`, `dropMaterializedView()`
+  - [ ] **Triggers (MySQL + PostgreSQL):** `createTrigger()` με `BEFORE`/`AFTER` και `INSERT`/`UPDATE`/`DELETE` support, `dropTrigger()`
+  - [ ] Sequences (PostgreSQL): `createSequence()`, `nextVal()`, `setVal()`
 
-- [ ] **TimescaleDB Extension Builder:** Native support για τα hypertable και time-series χαρακτηριστικά:
-  - `createHypertable($table, $timeColumn)` — μετατροπή κανονικού πίνακα σε hypertable
-  - `addSpaceDimension($table, $column, $partitions)` — space partitioning
-  - `createContinuousAggregate($name, $query, $interval)` — continuous aggregate με `timescaledb.continuous`
-  - `addContinuousAggregatePolicy()` — αυτόματο refresh policy
-  - `addRetentionPolicy($table, $interval)` — αυτόματη διαγραφή παλιών chunks
-  - `addCompressionPolicy($table, $interval)` — αυτόματη συμπίεση chunks
-  - `enableCompression($table, $segmentBy)` / `disableCompression()`
-  - `timeBucket($interval, $column)` — helper για `time_bucket()` expressions σε queries
-  - Πρόσβαση στα TimescaleDB informational views (`timescaledb_information.*`)
+- [x] **TimescaleDB Extension Builder:** Native support για τα hypertable και time-series χαρακτηριστικά:
+  - [x] `createHypertable($table, $timeColumn)` — στο TimescaleDB εκτελεί `SELECT create_hypertable()`; σε άλλα backends: silent no-op
+  - [x] `addSpaceDimension($table, $column, $partitions)` — TimescaleDB native; silent no-op αλλού
+  - [x] `createContinuousAggregate($name, $query, $interval)` — TimescaleDB native / PG MATERIALIZED VIEW / MySQL VIEW
+  - [x] `addRetentionPolicy($table, $interval)` — TimescaleDB native; silent no-op αλλού (future: Policy Engine)
+  - [x] `addCompressionPolicy($table, $interval)` / `enableCompression()` — TimescaleDB native; silent no-op αλλού
+  - [x] `QueryBuilder::timeBucket($interval, $column)` — dialect-transparent expression helper
+  - [ ] `addContinuousAggregatePolicy()` — αυτόματο refresh policy (depends on Policy Engine / framework_policies)
+  - [ ] Πρόσβαση στα TimescaleDB informational views (`timescaledb_information.*`)
 
-- [x] **`DatabaseCapabilities` — Runtime Detection & Graceful Fallback:** Κλάση που ανιχνεύει τις δυνατότητες του τρέχοντος database backend και επιτρέπει capability-conditional DDL. **Κάθε TimescaleDB feature πρέπει να έχει silent fallback για MySQL και plain PostgreSQL** — κανένα migration ή query δεν επιτρέπεται να αποτύχει με fatal error σε non-TimescaleDB περιβάλλον.
-  - [x] `DatabaseCapabilities::has(string $capability): bool` — runtime detection (check `pg_extension` για TimescaleDB)
-  - [x] `DatabaseCapabilities::isMySQL()` / `isPostgreSQL()` / `hasTimescaleDB()`
-  - [x] `DatabaseCapabilities::ifCapable(string $cap, callable $ifTrue, ?callable $ifFalse)` — conditional execution
-  > ⚠️ **Απόκλιση από Backport Spec (Section 14.1) — χρειάζεται alignment πριν το Schema Builder:**
-  > - Constant: `FEATURE_TIMESCALEDB` (υλοποίηση) έναντι `TIMESCALEDB` (spec)
-  > - Cache: instance-level (υλοποίηση) έναντι `static` (spec) — δεν μοιράζεται μεταξύ instances
-  > - Λείπουν: capabilities `MATERIALIZED_VIEWS`, `ENUMS` — και αντίστοιχες `hasMaterializedViews()`, `hasEnums()`
-  > - `ifCapable()` βρίσκεται στη `DatabaseCapabilities` (υλοποίηση) έναντι `SchemaBuilder` (spec)
-  - [ ] Schema Builder `->ifCapable(capability, callable $ifTrue, ?callable $ifFalse)` — conditional DDL execution
-  - [ ] **`time_bucket()` dialect translation:** TimescaleDB → `time_bucket()`, plain PG → `DATE_TRUNC()`, MySQL → `DATE_FORMAT()` — transparent μέσω `QueryBuilder::timeBucket()`
-  - [ ] **Retention policy fallback:** εγγραφή στο `framework_policies` → Policy Engine εκτελεί DELETE job
-  - [ ] **Continuous aggregate fallback:** `MATERIALIZED VIEW` σε plain PG, refreshed cache table σε MySQL — εγγραφή στο `framework_policies` για αυτόματο refresh
-  - [ ] **Compression policy fallback:** Silent no-op — δεδομένα αποθηκεύονται ασυμπίεστα, καμία error
-  - [ ] **Hypertable fallback:** Regular table — η εφαρμογή λειτουργεί (αργότερα) αλλά χωρίς crash
+- [x] **`DatabaseCapabilities` — Runtime Detection & Graceful Fallback:**
+  - [x] `has(string $capability): bool` — runtime detection; WeakMap static cache (auto-cleans on GC)
+  - [x] `isMySQL()` / `isPostgreSQL()` / `hasTimescaleDB()` / `hasMaterializedViews()` / `hasEnums()`
+  - [x] `ifCapable(string $cap, callable $ifTrue, ?callable $ifFalse)` — conditional execution
+  - [x] Constants: `ENGINE_MYSQL`, `ENGINE_POSTGRESQL`, `TIMESCALEDB`, `JSONB`, `MATERIALIZED_VIEWS`, `ENUMS`, `FEATURE_JSON`, `FEATURE_FULLTEXT`, `FEATURE_SPATIAL`
+  - [x] Backport Spec Section 14.1 alignment complete (constants, static cache, new capabilities)
+  - [x] `SchemaBuilder::ifCapable()` — conditional DDL execution (passes SchemaBuilder, not Database)
+  - [x] **Compression/Hypertable fallback:** Silent no-op on non-TimescaleDB backends ✓
+  - [ ] **Retention policy fallback:** εγγραφή στο `framework_policies` → Policy Engine εκτελεί DELETE job *(depends on Migration System + Policy Engine)*
+  - [ ] **Continuous aggregate fallback Policy:** εγγραφή στο `framework_policies` για αυτόματο refresh *(depends on Migration System + Policy Engine)*
   - Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 14
 
 - [ ] **Policy Engine Daemon — TimescaleDB Fallback Simulator:** Σύστημα που προσομοιώνει τις χρονοδιαγραμμένες λειτουργίες του TimescaleDB (retention policies, continuous aggregate refresh, compression) σε MySQL και plain PostgreSQL, όπου δεν υπάρχει native scheduler.
