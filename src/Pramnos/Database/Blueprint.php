@@ -52,6 +52,9 @@ class Blueprint
     /** @var bool  Add TEMPORARY to CREATE TABLE */
     protected bool $temporary = false;
 
+    /** @var string|null  Table-level comment */
+    protected ?string $tableComment = null;
+
     // -------------------------------------------------------------------------
     // Construction
     // -------------------------------------------------------------------------
@@ -411,6 +414,12 @@ class Blueprint
         $this->temporary = $value;
     }
 
+    /** Set a table-level comment (rendered as COMMENT= on MySQL, COMMENT ON TABLE on PostgreSQL). */
+    public function comment(string $text): void
+    {
+        $this->tableComment = $text;
+    }
+
     // =========================================================================
     // Getters for SchemaGrammar
     // =========================================================================
@@ -418,6 +427,7 @@ class Blueprint
     public function getTable(): string      { return $this->table; }
     public function getMode(): string       { return $this->mode; }
     public function isTemporary(): bool     { return $this->temporary; }
+    public function getComment(): ?string   { return $this->tableComment; }
     public function getColumns(): array     { return $this->columns; }
     public function getDroppedColumns(): array  { return $this->droppedColumns; }
     public function getRenamedColumns(): array  { return $this->renamedColumns; }
