@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 3)
+## 📅 Last Updated: 2026-05-03 (session 4)
 
 ## 🚀 Completed Milestones
 
@@ -87,22 +87,55 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 - [x] **`Expression`** — extracted to `Expression.php` for PSR-4 autoloader hygiene.
 - [x] **`QueryBuilder` refactored** — grammar injected in constructor (auto-selected from `$db->type` / `$db->timescale`); `setGrammar()` / `getGrammar()` added; state accessors added for Grammar read-only access; all compile logic removed from QB. QB: 1180 → 914 lines.
 
+### Phase 1.3: DatabaseCapabilities Alignment (2026-05-03, session 4)
+
+- [x] **New constants** — `TIMESCALEDB` (alias for `FEATURE_TIMESCALEDB`), `JSONB` (alias for `FEATURE_JSONB`), `MATERIALIZED_VIEWS`, `ENUMS` — aligns with Backport Spec Section 14.1.
+- [x] **Static WeakMap cache** — replaced instance `$cache` array with `static WeakMap` keyed by Database object. Per-connection caching without stale entries across test runs.
+- [x] **New methods** — `hasMaterializedViews(): bool`, `hasEnums(): bool`.
+- [x] Old `FEATURE_*` constants retained with `@deprecated` docblocks for BC.
+
+### Phase 1.4: DDL / Schema Builder (2026-05-03, session 4)
+
+**New classes:**
+- [x] **`ColumnDefinition`** — fluent column descriptor; all modifiers (`nullable`, `default`, `unsigned`, `autoIncrement`, `primary`, `unique`, `after`, `first`, `comment`, `check`, `storedAs`, `virtualAs`, `charset`, `collation`).
+- [x] **`ForeignKeyDefinition`** — fluent FK descriptor; `references()`, `on()`, `onDelete()`, `onUpdate()`, cascade shortcuts.
+- [x] **`Blueprint`** — table structure accumulator; full column-type API (integer, string, text, boolean, timestamp, timestampTz, json, jsonb, uuid, enum, decimal, geometry, …); `timestamps()`, `softDeletes()`; index/FK helpers; ALTER-mode methods (`dropColumn`, `renameColumn`, `dropIndex`, `dropForeign`).
+- [x] **`SchemaGrammarInterface`** — DDL compile contract (createTable, alterTable, drop, views, materialized views, indexes, introspection).
+- [x] **`SchemaGrammar`** (abstract) — shared compilation via Template Method: `compileCreate`, `compileAlter`, `compileColumn`, `compileDrop`, index DDL, view DDL; hooks: `compileAutoIncrement`, `compileTableOptions`, `compileDefaultValue`, `compileColumnPosition`, `inlineForeignKeys`.
+- [x] **`MySQLSchemaGrammar`** — backtick quoting, `TINYINT(1)` boolean, `ENGINE=InnoDB` options, `UNIQUE KEY` syntax, `RENAME TABLE`, inline FK, `AUTO_INCREMENT`, MySQL-only AFTER/FIRST column positioning.
+- [x] **`PostgreSQLSchemaGrammar`** — double-quote quoting, `SERIAL`/`BIGSERIAL` auto-increment, `BOOLEAN`/`TIMESTAMPTZ`/`BYTEA`/`JSONB`/`UUID` types, ENUM→VARCHAR+CHECK, separate FK ALTER statements, full MATERIALIZED VIEW support.
+- [x] **`TimescaleDBSchemaGrammar`** — extends PostgreSQL (stub; hooks ready for hypertable DDL).
+
+**`SchemaBuilder` — full implementation:**
+- [x] `createTable(table, callback)`, `create()` (legacy alias)
+- [x] `alterTable(table, callback)`
+- [x] `dropTable()`, `dropTableIfExists()`, `drop()` (legacy alias), `renameTable()`
+- [x] `truncate()`
+- [x] `hasTable()`, `hasColumn()`
+- [x] `createIndex()`, `createUniqueIndex()`, `dropIndex()`
+- [x] `createView()`, `createOrReplaceView()`, `dropView()`
+- [x] `createMaterializedView()`, `refreshMaterializedView()`, `dropMaterializedView()`
+- [x] `createHypertable()`, `addSpaceDimension()`, `enableCompression()`, `addCompressionPolicy()`, `addRetentionPolicy()` (all silent no-op on non-TimescaleDB backends)
+- [x] `createContinuousAggregate()` — native TimescaleDB / MATERIALIZED VIEW (PG) / VIEW (MySQL) fallback chain
+- [x] `ifCapable(capability, callback, fallback)` — capability-conditional DDL per Backport Spec Section 14.3
+- [x] `getGrammar()` / `setGrammar()` — grammar injection
+- [x] `$db->schema()` alias added to `Database` class
+
+**Tests:**
+- [x] **`tests/Unit/Database/SchemaBuilderUnitTest.php`** — 85 unit tests (no DB connection). Covers: grammar selection (MySQL/PG/TimescaleDB), all MySQL column types, all PG column types, CREATE TABLE (columns, PK, UNIQUE, FK, indexes), ALTER TABLE (add/drop/rename column), DROP/RENAME, index DDL, view DDL, materialized views, `ifCapable` (3 paths), prefix resolution, new DatabaseCapabilities constants/methods, Blueprint helpers.
+
 ---
 
 ## 🛠️ Work in Progress
 
-### Phase 1.4: DDL / Schema Builder
-*Next step after Grammar is in place.*
-- [ ] Fluent DDL interface (`createTable`, `alterTable`, `dropTable`, indexes, constraints, views)
-
-### Phase 1.4: DDL / Schema Builder
-- [ ] Fluent DDL interface (`createTable`, `alterTable`, `dropTable`, indexes, constraints, views)
-- [ ] TimescaleDB Extension Builder (`createHypertable`, `addRetentionPolicy`, `timeBucket`, etc.)
+### Phase 1.4: TimescaleDB Extension Builder
+- [ ] `time_bucket()` dialect translation in QueryBuilder
+- [ ] Continuous aggregate CLI/migration support
 
 ---
 
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 159/171 pass, 12 errors (all pre-existing: no DB connection in local env).
+- **Framework Test Pass Rate:** 421/421 pass (0 failures, 0 errors).
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.

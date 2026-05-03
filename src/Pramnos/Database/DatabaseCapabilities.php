@@ -3,8 +3,11 @@
 namespace Pramnos\Database;
 
 /**
- * Handles detection and management of database engine capabilities.
- * 
+ * Runtime detection and management of database engine capabilities.
+ *
+ * Results are cached per database-connection object (keyed by spl_object_hash)
+ * so repeated has() calls incur no extra queries.
+ *
  * @package     PramnosFramework
  * @subpackage  Database
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
@@ -12,120 +15,203 @@ namespace Pramnos\Database;
  */
 class DatabaseCapabilities
 {
-    const ENGINE_MYSQL = 'mysql';
-    const ENGINE_POSTGRESQL = 'postgresql';
-    const FEATURE_TIMESCALEDB = 'timescaledb';
-    const FEATURE_JSON = 'json';
-    const FEATURE_JSONB = 'jsonb';
-    const FEATURE_FULLTEXT = 'fulltext';
-    const FEATURE_SPATIAL = 'spatial';
+    // -------------------------------------------------------------------------
+    // Engine constants
+    // -------------------------------------------------------------------------
 
-    /**
-     * @var Database
-     */
+    const ENGINE_MYSQL      = 'mysql';
+    const ENGINE_POSTGRESQL = 'postgresql';
+
+    // -------------------------------------------------------------------------
+    // Feature constants — Backport Spec aligned names
+    // -------------------------------------------------------------------------
+
+    const TIMESCALEDB        = 'timescaledb';
+    const JSONB              = 'jsonb';
+    const MATERIALIZED_VIEWS = 'materialized_views';
+    const ENUMS              = 'enums';
+
+    // -------------------------------------------------------------------------
+    // Feature constants — legacy names (kept for backward compatibility)
+    // -------------------------------------------------------------------------
+
+    /** @deprecated Use TIMESCALEDB */
+    const FEATURE_TIMESCALEDB = 'timescaledb';
+    /** @deprecated Use JSONB */
+    const FEATURE_JSONB       = 'jsonb';
+
+    const FEATURE_JSON     = 'json';
+    const FEATURE_FULLTEXT = 'fulltext';
+    const FEATURE_SPATIAL  = 'spatial';
+
+    // -------------------------------------------------------------------------
+    // State
+    // -------------------------------------------------------------------------
+
+    /** @var Database */
     protected $db;
 
     /**
-     * Cache for detected capabilities
-     * @var array
+     * WeakMap<Database, array<string, bool>>
+     *
+     * Keyed by the live Database object — entries are automatically removed
+     * when the object is garbage-collected, so no stale entries survive between
+     * test cases or across long-lived processes that cycle through connections.
+     *
+     * @var \WeakMap|null
      */
-    protected $cache = [];
+    protected static $cache = null;
 
-    /**
-     * Constructor
-     * 
-     * @param Database $db
-     */
+    // -------------------------------------------------------------------------
+    // Construction
+    // -------------------------------------------------------------------------
+
     public function __construct(Database $db)
     {
         $this->db = $db;
     }
 
+    // -------------------------------------------------------------------------
+    // Core API
+    // -------------------------------------------------------------------------
+
     /**
-     * Check if the database has a specific capability/feature.
-     * 
-     * @param string $feature
+     * Returns true if the connected server supports the given capability.
+     *
+     * @param  string $feature  One of the ENGINE_* or FEATURE_* / spec constants.
      * @return bool
      */
-    public function has($feature)
+    public function has($feature): bool
     {
-        if (isset($this->cache[$feature])) {
-            return $this->cache[$feature];
+        $cache = $this->getCache();
+
+        if (!isset($cache[$this->db])) {
+            $cache[$this->db] = [];
         }
 
+        $bucket = $cache[$this->db];
+        if (array_key_exists($feature, $bucket)) {
+            return $bucket[$feature];
+        }
+
+        $result            = $this->detect($feature);
+        $bucket[$feature]  = $result;
+        $cache[$this->db]  = $bucket;
+
+        return $result;
+    }
+
+    protected function getCache(): \WeakMap
+    {
+        if (self::$cache === null) {
+            self::$cache = new \WeakMap();
+        }
+        return self::$cache;
+    }
+
+    // -------------------------------------------------------------------------
+    // Convenience predicates
+    // -------------------------------------------------------------------------
+
+    public function isMySQL(): bool
+    {
+        return $this->has(self::ENGINE_MYSQL);
+    }
+
+    public function isPostgreSQL(): bool
+    {
+        return $this->has(self::ENGINE_POSTGRESQL);
+    }
+
+    public function hasTimescaleDB(): bool
+    {
+        return $this->has(self::TIMESCALEDB);
+    }
+
+    public function hasMaterializedViews(): bool
+    {
+        return $this->has(self::MATERIALIZED_VIEWS);
+    }
+
+    public function hasEnums(): bool
+    {
+        return $this->has(self::ENUMS);
+    }
+
+    // -------------------------------------------------------------------------
+    // Conditional execution
+    // -------------------------------------------------------------------------
+
+    /**
+     * Execute $ifTrue when the capability is present, $ifFalse otherwise.
+     * Both callables receive the Database instance as their sole argument.
+     *
+     * @param  string        $capability
+     * @param  callable      $ifTrue
+     * @param  callable|null $ifFalse
+     * @return mixed
+     */
+    public function ifCapable($capability, callable $ifTrue, ?callable $ifFalse = null)
+    {
+        if ($this->has($capability)) {
+            return $ifTrue($this->db);
+        }
+
+        if ($ifFalse !== null) {
+            return $ifFalse($this->db);
+        }
+
+        return null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Detection logic
+    // -------------------------------------------------------------------------
+
+    protected function detect(string $feature): bool
+    {
         switch ($feature) {
             case self::ENGINE_MYSQL:
                 return $this->db->type === 'mysql';
-            
+
             case self::ENGINE_POSTGRESQL:
                 return $this->db->type === 'postgresql';
-            
-            case self::FEATURE_TIMESCALEDB:
-                $this->cache[$feature] = $this->detectTimescaleDB();
-                return $this->cache[$feature];
+
+            // 'timescaledb' — same value for TIMESCALEDB and FEATURE_TIMESCALEDB
+            case self::TIMESCALEDB:
+                return $this->detectTimescaleDB();
+
+            // 'jsonb' — same value for JSONB and FEATURE_JSONB
+            case self::JSONB:
+                return $this->db->type === 'postgresql';
 
             case self::FEATURE_JSON:
-                if ($this->isMySQL()) {
-                    // MySQL 5.7.8+ supports JSON
-                    return true; 
-                }
-                return $this->isPostgreSQL();
-
-            case self::FEATURE_JSONB:
-                return $this->isPostgreSQL();
+                return true; // MySQL 5.7.8+ and all supported PG versions
 
             case self::FEATURE_FULLTEXT:
-                return true; // Supported by both in modern versions
+                return true; // Both MySQL and PostgreSQL support full-text search
 
             case self::FEATURE_SPATIAL:
-                return true; // Supported by both (GIS/PostGIS)
+                return true; // Both support spatial (GIS / PostGIS)
+
+            case self::MATERIALIZED_VIEWS:
+                return $this->db->type === 'postgresql';
+
+            case self::ENUMS:
+                // PostgreSQL supports named ENUM types via CREATE TYPE ... AS ENUM
+                return $this->db->type === 'postgresql';
         }
 
         return false;
     }
 
-    /**
-     * Is the current database MySQL?
-     * 
-     * @return bool
-     */
-    public function isMySQL()
+    protected function detectTimescaleDB(): bool
     {
-        return $this->has(self::ENGINE_MYSQL);
-    }
-
-    /**
-     * Is the current database PostgreSQL?
-     * 
-     * @return bool
-     */
-    public function isPostgreSQL()
-    {
-        return $this->has(self::ENGINE_POSTGRESQL);
-    }
-
-    /**
-     * Has the database TimescaleDB extension?
-     * 
-     * @return bool
-     */
-    public function hasTimescaleDB()
-    {
-        return $this->has(self::FEATURE_TIMESCALEDB);
-    }
-
-    /**
-     * Detect TimescaleDB extension on PostgreSQL
-     * 
-     * @return bool
-     */
-    protected function detectTimescaleDB()
-    {
-        if (!$this->isPostgreSQL()) {
+        if ($this->db->type !== 'postgresql') {
             return false;
         }
 
-        // Framework might already know via config
+        // Framework config shortcut
         if ($this->db->timescale) {
             return true;
         }
@@ -136,26 +222,5 @@ class DatabaseCapabilities
         } catch (\Throwable $e) {
             return false;
         }
-    }
-
-    /**
-     * Execute a callback only if a capability is present, otherwise execute an optional fallback.
-     * 
-     * @param string $capability
-     * @param callable $ifTrue
-     * @param callable|null $ifFalse
-     * @return mixed
-     */
-    public function ifCapable($capability, callable $ifTrue, ?callable $ifFalse = null)
-    {
-        if ($this->has($capability)) {
-            return $ifTrue($this->db);
-        }
-
-        if ($ifFalse) {
-            return $ifFalse($this->db);
-        }
-
-        return null;
     }
 }
