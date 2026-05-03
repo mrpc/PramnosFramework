@@ -59,6 +59,47 @@ class PostgreSQLGrammar extends Grammar
         return $sql . $this->compileReturning($qb);
     }
 
+    // -------------------------------------------------------------------------
+    // Time-bucket (PostgreSQL — DATE_TRUNC / epoch arithmetic)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Use DATE_TRUNC for standard single-unit intervals; fall back to epoch
+     * arithmetic for arbitrary sub-month intervals (e.g. "15 minutes").
+     *
+     * {@inheritdoc}
+     */
+    public function compileTimeBucket(string $interval, string $column): string
+    {
+        $parsed = self::parseInterval($interval);
+
+        if ($parsed === null) {
+            return "date_trunc('day', {$column})";
+        }
+
+        ['count' => $count, 'unit' => $unit] = $parsed;
+
+        $precision = self::unitToDateTruncPrecision($count, $unit);
+        if ($precision !== null) {
+            return "date_trunc('{$precision}', {$column})";
+        }
+
+        // Arbitrary sub-month interval (e.g. 15 minutes, 6 hours): epoch arithmetic.
+        // Month/year fall through to date_trunc because they can't be expressed in seconds.
+        $seconds = self::unitToSeconds($unit, $count);
+        if ($seconds !== null) {
+            return "to_timestamp(floor(extract(epoch from {$column}) / {$seconds}) * {$seconds})";
+        }
+
+        // Calendar units (month/year) with count > 1 — degrade gracefully
+        $singlePrecision = self::unitToDateTruncPrecision(1, $unit);
+        if ($singlePrecision !== null) {
+            return "date_trunc('{$singlePrecision}', {$column})";
+        }
+
+        return "date_trunc('day', {$column})";
+    }
+
     public function compileUpsert(QueryBuilder $qb, array $values, array $conflictColumns, array $updateValues): string
     {
         $quotedCols   = array_map(fn($c) => $this->quoteColumn($c), array_keys($values));

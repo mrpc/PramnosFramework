@@ -357,4 +357,171 @@ class QueryBuilderUnitTest extends TestCase
 
         $this->assertEquals(0, $result->numRows);
     }
+
+    // =========================================================================
+    // timeBucket() — dialect translation
+    // =========================================================================
+
+    private function makeQBForDialect(string $dbType, bool $timescale = false): QueryBuilder
+    {
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $db->type      = $dbType;
+        $db->timescale = $timescale;
+        $db->prefix    = '';
+        return new QueryBuilder($db);
+    }
+
+    // ---- TimescaleDB ----
+
+    public function testTimeBucketTimescaleDBHour(): void
+    {
+        $qb   = $this->makeQBForDialect('postgresql', true);
+        $expr = $qb->timeBucket('1 hour', 'recorded_at');
+        $this->assertEquals("time_bucket('1 hour', recorded_at)", (string)$expr);
+    }
+
+    public function testTimeBucketTimescaleDBArbitraryInterval(): void
+    {
+        $qb   = $this->makeQBForDialect('postgresql', true);
+        $expr = $qb->timeBucket('15 minutes', 'ts');
+        $this->assertEquals("time_bucket('15 minutes', ts)", (string)$expr);
+    }
+
+    public function testTimeBucketTimescaleDBDay(): void
+    {
+        $qb   = $this->makeQBForDialect('postgresql', true);
+        $expr = $qb->timeBucket('1 day', 'event_time');
+        $this->assertEquals("time_bucket('1 day', event_time)", (string)$expr);
+    }
+
+    // ---- PostgreSQL ----
+
+    public function testTimeBucketPostgreSQLHour(): void
+    {
+        $qb   = $this->makeQBForDialect('postgresql');
+        $expr = $qb->timeBucket('1 hour', 'recorded_at');
+        $this->assertEquals("date_trunc('hour', recorded_at)", (string)$expr);
+    }
+
+    public function testTimeBucketPostgreSQLDay(): void
+    {
+        $qb   = $this->makeQBForDialect('postgresql');
+        $expr = $qb->timeBucket('1 day', 'event_time');
+        $this->assertEquals("date_trunc('day', event_time)", (string)$expr);
+    }
+
+    public function testTimeBucketPostgreSQLMonth(): void
+    {
+        $qb   = $this->makeQBForDialect('postgresql');
+        $expr = $qb->timeBucket('1 month', 'created_at');
+        $this->assertEquals("date_trunc('month', created_at)", (string)$expr);
+    }
+
+    public function testTimeBucketPostgreSQLYear(): void
+    {
+        $qb   = $this->makeQBForDialect('postgresql');
+        $expr = $qb->timeBucket('1 year', 'created_at');
+        $this->assertEquals("date_trunc('year', created_at)", (string)$expr);
+    }
+
+    public function testTimeBucketPostgreSQLWeek(): void
+    {
+        $qb   = $this->makeQBForDialect('postgresql');
+        $expr = $qb->timeBucket('1 week', 'created_at');
+        $this->assertEquals("date_trunc('week', created_at)", (string)$expr);
+    }
+
+    public function testTimeBucketPostgreSQLMinute(): void
+    {
+        $qb   = $this->makeQBForDialect('postgresql');
+        $expr = $qb->timeBucket('1 minute', 'ts');
+        $this->assertEquals("date_trunc('minute', ts)", (string)$expr);
+    }
+
+    public function testTimeBucketPostgresQL15MinutesFallsBackToEpochArithmetic(): void
+    {
+        // "15 minutes" can't map to a DATE_TRUNC precision — uses epoch arithmetic
+        $qb   = $this->makeQBForDialect('postgresql');
+        $expr = $qb->timeBucket('15 minutes', 'ts');
+        $this->assertEquals('to_timestamp(floor(extract(epoch from ts) / 900) * 900)', (string)$expr);
+    }
+
+    public function testTimeBucketPostgresQL6HoursFallsBackToEpochArithmetic(): void
+    {
+        $qb   = $this->makeQBForDialect('postgresql');
+        $expr = $qb->timeBucket('6 hours', 'ts');
+        $this->assertEquals('to_timestamp(floor(extract(epoch from ts) / 21600) * 21600)', (string)$expr);
+    }
+
+    // ---- MySQL ----
+
+    public function testTimeBucketMySQLHour(): void
+    {
+        $qb   = $this->makeQBForDialect('mysql');
+        $expr = $qb->timeBucket('1 hour', 'recorded_at');
+        $this->assertEquals('FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(recorded_at) / 3600) * 3600)', (string)$expr);
+    }
+
+    public function testTimeBucketMySQLDay(): void
+    {
+        $qb   = $this->makeQBForDialect('mysql');
+        $expr = $qb->timeBucket('1 day', 'event_time');
+        $this->assertEquals('FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(event_time) / 86400) * 86400)', (string)$expr);
+    }
+
+    public function testTimeBucketMySQL15Minutes(): void
+    {
+        $qb   = $this->makeQBForDialect('mysql');
+        $expr = $qb->timeBucket('15 minutes', 'ts');
+        $this->assertEquals('FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(ts) / 900) * 900)', (string)$expr);
+    }
+
+    public function testTimeBucketMySQLMonth(): void
+    {
+        $qb   = $this->makeQBForDialect('mysql');
+        $expr = $qb->timeBucket('1 month', 'created_at');
+        $this->assertEquals("DATE_FORMAT(created_at, '%Y-%m-01')", (string)$expr);
+    }
+
+    public function testTimeBucketMySQLYear(): void
+    {
+        $qb   = $this->makeQBForDialect('mysql');
+        $expr = $qb->timeBucket('1 year', 'created_at');
+        $this->assertEquals("DATE_FORMAT(created_at, '%Y-01-01')", (string)$expr);
+    }
+
+    public function testTimeBucketMySQLWeek(): void
+    {
+        $qb   = $this->makeQBForDialect('mysql');
+        $expr = $qb->timeBucket('1 week', 'ts');
+        $this->assertEquals('FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(ts) / 604800) * 604800)', (string)$expr);
+    }
+
+    // ---- Expression column passthrough ----
+
+    public function testTimeBucketAcceptsExpressionAsColumn(): void
+    {
+        $qb  = $this->makeQBForDialect('postgresql', true);
+        $col = $qb->raw('to_timestamp(raw_col)');
+        $expr = $qb->timeBucket('1 hour', $col);
+        $this->assertEquals("time_bucket('1 hour', to_timestamp(raw_col))", (string)$expr);
+    }
+
+    // ---- timeBucket() result usable in GROUP BY / SELECT ----
+
+    public function testTimeBucketUsableInGroupBy(): void
+    {
+        $qb  = $this->makeQBForDialect('mysql');
+        $bucket = $qb->timeBucket('1 hour', 'ts');
+
+        $qb->select([$bucket, 'COUNT(*) AS cnt'])
+           ->from('events')
+           ->groupBy([$bucket]);
+
+        $sql = $qb->toSql();
+        $this->assertStringContainsString('FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(ts) / 3600) * 3600)', $sql);
+        $this->assertStringContainsString('GROUP BY', $sql);
+    }
 }
