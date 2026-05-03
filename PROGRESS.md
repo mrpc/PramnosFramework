@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 8)
+## 📅 Last Updated: 2026-05-03 (session 9)
 
 ## 🚀 Completed Milestones
 
@@ -17,6 +17,13 @@
 - [x] Captured current `getPathAsArray()` runtime behavior as characterization: method currently throws due `Pramnos\\Database\\stdClass` resolution.
 - [x] Verified with `./dockertest --filter AdjacencylistCharacterizationTest` (5 tests, 10 assertions, all passing).
 - [x] Re-verified combined characterization suite with `./dockertest --filter 'AuthCharacterizationTest|JWTCharacterizationTest|AdjacencylistCharacterizationTest'` (19 tests, 38 assertions, all passing).
+
+### Phase 5: Characterization Coverage Wave 3 (2026-05-03, session 9)
+
+- [x] Added `tests/Characterization/Database/MigrationCharacterizationTest.php` to lock base `Migration` behavior: description getter, queued query execution order, exception-swallowing/continue semantics, and default no-op `up()`/`down()`.
+- [x] Added test harness setup for migration logging side effects (`LOG_PATH`) to keep legacy `Logger::log()` path executable during tests.
+- [x] Verified with `./dockertest --filter MigrationCharacterizationTest` (4 tests, 7 assertions, all passing).
+- [x] Re-verified combined characterization suite with `./dockertest --filter 'AuthCharacterizationTest|JWTCharacterizationTest|AdjacencylistCharacterizationTest|MigrationCharacterizationTest'` (23 tests, 45 assertions, all passing).
 
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
