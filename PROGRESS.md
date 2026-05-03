@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 14)
+## 📅 Last Updated: 2026-05-03 (session 15)
 
 ## 🚀 Completed Milestones
 
@@ -76,6 +76,38 @@
 - [x] Confirmed coverage HTML artifacts refresh correctly (`coverage/index.html`, `coverage/dashboard.html` timestamps updated).
 - [x] Confirmed `coverage/clover.xml` remains stale (old mtime), causing XML-based coverage analysis to report outdated numbers.
 - [x] Added this as an explicit backlog fix in `ROADMAP_1.2.md` under characterization findings.
+
+### Phase 5: Characterization Coverage Wave 10 (2026-05-03, session 15)
+
+- [x] Added `tests/Characterization/Application/SettingsCharacterizationTest.php`, `tests/Characterization/Application/ControllerCharacterizationTest.php`, and `tests/Characterization/Application/ViewCharacterizationTest.php` (42 tests total) to lock Application contracts.
+- [x] Captured legacy behaviors for settings loading/defaults, controller action/auth scopes, and view-model binding/default model selection.
+- [x] Verified with `./dockertest --filter 'SettingsCharacterizationTest|ControllerCharacterizationTest|ViewCharacterizationTest'` (all passing).
+
+### Phase 5: Characterization Coverage Wave 11 (2026-05-03, session 15)
+
+- [x] Added `tests/Characterization/Console/CommandsCharacterizationTest.php` (19 tests) to lock command naming, options/arguments, and guard clauses for Console commands.
+- [x] Verified with `./dockertest --filter CommandsCharacterizationTest` (all passing).
+
+### Phase 5: Characterization Coverage Wave 12 (2026-05-03, session 15)
+
+- [x] Added `tests/Characterization/Logs/LogManagerViewerCharacterizationTest.php` (21 tests) for Logger PSR-3 adapters, LogManager file inventory/stats/cleanup, and LogViewer filtering paths.
+- [x] Captured current logger behavior that JSON level output requires non-empty extra context.
+- [x] Verified with `./dockertest --filter LogManagerViewerCharacterizationTest` (all passing).
+
+### Phase 5: Characterization Coverage Wave 13 (2026-05-03, session 15)
+
+- [x] Added `tests/Characterization/User/UserTokenManagementCharacterizationTest.php` (10 tests) for token lifecycle (add/get/list/deactivate/expire/clear/cleanup) and `User::setPassword()` hashing branches.
+- [x] Verified with `./dockertest --filter UserTokenManagementCharacterizationTest` (all passing).
+
+### Phase 5: Characterization Coverage Wave 14 (2026-05-03, session 15)
+
+- [x] Added `tests/Characterization/Cache/FileAdapterCharacterizationTest.php` (19 tests) for FileAdapter/AbstractAdapter contracts: connect/save/load/delete/expiry/prefix/key generation/caching flags.
+- [x] Added `tests/Characterization/Html/HtmlCharacterizationTest.php` (16 tests) for `Breadcrumb`, base `Html`, and `Date` utility contracts.
+- [x] Added `tests/Characterization/General/GeneralCharacterizationTest.php` (53 tests) for `StringHelper` and `Helpers` behavior.
+- [x] Added `tests/Characterization/Geolocation/GeolocationCharacterizationTest.php` and `tests/Characterization/Email/EmailCharacterizationTest.php` (24 tests combined) for math/validation contracts and Email fluent/error-state API.
+- [x] Added `tests/Characterization/Theme/ThemeCharacterizationTest.php` and `tests/Characterization/Media/ThumbnailCharacterizationTest.php` (8 tests combined) for lightweight Theme/Media contracts.
+- [x] Hardened cache test isolation (`FileAdapterCharacterizationTest`) to avoid suite-order side effects from `CACHE_PATH` and removed warning-producing path assumptions.
+- [x] Re-verified full suite with `./dockertest` → 736 tests, 1353 assertions, green (PHPUnit deprecations only).
 
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
