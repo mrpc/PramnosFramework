@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 9)
+## 📅 Last Updated: 2026-05-03 (session 10)
 
 ## 🚀 Completed Milestones
 
@@ -24,6 +24,14 @@
 - [x] Added test harness setup for migration logging side effects (`LOG_PATH`) to keep legacy `Logger::log()` path executable during tests.
 - [x] Verified with `./dockertest --filter MigrationCharacterizationTest` (4 tests, 7 assertions, all passing).
 - [x] Re-verified combined characterization suite with `./dockertest --filter 'AuthCharacterizationTest|JWTCharacterizationTest|AdjacencylistCharacterizationTest|MigrationCharacterizationTest'` (23 tests, 45 assertions, all passing).
+
+### Phase 5: Characterization Coverage Wave 4 (2026-05-03, session 10)
+
+- [x] Added `tests/Characterization/Html/Datatable/DatasourceCharacterizationTest.php` with integration-style characterization coverage for Datasource `render()` behavior: paging output shape, global search + join flow, and per-column wildcard configuration.
+- [x] Captured current fallback behavior for totals: `iTotalRecords` / `iTotalDisplayRecords` currently return `0` when count subqueries fail and control flows through catch/log paths.
+- [x] Added test harness setup for logger side effects (`LOG_PATH`) required by Datasource error/logging paths.
+- [x] Verified with `./dockertest --filter DatasourceCharacterizationTest` (3 tests, 14 assertions, all passing).
+- [x] Re-verified combined characterization suite with `./dockertest --filter 'AuthCharacterizationTest|JWTCharacterizationTest|AdjacencylistCharacterizationTest|MigrationCharacterizationTest|DatasourceCharacterizationTest'` (26 tests, 59 assertions, all passing).
 
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
