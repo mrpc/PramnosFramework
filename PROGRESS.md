@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 16)
+## 📅 Last Updated: 2026-05-03 (session 17)
 
 ## 🚀 Completed Milestones
 
@@ -190,6 +190,26 @@
 
 - [x] Re-verified full suite with `./dockertest` → **818 tests, 1598 assertions, 0 failures**.
 
+### Phase 4: MigrationLoader and CLI Commands (2026-05-03, session 17)
+
+- [x] **`Migration::getSlug()` / `getTimestamp()` filename-first** (`src/Pramnos/Database/Migration.php`): Both methods now check the migration file's basename first (e.g. `2024_03_15_143022_create_users.php`) before falling back to the class short name. PHP class names cannot start with digits, so the file is the authoritative source for timestamp-based ordering.
+- [x] **`MigrationRunner` additions** (`src/Pramnos/Database/MigrationRunner.php`):
+  - `rollback()` gains a `batch` option (`['batch' => N]`) to target a specific batch.
+  - `rollbackAll(array $migrations)` — rolls back all batches in reverse order.
+  - `getHistory(): array` — returns all history rows for `migrate:status`.
+  - Fixed latent `fetchNext()` double-read bug in `getRanSlugs()`, `fetchBatchRows()`, and `getHistory()` (pre-read before while loop caused first row to be counted twice).
+- [x] **`MigrationLoader`** (new `src/Pramnos/Database/MigrationLoader.php`): Discovers Migration subclasses from a directory by including each `*.php` file and matching classes by their defining file path (safe with `include_once` deduplication). Methods: `loadFromDirectory()`, `loadFromDirectories()`.
+- [x] **5 CLI Commands** (all new in `src/Pramnos/Console/Commands/`):
+  - `Migrate` — runs pending migrations with `--scope`, `--feature`, `--force`, `--cutoff` filters.
+  - `MigrateRollback` — rolls back last batch (or `--batch=N`).
+  - `MigrateReset` — rolls back all batches with confirmation prompt.
+  - `MigrateRefresh` — reset + re-run all migrations.
+  - `MigrateStatus` — formatted Table showing Ran / Failed / Pending per migration.
+- [x] All 5 commands registered in `Console\Application::registerCommands()`.
+- [x] **Unit tests** (`tests/Unit/Database/MigrationLoaderUnitTest.php`) — 8 tests: loads only Migration subclasses, ignores plain PHP, slug from timestamped filename, CamelCase slug fallback, metadata accessible, empty/nonexistent dir, `loadFromDirectories()`.
+- [x] **Integration tests** added to MySQL and PostgreSQL runner test files: `testRollbackWithBatchOptionRollsBackSpecificBatch`, `testRollbackAllRemovesAllBatches`, `testGetHistoryReturnsAllRows`, `testGetHistoryReturnsEmptyArrayWhenNoMigrationsRan`.
+- [x] Re-verified full suite with `./dockertest` → **833 tests, 1651 assertions, 0 failures**.
+
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
 - [x] Auto-reconnect logic for database connections.
@@ -340,7 +360,7 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 ---
 
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 818/818 pass (0 failures, 0 errors) — includes unit, integration, and characterization suites.
+- **Framework Test Pass Rate:** 833/833 pass (0 failures, 0 errors) — includes unit, integration, and characterization suites.
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.
