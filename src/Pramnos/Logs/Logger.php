@@ -64,8 +64,8 @@ class Logger
             unset($context['level']);
         }
 
-        // Handle multiline content
-        if (strpos($message, "\n") !== false || !empty($context)) {
+        // Use JSON when: level is set (to avoid losing it), message is multiline, or extra context exists
+        if (isset($entry['level']) || strpos($message, "\n") !== false || !empty($context)) {
             // If message contains newlines or JSON, encode it
             $entry['message'] = str_replace("\n", "\\n", $message);
             
