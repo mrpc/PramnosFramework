@@ -602,6 +602,7 @@
 - [ ] **`Datasource::render()` — count subqueries fallback σε `0`:** Σε αποτυχία των count subqueries τα `iTotalRecords` / `iTotalDisplayRecords` επιστρέφουν `0` από catch path. Να διορθωθεί ο μηχανισμός count ώστε να δίνει σταθερά σωστό total/display total.
 - [ ] **`Logger` hard dependency στο `LOG_PATH`:** Πολλαπλά code paths (Logger, Datasource error logging, Migration execute logging) προϋποθέτουν ορισμένο `LOG_PATH`. Να προστεθεί ασφαλές default/fallback ώστε να μην σπάνε flows/tests όταν λείπει το constant.
 - [ ] **`Model::_generateSpecificCacheKey()` unresolved placeholders:** Όταν το `_dbtable` κρατά unresolved `#PREFIX#`, το παραγόμενο cache key διατηρεί token (`<id>-#PREFIX#table`). Να κανονικοποιείται πλήρως πριν τη δημιουργία cache key.
+- [ ] **Coverage artifact inconsistency (`dockertest --coverage`):** Το HTML report ανανεώνεται (`coverage/index.html`, `coverage/dashboard.html`) αλλά το `coverage/clover.xml` μένει stale (παλιό mtime), με αποτέλεσμα λανθασμένη XML-based ανάλυση. Να ευθυγραμμιστεί η παραγωγή artifacts ώστε το Clover XML να ανανεώνεται στον ίδιο κύκλο.
 
 ---
 
