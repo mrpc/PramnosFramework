@@ -47,6 +47,19 @@ The script ensures the Docker containers are up, dependencies are installed, and
 
 No existing public method signature may change. New capabilities are additive. See `ROADMAP_1.2.md` → "Αρχή Σχεδιασμού: Backward Compatibility" for the full rule set.
 
+### 7. Tests have detailed explanatory comments
+
+Every test method must carry:
+- A **doc-block** explaining *what* is being tested and *why* it matters (the invariant or edge case).
+- **Inline section comments** (`// Arrange`, `// Act`, `// Assert`) to mark the three phases.
+- For non-obvious assertions, a one-line comment explaining what it proves.
+
+This rule overrides the general "no comments" default. The goal is that a developer reading the test understands the contract being verified without having to trace the production code.
+
+### 8. Integration tests are mandatory for every DDL/DML feature
+
+A feature is not considered **done** until it has integration tests that run against the real database (MySQL, PostgreSQL, TimescaleDB via Docker). Unit tests that only verify SQL string output are necessary but not sufficient. Integration tests must verify that the operation actually took effect in the database (schema exists, rows were written, indexes were created, etc.).
+
 ---
 
 ## Session handoff rule
