@@ -68,20 +68,20 @@ class DatabaseCapabilitiesTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // FEATURE_TIMESCALEDB
+    // TIMESCALEDB
     // -------------------------------------------------------------------------
 
     public function testTimescaleDBFalseOnMySQL(): void
     {
         $this->assertFalse(
-            (new DatabaseCapabilities($this->makeDb('mysql')))->has(DatabaseCapabilities::FEATURE_TIMESCALEDB)
+            (new DatabaseCapabilities($this->makeDb('mysql')))->has(DatabaseCapabilities::TIMESCALEDB)
         );
     }
 
     public function testTimescaleDBTrueWhenTimescaleFlagSet(): void
     {
         $caps = new DatabaseCapabilities($this->makeDb('postgresql', true));
-        $this->assertTrue($caps->has(DatabaseCapabilities::FEATURE_TIMESCALEDB));
+        $this->assertTrue($caps->has(DatabaseCapabilities::TIMESCALEDB));
     }
 
     public function testTimescaleDBTrueWhenQueryReturnsRows(): void
@@ -92,7 +92,7 @@ class DatabaseCapabilitiesTest extends TestCase
             ->willReturn($this->makeResult(1));
 
         $caps = new DatabaseCapabilities($db);
-        $this->assertTrue($caps->has(DatabaseCapabilities::FEATURE_TIMESCALEDB));
+        $this->assertTrue($caps->has(DatabaseCapabilities::TIMESCALEDB));
     }
 
     public function testTimescaleDBFalseWhenQueryReturnsNoRows(): void
@@ -103,7 +103,7 @@ class DatabaseCapabilitiesTest extends TestCase
             ->willReturn($this->makeResult(0));
 
         $caps = new DatabaseCapabilities($db);
-        $this->assertFalse($caps->has(DatabaseCapabilities::FEATURE_TIMESCALEDB));
+        $this->assertFalse($caps->has(DatabaseCapabilities::TIMESCALEDB));
     }
 
     public function testTimescaleDBFalseWhenQueryReturnsNull(): void
@@ -114,7 +114,7 @@ class DatabaseCapabilitiesTest extends TestCase
             ->willReturn(null);
 
         $caps = new DatabaseCapabilities($db);
-        $this->assertFalse($caps->has(DatabaseCapabilities::FEATURE_TIMESCALEDB));
+        $this->assertFalse($caps->has(DatabaseCapabilities::TIMESCALEDB));
     }
 
     public function testTimescaleDBFalseWhenQueryThrows(): void
@@ -125,7 +125,7 @@ class DatabaseCapabilitiesTest extends TestCase
             ->willThrowException(new \RuntimeException('connection lost'));
 
         $caps = new DatabaseCapabilities($db);
-        $this->assertFalse($caps->has(DatabaseCapabilities::FEATURE_TIMESCALEDB));
+        $this->assertFalse($caps->has(DatabaseCapabilities::TIMESCALEDB));
     }
 
     public function testTimescaleDBResultIsCached(): void
@@ -137,8 +137,8 @@ class DatabaseCapabilitiesTest extends TestCase
             ->willReturn($this->makeResult(1));
 
         $caps = new DatabaseCapabilities($db);
-        $caps->has(DatabaseCapabilities::FEATURE_TIMESCALEDB);
-        $caps->has(DatabaseCapabilities::FEATURE_TIMESCALEDB); // second call: must use cache
+        $caps->has(DatabaseCapabilities::TIMESCALEDB);
+        $caps->has(DatabaseCapabilities::TIMESCALEDB); // second call: must use cache
         $this->assertTrue(true);
     }
 
@@ -161,20 +161,20 @@ class DatabaseCapabilitiesTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // FEATURE_JSONB
+    // JSONB
     // -------------------------------------------------------------------------
 
     public function testJsonbSupportedOnPostgreSQL(): void
     {
         $this->assertTrue(
-            (new DatabaseCapabilities($this->makeDb('postgresql')))->has(DatabaseCapabilities::FEATURE_JSONB)
+            (new DatabaseCapabilities($this->makeDb('postgresql')))->has(DatabaseCapabilities::JSONB)
         );
     }
 
     public function testJsonbNotSupportedOnMySQL(): void
     {
         $this->assertFalse(
-            (new DatabaseCapabilities($this->makeDb('mysql')))->has(DatabaseCapabilities::FEATURE_JSONB)
+            (new DatabaseCapabilities($this->makeDb('mysql')))->has(DatabaseCapabilities::JSONB)
         );
     }
 
