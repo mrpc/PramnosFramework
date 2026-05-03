@@ -299,11 +299,11 @@ class Result
      */
     public function getAffectedRows()
     {
-        if ($this->database->type == 'postgresql' 
+        if ($this->database->type == 'postgresql'
             && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
             return \pg_affected_rows($this->mysqlResult);
-        } elseif (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \mysqli_result) {
-            return \mysqli_affected_rows($this->mysqlResult);
+        } elseif ($this->database->type == 'mysql') {
+            return \mysqli_affected_rows($this->database->getConnectionLink());
         }
 
         return 0;
