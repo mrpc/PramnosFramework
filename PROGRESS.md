@@ -218,6 +218,17 @@
 - [x] **Unit tests** (`tests/Unit/Application/FeatureRegistryUnitTest.php`) — 20 tests covering: core always enabled, enabled/disabled state, unknown key exception (message + `getFeatureKey()`), accumulation across multiple `loadFromConfig()` calls, empty array no-op, `getEnabled()` always includes core, `getKnown()` lists all built-ins, custom feature registration, overwrite semantics, `getProvider()` null and FQCN, `getMigrationPaths()` empty and set, `getDefinition()` null for unknown, `initDefaults()` after reset, lazy default loading, `reset()` clears state, `UnknownFeatureException` with/without known keys, extends RuntimeException.
 - [x] **`docs/1.2-new-features.md`** — Section 11 added (Feature Registry, UnknownFeatureException, Application integration, usage patterns, BC notes).
 
+### Phase 4: Service Providers (2026-05-03, session 18)
+
+- [x] **`ServiceProvider`** (new `src/Pramnos/Application/ServiceProvider.php`): Abstract base class with `register()` and `boot()` lifecycle hooks (both no-ops by default). Constructor injects `Application $app` stored as `protected $app`.
+- [x] **`Application` additions** (`src/Pramnos/Application/Application.php`):
+  - `$serviceProviders` property — holds queued providers.
+  - `addProvider(ServiceProvider $provider): void` — queues a provider before `init()`.
+  - `bootServiceProviders()` — called by `init()` after `FeatureRegistry::loadFromConfig()`. Instantiates providers from enabled features (skips null/nonexistent FQCNs), merges with manually-added providers, runs `register()` on all, then `boot()` on all.
+- [x] **Unit tests** (`tests/Unit/Application/ServiceProviderUnitTest.php`) — 9 tests: abstract class, no-op defaults, $app accessible in register/boot, two-phase order invariant (all register before any boot), null provider skipped silently, FQCN provider instantiable and booted, manual addProvider, multiple providers phase order, $app property is protected Application type.
+- [x] **`docs/1.2-new-features.md`** — Section 12 added (ServiceProvider, Application changes, bootstrap lifecycle, usage pattern, BC notes).
+- [x] Re-verified full suite with `./dockertest` → **867 tests, 1714 assertions, 0 failures**.
+
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
 - [x] Auto-reconnect logic for database connections.
