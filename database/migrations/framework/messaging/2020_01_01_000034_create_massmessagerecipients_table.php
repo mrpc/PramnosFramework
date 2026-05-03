@@ -34,7 +34,7 @@ class CreateMassmessagerecepientsTable extends Migration
 
             $table->increments('recipientid')
                 ->comment('Auto-increment delivery record identifier');
-            $table->integer('messageid')
+            $table->unsignedInteger('messageid')
                 ->comment('FK to massmessages.messageid — the broadcast this delivery belongs to');
             $table->bigInteger('userid')
                 ->comment('FK to users.userid — the recipient user');
