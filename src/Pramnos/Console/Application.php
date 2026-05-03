@@ -55,6 +55,8 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\MigrateReset());
         $this->add(new \Pramnos\Console\Commands\MigrateRefresh());
         $this->add(new \Pramnos\Console\Commands\MigrateStatus());
+        // Health check (Phase 4)
+        $this->add(new \Pramnos\Console\Commands\HealthCheck());
     }
 
 }

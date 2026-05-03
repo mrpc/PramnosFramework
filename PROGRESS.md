@@ -229,6 +229,21 @@
 - [x] **`docs/1.2-new-features.md`** — Section 12 added (ServiceProvider, Application changes, bootstrap lifecycle, usage pattern, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **867 tests, 1714 assertions, 0 failures**.
 
+### Phase 4: Health Check & Observability (2026-05-03, session 18)
+
+- [x] **`HealthStatus`** (enum, new `src/Pramnos/Health/HealthStatus.php`): `Ok / Degraded / Down` backed by strings. `worst()` returns the more severe of two statuses (Ok < Degraded < Down).
+- [x] **`HealthCheckResult`** (new `src/Pramnos/Health/HealthCheckResult.php`): Immutable value object with `status`, `name`, `message`, `details`. Named constructors `ok()`, `degraded()`, `down()`. `toArray()` for JSON output.
+- [x] **`HealthCheck`** (interface, new `src/Pramnos/Health/HealthCheck.php`): `getName(): string` + `run(): HealthCheckResult`. Implementations must not throw.
+- [x] **`HealthRegistry`** (new `src/Pramnos/Health/HealthRegistry.php`): Static registry. `register()`, `get()`, `getNames()`, `run()`, `runAll()`, `reset()`. `runAll()` returns `{status, checks}` aggregate.
+- [x] **Built-in checks** (all new in `src/Pramnos/Health/Checks/`):
+  - `DatabaseConnectivityCheck` — `SELECT 1` probe with latency measurement.
+  - `DiskSpaceCheck` — free MB vs degraded/down thresholds.
+  - `MemoryLimitCheck` — PHP memory usage % vs degraded/down thresholds.
+- [x] **`health:check` CLI command** (new `src/Pramnos/Console/Commands/HealthCheck.php`): Table or `--json` output. `--only=name1,name2` filter. Exit codes: 0=ok, 1=degraded, 2=down. Registered in `Console\Application`.
+- [x] **Unit tests** (`tests/Unit/Health/HealthCheckUnitTest.php`) — 25 tests covering: HealthStatus worst(), named constructors, toArray(), readonly properties, HealthRegistry CRUD + runAll() + reset(), DiskSpaceCheck all three statuses, MemoryLimitCheck, custom check interface.
+- [x] **`docs/1.2-new-features.md`** — Section 13 added.
+- [x] Re-verified full suite with `./dockertest` → **892 tests, 1765 assertions, 0 failures**.
+
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
 - [x] Auto-reconnect logic for database connections.
