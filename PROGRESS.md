@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 15)
+## 📅 Last Updated: 2026-05-03 (session 16)
 
 ## 🚀 Completed Milestones
 
@@ -144,6 +144,51 @@
 - [x] Added `tests/Characterization/Application/LogControllerCharacterizationTest.php` (5 tests) to lock deterministic `LogController` helper behavior: whitelist auto-population/blacklist filtering/sorting, action-button rendering contract, and date-aware line processing callbacks.
 - [x] Verified with `./dockertest --filter LogControllerCharacterizationTest` (5 tests, 26 assertions, all passing).
 - [x] Re-verified full suite with `./dockertest` → 782 tests, 1477 assertions, green (PHPUnit deprecations only).
+
+### Backlog Bug Fixes (2026-05-03, session 16)
+
+- [x] **`Adjacencylist::getPathAsArray()` — `stdClass` namespace bug** (`src/Pramnos/Database/Adjacencylist.php`): `new stdClass()` resolved to `Pramnos\Database\stdClass`. Fixed to `new \stdClass()`.
+- [x] **`Logger` PSR-3 level lost with empty context** (`src/Pramnos/Logs/Logger.php`): `formatLogEntry()` only used JSON format when `!empty($context)`, silently dropping `level` for calls like `Logger::info('msg', [])`. Fixed by adding `isset($entry['level'])` as an OR condition — JSON format is now always used when a PSR-3 level is set.
+- [x] Updated `AdjacencylistCharacterizationTest` to replace the expected-Error test with a correct-behavior assertion after the namespace fix.
+- [x] Added `testLoggerLevelIsPreservedWithoutExtraContext()` to `LogManagerViewerCharacterizationTest` to lock the corrected behavior.
+
+### Phase 4: Migration System Overhaul (2026-05-03, session 16)
+
+- [x] **Enhanced `Migration` base class** (`src/Pramnos/Database/Migration.php`):
+  - New metadata fields: `$feature`, `$scope` (default `'app'`), `$priority` (default `50`), `$dependencies`, `$autorun` (default `true`), `$description`.
+  - PHP 8.4 hooked property `$autoExecute` (BC alias) — delegates get/set to `$autorun` with no backing storage.
+  - `getSlug()` — derives migration identifier from class name: strips `YYYY_MM_DD_HHmmss_` timestamp prefix or converts CamelCase to snake_case.
+  - `getTimestamp()` — extracts `YYYY_MM_DD_HHmmss` prefix for cutoff filtering and tie-breaking sort.
+  - `extractSlugFromName()` / `extractTimestampFromName()` — protected static helpers exposed for testing.
+
+- [x] **New `MigrationRunner` class** (`src/Pramnos/Database/MigrationRunner.php`):
+  - `__construct(?Database $db = null, string $historyTable = 'framework_migrations')`.
+  - `ensureHistoryTable()` — `CREATE TABLE IF NOT EXISTS` with full Phase 4 columns (`migration`, `scope`, `feature`, `batch`, `execution_time`, `result`, `error_message`, `description`, `ran_at`). MySQL and PostgreSQL variants (SERIAL/TIMESTAMPTZ/INT/DATETIME).
+  - `run(array $migrations, array $options = [])` — full pipeline: sort → filterAutorun → filterCutoff → getPending → nextBatch → execute `up()` per migration → recordHistory. Catches `\Throwable`; failed migrations are recorded with `result=0` and `error_message`; batch continues.
+  - `rollback(array $migrations, array $options = [])` — last-batch detection, reverse-order `down()` calls, `deleteHistoryRow()` per rolled-back migration.
+  - `getPending(array $migrations)` — queries `getRanSlugs()` (result=1 only) then calls `filterAlreadyRan()`.
+  - `sort(array $migrations, array $alreadyRan = [])` — Kahn's topological sort; deps in `$alreadyRan` treated as already satisfied (enables incremental run() calls across batches); throws `RuntimeException` on cyclic dependency or unresolvable dep.
+  - `filterAutorun(array, bool $force)`, `filterCutoff(array, string $cutoff)`, `filterAlreadyRan(array, array $ranSlugs)` — all public for composable use.
+
+- [x] **Unit tests** (`tests/Unit/Database/MigrationRunnerUnitTest.php`) — 18 tests, all green:
+  - Slug extraction from timestamped / non-timestamped / CamelCase class names.
+  - Timestamp extraction and null return for legacy names.
+  - BC defaults (feature/scope/priority/dependencies/autorun/autoExecute alias).
+  - `autorun=false` reflects via `autoExecute` property hook.
+  - Sort: priority ascending, datetime tie-break, dependency ordering, transitive chains, cycle detection, unresolvable dep exception.
+  - `filterAutorun` (with and without force), `filterCutoff` (older, exact match, untimestamped), `filterAlreadyRan`.
+
+- [x] **MySQL integration tests** (`tests/Integration/Database/MigrationRunnerMySQLTest.php`) — 10 tests, all green:
+  - `ensureHistoryTable()` column presence + idempotency.
+  - `run()` creates tables, records history with correct metadata (scope, feature, result, ran_at).
+  - Batch number increments across separate `run()` calls.
+  - Failed migration records result=0 + error_message; subsequent migration in same batch still runs.
+  - `getPending()` excludes successful migrations, includes failed (retryable), includes new ones.
+  - `rollback()` calls `down()`, drops tables, removes history rows.
+
+- [x] **PostgreSQL integration tests** (`tests/Integration/Database/MigrationRunnerPostgreSQLTest.php`) — 7 tests, all green: same coverage as MySQL against the TimescaleDB/PostgreSQL Docker container.
+
+- [x] Re-verified full suite with `./dockertest` → **818 tests, 1598 assertions, 0 failures**.
 
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
@@ -295,7 +340,7 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 ---
 
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 456/456 pass (0 failures, 0 errors).
+- **Framework Test Pass Rate:** 818/818 pass (0 failures, 0 errors) — includes unit, integration, and characterization suites.
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.
