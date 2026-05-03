@@ -122,21 +122,24 @@ class QueryBuilderUnitTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // toSql() dispatch for INSERT and UPDATE stubs
+    // toSql() — INSERT/UPDATE fall through to SELECT (values not stored on QB)
     // -------------------------------------------------------------------------
 
-    public function testToSqlInsertReturnsEmptyString(): void
+    public function testToSqlInsertFallsThroughToSelect(): void
     {
         $qb = $this->makeQB()->from('users');
         $this->setType($qb, 'INSERT');
-        $this->assertEquals('', $qb->toSql());
+        // No values stored on QB, so toSql() compiles as SELECT
+        $sql = $qb->toSql();
+        $this->assertStringStartsWith('SELECT', $sql);
     }
 
-    public function testToSqlUpdateReturnsEmptyString(): void
+    public function testToSqlUpdateFallsThroughToSelect(): void
     {
         $qb = $this->makeQB()->from('users');
         $this->setType($qb, 'UPDATE');
-        $this->assertEquals('', $qb->toSql());
+        $sql = $qb->toSql();
+        $this->assertStringStartsWith('SELECT', $sql);
     }
 
     // -------------------------------------------------------------------------
@@ -149,5 +152,29 @@ class QueryBuilderUnitTest extends TestCase
         $sql = $qb->toSql();
         $this->assertStringStartsWith('SELECT', $sql);
         $this->assertStringContainsString('FROM users', $sql);
+    }
+
+    // -------------------------------------------------------------------------
+    // Grammar injection via setGrammar / getGrammar
+    // -------------------------------------------------------------------------
+
+    public function testSetAndGetGrammar(): void
+    {
+        $qb      = $this->makeQB('mysql');
+        $grammar = new \Pramnos\Database\Grammar\PostgreSQLGrammar();
+        $qb->setGrammar($grammar);
+        $this->assertSame($grammar, $qb->getGrammar());
+    }
+
+    public function testMySQLQBGetsMySQLGrammar(): void
+    {
+        $qb = $this->makeQB('mysql');
+        $this->assertInstanceOf(\Pramnos\Database\Grammar\MySQLGrammar::class, $qb->getGrammar());
+    }
+
+    public function testPostgreSQLQBGetsPostgreSQLGrammar(): void
+    {
+        $qb = $this->makeQB('postgresql');
+        $this->assertInstanceOf(\Pramnos\Database\Grammar\PostgreSQLGrammar::class, $qb->getGrammar());
     }
 }
