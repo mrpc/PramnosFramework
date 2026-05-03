@@ -51,6 +51,8 @@
 
 Το Docker environment περιλαμβάνει επίτηδες και τις τρεις βάσεις (`db` → MySQL 8.0, `timescaledb` → PostgreSQL 14 + TimescaleDB). Κάθε test που αφορά database logic **εκτελείται υποχρεωτικά και στις τρεις**.
 
+> **Σημείωση υποδομής:** Και οι δύο Docker databases υπάρχουν ήδη αλλά είναι αδειες — εκτελούν unit tests χωρίς schema. Μόλις ολοκληρωθεί το Migration System και τρέξουν τα framework migrations, θα είναι πλήρως λειτουργικές για integration tests × 3 databases. Στο interim, τα database integration tests εκτελούνται μέσω του Urbanwater test suite (PostgreSQL + TimescaleDB).
+
 **Τα migration tests είναι πάντα integration tests.** Δεν αρκεί να επαληθεύεται ότι ο κώδικας εκτελείται χωρίς exception — κάθε test ελέγχει την πραγματική κατάσταση της βάσης (ύπαρξη πίνακα, στηλών, constraints, indexes) μέσω queries στο `information_schema` ή αντίστοιχο catalog. Το ίδιο ισχύει για rollback: επαληθεύεται ότι ο πίνακας/η στήλη **όντως αφαιρέθηκε**.
 
 | Test Suite | MySQL | PostgreSQL | TimescaleDB |
@@ -157,13 +159,42 @@
 - [x] **`DatabaseCapabilities` — Runtime Detection & Graceful Fallback:** Κλάση που ανιχνεύει τις δυνατότητες του τρέχοντος database backend και επιτρέπει capability-conditional DDL. **Κάθε TimescaleDB feature πρέπει να έχει silent fallback για MySQL και plain PostgreSQL** — κανένα migration ή query δεν επιτρέπεται να αποτύχει με fatal error σε non-TimescaleDB περιβάλλον.
   - [x] `DatabaseCapabilities::has(string $capability): bool` — runtime detection (check `pg_extension` για TimescaleDB)
   - [x] `DatabaseCapabilities::isMySQL()` / `isPostgreSQL()` / `hasTimescaleDB()`
-  - Schema Builder `->ifCapable(capability, callable $ifTrue, ?callable $ifFalse)` — conditional DDL execution
-  - **`time_bucket()` dialect translation:** TimescaleDB → `time_bucket()`, plain PG → `DATE_TRUNC()`, MySQL → `DATE_FORMAT()` — transparent μέσω `QueryBuilder::timeBucket()`
-  - **Retention policy fallback:** Queue-based daily DELETE job όταν `add_retention_policy()` δεν είναι διαθέσιμο
-  - **Continuous aggregate fallback:** `MATERIALIZED VIEW` σε plain PG, refreshed cache table σε MySQL (queue job)
-  - **Compression policy fallback:** Silent no-op — δεδομένα αποθηκεύονται ασυμπίεστα, καμία error
-  - **Hypertable fallback:** Regular table — η εφαρμογή λειτουργεί αργότερα αλλά χωρίς crash
+  - [x] `DatabaseCapabilities::ifCapable(string $cap, callable $ifTrue, ?callable $ifFalse)` — conditional execution
+  > ⚠️ **Απόκλιση από Backport Spec (Section 14.1) — χρειάζεται alignment πριν το Schema Builder:**
+  > - Constant: `FEATURE_TIMESCALEDB` (υλοποίηση) έναντι `TIMESCALEDB` (spec)
+  > - Cache: instance-level (υλοποίηση) έναντι `static` (spec) — δεν μοιράζεται μεταξύ instances
+  > - Λείπουν: capabilities `MATERIALIZED_VIEWS`, `ENUMS` — και αντίστοιχες `hasMaterializedViews()`, `hasEnums()`
+  > - `ifCapable()` βρίσκεται στη `DatabaseCapabilities` (υλοποίηση) έναντι `SchemaBuilder` (spec)
+  - [ ] Schema Builder `->ifCapable(capability, callable $ifTrue, ?callable $ifFalse)` — conditional DDL execution
+  - [ ] **`time_bucket()` dialect translation:** TimescaleDB → `time_bucket()`, plain PG → `DATE_TRUNC()`, MySQL → `DATE_FORMAT()` — transparent μέσω `QueryBuilder::timeBucket()`
+  - [ ] **Retention policy fallback:** εγγραφή στο `framework_policies` → Policy Engine εκτελεί DELETE job
+  - [ ] **Continuous aggregate fallback:** `MATERIALIZED VIEW` σε plain PG, refreshed cache table σε MySQL — εγγραφή στο `framework_policies` για αυτόματο refresh
+  - [ ] **Compression policy fallback:** Silent no-op — δεδομένα αποθηκεύονται ασυμπίεστα, καμία error
+  - [ ] **Hypertable fallback:** Regular table — η εφαρμογή λειτουργεί (αργότερα) αλλά χωρίς crash
   - Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 14
+
+- [ ] **Policy Engine Daemon — TimescaleDB Fallback Simulator:** Σύστημα που προσομοιώνει τις χρονοδιαγραμμένες λειτουργίες του TimescaleDB (retention policies, continuous aggregate refresh, compression) σε MySQL και plain PostgreSQL, όπου δεν υπάρχει native scheduler.
+
+  **`framework_policies` table** *(scope: `core`)*:
+  ```sql
+  policyid     SERIAL        PRIMARY KEY
+  policy_type  VARCHAR(50)   -- 'retention' | 'aggregate_refresh' | 'compression' | 'cache_rebuild'
+  target       VARCHAR(255)  -- όνομα πίνακα ή view
+  config       JSON          -- {interval, time_column, keep_last, ...} — backend-specific
+  enabled      BOOLEAN       DEFAULT true
+  last_run     TIMESTAMP     NULL
+  next_run     TIMESTAMP     NULL
+  last_result  TEXT          NULL
+  last_error   TEXT          NULL
+  created_at   TIMESTAMP     DEFAULT NOW()
+  ```
+
+  **Ροή:** Το `fallback_fn` μέσα στο `ifCapable()` καταχωρεί αυτόματα εγγραφή στο `framework_policies`. Το Policy Engine daemon διαβάζει τον πίνακα και εκτελεί περιοδικά:
+  - `retention` → `DELETE FROM target WHERE time_column < NOW() - INTERVAL config.interval`
+  - `aggregate_refresh` → εκ νέου φόρτωση materialized view ή cache table
+  - `compression` → no-op ή custom compression ανά backend
+  - Σε TimescaleDB-enabled περιβάλλον: native policies ενεργοποιούνται — ο Policy Engine δεν αναλαμβάνει αυτές τις εργασίες
+  - Εκτίθεται ως CLI command: `service:policy-engine` (extends `CommandBase`, τρέχει ως daemon ή cron job)
 
 - [ ] **Full ORM Layer:** Επέκταση του υπάρχοντος `Pramnos\Application\Model` σε πλήρες ORM:
   - **Relationships:** `hasOne()`, `hasMany()`, `belongsTo()`, `belongsToMany()`, `hasManyThrough()`
@@ -193,11 +224,16 @@
 ## 📦 Φάση 2: Urbanwater Features Port
 *Μεταφορά και ενσωμάτωση ώριμων υποσυστημάτων από το Urbanwater project στο Core Framework. Κάθε feature ενσωματώνεται ως αυτόνομο, opt-in component — ενεργοποιείται μέσω του Feature Registry (Φάση 4) και φέρει τα δικά του system migrations.*
 
+> ⚠️ **Προϋπόθεση:** Η Φάση 2 εξαρτάται πλήρως από τη Φάση 4. Τα backport features χρησιμοποιούν Feature Registry για ενεργοποίηση, Service Providers για bootstrap, και System Migrations για schema. **Καμία από τις παρακάτω υλοποιήσεις δεν μπορεί να ολοκληρωθεί πριν τελειώσει η Φάση 4.** Σωστή σειρά υλοποίησης: Φάση 1 → Φάση 4 → Φάση 2.
+
 - [ ] **OAuth Server** *(feature key: `authserver`)*: Ενσωμάτωση του πλήρους oAuth Server ως core component του framework.
 - [ ] **Authentication System** *(feature key: `auth`)*: Νέο, αναβαθμισμένο σύστημα πιστοποίησης, βασισμένο στον oAuth Server.
 - [ ] **Queues System** *(feature key: `queue`)*: Σύστημα για Queues και Workers για εκτέλεση jobs στο background.
 - [ ] **Messaging** *(feature key: `messaging`)*: Σύστημα μηνυμάτων — threads, recipients, read status.
-- [ ] **Daemons & Background Tasks:** Ολοκληρωμένο σύστημα δημιουργίας, διαχείρισης και επίβλεψης daemons/background tasks.
+- [ ] **Daemons & Background Tasks:** Ολοκληρωμένο σύστημα δημιουργίας, διαχείρισης και επίβλεψης daemons/background tasks. Περιλαμβάνει:
+  - Γενικό daemon framework (process management, signals, heartbeat)
+  - **Policy Engine Daemon** (`service:policy-engine`): TimescaleDB fallback simulator — εκτελεί retention/aggregate-refresh/compression policies σε MySQL/plain PG μέσω του `framework_policies` table (βλ. Φάση 1)
+  - **Scheduled Tasks** (`service:scheduler`): Cron-like σύστημα για επαναλαμβανόμενα jobs που ορίζονται κώδικα (cron expression ή interval) — αντικαθιστά system crontab entries
 - [ ] **CLI UX Improvements:** Αναβάθμιση της εμπειρίας στο terminal (Progress bars, formatted tables, styling) στα CLI commands.
 - [ ] **Event / Hook System:** Επίσημο σύστημα events και listeners πάνω από το υπάρχον addon hook σύστημα — `Event::fire()`, `Event::listen()` — για αποσύζευξη εσωτερικών subsystems και δυνατότητα επέκτασης από addons.
   > **BC Strategy:** Τα υπάρχοντα addon hooks (Login, Logout, Auth κλπ.) εξακολουθούν να πυροδοτούνται κανονικά. Το νέο Event system τρέχει παράλληλα — δεν τα αντικαθιστά.
@@ -377,11 +413,32 @@
 
   | Feature | Tables που δημιουργεί |
   |---|---|
-  | `core` *(πάντα ενεργό)* | `sessions`, `settings`, `permissions`, `framework_migrations` |
+  | `core` *(πάντα ενεργό)* | `sessions`, `settings`, `permissions`, `framework_migrations`, `framework_policies` |
   | `auth` | `users`, `roles`, `user_roles`, `password_resets` |
   | `authserver` | `oauth_clients`, `oauth_tokens`, `oauth_authorization_codes`, `oauth_scopes` |
   | `messaging` | `messages`, `message_threads`, `message_recipients` |
   | `queue` | `jobs`, `failed_jobs`, `job_batches` |
+
+- [ ] **Scheduled Tasks System:** Cron-like σύστημα για τον ορισμό επαναλαμβανόμενων εργασιών μέσα στον κώδικα — χωρίς εξάρτηση από system crontab. Εκτελείται μέσω του `service:scheduler` daemon ή `schedule:run` εντολής.
+
+  ```php
+  // Ορισμός σε ServiceProvider::boot()
+  $scheduler->command('cleanup:temp')->daily()->at('02:00');
+  $scheduler->call(fn() => Cache::flush())->everyHour();
+  $scheduler->job(new RefreshAnalyticsJob())->cron('*/15 * * * *');
+  ```
+
+  - Cron expression support (`* * * * *`) και named intervals (`daily()`, `hourly()`, `weekly()`)
+  - Overlap prevention: αν η προηγούμενη εκτέλεση τρέχει ακόμα, η νέα παραλείπεται (opt-in `withoutOverlapping()`)
+  - Logging στο framework Logs subsystem (start/end/duration/error)
+  - `schedule:list` CLI command — εμφανίζει όλα τα registered tasks με next run time
+
+- [ ] **Health Check & Observability:** Ενσωματωμένο σύστημα ελέγχου υγείας της εφαρμογής.
+  - `health:check` CLI command — εκτελεί όλους τους registered health checks και εμφανίζει αποτέλεσμα
+  - Opt-in `/health` HTTP endpoint — επιστρέφει JSON `{status: ok|degraded|down, checks: {...}}` για load balancers και monitoring
+  - Built-in checks: database connectivity (R/W), replica lag, disk space, PHP memory limit, cache reachability
+  - Custom checks μέσω `HealthCheck` interface — addons μπορούν να καταχωρούν δικά τους checks
+  - Υποστήριξη secret token για προστασία του `/health` endpoint από public access
 
 - [ ] **Migration CLI Commands:** Πλήρες σετ εντολών για τη διαχείριση migrations:
 
@@ -428,13 +485,15 @@
 
 > ⚠️ **Κάθε characterization test εκτελείται υποχρεωτικά και στις τρεις βάσεις** (MySQL, PostgreSQL, TimescaleDB) μέσω του Docker environment. Ένα test που γράφεται μόνο για MySQL δεν θεωρείται ολοκληρωμένο.
 
-- [x] **Characterization Tests — `Model`:** Κάλυψη `get()`, `save()`, `delete()`, column introspection, change tracking, και caching integration — **× 3 databases**.
-- [x] **Characterization Tests — `DataTable`:** Κάλυψη dynamic filtering, multi-column sorting, pagination, και παραγόμενο SQL output — **× 3 databases**.
+- [~] **Characterization Tests — `Model`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη `get()`, `save()`, `delete()`, column introspection, change tracking, και caching integration. Απαιτείται: επέκταση σε MySQL + TimescaleDB, επίσημα framework tests — **× 3 databases**.
+- [~] **Characterization Tests — `DataTable`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη dynamic filtering, multi-column sorting, pagination, και παραγόμενο SQL output. Απαιτείται: επέκταση σε MySQL + TimescaleDB — **× 3 databases**.
 - [ ] **Characterization Tests — `Migration`:** Κάλυψη schema creation/alteration/rollback — **× 3 databases**. Περιλαμβάνει: σωστή ταξινόμηση (priority/deps/datetime), σεβασμό του `migration_cutoff`, συμπεριφορά autorun=false, καταγραφή αποτυχίας στο history.
 - [ ] **Characterization Tests — `Adjacencylist`:** Κάλυψη parent/children traversal, depth queries, και tree reconstruction — **× 3 databases**.
-- [x] **Characterization Tests — `Auth`:** Κάλυψη credential lookup, session persistence, permission resolution, JWT issuance και login/logout flows — **× 3 databases**.
-- [x] **Characterization Tests — `User`:** Κάλυψη create, update, lookup, role assignment — **× 3 databases**.
-- [x] **Characterization Tests — `Logs`:** Κάλυψη log insertion και query — **× 3 databases**, με ξεχωριστές assertions για το TimescaleDB hypertable path.
+- [~] **Characterization Tests — `Auth`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη credential lookup, session persistence, permission resolution. Απαιτείται: JWT issuance, login/logout flows, MySQL + TimescaleDB — **× 3 databases**.
+- [~] **Characterization Tests — `User`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη create, update, lookup, role assignment. Απαιτείται: επέκταση σε MySQL + TimescaleDB — **× 3 databases**.
+- [~] **Characterization Tests — `Logs`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη log insertion και query. Απαιτείται: επέκταση σε MySQL + TimescaleDB, ξεχωριστές assertions για hypertable path — **× 3 databases**.
+
+> **Σημείωση για `[~]` (μερική κάλυψη):** Τα tests αυτά υπάρχουν στο Urbanwater integration suite και τρέχουν κατά τη διάρκεια ανάπτυξης ενάντια σε PostgreSQL + TimescaleDB. **Δεν** είναι επίσημα framework characterization tests × 3 databases — δεν τρέχουν σε MySQL και δεν βρίσκονται σε `tests/Characterization/`. Κατά συνέπεια, η Φάση 1 Internal Migration ολοκληρώθηκε χωρίς τη formal προϋπόθεση. Χρειάζεται επίσημη ολοκλήρωση πριν οποιοδήποτε επιπλέον refactoring.
 
 ### New Feature Tests (>90% coverage, στόχος 100%)
 *Κάθε νέο feature που παραδίδεται στη v1.2 πρέπει να συνοδεύεται από tests που καλύπτουν τουλάχιστον το 90% του κώδικά του. Database-related features εκτελούνται × 3.*
@@ -467,25 +526,79 @@
 
 ## 🔗 Σειρά Εξάρτησης Υλοποίησης
 
-Η παρακάτω σειρά είναι **υποχρεωτική** για τη διατήρηση BC κατά τη migration:
+Η παρακάτω σειρά είναι **υποχρεωτική**. Οι εξαρτήσεις μεταξύ φάσεων δεν είναι ευθύγραμμες — η Φάση 4 πρέπει να προηγηθεί της Φάσης 2, και τα Characterization Tests (Φάση 5) πρέπει να γραφούν **πριν** το Internal Migration, όχι μετά.
 
 ```
-[Φάση 1] QueryBuilder & Schema Builder υλοποίηση
-         + Tests (>90% coverage, × 3 databases)
-         + Docblocks & inline comments
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ΣΤΑΔΙΟ Α: Grammar & DML QueryBuilder (τρέχει)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Φάση 1] DML QueryBuilder — missing features
+         (whereNull, whereBetween, UNION, CTEs, window functions,
+          INSERT IGNORE / ON CONFLICT, TRUNCATE)
          ↓
-[Φάση 5] Characterization Tests για κάθε SQL-heavy class (× 3 databases)
+[Φάση 1] Grammar/Adapter Pattern
+         (MySQLGrammar, PostgreSQLGrammar, TimescaleDBGrammar)
+         Απαραίτητο πριν οποιοδήποτε DDL — διαφορετικά το
+         dialect-specific SQL συσσωρεύεται ως scattered if-checks
          ↓
-[Φάση 1] Internal Migration: κάθε class ξαναγράφεται με QB
+[Φάση 1] DatabaseCapabilities alignment με Backport Spec
+         (constants, static cache, MATERIALIZED_VIEWS, ENUMS,
+          ifCapable() στο SchemaBuilder)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ΣΤΑΔΙΟ Β: DDL Schema Builder
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Φάση 1] DDL / Schema Builder
+         (createTable, alterTable, indexes, views, mat.views, triggers)
          ↓
-[Φάση 5] Επανεκτέλεση των ίδιων tests → πρέπει να περνούν όλα (× 3 databases)
+[Φάση 1] TimescaleDB Extension Builder
+         (createHypertable, retention/compression/aggregate policies)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ΣΤΑΔΙΟ Γ: Framework Infrastructure (Φάση 4 πριν Φάση 2)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Φάση 4] Migration System Overhaul
+         (framework_migrations metadata, topological sort,
+          migration_cutoff, autorun, CLI commands)
+         ↓
+[Φάση 4] Feature Registry & app.php Integration
+         ↓
+[Φάση 4] Service Providers (register/boot lifecycle)
+         ↓
+[Φάση 4] Policy Engine / Scheduled Tasks / Health Check
+         (χρειάζεται Migration System για το framework_policies table)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ΣΤΑΔΙΟ Δ: Characterization Tests — ΠΡΙΝ το Internal Migration
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Φάση 5] Επίσημα Characterization Tests × 3 databases
+         για: Model, DataTable, Auth, User, Logs, Adjacencylist
+         ⚠️ Τα υπάρχοντα Urbanwater tests μετρούν ως μερική
+         κάλυψη PostgreSQL μόνο — δεν αρκούν
+         ↓
+[Φάση 1] Internal Migration (υπόλοιπα: Migration, Adjacencylist,
+         Auth, User, Logs) χρησιμοποιώντας QueryBuilder
+         ↓
+[Φάση 5] Επανεκτέλεση characterization tests → πρέπει να
+         περνούν ΟΛΟΙ × 3 databases
          ↓
          ✅ BC αποδεδειγμένα διατηρήθηκε
 
-[Κάθε Φάση] docs/1.2-new-features.md ενημερώνεται παράλληλα με την υλοποίηση
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ΣΤΑΔΙΟ Ε: Backport Features (Φάση 2) — μετά τη Φάση 4
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Φάση 2] OAuth Server, Auth System, Queue, Messaging, Daemons
+         (απαιτούν Feature Registry + Service Providers + Migrations)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ RELEASE GATES (παράλληλα με όλα τα στάδια)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Κάθε Φάση] docs/1.2-new-features.md ενημερώνεται παράλληλα
 [Release]   Coverage check: νέα features >90%, υπάρχον codebase >80%
             → Αν αποτύχει, το release δεν προχωρά
 ```
+
+> **Παρατήρηση για την τρέχουσα κατάσταση:** Η Φάση 1 Internal Migration ολοκληρώθηκε (Model, DataTable) **χωρίς** προηγούμενα επίσημα characterization tests × 3 databases. Τα Urbanwater tests χρησίμευσαν ως de facto characterization suite αλλά καλύπτουν μόνο PostgreSQL + TimescaleDB. Προτού αγγιχτεί οποιοδήποτε άλλο class (Auth, User, Logs, Adjacencylist), τα επίσημα tests πρέπει να γραφούν.
 
 ---
 
