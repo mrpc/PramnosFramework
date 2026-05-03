@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 13)
+## 📅 Last Updated: 2026-05-03 (session 14)
 
 ## 🚀 Completed Milestones
 
@@ -69,6 +69,13 @@
 	- `Datasource::render()` count-subquery fallback returning `0`
 	- `Logger` hard dependency on `LOG_PATH`
 	- `Model::_generateSpecificCacheKey()` unresolved `#PREFIX#` placeholders
+
+### Coverage Artifact Validation (2026-05-03, session 14)
+
+- [x] Ran full suite with coverage via `./dockertest --coverage` (524 tests, 997 assertions, green).
+- [x] Confirmed coverage HTML artifacts refresh correctly (`coverage/index.html`, `coverage/dashboard.html` timestamps updated).
+- [x] Confirmed `coverage/clover.xml` remains stale (old mtime), causing XML-based coverage analysis to report outdated numbers.
+- [x] Added this as an explicit backlog fix in `ROADMAP_1.2.md` under characterization findings.
 
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
