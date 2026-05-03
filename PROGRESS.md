@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 17)
+## 📅 Last Updated: 2026-05-03 (session 19)
 
 ## 🚀 Completed Milestones
 
@@ -264,6 +264,22 @@
 - [x] **`service:policy-engine` CLI command** (new `src/Pramnos/Console/Commands/PolicyEngine.php`): `--list`, `--pretend`. Registered in Console Application. Exit 0/1 for success/failure.
 - [x] **Unit tests** (`tests/Unit/Policy/PolicyRecordUnitTest.php`) — 6 tests: full row mapping, JSON config decoding, pre-decoded config array, missing optional fields null, disabled policy bool, all properties readonly.
 - [x] **`docs/1.2-new-features.md`** — Section 15 added.
+- [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
+
+### Phase 4: Framework System Migrations (2026-05-03, session 19)
+
+- [x] **Moved system migrations out of `src/`**: Deleted `src/Pramnos/Database/SystemMigrations/` (in-dev artefact, never shipped). All framework migrations now live in `database/migrations/framework/{feature}/` — outside the autoload tree, loaded by `MigrationLoader::loadFromDirectory()`.
+- [x] **Updated `FeatureRegistry::initDefaults()`** (`src/Pramnos/Application/FeatureRegistry.php`): Migration paths for all 5 built-in features now point to `database/migrations/framework/{feature}/`. Path calculated via `dirname(__DIR__, 3)` (project root from `src/Pramnos/Application`).
+- [x] **`core` feature** (`database/migrations/framework/core/`): 1 migration — `framework_policies` table.
+- [x] **`auth` feature** (`database/migrations/framework/auth/`): 4 migrations — `roles`, `users`, `user_roles`, `password_resets`.
+- [x] **`authserver` feature** (`database/migrations/framework/authserver/`): 4 migrations — `oauth_clients`, `oauth_scopes`, `oauth_authorization_codes`, `oauth_tokens`.
+- [x] **`messaging` feature** (`database/migrations/framework/messaging/`): 3 migrations — `message_threads`, `messages`, `message_recipients`.
+- [x] **`queue` feature** (`database/migrations/framework/queue/`): 3 migrations — `jobs`, `failed_jobs`, `job_batches`.
+- [x] All 15 migration files use `SchemaBuilder` / `Blueprint` API (`createTable`, `hasTable`, `dropTableIfExists`) — no raw SQL.
+- [x] All migrations are idempotent (`hasTable()` guard in `up()`, `dropTableIfExists()` in `down()`).
+- [x] Cross-table dependencies declared via `$dependencies` property; `MigrationRunner::sort()` topological sort resolves them.
+- [x] 2020 timestamp prefix ensures installations with `migration_cutoff` skip framework tables automatically.
+- [x] **`docs/1.2-new-features.md`** — Section 16 added (full schema reference for all 15 tables, namespace map, idempotency notes, timestamp rationale, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
 ### Phase 1.1: Foundations
