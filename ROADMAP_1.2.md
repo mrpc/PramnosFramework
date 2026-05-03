@@ -93,19 +93,44 @@
 
 > **BC Strategy:** Η `Database` class και οι μέθοδοί της (`prepareQuery()`, `query()`, κλπ.) παραμένουν αμετάβλητες. Το νέο `QueryBuilder` λαμβάνει instance της `Database` ως dependency και εκτελεί queries μέσω αυτής. Το υπάρχον `Model` αποκτά νέα opt-in capabilities (relationships, scopes, casting) μέσω traits — ο υπάρχων κώδικας που extend-άρει το `Model` δεν χρειάζεται αλλαγές.
 
-- [x] **DML Query Builder:** Fluent interface για όλες τις κλασικές DML πράξεις:
+- [x] **DML Query Builder:** Fluent interface για κλασικές DML πράξεις:
   - [x] `SELECT` με aliases, `DISTINCT`, column expressions
-  - [x] `INSERT`, `INSERT IGNORE`, `INSERT ... ON CONFLICT` (upsert για PostgreSQL/TimescaleDB)
-  - [x] `UPDATE` με conditional logic
-  - [x] `DELETE` / `TRUNCATE`
-  - [x] JOINs: `INNER`, `LEFT`, `RIGHT`, `FULL`, `CROSS`
-  - [x] Conditions: `where()`, `orWhere()`, `whereIn()`, `whereNull()`, `whereBetween()`, `whereRaw()`
-  - [x] `groupBy()`, `having()`, `orderBy()`, `limit()`, `offset()`
-  - [x] `UNION` / `UNION ALL`
-  - [x] Common Table Expressions (CTEs) με `with()`
-  - [x] Subqueries ως columns, conditions ή πηγές δεδομένων
-  - [x] Window functions (`OVER`, `PARTITION BY`, `RANK`, `ROW_NUMBER`) — PostgreSQL/TimescaleDB
-  - [x] Raw expressions με `raw()` για dialect-specific syntax
+  - [x] `INSERT` (βασικό), `RETURNING` clause (PostgreSQL)
+  - [ ] `INSERT IGNORE` (MySQL), `INSERT ... ON CONFLICT` / upsert (PostgreSQL/TimescaleDB)
+  - [x] `UPDATE` με conditional logic, `RETURNING` clause (PostgreSQL)
+  - [x] `DELETE`, `RETURNING` clause (PostgreSQL)
+  - [ ] `TRUNCATE`
+  - [x] JOINs: `INNER`, `LEFT` — `join($table, ..., $type)` δέχεται οποιοδήποτε type string (`right`, `full`, `cross`) αλλά δεν υπάρχουν convenience methods
+  - [x] Conditions: `where()`, `orWhere()`, `whereIn()`, `whereRaw()`, nested where via Closure
+  - [ ] `whereNull()` / `whereNotNull()`, `whereBetween()` / `whereNotBetween()`
+  - [x] `groupBy()`, `groupByRaw()`, `having()`, `havingRaw()`, `orderBy()`, `orderByRaw()`, `limit()`, `offset()`
+  - [x] `clearOrderingAndPaging()` — αφαιρεί ORDER BY/LIMIT/OFFSET (χρήσιμο σε COUNT subqueries)
+  - [ ] `UNION` / `UNION ALL`
+  - [ ] Common Table Expressions (CTEs) με `with()`
+  - [ ] Subqueries ως SELECT columns ή FROM πηγή
+  - [ ] Window functions (`OVER`, `PARTITION BY`, `RANK`, `ROW_NUMBER`) — PostgreSQL/TimescaleDB
+  - [x] Raw expressions με `raw()` / `Expression` class για dialect-specific syntax
+
+- [ ] **QueryBuilder Grammar/Adapter Pattern** *(απαραίτητο πριν το Schema Builder)*:
+  Αρχιτεκτονική βελτίωση που διαχωρίζει την **κατασκευή query** (QB) από τη **μετάφρασή του σε SQL** (Grammar). Αντί για `if ($this->db->type == 'postgresql')` checks σκορπισμένα στον κώδικα, κάθε dialect έχει το δικό του Grammar class.
+
+  ```
+  QueryBuilder (dialect-agnostic — χτίζει AST)
+      └─ Grammar (interface)
+           ├─ MySQLGrammar       (backtick quoting, ? params, AUTO_INCREMENT DDL)
+           ├─ PostgreSQLGrammar  ($1/$2 params, double-quote quoting, SERIAL DDL)
+           └─ TimescaleDBGrammar (extends PostgreSQL + time_bucket, hypertable DDL)
+  ```
+
+  - [ ] `Grammar` interface / abstract class με `compileSelect()`, `compileInsert()`, `compileUpdate()`, `compileDelete()`, `compileWhere()` κλπ.
+  - [ ] `MySQLGrammar` — backtick quoting, `?` parameters, `INSERT IGNORE`, `ON DUPLICATE KEY`
+  - [ ] `PostgreSQLGrammar` — double-quote quoting, `$1/$2` parameters, `ON CONFLICT`, `RETURNING`
+  - [ ] `TimescaleDBGrammar` (extends PostgreSQL) — `time_bucket()`, hypertable DDL, continuous aggregates
+  - [ ] `Database` injects το κατάλληλο Grammar στον QueryBuilder κατά τη δημιουργία του
+  - [ ] Μεταφορά της dialect λογικής από `Database::prepare()` στο Grammar (backtick conversion, parameter substitution)
+  - [ ] `time_bucket()` dialect translation: TimescaleDB → `time_bucket()`, plain PG → `DATE_TRUNC()`, MySQL → `DATE_FORMAT()`
+
+  > **BC Strategy:** Εντελώς εσωτερική αλλαγή. Το public API του QueryBuilder και το εξωτερικό συμπεριφοριακό αποτέλεσμα παραμένουν πανομοιότυπα. Υπάρχοντα `whereRaw()` / `orderByRaw()` calls λειτουργούν αμετάβλητα.
 
 - [ ] **DDL / Schema Builder:** Fluent interface για ορισμό και τροποποίηση schema:
   - `createTable()`, `alterTable()`, `dropTable()`, `renameTable()`
