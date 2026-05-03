@@ -594,6 +594,15 @@
 
 > **Παρατήρηση για την τρέχουσα κατάσταση:** Η Φάση 1 Internal Migration ολοκληρώθηκε (Model, DataTable) **χωρίς** προηγούμενα επίσημα characterization tests × 3 databases. Τα Urbanwater tests χρησίμευσαν ως de facto characterization suite αλλά καλύπτουν μόνο PostgreSQL + TimescaleDB. Προτού αγγιχτεί οποιοδήποτε άλλο class (Auth, User, Logs, Adjacencylist), τα επίσημα tests πρέπει να γραφούν.
 
+### 🔎 Backlog Διορθώσεων από Characterization Findings
+
+> Τα παρακάτω είναι **υποχρεωτικά follow-ups** που εντοπίστηκαν από τα νέα framework-native characterization tests. Παραμένουν εδώ ως ενεργό backlog και κλείνουν σταδιακά με ξεχωριστά commits.
+
+- [ ] **`Adjacencylist::getPathAsArray()` — namespace bug στο `stdClass`:** Στο `Pramnos\\Database\\Adjacencylist` γίνεται `new stdClass()` χωρίς leading `\\`, με αποτέλεσμα runtime error (`Pramnos\\Database\\stdClass not found`).
+- [ ] **`Datasource::render()` — count subqueries fallback σε `0`:** Σε αποτυχία των count subqueries τα `iTotalRecords` / `iTotalDisplayRecords` επιστρέφουν `0` από catch path. Να διορθωθεί ο μηχανισμός count ώστε να δίνει σταθερά σωστό total/display total.
+- [ ] **`Logger` hard dependency στο `LOG_PATH`:** Πολλαπλά code paths (Logger, Datasource error logging, Migration execute logging) προϋποθέτουν ορισμένο `LOG_PATH`. Να προστεθεί ασφαλές default/fallback ώστε να μην σπάνε flows/tests όταν λείπει το constant.
+- [ ] **`Model::_generateSpecificCacheKey()` unresolved placeholders:** Όταν το `_dbtable` κρατά unresolved `#PREFIX#`, το παραγόμενο cache key διατηρεί token (`<id>-#PREFIX#table`). Να κανονικοποιείται πλήρως πριν τη δημιουργία cache key.
+
 ---
 
 *Σημείωση: Οποιεσδήποτε υπάρχουσες μέθοδοι αντικαθίστανται από νεότερες, θα χαρακτηρίζονται ως `@deprecated` στα σχόλια, αλλά θα συνεχίσουν να υποστηρίζονται κανονικά σε αυτό το release circle.*

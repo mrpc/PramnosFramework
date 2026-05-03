@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 12)
+## 📅 Last Updated: 2026-05-03 (session 13)
 
 ## 🚀 Completed Milestones
 
@@ -44,6 +44,31 @@
 - [x] Added `tests/Characterization/Logs/LoggerAndMigratorCharacterizationTest.php` covering file-log write format contracts (`Logger::log`, `Logger::error`, `Logger::logPrepend`) and `LogMigrator::migrateFile()` conversion/backup behavior.
 - [x] Verified with `./dockertest --filter LoggerAndMigratorCharacterizationTest` (4 tests, 21 assertions, all passing).
 - [x] Re-verified combined characterization suite with `./dockertest --filter 'AuthCharacterizationTest|JWTCharacterizationTest|AdjacencylistCharacterizationTest|MigrationCharacterizationTest|DatasourceCharacterizationTest|UserCharacterizationTest|LoggerAndMigratorCharacterizationTest'` (33 tests, 92 assertions, all passing).
+
+### Phase 5: Characterization Coverage Wave 7 (2026-05-03, session 13)
+
+- [x] Added `tests/Characterization/Application/ModelCharacterizationTest.php` to lock Model contracts for `__init()` prefix substitution, cache-key generation format, `getChanges()` numeric-vs-string comparison semantics, and `getData()` metadata filtering.
+- [x] Verified with `./dockertest --filter ModelCharacterizationTest` (4 tests, 12 assertions, all passing).
+
+### Phase 5: Characterization Coverage Wave 8 (2026-05-03, session 13)
+
+- [x] Extended `tests/Characterization/Html/Datatable/DatasourceCharacterizationTest.php` with deep DataTable scenarios: request-based ordering, `distinctField` unique-row behavior, and date formatting through field metadata.
+- [x] Verified with `./dockertest --filter DatasourceCharacterizationTest` (6 tests, 20 assertions, all passing).
+
+### Phase 5: Characterization Coverage Wave 9 (2026-05-03, session 13)
+
+- [x] Added `tests/Characterization/User/TokenCharacterizationTest.php` to lock Token contracts for save/load (id + token string), `getData()` status/date mapping, and MySQL `updateAction()` no-op path behavior.
+- [x] Added test-side table bootstrap for `#PREFIX#usertokens` to keep token persistence characterization deterministic.
+- [x] Verified with `./dockertest --filter TokenCharacterizationTest` (3 tests, 11 assertions, all passing).
+- [x] Re-verified aggregate characterization baseline with `./dockertest --filter 'ModelCharacterizationTest|DatasourceCharacterizationTest|TokenCharacterizationTest|AuthCharacterizationTest|JWTCharacterizationTest|AdjacencylistCharacterizationTest|MigrationCharacterizationTest|UserCharacterizationTest|LoggerAndMigratorCharacterizationTest'` (43 tests, 121 assertions, all passing).
+
+### Roadmap Alignment Update (2026-05-03, session 13)
+
+- [x] Added explicit "Backlog Διορθώσεων από Characterization Findings" section to `ROADMAP_1.2.md` with tracked follow-up fixes:
+	- `Adjacencylist::getPathAsArray()` `stdClass` namespace bug
+	- `Datasource::render()` count-subquery fallback returning `0`
+	- `Logger` hard dependency on `LOG_PATH`
+	- `Model::_generateSpecificCacheKey()` unresolved `#PREFIX#` placeholders
 
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.

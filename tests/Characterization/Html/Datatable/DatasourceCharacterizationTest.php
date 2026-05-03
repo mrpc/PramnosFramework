@@ -177,6 +177,110 @@ class DatasourceCharacterizationTest extends TestCase
         $this->assertSame('Alpha', $result['aaData'][0][0]);
     }
 
+    /**
+     * Ensures multi-column ordering inputs from DataTables request are applied.
+     */
+    public function testRenderAppliesRequestOrderingContract(): void
+    {
+        // Arrange
+        $this->setPost([
+            'iDisplayStart' => '0',
+            'iDisplayLength' => '10',
+            'iSortCol_0' => '2',
+            'sSortDir_0' => 'desc',
+            'iSortingCols' => '1',
+            'sEcho' => '9',
+        ]);
+
+        $datasource = new Datasource();
+
+        // Act
+        $result = $datasource->render(
+            'dt_orders',
+            ['id', 'title', 'amount'],
+            false,
+            '',
+            '',
+            false
+        );
+
+        // Assert
+        $this->assertCount(4, $result['aaData']);
+        // This proves ordering by column index 2 (amount) desc is honored.
+        $this->assertSame('Gamma', $result['aaData'][0][1]);
+    }
+
+    /**
+     * Ensures distinctField mode returns unique values for that field.
+     */
+    public function testRenderDistinctFieldReturnsUniqueRows(): void
+    {
+        // Arrange
+        $this->db->query("INSERT INTO `dt_orders` (`title`, `amount`, `customer_id`, `created_ts`) VALUES ('Beta', 9.25, 2, 1714680300)");
+        $this->setPost([
+            'iDisplayStart' => '0',
+            'iDisplayLength' => '20',
+            'sEcho' => '10',
+        ]);
+
+        $datasource = new Datasource();
+
+        // Act
+        $result = $datasource->render(
+            'dt_orders',
+            ['title'],
+            false,
+            '',
+            '',
+            false,
+            5,
+            'datatables',
+            false,
+            null,
+            'title'
+        );
+
+        // Assert
+        $titles = array_map(static function (array $row): string {
+            return (string) $row[0];
+        }, $result['aaData']);
+
+        $this->assertCount(4, array_unique($titles));
+        $this->assertCount(4, $titles);
+    }
+
+    /**
+     * Ensures date field formatting uses configured formatdetails.
+     */
+    public function testRenderFormatsDateFieldsFromUnixTimestamp(): void
+    {
+        // Arrange
+        $this->setPost([
+            'iDisplayStart' => '0',
+            'iDisplayLength' => '1',
+            'sEcho' => '11',
+        ]);
+
+        $datasource = new Datasource();
+
+        // Act
+        $result = $datasource->render(
+            'dt_orders',
+            [
+                ['created_ts', 'date', 'Y-m-d', true, true],
+                'title',
+            ],
+            false,
+            '',
+            '',
+            false
+        );
+
+        // Assert
+        $this->assertCount(1, $result['aaData']);
+        $this->assertSame(date('Y-m-d', 1714680000), $result['aaData'][0][0]);
+    }
+
     private function resetRequestState(): void
     {
         // Arrange
@@ -212,7 +316,8 @@ class DatasourceCharacterizationTest extends TestCase
             `id` INT AUTO_INCREMENT PRIMARY KEY,
             `title` VARCHAR(100) NOT NULL,
             `amount` DECIMAL(10,2) NOT NULL,
-            `customer_id` INT NOT NULL
+            `customer_id` INT NOT NULL,
+            `created_ts` INT NOT NULL
         )');
     }
 
@@ -221,10 +326,10 @@ class DatasourceCharacterizationTest extends TestCase
         // Arrange
         $this->db->query("INSERT INTO `dt_customers` (`name`) VALUES ('Alice'), ('Bob')");
 
-        $this->db->query("INSERT INTO `dt_orders` (`title`, `amount`, `customer_id`) VALUES
-            ('Alpha', 10.50, 1),
-            ('AlphaX', 12.00, 1),
-            ('Beta', 8.75, 2),
-            ('Gamma', 20.00, 1)");
+        $this->db->query("INSERT INTO `dt_orders` (`title`, `amount`, `customer_id`, `created_ts`) VALUES
+            ('Alpha', 10.50, 1, 1714680000),
+            ('AlphaX', 12.00, 1, 1714680100),
+            ('Beta', 8.75, 2, 1714680200),
+            ('Gamma', 20.00, 1, 1714680300)");
     }
 }
