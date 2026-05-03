@@ -68,6 +68,73 @@ interface SchemaGrammarInterface
     public function compileHasColumn(string $table, string $column, string $schema): string;
 
     // -------------------------------------------------------------------------
+    // Trigger DDL
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns a CREATE TRIGGER statement.
+     *
+     * @param  string $name     Trigger name
+     * @param  string $table    Table the trigger fires on
+     * @param  string $timing   BEFORE | AFTER | INSTEAD OF
+     * @param  string $event    INSERT | UPDATE | DELETE
+     * @param  string $body     Trigger body / FOR EACH ROW BEGIN ... END
+     * @param  string $forEach  ROW | STATEMENT (MySQL: always ROW; PG: ROW or STATEMENT)
+     * @return string
+     */
+    public function compileCreateTrigger(
+        string $name,
+        string $table,
+        string $timing,
+        string $event,
+        string $body,
+        string $forEach = 'ROW'
+    ): string;
+
+    /**
+     * Returns a DROP TRIGGER statement.
+     *
+     * @param  string $name    Trigger name
+     * @param  string $table   Table the trigger belongs to (required for PostgreSQL)
+     * @param  bool   $ifExists  Wrap with IF EXISTS guard
+     * @return string
+     */
+    public function compileDropTrigger(string $name, string $table, bool $ifExists = true): string;
+
+    // -------------------------------------------------------------------------
+    // Sequence DDL (PostgreSQL; MySQL returns empty string)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns a CREATE SEQUENCE statement (PostgreSQL) or empty string (MySQL).
+     *
+     * @param  string   $name       Sequence name
+     * @param  int      $start      Starting value (default 1)
+     * @param  int      $increment  Step (default 1)
+     * @param  int|null $minValue
+     * @param  int|null $maxValue
+     * @param  bool     $cycle      CYCLE / NO CYCLE
+     * @return string
+     */
+    public function compileCreateSequence(
+        string $name,
+        int $start = 1,
+        int $increment = 1,
+        ?int $minValue = null,
+        ?int $maxValue = null,
+        bool $cycle = false
+    ): string;
+
+    /**
+     * Returns a DROP SEQUENCE statement (PostgreSQL) or empty string (MySQL).
+     *
+     * @param  string $name
+     * @param  bool   $ifExists
+     * @return string
+     */
+    public function compileDropSequence(string $name, bool $ifExists = true): string;
+
+    // -------------------------------------------------------------------------
     // Column type compilation
     // -------------------------------------------------------------------------
 

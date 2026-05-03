@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03 (session 5)
+## 📅 Last Updated: 2026-05-03 (session 6)
 
 ## 🚀 Completed Milestones
 
@@ -94,6 +94,16 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 - [x] **New methods** — `hasMaterializedViews(): bool`, `hasEnums(): bool`.
 - [x] Old `FEATURE_*` constants retained with `@deprecated` docblocks for BC.
 
+### Phase 1.2: CTEs / Triggers / Sequences (2026-05-03, session 6)
+
+- [x] **`QueryBuilder::with()`** — adds a CTE; closure, QB instance, or raw string; `withRecursive()` shortcut. `getCtes()` accessor for Grammar. `WITH RECURSIVE` emitted when at least one CTE is marked recursive.
+- [x] **`GrammarInterface::compileCtes()`** — new contract method; base implementation in `Grammar` compiles `WITH [RECURSIVE] name AS (…)` prefix and prepends to `compileSelect()` output.
+- [x] **Trigger DDL** — `SchemaGrammarInterface::compileCreateTrigger()` / `compileDropTrigger()`; `SchemaGrammar` base: MySQL syntax (`CREATE TRIGGER … FOR EACH ROW`); `PostgreSQLSchemaGrammar` override: `CREATE OR REPLACE TRIGGER … EXECUTE FUNCTION fn()` with `DROP TRIGGER … ON table`.
+- [x] **Sequence DDL** — `SchemaGrammarInterface::compileCreateSequence()` / `compileDropSequence()`; base (MySQL) returns `''` (silent no-op); `PostgreSQLSchemaGrammar` implements full `CREATE SEQUENCE IF NOT EXISTS … START WITH … INCREMENT BY … CYCLE`.
+- [x] **`SchemaBuilder::createTrigger()` / `dropTrigger()`** — delegates to grammar; supports `#PREFIX#` table resolution.
+- [x] **`SchemaBuilder::createSequence()` / `dropSequence()`** — delegates to grammar; MySQL calls are silently ignored (empty SQL guard).
+- [x] **Tests** — 7 new CTE tests in `QueryBuilderUnitTest`, 14 new trigger/sequence tests in `SchemaBuilderUnitTest`.
+
 ### Phase 1.4: timeBucket() Dialect Translation (2026-05-03, session 5)
 
 - [x] **`GrammarInterface::compileTimeBucket()`** — new contract method.
@@ -144,7 +154,7 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 ---
 
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 438/438 pass (0 failures, 0 errors).
+- **Framework Test Pass Rate:** 456/456 pass (0 failures, 0 errors).
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.

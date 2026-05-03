@@ -110,6 +110,12 @@ class QueryBuilder
     protected $unions = [];
 
     /**
+     * Common Table Expressions — each entry: ['name'=>string, 'query'=>string, 'recursive'=>bool]
+     * @var array
+     */
+    protected $ctes = [];
+
+    /**
      * Constructor
      *
      * @param Database          $db
@@ -167,6 +173,7 @@ class QueryBuilder
     public function getOffset(): ?int           { return $this->offset ?? null; }
     public function getUnions(): array          { return $this->unions; }
     public function getReturning(): array       { return $this->returning; }
+    public function getCtes(): array            { return $this->ctes; }
 
     /**
      * Create a raw SQL expression.
@@ -688,6 +695,54 @@ class QueryBuilder
     public function unionAll(QueryBuilder $query)
     {
         return $this->union($query, true);
+    }
+
+    // -------------------------------------------------------------------------
+    // CTEs — WITH / WITH RECURSIVE
+    // -------------------------------------------------------------------------
+
+    /**
+     * Add a Common Table Expression (CTE) to the query.
+     *
+     * The CTE will be prepended as WITH name AS (...) before the main SELECT.
+     * Multiple calls chain additional CTEs in declaration order.
+     *
+     *   $qb->with('ranked', function (QueryBuilder $sub) {
+     *       $sub->select(['id', 'ROW_NUMBER() OVER (ORDER BY score DESC) AS rn'])
+     *           ->from('entries');
+     *   })->select('*')->from('ranked')->where('rn', '<=', 10);
+     *
+     * @param  string                        $name      CTE name (bare identifier)
+     * @param  QueryBuilder|callable|string  $query     Sub-builder, closure, or raw SQL string
+     * @param  bool                          $recursive true = WITH RECURSIVE
+     * @return $this
+     */
+    public function with(string $name, $query, bool $recursive = false): self
+    {
+        if ($query instanceof \Closure) {
+            $sub = new static($this->db, $this->grammar);
+            ($query)($sub);
+            $query = $sub;
+        }
+
+        $sql = $query instanceof QueryBuilder
+            ? $this->grammar->compileSelect($query)
+            : (string)$query;
+
+        $this->ctes[] = ['name' => $name, 'sql' => $sql, 'recursive' => $recursive];
+        return $this;
+    }
+
+    /**
+     * Add a recursive CTE (WITH RECURSIVE name AS …).
+     *
+     * @param  string                       $name
+     * @param  QueryBuilder|callable|string $query
+     * @return $this
+     */
+    public function withRecursive(string $name, $query): self
+    {
+        return $this->with($name, $query, true);
     }
 
     /**

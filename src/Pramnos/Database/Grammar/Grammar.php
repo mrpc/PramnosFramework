@@ -61,11 +61,35 @@ abstract class Grammar implements GrammarInterface
     }
 
     // -------------------------------------------------------------------------
+    // CTEs
+    // -------------------------------------------------------------------------
+
+    public function compileCtes(QueryBuilder $qb): string
+    {
+        $ctes = $qb->getCtes();
+        if (empty($ctes)) {
+            return '';
+        }
+
+        $hasRecursive = array_filter($ctes, fn($c) => $c['recursive']);
+        $keyword      = !empty($hasRecursive) ? 'WITH RECURSIVE' : 'WITH';
+
+        $parts = array_map(
+            fn($c) => $c['name'] . ' AS (' . $c['sql'] . ')',
+            $ctes
+        );
+
+        return $keyword . ' ' . implode(', ', $parts) . ' ';
+    }
+
+    // -------------------------------------------------------------------------
     // SELECT
     // -------------------------------------------------------------------------
 
     public function compileSelect(QueryBuilder $qb): string
     {
+        $prefix = $this->compileCtes($qb);
+
         $sql = 'SELECT ';
         if ($qb->isDistinct()) {
             $sql .= 'DISTINCT ';
@@ -126,7 +150,7 @@ abstract class Grammar implements GrammarInterface
                 . $this->compileSelect($union['query']);
         }
 
-        return $sql;
+        return $prefix . $sql;
     }
 
     public function compileWheres(QueryBuilder $qb): string

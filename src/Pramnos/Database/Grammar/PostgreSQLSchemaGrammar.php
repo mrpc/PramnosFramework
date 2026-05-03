@@ -227,4 +227,70 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
         $guard = $ifExists ? 'IF EXISTS ' : '';
         return "DROP MATERIALIZED VIEW {$guard}{$name}";
     }
+
+    // =========================================================================
+    // Trigger DDL (PostgreSQL — triggers call a separate FUNCTION)
+    // =========================================================================
+
+    /**
+     * PostgreSQL triggers must reference a trigger function (body = EXECUTE FUNCTION name()).
+     * The $body parameter should be the EXECUTE FUNCTION clause, e.g.
+     * "EXECUTE FUNCTION my_trigger_fn()".
+     */
+    public function compileCreateTrigger(
+        string $name,
+        string $table,
+        string $timing,
+        string $event,
+        string $body,
+        string $forEach = 'ROW'
+    ): string {
+        $timing = strtoupper($timing);
+        $event  = strtoupper($event);
+        return "CREATE OR REPLACE TRIGGER {$name}"
+            . " {$timing} {$event}"
+            . ' ON ' . $this->quoteTable($table)
+            . " FOR EACH {$forEach}"
+            . " {$body}";
+    }
+
+    public function compileDropTrigger(string $name, string $table, bool $ifExists = true): string
+    {
+        $guard = $ifExists ? 'IF EXISTS ' : '';
+        return "DROP TRIGGER {$guard}{$name} ON " . $this->quoteTable($table);
+    }
+
+    // =========================================================================
+    // Sequence DDL (PostgreSQL full support)
+    // =========================================================================
+
+    public function compileCreateSequence(
+        string $name,
+        int $start = 1,
+        int $increment = 1,
+        ?int $minValue = null,
+        ?int $maxValue = null,
+        bool $cycle = false
+    ): string {
+        $sql = "CREATE SEQUENCE IF NOT EXISTS {$name}"
+            . " START WITH {$start}"
+            . " INCREMENT BY {$increment}";
+
+        if ($minValue !== null) {
+            $sql .= " MINVALUE {$minValue}";
+        }
+        if ($maxValue !== null) {
+            $sql .= " MAXVALUE {$maxValue}";
+        }
+
+        $sql .= $cycle ? ' CYCLE' : ' NO CYCLE';
+
+        return $sql;
+    }
+
+    public function compileDropSequence(string $name, bool $ifExists = true): string
+    {
+        $guard = $ifExists ? 'IF EXISTS ' : '';
+        return "DROP SEQUENCE {$guard}{$name}";
+    }
 }

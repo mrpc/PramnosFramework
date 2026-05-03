@@ -732,4 +732,116 @@ class SchemaBuilderUnitTest extends TestCase
         $this->assertEquals('CASCADE', $fk->onDelete);
         $this->assertEquals('CASCADE', $fk->onUpdate);
     }
+
+    // =========================================================================
+    // Trigger DDL — grammar compilation
+    // =========================================================================
+
+    public function testMySQLTriggerCompilation(): void
+    {
+        $g   = new MySQLSchemaGrammar();
+        $sql = $g->compileCreateTrigger(
+            'trg_audit',
+            'orders',
+            'AFTER',
+            'INSERT',
+            'BEGIN INSERT INTO audit_log SET action = \'insert\'; END'
+        );
+        $this->assertStringContainsString('CREATE TRIGGER trg_audit', $sql);
+        $this->assertStringContainsString('AFTER INSERT', $sql);
+        $this->assertStringContainsString('ON `orders`', $sql);
+        $this->assertStringContainsString('FOR EACH ROW', $sql);
+    }
+
+    public function testMySQLDropTrigger(): void
+    {
+        $g   = new MySQLSchemaGrammar();
+        $sql = $g->compileDropTrigger('trg_audit', 'orders', true);
+        $this->assertEquals('DROP TRIGGER IF EXISTS trg_audit', $sql);
+    }
+
+    public function testMySQLDropTriggerWithoutIfExists(): void
+    {
+        $g   = new MySQLSchemaGrammar();
+        $sql = $g->compileDropTrigger('trg_audit', 'orders', false);
+        $this->assertEquals('DROP TRIGGER trg_audit', $sql);
+    }
+
+    public function testPostgreSQLTriggerCompilation(): void
+    {
+        $g   = new PostgreSQLSchemaGrammar();
+        $sql = $g->compileCreateTrigger(
+            'trg_notify',
+            'events',
+            'AFTER',
+            'INSERT',
+            'EXECUTE FUNCTION notify_event()'
+        );
+        $this->assertStringContainsString('CREATE OR REPLACE TRIGGER trg_notify', $sql);
+        $this->assertStringContainsString('AFTER INSERT', $sql);
+        $this->assertStringContainsString('ON "events"', $sql);
+        $this->assertStringContainsString('EXECUTE FUNCTION notify_event()', $sql);
+    }
+
+    public function testPostgreSQLDropTrigger(): void
+    {
+        $g   = new PostgreSQLSchemaGrammar();
+        $sql = $g->compileDropTrigger('trg_notify', 'events', true);
+        $this->assertStringContainsString('DROP TRIGGER IF EXISTS trg_notify', $sql);
+        $this->assertStringContainsString('ON "events"', $sql);
+    }
+
+    public function testPostgreSQLStatementLevelTrigger(): void
+    {
+        $g   = new PostgreSQLSchemaGrammar();
+        $sql = $g->compileCreateTrigger('trg_stmt', 'logs', 'BEFORE', 'DELETE', 'EXECUTE FUNCTION check_delete()', 'STATEMENT');
+        $this->assertStringContainsString('FOR EACH STATEMENT', $sql);
+    }
+
+    // =========================================================================
+    // Sequence DDL — grammar compilation
+    // =========================================================================
+
+    public function testMySQLSequenceReturnsEmpty(): void
+    {
+        $g = new MySQLSchemaGrammar();
+        $this->assertSame('', $g->compileCreateSequence('my_seq'));
+        $this->assertSame('', $g->compileDropSequence('my_seq'));
+    }
+
+    public function testPostgreSQLCreateSequenceBasic(): void
+    {
+        $g   = new PostgreSQLSchemaGrammar();
+        $sql = $g->compileCreateSequence('order_id_seq');
+        $this->assertStringContainsString('CREATE SEQUENCE IF NOT EXISTS order_id_seq', $sql);
+        $this->assertStringContainsString('START WITH 1', $sql);
+        $this->assertStringContainsString('INCREMENT BY 1', $sql);
+        $this->assertStringContainsString('NO CYCLE', $sql);
+    }
+
+    public function testPostgreSQLCreateSequenceWithOptions(): void
+    {
+        $g   = new PostgreSQLSchemaGrammar();
+        $sql = $g->compileCreateSequence('my_seq', 100, 5, 1, 1000, true);
+        $this->assertStringContainsString('START WITH 100', $sql);
+        $this->assertStringContainsString('INCREMENT BY 5', $sql);
+        $this->assertStringContainsString('MINVALUE 1', $sql);
+        $this->assertStringContainsString('MAXVALUE 1000', $sql);
+        $this->assertStringContainsString(' CYCLE', $sql);
+        $this->assertStringNotContainsString('NO CYCLE', $sql);
+    }
+
+    public function testPostgreSQLDropSequence(): void
+    {
+        $g   = new PostgreSQLSchemaGrammar();
+        $sql = $g->compileDropSequence('order_id_seq', true);
+        $this->assertEquals('DROP SEQUENCE IF EXISTS order_id_seq', $sql);
+    }
+
+    public function testPostgreSQLDropSequenceWithoutIfExists(): void
+    {
+        $g   = new PostgreSQLSchemaGrammar();
+        $sql = $g->compileDropSequence('order_id_seq', false);
+        $this->assertEquals('DROP SEQUENCE order_id_seq', $sql);
+    }
 }

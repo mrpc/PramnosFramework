@@ -544,6 +544,98 @@ class SchemaBuilder
     }
 
     // =========================================================================
+    // Trigger DDL
+    // =========================================================================
+
+    /**
+     * Create a trigger on a table.
+     *
+     * MySQL body example:   "BEGIN ... END"
+     * PostgreSQL body:      "EXECUTE FUNCTION my_fn()"  (function must exist separately)
+     *
+     * @param  string $name    Trigger name
+     * @param  string $table   Table name (supports #PREFIX#)
+     * @param  string $timing  BEFORE | AFTER | INSTEAD OF
+     * @param  string $event   INSERT | UPDATE | DELETE
+     * @param  string $body    Trigger body (MySQL: BEGIN…END; PG: EXECUTE FUNCTION fn())
+     * @param  string $forEach FOR EACH ROW | FOR EACH STATEMENT
+     * @return void
+     */
+    public function createTrigger(
+        string $name,
+        string $table,
+        string $timing,
+        string $event,
+        string $body,
+        string $forEach = 'ROW'
+    ): void {
+        $resolved = $this->resolveTable($table);
+        $sql = $this->grammar->compileCreateTrigger($name, $resolved, $timing, $event, $body, $forEach);
+        $this->db->query($sql);
+    }
+
+    /**
+     * Drop a trigger.
+     *
+     * @param  string $name     Trigger name
+     * @param  string $table    Table the trigger belongs to (needed for PostgreSQL DROP TRIGGER … ON …)
+     * @param  bool   $ifExists
+     * @return void
+     */
+    public function dropTrigger(string $name, string $table, bool $ifExists = true): void
+    {
+        $resolved = $this->resolveTable($table);
+        $sql = $this->grammar->compileDropTrigger($name, $resolved, $ifExists);
+        $this->db->query($sql);
+    }
+
+    // =========================================================================
+    // Sequence DDL (PostgreSQL only; silent no-op on MySQL)
+    // =========================================================================
+
+    /**
+     * Create a named sequence (PostgreSQL only).
+     * On MySQL the call is silently ignored — no exception.
+     *
+     * @param  string   $name
+     * @param  int      $start
+     * @param  int      $increment
+     * @param  int|null $minValue
+     * @param  int|null $maxValue
+     * @param  bool     $cycle
+     * @return void
+     */
+    public function createSequence(
+        string $name,
+        int $start = 1,
+        int $increment = 1,
+        ?int $minValue = null,
+        ?int $maxValue = null,
+        bool $cycle = false
+    ): void {
+        $sql = $this->grammar->compileCreateSequence($name, $start, $increment, $minValue, $maxValue, $cycle);
+        if ($sql !== '') {
+            $this->db->query($sql);
+        }
+    }
+
+    /**
+     * Drop a sequence (PostgreSQL only).
+     * On MySQL the call is silently ignored.
+     *
+     * @param  string $name
+     * @param  bool   $ifExists
+     * @return void
+     */
+    public function dropSequence(string $name, bool $ifExists = true): void
+    {
+        $sql = $this->grammar->compileDropSequence($name, $ifExists);
+        if ($sql !== '') {
+            $this->db->query($sql);
+        }
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
