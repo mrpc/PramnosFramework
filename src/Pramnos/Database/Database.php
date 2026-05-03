@@ -218,6 +218,17 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
+     * Return a new SchemaBuilder instance for this connection.
+     * Alias for schemaBuilder() — preferred name per v1.2 API.
+     *
+     * @return \Pramnos\Database\SchemaBuilder
+     */
+    public function schema()
+    {
+        return new SchemaBuilder($this);
+    }
+
+    /**
      * Return a new QueryBuilder instance for this connection.
      * 
      * @return \Pramnos\Database\QueryBuilder
