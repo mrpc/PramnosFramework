@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-03
+## 📅 Last Updated: 2026-05-03 (session 2)
 
 ## 🚀 Completed Milestones
 
@@ -22,14 +22,16 @@
 - [x] `limit()`, `offset()`, `clearOrderingAndPaging()`
 - [x] `returning()`
 - [x] `raw()` / `Expression` class for inline dialect-specific SQL
-- [x] `get()`, `first()`, `getBindings()`, `toSql()`
+- [x] `get()`, `first()` (returns `Result`), `getBindings()`, `toSql()`
 - [x] Cache-aware `get()` with `cursor = -1` initialization (correct iteration semantics)
+- [x] `whereNull()` / `whereNotNull()` / `orWhereNull()` / `orWhereNotNull()`
+- [x] `whereBetween()` / `whereNotBetween()` / `orWhereBetween()` / `orWhereNotBetween()`
+- [x] `UNION` / `UNION ALL` via `union(QueryBuilder)` / `unionAll(QueryBuilder)`
+- [x] `truncate()`
+- [x] `insertOrIgnore()` — MySQL `INSERT IGNORE`, PostgreSQL `ON CONFLICT DO NOTHING`
+- [x] `upsert(values, conflictColumns, updateValues)` — MySQL `ON DUPLICATE KEY UPDATE`, PostgreSQL `ON CONFLICT DO UPDATE`
 
-**Not yet implemented (previously marked done in error):**
-- [ ] `INSERT IGNORE` (MySQL), `INSERT ... ON CONFLICT` / upsert (PostgreSQL)
-- [ ] `TRUNCATE`
-- [ ] `whereNull()` / `whereNotNull()`, `whereBetween()` / `whereNotBetween()`
-- [ ] `UNION` / `UNION ALL`
+**Not yet implemented:**
 - [ ] CTEs via `with()`
 - [ ] Subqueries as SELECT columns or FROM source
 - [ ] Window functions (`OVER`, `PARTITION BY`, `RANK`, `ROW_NUMBER`)
