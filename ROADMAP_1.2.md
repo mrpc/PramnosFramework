@@ -108,7 +108,7 @@
   - [x] `groupBy()`, `groupByRaw()`, `having()`, `havingRaw()`, `orderBy()`, `orderByRaw()`, `limit()`, `offset()`
   - [x] `clearOrderingAndPaging()` — αφαιρεί ORDER BY/LIMIT/OFFSET (χρήσιμο σε COUNT subqueries)
   - [x] `UNION` / `UNION ALL`
-  - [ ] Common Table Expressions (CTEs) με `with()`
+  - [x] Common Table Expressions (CTEs) — `with()`, `withRecursive()`; MySQL 8.0+ / PostgreSQL / TimescaleDB
   - [ ] Subqueries ως SELECT columns ή FROM πηγή
   - [ ] Window functions (`OVER`, `PARTITION BY`, `RANK`, `ROW_NUMBER`) — PostgreSQL/TimescaleDB
   - [x] Raw expressions με `raw()` / `Expression` class για dialect-specific syntax
@@ -142,8 +142,8 @@
   - [x] Indexes: `createIndex()`, `createUniqueIndex()`, `dropIndex()`
   - [x] **Views:** `createView()`, `createOrReplaceView()`, `dropView()`
   - [x] **Materialized Views (PostgreSQL/TimescaleDB):** `createMaterializedView()`, `refreshMaterializedView()`, `dropMaterializedView()`
-  - [ ] **Triggers (MySQL + PostgreSQL):** `createTrigger()` με `BEFORE`/`AFTER` και `INSERT`/`UPDATE`/`DELETE` support, `dropTrigger()`
-  - [ ] Sequences (PostgreSQL): `createSequence()`, `nextVal()`, `setVal()`
+  - [x] **Triggers (MySQL + PostgreSQL):** `createTrigger()`, `dropTrigger()` — MySQL: `CREATE TRIGGER … FOR EACH ROW`; PG: `CREATE OR REPLACE TRIGGER … EXECUTE FUNCTION fn()`
+  - [x] Sequences (PostgreSQL): `createSequence()`, `dropSequence()` — MySQL: silent no-op; `nextVal()` / `setVal()` pending
 
 - [x] **TimescaleDB Extension Builder:** Native support για τα hypertable και time-series χαρακτηριστικά:
   - [x] `createHypertable($table, $timeColumn)` — στο TimescaleDB εκτελεί `SELECT create_hypertable()`; σε άλλα backends: silent no-op

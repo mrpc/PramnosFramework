@@ -524,4 +524,104 @@ class QueryBuilderUnitTest extends TestCase
         $this->assertStringContainsString('FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(ts) / 3600) * 3600)', $sql);
         $this->assertStringContainsString('GROUP BY', $sql);
     }
+
+    // =========================================================================
+    // with() / withRecursive() — CTEs
+    // =========================================================================
+
+    public function testWithSimpleCte(): void
+    {
+        $qb = $this->makeQB()
+            ->with('active_users', function (QueryBuilder $sub) {
+                $sub->select('*')->from('users')->where('active', 1);
+            })
+            ->select('*')
+            ->from('active_users');
+
+        $sql = $qb->toSql();
+        $this->assertStringStartsWith('WITH', $sql);
+        $this->assertStringContainsString('active_users AS (', $sql);
+        $this->assertStringContainsString('SELECT * FROM users', $sql);
+        $this->assertStringContainsString('FROM active_users', $sql);
+        $this->assertStringNotContainsString('RECURSIVE', $sql);
+    }
+
+    public function testWithRecursiveCte(): void
+    {
+        $qb = $this->makeQB()
+            ->withRecursive('hierarchy', 'SELECT id, parent_id FROM categories WHERE parent_id IS NULL UNION ALL SELECT c.id, c.parent_id FROM categories c JOIN hierarchy h ON c.parent_id = h.id')
+            ->select('*')
+            ->from('hierarchy');
+
+        $sql = $qb->toSql();
+        $this->assertStringStartsWith('WITH RECURSIVE', $sql);
+        $this->assertStringContainsString('hierarchy AS (', $sql);
+    }
+
+    public function testWithMultipleCtes(): void
+    {
+        $qb = $this->makeQB()
+            ->with('cte1', 'SELECT 1 AS n')
+            ->with('cte2', 'SELECT 2 AS n')
+            ->select('*')
+            ->from('cte1');
+
+        $sql = $qb->toSql();
+        $this->assertStringStartsWith('WITH', $sql);
+        $this->assertStringContainsString('cte1 AS (SELECT 1 AS n)', $sql);
+        $this->assertStringContainsString('cte2 AS (SELECT 2 AS n)', $sql);
+        // Both CTEs present, comma-separated
+        $this->assertStringContainsString('), cte2 AS (', $sql);
+    }
+
+    public function testWithCteUsingQueryBuilderInstance(): void
+    {
+        $sub = $this->makeQB()->select(['id', 'name'])->from('products')->where('active', 1);
+
+        $qb = $this->makeQB()
+            ->with('active_products', $sub)
+            ->select('*')
+            ->from('active_products');
+
+        $sql = $qb->toSql();
+        $this->assertStringContainsString('active_products AS (', $sql);
+        $this->assertStringContainsString('SELECT id, name FROM products', $sql);
+    }
+
+    public function testWithNoCteProducesNoWithKeyword(): void
+    {
+        $qb  = $this->makeQB()->select('*')->from('users');
+        $sql = $qb->toSql();
+        $this->assertStringStartsWith('SELECT', $sql);
+        $this->assertStringNotContainsString('WITH', $sql);
+    }
+
+    public function testWithRecursiveFlagOverridesNonRecursiveCte(): void
+    {
+        // If at least one CTE is recursive, the whole preamble is WITH RECURSIVE
+        $qb = $this->makeQB()
+            ->with('plain', 'SELECT 1')
+            ->withRecursive('tree', 'SELECT id FROM nodes WHERE parent IS NULL UNION ALL SELECT n.id FROM nodes n JOIN tree t ON n.parent = t.id')
+            ->select('*')
+            ->from('tree');
+
+        $sql = $qb->toSql();
+        $this->assertStringStartsWith('WITH RECURSIVE', $sql);
+        $this->assertStringContainsString('plain AS (SELECT 1)', $sql);
+        $this->assertStringContainsString('tree AS (', $sql);
+    }
+
+    public function testGetCtesReturnsRegisteredCtes(): void
+    {
+        $qb = $this->makeQB()
+            ->with('foo', 'SELECT 1')
+            ->withRecursive('bar', 'SELECT 2');
+
+        $ctes = $qb->getCtes();
+        $this->assertCount(2, $ctes);
+        $this->assertEquals('foo', $ctes[0]['name']);
+        $this->assertFalse($ctes[0]['recursive']);
+        $this->assertEquals('bar', $ctes[1]['name']);
+        $this->assertTrue($ctes[1]['recursive']);
+    }
 }

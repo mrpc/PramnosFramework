@@ -378,6 +378,54 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
     }
 
     // =========================================================================
+    // Trigger DDL (base = MySQL dialect; PostgreSQL overrides)
+    // =========================================================================
+
+    public function compileCreateTrigger(
+        string $name,
+        string $table,
+        string $timing,
+        string $event,
+        string $body,
+        string $forEach = 'ROW'
+    ): string {
+        $timing = strtoupper($timing);
+        $event  = strtoupper($event);
+        return "CREATE TRIGGER {$name}"
+            . " {$timing} {$event}"
+            . ' ON ' . $this->quoteTable($table)
+            . " FOR EACH {$forEach}"
+            . " {$body}";
+    }
+
+    public function compileDropTrigger(string $name, string $table, bool $ifExists = true): string
+    {
+        $guard = $ifExists ? 'IF EXISTS ' : '';
+        return "DROP TRIGGER {$guard}{$name}";
+    }
+
+    // =========================================================================
+    // Sequence DDL (base = unsupported / MySQL no-op; PostgreSQL overrides)
+    // =========================================================================
+
+    public function compileCreateSequence(
+        string $name,
+        int $start = 1,
+        int $increment = 1,
+        ?int $minValue = null,
+        ?int $maxValue = null,
+        bool $cycle = false
+    ): string {
+        // MySQL does not support standalone sequences — return empty string
+        return '';
+    }
+
+    public function compileDropSequence(string $name, bool $ifExists = true): string
+    {
+        return '';
+    }
+
+    // =========================================================================
     // Introspection helpers
     // =========================================================================
 
