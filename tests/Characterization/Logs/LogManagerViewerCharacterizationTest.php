@@ -64,8 +64,6 @@ class LogManagerViewerCharacterizationTest extends TestCase
         $file = 'char_mgr_warning';
 
         // Act
-        // Note: level only appears in JSON output when additional context is provided.
-        // Without context the Logger falls through to bracket format and level is lost.
         Logger::warning('disk space low', ['source' => 'test'], $file);
 
         // Assert – read last non-empty line (guards against stale content)
@@ -175,6 +173,31 @@ class LogManagerViewerCharacterizationTest extends TestCase
         $lines = array_values(array_filter(file($this->logDir . DS . $file . '.log', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)));
         $decoded = json_decode(end($lines), true);
         $this->assertSame('alert', $decoded['level']);
+    }
+
+    /**
+     * PSR-3 level methods preserve the level in JSON output even when no
+     * extra context is provided. Previously the level was lost because unset-ting
+     * it from context made the context array empty, routing the entry to the
+     * plain bracket format which has no level field.
+     */
+    public function testLoggerLevelIsPreservedWithoutExtraContext(): void
+    {
+        // Arrange
+        $file = 'char_mgr_noctx';
+
+        // Act – call with empty context (default); level must still appear in output
+        Logger::info('startup complete', [], $file);
+
+        // Assert – entry must be JSON with correct level field, not plain bracket format
+        $lines = array_values(array_filter(file($this->logDir . DS . $file . '.log', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)));
+        $this->assertNotEmpty($lines, 'Logger must write at least one line');
+        $decoded = json_decode(end($lines), true);
+        $this->assertIsArray($decoded, 'Output must be JSON when a level is set, even with no extra context');
+        $this->assertSame('info', $decoded['level'], 'Level must appear in JSON output regardless of whether extra context was passed');
+        $this->assertSame('startup complete', $decoded['message']);
+        // Context key should be absent when no extra context was provided
+        $this->assertArrayNotHasKey('context', $decoded);
     }
 
     /**
