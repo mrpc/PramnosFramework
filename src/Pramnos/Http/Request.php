@@ -434,7 +434,8 @@ class Request extends Base
      */
     public function isHttps()
     {
-        return isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on';
+        $https = $_SERVER['HTTPS'] ?? '';
+        return $https === 'on' || $https === '1';
     }
 
     /**

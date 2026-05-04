@@ -326,6 +326,15 @@
 - [x] **`docs/1.2-new-features.md`** — Section 16 added (schema reference, namespace map, idempotency notes, timestamp rationale, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
+### Phase 4: Security — Session Cookie Hardening (2026-05-05, session 27)
+
+- [x] **`Session::start()`**: `ini_set('session.use_strict_mode', '1')` before `session_start()` — rejects attacker-supplied session IDs.
+- [x] **`Session::reset()`**: added `session_regenerate_id(true)` (session fixation prevention) and `regenerateCsrfToken()` (CSRF token rotation on login/logout).
+- [x] **`Session::isHttps(): bool`** (new static helper): accepts `'on'` and `'1'` — fixes IIS/CGI environments. `start()` now uses this instead of inline check.
+- [x] **`Request::isHttps()`**: updated to accept `'1'` for consistency with `Session::isHttps()`.
+- [x] **Unit tests** (`tests/Unit/Http/SessionSecurityTest.php`) — 11 tests, 11 assertions.
+- [x] **`docs/1.2-new-features.md`** — Section 22 added.
+
 ### Phase 4: Security — CSRF Hardening (2026-05-05, session 27)
 
 - [x] **`Session::regenerateToken()`** and **`start()`**: `random_bytes(5)` → `random_bytes(32)` (40-bit → 256-bit entropy). `start()` silently upgrades existing short tokens on first request.
