@@ -374,6 +374,51 @@ abstract class Grammar implements GrammarInterface
         return "FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP({$column}) / {$seconds}) * {$seconds})";
     }
 
+    // -------------------------------------------------------------------------
+    // Window functions
+    // -------------------------------------------------------------------------
+
+    /**
+     * Compile a window function OVER clause.
+     *
+     * The partition and order columns are quoted using the dialect's quoteColumn()
+     * so backtick / double-quote quoting is handled automatically.
+     *
+     * @param  string   $fn        Raw function call, e.g. 'RANK()', 'ROW_NUMBER()'
+     * @param  string[] $partition Column names for PARTITION BY
+     * @param  array    $order     Assoc ['col'=>'dir',...] or indexed ['col1','col2',...]
+     * @param  string   $frame     Optional ROWS/RANGE frame clause
+     * @return string
+     */
+    public function compileWindowOver(string $fn, array $partition, array $order, string $frame): string
+    {
+        $clauses = [];
+
+        if (!empty($partition)) {
+            $quoted    = array_map(fn(string $c) => $this->quoteColumn($c), $partition);
+            $clauses[] = 'PARTITION BY ' . implode(', ', $quoted);
+        }
+
+        if (!empty($order)) {
+            $parts = [];
+            foreach ($order as $col => $dir) {
+                if (is_int($col)) {
+                    // Indexed: $dir is the column name, direction defaults to ASC
+                    $parts[] = $this->quoteColumn($dir);
+                } else {
+                    $parts[] = $this->quoteColumn($col) . ' ' . strtoupper($dir);
+                }
+            }
+            $clauses[] = 'ORDER BY ' . implode(', ', $parts);
+        }
+
+        if ($frame !== '') {
+            $clauses[] = $frame;
+        }
+
+        return $fn . ' OVER (' . implode(' ', $clauses) . ')';
+    }
+
     // =========================================================================
     // Interval helpers (shared across grammars)
     // =========================================================================

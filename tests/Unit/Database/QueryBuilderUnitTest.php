@@ -1263,4 +1263,342 @@ class QueryBuilderUnitTest extends TestCase
         $this->assertStringContainsString('WHERE active = %i', $sql);
         $this->assertStringContainsString('AND YEAR(created_at) = %i', $sql);
     }
+
+    // =========================================================================
+    // selectSub() / fromSub() — subqueries
+    // =========================================================================
+
+    /**
+     * selectSub() must wrap the sub-query in parentheses, alias it, and emit it
+     * as a SELECT column.  The default '*' is replaced when no explicit select()
+     * was called first.
+     */
+    public function testSelectSubCompilesSubqueryAsColumn(): void
+    {
+        // Arrange
+        $qb = $this->makeQB('mysql');
+
+        // Act
+        $qb->selectSub(function (QueryBuilder $sub) {
+            $sub->select('MAX(price)')->from('products');
+        }, 'max_price')
+           ->from('categories');
+
+        $sql = $qb->toSql();
+
+        // Assert — subquery wrapped in parens, aliased correctly
+        $this->assertStringContainsString('(SELECT MAX(price) FROM products)', $sql);
+        $this->assertStringContainsString('AS `max_price`', $sql);
+    }
+
+    /**
+     * selectSub() must preserve existing columns added via select() before it is called.
+     */
+    public function testSelectSubPreservesExistingColumns(): void
+    {
+        // Arrange
+        $qb = $this->makeQB('mysql');
+
+        // Act
+        $qb->select(['id', 'name'])
+           ->selectSub(function (QueryBuilder $sub) {
+               $sub->select('COUNT(*)')->from('orders')->whereRaw('orders.user_id = users.id');
+           }, 'order_count')
+           ->from('users');
+
+        $sql = $qb->toSql();
+
+        // Assert — original columns AND the subquery column all appear
+        $this->assertStringContainsString('id', $sql);
+        $this->assertStringContainsString('name', $sql);
+        $this->assertStringContainsString('(SELECT COUNT(*) FROM orders', $sql);
+        $this->assertStringContainsString('AS `order_count`', $sql);
+    }
+
+    /**
+     * selectSub() on PostgreSQL must use double-quote alias quoting.
+     */
+    public function testSelectSubPostgreSQLUsesDoubleQuoteAlias(): void
+    {
+        // Arrange
+        $qb = $this->makeQB('postgresql');
+
+        // Act
+        $qb->selectSub(function (QueryBuilder $sub) {
+            $sub->select('MAX(price)')->from('products');
+        }, 'max_price')
+           ->from('categories');
+
+        $sql = $qb->toSql();
+
+        // Assert
+        $this->assertStringContainsString('AS "max_price"', $sql);
+    }
+
+    /**
+     * fromSub() must set the FROM clause to a derived table wrapped in parens and aliased.
+     */
+    public function testFromSubCompilesSubqueryAsFromSource(): void
+    {
+        // Arrange
+        $qb = $this->makeQB('mysql');
+
+        // Act
+        $qb->select(['category', 'total'])
+           ->fromSub(function (QueryBuilder $sub) {
+               $sub->select(['category', 'SUM(price) AS total'])
+                   ->from('products')
+                   ->groupBy('category');
+           }, 'cat_totals')
+           ->orderBy('total', 'desc');
+
+        $sql = $qb->toSql();
+
+        // Assert
+        $this->assertStringContainsString('FROM (SELECT', $sql);
+        $this->assertStringContainsString(') AS cat_totals', $sql);
+        $this->assertStringContainsString('GROUP BY', $sql);
+    }
+
+    /**
+     * fromSub() must accept a QueryBuilder instance directly, not just a Closure.
+     */
+    public function testFromSubAcceptsQueryBuilderDirectly(): void
+    {
+        // Arrange
+        $outer = $this->makeQB('mysql');
+        $inner = $this->makeQB('mysql');
+        $inner->select(['id', 'name'])->from('products')->where('active', 1);
+
+        // Act
+        $sql = $outer->select('*')->fromSub($inner, 'active_products')->toSql();
+
+        // Assert
+        $this->assertStringContainsString('FROM (SELECT', $sql);
+        $this->assertStringContainsString(') AS active_products', $sql);
+    }
+
+    /**
+     * Bindings from a selectSub() subquery must appear before the outer WHERE bindings
+     * so Database::prepare() maps them to the correct placeholders in left-to-right order.
+     */
+    public function testSelectSubBindingsAreMergedBeforeWhereBindings(): void
+    {
+        // Arrange
+        $qb = $this->makeQB('mysql');
+
+        // Act
+        $qb->selectSub(function (QueryBuilder $sub) {
+            $sub->select('COUNT(*)')->from('orders')->where('status', 'paid');
+        }, 'paid_orders')
+           ->from('users')
+           ->where('active', 1);
+
+        $bindings = $qb->getBindings();
+
+        // Assert — 'paid' (subquery select) must precede 1 (outer WHERE)
+        $this->assertCount(2, $bindings);
+        $this->assertEquals('paid', $bindings[0]);
+        $this->assertEquals(1, $bindings[1]);
+    }
+
+    /**
+     * Bindings from a fromSub() subquery must appear before the outer WHERE bindings.
+     * 'from' slot comes before 'where' slot in the merge order.
+     */
+    public function testFromSubBindingsAreMergedBeforeWhereBindings(): void
+    {
+        // Arrange
+        $qb = $this->makeQB('mysql');
+
+        // Act
+        $qb->select('*')
+           ->fromSub(function (QueryBuilder $sub) {
+               $sub->select('*')->from('products')->where('category', 'fruit');
+           }, 'fruits')
+           ->where('price', '>', 1.00);
+
+        $bindings = $qb->getBindings();
+
+        // Assert — 'fruit' (subquery from) must precede 1.00 (outer WHERE)
+        $this->assertCount(2, $bindings);
+        $this->assertEquals('fruit', $bindings[0]);
+        $this->assertEquals(1.00, $bindings[1]);
+    }
+
+    // =========================================================================
+    // over() — window functions
+    // =========================================================================
+
+    /**
+     * over() with no partition or order must produce 'FN OVER ()'.
+     * A window function with an empty OVER clause is valid SQL (applies to
+     * all rows in the partition, i.e. the entire result set).
+     */
+    public function testOverWithNoOptionsProducesEmptyOver(): void
+    {
+        // Arrange / Act
+        $expr = $this->makeQB('mysql')->over('RANK()');
+
+        // Assert
+        $this->assertStringContainsString('RANK() OVER ()', (string)$expr);
+    }
+
+    /**
+     * PARTITION BY columns must be quoted with the grammar's quoting style.
+     * MySQL grammar wraps columns in backticks.
+     */
+    public function testOverPartitionByMySQLUsesBackticks(): void
+    {
+        // Arrange / Act
+        $expr = $this->makeQB('mysql')->over('RANK()', partition: ['category', 'region']);
+
+        // Assert
+        $this->assertStringContainsString('PARTITION BY `category`, `region`', (string)$expr);
+    }
+
+    /**
+     * PARTITION BY columns must be quoted with the grammar's quoting style.
+     * PostgreSQL grammar wraps columns in double-quotes.
+     */
+    public function testOverPartitionByPostgreSQLUsesDoubleQuotes(): void
+    {
+        // Arrange / Act
+        $expr = $this->makeQB('postgresql')->over('RANK()', partition: ['category', 'region']);
+
+        // Assert
+        $this->assertStringContainsString('PARTITION BY "category", "region"', (string)$expr);
+    }
+
+    /**
+     * ORDER BY with an associative array must emit the direction after each column.
+     */
+    public function testOverOrderByAssocCompilesWithDirection(): void
+    {
+        // Arrange / Act
+        $expr = $this->makeQB('postgresql')
+            ->over('ROW_NUMBER()', order: ['score' => 'desc', 'id' => 'asc']);
+
+        // Assert
+        $this->assertStringContainsString('ORDER BY "score" DESC, "id" ASC', (string)$expr);
+    }
+
+    /**
+     * ORDER BY with an indexed array (no direction) must default to ASC (i.e. no suffix).
+     */
+    public function testOverOrderByIndexedListDefaultsToNoSuffix(): void
+    {
+        // Arrange / Act
+        $expr = $this->makeQB('postgresql')->over('RANK()', order: ['score', 'id']);
+
+        $sql = (string)$expr;
+
+        // Assert — columns quoted, no DESC emitted
+        $this->assertStringContainsString('ORDER BY "score", "id"', $sql);
+        $this->assertStringNotContainsString('DESC', $sql);
+        $this->assertStringNotContainsString('ASC', $sql);
+    }
+
+    /**
+     * over() with both PARTITION BY and ORDER BY must emit both clauses in the OVER.
+     */
+    public function testOverWithPartitionAndOrderCompilesCorrectly(): void
+    {
+        // Arrange / Act
+        $expr = $this->makeQB('postgresql')
+            ->over('RANK()', partition: ['category'], order: ['price' => 'desc']);
+
+        $sql = (string)$expr;
+
+        // Assert
+        $this->assertStringContainsString('RANK() OVER (', $sql);
+        $this->assertStringContainsString('PARTITION BY "category"', $sql);
+        $this->assertStringContainsString('ORDER BY "price" DESC', $sql);
+    }
+
+    /**
+     * over() with an alias must append AS <quoted-alias> at the end of the expression.
+     */
+    public function testOverWithAliasAppendsQuotedAlias(): void
+    {
+        // Arrange / Act
+        $expr = $this->makeQB('postgresql')
+            ->over('RANK()', alias: 'price_rank', partition: ['category'], order: ['price' => 'desc']);
+
+        // Assert
+        $this->assertStringEndsWith('AS "price_rank"', (string)$expr);
+    }
+
+    /**
+     * over() with a ROWS BETWEEN frame clause must include it verbatim in the OVER.
+     */
+    public function testOverWithFrameClause(): void
+    {
+        // Arrange / Act
+        $expr = $this->makeQB('postgresql')
+            ->over(
+                'SUM(amount)',
+                order: ['created_at' => 'asc'],
+                frame: 'ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW'
+            );
+
+        // Assert
+        $this->assertStringContainsString(
+            'ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW',
+            (string)$expr
+        );
+    }
+
+    /**
+     * over() must accept an Expression as the function argument — it casts via __toString().
+     */
+    public function testOverAcceptsExpressionAsFunction(): void
+    {
+        // Arrange
+        $qb = $this->makeQB('postgresql');
+        $fn = $qb->raw('RANK()');
+
+        // Act
+        $expr = $qb->over($fn, alias: 'rn', order: ['score' => 'desc']);
+
+        // Assert
+        $this->assertStringContainsString('RANK() OVER', (string)$expr);
+        $this->assertStringContainsString('AS "rn"', (string)$expr);
+    }
+
+    /**
+     * over() must accept a single string (not array) for partition shorthand.
+     */
+    public function testOverPartitionByStringShorthand(): void
+    {
+        // Arrange / Act — single string instead of array
+        $expr = $this->makeQB('postgresql')
+            ->over('RANK()', partition: 'category', order: ['price' => 'desc']);
+
+        // Assert
+        $this->assertStringContainsString('PARTITION BY "category"', (string)$expr);
+    }
+
+    /**
+     * over() expression used inside select() must appear verbatim in the compiled SQL.
+     */
+    public function testOverExpressionUsedInSelect(): void
+    {
+        // Arrange
+        $qb = $this->makeQB('postgresql');
+        $windowExpr = $qb->over('RANK()', 'price_rank',
+            partition: ['category'],
+            order: ['price' => 'desc']
+        );
+
+        // Act
+        $qb->select(['id', 'name', 'price', $windowExpr])->from('products');
+
+        $sql = $qb->toSql();
+
+        // Assert — window expression appears verbatim in the SELECT list
+        $this->assertStringContainsString('RANK() OVER (', $sql);
+        $this->assertStringContainsString('PARTITION BY "category"', $sql);
+        $this->assertStringContainsString('"price_rank"', $sql);
+    }
 }
