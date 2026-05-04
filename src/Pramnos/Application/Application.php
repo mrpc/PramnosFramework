@@ -615,30 +615,11 @@ class Application extends Base
             $redirectTo = $_SERVER['HTTP_REFERER'] ?? URL;
             $this->redirect($redirectTo);
         } catch (\Exception $exception) {
-            $message = $exception->getMessage();
-            if (strpbrk($message, 'SQL') !== false) {
-                \Pramnos\Logs\Logger::log(
-                    $message
-                    . "\nLine:\n"
-                    . $exception->getFile()
-                    . " -> "
-                    . $exception->getLine()
-                    . "\nTrace:\n"
-                    . $exception->getTraceAsString()
-                );
-            }
-
-            if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
-                echo '<h1>Unhandled Exception</h1>';
-                echo '<p><strong>Class:</strong> ' . htmlspecialchars(get_class($exception), ENT_QUOTES, 'UTF-8') . '</p>';
-                echo '<p><strong>Message:</strong> ' . htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8') . '</p>';
-                echo '<p><strong>File:</strong> ' . htmlspecialchars($exception->getFile(), ENT_QUOTES, 'UTF-8') . '</p>';
-                echo '<p><strong>Line:</strong> ' . (int) $exception->getLine() . '</p>';
-                echo '<pre>' . htmlspecialchars($exception->getTraceAsString(), ENT_QUOTES, 'UTF-8') . '</pre>';
-                $this->close();
-            }
-
-            $this->redirect(URL);
+            $format = isset($doc) && $doc->getType() === 'json' ? 'json' : 'html';
+            $debug  = defined('DEVELOPMENT') && DEVELOPMENT === true;
+            \Pramnos\Http\ExceptionHandler::log($exception);
+            \Pramnos\Http\ExceptionHandler::render($exception, $format, $debug)->send();
+            $this->close();
         }
     }
 
