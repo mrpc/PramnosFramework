@@ -38,6 +38,15 @@ class Adjacencylist extends \Pramnos\Framework\Base
     }
 
     /**
+     * Returns the extraWhere condition stripped of any leading WHERE keyword,
+     * ready to pass to QueryBuilder::whereRaw().
+     */
+    private function extraWhereRaw(): string
+    {
+        return trim(str_ireplace('where', '', $this->extraWhere));
+    }
+
+    /**
      * Returns an array with all items, useful for drop down lists
      * All the items will have their entire path (item >> subitem >> subitem)
      * @param  int  $parent Where to begin (display everything under this node)
@@ -47,36 +56,21 @@ class Adjacencylist extends \Pramnos\Framework\Base
     function getArray($parent = NULL, $itemId = NULL)
     {
         $items = array();
-        if ($itemId === NULL) {
-            if ($parent === NULL) {
-                $sql = $this->database->prepareQuery("SELECT * FROM `" . $this->table . "`");
-                if ($this->extraWhere != '') {
-                    $sql .= ' where '
-                        . str_ireplace('where', '', $this->extraWhere) . ' ';
-                    }
-            } else {
-                $sql = $this->database->prepareQuery(
-                    "SELECT * "
-                    . "FROM `" . $this->table . "` "
-                    . "where `" . $this->parentField . "` = '" . $parent . "'"
-                );
-                if ($this->extraWhere != '') {
-                    $sql .= ' and '
-                        . str_ireplace('where', '', $this->extraWhere) . ' ';
-                }
-            }
-        } else {
-            $sql = $this->database->prepareQuery(
-                "SELECT * "
-                . "FROM `" . $this->table . "` "
-                . "where `" . $this->idField . "` = '" . $itemId . "'"
-            );
-            if ($this->extraWhere != '') {
-                $sql .= ' and '
-                    . str_ireplace('where', '', $this->extraWhere) . ' ';
-            }
+
+        $qb = $this->database->queryBuilder()->from($this->table)->select('*');
+
+        if ($itemId !== NULL) {
+            $qb->where($this->idField, $itemId);
+        } elseif ($parent !== NULL) {
+            $qb->where($this->parentField, $parent);
         }
-        $result = $this->database->query($sql);
+
+        if ($this->extraWhere != '') {
+            $qb->whereRaw($this->extraWhereRaw());
+        }
+
+        $result = $qb->get();
+
         while ($result->fetch()) {
             if ((int) $result->fields[$this->parentField] == 0) {
 
@@ -87,11 +81,11 @@ class Adjacencylist extends \Pramnos\Framework\Base
                 $topicname = $result->fields[$this->titleField];
                 //Loops until we have the top level topic
                 while ($underid <> 0) {
-                    $sql2 = $this->database->prepareQuery(
-                        "SELECT * FROM `" . $this->table . "` WHERE `"
-                        . $this->idField . "` = '" . $underid . "'"
-                    );
-                    $result2 = $this->database->query($sql2);
+                    $result2 = $this->database->queryBuilder()
+                        ->from($this->table)
+                        ->select('*')
+                        ->where($this->idField, (int) $underid)
+                        ->get();
                     while ($result2->fetch()) {
                         $topicname = $result2->fields[$this->titleField]
                             . $this->separator . $topicname;
@@ -100,7 +94,7 @@ class Adjacencylist extends \Pramnos\Framework\Base
                 }
                 $items[$result->fields[$this->idField]] = $topicname;
             }
-            
+
         }
         asort($items); //sorts the topic names for more usability
         return $items;
@@ -130,13 +124,11 @@ class Adjacencylist extends \Pramnos\Framework\Base
      */
     public function getPathAsArray($itemId, array $array = array())
     {
-        $db = $this->database;
-        $sql = $db->prepareQuery(
-            "SELECT * FROM `" . $this->table . "` where `"
-            . $this->idField . "` = %d",
-            $itemId
-        );
-        $result = $db->query($sql);
+        $result = $this->database->queryBuilder()
+            ->from($this->table)
+            ->select('*')
+            ->where($this->idField, (int) $itemId)
+            ->get();
 
         if (isset($result->fields[$this->parentField])
                 && (int)$result->fields[$this->parentField] != 0) {
