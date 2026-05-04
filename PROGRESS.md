@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-04 (session 20)
+## 📅 Last Updated: 2026-05-04 (session 23)
 
 ## 🚀 Completed Milestones
 
@@ -265,6 +265,17 @@
 - [x] **Unit tests** (`tests/Unit/Policy/PolicyRecordUnitTest.php`) — 6 tests: full row mapping, JSON config decoding, pre-decoded config array, missing optional fields null, disabled policy bool, all properties readonly.
 - [x] **`docs/1.2-new-features.md`** — Section 15 added.
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
+
+### Backlog Bug Fixes — Part 2 (2026-05-04, session 23)
+
+- [x] **`Logger::getDefaultLogPath()` — LOG_PATH fallback** (`src/Pramnos/Logs/Logger.php`): `LOG_PATH` constant may be undefined in separate-process tests and CLI contexts; now falls back to `sys_get_temp_dir()` via `defined('LOG_PATH')` guard. `ensureLogDirectories()` simplified to create only the final log directory.
+- [x] **`LogManager` — class-constant crash fix** (`src/Pramnos/Logs/LogManager.php`): `private const DEFAULT_LOG_PATH = LOG_PATH . DS . 'logs'` evaluated at class-load time, crashing when `LOG_PATH` is undefined. Replaced with `private static function getDefaultLogPath()` using the same fallback guard; all `self::DEFAULT_LOG_PATH` references updated.
+- [x] **`Model::_fixDb()` — #PREFIX# resolution** (`src/Pramnos/Application/Model.php`): when DB prefix is empty, `str_replace('', '', '#PREFIX#records')` left the token unresolved in the cache key. Fixed by resolving `#PREFIX#` → `$database->prefix` and `#THISPREFIX#` → `$this->prefix.'_'` first, then stripping the prefix.
+- [x] **`Model::_resolveFieldResultName()` + filtering blocks** (`src/Pramnos/Application/Model.php`): added private helper that normalises field expressions (table.column prefix, AS aliases, identifier quotes) to a bare column name; used in `_getList()` and `_getPaginated()` to correctly identify fields in result rows regardless of how they were specified in the query.
+- [x] **`Datasource` count queries** (`src/Pramnos/Html/Datatable/Datasource.php`): total/display counts used `COUNT(a.\`field\`)` (MySQL-only backtick, broke PG) and wrapped via raw `query()` which never bound `?` parameters from QB WHERE clauses. Fixed: count QBs now use `->select(['COUNT(*) as num'])->get()` so dialect quoting and parameter binding are handled correctly. Eliminates the catch-path 0 fallback for both count values.
+- [x] **`Apikey::getList()` — iterator bug** (`src/Pramnos/Application/Api/Apikey.php`): `foreach ($result as $app)` does not iterate `Result` objects (they don't implement `Traversable`); silently returned an empty array. Changed to `while ($result->fetch()) { new Apikey($result->fields); }`.
+- [x] Updated characterization tests to assert the corrected behavior: `ModelCharacterizationTest` (cache key `'15-records'` not `'15-#PREFIX#records'`), `DatasourceCharacterizationTest` (real count values instead of 0 fallback).
+- [x] Re-verified full suite with `./dockertest` → **1027 tests, 2636 assertions, 0 failures, 0 skipped**.
 
 ### Phase 1: Adjacencylist QB Migration (2026-05-04, session 22)
 

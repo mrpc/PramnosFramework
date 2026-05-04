@@ -614,12 +614,10 @@ class Model extends \Pramnos\Framework\Base
                     // if queryfields is not null (or *), anything not in queryfields should not be returned
                     if ($queryFields !== NULL && $queryFields != '*' && $queryFields != ''
                         && is_array($objects[$result->fields[$primarykey]])) {
-                        $fieldsArray = explode(',', $queryFields);
-                        $fieldsArray = array_map('trim', $fieldsArray);
-                        // remove all quotes from fields
-                        $fieldsArray = array_map(function($field) {
-                            return trim($field, '"');
-                        }, $fieldsArray);
+                        $fieldsArray = array_map(
+                            fn($f) => $this->_resolveFieldResultName($f),
+                            explode(',', $queryFields)
+                        );
                         foreach ($objects[$result->fields[$primarykey]] as $key => $value) {
                             if (!in_array($key, $fieldsArray) && !is_array($value) && !in_array($key, $addedfields)) {
                                 unset($objects[$result->fields[$primarykey]][$key]);
@@ -767,12 +765,10 @@ class Model extends \Pramnos\Framework\Base
                     // if queryfields is not null (or *), anything not in queryfields should not be returned
                     if ($queryFields !== NULL && $queryFields != '*' && $queryFields != ''
                         && is_array($objects[$result->fields[$primarykey]])) {
-                        $fieldsArray = explode(',', $queryFields);
-                        $fieldsArray = array_map('trim', $fieldsArray);
-                        // remove all quotes from fields
-                        $fieldsArray = array_map(function($field) {
-                            return trim($field, '"');
-                        }, $fieldsArray);
+                        $fieldsArray = array_map(
+                            fn($f) => $this->_resolveFieldResultName($f),
+                            explode(',', $queryFields)
+                        );
                         foreach ($objects[$result->fields[$primarykey]] as $key => $value) {
                             if (!in_array($key, $fieldsArray) && !is_array($value) && !in_array($key, $addedfields)) {
                                 unset($objects[$result->fields[$primarykey]][$key]);
@@ -919,6 +915,26 @@ class Model extends \Pramnos\Framework\Base
      * QB raw methods that add the keyword themselves (whereRaw, orderByRaw, groupByRaw).
      * BC: callers have historically passed "where x=y", "order by x", "group by x".
      */
+    /**
+     * Extract the result column name from a SQL field expression.
+     * Handles: table prefix ("a.id" → "id"), aliases ("id as uid" → "uid"),
+     * identifier quotes (backticks, double-quotes, single-quotes), and functions.
+     */
+    private function _resolveFieldResultName(string $field): string
+    {
+        $field = trim($field);
+        // Alias takes priority: "expr AS alias" → alias
+        if (preg_match('/\bAS\s+["`]?(\w+)["`]?\s*$/i', $field, $m)) {
+            return $m[1];
+        }
+        // Strip table/alias prefix: "a.id" → "id"
+        if (strpos($field, '.') !== false) {
+            $field = substr($field, strrpos($field, '.') + 1);
+        }
+        // Strip identifier quotes
+        return trim($field, '"`\'');
+    }
+
     private function _stripSqlKeyword(string $sql, string $keyword): string
     {
         return preg_replace(
@@ -931,9 +947,10 @@ class Model extends \Pramnos\Framework\Base
     private function _fixDb()
     {
         $database = \Pramnos\Database\Database::getInstance();
-        $this->_cacheKey = str_replace(
-            $database->prefix, '', $this->_dbtable
-        );
+        // Resolve placeholders first so they don't end up in the cache key when DB prefix is empty
+        $table = str_replace('#PREFIX#', $database->prefix, $this->_dbtable);
+        $table = str_replace('#THISPREFIX#', $this->prefix . '_', $table);
+        $this->_cacheKey = str_replace($database->prefix, '', $table);
         if ($this->prefix != "") {
             $this->_cacheKey = str_replace(
                 "_" . $this->prefix, '', $this->_cacheKey
