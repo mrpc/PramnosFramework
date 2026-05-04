@@ -326,6 +326,12 @@
 - [x] **`docs/1.2-new-features.md`** — Section 16 added (schema reference, namespace map, idempotency notes, timestamp rationale, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
+### Phase 4: Formal Response Object (2026-05-04, session 27)
+
+- [x] **`Response`** (new `src/Pramnos/Http/Response.php`): Immutable-style fluent builder. Static factories: `make()`, `json()`, `redirect()`. Mutators: `withStatus()`, `withHeader()`, `withRawHeader()`, `withoutHeader()`, `withBody()`. Accessors: `getStatusCode()`, `getBody()`, `getHeader()`, `getHeaderLine()`, `hasHeader()`, `getHeaders()`. Emission: `send()` (delegates to `http_response_code()` + `header()` + `echo`; `@codeCoverageIgnore`).
+- [x] **Unit tests** (`tests/Unit/Http/ResponseTest.php`) — 23 tests, 45 assertions, 100% logic coverage.
+- [x] **`docs/1.2-new-features.md`** — Section 18 added with getting-started examples, middleware inspection pattern, factory helper examples, full API reference.
+
 ### Phase 4: Middleware Pipeline (2026-05-05, session 26)
 
 - [x] **`MiddlewareInterface`** (new `src/Pramnos/Http/MiddlewareInterface.php`): `handle(Request $request, callable $next): mixed`. PSR-15-inspired contract using the framework's own Request class.
