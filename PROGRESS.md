@@ -266,6 +266,13 @@
 - [x] **`docs/1.2-new-features.md`** — Section 15 added.
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
+### Phase 1: Adjacencylist QB Migration (2026-05-04, session 22)
+
+- [x] **`Adjacencylist` — cross-dialect fix** (`src/Pramnos/Database/Adjacencylist.php`): replaced all hardcoded MySQL backtick queries with QueryBuilder calls. The QB emits dialect-correct quoting (backticks MySQL / double-quotes PG). `getArray()` uses a single QB chain instead of 3 separate SQL string branches; inner ancestor walk converted to QB; `getPathAsArray()` converted; `extraWhereRaw()` helper strips the leading WHERE keyword for `whereRaw()`.
+- [x] **`AdjacencylistCharacterizationTest` updated** — mock now intercepts `execute()` (QB calls execute, not query); `queryBuilder()` passes through to real implementation with `type=mysql`/`prefix=''` set on the mock; routes result fixtures by binding value; extraWhere assertion checks condition presence + single WHERE occurrence.
+- [x] **`AdjacencylistPostgreSQLCharacterizationTest` converted** from 7×markTestSkipped to 7 live integration tests against Docker TimescaleDB/PG 14. All contracts mirror the MySQL test.
+- [x] Re-verified full suite with `./dockertest` → **1027 tests, 2636 assertions, 0 failures, 0 skipped**.
+
 ### Phase 5: Characterization Coverage Wave 21 — Adjacencylist + User PG (2026-05-04, session 22)
 
 - [x] **`tests/Characterization/Database/AdjacencylistMySQLCharacterizationTest.php`** (7 tests) — live MySQL integration: `getArray()` all items with full ancestor paths, `getArray($parent)` subtree filter (paths still built from root), `getArray(null, $itemId)` single-item fetch, `getPath()` full chain, `getPath()` null for missing item, `getPathAsArray()` chain order + stdClass type, `getPathAsArray()` root single-element.
@@ -458,7 +465,7 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 ---
 
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 1027/1027 pass (0 failures, 0 errors, 7 skipped) — includes unit, integration, and characterization suites.
+- **Framework Test Pass Rate:** 1027/1027 pass (0 failures, 0 errors, 0 skipped) — includes unit, integration, and characterization suites.
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.
