@@ -74,22 +74,69 @@ class ResultUnitTest extends TestCase
 
     public function testFetchCachedIteratesThroughRows(): void
     {
+        // Verifies that fetch() returns every row exactly once when starting
+        // from cursor=-1 (the initial state set by query()/execute()).
         $rows   = [['name' => 'Alice'], ['name' => 'Bob']];
         $result = $this->makeResult($rows);
 
-        // Reset cursor to -1 so fetch() starts from the beginning
-        $result->cursor = -1;
-
         $row1 = $result->fetch();
-        $this->assertEquals(['name' => 'Alice'], $row1);
+        $this->assertEquals(['name' => 'Alice'], $row1, 'first fetch() must return row 0 (already prefetched)');
 
         $row2 = $result->fetch();
-        $this->assertEquals(['name' => 'Bob'], $row2);
+        $this->assertEquals(['name' => 'Bob'], $row2, 'second fetch() must return row 1');
 
         // Past the end → eof
         $row3 = $result->fetch();
         $this->assertNull($row3);
         $this->assertTrue($result->eof);
+    }
+
+    /**
+     * fetch() must not double-count row 0 when cursor starts at -1.
+     *
+     * query()/execute() pre-populate $fields with row 0 and set cursor=-1.
+     * A naive implementation re-reads row 0 on the first fetch() call.
+     * The correct implementation skips that re-read and returns the
+     * already-loaded row, so a 3-row result yields exactly 3 iterations.
+     */
+    public function testFetchNeverDoubleCountsFirstRow(): void
+    {
+        // Arrange — three rows, cursor=-1 (as set by query()/execute())
+        $rows   = [['id' => 1], ['id' => 2], ['id' => 3]];
+        $result = $this->makeResult($rows);
+
+        // Act — collect everything
+        $collected = [];
+        while ($result->fetch()) {
+            $collected[] = $result->fields;
+        }
+
+        // Assert — exactly 3 rows, no duplicates
+        $this->assertCount(3, $collected, 'each row must appear exactly once');
+        $this->assertSame(['id' => 1], $collected[0]);
+        $this->assertSame(['id' => 2], $collected[1]);
+        $this->assertSame(['id' => 3], $collected[2]);
+    }
+
+    /**
+     * fetchNext() is an alias for fetch() — behaviour must be identical.
+     */
+    public function testFetchNextIsAliasForFetch(): void
+    {
+        // Arrange
+        $rows   = [['val' => 'x'], ['val' => 'y']];
+        $result = $this->makeResult($rows);
+
+        // Act
+        $collected = [];
+        while ($result->fetchNext()) {
+            $collected[] = $result->fields;
+        }
+
+        // Assert — same result as fetch()
+        $this->assertCount(2, $collected);
+        $this->assertSame('x', $collected[0]['val']);
+        $this->assertSame('y', $collected[1]['val']);
     }
 
     public function testFetchCachedEofReturnNullImmediately(): void
