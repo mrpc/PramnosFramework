@@ -117,6 +117,12 @@ class QueryBuilder
     protected $ctes = [];
 
     /**
+     * Row-locking mode: 'update' (FOR UPDATE), 'share' (FOR SHARE / LOCK IN SHARE MODE), or null.
+     * @var string|null
+     */
+    protected ?string $lock = null;
+
+    /**
      * Constructor
      *
      * @param Database          $db
@@ -175,6 +181,7 @@ class QueryBuilder
     public function getUnions(): array          { return $this->unions; }
     public function getReturning(): array       { return $this->returning; }
     public function getCtes(): array            { return $this->ctes; }
+    public function getLock(): ?string          { return $this->lock; }
 
     /**
      * Create a raw SQL expression.
@@ -512,7 +519,7 @@ class QueryBuilder
 
     /**
      * Add a left join clause.
-     * 
+     *
      * @param string $table
      * @param string $first
      * @param string $operator
@@ -522,6 +529,32 @@ class QueryBuilder
     public function leftJoin($table, $first, $operator = null, $second = null)
     {
         return $this->join($table, $first, $operator, $second, 'left');
+    }
+
+    /**
+     * Add a right join clause.
+     *
+     * @param string $table
+     * @param string $first
+     * @param string $operator
+     * @param string $second
+     * @return $this
+     */
+    public function rightJoin($table, $first, $operator = null, $second = null)
+    {
+        return $this->join($table, $first, $operator, $second, 'right');
+    }
+
+    /**
+     * Add a cross join clause (no ON condition).
+     *
+     * @param string $table
+     * @return $this
+     */
+    public function crossJoin($table)
+    {
+        $this->joins[] = ['table' => $table, 'type' => 'cross'];
+        return $this;
     }
 
     /**
@@ -672,6 +705,41 @@ class QueryBuilder
         unset($this->offset);
         $this->bindings['order'] = [];
         return $this;
+    }
+
+    /**
+     * Order by the given column descending — sugar for orderBy($col, 'desc').
+     *
+     * @param string $col
+     * @return $this
+     */
+    public function latest(string $col = 'created_at')
+    {
+        return $this->orderBy($col, 'desc');
+    }
+
+    /**
+     * Order by the given column ascending — sugar for orderBy($col, 'asc').
+     *
+     * @param string $col
+     * @return $this
+     */
+    public function oldest(string $col = 'created_at')
+    {
+        return $this->orderBy($col, 'asc');
+    }
+
+    /**
+     * Set LIMIT and OFFSET for a given page number.
+     * Pages are 1-indexed: page 1 starts at offset 0.
+     *
+     * @param int $page     1-based page number
+     * @param int $perPage  Rows per page
+     * @return $this
+     */
+    public function forPage(int $page, int $perPage)
+    {
+        return $this->limit($perPage)->offset(max(0, $page - 1) * $perPage);
     }
 
     /**
@@ -881,6 +949,425 @@ class QueryBuilder
                 ->clearOrderingAndPaging();
         $result = $counter->get();
         return (int) ($result->fields['aggregate'] ?? 0);
+    }
+
+    /**
+     * Internal helper — run a single aggregate function and return the raw result value.
+     *
+     * @param  string $function  SQL aggregate function name (SUM, AVG, MIN, MAX)
+     * @param  string $col       Column expression
+     * @return mixed
+     */
+    private function runAggregate(string $function, string $col): mixed
+    {
+        $clone = clone $this;
+        $clone->select(["{$function}({$col}) AS aggregate"])
+              ->clearOrderingAndPaging();
+        $result = $clone->get();
+        return $result->fields['aggregate'] ?? null;
+    }
+
+    /**
+     * Execute a SUM aggregate and return the result as a float.
+     * Returns 0.0 when no rows match.
+     *
+     * @param string $col Column to sum
+     * @return float
+     */
+    public function sum(string $col): float
+    {
+        return (float)($this->runAggregate('SUM', $col) ?? 0.0);
+    }
+
+    /**
+     * Execute an AVG aggregate and return the result as a float.
+     * Returns 0.0 when no rows match.
+     *
+     * @param string $col Column to average
+     * @return float
+     */
+    public function avg(string $col): float
+    {
+        return (float)($this->runAggregate('AVG', $col) ?? 0.0);
+    }
+
+    /**
+     * Execute a MIN aggregate and return the minimum value.
+     * Returns null when no rows match.
+     *
+     * @param string $col Column to find minimum of
+     * @return mixed
+     */
+    public function min(string $col): mixed
+    {
+        return $this->runAggregate('MIN', $col);
+    }
+
+    /**
+     * Execute a MAX aggregate and return the maximum value.
+     * Returns null when no rows match.
+     *
+     * @param string $col Column to find maximum of
+     * @return mixed
+     */
+    public function max(string $col): mixed
+    {
+        return $this->runAggregate('MAX', $col);
+    }
+
+    /**
+     * Check if any row matches the current WHERE conditions.
+     * Issues SELECT EXISTS(SELECT 1 FROM … WHERE …) — more efficient than count() > 0.
+     *
+     * @return bool
+     */
+    public function exists(): bool
+    {
+        $sub = clone $this;
+        $sub->select(['1'])->clearOrderingAndPaging();
+        $innerSql = str_replace('#PREFIX#', $this->db->prefix, $sub->toSql());
+        $sql      = 'SELECT EXISTS(' . $innerSql . ') AS exists_flag';
+        $result   = $this->db->execute($sql, ...$sub->getBindings());
+        if (!$result) {
+            return false;
+        }
+        $val = $result->fields['exists_flag'] ?? 0;
+        // MySQL: 0/1 (int), PostgreSQL: 't'/'f' (string) or true/false (bool)
+        return $val === true || $val === 1 || $val === '1' || $val === 't';
+    }
+
+    /**
+     * Inverse of exists() — returns true when no rows match the conditions.
+     *
+     * @return bool
+     */
+    public function doesntExist(): bool
+    {
+        return !$this->exists();
+    }
+
+    /**
+     * Execute the query with LIMIT 1 and return a single column value.
+     * Returns null when no rows match or the column is absent.
+     *
+     * Does not mutate the current builder.
+     *
+     * @param string $col Column name (or qualified table.col)
+     * @return mixed
+     */
+    public function value(string $col): mixed
+    {
+        $clone  = clone $this;
+        $result = $clone->select([$col])->limit(1)->get();
+        if (!$result || $result->numRows === 0) {
+            return null;
+        }
+        // Strip optional table prefix (table.col → col) for field lookup
+        $key = str_contains($col, '.') ? substr(strrchr($col, '.'), 1) : $col;
+        return $result->fields[$key] ?? null;
+    }
+
+    /**
+     * Execute the query and return a flat array of one column's values.
+     * Does not mutate the current builder.
+     *
+     * @param string $col Column name (or qualified table.col)
+     * @return array
+     */
+    public function pluck(string $col): array
+    {
+        $clone  = clone $this;
+        $result = $clone->select([$col])->get();
+        if (!$result || $result->numRows === 0) {
+            return [];
+        }
+        $key  = str_contains($col, '.') ? substr(strrchr($col, '.'), 1) : $col;
+        $rows = $result->fetchAll();
+        return array_column($rows, $key);
+    }
+
+    /**
+     * Increment a column by a given step and return the number of affected rows.
+     *
+     * @param string    $col   Column to increment
+     * @param int|float $step  Amount to add (default 1)
+     * @return int  Number of affected rows
+     */
+    public function increment(string $col, int|float $step = 1): int
+    {
+        $quoted = $this->grammar->quoteColumn($col);
+        $result = $this->update([$col => $this->raw("{$quoted} + {$step}")]);
+        return $result ? (int)$result->getAffectedRows() : 0;
+    }
+
+    /**
+     * Decrement a column by a given step and return the number of affected rows.
+     *
+     * @param string    $col   Column to decrement
+     * @param int|float $step  Amount to subtract (default 1)
+     * @return int  Number of affected rows
+     */
+    public function decrement(string $col, int|float $step = 1): int
+    {
+        $quoted = $this->grammar->quoteColumn($col);
+        $result = $this->update([$col => $this->raw("{$quoted} - {$step}")]);
+        return $result ? (int)$result->getAffectedRows() : 0;
+    }
+
+    /**
+     * Process the result in chunks of the given size.
+     *
+     * The callback receives an array of rows (associative arrays) and the
+     * current 1-based page number.  Returning false from the callback stops
+     * processing early.
+     *
+     * @param int     $size      Rows per chunk
+     * @param \Closure $callback fn(array $rows, int $page): bool|void
+     * @return void
+     */
+    public function chunk(int $size, \Closure $callback): void
+    {
+        $page = 1;
+        do {
+            $clone  = clone $this;
+            $result = $clone->forPage($page, $size)->get();
+
+            if (!$result || $result->numRows === 0) {
+                break;
+            }
+
+            $rows    = $result->fetchAll();
+            $fetched = count($rows);
+
+            if ($callback($rows, $page) === false) {
+                break;
+            }
+
+            $page++;
+        } while ($fetched === $size);
+    }
+
+    /**
+     * Apply the given callback only when the condition is truthy.
+     *
+     * If $condition is a Closure it is evaluated first; its return value is
+     * used as the truthiness check and also passed as the second argument to
+     * $callback / $default.
+     *
+     * When $condition is falsy and no $default is provided, the builder is
+     * returned unchanged — making this safe to chain in a fluent expression.
+     *
+     * @param mixed         $condition  Scalar or Closure($this): mixed
+     * @param \Closure      $callback   fn(QueryBuilder $qb, mixed $value): void
+     * @param \Closure|null $default    fn(QueryBuilder $qb, mixed $value): void
+     * @return $this
+     */
+    public function when(mixed $condition, \Closure $callback, ?\Closure $default = null)
+    {
+        $value = $condition instanceof \Closure ? $condition($this) : $condition;
+
+        if ($value) {
+            $callback($this, $value);
+        } elseif ($default !== null) {
+            $default($this, $value);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Lock the selected rows for update (pessimistic locking).
+     * MySQL: FOR UPDATE  |  PostgreSQL: FOR UPDATE
+     *
+     * @return $this
+     */
+    public function lockForUpdate()
+    {
+        $this->lock = 'update';
+        return $this;
+    }
+
+    /**
+     * Lock the selected rows in share mode.
+     * MySQL: LOCK IN SHARE MODE  |  PostgreSQL: FOR SHARE
+     *
+     * @return $this
+     */
+    public function sharedLock()
+    {
+        $this->lock = 'share';
+        return $this;
+    }
+
+    /**
+     * Add a WHERE EXISTS (subquery) condition.
+     *
+     * @param \Closure $callback  fn(QueryBuilder $sub): void — build the sub-query
+     * @param string   $boolean   'and' or 'or'
+     * @param bool     $not       true for NOT EXISTS
+     * @return $this
+     */
+    public function whereExists(\Closure $callback, string $boolean = 'and', bool $not = false)
+    {
+        $sub = new static($this->db, $this->grammar);
+        $callback($sub);
+
+        $type = $not ? 'NotExists' : 'Exists';
+        $this->wheres[] = compact('type', 'sub', 'boolean');
+
+        // Merge the sub-query's bindings into our where slot (left-to-right order)
+        foreach ($sub->getBindings() as $binding) {
+            $this->bindings['where'][] = $binding;
+        }
+
+        return $this;
+    }
+
+    /**
+     * Add a WHERE NOT EXISTS (subquery) condition.
+     *
+     * @param \Closure $callback
+     * @param string   $boolean
+     * @return $this
+     */
+    public function whereNotExists(\Closure $callback, string $boolean = 'and')
+    {
+        return $this->whereExists($callback, $boolean, true);
+    }
+
+    /**
+     * Add an OR WHERE EXISTS condition.
+     *
+     * @param \Closure $callback
+     * @return $this
+     */
+    public function orWhereExists(\Closure $callback)
+    {
+        return $this->whereExists($callback, 'or');
+    }
+
+    /**
+     * Add an OR WHERE NOT EXISTS condition.
+     *
+     * @param \Closure $callback
+     * @return $this
+     */
+    public function orWhereNotExists(\Closure $callback)
+    {
+        return $this->whereExists($callback, 'or', true);
+    }
+
+    // -------------------------------------------------------------------------
+    // Date-part WHERE conditions
+    // -------------------------------------------------------------------------
+
+    /**
+     * Shared internal helper for all date-part WHERE conditions.
+     *
+     * @param string $part     One of: date, year, month, day, time
+     * @param string $col      Column name
+     * @param string $operator Comparison operator
+     * @param mixed  $value    Comparison value
+     * @param string $boolean  'and' | 'or'
+     * @return $this
+     */
+    protected function addDatePartWhere(string $part, string $col, string $operator, mixed $value, string $boolean)
+    {
+        $this->wheres[] = [
+            'type'     => 'DatePart',
+            'part'     => $part,
+            'column'   => $col,
+            'operator' => $operator,
+            'value'    => $value,
+            'boolean'  => $boolean,
+        ];
+        $this->addBinding($value, 'where');
+        return $this;
+    }
+
+    /**
+     * Add a WHERE DATE(col) condition — matches rows by date portion only.
+     *
+     * @param string $col
+     * @param mixed  $operator  Operator or value (when called with 2 args)
+     * @param mixed  $value
+     * @param string $boolean
+     * @return $this
+     */
+    public function whereDate(string $col, mixed $operator, mixed $value = null, string $boolean = 'and')
+    {
+        if (func_num_args() === 2) {
+            [$operator, $value] = ['=', $operator];
+        }
+        return $this->addDatePartWhere('date', $col, (string)$operator, $value, $boolean);
+    }
+
+    /**
+     * Add a WHERE YEAR(col) condition.
+     *
+     * @param string $col
+     * @param mixed  $operator
+     * @param mixed  $value
+     * @param string $boolean
+     * @return $this
+     */
+    public function whereYear(string $col, mixed $operator, mixed $value = null, string $boolean = 'and')
+    {
+        if (func_num_args() === 2) {
+            [$operator, $value] = ['=', $operator];
+        }
+        return $this->addDatePartWhere('year', $col, (string)$operator, $value, $boolean);
+    }
+
+    /**
+     * Add a WHERE MONTH(col) condition.
+     *
+     * @param string $col
+     * @param mixed  $operator
+     * @param mixed  $value
+     * @param string $boolean
+     * @return $this
+     */
+    public function whereMonth(string $col, mixed $operator, mixed $value = null, string $boolean = 'and')
+    {
+        if (func_num_args() === 2) {
+            [$operator, $value] = ['=', $operator];
+        }
+        return $this->addDatePartWhere('month', $col, (string)$operator, $value, $boolean);
+    }
+
+    /**
+     * Add a WHERE DAY(col) condition.
+     *
+     * @param string $col
+     * @param mixed  $operator
+     * @param mixed  $value
+     * @param string $boolean
+     * @return $this
+     */
+    public function whereDay(string $col, mixed $operator, mixed $value = null, string $boolean = 'and')
+    {
+        if (func_num_args() === 2) {
+            [$operator, $value] = ['=', $operator];
+        }
+        return $this->addDatePartWhere('day', $col, (string)$operator, $value, $boolean);
+    }
+
+    /**
+     * Add a WHERE TIME(col) condition.
+     *
+     * @param string $col
+     * @param mixed  $operator
+     * @param mixed  $value
+     * @param string $boolean
+     * @return $this
+     */
+    public function whereTime(string $col, mixed $operator, mixed $value = null, string $boolean = 'and')
+    {
+        if (func_num_args() === 2) {
+            [$operator, $value] = ['=', $operator];
+        }
+        return $this->addDatePartWhere('time', $col, (string)$operator, $value, $boolean);
     }
 
     /**

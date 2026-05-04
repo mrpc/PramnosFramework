@@ -38,6 +38,7 @@ class QueryBuilderPostgreSQLTest extends TestCase
 
         $this->db->execute("DROP TABLE IF EXISTS qb_tags");
         $this->db->execute("DROP TABLE IF EXISTS qb_products");
+        $this->db->execute("DROP TABLE IF EXISTS qb_events");
         $this->db->execute("CREATE TABLE qb_products (
             id       SERIAL PRIMARY KEY,
             name     VARCHAR(255)   NOT NULL,
@@ -52,12 +53,18 @@ class QueryBuilderPostgreSQLTest extends TestCase
             product_id INTEGER    NOT NULL,
             tag        VARCHAR(50) NOT NULL
         )");
+        $this->db->execute("CREATE TABLE qb_events (
+            id         SERIAL PRIMARY KEY,
+            name       VARCHAR(100)  NOT NULL,
+            event_time TIMESTAMPTZ   NOT NULL
+        )");
     }
 
     protected function tearDown(): void
     {
         $this->db->execute("DROP TABLE IF EXISTS qb_tags");
         $this->db->execute("DROP TABLE IF EXISTS qb_products");
+        $this->db->execute("DROP TABLE IF EXISTS qb_events");
         $this->db->close();
     }
 
@@ -711,5 +718,760 @@ class QueryBuilderPostgreSQLTest extends TestCase
         $this->assertEquals('Apple', $row['name']);
         // With skipDataFix=true, numeric columns come back as strings
         $this->assertIsString($row['stock']);
+    }
+
+    // =========================================================================
+    // rightJoin() / crossJoin()
+    // =========================================================================
+
+    /**
+     * rightJoin() must execute a valid RIGHT JOIN and return tag-driven rows.
+     * All 5 tag rows must appear; product columns are NULL for unmatched products.
+     */
+    public function testRightJoinExecutesWithoutError(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->seedTags();
+
+        // Act — RIGHT JOIN drives from qb_tags side
+        $result = $this->db->queryBuilder()
+            ->select(['qb_products.name', 'qb_tags.tag'])
+            ->from('qb_products')
+            ->rightJoin('qb_tags', 'qb_products.id', '=', 'qb_tags.product_id')
+            ->get();
+
+        // Assert — all 5 tag rows appear
+        $this->assertEquals(5, $result->numRows);
+    }
+
+    /**
+     * crossJoin() must produce the Cartesian product — every row from left
+     * combined with every row from right.  5 products × 2 tags = 10 rows.
+     */
+    public function testCrossJoinProducesCartesianProduct(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->db->execute("INSERT INTO qb_tags (product_id, tag) VALUES (1, 'a'), (2, 'b')");
+
+        // Act — CROSS JOIN of 5 products × 2 tags = 10 rows
+        $result = $this->db->queryBuilder()
+            ->select(['qb_products.name', 'qb_tags.tag'])
+            ->from('qb_products')
+            ->crossJoin('qb_tags')
+            ->get();
+
+        // Assert
+        $this->assertEquals(10, $result->numRows);
+    }
+
+    // =========================================================================
+    // latest() / oldest() / forPage()
+    // =========================================================================
+
+    /**
+     * latest() must order results by the specified column descending.
+     * Most expensive product is Elderberry at 3.00.
+     */
+    public function testLatestOrdersByColumnDesc(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — latest by price → most expensive first (Elderberry 3.00)
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->latest('price')
+            ->first();
+
+        // Assert
+        $this->assertEquals('Elderberry', $result->fields['name']);
+    }
+
+    /**
+     * oldest() must order results by the specified column ascending.
+     * Cheapest product is Banana at 0.50.
+     */
+    public function testOldestOrdersByColumnAsc(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — oldest by price → cheapest first (Banana 0.50)
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->oldest('price')
+            ->first();
+
+        // Assert
+        $this->assertEquals('Banana', $result->fields['name']);
+    }
+
+    /**
+     * forPage() must set LIMIT and OFFSET so page 2 at 2-per-page returns rows 3+4.
+     */
+    public function testForPageReturnsCorrectSlice(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — ordered by id; page 2, 2 per page → rows 3+4 (Carrot, Daikon)
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->orderBy('id')
+            ->forPage(2, 2)
+            ->get();
+
+        $rows = $result->fetchAll();
+
+        // Assert
+        $this->assertCount(2, $rows);
+        $this->assertEquals('Carrot', $rows[0]['name']);
+        $this->assertEquals('Daikon', $rows[1]['name']);
+    }
+
+    // =========================================================================
+    // sum() / avg() / min() / max()
+    // =========================================================================
+
+    /**
+     * sum() must return the total of the price column.
+     * 1.20 + 0.50 + 0.80 + 1.50 + 3.00 = 7.00
+     */
+    public function testSumReturnsCorrectTotal(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $total = $this->db->queryBuilder()->from('qb_products')->sum('price');
+
+        // Assert
+        $this->assertEqualsWithDelta(7.00, $total, 0.001);
+    }
+
+    /**
+     * avg() must return the arithmetic mean of the price column.
+     * 7.00 / 5 = 1.40
+     */
+    public function testAvgReturnsCorrectMean(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $mean = $this->db->queryBuilder()->from('qb_products')->avg('price');
+
+        // Assert
+        $this->assertEqualsWithDelta(1.40, $mean, 0.001);
+    }
+
+    /**
+     * min() must return the minimum price.
+     * Cheapest product is Banana at 0.50.
+     */
+    public function testMinReturnsSmallestValue(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $min = $this->db->queryBuilder()->from('qb_products')->min('price');
+
+        // Assert
+        $this->assertEqualsWithDelta(0.50, (float)$min, 0.001);
+    }
+
+    /**
+     * max() must return the maximum price.
+     * Most expensive product is Elderberry at 3.00.
+     */
+    public function testMaxReturnsLargestValue(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $max = $this->db->queryBuilder()->from('qb_products')->max('price');
+
+        // Assert
+        $this->assertEqualsWithDelta(3.00, (float)$max, 0.001);
+    }
+
+    /**
+     * Aggregate methods must respect WHERE clauses.
+     * Active products: Apple 1.20, Banana 0.50, Carrot 0.80, Elderberry 3.00 → sum 5.50.
+     * PostgreSQL uses BOOLEAN true/false (not 1/0).
+     */
+    public function testSumRespectsWhereClause(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — PostgreSQL active column is BOOLEAN, compare with true
+        $total = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('active', true)
+            ->sum('price');
+
+        // Assert
+        $this->assertEqualsWithDelta(5.50, $total, 0.001);
+    }
+
+    // =========================================================================
+    // exists() / doesntExist()
+    // =========================================================================
+
+    /**
+     * exists() must return true when at least one row matches the conditions.
+     */
+    public function testExistsReturnsTrueWhenRowFound(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $found = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Apple')
+            ->exists();
+
+        // Assert
+        $this->assertTrue($found);
+    }
+
+    /**
+     * exists() must return false when no rows match the conditions.
+     */
+    public function testExistsReturnsFalseWhenNoRowFound(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $found = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Zucchini')
+            ->exists();
+
+        // Assert
+        $this->assertFalse($found);
+    }
+
+    /**
+     * doesntExist() is the inverse of exists() — true when no rows match.
+     */
+    public function testDoesntExistReturnsTrueWhenNoRowFound(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $absent = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Zucchini')
+            ->doesntExist();
+
+        // Assert
+        $this->assertTrue($absent);
+    }
+
+    // =========================================================================
+    // value() / pluck()
+    // =========================================================================
+
+    /**
+     * value() must execute with LIMIT 1 and return the value of the requested column.
+     */
+    public function testValueReturnsSingleColumnValue(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — cheapest product by price, get its name
+        $name = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->oldest('price')
+            ->value('name');
+
+        // Assert
+        $this->assertEquals('Banana', $name);
+    }
+
+    /**
+     * value() must return null when no rows match the conditions.
+     */
+    public function testValueReturnsNullWhenNoMatch(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $val = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Nonexistent')
+            ->value('name');
+
+        // Assert
+        $this->assertNull($val);
+    }
+
+    /**
+     * pluck() must return a flat array of one column's values across all matching rows.
+     */
+    public function testPluckReturnsFlatArray(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — names of fruit products ordered by price
+        $names = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('category', 'fruit')
+            ->orderBy('price')
+            ->pluck('name');
+
+        // Assert — Banana (0.50), Apple (1.20), Elderberry (3.00)
+        $this->assertEquals(['Banana', 'Apple', 'Elderberry'], $names);
+    }
+
+    /**
+     * pluck() must return an empty array when no rows match.
+     */
+    public function testPluckReturnsEmptyArrayWhenNoMatch(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $names = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('category', 'grain')
+            ->pluck('name');
+
+        // Assert
+        $this->assertSame([], $names);
+    }
+
+    // =========================================================================
+    // increment() / decrement()
+    // =========================================================================
+
+    /**
+     * increment() must add the step to the column and return the number of affected rows.
+     * Apple starts at stock=100; after increment(5) it should be 105.
+     * PostgreSQL uses pg_affected_rows() (not the MySQL prepared-statement path).
+     */
+    public function testIncrementUpdatesColumnByStep(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $affected = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Apple')
+            ->increment('stock', 5);
+
+        // Assert — 1 row updated
+        $this->assertEquals(1, $affected);
+
+        // Verify in DB
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Apple')
+            ->value('stock');
+        $this->assertEquals(105, (int)$result);
+    }
+
+    /**
+     * decrement() must subtract the step from the column.
+     * Banana starts at stock=200; after decrement(50) it should be 150.
+     */
+    public function testDecrementUpdatesColumnByStep(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $affected = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Banana')
+            ->decrement('stock', 50);
+
+        // Assert
+        $this->assertEquals(1, $affected);
+
+        // Verify in DB
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Banana')
+            ->value('stock');
+        $this->assertEquals(150, (int)$result);
+    }
+
+    /**
+     * Default step for increment() / decrement() is 1.
+     * Carrot starts at stock=50; after increment() with no step it should be 51.
+     */
+    public function testIncrementDefaultStepIsOne(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Carrot')
+            ->increment('stock');
+
+        // Assert — stock was 50, now 51
+        $stock = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Carrot')
+            ->value('stock');
+        $this->assertEquals(51, (int)$stock);
+    }
+
+    // =========================================================================
+    // chunk()
+    // =========================================================================
+
+    /**
+     * chunk() must process all rows in batches of the given size.
+     * With 5 products and chunk size 2: chunks of [2, 2, 1] rows.
+     */
+    public function testChunkProcessesAllRowsInBatches(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $collected = [];
+        $pagesVisited = [];
+
+        // Act
+        $this->db->queryBuilder()
+            ->from('qb_products')
+            ->orderBy('id')
+            ->chunk(2, function (array $rows, int $page) use (&$collected, &$pagesVisited) {
+                $pagesVisited[] = $page;
+                foreach ($rows as $row) {
+                    $collected[] = $row['name'];
+                }
+            });
+
+        // Assert — all 5 products visited across 3 pages
+        $this->assertCount(5, $collected);
+        $this->assertEquals([1, 2, 3], $pagesVisited);
+        $this->assertEquals(['Apple', 'Banana', 'Carrot', 'Daikon', 'Elderberry'], $collected);
+    }
+
+    /**
+     * chunk() must stop processing when the callback returns false.
+     * Only the first chunk (2 rows) should be collected.
+     */
+    public function testChunkStopsEarlyWhenCallbackReturnsFalse(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $collected = [];
+
+        // Act — stop after first chunk
+        $this->db->queryBuilder()
+            ->from('qb_products')
+            ->orderBy('id')
+            ->chunk(2, function (array $rows) use (&$collected) {
+                foreach ($rows as $row) {
+                    $collected[] = $row['name'];
+                }
+                return false; // Stop after first chunk
+            });
+
+        // Assert — only the first 2 rows processed
+        $this->assertCount(2, $collected);
+        $this->assertEquals(['Apple', 'Banana'], $collected);
+    }
+
+    // =========================================================================
+    // lockForUpdate() / sharedLock()
+    // =========================================================================
+
+    /**
+     * lockForUpdate() must execute without error inside a PostgreSQL transaction.
+     * PostgreSQL syntax is FOR UPDATE (same as MySQL); uses BEGIN/COMMIT.
+     */
+    public function testLockForUpdateExecutesWithinTransaction(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->db->execute('BEGIN');
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->select(['name', 'stock'])
+            ->from('qb_products')
+            ->where('name', 'Apple')
+            ->lockForUpdate()
+            ->get();
+
+        $this->db->execute('COMMIT');
+
+        // Assert — row returned correctly with lock
+        $this->assertEquals(1, $result->numRows);
+        $this->assertEquals('Apple', $result->fields['name']);
+    }
+
+    /**
+     * sharedLock() must execute without error inside a transaction.
+     * PostgreSQL compiles sharedLock() to FOR SHARE (not LOCK IN SHARE MODE).
+     */
+    public function testSharedLockExecutesWithinTransaction(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->db->execute('BEGIN');
+
+        // Act — active is BOOLEAN in PostgreSQL, compare with true
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->where('active', true)
+            ->sharedLock()
+            ->get();
+
+        $this->db->execute('COMMIT');
+
+        // Assert — 4 active products returned
+        $this->assertEquals(4, $result->numRows);
+    }
+
+    // =========================================================================
+    // whereExists() / whereNotExists()
+    // =========================================================================
+
+    /**
+     * whereExists() must return only rows for which the sub-query finds a match.
+     * Products that have at least one tag → Apple, Carrot, Elderberry (3 products).
+     */
+    public function testWhereExistsFiltersToMatchingRows(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->seedTags();
+
+        // Act — products with at least one tag
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->whereExists(function (\Pramnos\Database\QueryBuilder $sub) {
+                $sub->select(['1'])
+                    ->from('qb_tags')
+                    ->whereRaw('qb_tags.product_id = qb_products.id');
+            })
+            ->orderBy('id')
+            ->get();
+
+        $rows = $result->fetchAll();
+
+        // Assert — only products with tags
+        $this->assertCount(3, $rows);
+        $this->assertEquals('Apple',      $rows[0]['name']);
+        $this->assertEquals('Carrot',     $rows[1]['name']);
+        $this->assertEquals('Elderberry', $rows[2]['name']);
+    }
+
+    /**
+     * whereNotExists() must return only rows for which the sub-query finds no match.
+     * Products without tags → Banana, Daikon (2 products).
+     */
+    public function testWhereNotExistsFiltersToNonMatchingRows(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->seedTags();
+
+        // Act — products without any tag
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->whereNotExists(function (\Pramnos\Database\QueryBuilder $sub) {
+                $sub->select(['1'])
+                    ->from('qb_tags')
+                    ->whereRaw('qb_tags.product_id = qb_products.id');
+            })
+            ->orderBy('id')
+            ->get();
+
+        $rows = $result->fetchAll();
+
+        // Assert — only untagged products
+        $this->assertCount(2, $rows);
+        $this->assertEquals('Banana', $rows[0]['name']);
+        $this->assertEquals('Daikon', $rows[1]['name']);
+    }
+
+    // =========================================================================
+    // whereDate() / whereYear() / whereMonth() / whereDay() / whereTime()
+    // =========================================================================
+
+    /**
+     * Helper: seed qb_events with known TIMESTAMPTZ values.
+     * PostgreSQL accepts ISO-8601 literals with no special quoting.
+     */
+    private function seedEvents(): void
+    {
+        $this->db->execute("INSERT INTO qb_events (name, event_time) VALUES
+            ('Morning meeting',   '2026-03-15 09:00:00'),
+            ('Afternoon standup', '2026-03-15 14:30:00'),
+            ('Evening review',    '2026-03-16 18:00:00'),
+            ('Monthly sync',      '2026-04-01 10:00:00')
+        ");
+    }
+
+    /**
+     * whereDate() must filter rows by date portion only, ignoring the time.
+     * PostgreSQL compiles this as (col)::date = '2026-03-15'.
+     * 2 events are on 2026-03-15.
+     */
+    public function testWhereDateFiltersCorrectly(): void
+    {
+        // Arrange
+        $this->seedEvents();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_events')
+            ->whereDate('event_time', '2026-03-15')
+            ->get();
+
+        // Assert — 2 events on that date
+        $this->assertEquals(2, $result->numRows);
+    }
+
+    /**
+     * whereYear() must filter rows to events in 2026.
+     * PostgreSQL compiles this as EXTRACT(YEAR FROM col) = 2026.
+     * All 4 events are in 2026.
+     */
+    public function testWhereYearFiltersCorrectly(): void
+    {
+        // Arrange
+        $this->seedEvents();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_events')
+            ->whereYear('event_time', 2026)
+            ->get();
+
+        // Assert
+        $this->assertEquals(4, $result->numRows);
+    }
+
+    /**
+     * whereMonth() must filter to events in March (month 3).
+     * PostgreSQL compiles this as EXTRACT(MONTH FROM col) = 3.
+     * 3 of the 4 events are in March.
+     */
+    public function testWhereMonthFiltersCorrectly(): void
+    {
+        // Arrange
+        $this->seedEvents();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_events')
+            ->whereMonth('event_time', 3)
+            ->get();
+
+        // Assert — 3 March events
+        $this->assertEquals(3, $result->numRows);
+    }
+
+    /**
+     * whereDay() must filter to events on day 15 of the month.
+     * PostgreSQL compiles this as EXTRACT(DAY FROM col) = 15.
+     * 2 events are on the 15th.
+     */
+    public function testWhereDayFiltersCorrectly(): void
+    {
+        // Arrange
+        $this->seedEvents();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_events')
+            ->whereDay('event_time', 15)
+            ->get();
+
+        // Assert
+        $this->assertEquals(2, $result->numRows);
+    }
+
+    /**
+     * whereTime() must filter rows to a specific time portion.
+     * PostgreSQL compiles this as (col)::time = '09:00:00'.
+     * Only 'Morning meeting' starts at exactly 09:00:00.
+     */
+    public function testWhereTimeFiltersCorrectly(): void
+    {
+        // Arrange
+        $this->seedEvents();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_events')
+            ->whereTime('event_time', '09:00:00')
+            ->get();
+
+        // Assert
+        $this->assertEquals(1, $result->numRows);
+        $this->assertEquals('Morning meeting', $result->fields['name']);
+    }
+
+    // =========================================================================
+    // when()
+    // =========================================================================
+
+    /**
+     * when() with a truthy condition must apply the callback to the query.
+     * 3 fruit products are expected when the filter is active.
+     */
+    public function testWhenTruthyAppliesFilterInIntegration(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $filterFruit = true;
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->when($filterFruit, fn($q) => $q->where('category', 'fruit'))
+            ->get();
+
+        // Assert — only 3 fruit products
+        $this->assertEquals(3, $result->numRows);
+    }
+
+    /**
+     * when() with a falsy condition must not modify the query.
+     * All 5 products must be returned when the condition is false.
+     */
+    public function testWhenFalsyLeavesQueryUnmodified(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->when(false, fn($q) => $q->where('category', 'fruit'))
+            ->get();
+
+        // Assert — all 5 products returned
+        $this->assertEquals(5, $result->numRows);
     }
 }

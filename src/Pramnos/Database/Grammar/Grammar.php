@@ -47,6 +47,36 @@ abstract class Grammar implements GrammarInterface
         return $column;
     }
 
+    /**
+     * Compile a row-locking suffix for SELECT statements.
+     * Returns empty string for dialects that don't support locking reads or
+     * when no lock is requested.
+     */
+    protected function compileLock(QueryBuilder $qb): string
+    {
+        return '';
+    }
+
+    /**
+     * Compile a date-part extraction expression for a WHERE DatePart clause.
+     *
+     * Default (MySQL) implementation.  Override in dialect subclasses.
+     *
+     * @param  string $part    One of: date, year, month, day, time
+     * @param  string $column  Column name or expression
+     * @return string          SQL expression fragment
+     */
+    protected function compileDatePartExtraction(string $part, string $column): string
+    {
+        return match (strtolower($part)) {
+            'year'  => "YEAR({$column})",
+            'month' => "MONTH({$column})",
+            'day'   => "DAY({$column})",
+            'time'  => "TIME({$column})",
+            default => "DATE({$column})",
+        };
+    }
+
     // -------------------------------------------------------------------------
     // Placeholder
     // -------------------------------------------------------------------------
@@ -100,6 +130,8 @@ abstract class Grammar implements GrammarInterface
         foreach ($qb->getJoins() as $join) {
             if (isset($join['type']) && $join['type'] === 'Raw') {
                 $sql .= ' ' . $join['sql'];
+            } elseif (strtolower($join['type']) === 'cross') {
+                $sql .= ' CROSS JOIN ' . $join['table'];
             } else {
                 $sql .= ' ' . strtoupper($join['type']) . ' JOIN '
                     . $join['table'] . ' ON '
@@ -144,6 +176,8 @@ abstract class Grammar implements GrammarInterface
         if ($offset !== null) {
             $sql .= ' OFFSET ' . (int)$offset;
         }
+
+        $sql .= $this->compileLock($qb);
 
         foreach ($qb->getUnions() as $union) {
             $sql .= ' ' . ($union['all'] ? 'UNION ALL' : 'UNION') . ' '
@@ -203,6 +237,19 @@ abstract class Grammar implements GrammarInterface
 
                 case 'Raw':
                     $part .= $where['sql'];
+                    break;
+
+                case 'Exists':
+                    $part .= 'EXISTS (' . $this->compileSelect($where['sub']) . ')';
+                    break;
+
+                case 'NotExists':
+                    $part .= 'NOT EXISTS (' . $this->compileSelect($where['sub']) . ')';
+                    break;
+
+                case 'DatePart':
+                    $expr = $this->compileDatePartExtraction($where['part'], $where['column']);
+                    $part .= $expr . ' ' . $where['operator'] . ' ' . $this->getPlaceholder($where['value']);
                     break;
             }
             $parts[] = $part;

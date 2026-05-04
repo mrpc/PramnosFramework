@@ -42,6 +42,26 @@ class PostgreSQLGrammar extends Grammar
         return $column;
     }
 
+    protected function compileLock(QueryBuilder $qb): string
+    {
+        return match ($qb->getLock()) {
+            'update' => ' FOR UPDATE',
+            'share'  => ' FOR SHARE',
+            default  => '',
+        };
+    }
+
+    protected function compileDatePartExtraction(string $part, string $column): string
+    {
+        return match (strtolower($part)) {
+            'year'  => "EXTRACT(YEAR FROM {$column})",
+            'month' => "EXTRACT(MONTH FROM {$column})",
+            'day'   => "EXTRACT(DAY FROM {$column})",
+            'time'  => "({$column})::time",
+            default => "({$column})::date",
+        };
+    }
+
     // -------------------------------------------------------------------------
     // Conflict handling
     // -------------------------------------------------------------------------

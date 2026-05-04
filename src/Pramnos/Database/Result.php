@@ -36,6 +36,15 @@ class Result
      * @var \mysqli_result|bool|\PgSql\Result|resource
      */
     public $mysqlResult = null;
+
+    /**
+     * Affected rows for MySQL DML via prepared statements.
+     * Populated by Database::execute() before the statement is closed,
+     * because $statement->affected_rows is unavailable after close().
+     * null means the value was not captured (SELECT or non-prepared path).
+     * @var int|null
+     */
+    public ?int $mysqlAffectedRows = null;
     /**
      * Cache time to live (in seconds)
      * @var int
@@ -318,6 +327,11 @@ class Result
             && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
             return \pg_affected_rows($this->mysqlResult);
         } elseif ($this->database->type == 'mysql') {
+            // Prefer the value captured before statement->close() (prepared DML path).
+            // Fall back to mysqli_affected_rows() for the raw query() path.
+            if ($this->mysqlAffectedRows !== null) {
+                return $this->mysqlAffectedRows;
+            }
             return \mysqli_affected_rows($this->database->getConnectionLink());
         }
 

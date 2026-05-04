@@ -20,6 +20,15 @@ class MySQLGrammar extends Grammar
         return '`' . $column . '`';
     }
 
+    protected function compileLock(QueryBuilder $qb): string
+    {
+        return match ($qb->getLock()) {
+            'update' => ' FOR UPDATE',
+            'share'  => ' LOCK IN SHARE MODE',
+            default  => '',
+        };
+    }
+
     public function compileInsertOrIgnore(QueryBuilder $qb, array $values): string
     {
         $quotedCols   = array_map(fn($c) => $this->quoteColumn($c), array_keys($values));

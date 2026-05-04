@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-04 (session 23)
+## 📅 Last Updated: 2026-05-04 (session 24)
 
 ## 🚀 Completed Milestones
 
@@ -325,6 +325,31 @@
 - [x] 2020 timestamp prefix — installations with `migration_cutoff` skip framework tables automatically.
 - [x] **`docs/1.2-new-features.md`** — Section 16 added (schema reference, namespace map, idempotency notes, timestamp rationale, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
+
+### Phase 1.2: QB Convenience & Aggregate Methods (2026-05-04, session 24)
+
+- [x] **`QueryBuilder` — new methods** (all BC-additive, original builder never mutated by aggregates):
+  - **Joins:** `rightJoin()`, `crossJoin()`
+  - **Ordering/paging:** `latest()`, `oldest()`, `forPage(int $page, int $perPage)`
+  - **Conditional:** `when(mixed $condition, Closure, ?Closure $default)`
+  - **Aggregates:** `sum()`, `avg()`, `min()`, `max()` (all clone-based, return typed scalars)
+  - **Existence checks:** `exists()`, `doesntExist()` (use `SELECT EXISTS(...)` on DB)
+  - **Single-value helpers:** `value(string $col)`, `pluck(string $col): array`
+  - **DML helpers:** `increment(string $col, step=1)`, `decrement(string $col, step=1)` — use `update()` internally, return affected rows
+  - **Chunked processing:** `chunk(int $size, Closure $callback)` — stops when callback returns `false`
+  - **Locking:** `lockForUpdate()`, `sharedLock()` — compiled via new `compileLock()` Grammar hook
+  - **Sub-query conditions:** `whereExists()`, `whereNotExists()`, `orWhereExists()`, `orWhereNotExists()`
+  - **Date-part conditions:** `whereDate()`, `whereYear()`, `whereMonth()`, `whereDay()`, `whereTime()` — compiled via new `compileDatePartExtraction()` Grammar hook; dialect-transparent (MySQL functions vs. PG EXTRACT/cast)
+- [x] **`Grammar` base** — added `compileLock()` hook (default `''`) and `compileDatePartExtraction()` hook (MySQL: DATE/YEAR/MONTH/DAY/TIME functions); `compileWheres()` handles new `Exists`, `NotExists`, `DatePart` where types; `compileSelect()` appends `compileLock()` output and handles CROSS JOIN without ON clause.
+- [x] **`MySQLGrammar`** — `compileLock()`: `FOR UPDATE` / `LOCK IN SHARE MODE`.
+- [x] **`PostgreSQLGrammar`** — `compileLock()`: `FOR UPDATE` / `FOR SHARE`; `compileDatePartExtraction()`: `(col)::date`, `EXTRACT(...)`.
+- [x] **`Result`** — `public ?int $mysqlAffectedRows` property + `getAffectedRows()` prefers it for MySQL; fixes `increment()`/`decrement()` returning -1 after prepared-statement `close()`.
+- [x] **`Database::execute()`** — captures `$statement->affected_rows` before `finally { $statement->close() }` for MySQL DML prepared statements; stores in `$obj->mysqlAffectedRows`.
+- [x] **Unit tests** (`tests/Unit/Database/QueryBuilderUnitTest.php`) — 35 new tests; total 83/83.
+- [x] **MySQL integration tests** (`tests/Integration/Database/QueryBuilderMySQLTest.php`) — 35 new tests (including `qb_events` table for date-part tests); total 85/85.
+- [x] **PostgreSQL integration tests** (`tests/Integration/Database/QueryBuilderPostgreSQLTest.php`) — 35 new tests (same coverage, PG dialect: `EXTRACT()`, `::date` casts, `FOR SHARE`, `BEGIN/COMMIT`); total 73/73.
+- [x] **`docs/1.2-new-features.md`** updated with full API reference for all new methods.
+- [x] Re-verified full suite: **1126/1126 tests, 2791 assertions, 0 failures**.
 
 ### Phase 1.1: Foundations
 - [x] Read/Write Replicas Support in `Database.php`.
