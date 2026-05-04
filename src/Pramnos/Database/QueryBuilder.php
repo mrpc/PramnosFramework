@@ -822,6 +822,131 @@ class QueryBuilder
         return $this->with($name, $query, true);
     }
 
+    // -------------------------------------------------------------------------
+    // Subqueries — selectSub() / fromSub()
+    // -------------------------------------------------------------------------
+
+    /**
+     * Materialise a sub-query parameter into a [sql, bindings] pair.
+     *
+     * Accepts a Closure (which receives a fresh QueryBuilder) or an already-built
+     * QueryBuilder instance.  The grammar from the outer builder is reused so
+     * both share the same dialect.
+     *
+     * @param  QueryBuilder|\Closure $query
+     * @return array{0:string,1:array}  [$wrappedSql, $bindings]
+     */
+    private function createSub($query): array
+    {
+        if ($query instanceof \Closure) {
+            $sub = new static($this->db, $this->grammar);
+            ($query)($sub);
+            $query = $sub;
+        }
+
+        $sql = '(' . str_replace('#PREFIX#', $this->db->prefix, $this->grammar->compileSelect($query)) . ')';
+        return [$sql, $query->getBindings()];
+    }
+
+    /**
+     * Add a correlated or uncorrelated subquery as a SELECT column.
+     *
+     * The subquery is wrapped in parentheses and aliased:
+     *   SELECT ..., (SELECT ...) AS alias
+     *
+     * The default '*' is dropped when this is the first explicit column added.
+     * Bindings from the subquery go into the 'select' slot so they appear
+     * before WHERE bindings when Database::prepare() flattens the list.
+     *
+     * @param  QueryBuilder|\Closure $query
+     * @param  string                $alias  Column alias for the sub-result
+     * @return $this
+     */
+    public function selectSub($query, string $alias): static
+    {
+        [$sql, $bindings] = $this->createSub($query);
+
+        if ($this->columns === ['*']) {
+            $this->columns = [];
+        }
+
+        $this->columns[] = new Expression($sql . ' AS ' . $this->grammar->quoteColumn($alias));
+
+        foreach ($bindings as $b) {
+            $this->bindings['select'][] = $b;
+        }
+
+        return $this;
+    }
+
+    /**
+     * Use a subquery as the FROM source (derived table).
+     *
+     * The subquery is wrapped in parentheses and given a table alias:
+     *   FROM (SELECT ...) AS alias
+     *
+     * Bindings from the subquery go into the 'from' slot — they appear after
+     * 'select' bindings but before 'join' / 'where' bindings in the
+     * flattened list used by Database::prepare().
+     *
+     * @param  QueryBuilder|\Closure $query
+     * @param  string                $alias  Alias for the derived table
+     * @return $this
+     */
+    public function fromSub($query, string $alias): static
+    {
+        [$sql, $bindings] = $this->createSub($query);
+        $this->from = $sql . ' AS ' . $alias;
+
+        foreach ($bindings as $b) {
+            $this->bindings['from'][] = $b;
+        }
+
+        return $this;
+    }
+
+    // -------------------------------------------------------------------------
+    // Window functions — over()
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build an OVER (...) window function expression.
+     *
+     * Returns an Expression that can be passed to select(), groupBy(), orderBy(),
+     * or used inside a CTE sub-query.  The partition and order columns are quoted
+     * automatically by the active grammar, so backtick / double-quote quoting is
+     * handled transparently.
+     *
+     * @param  string|Expression  $function   The function call fragment, e.g. 'RANK()',
+     *                                         'ROW_NUMBER()', 'SUM(price)', 'LAG(score, 1)'.
+     *                                         Passed verbatim — not escaped.
+     * @param  string|null        $alias       Optional AS alias appended to the expression.
+     * @param  array|string       $partition   Column(s) for PARTITION BY.  Quoted automatically.
+     *                                         Pass a string for a single column or an array for multiple.
+     * @param  array              $order       ORDER BY spec.
+     *                                         Associative: ['col' => 'asc|desc', ...]
+     *                                         Indexed:     ['col1', 'col2'] (defaults to ASC)
+     * @param  string             $frame       Optional ROWS/RANGE frame clause, e.g.
+     *                                         'ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW'.
+     * @return Expression
+     */
+    public function over(
+        string|Expression $function,
+        ?string $alias = null,
+        array|string $partition = [],
+        array $order = [],
+        string $frame = ''
+    ): Expression {
+        $fn  = (string)$function;
+        $sql = $this->grammar->compileWindowOver($fn, (array)$partition, $order, $frame);
+
+        if ($alias !== null) {
+            $sql .= ' AS ' . $this->grammar->quoteColumn($alias);
+        }
+
+        return new Expression($sql);
+    }
+
     /**
      * Add a binding value.
      *
