@@ -197,8 +197,8 @@ class Apikey extends \Pramnos\Framework\Base
         );
         $result = $database->query($sql);
         $applications = array();
-        foreach ($result as $app) {
-            $applications[] = new Apikey($app->fields);
+        while ($result->fetch()) {
+            $applications[] = new Apikey($result->fields);
         }
 
         return $applications;
