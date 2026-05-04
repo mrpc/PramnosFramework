@@ -18,7 +18,7 @@ class CreateMailtemplatesTable extends Migration
     public string  $feature      = 'messaging';
     public string  $scope        = 'framework';
     public int     $priority     = 20;
-    public string  $description  = 'Creates the mailtemplates notification template table';
+    public $description  = 'Creates the mailtemplates notification template table';
 
     public function up(): void
     {

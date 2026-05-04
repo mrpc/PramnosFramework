@@ -18,7 +18,7 @@ class CreateSessionsTable extends Migration
     public string  $feature      = 'core';
     public string  $scope        = 'framework';
     public int     $priority     = 10;
-    public string  $description  = 'Creates the sessions table';
+    public $description  = 'Creates the sessions table';
 
     public function up(): void
     {

@@ -24,7 +24,7 @@ class CreateAuthserverPermissionsTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 30;
     public array   $dependencies = ['create_authserver_roles_table'];
-    public string  $description  = 'Creates the authserver.permissions RBAC permissions table';
+    public $description  = 'Creates the authserver.permissions RBAC permissions table';
 
     public function up(): void
     {

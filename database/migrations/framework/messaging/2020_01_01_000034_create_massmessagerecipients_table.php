@@ -19,7 +19,7 @@ class CreateMassmessagerecepientsTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 50;
     public array   $dependencies = ['create_massmessages_table'];
-    public string  $description  = 'Creates the massmessagerecipients delivery tracking table';
+    public $description  = 'Creates the massmessagerecipients delivery tracking table';
 
     public function up(): void
     {

@@ -18,7 +18,7 @@ class CreateUsernotesTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 40;
     public array   $dependencies = ['create_users_table'];
-    public string  $description  = 'Creates the usernotes admin notes table';
+    public $description  = 'Creates the usernotes admin notes table';
 
     public function up(): void
     {

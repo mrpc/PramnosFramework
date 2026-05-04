@@ -19,7 +19,7 @@ class CreateAuthserverAuditLogTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 50;
     public array   $dependencies = ['create_authserver_permissions_table'];
-    public string  $description  = 'Creates the authserver.audit_log permission change history table';
+    public $description  = 'Creates the authserver.audit_log permission change history table';
 
     public function up(): void
     {

@@ -364,7 +364,7 @@ class MigrationRunner
     }
 
     /**
-     * Returns only migrations with autorun=true, or all migrations when
+     * Returns only migrations with autoExecute=true, or all migrations when
      * $force is true.
      *
      * @param Migration[] $migrations
@@ -376,7 +376,7 @@ class MigrationRunner
         if ($force) {
             return $migrations;
         }
-        return array_values(array_filter($migrations, fn(Migration $m) => $m->autorun));
+        return array_values(array_filter($migrations, fn(Migration $m) => $m->autoExecute));
     }
 
     /**

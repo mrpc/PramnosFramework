@@ -569,7 +569,7 @@ class CreateMrMyRoles extends Migration
     public string $feature     = 'core';
     public string $scope       = 'framework';
     public int    $priority    = 10;
-    public string $description = 'Creates the roles table for the test suite';
+    public $description = 'Creates the roles table for the test suite';
 
     public function up(): void
     {
@@ -600,7 +600,7 @@ class CreateMrMyUsers extends Migration
     public string $scope        = 'framework';
     public int    $priority     = 20;
     public array  $dependencies = ['create_mr_my_roles'];
-    public string $description  = 'Creates the users table for the test suite';
+    public $description  = 'Creates the users table for the test suite';
 
     public function up(): void
     {
@@ -627,7 +627,7 @@ class CreateMrMyUsers extends Migration
  */
 class BrokenMrMyMigration extends Migration
 {
-    public string $description = 'Always throws to verify failure recording';
+    public $description = 'Always throws to verify failure recording';
 
     public function up(): void
     {

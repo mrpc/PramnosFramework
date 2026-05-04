@@ -18,7 +18,7 @@ class CreateSettingsTable extends Migration
     public string  $feature      = 'core';
     public string  $scope        = 'framework';
     public int     $priority     = 20;
-    public string  $description  = 'Creates the settings table';
+    public $description  = 'Creates the settings table';
 
     public function up(): void
     {

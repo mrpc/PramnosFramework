@@ -18,7 +18,7 @@ class CreateFrameworkPoliciesTable extends Migration
     public string  $feature      = 'core';
     public string  $scope        = 'framework';
     public int     $priority     = 30;
-    public string  $description  = 'Creates the framework_policies table';
+    public $description  = 'Creates the framework_policies table';
 
     public function up(): void
     {

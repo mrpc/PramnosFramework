@@ -19,7 +19,7 @@ class CreateAuthserverUserRolesTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 40;
     public array   $dependencies = ['create_authserver_roles_table'];
-    public string  $description  = 'Creates the authserver.user_roles assignment table';
+    public $description  = 'Creates the authserver.user_roles assignment table';
 
     public function up(): void
     {
