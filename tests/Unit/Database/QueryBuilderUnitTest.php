@@ -729,4 +729,538 @@ class QueryBuilderUnitTest extends TestCase
         $this->assertStringContainsString('LIMIT',    strtoupper($sqlAfter));
         $this->assertStringContainsString('OFFSET',   strtoupper($sqlAfter));
     }
+
+    // =========================================================================
+    // rightJoin / crossJoin
+    // =========================================================================
+
+    /**
+     * rightJoin() must produce RIGHT JOIN … ON … in compiled SQL.
+     * This is a convenience wrapper around join($table, ..., 'right').
+     */
+    public function testRightJoinCompilesCorrectly(): void
+    {
+        // Arrange
+        $qb = $this->makeQB()->select('*')->from('orders')
+            ->rightJoin('customers', 'orders.customer_id', '=', 'customers.id');
+
+        // Act
+        $sql = $qb->toSql();
+
+        // Assert
+        $this->assertStringContainsString('RIGHT JOIN customers ON', $sql);
+        $this->assertStringContainsString('orders.customer_id = customers.id', $sql);
+    }
+
+    /**
+     * crossJoin() must produce CROSS JOIN without any ON clause.
+     * Cross joins enumerate every combination of rows from both tables.
+     */
+    public function testCrossJoinCompilesWithoutOnClause(): void
+    {
+        // Arrange
+        $qb = $this->makeQB()->select('*')->from('colors')
+            ->crossJoin('sizes');
+
+        // Act
+        $sql = $qb->toSql();
+
+        // Assert — CROSS JOIN present, no ON keyword after it
+        $this->assertStringContainsString('CROSS JOIN sizes', $sql);
+        $this->assertStringNotContainsString('ON', $sql);
+    }
+
+    // =========================================================================
+    // latest() / oldest() / forPage()
+    // =========================================================================
+
+    /**
+     * latest() must add ORDER BY col DESC — default column is created_at.
+     */
+    public function testLatestAddsDescOrdering(): void
+    {
+        // Arrange / Act
+        $sql = $this->makeQB()->select('*')->from('posts')->latest()->toSql();
+
+        // Assert
+        $this->assertStringContainsString('ORDER BY created_at DESC', $sql);
+    }
+
+    /**
+     * latest() with explicit column must order by that column descending.
+     */
+    public function testLatestWithExplicitColumn(): void
+    {
+        $sql = $this->makeQB()->select('*')->from('events')->latest('published_at')->toSql();
+        $this->assertStringContainsString('ORDER BY published_at DESC', $sql);
+    }
+
+    /**
+     * oldest() must add ORDER BY col ASC — default column is created_at.
+     */
+    public function testOldestAddsAscOrdering(): void
+    {
+        $sql = $this->makeQB()->select('*')->from('posts')->oldest()->toSql();
+        $this->assertStringContainsString('ORDER BY created_at ASC', $sql);
+    }
+
+    /**
+     * forPage() must calculate LIMIT and OFFSET correctly for 1-based pages.
+     * Page 1, 10 per page → LIMIT 10 OFFSET 0
+     * Page 3, 10 per page → LIMIT 10 OFFSET 20
+     */
+    public function testForPageCalculatesLimitAndOffset(): void
+    {
+        // Arrange / Act
+        $sql1 = $this->makeQB()->select('*')->from('items')->forPage(1, 10)->toSql();
+        $sql3 = $this->makeQB()->select('*')->from('items')->forPage(3, 10)->toSql();
+
+        // Assert page 1
+        $this->assertStringContainsString('LIMIT 10', $sql1);
+        $this->assertStringContainsString('OFFSET 0', $sql1);
+
+        // Assert page 3
+        $this->assertStringContainsString('LIMIT 10', $sql3);
+        $this->assertStringContainsString('OFFSET 20', $sql3);
+    }
+
+    // =========================================================================
+    // when()
+    // =========================================================================
+
+    /**
+     * when() with a truthy condition must apply the callback to the builder.
+     * The builder is returned unchanged when condition is false and no default.
+     */
+    public function testWhenTruthyAppliesCallback(): void
+    {
+        // Arrange
+        $qb = $this->makeQB()->select('*')->from('users');
+        $filterActive = true;
+
+        // Act
+        $qb->when($filterActive, fn($q) => $q->where('active', 1));
+        $sql = $qb->toSql();
+
+        // Assert — WHERE added because condition was truthy
+        $this->assertStringContainsString('WHERE active = %i', $sql);
+    }
+
+    /**
+     * when() with a falsy condition must skip the callback and not modify the builder.
+     */
+    public function testWhenFalsySkipsCallback(): void
+    {
+        // Arrange
+        $qb = $this->makeQB()->select('*')->from('users');
+
+        // Act
+        $qb->when(false, fn($q) => $q->where('active', 1));
+        $sql = $qb->toSql();
+
+        // Assert — no WHERE added
+        $this->assertStringNotContainsString('WHERE', $sql);
+    }
+
+    /**
+     * when() with a falsy condition and a default callback must apply the default.
+     */
+    public function testWhenFalsyWithDefaultAppliesDefault(): void
+    {
+        // Arrange
+        $qb = $this->makeQB()->select('*')->from('users');
+
+        // Act
+        $qb->when(
+            false,
+            fn($q) => $q->where('active', 1),
+            fn($q) => $q->where('deleted', 0)
+        );
+        $sql = $qb->toSql();
+
+        // Assert — default WHERE applied, not the truthy callback
+        $this->assertStringContainsString('WHERE deleted = %i', $sql);
+        $this->assertStringNotContainsString('active', $sql);
+    }
+
+    /**
+     * when() with a Closure condition evaluates it to determine truthiness.
+     */
+    public function testWhenWithClosureCondition(): void
+    {
+        // Arrange
+        $qb = $this->makeQB()->select('*')->from('users');
+
+        // Act — Closure condition that returns truthy value
+        $qb->when(fn() => 'active', fn($q, $val) => $q->where('status', $val));
+        $sql = $qb->toSql();
+
+        // Assert — WHERE uses the value returned by the condition Closure
+        $this->assertStringContainsString('WHERE status = %s', $sql);
+    }
+
+    // =========================================================================
+    // sum() / avg() / min() / max()
+    // =========================================================================
+
+    /**
+     * sum() must issue SELECT SUM(col) AS aggregate, strip ORDER BY/LIMIT,
+     * and return a float.  Must not mutate the original builder.
+     */
+    public function testSumGeneratesCorrectAggregateQuery(): void
+    {
+        // Arrange
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $db->type   = 'mysql';
+        $db->prefix = '';
+
+        $capturedSql = null;
+        $fakeResult          = new \Pramnos\Database\Result($db);
+        $fakeResult->fields  = ['aggregate' => '42.50'];
+        $fakeResult->numRows = 1;
+        $fakeResult->eof     = true;
+        $db->method('execute')->willReturnCallback(
+            function ($sql) use ($fakeResult, &$capturedSql) {
+                $capturedSql = $sql;
+                return $fakeResult;
+            }
+        );
+
+        $qb = (new QueryBuilder($db))->from('orders')->where('status', 1)->orderBy('id')->limit(5);
+
+        // Act
+        $result = $qb->sum('total');
+
+        // Assert
+        $this->assertSame(42.50, $result);
+        $this->assertStringContainsString('SUM(total) AS aggregate', $capturedSql);
+        $this->assertStringNotContainsString('ORDER BY', strtoupper($capturedSql));
+        $this->assertStringNotContainsString('LIMIT', strtoupper($capturedSql));
+        // Original builder must be unchanged
+        $this->assertStringContainsString('ORDER BY', strtoupper($qb->toSql()));
+    }
+
+    /**
+     * avg() must issue SELECT AVG(col) AS aggregate and return a float.
+     */
+    public function testAvgGeneratesCorrectAggregateQuery(): void
+    {
+        // Arrange
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $db->type   = 'mysql';
+        $db->prefix = '';
+
+        $capturedSql = null;
+        $fakeResult         = new \Pramnos\Database\Result($db);
+        $fakeResult->fields = ['aggregate' => '3.14'];
+        $fakeResult->numRows = 1;
+        $db->method('execute')->willReturnCallback(
+            function ($sql) use ($fakeResult, &$capturedSql) {
+                $capturedSql = $sql;
+                return $fakeResult;
+            }
+        );
+
+        $qb = (new QueryBuilder($db))->from('ratings');
+
+        // Act / Assert
+        $this->assertSame(3.14, $qb->avg('score'));
+        $this->assertStringContainsString('AVG(score) AS aggregate', $capturedSql);
+    }
+
+    /**
+     * min() / max() must return the raw mixed value from the aggregate field.
+     * When no rows match, they return null (not 0).
+     */
+    public function testMinReturnsAggregateValue(): void
+    {
+        // Arrange
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $db->type   = 'mysql';
+        $db->prefix = '';
+
+        $capturedSql = null;
+        $fakeResult         = new \Pramnos\Database\Result($db);
+        $fakeResult->fields = ['aggregate' => '5'];
+        $fakeResult->numRows = 1;
+        $db->method('execute')->willReturnCallback(
+            function ($sql) use ($fakeResult, &$capturedSql) {
+                $capturedSql = $sql;
+                return $fakeResult;
+            }
+        );
+
+        $qb = (new QueryBuilder($db))->from('bids');
+
+        // Act / Assert
+        $this->assertEquals('5', $qb->min('amount'));
+        $this->assertStringContainsString('MIN(amount) AS aggregate', $capturedSql);
+    }
+
+    public function testMaxReturnsAggregateValue(): void
+    {
+        // Arrange
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $db->type   = 'mysql';
+        $db->prefix = '';
+
+        $capturedSql = null;
+        $fakeResult         = new \Pramnos\Database\Result($db);
+        $fakeResult->fields = ['aggregate' => '999'];
+        $fakeResult->numRows = 1;
+        $db->method('execute')->willReturnCallback(
+            function ($sql) use ($fakeResult, &$capturedSql) {
+                $capturedSql = $sql;
+                return $fakeResult;
+            }
+        );
+
+        $qb = (new QueryBuilder($db))->from('bids');
+
+        // Act / Assert
+        $this->assertEquals('999', $qb->max('amount'));
+        $this->assertStringContainsString('MAX(amount) AS aggregate', $capturedSql);
+    }
+
+    // =========================================================================
+    // lockForUpdate() / sharedLock()
+    // =========================================================================
+
+    /**
+     * lockForUpdate() must append FOR UPDATE to the SQL on MySQL.
+     * This is used for pessimistic locking within a transaction.
+     */
+    public function testLockForUpdateMySQLAppendsSuffix(): void
+    {
+        // Arrange / Act
+        $sql = $this->makeQB('mysql')->select('*')->from('products')
+            ->where('id', 1)
+            ->lockForUpdate()
+            ->toSql();
+
+        // Assert — FOR UPDATE appended after WHERE (and any LIMIT)
+        $this->assertStringEndsWith('FOR UPDATE', trim($sql));
+    }
+
+    /**
+     * sharedLock() on MySQL must produce LOCK IN SHARE MODE.
+     */
+    public function testSharedLockMySQLAppendsSuffix(): void
+    {
+        // Arrange / Act
+        $sql = $this->makeQB('mysql')->select('*')->from('products')
+            ->sharedLock()
+            ->toSql();
+
+        // Assert
+        $this->assertStringEndsWith('LOCK IN SHARE MODE', trim($sql));
+    }
+
+    /**
+     * lockForUpdate() on PostgreSQL must append FOR UPDATE.
+     */
+    public function testLockForUpdatePostgreSQLAppendsSuffix(): void
+    {
+        $sql = $this->makeQB('postgresql')->select('*')->from('products')
+            ->where('id', 1)
+            ->lockForUpdate()
+            ->toSql();
+
+        $this->assertStringEndsWith('FOR UPDATE', trim($sql));
+    }
+
+    /**
+     * sharedLock() on PostgreSQL must append FOR SHARE (not LOCK IN SHARE MODE).
+     */
+    public function testSharedLockPostgreSQLAppendsSuffix(): void
+    {
+        $sql = $this->makeQB('postgresql')->select('*')->from('products')
+            ->sharedLock()
+            ->toSql();
+
+        $this->assertStringEndsWith('FOR SHARE', trim($sql));
+    }
+
+    /**
+     * Without any lock call, no locking suffix appears in the SQL.
+     */
+    public function testNoLockProducesNoLockingSuffix(): void
+    {
+        $sql = $this->makeQB()->select('*')->from('users')->toSql();
+        $this->assertStringNotContainsString('FOR UPDATE', $sql);
+        $this->assertStringNotContainsString('FOR SHARE', $sql);
+        $this->assertStringNotContainsString('LOCK IN SHARE MODE', $sql);
+    }
+
+    // =========================================================================
+    // whereExists() / whereNotExists()
+    // =========================================================================
+
+    /**
+     * whereExists() must compile to WHERE EXISTS (SELECT 1 FROM …).
+     * The sub-query is fully built by the callback closure.
+     */
+    public function testWhereExistsCompilesSubquery(): void
+    {
+        // Arrange
+        $qb = $this->makeQB()->select('*')->from('users')
+            ->whereExists(function (QueryBuilder $sub) {
+                $sub->select(['1'])->from('orders')->whereRaw('orders.user_id = users.id');
+            });
+
+        // Act
+        $sql = $qb->toSql();
+
+        // Assert
+        $this->assertStringContainsString('WHERE EXISTS (', $sql);
+        $this->assertStringContainsString('SELECT 1 FROM orders', $sql);
+    }
+
+    /**
+     * whereNotExists() must compile to WHERE NOT EXISTS (SELECT …).
+     */
+    public function testWhereNotExistsCompilesSubquery(): void
+    {
+        // Arrange
+        $qb = $this->makeQB()->select('*')->from('users')
+            ->whereNotExists(function (QueryBuilder $sub) {
+                $sub->select(['1'])->from('bans')->whereRaw('bans.user_id = users.id');
+            });
+
+        // Act
+        $sql = $qb->toSql();
+
+        // Assert
+        $this->assertStringContainsString('WHERE NOT EXISTS (', $sql);
+        $this->assertStringContainsString('SELECT 1 FROM bans', $sql);
+    }
+
+    /**
+     * orWhereExists() must use OR as the boolean connector.
+     */
+    public function testOrWhereExistsUsesOrConnector(): void
+    {
+        // Arrange
+        $qb = $this->makeQB()->select('*')->from('users')
+            ->where('active', 1)
+            ->orWhereExists(function (QueryBuilder $sub) {
+                $sub->select(['1'])->from('admins')->whereRaw('admins.user_id = users.id');
+            });
+
+        // Act
+        $sql = $qb->toSql();
+
+        // Assert — OR connector before EXISTS
+        $this->assertStringContainsString('OR EXISTS (', $sql);
+    }
+
+    // =========================================================================
+    // whereDate() / whereYear() / whereMonth() / whereDay() / whereTime()
+    // =========================================================================
+
+    /**
+     * whereDate() on MySQL must use DATE(col) for the date portion comparison.
+     * This allows filtering by date without caring about the time part.
+     */
+    public function testWhereDateMySQLUsesDateFunction(): void
+    {
+        // Arrange / Act
+        $qb  = $this->makeQB('mysql')->select('*')->from('events')->whereDate('created_at', '2026-01-15');
+        $sql = $qb->toSql();
+
+        // Assert — DATE() function wraps the column
+        $this->assertStringContainsString("WHERE DATE(created_at) = %s", $sql);
+    }
+
+    /**
+     * whereDate() on PostgreSQL must cast to ::date.
+     */
+    public function testWhereDatePostgreSQLUsesDateCast(): void
+    {
+        $qb  = $this->makeQB('postgresql')->select('*')->from('events')->whereDate('created_at', '2026-01-15');
+        $sql = $qb->toSql();
+        $this->assertStringContainsString("WHERE (created_at)::date = %s", $sql);
+    }
+
+    /**
+     * whereYear() on MySQL must use YEAR(col).
+     */
+    public function testWhereYearMySQLUsesYearFunction(): void
+    {
+        $qb  = $this->makeQB('mysql')->select('*')->from('events')->whereYear('published_at', 2026);
+        $sql = $qb->toSql();
+        $this->assertStringContainsString('WHERE YEAR(published_at) = %i', $sql);
+    }
+
+    /**
+     * whereYear() on PostgreSQL must use EXTRACT(YEAR FROM col).
+     */
+    public function testWhereYearPostgreSQLUsesExtract(): void
+    {
+        $qb  = $this->makeQB('postgresql')->select('*')->from('events')->whereYear('published_at', 2026);
+        $sql = $qb->toSql();
+        $this->assertStringContainsString('WHERE EXTRACT(YEAR FROM published_at) = %i', $sql);
+    }
+
+    /**
+     * whereMonth() on MySQL must use MONTH(col).
+     */
+    public function testWhereMonthMySQLUsesMonthFunction(): void
+    {
+        $qb  = $this->makeQB('mysql')->select('*')->from('events')->whereMonth('created_at', '>=', 6);
+        $sql = $qb->toSql();
+        $this->assertStringContainsString('WHERE MONTH(created_at) >= %i', $sql);
+    }
+
+    /**
+     * whereDay() on MySQL must use DAY(col).
+     */
+    public function testWhereDayMySQLUsesDayFunction(): void
+    {
+        $qb  = $this->makeQB('mysql')->select('*')->from('events')->whereDay('created_at', 15);
+        $sql = $qb->toSql();
+        $this->assertStringContainsString('WHERE DAY(created_at) = %i', $sql);
+    }
+
+    /**
+     * whereTime() on MySQL must use TIME(col).
+     */
+    public function testWhereTimeMySQLUsesTimeFunction(): void
+    {
+        $qb  = $this->makeQB('mysql')->select('*')->from('events')->whereTime('starts_at', '08:00:00');
+        $sql = $qb->toSql();
+        $this->assertStringContainsString("WHERE TIME(starts_at) = %s", $sql);
+    }
+
+    /**
+     * whereTime() on PostgreSQL must cast to ::time.
+     */
+    public function testWhereTimePostgreSQLUsesTimeCast(): void
+    {
+        $qb  = $this->makeQB('postgresql')->select('*')->from('events')->whereTime('starts_at', '08:00:00');
+        $sql = $qb->toSql();
+        $this->assertStringContainsString("WHERE (starts_at)::time = %s", $sql);
+    }
+
+    /**
+     * Date-part WHERE clauses chain with regular WHERE using AND connector.
+     */
+    public function testDatePartWhereChainedWithRegularWhere(): void
+    {
+        $qb = $this->makeQB('mysql')->select('*')->from('events')
+            ->where('active', 1)
+            ->whereYear('created_at', 2026);
+        $sql = $qb->toSql();
+
+        $this->assertStringContainsString('WHERE active = %i', $sql);
+        $this->assertStringContainsString('AND YEAR(created_at) = %i', $sql);
+    }
 }
