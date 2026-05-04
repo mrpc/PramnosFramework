@@ -103,41 +103,41 @@
   - [x] `DELETE`, `RETURNING` clause (PostgreSQL)
   - [x] `TRUNCATE`
   - [x] JOINs: `INNER`, `LEFT` — `join($table, ..., $type)` δέχεται οποιοδήποτε type string (`right`, `full`, `cross`) αλλά δεν υπάρχουν convenience methods
-  - [ ] `rightJoin($table, $first, $op, $second)` — convenience method για RIGHT JOIN
-  - [ ] `crossJoin($table)` — convenience method για CROSS JOIN
+  - [x] `rightJoin($table, $first, $op, $second)` — convenience method για RIGHT JOIN
+  - [x] `crossJoin($table)` — convenience method για CROSS JOIN
   - [x] Conditions: `where()`, `orWhere()`, `whereIn()`, `whereRaw()`, nested where via Closure
   - [x] `whereNull()` / `whereNotNull()`, `whereBetween()` / `whereNotBetween()` (και or* παραλλαγές)
-  - [ ] `whereExists(Closure $callback)` / `whereNotExists()` — `WHERE EXISTS (SELECT 1 FROM …)` subquery condition
-  - [ ] `whereDate/Year/Month/Day/Time($col, $op, $value)` — date-part conditions χωρίς raw SQL
+  - [x] `whereExists(Closure $callback)` / `whereNotExists()` — `WHERE EXISTS (SELECT 1 FROM …)` subquery condition
+  - [x] `whereDate/Year/Month/Day/Time($col, $op, $value)` — date-part conditions χωρίς raw SQL
   - [x] `groupBy()`, `groupByRaw()`, `having()`, `havingRaw()`, `orderBy()`, `orderByRaw()`, `limit()`, `offset()`
-  - [ ] `latest(string $col = 'created_at'): static` — sugar για `orderBy($col, 'desc')`
-  - [ ] `oldest(string $col = 'created_at'): static` — sugar για `orderBy($col, 'asc')`
-  - [ ] `forPage(int $page, int $perPage): static` — sugar για `limit($perPage)->offset(($page-1)*$perPage)`
+  - [x] `latest(string $col = 'created_at'): static` — sugar για `orderBy($col, 'desc')`
+  - [x] `oldest(string $col = 'created_at'): static` — sugar για `orderBy($col, 'asc')`
+  - [x] `forPage(int $page, int $perPage): static` — sugar για `limit($perPage)->offset(($page-1)*$perPage)`
   - [x] `clearOrderingAndPaging()` — αφαιρεί ORDER BY/LIMIT/OFFSET
   - [x] `UNION` / `UNION ALL`
   - [x] Common Table Expressions (CTEs) — `with()`, `withRecursive()`; MySQL 8.0+ / PostgreSQL / TimescaleDB
-  - [ ] Subqueries ως SELECT columns ή FROM πηγή
-  - [ ] Window functions (`OVER`, `PARTITION BY`, `RANK`, `ROW_NUMBER`) — PostgreSQL/TimescaleDB
+  - [x] Subqueries ως SELECT columns ή FROM πηγή
+  - [x] Window functions (`OVER`, `PARTITION BY`, `RANK`, `ROW_NUMBER`) — PostgreSQL/TimescaleDB
   - [x] Raw expressions με `raw()` / `Expression` class για dialect-specific syntax
-  - [ ] `when(bool|Closure $condition, Closure $callback, ?Closure $default = null): static` — conditional query building; αν η συνθήκη είναι false και δεν υπάρχει `$default`, ο builder επιστρέφεται αναλλοίωτος. Χρήσιμο για φόρμες φίλτρων
-  - [ ] `lockForUpdate(): static` — προσθέτει `FOR UPDATE` (MySQL/PG); φρένο για pessimistic locking
-  - [ ] `sharedLock(): static` — προσθέτει `LOCK IN SHARE MODE` (MySQL) / `FOR SHARE` (PG)
+  - [x] `when(bool|Closure $condition, Closure $callback, ?Closure $default = null): static` — conditional query building; αν η συνθήκη είναι false και δεν υπάρχει `$default`, ο builder επιστρέφεται αναλλοίωτος. Χρήσιμο για φόρμες φίλτρων
+  - [x] `lockForUpdate(): static` — προσθέτει `FOR UPDATE` (MySQL/PG); φρένο για pessimistic locking
+  - [x] `sharedLock(): static` — προσθέτει `LOCK IN SHARE MODE` (MySQL) / `FOR SHARE` (PG)
 
 - **Execution shortcuts & aggregates** *(standard ORM API — παράλληλο pattern με το `count()`)*:
   - [x] `get()` — εκτελεί και επιστρέφει `Result`
   - [x] `first()` — `LIMIT 1`, επιστρέφει `Result`
   - [x] `count(): int` — `SELECT COUNT(*) AS aggregate`, strips ORDER BY/LIMIT, δεν μεταλλάσσει τον builder
-  - [ ] `sum(string $col): float` — `SELECT SUM(col) AS aggregate`
-  - [ ] `avg(string $col): float` — `SELECT AVG(col) AS aggregate`
-  - [ ] `min(string $col): mixed` — `SELECT MIN(col) AS aggregate`
-  - [ ] `max(string $col): mixed` — `SELECT MAX(col) AS aggregate`
-  - [ ] `exists(): bool` — `SELECT EXISTS(SELECT 1 FROM … WHERE …)`; πιο αποδοτικό από `count() > 0`
-  - [ ] `doesntExist(): bool` — `!exists()`
-  - [ ] `value(string $col): mixed` — εκτελεί με `LIMIT 1`, επιστρέφει μία τιμή ή `null`
-  - [ ] `pluck(string $col): array` — επιστρέφει flat array με τις τιμές μίας στήλης από όλες τις γραμμές
-  - [ ] `increment(string $col, int|float $step = 1): int` — `UPDATE … SET col = col + step WHERE …`; επιστρέφει affected rows
-  - [ ] `decrement(string $col, int|float $step = 1): int` — `UPDATE … SET col = col - step WHERE …`
-  - [ ] `chunk(int $size, Closure $callback): void` — επεξεργασία μεγάλων result sets σε batches χωρίς φόρτωση όλων στη μνήμη; σταματάει αν το callback επιστρέψει `false`
+  - [x] `sum(string $col): float` — `SELECT SUM(col) AS aggregate`
+  - [x] `avg(string $col): float` — `SELECT AVG(col) AS aggregate`
+  - [x] `min(string $col): mixed` — `SELECT MIN(col) AS aggregate`
+  - [x] `max(string $col): mixed` — `SELECT MAX(col) AS aggregate`
+  - [x] `exists(): bool` — `SELECT EXISTS(SELECT 1 FROM … WHERE …)`; πιο αποδοτικό από `count() > 0`
+  - [x] `doesntExist(): bool` — `!exists()`
+  - [x] `value(string $col): mixed` — εκτελεί με `LIMIT 1`, επιστρέφει μία τιμή ή `null`
+  - [x] `pluck(string $col): array` — επιστρέφει flat array με τις τιμές μίας στήλης από όλες τις γραμμές
+  - [x] `increment(string $col, int|float $step = 1): int` — `UPDATE … SET col = col + step WHERE …`; επιστρέφει affected rows
+  - [x] `decrement(string $col, int|float $step = 1): int` — `UPDATE … SET col = col - step WHERE …`
+  - [x] `chunk(int $size, Closure $callback): void` — επεξεργασία μεγάλων result sets σε batches χωρίς φόρτωση όλων στη μνήμη; σταματάει αν το callback επιστρέψει `false`
 
 - [x] **QueryBuilder Grammar/Adapter Pattern:**
   Αρχιτεκτονική βελτίωση που διαχωρίζει την **κατασκευή query** (QB) από τη **μετάφρασή του σε SQL** (Grammar). Αντί για `if ($this->db->type == 'postgresql')` checks σκορπισμένα στον κώδικα, κάθε dialect έχει το δικό του Grammar class.
@@ -236,7 +236,7 @@
 - [x] **`Pramnos\Application\Model`** — Όλα τα internal SQL calls (CRUD, column introspection, caching hooks) ξαναγράφονται μέσω QueryBuilder.
 - [x] **`Pramnos\Html\DataTable`** — Τα dynamic query building, filtering, sorting και pagination calls αντικαθίστανται από QueryBuilder expressions (μέσω του `Datasource` refactor).
 - [ ] **`Pramnos\Database\Migration`** — Το DDL execution εσωτερικά χρησιμοποιεί τον Schema Builder.
-- [ ] **`Pramnos\Database\Adjacencylist`** — Τα hierarchical queries (parent/children traversal) ξαναγράφονται με CTEs ή recursive QueryBuilder expressions.
+- [x] **`Pramnos\Database\Adjacencylist`** — Τα hierarchical queries (parent/children traversal) ξαναγράφονται με CTEs ή recursive QueryBuilder expressions.
 - [ ] **`Pramnos\Auth\Auth`** — Τα queries για credential lookup, session persistence, και permission resolution περνούν από QueryBuilder.
 - [ ] **`Pramnos\User\*`** — Όλες οι user management queries (lookup, create, update, role assignment) ξαναγράφονται.
 - [ ] **`Pramnos\Logs\*`** — Τα log insert/query calls αντικαθίστανται από QueryBuilder, με ιδιαίτερη προσοχή στο TimescaleDB time-series path.
@@ -363,7 +363,7 @@
 ## 🔒 Φάση 4: Framework-Level Infrastructure & Security
 *Ενίσχυση της ασφάλειας και της εσωτερικής αρχιτεκτονικής.*
 
-- [ ] **Feature Registry & `app.php` Integration:** Κεντρικό σύστημα ενεργοποίησης/απενεργοποίησης framework features μέσω του config αρχείου της εφαρμογής:
+- [x] **Feature Registry & `app.php` Integration:** Κεντρικό σύστημα ενεργοποίησης/απενεργοποίησης framework features μέσω του config αρχείου της εφαρμογής:
 
   ```php
   // app.php
@@ -382,7 +382,7 @@
 
 ### 🗄️ Migration System Overhaul
 
-- [ ] **Enhanced Migration History Table:** Το `framework_migrations` (και αντίστοιχα το app-level migrations table) αποκτούν πλήρη metadata:
+- [x] **Enhanced Migration History Table:** Το `framework_migrations` (και αντίστοιχα το app-level migrations table) αποκτούν πλήρη metadata:
 
   ```sql
   migration        VARCHAR(255)  -- όνομα αρχείου, π.χ. 2024_03_15_143022_create_users_table
@@ -396,7 +396,7 @@
   ran_at           TIMESTAMP
   ```
 
-- [ ] **Migration Class Anatomy:** Κάθε migration αρχείο φέρει δομημένα metadata:
+- [x] **Migration Class Anatomy:** Κάθε migration αρχείο φέρει δομημένα metadata:
 
   ```php
   class CreateUsersTable extends Migration
@@ -417,19 +417,19 @@
   }
   ```
 
-- [ ] **Sort Order για εκτέλεση:** Τα migrations ταξινομούνται πάντα ως εξής:
+- [x] **Sort Order για εκτέλεση:** Τα migrations ταξινομούνται πάντα ως εξής:
   1. Επίλυση `$dependencies` (topological sort — εξαρτήσεις τρέχουν πρώτες)
   2. `$priority` ascending (μικρότερο = υψηλότερη προτεραιότητα)
   3. Datetime από το όνομα αρχείου ascending (YYYY_MM_DD_HHmmss)
 
-- [ ] **Auto-run Mechanism (Backport από Urbanwater):** Κατά το bootstrap της εφαρμογής, ο migration runner εκτελείται αυτόματα:
+- [x] **Auto-run Mechanism (Backport από Urbanwater):** Κατά το bootstrap της εφαρμογής, ο migration runner εκτελείται αυτόματα:
   - Τρέχει **app migrations** και **framework migrations** (scope=framework για τα ενεργά features) σε ενιαία ταξινομημένη ουρά.
   - Σέβεται το app setting `migration_cutoff` (datetime): **δεν εκτελεί κανένα migration με datetime παλιότερο από αυτό**. Τα framework baseline migrations φέρουν σκόπιμα παλιά timestamps (π.χ. `2020_01_01_*`) ώστε ένα υπάρχον installation (π.χ. UrbanWater production) να θέτει `migration_cutoff` σε μεταγενέστερη ημερομηνία και να τα παρακάμπτει αυτόματα — χωρίς να αγγίξει τα UW migrations που έχουν ήδη τρέξει.
   - Τρέχει μόνο migrations με `autorun = true`. Τα `autorun = false` παραλείπονται σιωπηλά (απαιτούν `--force` από CLI).
   - Αν αποτύχει migration, καταγράφεται στο history (result=0, error_message) και το bootstrap **δεν σταματά** — εμφανίζει warning και συνεχίζει.
   - **Capability-aware migrations:** Κάθε migration που χρησιμοποιεί `$schema->ifCapable()` εκτελείται κανονικά σε όλα τα backends — το capability check γίνεται εσωτερικά. Ο migration runner δεν χρειάζεται να γνωρίζει τι backend τρέχει. Τα TimescaleDB-specific DDL statements εκτελούνται μόνο αν `DatabaseCapabilities::has(TIMESCALEDB) === true`.
 
-- [ ] **System Migrations (per feature):** Migrations αποκλειστικά για τους πίνακες του framework, οργανωμένα ανά feature:
+- [x] **System Migrations (per feature):** Migrations αποκλειστικά για τους πίνακες του framework, οργανωμένα ανά feature:
 
   | Feature | Tables που δημιουργεί |
   |---|---|
@@ -439,7 +439,7 @@
   | `messaging` | `messages`, `message_threads`, `message_recipients` |
   | `queue` | `jobs`, `failed_jobs`, `job_batches` |
 
-- [ ] **Scheduled Tasks System:** Cron-like σύστημα για τον ορισμό επαναλαμβανόμενων εργασιών μέσα στον κώδικα — χωρίς εξάρτηση από system crontab. Εκτελείται μέσω του `service:scheduler` daemon ή `schedule:run` εντολής.
+- [x] **Scheduled Tasks System:** Cron-like σύστημα για τον ορισμό επαναλαμβανόμενων εργασιών μέσα στον κώδικα — χωρίς εξάρτηση από system crontab. Εκτελείται μέσω του `service:scheduler` daemon ή `schedule:run` εντολής.
 
   ```php
   // Ορισμός σε ServiceProvider::boot()
@@ -453,14 +453,14 @@
   - Logging στο framework Logs subsystem (start/end/duration/error)
   - `schedule:list` CLI command — εμφανίζει όλα τα registered tasks με next run time
 
-- [ ] **Health Check & Observability:** Ενσωματωμένο σύστημα ελέγχου υγείας της εφαρμογής.
+- [x] **Health Check & Observability:** Ενσωματωμένο σύστημα ελέγχου υγείας της εφαρμογής.
   - `health:check` CLI command — εκτελεί όλους τους registered health checks και εμφανίζει αποτέλεσμα
   - Opt-in `/health` HTTP endpoint — επιστρέφει JSON `{status: ok|degraded|down, checks: {...}}` για load balancers και monitoring
   - Built-in checks: database connectivity (R/W), replica lag, disk space, PHP memory limit, cache reachability
   - Custom checks μέσω `HealthCheck` interface — addons μπορούν να καταχωρούν δικά τους checks
   - Υποστήριξη secret token για προστασία του `/health` endpoint από public access
 
-- [ ] **Migration CLI Commands:** Πλήρες σετ εντολών για τη διαχείριση migrations:
+- [x] **Migration CLI Commands:** Πλήρες σετ εντολών για τη διαχείριση migrations:
 
   | Εντολή | Περιγραφή |
   |---|---|
@@ -487,7 +487,7 @@
 - [ ] **Formal Response Object:** Κλάση `Pramnos\Http\Response` με fluent interface (`withStatus()`, `withHeader()`, `json()`, `redirect()`) που συμπληρώνει τα υπάρχοντα header calls στους controllers.
   > **BC Strategy:** Η νέα κλάση είναι εντελώς additive. Controllers που καλούν απευθείας `header()`, `echo`, ή χρησιμοποιούν το `Document` layer συνεχίζουν να λειτουργούν αμετάβλητα.
 - [ ] **Centralized Error / Exception Handler:** Ενιαίος handler για exceptions με environment-aware εξαγωγή: stack trace σε `debug` mode, friendly error page ή JSON envelope σε `production` mode, ενσωμάτωση με το Logs subsystem.
-- [ ] **Service Providers:** Καθιέρωση `ServiceProvider` interface (`register()` / `boot()`) για την ομαλή εγγραφή routes, bindings και listeners από addons κατά το bootstrap.
+- [x] **Service Providers:** Καθιέρωση `ServiceProvider` interface (`register()` / `boot()`) για την ομαλή εγγραφή routes, bindings και listeners από addons κατά το bootstrap.
   > **BC Strategy:** Το υπάρχον addon bootstrap mechanism συνεχίζει να λειτουργεί. Το `ServiceProvider` pattern είναι νέος, προαιρετικός τρόπος εγγραφής — όχι υποχρεωτικός.
 - [ ] **PHP 8.1 Minimum Version:** Ανύψωση του minimum requirement στην PHP 8.1 (η 7.4 και 8.0 είναι EOL). Ανοίγει enums, readonly properties και intersection types στο core.
 - [ ] **Security Fixes:**
@@ -550,17 +550,18 @@
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- ΣΤΑΔΙΟ Α: Grammar & DML QueryBuilder (τρέχει)
+ ΣΤΑΔΙΟ Α: Grammar & DML QueryBuilder (ολοκληρώθηκε) ✅
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [Φάση 1] DML QueryBuilder — missing features
          (whereNull, whereBetween, UNION, CTEs, window functions,
           INSERT IGNORE / ON CONFLICT, TRUNCATE) ✅
          ↓
-[Φάση 1] QB convenience & aggregate methods
-         (count ✅, sum/avg/min/max, exists/doesntExist,
+[Φάση 1] QB convenience & aggregate methods ✅
+         (count, sum/avg/min/max, exists/doesntExist,
           value, pluck, increment/decrement, chunk,
           when, rightJoin/crossJoin, latest/oldest, forPage,
-          whereExists, whereDate family, lockForUpdate/sharedLock)
+          whereExists, whereDate family, lockForUpdate/sharedLock,
+          selectSub/fromSub subqueries, window functions over())
          ↓
 [Φάση 1] Grammar/Adapter Pattern
          (MySQLGrammar, PostgreSQLGrammar, TimescaleDBGrammar)
@@ -572,7 +573,7 @@
           ifCapable() στο SchemaBuilder)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- ΣΤΑΔΙΟ Β: DDL Schema Builder
+ ΣΤΑΔΙΟ Β: DDL Schema Builder (ολοκληρώθηκε) ✅
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [Φάση 1] DDL / Schema Builder
          (createTable, alterTable, indexes, views, mat.views, triggers)
@@ -581,7 +582,7 @@
          (createHypertable, retention/compression/aggregate policies)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- ΣΤΑΔΙΟ Γ: Framework Infrastructure (Φάση 4 πριν Φάση 2)
+ ΣΤΑΔΙΟ Γ: Framework Infrastructure (ολοκληρώθηκε) ✅
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [Φάση 4] Migration System Overhaul
          (framework_migrations metadata, topological sort,
@@ -630,14 +631,14 @@
 
 > Τα παρακάτω είναι **υποχρεωτικά follow-ups** που εντοπίστηκαν από τα νέα framework-native characterization tests. Παραμένουν εδώ ως ενεργό backlog και κλείνουν σταδιακά με ξεχωριστά commits.
 
-- [ ] **`Adjacencylist::getPathAsArray()` — namespace bug στο `stdClass`:** Στο `Pramnos\\Database\\Adjacencylist` γίνεται `new stdClass()` χωρίς leading `\\`, με αποτέλεσμα runtime error (`Pramnos\\Database\\stdClass not found`).
-- [ ] **`Datasource::render()` — count subqueries fallback σε `0`:** Σε αποτυχία των count subqueries τα `iTotalRecords` / `iTotalDisplayRecords` επιστρέφουν `0` από catch path. Να διορθωθεί ο μηχανισμός count ώστε να δίνει σταθερά σωστό total/display total.
-- [ ] **`Logger` hard dependency στο `LOG_PATH`:** Πολλαπλά code paths (Logger, Datasource error logging, Migration execute logging) προϋποθέτουν ορισμένο `LOG_PATH`. Να προστεθεί ασφαλές default/fallback ώστε να μην σπάνε flows/tests όταν λείπει το constant.
-- [ ] **`Logger` PSR-3 level-loss με empty context:** Σε `warning()/info()/debug()/notice()/emergency()/critical()/alert()` με κενό context, το level δεν αποτυπώνεται στο output επειδή αφαιρείται πριν την απόφαση JSON-vs-plain formatting. Να διατηρείται το level ανεξάρτητα από extra context.
-- [ ] **`Model::_generateSpecificCacheKey()` unresolved placeholders:** Όταν το `_dbtable` κρατά unresolved `#PREFIX#`, το παραγόμενο cache key διατηρεί token (`<id>-#PREFIX#table`). Να κανονικοποιείται πλήρως πριν τη δημιουργία cache key.
-- [ ] **`Model::_getList()` payload filtering with `useGetData` + `queryFields`:** Σε συγκεκριμένα query field selections, το post-filtering μπορεί να αφαιρεί όλα τα scalar keys και να επιστρέφει κενά arrays ανά row. Να διορθωθεί η αντιστοίχιση selected fields → returned keys.
-- [ ] **`Model::_getApiList()` paginated error envelope on field-selection paths:** Για ορισμένους συνδυασμούς `fields`/pagination, ο paginated κλάδος επιστρέφει `error` + `pagination = null` αντί κανονικού pagination block. Να σταθεροποιηθεί ο paginated query path.
-- [ ] **`Api\\Apikey::getList()` result iteration contract:** Η μέθοδος κάνει `foreach ($result as $app)` και προσπελαύνει `$app->fields`, αλλά σε legacy paths το iterated item δεν εγγυάται object με `fields`, προκαλώντας warnings/σπασμένο hydration. Να ενοποιηθεί στο `while ($result->fetch())` pattern.
+- [x] **`Adjacencylist::getPathAsArray()` — namespace bug στο `stdClass`:** Στο `Pramnos\\Database\\Adjacencylist` γίνεται `new stdClass()` χωρίς leading `\\`, με αποτέλεσμα runtime error (`Pramnos\\Database\\stdClass not found`).
+- [x] **`Datasource::render()` — count subqueries fallback σε `0`:** Σε αποτυχία των count subqueries τα `iTotalRecords` / `iTotalDisplayRecords` επιστρέφουν `0` από catch path. Να διορθωθεί ο μηχανισμός count ώστε να δίνει σταθερά σωστό total/display total.
+- [x] **`Logger` hard dependency στο `LOG_PATH`:** Πολλαπλά code paths (Logger, Datasource error logging, Migration execute logging) προϋποθέτουν ορισμένο `LOG_PATH`. Να προστεθεί ασφαλές default/fallback ώστε να μην σπάνε flows/tests όταν λείπει το constant.
+- [x] **`Logger` PSR-3 level-loss με empty context:** Σε `warning()/info()/debug()/notice()/emergency()/critical()/alert()` με κενό context, το level δεν αποτυπώνεται στο output επειδή αφαιρείται πριν την απόφαση JSON-vs-plain formatting. Να διατηρείται το level ανεξάρτητα από extra context.
+- [x] **`Model::_generateSpecificCacheKey()` unresolved placeholders:** Όταν το `_dbtable` κρατά unresolved `#PREFIX#`, το παραγόμενο cache key διατηρεί token (`<id>-#PREFIX#table`). Να κανονικοποιείται πλήρως πριν τη δημιουργία cache key.
+- [x] **`Model::_getList()` payload filtering with `useGetData` + `queryFields`:** Σε συγκεκριμένα query field selections, το post-filtering μπορεί να αφαιρεί όλα τα scalar keys και να επιστρέφει κενά arrays ανά row. Να διορθωθεί η αντιστοίχιση selected fields → returned keys.
+- [x] **`Model::_getApiList()` paginated error envelope on field-selection paths:** Για ορισμένους συνδυασμούς `fields`/pagination, ο paginated κλάδος επιστρέφει `error` + `pagination = null` αντί κανονικού pagination block. Να σταθεροποιηθεί ο paginated query path.
+- [x] **`Api\\Apikey::getList()` result iteration contract:** Η μέθοδος κάνει `foreach ($result as $app)` και προσπελαύνει `$app->fields`, αλλά σε legacy paths το iterated item δεν εγγυάται object με `fields`, προκαλώντας warnings/σπασμένο hydration. Να ενοποιηθεί στο `while ($result->fetch())` pattern.
 - [ ] **Coverage artifact inconsistency (`dockertest --coverage`):** Το HTML report ανανεώνεται (`coverage/index.html`, `coverage/dashboard.html`) αλλά το `coverage/clover.xml` μένει stale (παλιό mtime), με αποτέλεσμα λανθασμένη XML-based ανάλυση. Να ευθυγραμμιστεί η παραγωγή artifacts ώστε το Clover XML να ανανεώνεται στον ίδιο κύκλο.
 
 ---
