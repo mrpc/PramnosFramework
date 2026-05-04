@@ -326,6 +326,13 @@
 - [x] **`docs/1.2-new-features.md`** — Section 16 added (schema reference, namespace map, idempotency notes, timestamp rationale, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
+### Phase 4: Security — View Escaping Helpers (2026-05-05, session 27)
+
+- [x] **`e(mixed $value, string $encoding = 'UTF-8'): string`** (new global in `src/Pramnos/helpers.php`): `htmlspecialchars()` with `ENT_QUOTES | ENT_SUBSTITUTE`; `null`/`false` → `''`. Guarded by `function_exists`.
+- [x] **`View::escape()` and `View::e()`** (new instance methods): delegate to global `e()` for template use.
+- [x] **Unit tests** (`tests/Unit/Application/ViewEscapeTest.php`) — 15 tests, 23 assertions.
+- [x] **`docs/1.2-new-features.md`** — Section 23 added.
+
 ### Phase 4: Security — Session Cookie Hardening (2026-05-05, session 27)
 
 - [x] **`Session::start()`**: `ini_set('session.use_strict_mode', '1')` before `session_start()` — rejects attacker-supplied session IDs.

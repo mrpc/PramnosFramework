@@ -145,6 +145,33 @@ class View extends \Pramnos\Framework\Base
         return $this->type;
     }
 
+    /**
+     * HTML-escape a value for safe output in a template.
+     *
+     * Delegates to the global e() helper so templates can use either
+     * $this->escape($value) or the shorter e($value) form.
+     *
+     * Usage in .html.php templates:
+     *   <?= $this->escape($model->title) ?>
+     *   <?= $this->e($user->bio) ?>
+     *
+     * @param  mixed  $value    Any scalar, null, or stringable.
+     * @param  string $encoding Character encoding (default UTF-8).
+     * @return string           HTML-safe string.
+     */
+    public function escape(mixed $value, string $encoding = 'UTF-8'): string
+    {
+        return e($value, $encoding);
+    }
+
+    /**
+     * Short alias for escape() — for brevity in templates.
+     */
+    public function e(mixed $value, string $encoding = 'UTF-8'): string
+    {
+        return e($value, $encoding);
+    }
+
 
 
 

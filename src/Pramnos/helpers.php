@@ -152,6 +152,35 @@ if (!function_exists('l') && !class_exists("pramnos_theme")) {
 
 }
 
+if (!function_exists('e')) {
+    /**
+     * HTML-escape a value for safe output inside HTML templates.
+     *
+     * Converts the value to a string then runs it through htmlspecialchars()
+     * with ENT_QUOTES | ENT_SUBSTITUTE so that both single and double quotes
+     * are escaped and invalid UTF-8 sequences are replaced with the Unicode
+     * replacement character rather than causing an empty return.
+     *
+     * Usage in .html.php templates:
+     *   <?= e($user->name) ?>
+     *   <input value="<?= e($request->get('q')) ?>">
+     *
+     * Intentionally NOT escaped (use raw output):
+     *   <?= $view->trustedHtml ?>  // generated HTML, not user input
+     *
+     * @param  mixed  $value    Any scalar, null, or stringable.
+     * @param  string $encoding Character encoding (default UTF-8).
+     * @return string           HTML-safe string.
+     */
+    function e(mixed $value, string $encoding = 'UTF-8'): string
+    {
+        if ($value === null || $value === false) {
+            return '';
+        }
+        return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, $encoding);
+    }
+}
+
 if (!function_exists("getUrl")) {
     /**
      * Returns the current URL. This function exists here to
