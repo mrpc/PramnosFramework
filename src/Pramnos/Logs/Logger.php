@@ -16,7 +16,8 @@ class Logger
      */
     private static function getDefaultLogPath(): string
     {
-        return \LOG_PATH . \DS . 'logs';
+        $base = defined('LOG_PATH') ? \LOG_PATH : sys_get_temp_dir();
+        return $base . \DS . 'logs';
     }
 
     /**
@@ -36,11 +37,9 @@ class Logger
      */
     private static function ensureLogDirectories(): void
     {
-        if (!file_exists(\LOG_PATH)) {
-            @mkdir(\LOG_PATH, 0777, true);
-        }
-        if (!file_exists(self::getDefaultLogPath())) {
-            @mkdir(self::getDefaultLogPath(), 0777, true);
+        $logDir = self::getDefaultLogPath();
+        if (!file_exists($logDir)) {
+            @mkdir($logDir, 0777, true);
         }
     }
 

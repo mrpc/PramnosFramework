@@ -202,27 +202,27 @@ class Datasource extends Base
             }
         }
 
-        // First count: Total records without filtering
-        $totalQb = $database->queryBuilder()->from($table . ' a');
+        // First count: Total records without filtering.
+        // Use COUNT(*) directly in SELECT so the QB's get() method properly executes with bindings.
+        $totalQb = $database->queryBuilder()->from($table . ' a')->select(['COUNT(*) as num']);
         if ($join != '') $totalQb->joinRaw($join);
         if ($where != '') $totalQb->whereRaw($where);
-        
-        $totalSql = "SELECT COUNT(a.`" . $fields[0] . "`) as num FROM (" . $totalQb->toSql() . ") as total_query";
         try {
-            $num = $database->query($totalSql, $cache, $cachetime, $cachecategory);
-            $total = $num->fields['num'] ?? 0;
+            $numResult = $totalQb->get($cache, $cachetime, $cachecategory);
+            $total = (int) ($numResult->fields['num'] ?? 0);
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::log('Error in Datasource total count: ' . $ex->getMessage());
             $total = 0;
         }
 
-        // Second count: Total records with filtering (but no limit)
+        // Second count: Total records with filtering (but no limit).
+        // Clone preserves WHERE bindings; SELECT is replaced with COUNT(*) to avoid duplicate-column
+        // issues when JOINs bring in same-named columns (e.g. two `id` columns).
         $displayQb = clone $qb;
-        $displayQb->limit(null)->offset(null);
-        $displaySql = "SELECT COUNT(a.`" . $fields[0] . "`) as num FROM (" . $displayQb->toSql() . ") as display_query";
+        $displayQb->limit(null)->offset(null)->select(['COUNT(*) as num']);
         try {
-            $displayResult = $database->query($displaySql, $cache, $cachetime, $cachecategory);
-            $totalDisplay = $displayResult->fields['num'] ?? 0;
+            $displayResult = $displayQb->get($cache, $cachetime, $cachecategory);
+            $totalDisplay = (int) ($displayResult->fields['num'] ?? 0);
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::log('Error in Datasource filtered count: ' . $ex->getMessage());
             $totalDisplay = 0;
