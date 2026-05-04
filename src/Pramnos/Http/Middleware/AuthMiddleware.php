@@ -36,8 +36,9 @@ class AuthMiddleware implements MiddlewareInterface
 
         if (!$session->isLogged()) {
             if ($this->redirectTo !== '') {
-                header('Location: ' . $this->redirectTo, true, 302);
-                exit;
+                // Throw RedirectException — Application::exec() catches it and
+                // performs the actual header()/exit, keeping this method testable.
+                throw new \Pramnos\Http\RedirectException($this->redirectTo, 302);
             }
             throw new \Exception('Authentication required.', 401);
         }
