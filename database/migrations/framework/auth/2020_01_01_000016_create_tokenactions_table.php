@@ -30,7 +30,7 @@ class CreateTokenactionsTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 70;
     public array   $dependencies = ['create_usertokens_table', 'create_urls_table'];
-    public string  $description  = 'Creates the tokenactions API call log table (hypertable on TimescaleDB)';
+    public $description  = 'Creates the tokenactions API call log table (hypertable on TimescaleDB)';
 
     public function up(): void
     {

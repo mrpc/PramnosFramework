@@ -19,7 +19,7 @@ class CreateMassmessagesTable extends Migration
     public string  $feature      = 'messaging';
     public string  $scope        = 'framework';
     public int     $priority     = 40;
-    public string  $description  = 'Creates the massmessages broadcast header table';
+    public $description  = 'Creates the massmessages broadcast header table';
 
     public function up(): void
     {

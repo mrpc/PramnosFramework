@@ -6,7 +6,7 @@ namespace Pramnos\Database;
  * Base class for database migrations.
  *
  * Phase 4 additions add metadata fields ($feature, $scope, $priority,
- * $dependencies, $autorun) that the MigrationRunner uses for topological
+ * $dependencies) that the MigrationRunner uses for topological
  * sort, cutoff filtering, and history recording. All additions are
  * backward-compatible — existing subclasses continue to work without any
  * changes.
@@ -24,25 +24,28 @@ abstract class Migration extends \Pramnos\Framework\Base
 
     /**
      * Version that this migration sets.
+     * Intentionally untyped for BC — existing subclasses redeclare this
+     * property without a type annotation. Adding a type here would cause a
+     * fatal "Type of Child::$version must be string" error in PHP 8.x.
      * @var string
      */
-    public string $version = '';
+    public $version = '';
 
     /**
      * Description of the migration.
+     * Intentionally untyped for BC — see $version note above.
      * @var string
      */
-    public string $description = '';
+    public $description = '';
 
     /**
-     * BC alias for $autorun. Reads and writes delegate to $autorun via PHP 8.4
-     * property hooks, so both names always refer to the same value.
-     * @deprecated Use $autorun instead.
+     * When false, the migration is skipped unless MigrationRunner is called
+     * with force=true.
+     * Intentionally untyped for BC — existing subclasses redeclare this
+     * without a type annotation.
+     * @var bool
      */
-    public bool $autoExecute {
-        get { return $this->autorun; }
-        set { $this->autorun = $value; }
-    }
+    public $autoExecute = true;
 
     // =========================================================================
     // Phase 4 metadata
@@ -76,13 +79,6 @@ abstract class Migration extends \Pramnos\Framework\Base
      * @var string[]
      */
     public array $dependencies = [];
-
-    /**
-     * When false, the migration is skipped unless MigrationRunner is called
-     * with force=true.  Replaces the legacy $autoExecute flag.
-     * @var bool
-     */
-    public bool $autorun = true;
 
     // =========================================================================
     // Internal state

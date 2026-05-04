@@ -25,7 +25,7 @@ class CreateUsertokensTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 50;
     public array   $dependencies = ['create_users_table'];
-    public string  $description  = 'Creates the usertokens table';
+    public $description  = 'Creates the usertokens table';
 
     public function up(): void
     {

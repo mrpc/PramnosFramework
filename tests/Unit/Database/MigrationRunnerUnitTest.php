@@ -130,27 +130,23 @@ class MigrationRunnerUnitTest extends TestCase
         $this->assertSame('app', $m->scope,        'scope defaults to "app"');
         $this->assertSame(50, $m->priority,        'priority defaults to 50');
         $this->assertSame([], $m->dependencies,    'dependencies defaults to empty array');
-        $this->assertTrue($m->autorun,             'autorun defaults to true');
-        // BC: old autoExecute alias still works
-        $this->assertTrue($m->autoExecute,         'autoExecute BC alias defaults to true');
+        $this->assertTrue($m->autoExecute,         'autoExecute defaults to true');
     }
 
     /**
-     * Setting $autorun = false must propagate through the BC $autoExecute alias
-     * so code that reads $autoExecute still sees the correct value.
+     * $autoExecute can be set to false at runtime; filterAutorun() reads this
+     * property directly so it must reflect the assigned value.
      */
-    public function testAutorunFalseReflectsInAutoExecuteAlias(): void
+    public function testAutoExecuteCanBeSetFalse(): void
     {
         // Arrange
         $m = new StubMigration();
-        $m->autorun = false;
 
-        // Act – read via alias
-        $alias = $m->autoExecute;
+        // Act
+        $m->autoExecute = false;
 
-        // Assert – both properties report false
-        $this->assertFalse($m->autorun);
-        $this->assertFalse($alias, 'autoExecute must mirror autorun for BC');
+        // Assert
+        $this->assertFalse($m->autoExecute, 'autoExecute must reflect the assigned false value');
     }
 
     // -----------------------------------------------------------------------
@@ -285,33 +281,33 @@ class MigrationRunnerUnitTest extends TestCase
     // -----------------------------------------------------------------------
 
     /**
-     * Migrations with autorun=false are excluded from the pending list by
+     * Migrations with autoExecute=false are excluded from the pending list by
      * default (they require --force to run).
      */
     public function testAutorunFalseMigrationsExcludedByDefault(): void
     {
         // Arrange
-        $normal  = $this->makeMigration('create_users_table', autorun: true);
-        $manual  = $this->makeMigration('seed_demo_data',     autorun: false);
+        $normal  = $this->makeMigration('create_users_table', autoExecute: true);
+        $manual  = $this->makeMigration('seed_demo_data',     autoExecute: false);
 
         $runner = new MigrationRunner();
 
         // Act – filter without force flag
         $pending = $runner->filterAutorun([$normal, $manual], force: false);
 
-        // Assert – only autorun=true migration included
+        // Assert – only autoExecute=true migration included
         $this->assertCount(1, $pending);
         $this->assertSame('create_users_table', $pending[0]->getSlug());
     }
 
     /**
-     * With force=true, autorun=false migrations are included in the run.
+     * With force=true, autoExecute=false migrations are included in the run.
      */
     public function testAutorunFalseMigrationsIncludedWithForceFlag(): void
     {
         // Arrange
-        $normal = $this->makeMigration('create_users_table', autorun: true);
-        $manual = $this->makeMigration('seed_demo_data',     autorun: false);
+        $normal = $this->makeMigration('create_users_table', autoExecute: true);
+        $manual = $this->makeMigration('seed_demo_data',     autoExecute: false);
 
         $runner = new MigrationRunner();
 
@@ -408,24 +404,24 @@ class MigrationRunnerUnitTest extends TestCase
     /**
      * Builds a concrete stub migration with controllable metadata.
      *
-     * @param string   $slug       Identifies this migration; becomes the return of getSlug().
-     * @param int      $priority   Execution priority (lower = runs first).
-     * @param string[] $deps       Slugs of migrations that must run before this one.
-     * @param bool     $autorun    Whether the migration is included in default runs.
+     * @param string   $slug        Identifies this migration; becomes the return of getSlug().
+     * @param int      $priority    Execution priority (lower = runs first).
+     * @param string[] $deps        Slugs of migrations that must run before this one.
+     * @param bool     $autoExecute Whether the migration is included in default runs.
      * @param string|null $timestamp YYYY_MM_DD_HHmmss string returned by getTimestamp().
      */
     private function makeMigration(
         string $slug,
         int $priority = 50,
         array $deps = [],
-        bool $autorun = true,
+        bool $autoExecute = true,
         ?string $timestamp = null
     ): StubMigration {
         $m = new StubMigration();
         $m->forcedSlug      = $slug;
         $m->priority        = $priority;
         $m->dependencies    = $deps;
-        $m->autorun         = $autorun;
+        $m->autoExecute     = $autoExecute;
         $m->forcedTimestamp = $timestamp;
 
         return $m;

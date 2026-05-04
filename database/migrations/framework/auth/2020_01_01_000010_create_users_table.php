@@ -18,7 +18,7 @@ class CreateUsersTable extends Migration
     public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 10;
-    public string  $description  = 'Creates the users table';
+    public $description  = 'Creates the users table';
 
     public function up(): void
     {
