@@ -1474,4 +1474,228 @@ class QueryBuilderPostgreSQLTest extends TestCase
         // Assert — all 5 products returned
         $this->assertEquals(5, $result->numRows);
     }
+
+    // =========================================================================
+    // selectSub() / fromSub()
+    // =========================================================================
+
+    /**
+     * selectSub() must execute a correlated subquery per row and return the
+     * derived column.  PostgreSQL uses double-quote identifier quoting.
+     */
+    public function testSelectSubCorrelatedSubquery(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->seedTags();
+
+        // Act — tag count per product as a correlated subquery column
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->selectSub(function (\Pramnos\Database\QueryBuilder $sub) {
+                $sub->select('COUNT(*)')
+                    ->from('qb_tags')
+                    ->whereRaw('qb_tags.product_id = qb_products.id');
+            }, 'tag_count')
+            ->from('qb_products')
+            ->orderBy('id')
+            ->get();
+
+        $rows = $result->fetchAll();
+
+        // Assert — Apple has 2 tags, Banana 0
+        $this->assertCount(5, $rows);
+        $this->assertEquals('Apple', $rows[0]['name']);
+        $this->assertEquals(2, (int)$rows[0]['tag_count']);
+        $this->assertEquals(0, (int)$rows[1]['tag_count']);
+    }
+
+    /**
+     * fromSub() must execute the outer query against a PostgreSQL derived table.
+     * Inner: avg price per category.  Outer: filter where avg_price > 1.00.
+     */
+    public function testFromSubDerivedTable(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->select(['category', 'avg_price'])
+            ->fromSub(function (\Pramnos\Database\QueryBuilder $sub) {
+                $sub->select(['category', $sub->raw('AVG(price) AS avg_price')])
+                    ->from('qb_products')
+                    ->groupBy('category');
+            }, 'cat_avgs')
+            ->where('avg_price', '>', 1.00)
+            ->get();
+
+        $rows = $result->fetchAll();
+
+        // Assert — both fruit (≈1.567) and veggie (1.15) exceed 1.00
+        $this->assertCount(2, $rows);
+        $categories = array_column($rows, 'category');
+        $this->assertContains('fruit',  $categories);
+        $this->assertContains('veggie', $categories);
+    }
+
+    /**
+     * Binding order must be preserved when fromSub() and outer WHERE are combined.
+     * Subquery binding ('active' = true) must come before outer WHERE binding (price < 2.00).
+     */
+    public function testFromSubWithOuterWhereUsesCorrectBindingOrder(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — derived table: active products; outer WHERE price < 2.00
+        $result = $this->db->queryBuilder()
+            ->select('*')
+            ->fromSub(function (\Pramnos\Database\QueryBuilder $sub) {
+                // PostgreSQL: active is BOOLEAN, compare with true
+                $sub->select('*')->from('qb_products')->where('active', true);
+            }, 'active_p')
+            ->where('price', '<', 2.00)
+            ->get();
+
+        $rows = $result->fetchAll();
+
+        // Assert — active products under 2.00: Apple(1.20), Banana(0.50), Carrot(0.80)
+        $this->assertCount(3, $rows);
+    }
+
+    // =========================================================================
+    // over() — window functions (PostgreSQL 14)
+    // =========================================================================
+
+    /**
+     * over() with PARTITION BY and ORDER BY must produce correct RANK() results.
+     * PostgreSQL uses double-quote column quoting in PARTITION BY and ORDER BY.
+     * Fruit: Banana(0.50)→1, Apple(1.20)→2, Elderberry(3.00)→3
+     * Veggie: Carrot(0.80)→1, Daikon(1.50)→2
+     */
+    public function testWindowRankPartitionByCategory(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->select([
+                'id',
+                'name',
+                'category',
+                'price',
+                $this->db->queryBuilder()->over(
+                    'RANK()',
+                    'price_rank',
+                    partition: ['category'],
+                    order: ['price' => 'asc']
+                ),
+            ])
+            ->from('qb_products')
+            ->orderBy('id')
+            ->get();
+
+        $rows = $result->fetchAll();
+        $byName = array_column($rows, null, 'name');
+
+        // Assert — Banana (cheapest fruit) gets rank 1
+        $this->assertEquals(1, (int)$byName['Banana']['price_rank']);
+        // Carrot (cheaper veggie) gets rank 1
+        $this->assertEquals(1, (int)$byName['Carrot']['price_rank']);
+        // Apple is rank 2 within fruit
+        $this->assertEquals(2, (int)$byName['Apple']['price_rank']);
+    }
+
+    /**
+     * ROW_NUMBER() OVER (ORDER BY price) must assign unique sequential integers.
+     * 5 products → row numbers 1..5.
+     */
+    public function testWindowRowNumberOverGlobalOrder(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->select([
+                'name',
+                $this->db->queryBuilder()->over('ROW_NUMBER()', 'rn', order: ['price' => 'asc']),
+            ])
+            ->from('qb_products')
+            ->orderBy('price')
+            ->get();
+
+        $rows = $result->fetchAll();
+        $rowNumbers = array_column($rows, 'rn');
+
+        // Assert — 5 unique sequential row numbers
+        $this->assertCount(5, $rowNumbers);
+        $this->assertEquals([1, 2, 3, 4, 5], array_map('intval', $rowNumbers));
+    }
+
+    /**
+     * SUM(...) OVER (PARTITION BY category) — aggregate window function —
+     * must return the category total on every row without collapsing rows.
+     * Fruit total = 1.20 + 0.50 + 3.00 = 4.70; veggie total = 0.80 + 1.50 = 2.30.
+     */
+    public function testWindowSumPartitionBy(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->select([
+                'name',
+                'category',
+                $this->db->queryBuilder()->over('SUM(price)', 'cat_total', partition: ['category']),
+            ])
+            ->from('qb_products')
+            ->orderBy('id')
+            ->get();
+
+        $rows = $result->fetchAll();
+        $byName = array_column($rows, null, 'name');
+
+        // Assert
+        $this->assertEqualsWithDelta(4.70, (float)$byName['Apple']['cat_total'],  0.01);
+        $this->assertEqualsWithDelta(4.70, (float)$byName['Banana']['cat_total'], 0.01);
+        $this->assertEqualsWithDelta(2.30, (float)$byName['Carrot']['cat_total'], 0.01);
+    }
+
+    /**
+     * DENSE_RANK() with a running SUM frame clause (cumulative sum) using
+     * ROWS BETWEEN — verifies that the optional $frame parameter is passed
+     * through correctly by PostgreSQL grammar.
+     */
+    public function testWindowCumulativeSumWithFrameClause(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — running cumulative price sum ordered by id
+        $result = $this->db->queryBuilder()
+            ->select([
+                'id',
+                'name',
+                'price',
+                $this->db->queryBuilder()->over(
+                    'SUM(price)',
+                    'running_total',
+                    order: ['id' => 'asc'],
+                    frame: 'ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW'
+                ),
+            ])
+            ->from('qb_products')
+            ->orderBy('id')
+            ->get();
+
+        $rows = $result->fetchAll();
+
+        // Assert — cumulative sum grows row by row; last row = total of all 5 prices
+        $lastRow = end($rows);
+        $this->assertEqualsWithDelta(7.00, (float)$lastRow['running_total'], 0.01);
+    }
 }

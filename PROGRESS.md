@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-04 (session 24)
+## 📅 Last Updated: 2026-05-04 (session 25)
 
 ## 🚀 Completed Milestones
 
@@ -325,6 +325,19 @@
 - [x] 2020 timestamp prefix — installations with `migration_cutoff` skip framework tables automatically.
 - [x] **`docs/1.2-new-features.md`** — Section 16 added (schema reference, namespace map, idempotency notes, timestamp rationale, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
+
+### Phase 1.2: QB Subqueries & Window Functions (2026-05-04, session 25)
+
+- [x] **`QueryBuilder::selectSub(QueryBuilder|Closure, string $alias)`** — adds a correlated or uncorrelated subquery as a SELECT column; bindings go into the `select` slot (precede WHERE bindings). Closure receives a fresh QB.
+- [x] **`QueryBuilder::fromSub(QueryBuilder|Closure, string $alias)`** — sets the FROM clause to a derived table; bindings go into the `from` slot (between `select` and `join`/`where`). Accepts QB or Closure.
+- [x] **`QueryBuilder::over(string|Expression $fn, ?string $alias, array|string $partition, array $order, string $frame): Expression`** — builds a dialect-aware window function OVER expression. Partition and order columns are quoted by the grammar (backticks MySQL / double-quotes PG). Function fragment is passed verbatim.
+- [x] **`GrammarInterface::compileWindowOver()`** — new contract method.
+- [x] **`Grammar::compileWindowOver()`** — base implementation shared by all dialects (quoting via `quoteColumn()`). Handles PARTITION BY, ORDER BY (assoc and indexed), and optional ROWS/RANGE frame clause.
+- [x] **Unit tests** — 18 new tests; total **101/101**.
+- [x] **MySQL integration tests** — 6 new tests (selectSub correlated, fromSub derived table, fromSub binding order, RANK(), ROW_NUMBER(), SUM() OVER); total **91/91**.
+- [x] **PostgreSQL integration tests** — 7 new tests (same coverage + cumulative SUM with ROWS frame); total **80/80**.
+- [x] **`docs/1.2-new-features.md`** updated with full API reference and examples for all new methods.
+- [x] Re-verified full suite: **1157/1157 tests, 2860 assertions, 0 failures**.
 
 ### Phase 1.2: QB Convenience & Aggregate Methods (2026-05-04, session 24)
 

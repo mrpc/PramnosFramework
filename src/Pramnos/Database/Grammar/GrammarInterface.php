@@ -82,4 +82,22 @@ interface GrammarInterface
      * @return string            SQL expression fragment (no surrounding parens)
      */
     public function compileTimeBucket(string $interval, string $column): string;
+
+    /**
+     * Compile a window function OVER clause.
+     *
+     * The returned string is the complete window expression, ready to embed in
+     * a SELECT list or anywhere an expression is accepted.
+     *
+     * @param  string   $fn         Raw function call fragment, e.g. 'RANK()', 'SUM(price)'.
+     *                              Passed verbatim — not escaped.
+     * @param  string[] $partition  Column names for PARTITION BY.  Quoted by the grammar.
+     * @param  array    $order      ORDER BY spec.  Assoc: ['col' => 'asc|desc', ...];
+     *                              or indexed: ['col', 'col2'] (defaults to ASC).
+     * @param  string   $frame      Optional ROWS/RANGE frame clause, e.g.
+     *                              'ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW'.
+     * @return string               Full window expression, e.g.
+     *                              'RANK() OVER (PARTITION BY "cat" ORDER BY "price" DESC)'
+     */
+    public function compileWindowOver(string $fn, array $partition, array $order, string $frame): string;
 }
