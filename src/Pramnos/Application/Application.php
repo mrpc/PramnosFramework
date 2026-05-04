@@ -605,6 +605,8 @@ class Application extends Base
          */
         try {
             $doc->addContent($controllerObject->exec($this->action));
+        } catch (\Pramnos\Http\RedirectException $exception) {
+            $this->redirect($exception->getUrl(), true, $exception->getStatusCode());
         } catch (\Pramnos\Validation\ValidationException $exception) {
             $request = new \Pramnos\Http\Request();
             $_SESSION['_validation_errors'] = $exception->errors();

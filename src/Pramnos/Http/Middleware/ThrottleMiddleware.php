@@ -38,25 +38,62 @@ class ThrottleMiddleware implements MiddlewareInterface
 
     public function handle(Request $request, callable $next): mixed
     {
-        if (function_exists('apcu_fetch')) {
-            $ip  = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-            $key = $this->keyPrefix . md5($ip);
+        $ip  = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $key = $this->keyPrefix . md5($ip);
 
-            $count = apcu_fetch($key);
+        $count = $this->fetchCount($key);
 
-            if ($count === false) {
-                apcu_store($key, 1, $this->perSeconds);
-            } elseif ($count >= $this->maxRequests) {
-                header('Retry-After: ' . $this->perSeconds);
-                throw new \Exception(
-                    'Too many requests. Please slow down.',
-                    429
-                );
-            } else {
-                apcu_inc($key);
-            }
+        if ($count === false) {
+            $this->storeCount($key, 1, $this->perSeconds);
+        } elseif ($count >= $this->maxRequests) {
+            header('Retry-After: ' . $this->perSeconds);
+            throw new \Exception('Too many requests. Please slow down.', 429);
+        } else {
+            $this->incrementCount($key);
         }
 
         return $next($request);
+    }
+
+    /**
+     * Fetch the current request count for $key.
+     * Returns false when no counter exists yet (first request).
+     * Override in tests to inject an in-memory store.
+     *
+     * @codeCoverageIgnore — pure APCu adapter; logic tested via in-memory subclass.
+     */
+    protected function fetchCount(string $key): int|false
+    {
+        if (!function_exists('apcu_fetch')) {
+            return false;
+        }
+        $value = apcu_fetch($key);
+        return $value === false ? false : (int) $value;
+    }
+
+    /**
+     * Store an initial counter value with the given TTL.
+     * Override in tests to inject an in-memory store.
+     *
+     * @codeCoverageIgnore — pure APCu adapter; logic tested via in-memory subclass.
+     */
+    protected function storeCount(string $key, int $value, int $ttl): void
+    {
+        if (function_exists('apcu_store')) {
+            apcu_store($key, $value, $ttl);
+        }
+    }
+
+    /**
+     * Increment an existing counter by 1.
+     * Override in tests to inject an in-memory store.
+     *
+     * @codeCoverageIgnore — pure APCu adapter; logic tested via in-memory subclass.
+     */
+    protected function incrementCount(string $key): void
+    {
+        if (function_exists('apcu_inc')) {
+            apcu_inc($key);
+        }
     }
 }
