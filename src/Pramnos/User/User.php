@@ -136,8 +136,8 @@ class User extends \Pramnos\Framework\Base
             $database = \Pramnos\Framework\Factory::getDatabase();
             $sql = $database->prepareQuery(
                 "update `#PREFIX#users`"
-                . " set `active` = %s where `userid` = %d", 
-                $database->convertBool(true), 
+                . " set `active` = %d where `userid` = %d",
+                1,
                 $this->userid
             );
             
@@ -162,8 +162,8 @@ class User extends \Pramnos\Framework\Base
             $database = \Pramnos\Framework\Factory::getDatabase();
             $sql = $database->prepareQuery(
                 "update `#PREFIX#users` "
-                . "set `active` = %s where `userid` = %d", 
-                $database->convertBool(false),
+                . "set `active` = %d where `userid` = %d",
+                0,
                 $this->userid
             );
             $database->query($sql);
@@ -1356,7 +1356,10 @@ class User extends \Pramnos\Framework\Base
                     groupid integer NOT NULL REFERENCES #PREFIX#usergroups(groupid) ON DELETE CASCADE ON UPDATE CASCADE,
                     PRIMARY KEY (userid, groupid)
                 );",
-                "INSERT INTO #PREFIX#users (userid, username, active) VALUES (1, 'Guest', 1) ON CONFLICT (userid) DO NOTHING;"
+                "INSERT INTO #PREFIX#users (userid, username, active) VALUES (1, 'Guest', 1) ON CONFLICT (userid) DO NOTHING;",
+                // Advance the bigserial sequence past the explicitly-inserted Guest row (id=1).
+                // Without this, the next auto-generated userid would collide with the Guest user.
+                "SELECT setval(pg_get_serial_sequence('#PREFIX#users', 'userid'), (SELECT COALESCE(MAX(userid), 1) FROM #PREFIX#users));"
             ];
         } else {
             $statements = [
