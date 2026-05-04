@@ -57,7 +57,7 @@
 
 | Test Suite | MySQL | PostgreSQL | TimescaleDB |
 |---|:---:|:---:|:---:|
-| QueryBuilder / DML | ✅ | ✅ | ✅ |
+| QueryBuilder / DML (incl. aggregates, shortcuts, locking) | ✅ | ✅ | ✅ |
 | Schema Builder / DDL | ✅ | ✅ | ✅ |
 | TimescaleDB Extensions | — | — | ✅ |
 | TimescaleDB Fallback (`ifCapable`, `time_bucket` dialect, retention/aggregate/compression fallbacks) | ✅ | ✅ | ✅ |
@@ -103,15 +103,41 @@
   - [x] `DELETE`, `RETURNING` clause (PostgreSQL)
   - [x] `TRUNCATE`
   - [x] JOINs: `INNER`, `LEFT` — `join($table, ..., $type)` δέχεται οποιοδήποτε type string (`right`, `full`, `cross`) αλλά δεν υπάρχουν convenience methods
+  - [ ] `rightJoin($table, $first, $op, $second)` — convenience method για RIGHT JOIN
+  - [ ] `crossJoin($table)` — convenience method για CROSS JOIN
   - [x] Conditions: `where()`, `orWhere()`, `whereIn()`, `whereRaw()`, nested where via Closure
   - [x] `whereNull()` / `whereNotNull()`, `whereBetween()` / `whereNotBetween()` (και or* παραλλαγές)
+  - [ ] `whereExists(Closure $callback)` / `whereNotExists()` — `WHERE EXISTS (SELECT 1 FROM …)` subquery condition
+  - [ ] `whereDate/Year/Month/Day/Time($col, $op, $value)` — date-part conditions χωρίς raw SQL
   - [x] `groupBy()`, `groupByRaw()`, `having()`, `havingRaw()`, `orderBy()`, `orderByRaw()`, `limit()`, `offset()`
-  - [x] `clearOrderingAndPaging()` — αφαιρεί ORDER BY/LIMIT/OFFSET (χρήσιμο σε COUNT subqueries)
+  - [ ] `latest(string $col = 'created_at'): static` — sugar για `orderBy($col, 'desc')`
+  - [ ] `oldest(string $col = 'created_at'): static` — sugar για `orderBy($col, 'asc')`
+  - [ ] `forPage(int $page, int $perPage): static` — sugar για `limit($perPage)->offset(($page-1)*$perPage)`
+  - [x] `clearOrderingAndPaging()` — αφαιρεί ORDER BY/LIMIT/OFFSET
   - [x] `UNION` / `UNION ALL`
   - [x] Common Table Expressions (CTEs) — `with()`, `withRecursive()`; MySQL 8.0+ / PostgreSQL / TimescaleDB
   - [ ] Subqueries ως SELECT columns ή FROM πηγή
   - [ ] Window functions (`OVER`, `PARTITION BY`, `RANK`, `ROW_NUMBER`) — PostgreSQL/TimescaleDB
   - [x] Raw expressions με `raw()` / `Expression` class για dialect-specific syntax
+  - [ ] `when(bool|Closure $condition, Closure $callback, ?Closure $default = null): static` — conditional query building; αν η συνθήκη είναι false και δεν υπάρχει `$default`, ο builder επιστρέφεται αναλλοίωτος. Χρήσιμο για φόρμες φίλτρων
+  - [ ] `lockForUpdate(): static` — προσθέτει `FOR UPDATE` (MySQL/PG); φρένο για pessimistic locking
+  - [ ] `sharedLock(): static` — προσθέτει `LOCK IN SHARE MODE` (MySQL) / `FOR SHARE` (PG)
+
+- **Execution shortcuts & aggregates** *(standard ORM API — παράλληλο pattern με το `count()`)*:
+  - [x] `get()` — εκτελεί και επιστρέφει `Result`
+  - [x] `first()` — `LIMIT 1`, επιστρέφει `Result`
+  - [x] `count(): int` — `SELECT COUNT(*) AS aggregate`, strips ORDER BY/LIMIT, δεν μεταλλάσσει τον builder
+  - [ ] `sum(string $col): float` — `SELECT SUM(col) AS aggregate`
+  - [ ] `avg(string $col): float` — `SELECT AVG(col) AS aggregate`
+  - [ ] `min(string $col): mixed` — `SELECT MIN(col) AS aggregate`
+  - [ ] `max(string $col): mixed` — `SELECT MAX(col) AS aggregate`
+  - [ ] `exists(): bool` — `SELECT EXISTS(SELECT 1 FROM … WHERE …)`; πιο αποδοτικό από `count() > 0`
+  - [ ] `doesntExist(): bool` — `!exists()`
+  - [ ] `value(string $col): mixed` — εκτελεί με `LIMIT 1`, επιστρέφει μία τιμή ή `null`
+  - [ ] `pluck(string $col): array` — επιστρέφει flat array με τις τιμές μίας στήλης από όλες τις γραμμές
+  - [ ] `increment(string $col, int|float $step = 1): int` — `UPDATE … SET col = col + step WHERE …`; επιστρέφει affected rows
+  - [ ] `decrement(string $col, int|float $step = 1): int` — `UPDATE … SET col = col - step WHERE …`
+  - [ ] `chunk(int $size, Closure $callback): void` — επεξεργασία μεγάλων result sets σε batches χωρίς φόρτωση όλων στη μνήμη; σταματάει αν το callback επιστρέψει `false`
 
 - [x] **QueryBuilder Grammar/Adapter Pattern:**
   Αρχιτεκτονική βελτίωση που διαχωρίζει την **κατασκευή query** (QB) από τη **μετάφρασή του σε SQL** (Grammar). Αντί για `if ($this->db->type == 'postgresql')` checks σκορπισμένα στον κώδικα, κάθε dialect έχει το δικό του Grammar class.
@@ -528,7 +554,13 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [Φάση 1] DML QueryBuilder — missing features
          (whereNull, whereBetween, UNION, CTEs, window functions,
-          INSERT IGNORE / ON CONFLICT, TRUNCATE)
+          INSERT IGNORE / ON CONFLICT, TRUNCATE) ✅
+         ↓
+[Φάση 1] QB convenience & aggregate methods
+         (count ✅, sum/avg/min/max, exists/doesntExist,
+          value, pluck, increment/decrement, chunk,
+          when, rightJoin/crossJoin, latest/oldest, forPage,
+          whereExists, whereDate family, lockForUpdate/sharedLock)
          ↓
 [Φάση 1] Grammar/Adapter Pattern
          (MySQLGrammar, PostgreSQLGrammar, TimescaleDBGrammar)
