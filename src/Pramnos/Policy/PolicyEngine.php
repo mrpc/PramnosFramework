@@ -108,7 +108,7 @@ class PolicyEngine
                  RETURNING policyid",
                 [$type, $target, $configJson]
             );
-            if ($result && $result->fetchNext()) {
+            if ($result && $result->fetch()) {
                 return (int) $result->fields['policyid'];
             }
         } else {
@@ -200,7 +200,7 @@ class PolicyEngine
         }
 
         $records = [];
-        while ($result->fetchNext()) {
+        while ($result->fetch()) {
             $records[] = PolicyRecord::fromRow($result->fields);
         }
 
