@@ -326,6 +326,13 @@
 - [x] **`docs/1.2-new-features.md`** — Section 16 added (schema reference, namespace map, idempotency notes, timestamp rationale, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
+### Phase 4: Centralized Error / Exception Handler (2026-05-05, session 27)
+
+- [x] **`ExceptionHandler`** (new `src/Pramnos/Http/ExceptionHandler.php`): `render(\Throwable, format, debug): Response` — HTML (friendly or debug with escaped stack trace) and JSON (`{"error":…,"code":…}` envelope, + debug fields). `log(\Throwable): void` — delegates to `Logger::error()`, logs all exceptions (not just SQL). `detectFormat(): string` — sniffs `HTTP_ACCEPT` for early-bootstrap contexts. HTTP status: preserves 4xx/5xx codes, maps everything else to 500.
+- [x] **`Application::exec()`** updated: replaced 25-line ad-hoc catch block with 5-line delegation to `ExceptionHandler`. Detects format from `$doc->getType()`, debug from `DEVELOPMENT` constant.
+- [x] **Unit tests** (`tests/Unit/Http/ExceptionHandlerTest.php`) — 18 tests, 39 assertions, 100% logic coverage.
+- [x] **`docs/1.2-new-features.md`** — Section 19 added with output format table, status mapping table, logging notes, full API reference, BC notes.
+
 ### Phase 4: Formal Response Object (2026-05-04, session 27)
 
 - [x] **`Response`** (new `src/Pramnos/Http/Response.php`): Immutable-style fluent builder. Static factories: `make()`, `json()`, `redirect()`. Mutators: `withStatus()`, `withHeader()`, `withRawHeader()`, `withoutHeader()`, `withBody()`. Accessors: `getStatusCode()`, `getBody()`, `getHeader()`, `getHeaderLine()`, `hasHeader()`, `getHeaders()`. Emission: `send()` (delegates to `http_response_code()` + `header()` + `echo`; `@codeCoverageIgnore`).
