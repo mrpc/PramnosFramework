@@ -266,6 +266,22 @@
 - [x] **`docs/1.2-new-features.md`** — Section 15 added.
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
+### Phase 5: Characterization Coverage Wave 21 — Adjacencylist + User PG (2026-05-04, session 22)
+
+- [x] **`tests/Characterization/Database/AdjacencylistMySQLCharacterizationTest.php`** (7 tests) — live MySQL integration: `getArray()` all items with full ancestor paths, `getArray($parent)` subtree filter (paths still built from root), `getArray(null, $itemId)` single-item fetch, `getPath()` full chain, `getPath()` null for missing item, `getPathAsArray()` chain order + stdClass type, `getPathAsArray()` root single-element.
+- [x] **`tests/Characterization/Database/AdjacencylistPostgreSQLCharacterizationTest.php`** (7 tests, all skipped) — formal record that Adjacencylist uses MySQL-only backtick quoting; all tests call `markTestSkipped()` with a pointer to ROADMAP_1.2.md Phase 1. Mirror structure is preserved so tests can be un-skipped after QB migration.
+- [x] **`tests/Characterization/User/UserPostgreSQLCharacterizationTest.php`** (3 tests, `#[RunTestsInSeparateProcesses]`) — mirrors `UserCharacterizationTest` against PG/TimescaleDB: full lifecycle (create/load/otherinfo/activate/deactivate/delete), password-hash branching by userid, `getUser()` cache identity.
+- [x] **`tests/fixtures/app/pg_settings.php`** — PG-only settings fixture; used in setUp() of separate-process tests to point `Factory::getDatabase()` at the `timescaledb` Docker container.
+- [x] **`fix(user): advance PG bigserial sequence in setupDb()`** — `setupDb()` now runs `setval(pg_get_serial_sequence(...), MAX(userid))` after the explicit Guest insert; without this, the next auto-generated userid collided with Guest (id=1), silently failing the INSERT.
+- [x] **`fix(user): activate()/deactivate() use integer literals`** — replaced `$database->convertBool()` (which returns `'t'`/`'f'`) with `1`/`0` and `%d` format; `active` is declared `smallint` on PG, and PG rejects `'t'` for a non-boolean column.
+- [x] Re-verified full suite with `./dockertest` → **1027 tests, 2609 assertions, 0 failures, 7 skipped**.
+
+### Phase 5: SchemaBuilder Integration Tests + fetchNext() Removal (2026-05-04, session 21)
+
+- [x] **`fix(migration): $autorun → $autoExecute`** (commit `2f8448c`) — `MigrationRunner` and tests had stale `$autorun` references introduced in the previous session; reverted to the existing public property `$autoExecute`. BC rule violated and corrected.
+- [x] **`refactor(result): remove fetchNext(); improve fetch() fast path`** (commits `2708c05`, `9342f1e`) — `fetchNext()` was added as an alias but never shipped to production. Removed entirely. `fetch()` fast-path added: when `cursor === -1 && !$skipDataFix`, returns pre-fetched `$fields` directly and seeks the DB cursor to row 1, eliminating the double-read of row 0 for single-row results. The `skipDataFix` exception is documented in the docblock (callers wanting raw string values must re-read from DB because `$fields` may already be type-converted). All `->fetchNext()` call sites updated: `MigrationRunner`, `Datasource`, `PolicyEngine`, `Model`, integration tests.
+- [x] **`test(schema): SchemaBuilder integration tests MySQL + PG`** (commit `36fc9ec`) — 20 MySQL tests (`SchemaBuilderMySQLTest`) and 22 PG tests (`SchemaBuilderPostgreSQLTest`) against live Docker containers. Covers: `hasTable`/`hasColumn`, drop idempotency, all integer/string/boolean/json/enum/datetime types, nullable+default, `AUTO_INCREMENT`/`SERIAL`, `timestamps()`/`softDeletes()`, column comments (apostrophe edge case), `createIndex`/`dropIndex`/`createUniqueIndex`, FK via `KEY_COLUMN_USAGE`/`pg_indexes`, `alterTable` add/drop, `renameTable`, `truncate`, view lifecycle, PG materialized view lifecycle, PG BOOLEAN/TIMESTAMPTZ/UUID/JSONB/enum→CHECK, standalone `DROP INDEX`.
+
 ### Phase 4: Framework System Migrations — MySQL integration tests + PostgreSQL tests (2026-05-04, session 20)
 
 - [x] **Rewrote all framework migrations** to match UW production schema (commit 5ebf589) — old placeholder schemas replaced with real column sets, proper types, indexes, FKs, and PKCE columns on `usertokens`.
@@ -442,7 +458,7 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 ---
 
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 966/966 pass (0 failures, 0 errors) — includes unit, integration, and characterization suites.
+- **Framework Test Pass Rate:** 1027/1027 pass (0 failures, 0 errors, 7 skipped) — includes unit, integration, and characterization suites.
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.
