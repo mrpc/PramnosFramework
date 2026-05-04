@@ -62,8 +62,8 @@ class ModelCharacterizationTest extends TestCase
         $cacheKey = $model->generateSpecificCacheKeyForTest(15);
 
         // Assert
-        // Current behavior: unresolved #PREFIX# token is retained in _cacheKey.
-        $this->assertSame('15-#PREFIX#records', $cacheKey);
+        // #PREFIX# is resolved to the DB prefix (empty in test fixtures) before building the key.
+        $this->assertSame('15-records', $cacheKey);
     }
 
     /**

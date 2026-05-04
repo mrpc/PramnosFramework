@@ -92,9 +92,9 @@ class DatasourceCharacterizationTest extends TestCase
         // Assert
         $this->assertIsArray($result);
         $this->assertSame(7, $result['sEcho']);
-        // Current behavior: count subqueries fail and fallback to 0 via catch path.
-        $this->assertSame(0, $result['iTotalRecords']);
-        $this->assertSame(0, $result['iTotalDisplayRecords']);
+        // COUNT(*) subquery returns the real totals now that the fix is in place.
+        $this->assertSame(4, $result['iTotalRecords']);
+        $this->assertSame(4, $result['iTotalDisplayRecords']);
         $this->assertCount(2, $result['aaData']);
         // This proves DT_RowId is mapped from the first selected column.
         $this->assertSame($result['aaData'][0][0], $result['aaData'][0]['DT_RowId']);
@@ -130,9 +130,9 @@ class DatasourceCharacterizationTest extends TestCase
         );
 
         // Assert
-        // Current behavior: count subqueries fail and fallback to 0 via catch path.
-        $this->assertSame(0, $result['iTotalRecords']);
-        $this->assertSame(0, $result['iTotalDisplayRecords']);
+        // SELECT 1 in count subquery avoids duplicate-column errors from the JOIN.
+        $this->assertSame(4, $result['iTotalRecords']);
+        $this->assertSame(1, $result['iTotalDisplayRecords']);
         $this->assertCount(1, $result['aaData']);
         $this->assertStringContainsString('Bob', (string) $result['aaData'][0][2]);
     }
@@ -169,9 +169,9 @@ class DatasourceCharacterizationTest extends TestCase
         );
 
         // Assert
-        // Current behavior: count subqueries fail and fallback to 0 via catch path.
-        $this->assertSame(0, $result['iTotalRecords']);
-        $this->assertSame(0, $result['iTotalDisplayRecords']);
+        // COUNT(*) subquery returns real totals; iTotalDisplayRecords reflects the filtered set.
+        $this->assertSame(4, $result['iTotalRecords']);
+        $this->assertSame(1, $result['iTotalDisplayRecords']);
         $this->assertCount(1, $result['aaData']);
         // This proves LIKE wildcards are not added when field config disables them.
         $this->assertSame('Alpha', $result['aaData'][0][0]);
