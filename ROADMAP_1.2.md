@@ -493,7 +493,7 @@
 - [ ] **Security Fixes:**
   - [x] Αναβαθμισμένο CSRF Protection.
   - [x] Εφαρμογή strict ρυθμίσεων (HttpOnly, SameSite) στα session cookies.
-  - [ ] Αυτόματο (ή πιο ασφαλές) escaping στα views/templates του framework.
+  - [x] Αυτόματο (ή πιο ασφαλές) escaping στα views/templates του framework.
 
 ## 🧪 Φάση 5: Quality Assurance
 *Διασφάλιση της σταθερότητας του κώδικα.*
