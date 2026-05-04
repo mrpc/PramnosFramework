@@ -153,20 +153,47 @@ class Result
     }
 
     /**
-     * Alias for fetch() — kept for backward compatibility.
-     * @param bool $skipDataFix
-     * @return array|null
-     */
-    public function fetchNext($skipDataFix = false)
-    {
-        return $this->fetch($skipDataFix);
-    }
-
-    /**
-     * Fetch a result row as an associative array
-     * @param bool $skipDataFix If true, skips the data type conversion
-     * @return array|null Returns an array of strings that corresponds to the
-     * fetched row or NULL if there are no more rows in resultset.
+     * Fetches the next result row into $this->fields and returns it.
+     *
+     * ## Cursor model
+     *
+     * query() and execute() both pre-load row 0 into $this->fields and rewind
+     * the underlying DB cursor back to position 0, leaving $this->cursor at -1.
+     * This means that when fetch() is first called, row 0 is already sitting in
+     * $this->fields — there is no need to read it from the DB again.
+     *
+     * To avoid that redundant re-read, the first call (cursor === -1) is handled
+     * as a special fast path:
+     *   - $this->cursor is set to 0.
+     *   - The DB cursor is advanced to position 1 so the next call reads row 1.
+     *   - $this->fields (already populated with row 0) is returned immediately.
+     *   - If the seek-to-1 fails, the result has exactly 1 row; $this->eof is set
+     *     so the next call returns null.
+     *
+     * All subsequent calls do the normal thing: advance the DB cursor one step
+     * and read the next row.
+     *
+     * ## skipDataFix exception
+     *
+     * When $skipDataFix = true the caller wants the raw string values that the DB
+     * driver returns before any PHP type-casting. The pre-loaded $this->fields may
+     * already contain type-converted values (integers, floats, booleans), so the
+     * fast path is skipped and row 0 is re-read from the DB without conversion.
+     *
+     * ## Cached results
+     *
+     * For cached results ($this->isCached = true) the same fast path applies:
+     * $this->fields already contains $this->result[0], so the first call just
+     * advances the cursor and returns the already-loaded data.
+     *
+     * ## Usage
+     *
+     *   while ($result->fetch()) {
+     *       doSomething($result->fields);
+     *   }
+     *
+     * @param bool $skipDataFix When true, returns raw DB strings without PHP type-casting.
+     * @return array|null The current row as an associative array, or null at EOF.
      */
     public function fetch($skipDataFix = false)
     {
@@ -174,13 +201,6 @@ class Result
             return null;
         }
 
-        // First call after query()/execute(): row 0 is already prefetched into
-        // $this->fields and the DB cursor has been rewound to 0. Return the
-        // already-loaded data without a redundant re-read, and advance the DB
-        // cursor to position 1 so the next call picks up row 1 correctly.
-        // Exception: when skipDataFix=true the caller wants raw (unconverted)
-        // values — the prefetched fields may already be type-converted, so we
-        // fall through to the normal DB read path instead.
         if ($this->cursor === -1 && !$skipDataFix) {
             $this->cursor = 0;
             if (!$this->isCached) {

@@ -247,7 +247,7 @@ class Datasource extends Base
         }
 
         $return = array();
-        while ($result->fetchNext(true)) {
+        while ($result->fetch(true)) {
             $fielddetails = array_keys($this->fielddetails);
             $i = 0;
             foreach ($result->fields as $field) {
