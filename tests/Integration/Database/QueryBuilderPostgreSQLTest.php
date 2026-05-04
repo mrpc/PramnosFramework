@@ -618,9 +618,9 @@ class QueryBuilderPostgreSQLTest extends TestCase
             ->where('name', 'Apple')
             ->get();
 
-        $this->assertTrue($result->fetchNext());
+        $this->assertNotNull($result->fetch());
         $this->assertEquals('Apple', $result->fields['name']);
-        $this->assertFalse($result->fetchNext()); // eof after single row
+        $this->assertNull($result->fetch()); // eof after single row
         $this->assertTrue($result->eof);
     }
 
