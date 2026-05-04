@@ -19,7 +19,7 @@ class CreateUserdetailsTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 20;
     public array   $dependencies = ['create_users_table'];
-    public string  $description  = 'Creates the userdetails EAV table';
+    public $description  = 'Creates the userdetails EAV table';
 
     public function up(): void
     {

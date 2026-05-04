@@ -18,7 +18,7 @@ class CreateMailsTable extends Migration
     public string  $feature      = 'messaging';
     public string  $scope        = 'framework';
     public int     $priority     = 10;
-    public string  $description  = 'Creates the mails email history/queue table';
+    public $description  = 'Creates the mails email history/queue table';
 
     public function up(): void
     {

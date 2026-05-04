@@ -21,7 +21,7 @@ class CreateMessagesTable extends Migration
     public string  $feature      = 'messaging';
     public string  $scope        = 'framework';
     public int     $priority     = 30;
-    public string  $description  = 'Creates the messages internal messaging table';
+    public $description  = 'Creates the messages internal messaging table';
 
     public function up(): void
     {
