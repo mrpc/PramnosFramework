@@ -80,6 +80,62 @@ class Controller extends \Pramnos\Framework\Base
     protected $_extends=NULL;
 
     /**
+     * Per-action middleware stack.
+     * Key '*' applies to every action.
+     * @var array<string, array<\Pramnos\Http\MiddlewareInterface|class-string>>
+     */
+    private array $_middlewares = [];
+
+    /**
+     * Attach middleware to one or more controller actions.
+     *
+     * Use '*' to apply the middleware to every action in this controller.
+     * The middleware runs AFTER the existing auth() permission check and
+     * BEFORE the action method is called — so it never bypasses existing auth.
+     *
+     * Usage in __construct() (or init()):
+     *   $this->addMiddleware('*',                  new ThrottleMiddleware(60, 60));
+     *   $this->addMiddleware(['edit', 'delete'],    new AuthMiddleware());
+     *   $this->addMiddleware('export',             ThrottleMiddleware::class);
+     *
+     * @param  string|array<string>                          $actions  Action name(s) or '*'.
+     * @param  \Pramnos\Http\MiddlewareInterface|class-string $middleware
+     * @return static
+     */
+    public function addMiddleware(string|array $actions, \Pramnos\Http\MiddlewareInterface|string $middleware): static
+    {
+        foreach ((array) $actions as $action) {
+            $this->_middlewares[$action][] = $middleware;
+        }
+        return $this;
+    }
+
+    /**
+     * Run the middleware stack (global '*' + action-specific) around $callback.
+     * When no middleware is registered the callback is called directly — identical
+     * to the pre-middleware code path.
+     */
+    private function _runThroughMiddleware(string $action, callable $callback): mixed
+    {
+        $mws = array_merge(
+            $this->_middlewares['*'] ?? [],
+            $this->_middlewares[$action] ?? []
+        );
+
+        if (empty($mws)) {
+            return $callback();
+        }
+
+        $request  = new \Pramnos\Http\Request();
+        $pipeline = new \Pramnos\Http\MiddlewarePipeline();
+        foreach ($mws as $mw) {
+            $pipeline->pipe($mw);
+        }
+
+        return $pipeline->run($request, fn(\Pramnos\Http\Request $r) => $callback());
+    }
+
+    /**
      * Adds a public action to the controller
      * @param string $action It should be a public method of the object
      */
@@ -197,13 +253,19 @@ class Controller extends \Pramnos\Framework\Base
             if (method_exists($this, $actionWithMethod)
                 && $this->auth($action)
                 && $this->auth($actionWithMethod)) {
-                return $this->$actionWithMethod($args);
+                return $this->_runThroughMiddleware(
+                    $actionWithMethod,
+                    fn() => $this->$actionWithMethod($args)
+                );
             }
         }
         if (array_search($action, $this->actions) !== false
                 || array_search($action, $this->actions_auth) !== false) {
             if ($this->auth($action)) {
-                return $this->$action($args);
+                return $this->_runThroughMiddleware(
+                    $action,
+                    fn() => $this->$action($args)
+                );
             } else {
                 throw new \Exception(
                     'Not authenticated users cannot do that.',
@@ -212,7 +274,10 @@ class Controller extends \Pramnos\Framework\Base
             }
         } elseif (array_search('display', $this->actions) !== false) {
             if ($this->auth('display')) {
-                return $this->display($args);
+                return $this->_runThroughMiddleware(
+                    'display',
+                    fn() => $this->display($args)
+                );
             } else {
                 throw new \Exception(
                     'Not authenticated users cannot do that.',
