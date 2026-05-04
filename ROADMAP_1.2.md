@@ -491,9 +491,9 @@
   > **BC Strategy:** Το υπάρχον addon bootstrap mechanism συνεχίζει να λειτουργεί. Το `ServiceProvider` pattern είναι νέος, προαιρετικός τρόπος εγγραφής — όχι υποχρεωτικός.
 - [x] **PHP 8.1 Minimum Version:** Ανύψωση του minimum requirement στην PHP 8.1 (η 7.4 και 8.0 είναι EOL). Ανοίγει enums, readonly properties και intersection types στο core.
 - [ ] **Security Fixes:**
-  - Αναβαθμισμένο CSRF Protection.
-  - Εφαρμογή strict ρυθμίσεων (HttpOnly, SameSite) στα session cookies.
-  - Αυτόματο (ή πιο ασφαλές) escaping στα views/templates του framework.
+  - [x] Αναβαθμισμένο CSRF Protection.
+  - [ ] Εφαρμογή strict ρυθμίσεων (HttpOnly, SameSite) στα session cookies.
+  - [ ] Αυτόματο (ή πιο ασφαλές) escaping στα views/templates του framework.
 
 ## 🧪 Φάση 5: Quality Assurance
 *Διασφάλιση της σταθερότητας του κώδικα.*

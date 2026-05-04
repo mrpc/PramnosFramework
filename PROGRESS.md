@@ -326,6 +326,17 @@
 - [x] **`docs/1.2-new-features.md`** — Section 16 added (schema reference, namespace map, idempotency notes, timestamp rationale, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
+### Phase 4: Security — CSRF Hardening (2026-05-05, session 27)
+
+- [x] **`Session::regenerateToken()`** and **`start()`**: `random_bytes(5)` → `random_bytes(32)` (40-bit → 256-bit entropy). `start()` silently upgrades existing short tokens on first request.
+- [x] **`Session::getFingerprint()`**: `md5()` → `hash_hmac('sha256', ...)`. Output is now a 64-char hex string.
+- [x] **`Session::getCsrfToken()`** (new): synchronizer token, 256-bit, stored in `$_SESSION['csrf_token']`, generated lazily.
+- [x] **`Session::verifyCsrfToken(string $submitted): bool`** (new): timing-safe `hash_equals()` comparison.
+- [x] **`Session::regenerateCsrfToken()`** (new): regenerates `$_SESSION['csrf_token']`.
+- [x] **`CsrfMiddleware`** (new `src/Pramnos/Http/Middleware/CsrfMiddleware.php`): protects POST/PUT/PATCH/DELETE; reads `_csrf_token` field or `X-CSRF-Token` header; throws 419; static `token()` and `tokenField()` helpers.
+- [x] **Unit tests** (`tests/Unit/Http/CsrfTest.php`) — 22 tests, 35 assertions.
+- [x] **`docs/1.2-new-features.md`** — Section 21 added.
+
 ### Phase 4: PHP 8.1 Minimum Version (2026-05-05, session 27)
 
 - [x] `composer.json` `require.php` bumped from `>=7.4` → `>=8.1`.
