@@ -11,18 +11,18 @@
         }
     ],
     "require": {
-        "php": ">=7.4",
+        "php": ">=8.1",
         "ext-mbstring": "*",
         "symfony/mailer": "^5.4",
         "symfony/console": "5.4.*",
         "symfony/routing": "5.4.*",
         "symfony/finder": "5.4.*",
         "symfony/dotenv": "5.4.*",
-        "web-token/jwt-framework": "^2.2|^3.0"
+        "web-token/jwt-framework": "^3.0"
     },
     "require-dev": {
-        "php": ">=7.4",
-        "phpunit/phpunit": "^9.5|^10.0|^11.0"
+        "php": ">=8.1",
+        "phpunit/phpunit": "^10.0|^11.0"
     },
     "autoload": {
         "files": [
