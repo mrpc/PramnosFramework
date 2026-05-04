@@ -203,26 +203,20 @@ class Datasource extends Base
         }
 
         // First count: Total records without filtering.
-        // Use COUNT(*) directly in SELECT so the QB's get() method properly executes with bindings.
-        $totalQb = $database->queryBuilder()->from($table . ' a')->select(['COUNT(*) as num']);
+        $totalQb = $database->queryBuilder()->from($table . ' a');
         if ($join != '') $totalQb->joinRaw($join);
         if ($where != '') $totalQb->whereRaw($where);
         try {
-            $numResult = $totalQb->get($cache, $cachetime, $cachecategory);
-            $total = (int) ($numResult->fields['num'] ?? 0);
+            $total = $totalQb->count();
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::log('Error in Datasource total count: ' . $ex->getMessage());
             $total = 0;
         }
 
         // Second count: Total records with filtering (but no limit).
-        // Clone preserves WHERE bindings; SELECT is replaced with COUNT(*) to avoid duplicate-column
-        // issues when JOINs bring in same-named columns (e.g. two `id` columns).
-        $displayQb = clone $qb;
-        $displayQb->limit(null)->offset(null)->select(['COUNT(*) as num']);
+        // QB::count() clones internally, so ORDER BY / LIMIT / OFFSET are stripped automatically.
         try {
-            $displayResult = $displayQb->get($cache, $cachetime, $cachecategory);
-            $totalDisplay = (int) ($displayResult->fields['num'] ?? 0);
+            $totalDisplay = $qb->count();
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::log('Error in Datasource filtered count: ' . $ex->getMessage());
             $totalDisplay = 0;
