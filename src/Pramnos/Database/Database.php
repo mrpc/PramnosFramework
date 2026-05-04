@@ -1064,6 +1064,9 @@ class Database extends \Pramnos\Framework\Base
         }
 
         $retry = true;
+        // For MySQL DML (UPDATE/INSERT/DELETE) via prepared statements, affected_rows
+        // must be captured BEFORE $statement->close() — after close the value is lost.
+        $capturedMysqlAffectedRows = null;
         try {
             while (true) {
                 if ($this->type == 'postgresql') {
@@ -1098,6 +1101,11 @@ class Database extends \Pramnos\Framework\Base
                     }
                     if ($statement->execute()) {
                         $dbResource = $statement->get_result();
+                        // get_result() returns false for DML (no result set).
+                        // Capture affected_rows now — it becomes unavailable after close().
+                        if ($dbResource === false) {
+                            $capturedMysqlAffectedRows = $statement->affected_rows;
+                        }
                     } else {
                         $dbResource = null;
                         if ($retry && (\mysqli_errno($connection) == 2006 || \mysqli_errno($connection) == 2013)) {
@@ -1133,6 +1141,9 @@ class Database extends \Pramnos\Framework\Base
         }
 
         $obj->mysqlResult = $dbResource;
+        if ($capturedMysqlAffectedRows !== null) {
+            $obj->mysqlAffectedRows = $capturedMysqlAffectedRows;
+        }
 
         $obj->numRows = $obj->getNumRows();
 

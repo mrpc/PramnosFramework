@@ -46,12 +46,19 @@ class QueryBuilderMySQLTest extends TestCase
             product_id INT         NOT NULL,
             tag        VARCHAR(50) NOT NULL
         )");
+        $this->db->query("DROP TABLE IF EXISTS `qb_events`");
+        $this->db->query("CREATE TABLE `qb_events` (
+            id         INT AUTO_INCREMENT PRIMARY KEY,
+            name       VARCHAR(100) NOT NULL,
+            event_time DATETIME NOT NULL
+        )");
     }
 
     protected function tearDown(): void
     {
         $this->db->query("DROP TABLE IF EXISTS `qb_tags`");
         $this->db->query("DROP TABLE IF EXISTS `qb_products`");
+        $this->db->query("DROP TABLE IF EXISTS `qb_events`");
         $this->db->close();
     }
 
@@ -856,5 +863,746 @@ class QueryBuilderMySQLTest extends TestCase
 
         // Second fetch() — eof is true → returns null
         $this->assertNull($result->fetch());
+    }
+
+    // =========================================================================
+    // rightJoin / crossJoin
+    // =========================================================================
+
+    /**
+     * rightJoin() must include rows from the right table even when there is no
+     * matching row in the left table.  Here all tags appear, even if the product
+     * referenced does not exist in qb_products (we filter to product_id=99).
+     * The test verifies that RIGHT JOIN emits the correct SQL and executes without error.
+     */
+    public function testRightJoinExecutesWithoutError(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->seedTags();
+
+        // Act — RIGHT JOIN brings all tags; LEFT-side columns are NULL when unmatched
+        $result = $this->db->queryBuilder()
+            ->select(['qb_products.name', 'qb_tags.tag'])
+            ->from('qb_products')
+            ->rightJoin('qb_tags', 'qb_products.id', '=', 'qb_tags.product_id')
+            ->get();
+
+        // Assert — all 5 tag rows appear (tags drive the result set)
+        $this->assertEquals(5, $result->numRows);
+    }
+
+    /**
+     * crossJoin() must produce the Cartesian product — every row from left
+     * combined with every row from right.  2 categories × 5 products = 10 rows.
+     */
+    public function testCrossJoinProducesCartesianProduct(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->db->query("INSERT INTO `qb_tags` (product_id, tag) VALUES (1, 'a'), (2, 'b')");
+
+        // Act — CROSS JOIN of 5 products × 2 tags = 10 rows
+        $result = $this->db->queryBuilder()
+            ->select(['qb_products.name', 'qb_tags.tag'])
+            ->from('qb_products')
+            ->crossJoin('qb_tags')
+            ->get();
+
+        // Assert
+        $this->assertEquals(10, $result->numRows);
+    }
+
+    // =========================================================================
+    // latest() / oldest() / forPage()
+    // =========================================================================
+
+    /**
+     * latest() must order results by the specified column descending.
+     */
+    public function testLatestOrdersByColumnDesc(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — latest by price → most expensive first (Elderberry 3.00)
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->latest('price')
+            ->first();
+
+        // Assert
+        $this->assertEquals('Elderberry', $result->fields['name']);
+    }
+
+    /**
+     * oldest() must order results by the specified column ascending.
+     */
+    public function testOldestOrdersByColumnAsc(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — oldest by price → cheapest first (Banana 0.50)
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->oldest('price')
+            ->first();
+
+        // Assert
+        $this->assertEquals('Banana', $result->fields['name']);
+    }
+
+    /**
+     * forPage() must limit and offset correctly.
+     * Page 1 (size 2) → first 2 rows; page 2 → next 2 rows.
+     */
+    public function testForPageReturnsCorrctSlice(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — ordered by id; page 2, 2 per page → rows 3+4 (Carrot, Daikon)
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->orderBy('id')
+            ->forPage(2, 2)
+            ->get();
+
+        $rows = $result->fetchAll();
+
+        // Assert
+        $this->assertCount(2, $rows);
+        $this->assertEquals('Carrot', $rows[0]['name']);
+        $this->assertEquals('Daikon', $rows[1]['name']);
+    }
+
+    // =========================================================================
+    // sum() / avg() / min() / max()
+    // =========================================================================
+
+    /**
+     * sum() must return the total of the specified column.
+     * 1.20 + 0.50 + 0.80 + 1.50 + 3.00 = 7.00
+     */
+    public function testSumReturnsCorrectTotal(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $total = $this->db->queryBuilder()->from('qb_products')->sum('price');
+
+        // Assert
+        $this->assertEqualsWithDelta(7.00, $total, 0.001);
+    }
+
+    /**
+     * avg() must return the arithmetic mean of the column.
+     * 7.00 / 5 = 1.40
+     */
+    public function testAvgReturnsCorrectMean(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $mean = $this->db->queryBuilder()->from('qb_products')->avg('price');
+
+        // Assert
+        $this->assertEqualsWithDelta(1.40, $mean, 0.001);
+    }
+
+    /**
+     * min() must return the minimum value of the column.
+     * Cheapest product is Banana at 0.50.
+     */
+    public function testMinReturnsSmallestValue(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $min = $this->db->queryBuilder()->from('qb_products')->min('price');
+
+        // Assert
+        $this->assertEqualsWithDelta(0.50, (float)$min, 0.001);
+    }
+
+    /**
+     * max() must return the maximum value of the column.
+     * Most expensive product is Elderberry at 3.00.
+     */
+    public function testMaxReturnsLargestValue(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $max = $this->db->queryBuilder()->from('qb_products')->max('price');
+
+        // Assert
+        $this->assertEqualsWithDelta(3.00, (float)$max, 0.001);
+    }
+
+    /**
+     * Aggregate methods must respect WHERE clauses — only active products counted.
+     * Active products: Apple 1.20, Banana 0.50, Carrot 0.80, Elderberry 3.00 → sum 5.50
+     */
+    public function testSumRespectsWhereClause(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $total = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('active', 1)
+            ->sum('price');
+
+        // Assert
+        $this->assertEqualsWithDelta(5.50, $total, 0.001);
+    }
+
+    // =========================================================================
+    // exists() / doesntExist()
+    // =========================================================================
+
+    /**
+     * exists() must return true when at least one row matches the conditions.
+     */
+    public function testExistsReturnsTrueWhenRowFound(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $found = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Apple')
+            ->exists();
+
+        // Assert
+        $this->assertTrue($found);
+    }
+
+    /**
+     * exists() must return false when no rows match the conditions.
+     */
+    public function testExistsReturnsFalseWhenNoRowFound(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $found = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Zucchini')
+            ->exists();
+
+        // Assert
+        $this->assertFalse($found);
+    }
+
+    /**
+     * doesntExist() is the inverse of exists() — true when no rows match.
+     */
+    public function testDoesntExistReturnsTrueWhenNoRowFound(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $absent = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Zucchini')
+            ->doesntExist();
+
+        // Assert
+        $this->assertTrue($absent);
+    }
+
+    // =========================================================================
+    // value() / pluck()
+    // =========================================================================
+
+    /**
+     * value() must execute with LIMIT 1 and return the value of the requested column.
+     */
+    public function testValueReturnsSingleColumnValue(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — cheapest product by price, get its name
+        $name = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->oldest('price')
+            ->value('name');
+
+        // Assert
+        $this->assertEquals('Banana', $name);
+    }
+
+    /**
+     * value() must return null when no rows match.
+     */
+    public function testValueReturnsNullWhenNoMatch(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $val = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Nonexistent')
+            ->value('name');
+
+        // Assert
+        $this->assertNull($val);
+    }
+
+    /**
+     * pluck() must return a flat array of one column's values across all rows.
+     */
+    public function testPluckReturnsFlatArray(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — names of fruit products ordered by price
+        $names = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('category', 'fruit')
+            ->orderBy('price')
+            ->pluck('name');
+
+        // Assert — Banana (0.50), Apple (1.20), Elderberry (3.00)
+        $this->assertEquals(['Banana', 'Apple', 'Elderberry'], $names);
+    }
+
+    /**
+     * pluck() must return an empty array when no rows match.
+     */
+    public function testPluckReturnsEmptyArrayWhenNoMatch(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $names = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('category', 'grain')
+            ->pluck('name');
+
+        // Assert
+        $this->assertSame([], $names);
+    }
+
+    // =========================================================================
+    // increment() / decrement()
+    // =========================================================================
+
+    /**
+     * increment() must add the given step to the column and return the affected rows.
+     * Apple starts at stock=100; after increment(5) it should be 105.
+     */
+    public function testIncrementUpdatesColumnByStep(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $affected = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Apple')
+            ->increment('stock', 5);
+
+        // Assert — 1 row updated
+        $this->assertEquals(1, $affected);
+
+        // Verify in DB
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Apple')
+            ->value('stock');
+        $this->assertEquals(105, (int)$result);
+    }
+
+    /**
+     * decrement() must subtract the step from the column.
+     * Banana starts at stock=200; after decrement(50) it should be 150.
+     */
+    public function testDecrementUpdatesColumnByStep(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $affected = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Banana')
+            ->decrement('stock', 50);
+
+        // Assert
+        $this->assertEquals(1, $affected);
+
+        // Verify in DB
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Banana')
+            ->value('stock');
+        $this->assertEquals(150, (int)$result);
+    }
+
+    /**
+     * Default step for increment() / decrement() is 1.
+     */
+    public function testIncrementDefaultStepIsOne(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Carrot')
+            ->increment('stock');
+
+        // Assert — stock was 50, now 51
+        $stock = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('name', 'Carrot')
+            ->value('stock');
+        $this->assertEquals(51, (int)$stock);
+    }
+
+    // =========================================================================
+    // chunk()
+    // =========================================================================
+
+    /**
+     * chunk() must process all rows in batches of the given size.
+     * With 5 products and chunk size 2: chunks of [2, 2, 1] rows.
+     * Stopping early by returning false from the callback must halt processing.
+     */
+    public function testChunkProcessesAllRowsInBatches(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $collected = [];
+        $pagesVisited = [];
+
+        // Act
+        $this->db->queryBuilder()
+            ->from('qb_products')
+            ->orderBy('id')
+            ->chunk(2, function (array $rows, int $page) use (&$collected, &$pagesVisited) {
+                $pagesVisited[] = $page;
+                foreach ($rows as $row) {
+                    $collected[] = $row['name'];
+                }
+            });
+
+        // Assert — all 5 products visited across 3 pages
+        $this->assertCount(5, $collected);
+        $this->assertEquals([1, 2, 3], $pagesVisited);
+        $this->assertEquals(['Apple', 'Banana', 'Carrot', 'Daikon', 'Elderberry'], $collected);
+    }
+
+    /**
+     * chunk() must stop early when the callback returns false.
+     */
+    public function testChunkStopsEarlyWhenCallbackReturnsFalse(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $collected = [];
+
+        // Act — stop after first chunk
+        $this->db->queryBuilder()
+            ->from('qb_products')
+            ->orderBy('id')
+            ->chunk(2, function (array $rows) use (&$collected) {
+                foreach ($rows as $row) {
+                    $collected[] = $row['name'];
+                }
+                return false; // Stop after first chunk
+            });
+
+        // Assert — only the first 2 rows processed
+        $this->assertCount(2, $collected);
+        $this->assertEquals(['Apple', 'Banana'], $collected);
+    }
+
+    // =========================================================================
+    // lockForUpdate() / sharedLock()
+    // =========================================================================
+
+    /**
+     * lockForUpdate() must execute without error inside a transaction.
+     * The lock is real — it prevents other connections from writing to the row.
+     * Here we verify it executes and returns the correct rows.
+     */
+    public function testLockForUpdateExecutesWithinTransaction(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->db->query('START TRANSACTION');
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->select(['name', 'stock'])
+            ->from('qb_products')
+            ->where('name', 'Apple')
+            ->lockForUpdate()
+            ->get();
+
+        $this->db->query('COMMIT');
+
+        // Assert — row returned correctly with lock
+        $this->assertEquals(1, $result->numRows);
+        $this->assertEquals('Apple', $result->fields['name']);
+    }
+
+    /**
+     * sharedLock() must execute without error inside a transaction.
+     */
+    public function testSharedLockExecutesWithinTransaction(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->db->query('START TRANSACTION');
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->where('active', 1)
+            ->sharedLock()
+            ->get();
+
+        $this->db->query('COMMIT');
+
+        // Assert — 4 active products returned
+        $this->assertEquals(4, $result->numRows);
+    }
+
+    // =========================================================================
+    // whereExists() / whereNotExists()
+    // =========================================================================
+
+    /**
+     * whereExists() must return only rows for which the sub-query finds a match.
+     * Products that have at least one tag → Apple, Carrot, Elderberry (3 products).
+     */
+    public function testWhereExistsFiltersToMatchingRows(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->seedTags();
+
+        // Act — products with at least one tag
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->whereExists(function (\Pramnos\Database\QueryBuilder $sub) {
+                $sub->select(['1'])
+                    ->from('qb_tags')
+                    ->whereRaw('qb_tags.product_id = qb_products.id');
+            })
+            ->orderBy('id')
+            ->get();
+
+        $rows = $result->fetchAll();
+
+        // Assert — only products with tags
+        $this->assertCount(3, $rows);
+        $this->assertEquals('Apple',      $rows[0]['name']);
+        $this->assertEquals('Carrot',     $rows[1]['name']);
+        $this->assertEquals('Elderberry', $rows[2]['name']);
+    }
+
+    /**
+     * whereNotExists() must return only rows for which the sub-query finds no match.
+     * Products without tags → Banana, Daikon (2 products).
+     */
+    public function testWhereNotExistsFiltersToNonMatchingRows(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->seedTags();
+
+        // Act — products without any tag
+        $result = $this->db->queryBuilder()
+            ->select(['name'])
+            ->from('qb_products')
+            ->whereNotExists(function (\Pramnos\Database\QueryBuilder $sub) {
+                $sub->select(['1'])
+                    ->from('qb_tags')
+                    ->whereRaw('qb_tags.product_id = qb_products.id');
+            })
+            ->orderBy('id')
+            ->get();
+
+        $rows = $result->fetchAll();
+
+        // Assert — only untagged products
+        $this->assertCount(2, $rows);
+        $this->assertEquals('Banana', $rows[0]['name']);
+        $this->assertEquals('Daikon', $rows[1]['name']);
+    }
+
+    // =========================================================================
+    // whereDate() / whereYear() / whereMonth() / whereDay() / whereTime()
+    // =========================================================================
+
+    /**
+     * Helper: seed the qb_events table with known datetime values.
+     */
+    private function seedEvents(): void
+    {
+        $this->db->query("INSERT INTO `qb_events` (name, event_time) VALUES
+            ('Morning meeting',  '2026-03-15 09:00:00'),
+            ('Afternoon standup','2026-03-15 14:30:00'),
+            ('Evening review',   '2026-03-16 18:00:00'),
+            ('Monthly sync',     '2026-04-01 10:00:00')
+        ");
+    }
+
+    /**
+     * whereDate() must filter rows by the date portion of a DATETIME column,
+     * ignoring the time part.  Only rows on 2026-03-15 (2 of 4) must be returned.
+     */
+    public function testWhereDateFiltersCorrectly(): void
+    {
+        // Arrange
+        $this->seedEvents();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_events')
+            ->whereDate('event_time', '2026-03-15')
+            ->get();
+
+        // Assert — 2 events on that date
+        $this->assertEquals(2, $result->numRows);
+    }
+
+    /**
+     * whereYear() must filter rows to the given year.
+     * All 4 events are in 2026, so 4 rows should be returned.
+     */
+    public function testWhereYearFiltersCorrectly(): void
+    {
+        // Arrange
+        $this->seedEvents();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_events')
+            ->whereYear('event_time', 2026)
+            ->get();
+
+        // Assert
+        $this->assertEquals(4, $result->numRows);
+    }
+
+    /**
+     * whereMonth() must filter rows to events in March (month 3).
+     * 3 of the 4 events are in March.
+     */
+    public function testWhereMonthFiltersCorrectly(): void
+    {
+        // Arrange
+        $this->seedEvents();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_events')
+            ->whereMonth('event_time', 3)
+            ->get();
+
+        // Assert — 3 March events
+        $this->assertEquals(3, $result->numRows);
+    }
+
+    /**
+     * whereDay() must filter rows to events on day 15.
+     * 2 events are on the 15th.
+     */
+    public function testWhereDayFiltersCorrectly(): void
+    {
+        // Arrange
+        $this->seedEvents();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_events')
+            ->whereDay('event_time', 15)
+            ->get();
+
+        // Assert
+        $this->assertEquals(2, $result->numRows);
+    }
+
+    /**
+     * whereTime() must filter rows to a specific time portion.
+     * Only 'Morning meeting' starts at exactly 09:00:00.
+     */
+    public function testWhereTimeFiltersCorrectly(): void
+    {
+        // Arrange
+        $this->seedEvents();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_events')
+            ->whereTime('event_time', '09:00:00')
+            ->get();
+
+        // Assert
+        $this->assertEquals(1, $result->numRows);
+        $this->assertEquals('Morning meeting', $result->fields['name']);
+    }
+
+    /**
+     * when() with a truthy condition must apply the callback to the live query.
+     */
+    public function testWhenTruthyAppliesFilterInIntegration(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $filterFruit = true;
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->when($filterFruit, fn($q) => $q->where('category', 'fruit'))
+            ->get();
+
+        // Assert — only 3 fruit products
+        $this->assertEquals(3, $result->numRows);
+    }
+
+    /**
+     * when() with a falsy condition must not modify the query.
+     */
+    public function testWhenFalsyLeavesQueryUnmodified(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->when(false, fn($q) => $q->where('category', 'fruit'))
+            ->get();
+
+        // Assert — all 5 products returned
+        $this->assertEquals(5, $result->numRows);
     }
 }
