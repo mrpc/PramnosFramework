@@ -20,7 +20,7 @@ class CreateAuthserverSchema extends Migration
     public string  $feature      = 'authserver';
     public string  $scope        = 'framework';
     public int     $priority     = 10;
-    public string  $description  = 'Creates the authserver schema namespace (PostgreSQL only)';
+    public $description  = 'Creates the authserver schema namespace (PostgreSQL only)';
 
     public function up(): void
     {

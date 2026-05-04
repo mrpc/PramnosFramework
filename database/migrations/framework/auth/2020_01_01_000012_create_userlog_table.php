@@ -19,7 +19,7 @@ class CreateUserlogTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 30;
     public array   $dependencies = ['create_users_table'];
-    public string  $description  = 'Creates the userlog audit table';
+    public $description  = 'Creates the userlog audit table';
 
     public function up(): void
     {

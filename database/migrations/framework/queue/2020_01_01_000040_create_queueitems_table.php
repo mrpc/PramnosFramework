@@ -30,7 +30,7 @@ class CreateQueueitemsTable extends Migration
     public string  $feature      = 'queue';
     public string  $scope        = 'framework';
     public int     $priority     = 10;
-    public string  $description  = 'Creates the queueitems background job table';
+    public $description  = 'Creates the queueitems background job table';
 
     public function up(): void
     {

@@ -19,7 +19,7 @@ class CreateUrlsTable extends Migration
     public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 60;
-    public string  $description  = 'Creates the urls URL deduplication table';
+    public $description  = 'Creates the urls URL deduplication table';
 
     public function up(): void
     {

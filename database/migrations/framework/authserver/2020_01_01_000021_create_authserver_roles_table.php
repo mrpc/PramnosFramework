@@ -22,7 +22,7 @@ class CreateAuthserverRolesTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 20;
     public array   $dependencies = ['create_authserver_schema'];
-    public string  $description  = 'Creates the authserver.roles RBAC roles table';
+    public $description  = 'Creates the authserver.roles RBAC roles table';
 
     public function up(): void
     {

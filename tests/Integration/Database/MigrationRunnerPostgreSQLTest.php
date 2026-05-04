@@ -437,7 +437,7 @@ class CreateMrPgRoles extends Migration
     public string $feature     = 'core';
     public string $scope       = 'framework';
     public int    $priority    = 10;
-    public string $description = 'Creates the pg roles table for the test suite';
+    public $description = 'Creates the pg roles table for the test suite';
 
     public function up(): void
     {
@@ -467,7 +467,7 @@ class CreateMrPgUsers extends Migration
     public string $scope        = 'framework';
     public int    $priority     = 20;
     public array  $dependencies = ['create_mr_pg_roles'];
-    public string $description  = 'Creates the pg users table for the test suite';
+    public $description  = 'Creates the pg users table for the test suite';
 
     public function up(): void
     {
@@ -494,7 +494,7 @@ class CreateMrPgUsers extends Migration
  */
 class BrokenMrPgMigration extends Migration
 {
-    public string $description = 'Always throws to verify failure recording on PostgreSQL';
+    public $description = 'Always throws to verify failure recording on PostgreSQL';
 
     public function up(): void
     {
