@@ -326,6 +326,13 @@
 - [x] **`docs/1.2-new-features.md`** — Section 16 added (schema reference, namespace map, idempotency notes, timestamp rationale, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
+### Phase 4: PHP 8.1 Minimum Version (2026-05-05, session 27)
+
+- [x] `composer.json` `require.php` bumped from `>=7.4` → `>=8.1`.
+- [x] `require-dev.php` bumped to `>=8.1`; `phpunit/phpunit` dropped `^9.5` (required PHP < 8.1).
+- [x] `web-token/jwt-framework` constraint narrowed from `^2.2|^3.0` → `^3.0` (2.x was incompatible with PHP 8.1).
+- [x] `docs/1.2-new-features.md` — Section 20 added: rationale, feature table, cleanup notes.
+
 ### Phase 4: Centralized Error / Exception Handler (2026-05-05, session 27)
 
 - [x] **`ExceptionHandler`** (new `src/Pramnos/Http/ExceptionHandler.php`): `render(\Throwable, format, debug): Response` — HTML (friendly or debug with escaped stack trace) and JSON (`{"error":…,"code":…}` envelope, + debug fields). `log(\Throwable): void` — delegates to `Logger::error()`, logs all exceptions (not just SQL). `detectFormat(): string` — sniffs `HTTP_ACCEPT` for early-bootstrap contexts. HTTP status: preserves 4xx/5xx codes, maps everything else to 500.
