@@ -237,7 +237,7 @@ class MigrationRunner
         );
 
         $rows = [];
-        while ($result->fetchNext()) {
+        while ($result->fetch()) {
             $rows[] = $result->fields;
         }
 
@@ -469,11 +469,8 @@ class MigrationRunner
             "SELECT migration FROM {$quote}{$this->historyTable}{$quote} WHERE result = 1"
         );
 
-        // Use while(fetchNext()) exclusively — never pre-read fields before the
-        // loop. Result::fetchNext() returns true on the first call at cursor=-1,
-        // so a pre-read followed by the loop would double-count the first row.
         $slugs = [];
-        while ($result->fetchNext()) {
+        while ($result->fetch()) {
             $slugs[] = $result->fields['migration'];
         }
 
@@ -525,7 +522,7 @@ class MigrationRunner
         );
 
         $rows = [];
-        while ($result->fetchNext()) {
+        while ($result->fetch()) {
             $rows[] = ['migration' => $result->fields['migration']];
         }
 
