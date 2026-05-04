@@ -51,6 +51,12 @@ class Route
     public $permissions = array();
 
     /**
+     * Middleware stack for this route
+     * @var array<\Pramnos\Http\MiddlewareInterface|class-string>
+     */
+    private array $middlewares = [];
+
+    /**
      * class constructor
      * @param string $uri
      * @param string $method
@@ -183,6 +189,44 @@ class Route
     public function hasPermissions()
     {
         return !empty($this->permissions);
+    }
+
+    /**
+     * Attach one or more middleware to this route.
+     *
+     * Accepts instances or FQCN strings (lazy-instantiated by the pipeline).
+     * Returns $this for fluent chaining after route registration:
+     *
+     *   $router->get('/api/users', fn() => ...)
+     *          ->middleware(new AuthMiddleware(), new ThrottleMiddleware(60, 60));
+     *
+     * @param  \Pramnos\Http\MiddlewareInterface|class-string ...$middlewares
+     * @return static
+     */
+    public function middleware(\Pramnos\Http\MiddlewareInterface|string ...$middlewares): static
+    {
+        foreach ($middlewares as $mw) {
+            $this->middlewares[] = $mw;
+        }
+        return $this;
+    }
+
+    /**
+     * Return all middleware attached to this route.
+     *
+     * @return array<\Pramnos\Http\MiddlewareInterface|class-string>
+     */
+    public function getMiddleware(): array
+    {
+        return $this->middlewares;
+    }
+
+    /**
+     * Whether this route has any middleware registered.
+     */
+    public function hasMiddleware(): bool
+    {
+        return !empty($this->middlewares);
     }
 
     /**

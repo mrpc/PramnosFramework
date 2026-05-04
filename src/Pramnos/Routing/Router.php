@@ -43,6 +43,12 @@ class Router extends Base implements RouterInterface
      */
     public $failback;
 
+    /**
+     * Global middleware applied to every dispatched route.
+     * @var array<\Pramnos\Http\MiddlewareInterface|class-string>
+     */
+    private array $globalMiddlewares = [];
+
     private $_invalidScope = null;
 
     /**
@@ -77,6 +83,25 @@ class Router extends Base implements RouterInterface
     }
 
     /**
+     * Register a middleware that runs on every dispatched route.
+     *
+     * Global middleware runs before any route-specific middleware.
+     * Order: global (registration order) → route-specific (registration order) → action.
+     *
+     * Usage in ServiceProvider::boot():
+     *   $router->addGlobalMiddleware(new CorsMiddleware(['https://app.example.com']));
+     *   $router->addGlobalMiddleware(new MaintenanceModeMiddleware());
+     *
+     * @param  \Pramnos\Http\MiddlewareInterface|class-string $middleware
+     * @return static
+     */
+    public function addGlobalMiddleware(\Pramnos\Http\MiddlewareInterface|string $middleware): static
+    {
+        $this->globalMiddlewares[] = $middleware;
+        return $this;
+    }
+
+    /**
      * Finds and executes a route
      *
      * @param \Pramnos\Http\Request $request  The HTTP request object
@@ -95,6 +120,17 @@ class Router extends Base implements RouterInterface
                 }
                 throw new \Exception('Insufficient permissions to access this route', 403);
             }
+
+            $allMiddlewares = array_merge($this->globalMiddlewares, $route->getMiddleware());
+            if (!empty($allMiddlewares)) {
+                $container = $this->container;
+                $pipeline  = new \Pramnos\Http\MiddlewarePipeline();
+                foreach ($allMiddlewares as $mw) {
+                    $pipeline->pipe($mw);
+                }
+                return $pipeline->run($request, fn(\Pramnos\Http\Request $r) => $route->execute($container));
+            }
+
             return $route->execute($this->container);
         }
         return null;
@@ -131,7 +167,17 @@ class Router extends Base implements RouterInterface
         }
         
         try {
-            $result = $route->execute($this->container);
+            $allMiddlewares = array_merge($this->globalMiddlewares, $route->getMiddleware());
+            if (!empty($allMiddlewares)) {
+                $container = $this->container;
+                $pipeline  = new \Pramnos\Http\MiddlewarePipeline();
+                foreach ($allMiddlewares as $mw) {
+                    $pipeline->pipe($mw);
+                }
+                $result = $pipeline->run($request, fn(\Pramnos\Http\Request $r) => $route->execute($container));
+            } else {
+                $result = $route->execute($this->container);
+            }
             return array(
                 'data' => $result,
                 'route' => $route
@@ -210,111 +256,109 @@ class Router extends Base implements RouterInterface
     }
 
     /**
-     * Adds a single route to the router's route collection
+     * Adds a single route to the router's route collection and returns it.
      *
      * @param string $uri  The URI pattern for the route
      * @param string $method  The HTTP method for this route
      * @param \Closure|array|string $action  The action to be executed when the route is matched
      * @param array|string|null $permissions  The required permissions for this route
-     * @return void
+     * @return \Pramnos\Routing\Route  The created route — callers may chain ->middleware() on it.
      */
-    protected function addSingleRoute($uri, $method, $action, $permissions = null)
+    protected function addSingleRoute($uri, $method, $action, $permissions = null): Route
     {
         if (!isset($this->routes[$this->fixMethodName($method)])) {
             $this->routes[$this->fixMethodName($method)] = array();
         }
         $route = new Route($uri, $method, $action);
-        
+
         // Set permissions if provided
         if ($permissions !== null) {
             $route->requirePermissions($permissions);
         }
-        
+
         $this->routes[$this->fixMethodName($method)][$uri] = $route;
+        return $route;
     }
 
     /**
-     * Register a new GET route with the router.
+     * Register a new GET route and return it for optional middleware chaining.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     *   $router->get('/api/users', fn() => ...)
+     *          ->middleware(new AuthMiddleware());
+     *
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
      */
-    public function get($uri, $action, $permissions = null)
+    public function get($uri, $action, $permissions = null): Route
     {
-        $this->addRoute($uri, 'GET', $action, $permissions);
-        return $this;
+        return $this->addSingleRoute($uri, 'GET', $action, $permissions);
     }
 
     /**
-     * Register a new POST route with the router.
+     * Register a new POST route and return it for optional middleware chaining.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
      */
-    public function post($uri, $action, $permissions = null)
+    public function post($uri, $action, $permissions = null): Route
     {
-        $this->addRoute($uri, 'POST', $action, $permissions);
-        return $this;
+        return $this->addSingleRoute($uri, 'POST', $action, $permissions);
     }
 
     /**
-     * Register a new PUT route with the router.
+     * Register a new PUT route and return it for optional middleware chaining.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
      */
-    public function put($uri, $action, $permissions = null)
+    public function put($uri, $action, $permissions = null): Route
     {
-        $this->addRoute($uri, 'PUT', $action, $permissions);
-        return $this;
+        return $this->addSingleRoute($uri, 'PUT', $action, $permissions);
     }
 
     /**
-     * Register a new DELETE route with the router.
+     * Register a new DELETE route and return it for optional middleware chaining.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
      */
-    public function delete($uri, $action, $permissions = null)
+    public function delete($uri, $action, $permissions = null): Route
     {
-        $this->addRoute($uri, 'DELETE', $action, $permissions);
-        return $this;
+        return $this->addSingleRoute($uri, 'DELETE', $action, $permissions);
     }
 
     /**
-     * Register a new PATCH route with the router.
+     * Register a new PATCH route and return it for optional middleware chaining.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
      */
-    public function patch($uri, $action, $permissions = null)
+    public function patch($uri, $action, $permissions = null): Route
     {
-        $this->addRoute($uri, 'PATCH', $action, $permissions);
-        return $this;
+        return $this->addSingleRoute($uri, 'PATCH', $action, $permissions);
     }
 
     /**
-     * Register a new OPTIONS route with the router.
+     * Register a new OPTIONS route and return it for optional middleware chaining.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
      */
-    public function options($uri, $action, $permissions = null)
+    public function options($uri, $action, $permissions = null): Route
     {
-        $this->addRoute($uri, 'OPTIONS', $action, $permissions);
-        return $this;
+        return $this->addSingleRoute($uri, 'OPTIONS', $action, $permissions);
     }
 
     /**
