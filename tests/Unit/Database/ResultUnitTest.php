@@ -119,24 +119,17 @@ class ResultUnitTest extends TestCase
     }
 
     /**
-     * fetchNext() is an alias for fetch() — behaviour must be identical.
+     * fetch() returns null on the very first call when the result is empty
+     * (eof=true from the start). Verifies that the cursor=-1 fast path does
+     * not accidentally return $this->fields (which would be an empty array).
      */
-    public function testFetchNextIsAliasForFetch(): void
+    public function testFetchReturnsNullImmediatelyOnEmptyResult(): void
     {
-        // Arrange
-        $rows   = [['val' => 'x'], ['val' => 'y']];
-        $result = $this->makeResult($rows);
+        // Arrange — empty result set: eof=true, cursor=-1
+        $result = $this->makeResult([]);
 
-        // Act
-        $collected = [];
-        while ($result->fetchNext()) {
-            $collected[] = $result->fields;
-        }
-
-        // Assert — same result as fetch()
-        $this->assertCount(2, $collected);
-        $this->assertSame('x', $collected[0]['val']);
-        $this->assertSame('y', $collected[1]['val']);
+        // Assert
+        $this->assertNull($result->fetch(), 'empty result must return null on first fetch()');
     }
 
     public function testFetchCachedEofReturnNullImmediately(): void

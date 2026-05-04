@@ -577,7 +577,7 @@ class Model extends \Pramnos\Framework\Base
 
             if ($returnAsModels == false && $useGetData == false) {
                 $objects = array();
-                while ($result->fetchNext()) {
+                while ($result->fetch()) {
                     $item = $result->fields;
                     $item = $this->_processJsonFields($item, $join);
                     $objects[] = $item;
@@ -589,7 +589,7 @@ class Model extends \Pramnos\Framework\Base
                 );
             }
 
-            while ($result->fetchNext()) {
+            while ($result->fetch()) {
                 $objects[$result->fields[$primarykey]] = new $class(
                     $this->controller
                 );
@@ -733,7 +733,7 @@ class Model extends \Pramnos\Framework\Base
             }
             if ($returnAsModels == false && $useGetData == false) {
                 $objects = array();
-                while ($result->fetchNext()) {
+                while ($result->fetch()) {
                     $item = $result->fields;
                     $item = $this->_processJsonFields($item, $join);
                     $objects[] = $item;
@@ -741,7 +741,7 @@ class Model extends \Pramnos\Framework\Base
                 return $objects;
             }
             $class = get_class($this);
-            while ($result->fetchNext()) {
+            while ($result->fetch()) {
 
                 $objects[$result->fields[$primarykey]]
                     = new $class($this->controller);

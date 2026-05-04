@@ -601,7 +601,7 @@ class QueryBuilderPostgreSQLTest extends TestCase
             ->get();
 
         $names = [];
-        while ($result->fetchNext()) {
+        while ($result->fetch()) {
             $names[] = $result->fields['name'];
         }
 

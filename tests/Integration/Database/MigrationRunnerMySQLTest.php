@@ -123,7 +123,7 @@ class MigrationRunnerMySQLTest extends TestCase
         );
 
         $cols = [];
-        while ($colsResult->fetchNext()) {
+        while ($colsResult->fetch()) {
             $cols[] = $colsResult->fields['COLUMN_NAME'];
         }
 
@@ -212,13 +212,11 @@ class MigrationRunnerMySQLTest extends TestCase
         $runner->run([$roles, $users]);
 
         // Assert – both rows have the same batch number
-        // Note: use while(fetchNext()) pattern — reading fields before the loop
-        // would double-count row 0 (fetchNext() returns true for the pre-loaded row).
         $result = $this->db->query(
             "SELECT DISTINCT batch FROM `{$this->historyTable}` ORDER BY batch"
         );
         $batches = [];
-        while ($result->fetchNext()) {
+        while ($result->fetch()) {
             $batches[] = $result->fields['batch'];
         }
         $unique = array_unique($batches);
@@ -246,7 +244,7 @@ class MigrationRunnerMySQLTest extends TestCase
             "SELECT DISTINCT batch FROM `{$this->historyTable}` ORDER BY batch"
         );
         $batches = [];
-        while ($result->fetchNext()) {
+        while ($result->fetch()) {
             $batches[] = (int) $result->fields['batch'];
         }
 

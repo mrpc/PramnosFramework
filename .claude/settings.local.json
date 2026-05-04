@@ -48,7 +48,9 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(awk '/<file name=\"\\\\/var\\\\/www\\\\/html\\\\/src\\\\/Pramnos\\\\/Database\\\\/QueryBuilder.php\"/{flag=1} flag && /<\\\\/file>/{print; flag=0} flag' /home/mrpc/projects/PramnosFramework/coverage/clover.xml)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Read(//home/mrpc/projects/urbanwater/src/**)",
+      "Bash(xargs sed *)"
     ]
   }
 }

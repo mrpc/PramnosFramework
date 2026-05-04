@@ -114,7 +114,7 @@ class MigrationRunnerPostgreSQLTest extends TestCase
 
         $cols = [];
         $cols[] = $colsResult->fields['column_name'];
-        while ($colsResult->fetchNext()) {
+        while ($colsResult->fetch()) {
             $cols[] = $colsResult->fields['column_name'];
         }
 
@@ -196,13 +196,11 @@ class MigrationRunnerPostgreSQLTest extends TestCase
         $runner->run([new CreateMrPgUsers($this->app)]);
 
         // Assert – two distinct batch numbers
-        // Note: use while(fetchNext()) — reading fields before the loop causes
-        // double-counting because fetchNext() returns true for the pre-loaded row 0.
         $result = $this->db->query(
             "SELECT DISTINCT batch FROM \"{$this->historyTable}\" ORDER BY batch"
         );
         $batches = [];
-        while ($result->fetchNext()) {
+        while ($result->fetch()) {
             $batches[] = (int) $result->fields['batch'];
         }
 
