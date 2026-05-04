@@ -153,43 +153,13 @@ class Result
     }
 
     /**
-     * Fetch the next row for iteration loops.
-     *
-     * Unlike fetch(), this method correctly handles the pre-fetched state from
-     * execute(): on the first call it returns the already-loaded row 0 without
-     * re-querying the database (whose cursor is already at row 0 due to reset
-     * by execute()). On subsequent calls it delegates to the normal fetch().
-     *
-     * Use this in while loops instead of fetch() when iterating all rows:
-     *   while ($result->fetchNext()) { ... $result->fields ... }
-     *
-     * Returns true when a row is available (fields is populated), false at EOF.
-     *
+     * Alias for fetch() — kept for backward compatibility.
      * @param bool $skipDataFix
-     * @return bool
+     * @return array|null
      */
     public function fetchNext($skipDataFix = false)
     {
-        if ($this->cursor === -1 && !$this->isCached && !$this->eof) {
-            // First iteration on a non-cached result from execute(): row 0 is
-            // already in $this->fields. Advance DB cursor to row 1 so the next
-            // fetch() call reads row 1 rather than row 0 again.
-            $this->cursor = 0;
-            if ($this->database->type == 'postgresql'
-                && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
-                // If seek fails the result has exactly 1 row — mark EOF so the
-                // next call returns false instead of re-reading row 0.
-                if (!\pg_result_seek($this->mysqlResult, 1)) {
-                    $this->eof = true;
-                }
-            } elseif (\is_object($this->mysqlResult) && $this->database->type == 'mysql') {
-                if (!\mysqli_data_seek($this->mysqlResult, 1)) {
-                    $this->eof = true;
-                }
-            }
-            return true;
-        }
-        return $this->fetch($skipDataFix) !== null;
+        return $this->fetch($skipDataFix);
     }
 
     /**
@@ -203,6 +173,31 @@ class Result
         if ($this->eof) {
             return null;
         }
+
+        // First call after query()/execute(): row 0 is already prefetched into
+        // $this->fields and the DB cursor has been rewound to 0. Return the
+        // already-loaded data without a redundant re-read, and advance the DB
+        // cursor to position 1 so the next call picks up row 1 correctly.
+        // Exception: when skipDataFix=true the caller wants raw (unconverted)
+        // values — the prefetched fields may already be type-converted, so we
+        // fall through to the normal DB read path instead.
+        if ($this->cursor === -1 && !$skipDataFix) {
+            $this->cursor = 0;
+            if (!$this->isCached) {
+                if ($this->database->type === 'postgresql'
+                    && ($this->mysqlResult instanceof \PgSql\Result || \is_resource($this->mysqlResult))) {
+                    if (!\pg_result_seek($this->mysqlResult, 1)) {
+                        $this->eof = true; // exactly 1 row; next call returns null
+                    }
+                } elseif (\is_object($this->mysqlResult)) {
+                    if (!\mysqli_data_seek($this->mysqlResult, 1)) {
+                        $this->eof = true; // exactly 1 row
+                    }
+                }
+            }
+            return $this->fields;
+        }
+
         $this->cursor++;
         if ($this->isCached) {
             if ($this->cursor >= sizeof($this->result)) {

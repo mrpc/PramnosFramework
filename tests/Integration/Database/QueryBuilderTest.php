@@ -50,13 +50,13 @@ class QueryBuilderTest extends TestCase
         // Row 0 (John, age=30) is pre-fetched into fields after get().
         $this->assertEquals('John', $results->fields['name']);
 
-        // Use fetchNext() to iterate: first call returns pre-fetched row 0,
-        // second call reads row 1.
-        $this->assertTrue($results->fetchNext());
+        // Iterate with fetch(): first call returns pre-fetched row 0 (no re-read),
+        // second call reads row 1, third call returns null (EOF).
+        $this->assertNotNull($results->fetch());
         $this->assertEquals('John', $results->fields['name']);
-        $this->assertTrue($results->fetchNext());
+        $this->assertNotNull($results->fetch());
         $this->assertEquals('Jane', $results->fields['name']);
-        $this->assertFalse($results->fetchNext());
+        $this->assertNull($results->fetch());
     }
 
     public function testWhereClauses()
