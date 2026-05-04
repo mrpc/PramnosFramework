@@ -866,6 +866,24 @@ class QueryBuilder
     }
 
     /**
+     * Execute a COUNT(*) aggregate and return the row count as an integer.
+     *
+     * Clones the builder (preserving WHERE, JOIN, GROUP BY, HAVING, and their bindings),
+     * replaces SELECT with COUNT(*) AS aggregate, and strips ORDER BY / LIMIT / OFFSET
+     * since they are meaningless for aggregate queries.
+     *
+     * @return int
+     */
+    public function count(): int
+    {
+        $counter = clone $this;
+        $counter->select(['COUNT(*) AS aggregate'])
+                ->clearOrderingAndPaging();
+        $result = $counter->get();
+        return (int) ($result->fields['aggregate'] ?? 0);
+    }
+
+    /**
      * Get all bindings in SQL placeholder order.
      *
      * @return array
