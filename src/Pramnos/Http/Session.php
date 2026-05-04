@@ -77,7 +77,44 @@ class Session extends Base
     {
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'none';
         $ip = $useIp ? ($_SERVER['REMOTE_ADDR'] ?? 'none') : '';
-        return md5($ua . $ip . $this->_token);
+        return hash_hmac('sha256', $ua . $ip, $this->_token);
+    }
+
+    /**
+     * Return the synchronizer CSRF token for the current session.
+     * Generates a new 256-bit token on first call per session.
+     * Use with CsrfMiddleware::tokenField() to protect forms.
+     */
+    public function getCsrfToken(): string
+    {
+        $this->ensureStarted();
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['csrf_token'];
+    }
+
+    /**
+     * Verify a submitted CSRF token against the session token using a
+     * timing-safe comparison. Returns false if no token has been generated yet.
+     */
+    public function verifyCsrfToken(string $submitted): bool
+    {
+        $this->ensureStarted();
+        if (empty($_SESSION['csrf_token'])) {
+            return false;
+        }
+        return hash_equals($_SESSION['csrf_token'], $submitted);
+    }
+
+    /**
+     * Regenerate the synchronizer CSRF token.
+     * Call after login/logout or any privilege-level change.
+     */
+    public function regenerateCsrfToken(): void
+    {
+        $this->ensureStarted();
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
     }
 
     /**
@@ -127,7 +164,7 @@ class Session extends Base
     public function regenerateToken(): void
     {
         $this->ensureStarted();
-        $_SESSION['token'] = bin2hex(random_bytes(5));
+        $_SESSION['token'] = bin2hex(random_bytes(32));
         $this->_token = $_SESSION['token'];
         $this->_lastToken = $_SESSION['token'];
     }
@@ -214,11 +251,12 @@ class Session extends Base
             @session_start();
         }
 
-        // Generate a stable token per session to support multiple tabs
-        if (!isset($_SESSION['token'])) {
-            $_SESSION['token'] = bin2hex(random_bytes(5));
+        // Generate a stable token per session to support multiple tabs.
+        // Upgrade existing short tokens (pre-8.1 sessions) to 256-bit entropy.
+        if (!isset($_SESSION['token']) || strlen($_SESSION['token']) < 32) {
+            $_SESSION['token'] = bin2hex(random_bytes(32));
         }
-        
+
         $this->_token = $_SESSION['token'];
         $this->_lastToken = $_SESSION['token'];
         
