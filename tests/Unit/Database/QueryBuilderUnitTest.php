@@ -624,4 +624,109 @@ class QueryBuilderUnitTest extends TestCase
         $this->assertEquals('bar', $ctes[1]['name']);
         $this->assertTrue($ctes[1]['recursive']);
     }
+
+    // -------------------------------------------------------------------------
+    // count()
+    // -------------------------------------------------------------------------
+
+    /**
+     * count() must issue SELECT COUNT(*) AS aggregate, preserve WHERE bindings,
+     * and return the integer value from the aggregate field.
+     *
+     * ORDER BY and LIMIT/OFFSET are stripped because they are meaningless for
+     * aggregate queries and would waste DB resources.
+     */
+    public function testCountGeneratesAggregateQueryStripsOrderingAndReturnsInt(): void
+    {
+        // Arrange
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $db->type   = 'mysql';
+        $db->prefix = '';
+
+        $capturedSql      = null;
+        $capturedBindings = [];
+
+        $fakeResult          = new \Pramnos\Database\Result($db);
+        $fakeResult->fields  = ['aggregate' => 7];
+        $fakeResult->numRows = 1;
+        $fakeResult->eof     = true;
+
+        $db->expects($this->once())
+            ->method('execute')
+            ->willReturnCallback(
+                function (string $sql, ...$bindings) use ($fakeResult, &$capturedSql, &$capturedBindings) {
+                    $capturedSql      = $sql;
+                    $capturedBindings = $bindings;
+                    return $fakeResult;
+                }
+            );
+
+        $qb = (new QueryBuilder($db))
+            ->from('orders')
+            ->where('status', '=', 1)
+            ->orderBy('created_at', 'desc')
+            ->limit(10)
+            ->offset(5);
+
+        // Act
+        $total = $qb->count();
+
+        // Assert — returns the integer from the aggregate field
+        $this->assertSame(7, $total);
+        // COUNT(*) AS aggregate must be the SELECT expression
+        $this->assertStringContainsString('COUNT(*) AS aggregate', $capturedSql);
+        // WHERE clause (and its bindings) must survive the clone
+        $this->assertStringContainsString('WHERE', $capturedSql);
+        $this->assertSame([1], $capturedBindings);
+        // ORDER BY, LIMIT, OFFSET must be stripped
+        $this->assertStringNotContainsString('ORDER BY', strtoupper($capturedSql));
+        $this->assertStringNotContainsString('LIMIT',    strtoupper($capturedSql));
+        $this->assertStringNotContainsString('OFFSET',   strtoupper($capturedSql));
+    }
+
+    /**
+     * count() must not mutate the original builder.
+     *
+     * After calling count(), the original QB must still produce its full SELECT
+     * with ORDER BY / LIMIT / OFFSET intact, so it can be used for the data fetch.
+     * This is the key invariant that makes count() safe to call before get() in
+     * the pagination pattern: $total = $qb->count(); $rows = $qb->get();
+     */
+    public function testCountDoesNotMutateOriginalBuilder(): void
+    {
+        // Arrange
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $db->type   = 'mysql';
+        $db->prefix = '';
+
+        $fakeResult          = new \Pramnos\Database\Result($db);
+        $fakeResult->fields  = ['aggregate' => 0];
+        $fakeResult->numRows = 0;
+        $fakeResult->eof     = true;
+        $db->method('execute')->willReturn($fakeResult);
+
+        $qb = (new QueryBuilder($db))
+            ->from('orders')
+            ->where('status', '=', 1)
+            ->orderBy('id', 'desc')
+            ->limit(5)
+            ->offset(10);
+
+        // Record the full SQL before the count call
+        $sqlBefore = $qb->toSql();
+
+        // Act
+        $qb->count();
+
+        // Assert — original builder is unchanged
+        $sqlAfter = $qb->toSql();
+        $this->assertSame($sqlBefore, $sqlAfter);
+        $this->assertStringContainsString('ORDER BY', strtoupper($sqlAfter));
+        $this->assertStringContainsString('LIMIT',    strtoupper($sqlAfter));
+        $this->assertStringContainsString('OFFSET',   strtoupper($sqlAfter));
+    }
 }
