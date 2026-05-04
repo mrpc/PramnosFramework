@@ -326,6 +326,23 @@
 - [x] **`docs/1.2-new-features.md`** — Section 16 added (schema reference, namespace map, idempotency notes, timestamp rationale, BC notes).
 - [x] Re-verified full suite with `./dockertest` → **927 tests, 1866 assertions, 0 failures**.
 
+### Phase 4: Middleware Pipeline (2026-05-05, session 26)
+
+- [x] **`MiddlewareInterface`** (new `src/Pramnos/Http/MiddlewareInterface.php`): `handle(Request $request, callable $next): mixed`. PSR-15-inspired contract using the framework's own Request class.
+- [x] **`MiddlewarePipeline`** (new `src/Pramnos/Http/MiddlewarePipeline.php`): `pipe(MiddlewareInterface|string): static` + `run(Request, callable): mixed`. Builds the onion chain via `array_reduce`+`array_reverse`. Accepts instances or FQCN strings (lazy `new $fqcn()`).
+- [x] **Built-in middleware** (all new in `src/Pramnos/Http/Middleware/`):
+  - `AuthMiddleware` — throws 401 or redirects if session is not logged in.
+  - `CorsMiddleware` — sets `Access-Control-*` headers; short-circuits OPTIONS preflight with 204.
+  - `ThrottleMiddleware` — per-IP APCu counter; throws 429 on limit; passes through if APCu unavailable.
+  - `MaintenanceModeMiddleware` — throws 503 when `maintenance.flag` exists at app root.
+- [x] **`Route::middleware()`** (new, `src/Pramnos/Routing/Route.php`): variadics, returns `$this`. `getMiddleware()` / `hasMiddleware()` accessors.
+- [x] **`Router::addGlobalMiddleware()`** (new): global middleware runs before route-specific for every dispatch. `dispatch()` and `dispatchSafe()` both run the combined pipeline.
+- [x] **`Router::get()` / `post()` / `put()` / `delete()` / `patch()` / `options()`**: now return `Route` (was `Router`). Enables `$router->get(...)->middleware(...)` fluent chaining. `addRoute()` and `match()` still return `Router`.
+- [x] **`Controller::addMiddleware(string|array $actions, middleware): static`** (new): per-action or wildcard `'*'` middleware. Private `_runThroughMiddleware()` wraps action calls in `exec()`; if no middleware registered, calls action directly — identical to pre-middleware code path.
+- [x] **Unit tests** (`tests/Unit/Http/MiddlewarePipelineTest.php`) — 20 tests: empty pipeline, single MW, onion order, short-circuit, result transform, FQCN lazy instantiation, Route accumulation/chaining, Router global MW + dispatch integration, Controller action-specific/wildcard/array/short-circuit/fluent.
+- [x] **`docs/1.2-new-features.md`** — Section 17 added with full getting-started examples (route, global, controller), execution order diagram, write-your-own guide, standalone usage, full API reference table, all 4 built-ins documented.
+- [x] Re-verified full suite: **1177/1177 tests, 2892 assertions, 0 failures**.
+
 ### Phase 1.2: QB Subqueries & Window Functions (2026-05-04, session 25)
 
 - [x] **`QueryBuilder::selectSub(QueryBuilder|Closure, string $alias)`** — adds a correlated or uncorrelated subquery as a SELECT column; bindings go into the `select` slot (precede WHERE bindings). Closure receives a fresh QB.
