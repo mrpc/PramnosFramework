@@ -255,6 +255,7 @@ class FeatureRegistry
         ]);
         static::register('queue', [
             'description' => 'Background Job Queue',
+            'provider'    => \Pramnos\Queue\QueueServiceProvider::class,
             'migrations'  => [
                 dirname(__DIR__, 3) . '/database/migrations/framework/queue',
             ],

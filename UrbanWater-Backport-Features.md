@@ -2,7 +2,7 @@
 
 Αυτό το αρχείο περιγράφει **πολύ αναλυτικά** τι ακριβώς θα μεταφερθεί από το UrbanWater project στο PramnosFramework v1.2. Κάθε section περιέχει: τι υπάρχει σήμερα στο framework, πώς λειτουργεί στο UrbanWater, το **ακριβές SQL / κώδικα** από τη βάση/αρχεία, και τι ακριβώς χρειάζεται να γίνει για το backport.
 
-> Το αντίστοιχο ROADMAP_1.2.md περιέχει τα ίδια items **συνοπτικά**. Αυτό το αρχείο είναι η αναλυτική προδιαγραφή που κατευθύνει την υλοποίηση.
+> Αυτό το αρχείο είναι η **αναλυτική προδιαγραφή** (DDL, class hierarchy, API). Τα tasks και η πρόοδος παρακολουθούνται στο **`ROADMAP_1.2.md` Φάση 2**.
 
 ---
 
@@ -112,16 +112,9 @@ pramnos migrate:export CreateUsersTable --format=sql|php
 pramnos db:seed [UsersSeeder]
 ```
 
-#### 1.6 Τι πρέπει να γίνει για το backport
+#### 1.6 Tasks
 
-- [ ] Νέο schema για tracking table (migration από παλιό `schemaversion`)
-- [ ] Νέα abstract `Migration` base class
-- [ ] `MigrationRunner` class: φόρτωση, sorting, execution, history tracking
-- [ ] Ενσωμάτωση `migration_cutoff` στο Settings system
-- [ ] Auto-run στο `Application::init()` (αντικαθιστά το `upgrade()`)
-- [ ] Όλα τα CLI commands
-- [ ] BC: `autoExecute` → `autorun` (deprecated notice)
-- [ ] BC: παλιό `schemaversion` auto-migrate στο `framework_migrations`
+→ Βλ. **ROADMAP_1.2.md** Φάση 4 — Migration System Overhaul.
 
 ---
 
@@ -160,13 +153,9 @@ pramnos db:seed [UsersSeeder]
 | `messaging` | `messages`, `massmessages`, `massmessagerecipients`, `mails`, `mailtemplates` | Απαιτεί `auth` |
 | `queue` | `queueitems` (+ ENUM type) | — |
 
-#### 2.3 Τι πρέπει να γίνει για το backport
+#### 2.3 Tasks
 
-- [ ] `ServiceProvider` interface με `register()` / `boot()`
-- [ ] `FeatureRegistry` class: validation, loading, exception για unknown key
-- [ ] Ένας `ServiceProvider` ανά feature
-- [ ] Ενσωμάτωση στο `Application::init()`
-- [ ] Ενημέρωση `pramnos init` wizard
+→ Βλ. **ROADMAP_1.2.md** Φάση 4 — Feature Registry & Service Providers.
 
 ---
 
@@ -311,15 +300,9 @@ CREATE TABLE authserver.oauth2_webhook_events (
 -- applications.slow_api_calls VIEW (execution_time_ms > 5000 last 7 days)
 ```
 
-#### 3.10 Τι πρέπει να γίνει για το backport
+#### 3.10 Tasks
 
-- [ ] Μεταφορά του `auth/src/OAuth2/` directory ως `src/Pramnos/Auth/OAuth2/`
-- [ ] Μεταφορά Repositories + Entities
-- [ ] `AuthServerServiceProvider` με route registration
-- [ ] System migrations για OAuth tables + PKCE columns + device_authorizations
-- [ ] RSA key generation στο `pramnos init`
-- [ ] Ενσωμάτωση `OAuth2Middleware` στο framework middleware system
-- [ ] WebhookService backport
+→ Βλ. **ROADMAP_1.2.md** Φάση 2 — OAuth Server.
 
 ---
 
@@ -483,14 +466,9 @@ CREATE TABLE IF NOT EXISTS authserver.user_roles (
 -- 7 PL/pgSQL functions for common operations
 ```
 
-#### 4.8 Τι πρέπει να γίνει για το backport
+#### 4.8 Tasks
 
-- [ ] `Loginlockout` model → `src/Pramnos/Auth/Loginlockout.php`
-- [ ] `TwoFactorAuthService` + `TOTPHelper` → `src/Pramnos/Auth/`
-- [ ] 2FA controllers + views → framework auth module
-- [ ] System migrations για: 2FA tables, GDPR hypertables, authserver schema + functions
-- [ ] GDPR controller + views
-- [ ] authserver schema migrations (RBAC tables + functions + views)
+→ Βλ. **ROADMAP_1.2.md** Φάση 2 — Authentication System.
 
 ---
 
@@ -636,17 +614,9 @@ Features:
 - **Game mode**: playful "adventure" terminal screen during reconnect
 - **Stop signal**: watch for `ROOT/var/QUEUE_PROCESSOR_<id>.stop` file
 
-#### 5.4 Τι πρέπει να γίνει για το backport
+#### 5.4 Tasks
 
-- [ ] `queue_status` ENUM migration (PostgreSQL) / TINYINT for MySQL equivalent
-- [ ] System migration για `queueitems` table
-- [ ] `Pramnos\Queue\TaskInterface` interface
-- [ ] `Pramnos\Queue\AbstractTask` base class
-- [ ] `Pramnos\Queue\QueueManager` class
-- [ ] `Pramnos\Queue\Worker` class
-- [ ] `Pramnos\Queue\QueueServiceProvider`
-- [ ] `queue:process` CLI command (with full dashboard)
-- [ ] Model: `Pramnos\Queue\Queueitem` (extends `Pramnos\Application\Model`)
+→ Βλ. **ROADMAP_1.2.md** Φάση 2 — Queues System.
 
 ---
 
@@ -714,11 +684,9 @@ notifications|notify|1|3600|5|20
 ]
 ```
 
-#### 6.5 Τι πρέπει να γίνει για το backport
+#### 6.5 Tasks
 
-- [ ] `Pramnos\Console\DaemonOrchestrator` command (framework-agnostic: no Urbanwater imports)
-- [ ] `daemons:start` CLI command registration
-- [ ] Framework docs για daemon process patterns
+→ Βλ. **ROADMAP_1.2.md** Φάση 2 — Daemon Orchestrator. ✅ Ολοκληρώθηκε.
 
 ---
 
@@ -837,14 +805,9 @@ CREATE TABLE massmessagerecipients (
 - PK: `messageid`
 - Standard CRUD: `load($messageid)`, `save()`, `delete($messageid)`, `getList($filter, $order)`
 
-#### 7.3 Τι πρέπει να γίνει για το backport
+#### 7.3 Tasks
 
-- [ ] System migrations για `mails`, `mailtemplates`, `messages`, `massmessages`, `massmessagerecipients`
-- [ ] `MessagingServiceProvider`
-- [ ] `Pramnos\Messaging\Message` model
-- [ ] `Pramnos\Messaging\Mail` model (for mails table)
-- [ ] `Pramnos\Messaging\MailTemplate` model
-- [ ] `Pramnos\Messaging\MassMessage` + `MassMessageRecipient` models
+→ Βλ. **ROADMAP_1.2.md** Φάση 2 — Messaging.
 
 ---
 
@@ -953,11 +916,9 @@ protected function exitProcess(int $exitCode): void;
     // Can be intercepted in tests via shouldInterceptExit()
 ```
 
-#### 8.7 Τι πρέπει να γίνει για το backport
+#### 8.7 Tasks
 
-- [ ] `Pramnos\Console\CommandBase` abstract class (στο framework, namespace-agnostic)
-- [ ] Remove all UrbanWater-specific strings from dashboard title
-- [ ] Ενσωμάτωση στο framework CLI application
+→ Βλ. **ROADMAP_1.2.md** Φάση 2 — CLI UX Improvements. ✅ Ολοκληρώθηκε.
 
 ---
 
@@ -1048,13 +1009,9 @@ AND ta.action_time >= CURRENT_TIMESTAMP - INTERVAL '7 days'
 ORDER BY ta.execution_time_ms DESC;
 ```
 
-#### 9.4 Τι πρέπει να γίνει για το backport
+#### 9.4 Tasks
 
-- [ ] System migration για `tokenactions` + `urls` tables με ολόκληρη τη δομή
-- [ ] Πλήρης `updateAction()` για MySQL
-- [ ] TimescaleDB hypertable migration (μόνο όταν TimescaleDB feature είναι active)
-- [ ] `slow_api_calls` view migration (για PostgreSQL/TimescaleDB)
-- [ ] Cleanup του fragile auto-create-columns pattern στο `Token.php`
+→ Βλ. **ROADMAP_1.2.md** Φάση 2 — Token Action Tracking.
 
 ---
 
@@ -1304,27 +1261,27 @@ _(See full DDL in Section 7.1)_
 
 ### 11.1 New classes — δεν υπάρχουν στο framework
 
-| UrbanWater class | Framework target | Notes |
-|---|---|---|
-| `Urbanwater\Services\Queue\QueueManager` | `Pramnos\Queue\QueueManager` | Full copy, re-namespaced |
-| `Urbanwater\Services\Queue\Worker` | `Pramnos\Queue\Worker` | Full copy, task handler registry generic |
-| `Urbanwater\Services\Queue\AbstractTask` | `Pramnos\Queue\AbstractTask` | Full copy |
-| `Urbanwater\Services\Queue\TaskInterface` | `Pramnos\Queue\TaskInterface` | Full copy |
-| `Urbanwater\ConsoleCommands\CommandBase` | `Pramnos\Console\CommandBase` | Full copy, remove UW-specific strings |
-| `Urbanwater\ConsoleCommands\DaemonOrchestrator` | `Pramnos\Console\DaemonOrchestrator` | Full copy, remove UW-specific imports |
-| `Urbanwater\ConsoleCommands\ProcessQueue` | `Pramnos\Console\QueueProcessCommand` | Full copy, rename command string |
-| `Authserver\OAuth2\OAuth2ServerFactory` | `Pramnos\Auth\OAuth2\OAuth2ServerFactory` | Full copy |
-| `Authserver\OAuth2\Repositories\*` (6 files) | `Pramnos\Auth\OAuth2\Repositories\*` | Full copy |
-| `Authserver\OAuth2\Entities\*` (6 files) | `Pramnos\Auth\OAuth2\Entities\*` | Full copy |
-| `Authserver\OAuth2\Middleware\OAuth2Middleware` | `Pramnos\Auth\OAuth2\OAuth2Middleware` | Full copy |
-| `Authserver\Models\Loginlockout` | `Pramnos\Auth\Loginlockout` | Full copy |
-| `Authserver\Services\TwoFactorAuthService` | `Pramnos\Auth\TwoFactorAuthService` | Full copy |
-| `Authserver\Helpers\TOTPHelper` | `Pramnos\Auth\TOTPHelper` | Full copy |
-| `Authserver\Helpers\Scopes` | `Pramnos\Auth\Scopes` | Full copy |
-| `Authserver\Helpers\OAuthPolicyHelper` | `Pramnos\Auth\OAuthPolicyHelper` | Full copy |
-| `Authserver\Services\WebhookService` | `Pramnos\Auth\WebhookService` | Full copy |
-| `Authserver\Models\Message` | `Pramnos\Messaging\Message` | Full copy |
-| All auth Views (login, 2FA, OAuth, device, GDPR) | `src/Pramnos/Auth/Views/` | Copy as templates |
+| UrbanWater class | Framework target | Status | Notes |
+|---|---|---|---|
+| `Urbanwater\Services\Queue\QueueManager` | `Pramnos\Queue\QueueManager` | ✅ Done | Re-namespaced, configurable hooks |
+| `Urbanwater\Services\Queue\Worker` | `Pramnos\Queue\Worker` | ✅ Done | Task handler registry generic |
+| `Urbanwater\Services\Queue\AbstractTask` | `Pramnos\Queue\AbstractTask` | ✅ Done | |
+| `Urbanwater\Services\Queue\TaskInterface` | `Pramnos\Queue\TaskInterface` | ✅ Done | |
+| `Urbanwater\ConsoleCommands\CommandBase` | `Pramnos\Console\CommandBase` | ✅ Done | UW-specific strings removed |
+| `Urbanwater\ConsoleCommands\DaemonOrchestrator` | `Pramnos\Console\DaemonOrchestrator` | ✅ Done | UW-specific imports removed |
+| `Urbanwater\ConsoleCommands\ProcessQueue` | `Pramnos\Console\Commands\ProcessQueue` | ✅ Done | Renamed to `Commands\ProcessQueue`, configurable hooks |
+| `Authserver\OAuth2\OAuth2ServerFactory` | `Pramnos\Auth\OAuth2\OAuth2ServerFactory` | ❌ Pending | Full copy |
+| `Authserver\OAuth2\Repositories\*` (6 files) | `Pramnos\Auth\OAuth2\Repositories\*` | ❌ Pending | Full copy |
+| `Authserver\OAuth2\Entities\*` (6 files) | `Pramnos\Auth\OAuth2\Entities\*` | ❌ Pending | Full copy |
+| `Authserver\OAuth2\Middleware\OAuth2Middleware` | `Pramnos\Auth\OAuth2\OAuth2Middleware` | ❌ Pending | Full copy |
+| `Authserver\Models\Loginlockout` | `Pramnos\Auth\Loginlockout` | ❌ Pending | Full copy |
+| `Authserver\Services\TwoFactorAuthService` | `Pramnos\Auth\TwoFactorAuthService` | ❌ Pending | Full copy |
+| `Authserver\Helpers\TOTPHelper` | `Pramnos\Auth\TOTPHelper` | ❌ Pending | Full copy |
+| `Authserver\Helpers\Scopes` | `Pramnos\Auth\Scopes` | ❌ Pending | Full copy |
+| `Authserver\Helpers\OAuthPolicyHelper` | `Pramnos\Auth\OAuthPolicyHelper` | ❌ Pending | Full copy |
+| `Authserver\Services\WebhookService` | `Pramnos\Auth\WebhookService` | ❌ Pending | Full copy |
+| `Authserver\Models\Message` | `Pramnos\Messaging\Message` | ❌ Pending | Full copy |
+| All auth Views (login, 2FA, OAuth, device, GDPR) | `src/Pramnos/Auth/Views/` | ❌ Pending | Copy as templates |
 
 ### 11.2 Existing framework classes — πρέπει να επεκταθούν
 
@@ -1337,10 +1294,11 @@ _(See full DDL in Section 7.1)_
 
 ### 11.3 CLI commands — new
 
-| Command | Class | Registers As |
-|---|---|---|
-| `queue:process` | `Pramnos\Console\QueueProcessCommand` | `queue:process` |
-| `daemons:start` | `Pramnos\Console\DaemonOrchestrator` | `daemons:start` |
+| Command | Class | Registers As | Status |
+|---|---|---|---|
+| `queue:process` | `Pramnos\Console\Commands\ProcessQueue` | `queue:process` | ✅ Done |
+| `cleanup:queue` | `Pramnos\Console\Commands\CleanupQueue` | `cleanup:queue` | ✅ Done |
+| `daemons:start` | `Pramnos\Console\DaemonOrchestrator` | `daemons:start` | ✅ Done |
 
 ---
 
@@ -1811,5 +1769,4 @@ class CreateTokenactionsTableTest extends TestCase
 
 ---
 
-*Αυτό το αρχείο ενημερώνεται κατά τη διάρκεια της ανάπτυξης. Κάθε ολοκληρωμένο feature μεταφράζεται σε concrete implementation task στο ROADMAP_1.2.md.*
-*Το αντίστοιχο cleanup guide για το UrbanWater βρίσκεται στο `UrbanWater-Cleanup-Guide.md`.*
+*Αυτό το αρχείο είναι **αναλυτική προδιαγραφή** (DDL, class hierarchy, API reference). Task tracking και πρόοδος → `ROADMAP_1.2.md` Φάση 2. UrbanWater-side wrappers → `UrbanWater-Cleanup-Guide.md`.*

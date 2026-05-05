@@ -1,13 +1,15 @@
 # UrbanWater Cleanup Guide — Post-Backport
 
-Αυτό το αρχείο περιγράφει **τι πρέπει να αφαιρεθεί / αντικατασταθεί** από το UrbanWater project και το `auth` subproject, αφού ολοκληρωθεί το backport στο PramnosFramework v1.2.
+Αυτό το αρχείο είναι **οδηγός υλοποίησης** για τη μετατροπή των UrbanWater classes σε thin wrappers, αφού το αντίστοιχο framework class ολοκληρωθεί.
 
-**Στόχος**: Κάθε μέθοδος στο UrbanWater που έχει μεταφερθεί στο framework να γίνει ένα얇ό wrapper που καλεί τη `\Pramnos\*` έκδοση. Έτσι:
+> **Task tracking** (τι εκκρεμεί, τι έγινε) → `ROADMAP_1.2.md` Φάση 2.
+
+**Στόχος**: Κάθε UW class που έχει μεταφερθεί στο framework γίνεται얇ό wrapper που καλεί τη `\Pramnos\*` έκδοση:
 1. Δεν σπάει κανένα υπάρχον UrbanWater test
 2. Ο κώδικας δεν διπλοτυπείται
 3. Bug fixes στο framework επωφελούν αυτόματα και το UrbanWater
 
-> Η σειρά εκτέλεσης σημαίνει κάτι: πρώτα φτιάχνεις το framework class, μετά κάνεις το UrbanWater class wrapper, μετά τρέχεις τα UrbanWater tests για να επαληθεύσεις.
+> Η σειρά: framework class → UW wrapper → UW tests.
 
 ---
 
@@ -71,12 +73,14 @@ interface TaskInterface extends \Pramnos\Queue\TaskInterface {}
 
 ### 1.5 Αντικατάσταση `Models/Queueitem.php`
 
-Εάν υπάρχει ως UW class, αντικαθίσταται από `\Pramnos\Queue\Queueitem`.
+**Σημείωση:** Το framework class είναι `Pramnos\Queue\QueueItem` (camelCase), όχι `Queueitem`.
+
+Εάν υπάρχει ως UW class, αντικαθίσταται από `\Pramnos\Queue\QueueItem`.
 Αν υπάρχουν UW-specific properties/methods, subclass:
 ```php
 namespace Urbanwater\Models;
 
-class Queueitem extends \Pramnos\Queue\Queueitem {}
+class Queueitem extends \Pramnos\Queue\QueueItem {}
 ```
 
 ---
@@ -111,7 +115,7 @@ abstract class DaemonCommandBase extends CommandBase {}
 // src/ConsoleCommands/ProcessQueue.php (AFTER backport)
 namespace Urbanwater\ConsoleCommands;
 
-class ProcessQueue extends \Pramnos\Console\QueueProcessCommand
+class ProcessQueue extends \Pramnos\Console\Commands\ProcessQueue
 {
     protected function configure()
     {
@@ -323,47 +327,10 @@ migration_cutoff = '2026-01-01 00:00:00'   ← οποιαδήποτε ημερο
 
 ---
 
-## Checklist ανά Phase
-
-### Phase 1 — Queue System
-- [ ] `Pramnos\Queue\QueueManager` υλοποιημένο και tested
-- [ ] `Pramnos\Queue\Worker` υλοποιημένο και tested
-- [ ] `Pramnos\Queue\AbstractTask` + `TaskInterface` υλοποιημένα
-- [ ] `Pramnos\Queue\Queueitem` model υλοποιημένο
-- [ ] System migration για `queueitems` πεπερασμένο
-- [ ] `Urbanwater\Services\Queue\QueueManager` → wrapper
-- [ ] `Urbanwater\Services\Queue\Worker` → wrapper
-- [ ] UW tests for Queue still pass
-
-### Phase 2 — CLI Commands
-- [ ] `Pramnos\Console\CommandBase` υλοποιημένο
-- [ ] `Pramnos\Console\QueueProcessCommand` υλοποιημένο
-- [ ] `Pramnos\Console\DaemonOrchestrator` υλοποιημένο
-- [ ] UW `ProcessQueue` → thin wrapper
-- [ ] UW `DaemonOrchestrator` → thin wrapper
-- [ ] UW CLI tests still pass
-
-### Phase 3 — OAuth / Auth
-- [ ] `Pramnos\Auth\OAuth2\OAuth2ServerFactory` υλοποιημένο
-- [ ] Repositories (6) + Entities (6) μεταφερθεί
-- [ ] `Pramnos\Auth\Loginlockout` υλοποιημένο
-- [ ] `Pramnos\Auth\TwoFactorAuthService` υλοποιημένο
-- [ ] System migrations για auth/oauth/2FA/GDPR tables
-- [ ] `auth/src/OAuth2/*` → wrappers
-- [ ] `auth/src/Models/Loginlockout` → wrapper
-- [ ] Auth tests still pass
-
-### Phase 4 — Messaging
-- [ ] Messaging models υλοποιημένα
-- [ ] System migrations για messaging tables
-- [ ] UW messaging tests still pass
-
-### Phase 5 — Migrations
-- [ ] Framework baseline migrations έχουν timestamps `2020_01_01_*` (pre-cutoff)
-- [ ] Fresh DB install: κανένα cutoff → framework migrations τρέχουν κανονικά
-- [ ] Existing UW install: `migration_cutoff` set σε ημερομηνία μετά τα `2020_*` timestamps
-- [ ] Επαλήθευση ότι κανένα UW migration δεν έχει αλλαχτεί
-
 ---
 
-*Αυτό το αρχείο χρησιμοποιείται ως checklist κατά τη διάρκεια της v1.2 ανάπτυξης. Κάθε ολοκληρωμένο item σημαδεύεται `[x]`.*
+## Σημείωση για Migration Cutoff
+
+Τα framework baseline migrations φέρουν σκόπιμα παλιά timestamps (`2020_01_01_*`). Κατά το upgrade ενός υπάρχοντος UrbanWater installation, θέτεις `migration_cutoff = '2026-01-01 00:00:00'` ώστε ο runner να παρακάμπτει τα pre-cutoff framework migrations — χωρίς να αγγίξει τα UW migrations που έχουν ήδη τρέξει σε production.
+
+*Αυτό το αρχείο περιέχει τα **wrapper code patterns** για κάθε UrbanWater class. Task tracking → `ROADMAP_1.2.md` Φάση 2.*

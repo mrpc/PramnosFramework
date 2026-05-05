@@ -236,11 +236,63 @@
 
 > ⚠️ **Προϋπόθεση:** Η Φάση 2 εξαρτάται πλήρως από τη Φάση 4. Τα backport features χρησιμοποιούν Feature Registry για ενεργοποίηση, Service Providers για bootstrap, και System Migrations για schema. **Καμία από τις παρακάτω υλοποιήσεις δεν μπορεί να ολοκληρωθεί πριν τελειώσει η Φάση 4.** Σωστή σειρά υλοποίησης: Φάση 1 → Φάση 4 → Φάση 2.
 
-- [ ] **OAuth Server** *(feature key: `authserver`)*: Ενσωμάτωση του πλήρους oAuth Server ως core component του framework.
-- [ ] **Authentication System** *(feature key: `auth`)*: Νέο, αναβαθμισμένο σύστημα πιστοποίησης, βασισμένο στον oAuth Server.
-- [x] **Queues System** *(feature key: `queue`)*: Backport `QueueManager`, `Worker`, `AbstractTask`, `TaskInterface`, `QueueItem`, `ProcessQueue`, `CleanupQueue` από Urbanwater. Configurable hooks για URLs, task namespace, table name, dashboard title. Urbanwater μπορεί να κάνει subclass και να override μόνο τα app-specific μέρη.
-- [ ] **Messaging** *(feature key: `messaging`)*: Σύστημα μηνυμάτων — threads, recipients, read status.
-- [ ] **Daemons & Background Tasks:** Ολοκληρωμένο σύστημα δημιουργίας, διαχείρισης και επίβλεψης daemons/background tasks. Περιλαμβάνει:
+- **Queues System** *(feature key: `queue`)*: Backport από Urbanwater — configurable hooks για URLs, task namespace, table name, dashboard title. Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 5.
+  - [x] `Pramnos\Queue\TaskInterface` — `src/Pramnos/Queue/TaskInterface.php`
+  - [x] `Pramnos\Queue\AbstractTask` — `src/Pramnos/Queue/AbstractTask.php`
+  - [x] `Pramnos\Queue\QueueManager` — `src/Pramnos/Queue/QueueManager.php` (hooks: `getTasksDirectory()`, `getTasksNamespace()`, `getQueueTableName()`, `createQueueItemModel()`)
+  - [x] `Pramnos\Queue\Worker` — `src/Pramnos/Queue/Worker.php` (empty `$taskHandlers`, `registerTaskHandler()` chainable)
+  - [x] `Pramnos\Queue\QueueItem` model — `src/Pramnos/Queue/QueueItem.php` (hooks: `getItemShowUrl()`, `getItemEditUrl()`, `getItemDeleteUrl()`)
+  - [x] `queue:process` CLI command — `src/Pramnos/Console/Commands/ProcessQueue.php` (full dashboard, DB reconnect, stop-file; hooks: `getDashboardTitle()`, `getControllerName()`, `createWorker()`, `createQueueManager()`)
+  - [x] `cleanup:queue` CLI command — `src/Pramnos/Console/Commands/CleanupQueue.php`
+  - [ ] System migration για `queueitems` table (PostgreSQL `queue_status` ENUM + MySQL TINYINT εκδοχή, indexes)
+  - [ ] `Pramnos\Queue\QueueServiceProvider`
+  - [x] Unit tests: `tests/Unit/Queue/QueueManagerTest.php` (16 tests), `tests/Unit/Queue/WorkerTest.php` (9 tests)
+  - [ ] Integration tests × 3 databases — `queueitems` schema, ENUM fallback, index verification
+
+- **Token Action Tracking** *(feature key: `auth`)*: Πλήρης αναβάθμιση του `tokenactions` + `urls` schema — hypertable support, execution time tracking, MySQL compat. Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 9.
+  - [ ] System migration: `urls` table (urlid, url, hash)
+  - [ ] System migration: `tokenactions` full schema (actionid, tokenid, urlid, method, params, servertime, return_status, execution_time_ms, return_data, action_time) + composite PK (actionid, action_time) για TimescaleDB compat
+  - [ ] Sync trigger `sync_tokenactions_time` (bidirectional servertime ↔ action_time) — PostgreSQL only
+  - [ ] TimescaleDB hypertable migration (`ifCapable`): chunk 14 days, compress after 60 days, indexes
+  - [ ] `applications.slow_api_calls` VIEW migration (PostgreSQL/TimescaleDB)
+  - [ ] Πλήρης `Token::updateAction()` για MySQL (αντικαθιστά fragile auto-create-columns pattern)
+  - [ ] Integration tests × 3 databases
+
+- **OAuth Server** *(feature key: `authserver`)*: Ενσωμάτωση του πλήρους OAuth2 server (league/oauth2-server). Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 3.
+  - [ ] `Pramnos\Auth\OAuth2\OAuth2ServerFactory` — 4 grant types (ClientCredentials, Password, AuthCode, RefreshToken)
+  - [ ] Repositories (6): `ClientRepository`, `ScopeRepository`, `AccessTokenRepository`, `AuthCodeRepository`, `RefreshTokenRepository`, `UserRepository`
+  - [ ] Entities (6): `ClientEntity`, `UserEntity`, `ScopeEntity`, `AuthCodeEntity`, `RefreshTokenEntity`, `AccessTokenEntity`
+  - [ ] `Pramnos\Auth\OAuth2\OAuth2Middleware` (PSR-7 resource validation)
+  - [ ] `Pramnos\Auth\WebhookService`
+  - [ ] `AuthServerServiceProvider` με route registration
+  - [ ] System migrations: PKCE columns σε `usertokens` (code_challenge, code_challenge_method + constraints + indexes), `usertokens.token` TEXT (από VARCHAR), `authserver.device_authorizations` (RFC 8628), `authserver.jwt_replay_prevention`, `authserver.oauth2_client_auth_methods`, `oauth2_webhook_endpoints`, `oauth2_webhook_events`, 5 PL/pgSQL functions, `oauth2_application_permissions` + `oauth2_active_tokens` views
+  - [ ] RSA key generation (`openssl_pkey_new`) στο `pramnos init`
+  - [ ] Auth Controllers: `Oauth.php`, `Session.php`, `Device.php`, `Discovery.php`, `Gdpr.php`, `TwoFactorAuth.php`, `Dashboard.php`
+  - [ ] `composer require league/oauth2-server:^8.5`
+  - [ ] Integration tests × 3 databases (grant flows, token validation, PKCE)
+
+- **Authentication System** *(feature key: `auth`)*: Αναβαθμισμένο σύστημα auth — login lockout, 2FA (TOTP), GDPR, RBAC. Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 4.
+  - [ ] `Pramnos\Auth\Loginlockout` — progressive lockout (3→60s, 5→300s, 7→900s, 10+→3600s), 3 scopes (user/identifier/ip)
+  - [ ] `Pramnos\Auth\TwoFactorAuthService` + `Pramnos\Auth\TOTPHelper`
+  - [ ] `Pramnos\Auth\Scopes`, `Pramnos\Auth\OAuthPolicyHelper`
+  - [ ] System migrations — 2FA tables: `user_twofactor`, `twofactor_setup`, `twofactor_attempts` (TimescaleDB hypertable: 7-day chunks, compress after 7 days, retain 2 years)
+  - [ ] System migrations — GDPR hypertables: `user_activity_log` (1-day chunks), `user_privacy_settings`, `user_consents` (1-month chunks), `data_processing_records` (1-week chunks), `gdpr_requests` (1-month chunks), `daily_activity_summary` continuous aggregate
+  - [ ] System migrations — GDPR columns σε `users` table (gdpr_consent, gdpr_consent_date, gdpr_data_export_requested, gdpr_deletion_requested, gdpr_deletion_date)
+  - [ ] System migrations — authserver RBAC schema: `authserver` schema, `permissions`, `roles`, `user_deyas`, `user_roles`, `permission_templates`, `role_templates`, `permission_inheritance`, `audit_log`, `effective_permissions` VIEW, 7 PL/pgSQL functions
+  - [ ] 2FA controllers + views (setup, challenge, backup codes)
+  - [ ] GDPR controller + views (export, delete, consents)
+  - [ ] BC: υπάρχον addon hook interface (`onAuth()`, `onLogout()`, `onAuthCheck()`) παραμένει αμετάβλητο
+  - [ ] Integration tests × 3 databases
+
+- **Messaging** *(feature key: `messaging`)*: Σύστημα μηνυμάτων — private messages, notifications, mass broadcast, email queue. Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 7.
+  - [ ] `Pramnos\Messaging\Message` model (`messages` table, PK: messageid)
+  - [ ] `Pramnos\Messaging\Mail` model (`mails` table — email history + queue)
+  - [ ] `Pramnos\Messaging\MailTemplate` model (`mailtemplates` table)
+  - [ ] `Pramnos\Messaging\MassMessage` + `MassMessageRecipient` models
+  - [ ] `MessagingServiceProvider`
+  - [ ] System migrations: `mails`, `mailtemplates`, `messages`, `massmessages`, `massmessagerecipients`
+  - [ ] Integration tests × 3 databases
+- [ ] **Daemons & Background Tasks** *(Policy Engine + Scheduler)*: Ολοκληρωμένο σύστημα δημιουργίας, διαχείρισης και επίβλεψης daemons/background tasks. Περιλαμβάνει:
   - Γενικό daemon framework (process management, signals, heartbeat)
   - **Policy Engine Daemon** (`service:policy-engine`): TimescaleDB fallback simulator — εκτελεί retention/aggregate-refresh/compression policies σε MySQL/plain PG μέσω του `framework_policies` table (βλ. Φάση 1)
   - **Scheduled Tasks** (`service:scheduler`): Cron-like σύστημα για επαναλαμβανόμενα jobs που ορίζονται κώδικα (cron expression ή interval) — αντικαθιστά system crontab entries
