@@ -1,5 +1,5 @@
 <?php
-namespace {{ namespace }}\Migrations;
+namespace {{ namespace }};
 
 use Pramnos\Database\Migration;
 use Pramnos\Database\SchemaBuilder;

@@ -180,6 +180,94 @@ class CreateCommandUnitTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // renderStub() — migration, controller, model stubs
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * renderStub() for 'migration' produces a final class extending Migration
+     * with up() and down() methods and a configurable description.
+     *
+     * This verifies the migration.stub template is loaded and tokens are
+     * substituted, ensuring the generated file compiles under the Migration
+     * base class contract.
+     */
+    public function testRenderStubMigrationProducesCorrectClass(): void
+    {
+        // Act
+        $result = $this->command->renderStub('migration', [
+            'namespace'   => 'App\\Migrations',
+            'class'       => 'CreateUsersTable',
+            'description' => 'create users table',
+            'date'        => '01/01/2026 00:00',
+        ]);
+
+        // Assert — namespace and class
+        $this->assertStringContainsString('namespace App\\Migrations;', $result);
+        $this->assertStringContainsString('class CreateUsersTable', $result);
+        // Must extend Migration and provide up/down lifecycle methods
+        $this->assertStringContainsString('extends Migration', $result);
+        $this->assertStringContainsString('public function up()', $result);
+        $this->assertStringContainsString('public function down()', $result);
+        // Description token substituted
+        $this->assertStringContainsString("create users table", $result);
+    }
+
+    /**
+     * renderStub() for 'controller' produces a class extending Controller
+     * with all five CRUD action methods and correct namespace injection.
+     *
+     * The modernised controller stub replaces the old broken inline heredoc
+     * that used undefined variables ($viewName, $modelNameSpace etc.) — this
+     * test guards against a regression to that state.
+     */
+    public function testRenderStubControllerProducesFullSkeleton(): void
+    {
+        // Act
+        $result = $this->command->renderStub('controller', [
+            'namespace' => 'App\\Controllers',
+            'class'     => 'Product',
+            'view'      => 'product',
+        ]);
+
+        // Assert — namespace and class
+        $this->assertStringContainsString('namespace App\\Controllers;', $result);
+        $this->assertStringContainsString('class Product', $result);
+        $this->assertStringContainsString('extends Controller', $result);
+        // All five standard action methods must be present
+        $this->assertStringContainsString('public function display()', $result);
+        $this->assertStringContainsString('public function show()', $result);
+        $this->assertStringContainsString('public function edit()', $result);
+        $this->assertStringContainsString('public function save()', $result);
+        $this->assertStringContainsString('public function delete()', $result);
+        // View token substituted — no literal '{{ view }}' left in output
+        $this->assertStringContainsString("getView('product')", $result);
+        $this->assertStringNotContainsString('{{ view }}', $result);
+    }
+
+    /**
+     * renderStub() for 'model' produces a class extending Model with the
+     * correct table name and primary key — the minimal schema needed to
+     * generate a working Active-Record model before running migrations.
+     */
+    public function testRenderStubModelProducesActiveRecordSkeleton(): void
+    {
+        // Act
+        $result = $this->command->renderStub('model', [
+            'namespace' => 'App\\Models',
+            'class'     => 'Product',
+            'table'     => '#PREFIX#products',
+        ]);
+
+        // Assert — namespace and class
+        $this->assertStringContainsString('namespace App\\Models;', $result);
+        $this->assertStringContainsString('class Product', $result);
+        $this->assertStringContainsString('extends Model', $result);
+        // Table name token substituted
+        $this->assertStringContainsString('#PREFIX#products', $result);
+        $this->assertStringNotContainsString('{{ table }}', $result);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
