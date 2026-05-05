@@ -1,0 +1,22 @@
+<?php
+namespace {{ namespace }};
+
+use Pramnos\Database\Seeder;
+
+/**
+ * Seed {{ table }} with fake data.
+ * Auto-generated: {{ date }}
+ */
+class {{ class }} extends Seeder
+{
+    protected string $table = '{{ table }}';
+
+    public function run(): void
+    {
+        for ($i = 1; $i <= {{ count }}; $i++) {
+            $this->insert($this->table, [
+{{ fields }}
+            ]);
+        }
+    }
+}

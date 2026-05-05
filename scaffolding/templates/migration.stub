@@ -1,6 +1,7 @@
 <?php
 namespace {{ namespace }};
 
+use Pramnos\Database\Blueprint;
 use Pramnos\Database\Migration;
 use Pramnos\Database\SchemaBuilder;
 
@@ -20,11 +21,11 @@ final class {{ class }} extends Migration
 
     public function up(): void
     {
-        // TODO: implement
+{{ up_body }}
     }
 
     public function down(): void
     {
-        // TODO: implement
+{{ down_body }}
     }
 }

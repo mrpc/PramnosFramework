@@ -6,6 +6,9 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Question\Question;
+use Symfony\Component\Console\Question\ChoiceQuestion;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 /**
  * Create something related to the application
@@ -46,7 +49,7 @@ class Create extends Command
             'entity', InputArgument::REQUIRED, 'What to create'
         );
         $this->addArgument(
-            'name', InputArgument::REQUIRED, 'Name of the created object'
+            'name', InputArgument::OPTIONAL, 'Name of the created object'
         );
         $this->addOption(
             'schema', 's', InputArgument::OPTIONAL, 'Database schema', null
@@ -73,30 +76,47 @@ class Create extends Command
 
         switch (strtolower($entity)) {
             case "model":
+                if (!$name) throw new \InvalidArgumentException('Name is required for: model');
                 $output->writeln($this->createModel($name));
                 break;
             case "controller":
+                if (!$name) throw new \InvalidArgumentException('Name is required for: controller');
                 $output->writeln($this->createController($name));
                 break;
             case "view":
+                if (!$name) throw new \InvalidArgumentException('Name is required for: view');
                 $output->writeln($this->createView($name));
                 break;
             case "crud":
+                if (!$name) throw new \InvalidArgumentException('Name is required for: crud');
                 $output->writeln($this->createCrud($name));
                 break;
             case "api":
+                if (!$name) throw new \InvalidArgumentException('Name is required for: api');
                 $output->writeln($this->createApi($name));
                 break;
             case "migration":
-                $output->writeln($this->createMigration($name));
+                // No name → interactive wizard; name provided → silent stub
+                if (!$name) {
+                    $output->writeln($this->runMigrationWizard($input, $output));
+                } else {
+                    $output->writeln($this->createMigration($name));
+                }
+                break;
+            case "seeder":
+                if (!$name) throw new \InvalidArgumentException('Name is required for: seeder');
+                $output->writeln($this->createSeeder($name, [], ''));
                 break;
             case "middleware":
+                if (!$name) throw new \InvalidArgumentException('Name is required for: middleware');
                 $output->writeln($this->createMiddleware($name));
                 break;
             case "event":
+                if (!$name) throw new \InvalidArgumentException('Name is required for: event');
                 $output->writeln($this->createEvent($name));
                 break;
             case "listener":
+                if (!$name) throw new \InvalidArgumentException('Name is required for: listener');
                 $output->writeln($this->createListener($name));
                 break;
             default:
@@ -312,6 +332,8 @@ class Create extends Command
             'class'       => $className,
             'description' => $migrationName,
             'date'        => date('d/m/Y H:i'),
+            'up_body'     => '        // TODO: implement',
+            'down_body'   => '        // TODO: implement',
         ]);
 
         if (file_put_contents($filePath, $content) === false) {
@@ -360,7 +382,8 @@ class Create extends Command
             'middleware'  => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Http\\MiddlewareInterface;\nuse Pramnos\\Http\\Request;\n\nclass {{ class }} implements MiddlewareInterface\n{\n    public function handle(Request \$request, callable \$next): mixed\n    {\n        return \$next(\$request);\n    }\n}\n",
             'event'       => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\nclass {{ class }}\n{\n    public function __construct(\n        // TODO: add public readonly properties for event payload\n    ) {}\n}\n",
             'listener'    => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\nuse Pramnos\\Event\\ListenerInterface;\n\nclass {{ class }} implements ListenerInterface\n{\n    public function handle(mixed ...\$args): mixed\n    {\n        return null;\n    }\n}\n",
-            'migration'   => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Database\\Migration;\n\nfinal class {{ class }} extends Migration\n{\n    public string \$description = '{{ description }}';\n    public bool \$transactional = false;\n\n    public function up(): void\n    {\n        // TODO: implement\n    }\n\n    public function down(): void\n    {\n        // TODO: implement\n    }\n}\n",
+            'migration'   => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Database\\Blueprint;\nuse Pramnos\\Database\\Migration;\nuse Pramnos\\Database\\SchemaBuilder;\n\nfinal class {{ class }} extends Migration\n{\n    public string \$description = '{{ description }}';\n    public bool \$transactional = false;\n\n    public function up(): void\n    {\n{{ up_body }}\n    }\n\n    public function down(): void\n    {\n{{ down_body }}\n    }\n}\n",
+            'seeder'      => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Database\\Seeder;\n\nclass {{ class }} extends Seeder\n{\n    protected string \$table = '{{ table }}';\n\n    public function run(): void\n    {\n        for (\$i = 1; \$i <= {{ count }}; \$i++) {\n            \$this->insert(\$this->table, [\n{{ fields }}\n            ]);\n        }\n    }\n}\n",
             'controller'  => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Application\\Controller;\n\nclass {{ class }} extends Controller\n{\n    public function __construct(?\\Pramnos\\Application\\Application \$application = null)\n    {\n        \$this->addAuthAction(['edit', 'save', 'delete']);\n        parent::__construct(\$application);\n    }\n\n    public function display(): string\n    {\n        \$view = \$this->getView('{{ view }}');\n        return \$view->display();\n    }\n}\n",
             'model'       => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Application\\Model;\n\nclass {{ class }} extends Model\n{\n    protected \$_dbtable = '{{ table }}';\n    protected \$_primaryKey = 'id';\n}\n",
             'test'        => "<?php\nnamespace Tests\\Unit;\n\nuse PHPUnit\\Framework\\TestCase;\n\nclass {{ class }}Test extends TestCase\n{\n    public function testItWorks(): void { \$this->assertTrue(true); }\n}\n",
@@ -398,6 +421,603 @@ class Create extends Command
             return "Test:      $testFile\n";
         }
         return '';
+    }
+
+    // ── Migration body builders ───────────────────────────────────────────────
+
+    /**
+     * Build the PHP code for a migration up() body using SchemaBuilder.
+     *
+     * Returns a string ready to be dropped into the `{{ up_body }}` stub token.
+     * Indented with 8 spaces (method body level).
+     *
+     * @param string  $tableName   Table name as it will appear in the DB (may include #PREFIX#)
+     * @param bool    $hasPk       Whether to add auto-increment increments('id')
+     * @param array   $columns     Column definitions (see blueprintCall() for shape)
+     * @param bool    $timestamps  Whether to call $table->timestamps()
+     * @param bool    $softDeletes Whether to call $table->softDeletes()
+     * @param array   $foreignKeys Foreign key definitions: [{column, references, on, onDelete}]
+     * @return string PHP source, indented for insertion inside up()
+     */
+    public function buildMigrationUpBody(
+        string $tableName,
+        bool $hasPk,
+        array $columns,
+        bool $timestamps,
+        bool $softDeletes,
+        array $foreignKeys
+    ): string {
+        $pad    = '        ';  // 8 spaces — method body
+        $ipad   = '            ';  // 12 spaces — closure body
+
+        $lines = [];
+
+        if ($hasPk) {
+            $lines[] = $ipad . "\$table->increments('id');";
+        }
+
+        foreach ($columns as $col) {
+            $lines[] = $ipad . $this->blueprintCall($col);
+        }
+
+        if ($timestamps) {
+            $lines[] = $ipad . "\$table->timestamps();";
+        }
+        if ($softDeletes) {
+            $lines[] = $ipad . "\$table->softDeletes();";
+        }
+
+        if (!empty($foreignKeys)) {
+            $lines[] = '';
+            foreach ($foreignKeys as $fk) {
+                $onDelete = !empty($fk['onDelete']) ? "->onDelete('{$fk['onDelete']}')" : '';
+                $lines[] = $ipad . "\$table->foreign('{$fk['column']}')"
+                         . "->references('{$fk['references']}')"
+                         . "->on('{$fk['on']}')"
+                         . $onDelete . ';';
+            }
+        }
+
+        $body = implode("\n", $lines);
+        return "{$pad}SchemaBuilder::create('{$tableName}', function (Blueprint \$table) {\n{$body}\n{$pad}});";
+    }
+
+    /**
+     * Build the PHP code for a migration down() body.
+     *
+     * @param string $tableName Table name passed to SchemaBuilder::dropIfExists()
+     * @return string PHP source, indented for insertion inside down()
+     */
+    public function buildMigrationDownBody(string $tableName): string
+    {
+        return "        SchemaBuilder::dropIfExists('{$tableName}');";
+    }
+
+    /**
+     * Convert a single column definition array to a Blueprint method call string.
+     *
+     * The returned string ends with `;` and is ready to be placed inside a
+     * SchemaBuilder closure. Handles type-specific constructor arguments and
+     * the full chain of fluent modifiers (nullable, default, unique, comment).
+     *
+     * @param array $col {
+     *   name: string, type: string, options: array,
+     *   nullable: bool, default: mixed, unique: bool, unsigned: bool, comment: string
+     * }
+     * @return string e.g. "$table->string('email', 255)->unique();"
+     */
+    public function blueprintCall(array $col): string
+    {
+        $name      = $col['name'];
+        $type      = strtolower($col['type']);
+        $opts      = $col['options'] ?? [];
+        $isUnsigned = !empty($col['unsigned']) || !empty($opts['unsigned']);
+        $len        = (int) ($opts['length'] ?? 255);
+
+        $call = match ($type) {
+            'string'       => "\$table->string('{$name}'" . ($len !== 255 ? ", {$len}" : '') . ")",
+            'char'         => "\$table->char('{$name}', " . ($opts['length'] ?? 1) . ")",
+            'integer'      => $isUnsigned ? "\$table->unsignedInteger('{$name}')" : "\$table->integer('{$name}')",
+            'biginteger'   => $isUnsigned ? "\$table->unsignedBigInteger('{$name}')" : "\$table->bigInteger('{$name}')",
+            'tinyinteger'  => "\$table->tinyInteger('{$name}')",
+            'smallinteger' => "\$table->smallInteger('{$name}')",
+            'decimal'      => "\$table->decimal('{$name}', " . ($opts['total'] ?? 8) . ", " . ($opts['places'] ?? 2) . ")",
+            'float'        => "\$table->float('{$name}', " . ($opts['total'] ?? 8) . ", " . ($opts['places'] ?? 2) . ")",
+            'double'       => "\$table->double('{$name}')",
+            'boolean'      => "\$table->boolean('{$name}')",
+            'text'         => "\$table->text('{$name}')",
+            'mediumtext'   => "\$table->mediumText('{$name}')",
+            'longtext'     => "\$table->longText('{$name}')",
+            'date'         => "\$table->date('{$name}')",
+            'time'         => "\$table->time('{$name}')",
+            'datetime'     => "\$table->dateTime('{$name}')",
+            'timestamp'    => "\$table->timestamp('{$name}')",
+            'json'         => "\$table->json('{$name}')",
+            'jsonb'        => "\$table->jsonb('{$name}')",
+            'uuid'         => "\$table->uuid('{$name}')",
+            'binary'       => "\$table->binary('{$name}')",
+            default        => "\$table->string('{$name}')",
+        };
+
+        if (!empty($col['nullable'])) {
+            $call .= '->nullable()';
+        }
+        if (isset($col['default']) && $col['default'] !== null && $col['default'] !== '') {
+            $d = (string) $col['default'];
+            if (is_numeric($d)) {
+                $call .= "->default({$d})";
+            } elseif (in_array(strtolower($d), ['true', 'false', 'null'], true)) {
+                $call .= '->default(' . strtolower($d) . ')';
+            } else {
+                $call .= "->default('" . addslashes($d) . "')";
+            }
+        }
+        if (!empty($col['unique'])) {
+            $call .= '->unique()';
+        }
+        if ($isUnsigned && !in_array($type, ['integer', 'biginteger', 'tinyinteger', 'smallinteger'], true)) {
+            $call .= '->unsigned()';
+        }
+        if (!empty($col['comment'])) {
+            $call .= "->comment('" . addslashes($col['comment']) . "')";
+        }
+
+        return $call . ';';
+    }
+
+    /**
+     * Generate a PHP expression that produces a plausible fake value for a column.
+     *
+     * Uses column-name heuristics first, then falls back to type-based defaults.
+     * The returned expression uses `$i` as a loop counter variable (1-based).
+     * This is used by buildSeederFields() to populate seeder templates.
+     *
+     * @param string $colName Column name (used for name-based heuristics)
+     * @param string $colType Blueprint type string (string, integer, boolean, …)
+     * @param array  $options Blueprint constructor options (length, total, places, …)
+     * @return string PHP expression without trailing semicolon
+     */
+    public function generateFakeValue(string $colName, string $colType, array $options = []): string
+    {
+        $lower = strtolower($colName);
+
+        // Name-based heuristics take precedence over type
+        $hints = [
+            'email'       => "'user' . \$i . '@example.com'",
+            'first_name'  => "['Alice','Bob','Charlie','Diana','Eva'][\$i % 5]",
+            'last_name'   => "['Smith','Jones','Taylor','Brown','Wilson'][\$i % 5]",
+            'username'    => "'user_' . \$i",
+            'login'       => "'user_' . \$i",
+            'name'        => "'Name ' . \$i",
+            'title'       => "'Title ' . \$i",
+            'phone'       => "'+30210' . str_pad(\$i, 7, '0', STR_PAD_LEFT)",
+            'mobile'      => "'+306900' . str_pad(\$i, 6, '0', STR_PAD_LEFT)",
+            'address'     => "\$i . ' Main Street'",
+            'city'        => "['Athens','Thessaloniki','Patras','Heraklion','Larissa'][\$i % 5]",
+            'country'     => "'Greece'",
+            'description' => "'Sample description ' . \$i",
+            'body'        => "'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Record ' . \$i",
+            'content'     => "'Content for record ' . \$i",
+            'slug'        => "'record-' . \$i",
+            'url'         => "'https://example.com/item-' . \$i",
+            'ip'          => "'192.168.' . rand(0, 255) . '.' . rand(1, 254)",
+            'password'    => "password_hash('password' . \$i, PASSWORD_DEFAULT)",
+            'token'       => "bin2hex(random_bytes(16))",
+            'status'      => "['active','inactive','pending'][\$i % 3]",
+            'type'        => "['type_a','type_b','type_c'][\$i % 3]",
+            'color'       => "['#FF5733','#33FF57','#3357FF','#F3FF33','#FF33F3'][\$i % 5]",
+            'lat'         => "37.97 + (\$i * 0.001)",
+            'lon'         => "23.73 + (\$i * 0.001)",
+            'lng'         => "23.73 + (\$i * 0.001)",
+            'longitude'   => "23.73 + (\$i * 0.001)",
+            'latitude'    => "37.97 + (\$i * 0.001)",
+            'price'       => "round(\$i * 9.99, 2)",
+            'amount'      => "round(\$i * 100.0, 2)",
+            'score'       => "\$i * 10",
+            'sort'        => "\$i",
+            'order'       => "\$i",
+            'position'    => "\$i",
+            'weight'      => "\$i * 0.5",
+        ];
+
+        foreach ($hints as $hint => $code) {
+            if (str_contains($lower, $hint)) {
+                return $code;
+            }
+        }
+
+        // Type-based fallback
+        return match (strtolower($colType)) {
+            'integer', 'tinyinteger', 'smallinteger', 'biginteger' => "\$i",
+            'decimal', 'float', 'double' => "round(\$i * 9.99, 2)",
+            'boolean'   => "(\$i % 2 === 0)",
+            'date'      => "date('Y-m-d', strtotime('-' . \$i . ' days'))",
+            'datetime', 'timestamp' => "date('Y-m-d H:i:s', strtotime('-' . \$i . ' hours'))",
+            'text', 'mediumtext', 'longtext' => "'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Row ' . \$i",
+            'json', 'jsonb' => "json_encode(['item' => \$i, 'active' => true])",
+            'uuid'      => "sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff))",
+            default     => "'value_' . \$i",
+        };
+    }
+
+    /**
+     * Build the fields block for a seeder template ({{ fields }} token).
+     *
+     * Skips auto-managed columns (id, created_at, updated_at, deleted_at).
+     * Each line is indented to 16 spaces so it lands correctly inside the
+     * `$this->insert(...)` call in the seeder template.
+     *
+     * @param array $columns Column definitions (same shape as used by blueprintCall)
+     * @return string Multi-line PHP key => value pairs, no surrounding braces
+     */
+    public function buildSeederFields(array $columns): string
+    {
+        $skip  = ['id', 'created_at', 'updated_at', 'deleted_at'];
+        $ipad  = '                '; // 16 spaces
+        $lines = [];
+
+        foreach ($columns as $col) {
+            if (in_array($col['name'], $skip, true)) {
+                continue;
+            }
+            $fake  = $this->generateFakeValue($col['name'], $col['type'], $col['options'] ?? []);
+            $lines[] = $ipad . "'{$col['name']}' => {$fake},";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    // ── Seeder creator ────────────────────────────────────────────────────────
+
+    /**
+     * Create a database seeder class populated with plausible fake data.
+     *
+     * When $columns is non-empty (wizard flow), the seeder body is generated
+     * from the column definitions so each field gets type-appropriate fake data.
+     * When $columns is empty (standalone `create seeder <Name>` call), a bare
+     * skeleton with a single // TODO comment is written instead.
+     *
+     * @param string $name      Base name for the seeder (e.g. "User" → "UserSeeder")
+     * @param array  $columns   Column definitions (from wizard); empty = skeleton only
+     * @param string $tableName Table name written into the seeder class property
+     * @return string Summary of created files
+     * @throws \Exception
+     */
+    public function createSeeder(string $name, array $columns, string $tableName): string
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $namespace = isset($application->applicationInfo['namespace'])
+            ? $application->applicationInfo['namespace']
+            : 'App';
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+        }
+        $seederNamespace = $namespace . '\\Seeders';
+
+        $baseName  = self::getProperClassName($name, true);
+        $className = $baseName . 'Seeder';
+
+        $seederDir = APP_PATH . DS . 'seeders';
+        if (!is_dir($seederDir) && !mkdir($seederDir, 0755, true)) {
+            throw new \Exception('Cannot create seeders directory.');
+        }
+
+        $filename = $seederDir . DS . $className . '.php';
+        if (file_exists($filename)) {
+            throw new \Exception("Seeder {$className} already exists at {$filename}.");
+        }
+
+        if (empty($columns)) {
+            // Standalone call — bare skeleton
+            $fieldsCode = '                // TODO: add column => fake-value pairs';
+            $resolvedTable = $tableName ?: '#PREFIX#' . strtolower($baseName) . 's';
+        } else {
+            $fieldsCode    = $this->buildSeederFields($columns);
+            $resolvedTable = $tableName;
+        }
+
+        $content = $this->renderStub('seeder', [
+            'namespace' => $seederNamespace,
+            'class'     => $className,
+            'table'     => $resolvedTable,
+            'date'      => date('d/m/Y H:i'),
+            'fields'    => $fieldsCode,
+            'count'     => '10',
+        ]);
+
+        if (file_put_contents($filename, $content) === false) {
+            throw new \Exception('Cannot write seeder file.');
+        }
+
+        $testLine = $this->generateTestStub(
+            $className, $seederNamespace, defined('ROOT') ? ROOT : getcwd()
+        );
+
+        return "Namespace: {$seederNamespace}\n"
+             . "Class:     {$className}\n"
+             . "File:      {$filename}\n"
+             . $testLine
+             . "\nSeeder created.";
+    }
+
+    // ── Migration wizard ──────────────────────────────────────────────────────
+
+    /**
+     * Interactive CLI wizard for `create migration` (no name argument supplied).
+     *
+     * Guides the developer through: description, table name, primary key, column
+     * definitions (loop), timestamps, soft-deletes, foreign keys (loop), then
+     * optionally creates Model / Web Controller / API Controller / Seeder from
+     * the same schema definition without requiring a database connection.
+     *
+     * Uses Symfony Console QuestionHelper so it works in any terminal.
+     *
+     * @return string Final summary of all created files
+     */
+    private function runMigrationWizard(InputInterface $input, OutputInterface $output): string
+    {
+        /** @var \Symfony\Component\Console\Helper\QuestionHelper $helper */
+        $helper = $this->getHelper('question');
+
+        $output->writeln('');
+        $output->writeln(' <comment>─── create:migration — Interactive Wizard ──────────────────────────</comment>');
+        $output->writeln('');
+
+        // ── Description ──────────────────────────────────────────────────────
+        $q = new Question(' <info>Migration description</info> (e.g. "create users table"): ');
+        $q->setValidator(function ($v) {
+            $v = trim((string) $v);
+            if ($v === '') throw new \RuntimeException('Description cannot be empty.');
+            return $v;
+        });
+        $description = $helper->ask($input, $output, $q);
+
+        // ── Table name ───────────────────────────────────────────────────────
+        $q = new Question(' <info>Table name</info> (use #PREFIX# for the db prefix, e.g. #PREFIX#users): ');
+        $q->setValidator(function ($v) {
+            $v = trim((string) $v);
+            if ($v === '') throw new \RuntimeException('Table name cannot be empty.');
+            return $v;
+        });
+        $tableName = $helper->ask($input, $output, $q);
+
+        // ── Primary key ───────────────────────────────────────────────────────
+        $q = new ConfirmationQuestion(
+            ' Add auto-increment primary key <info>id</info>? [<comment>yes</comment>] ', true
+        );
+        $hasPk = $helper->ask($input, $output, $q);
+
+        // ── Columns loop ──────────────────────────────────────────────────────
+        $columns  = [];
+        $colTypes = [
+            'string', 'integer', 'biginteger', 'decimal', 'float', 'double',
+            'boolean', 'text', 'longtext', 'date', 'datetime', 'timestamp',
+            'json', 'uuid', 'binary',
+        ];
+
+        $output->writeln('');
+        $output->writeln(' <comment>── Columns ──────────────────────────────────────────────────────────</comment>');
+
+        while (true) {
+            $q = new Question(' Column name (<info>Enter to finish</info>): ');
+            $colName = trim((string) $helper->ask($input, $output, $q));
+            if ($colName === '') {
+                break;
+            }
+
+            $q = new ChoiceQuestion('   Type [<comment>string</comment>]: ', $colTypes, 0);
+            $q->setErrorMessage('Type "%s" is not valid.');
+            $colType = $helper->ask($input, $output, $q);
+
+            $options = [];
+            if (in_array($colType, ['string', 'char'], true)) {
+                $q = new Question('   Length [<comment>255</comment>]: ', '255');
+                $q->setValidator(fn($v) => is_numeric($v) && (int)$v > 0 ? (int)$v : 255);
+                $options['length'] = (int) $helper->ask($input, $output, $q);
+            } elseif (in_array($colType, ['decimal', 'float'], true)) {
+                $q = new Question('   Precision (total digits) [<comment>10</comment>]: ', '10');
+                $options['total'] = (int) $helper->ask($input, $output, $q);
+                $q = new Question('   Scale (decimal places) [<comment>2</comment>]: ', '2');
+                $options['places'] = (int) $helper->ask($input, $output, $q);
+            }
+
+            $q = new ConfirmationQuestion('   Nullable? [<comment>no</comment>] ', false);
+            $nullable = $helper->ask($input, $output, $q);
+
+            $q = new Question('   Default value (blank = none): ', null);
+            $default = $helper->ask($input, $output, $q);
+            if ($default === '' || $default === null) $default = null;
+
+            $q = new Question('   Comment (blank = none): ', '');
+            $comment = trim((string) $helper->ask($input, $output, $q));
+
+            $q = new ConfirmationQuestion('   Unique? [<comment>no</comment>] ', false);
+            $unique = $helper->ask($input, $output, $q);
+
+            $columns[] = [
+                'name'     => $colName,
+                'type'     => $colType,
+                'options'  => $options,
+                'nullable' => $nullable,
+                'default'  => $default,
+                'comment'  => $comment,
+                'unique'   => $unique,
+                'unsigned' => false,
+            ];
+            $output->writeln('');
+        }
+
+        // ── Timestamps / soft-deletes ─────────────────────────────────────────
+        $output->writeln('');
+        $q = new ConfirmationQuestion(
+            ' Add <info>timestamps</info> (created_at / updated_at)? [<comment>yes</comment>] ', true
+        );
+        $timestamps = $helper->ask($input, $output, $q);
+
+        $q = new ConfirmationQuestion(
+            ' Add <info>soft-delete</info> column (deleted_at)? [<comment>no</comment>] ', false
+        );
+        $softDeletes = $helper->ask($input, $output, $q);
+
+        // ── Foreign keys loop ─────────────────────────────────────────────────
+        $foreignKeys = [];
+        $output->writeln('');
+        $output->writeln(' <comment>── Foreign keys ─────────────────────────────────────────────────────</comment>');
+
+        while (true) {
+            $q = new ConfirmationQuestion(' Add a foreign key? [<comment>no</comment>] ', false);
+            if (!$helper->ask($input, $output, $q)) {
+                break;
+            }
+
+            $q = new Question('   Column name (e.g. user_id): ');
+            $q->setValidator(fn($v) => trim((string)$v) !== '' ? trim($v) : throw new \RuntimeException('Column name required.'));
+            $fkCol = $helper->ask($input, $output, $q);
+
+            $q = new Question('   References table: ');
+            $q->setValidator(fn($v) => trim((string)$v) !== '' ? trim($v) : throw new \RuntimeException('Table required.'));
+            $fkTable = $helper->ask($input, $output, $q);
+
+            $q = new Question('   References column [<comment>id</comment>]: ', 'id');
+            $fkRef = trim((string) $helper->ask($input, $output, $q)) ?: 'id';
+
+            $q = new ChoiceQuestion(
+                '   On delete [<comment>RESTRICT</comment>]: ',
+                ['RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION'],
+                0
+            );
+            $fkOnDelete = $helper->ask($input, $output, $q);
+
+            // Add the FK column to the column list if not already defined
+            $alreadyDefined = !empty(array_filter($columns, fn($c) => $c['name'] === $fkCol));
+            if (!$alreadyDefined) {
+                $columns[] = [
+                    'name'     => $fkCol,
+                    'type'     => 'biginteger',
+                    'options'  => [],
+                    'nullable' => $fkOnDelete === 'SET NULL',
+                    'default'  => null,
+                    'comment'  => '',
+                    'unique'   => false,
+                    'unsigned' => true,
+                ];
+            }
+
+            $foreignKeys[] = [
+                'column'     => $fkCol,
+                'references' => $fkRef,
+                'on'         => $fkTable,
+                'onDelete'   => $fkOnDelete,
+            ];
+            $output->writeln('');
+        }
+
+        // ── Write migration ───────────────────────────────────────────────────
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $namespace = isset($application->applicationInfo['namespace'])
+            ? $application->applicationInfo['namespace']
+            : 'App';
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+        }
+        $fullNamespace = $namespace . '\\Migrations';
+
+        $slug      = trim(preg_replace('/[^a-z0-9]+/', '_', strtolower(strip_tags($description))), '_');
+        $className = str_replace(' ', '', ucwords(str_replace('_', ' ', $slug)));
+        $timestamp = date('Y_m_d_His');
+        $migDir    = APP_PATH . DS . 'migrations';
+        if (!is_dir($migDir)) {
+            mkdir($migDir, 0755, true);
+        }
+        $filePath = $migDir . DS . $timestamp . '_' . $slug . '.php';
+
+        $upBody   = $this->buildMigrationUpBody($tableName, $hasPk, $columns, $timestamps, $softDeletes, $foreignKeys);
+        $downBody = $this->buildMigrationDownBody($tableName);
+
+        $content = $this->renderStub('migration', [
+            'namespace'   => $fullNamespace,
+            'class'       => $className,
+            'description' => $description,
+            'date'        => date('d/m/Y H:i'),
+            'up_body'     => $upBody,
+            'down_body'   => $downBody,
+        ]);
+
+        file_put_contents($filePath, $content);
+
+        $output->writeln('');
+        $output->writeln(" <info>✓ Migration created:</info> {$filePath}");
+        $output->writeln('');
+
+        // ── Post-creation scaffold options ────────────────────────────────────
+        // Derive an entity name from the table name (strip prefix placeholder, PascalCase)
+        $stripped   = preg_replace('/^#PREFIX#/', '', $tableName);
+        $entityName = str_replace(' ', '', ucwords(str_replace('_', ' ', $stripped)));
+
+        $summary = "Migration: {$filePath}\n";
+
+        $output->writeln(' <comment>── Also create ────────────────────────────────────────────────────────</comment>');
+
+        $q = new ConfirmationQuestion(
+            " Create <info>Model</info> ({$entityName})? [<comment>yes</comment>] ", true
+        );
+        if ($helper->ask($input, $output, $q)) {
+            try {
+                $this->dbtable = $tableName;
+                $result = $this->createModel($entityName);
+                $summary .= $result . "\n";
+                $output->writeln("   <info>✓</info> Model created.");
+            } catch (\Exception $e) {
+                $output->writeln("   <comment>Model skipped: {$e->getMessage()}</comment>");
+            }
+        }
+
+        $q = new ConfirmationQuestion(
+            " Create <info>Web Controller</info> ({$entityName}Controller)? [<comment>yes</comment>] ", true
+        );
+        if ($helper->ask($input, $output, $q)) {
+            try {
+                $result = $this->createController($entityName, false);
+                $summary .= $result . "\n";
+                $output->writeln("   <info>✓</info> Controller created.");
+            } catch (\Exception $e) {
+                $output->writeln("   <comment>Controller skipped: {$e->getMessage()}</comment>");
+            }
+        }
+
+        $q = new ConfirmationQuestion(
+            " Create <info>API Controller</info> ({$entityName}ApiController)? [<comment>no</comment>] ", false
+        );
+        if ($helper->ask($input, $output, $q)) {
+            try {
+                $result = $this->createApi($entityName);
+                $summary .= $result . "\n";
+                $output->writeln("   <info>✓</info> API Controller created.");
+            } catch (\Exception $e) {
+                $output->writeln("   <comment>API Controller skipped: {$e->getMessage()}</comment>");
+            }
+        }
+
+        $q = new ConfirmationQuestion(
+            " Create <info>Seeder</info> ({$entityName}Seeder with fake data)? [<comment>yes</comment>] ", true
+        );
+        if ($helper->ask($input, $output, $q)) {
+            try {
+                $result = $this->createSeeder($entityName, $columns, $tableName);
+                $summary .= $result . "\n";
+                $output->writeln("   <info>✓</info> Seeder created.");
+            } catch (\Exception $e) {
+                $output->writeln("   <comment>Seeder skipped: {$e->getMessage()}</comment>");
+            }
+        }
+
+        $output->writeln('');
+
+        return $summary . "\nRun the migration with: php bin/pramnos migrate";
     }
 
     private function resolveScaffoldingDir(): string

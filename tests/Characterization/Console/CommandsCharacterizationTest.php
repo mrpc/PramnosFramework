@@ -151,8 +151,12 @@ class CommandsCharacterizationTest extends TestCase
     // -----------------------------------------------------------------------
 
     /**
-     * Create command is registered with name 'create' and requires the
-     * 'entity' and 'name' arguments.
+     * Create command is registered with name 'create' and has the expected
+     * 'entity' (required) and 'name' (optional) arguments.
+     *
+     * 'name' was changed from REQUIRED to OPTIONAL in v1.2 so that
+     * `create migration` (no name) enters the interactive wizard.  All other
+     * entity types still validate the name inside their create* method.
      */
     public function testCreateCommandConfigurationHasRequiredArguments(): void
     {
@@ -162,11 +166,12 @@ class CommandsCharacterizationTest extends TestCase
         // Act
         $definition = $cmd->getDefinition();
 
-        // Assert
+        // Assert — entity is required; name is optional (wizard mode for migration)
         $this->assertTrue($definition->hasArgument('entity'));
         $this->assertTrue($definition->hasArgument('name'));
         $this->assertTrue($definition->getArgument('entity')->isRequired());
-        $this->assertTrue($definition->getArgument('name')->isRequired());
+        $this->assertFalse($definition->getArgument('name')->isRequired(),
+            "'name' must be optional so that create:migration enters the interactive wizard when omitted');");
     }
 
     /**
