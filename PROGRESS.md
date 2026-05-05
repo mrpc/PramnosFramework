@@ -1,8 +1,16 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-04 (session 25)
+## 📅 Last Updated: 2026-05-05 (session 28)
 
 ## 🚀 Completed Milestones
+
+### Phase 5: Migration Characterization × 3 Databases (2026-05-05, session 28)
+
+- [x] **`tests/Characterization/Database/MigrationMySQLCharacterizationTest.php`** (8 tests) — locks Migration base class behavior against MySQL 8.0: legacy `addQuery()`/`executeQueries()` creates real table; idempotent `down()` drops it; SchemaBuilder `up()`/`down()` lifecycle; `hasTable()` guard for idempotent `up()`; Phase 4 metadata defaults (scope/feature/priority/dependencies/autoExecute); `getSlug()` CamelCase → snake_case; `getDescription()` property delegation.
+- [x] **`tests/Characterization/Database/MigrationPostgreSQLCharacterizationTest.php`** (7 tests) — mirrors MySQL test against PostgreSQL 14 (timescaledb host): double-quote quoting, `SERIAL`/`INTEGER` type mapping, idempotency on PG.
+- [x] **`tests/Characterization/Database/MigrationTimescaleDBCharacterizationTest.php`** (5 tests) — TimescaleDB-specific path: hypertable creation via `createHypertable()`, `timescaledb_information.hypertables` registration, time-dimension column assertion, `down()` deregistration, `ifCapable(TIMESCALEDB, ...)` branching verified to take hypertable path on TimescaleDB backend.
+- [x] Verified with `./dockertest --filter 'MigrationMySQLCharacterizationTest|MigrationPostgreSQLCharacterizationTest|MigrationTimescaleDBCharacterizationTest'` → **20 tests, 35 assertions, 0 failures**.
+- [x] Updated `ROADMAP_1.2.md` — marked "Characterization Tests — Migration" as `[x]`.
 
 ### Phase 5: Characterization Coverage Wave 1 (2026-05-03, session 7)
 
