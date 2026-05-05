@@ -4,6 +4,20 @@
 
 ## 🚀 Completed Milestones
 
+### Phase 2: CLI UX Improvements — PramnosStyle (2026-05-05, session 32)
+
+- [x] **`Pramnos\Console\Style\PramnosStyle`** (`src/Pramnos/Console/Style/PramnosStyle.php`) — extends `SymfonyStyle`:
+  - `frameworkTitle(string)` — cyan banner for multi-step command headers
+  - `step(int $current, int $total, string $label)` — wizard step header (`Step 2/6: label`)
+  - `summaryTable(array<string,string>)` — key/value summary table with no header row
+  - `statusTag(string): string` *(static)* — color-wraps Ran/Failed/Pending for migrate:status-style output
+  - `hint(string)` — dimmed secondary text
+  - `check(string)` — green ✓ + message
+  - `cross(string)` — red ✗ + message
+- [x] **Tests** (`tests/Unit/Console/Style/PramnosStyleTest.php` — 14 tests): all new methods + inherited success()/error() smoke tests
+- [x] **`docs/1.2-new-features.md`** — Section 26 added (API table, usage example, BC notes)
+- **Tests:** 1369/1369 passing (1355 + 14 new)
+
 ### Phase 2: Event / Hook System (2026-05-05, session 32)
 
 - [x] **`Pramnos\Event\Event`** (`src/Pramnos/Event/Event.php`) — static priority-ordered event bus:
