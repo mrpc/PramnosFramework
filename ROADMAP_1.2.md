@@ -244,7 +244,7 @@
   - Γενικό daemon framework (process management, signals, heartbeat)
   - **Policy Engine Daemon** (`service:policy-engine`): TimescaleDB fallback simulator — εκτελεί retention/aggregate-refresh/compression policies σε MySQL/plain PG μέσω του `framework_policies` table (βλ. Φάση 1)
   - **Scheduled Tasks** (`service:scheduler`): Cron-like σύστημα για επαναλαμβανόμενα jobs που ορίζονται κώδικα (cron expression ή interval) — αντικαθιστά system crontab entries
-- [x] **CLI UX Improvements:** Αναβάθμιση της εμπειρίας στο terminal (Progress bars, formatted tables, styling) στα CLI commands.
+- [ ] **CLI UX Improvements:** Αναβάθμιση της εμπειρίας στο terminal (Progress bars, formatted tables, styling) στα CLI commands.
 - [x] **Event / Hook System:** Επίσημο σύστημα events και listeners πάνω από το υπάρχον addon hook σύστημα — `Event::fire()`, `Event::listen()` — για αποσύζευξη εσωτερικών subsystems και δυνατότητα επέκτασης από addons.
   > **BC Strategy:** Τα υπάρχοντα addon hooks (Login, Logout, Auth κλπ.) εξακολουθούν να πυροδοτούνται κανονικά. Το νέο Event system τρέχει παράλληλα — δεν τα αντικαθιστά.
 
