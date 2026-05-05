@@ -40,6 +40,7 @@ class Create extends Command
             . " - crud: Create a CRUD system (model/view/controller)\n"
             . " - api: Create an API endpoint\n"
             . " - migration: Create a migration\n"
+            . " - middleware: Create a middleware class\n"
         );
         $this->addArgument(
             'entity', InputArgument::REQUIRED, 'What to create'
@@ -89,12 +90,67 @@ class Create extends Command
             case "migration":
                 $output->writeln($this->createMigration($name));
                 break;
+            case "middleware":
+                $output->writeln($this->createMiddleware($name));
+                break;
             default:
                 throw new \InvalidArgumentException(
                     'Invalid type of entity to create: ' . $entity
                 );
         }
         return 0;
+    }
+
+    /**
+     * Create a middleware class from the middleware.stub template.
+     *
+     * Writes to src/Middleware/<Name>.php and generates a matching test stub at
+     * tests/Unit/<Name>MiddlewareTest.php so new middlewares are never test-less.
+     *
+     * @param string $middlewareName PascalCase class name (e.g. RateLimit)
+     * @return string Summary of created files
+     * @throws \Exception
+     */
+    public function createMiddleware(string $middlewareName): string
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $namespace = isset($application->applicationInfo['namespace'])
+            ? $application->applicationInfo['namespace']
+            : 'App';
+
+        $className = ucfirst(preg_replace('/\W+/', '', $middlewareName));
+        if ($className === '') {
+            throw new \InvalidArgumentException('Middleware name must be a valid PHP class name.');
+        }
+
+        $dir = defined('ROOT') ? ROOT . '/src/Middleware' : getcwd() . '/src/Middleware';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+
+        $filename = $dir . '/' . $className . '.php';
+        if (file_exists($filename)) {
+            throw new \Exception("Middleware $className already exists at $filename.");
+        }
+
+        $stub = $this->renderStub('middleware', [
+            'namespace' => $namespace . '\\Middleware',
+            'class'     => $className,
+        ]);
+
+        if (!file_put_contents($filename, $stub)) {
+            throw new \Exception("Cannot write middleware file: $filename");
+        }
+
+        $testOutput = $this->generateTestStub($className . 'Middleware', $namespace);
+
+        return "Namespace: {$namespace}\\Middleware\n"
+            . "Class:     {$className}\n"
+            . "File:      {$filename}\n"
+            . $testOutput
+            . "\nMiddleware created.";
     }
 
     /**
@@ -226,6 +282,91 @@ migcontent;
             . "Class: {$className}\n"
             . "File: {$filename}\n\nMigration created.";
     }
+
+    // ── Stub rendering ────────────────────────────────────────────────────────
+
+    /**
+     * Render a scaffolding stub template with token substitution.
+     *
+     * Looks for the stub in scaffolding/templates/<name>.stub inside the
+     * framework package directory. Falls back to an embedded minimal skeleton
+     * so the command works even when the scaffolding directory is absent.
+     *
+     * @param string               $stubName  Stub identifier without extension
+     * @param array<string,string> $tokens    Substitution map (key → value)
+     * @return string Rendered content
+     */
+    public function renderStub(string $stubName, array $tokens): string
+    {
+        $dir  = $this->resolveScaffoldingDir();
+        $file = $dir . '/templates/' . $stubName . '.stub';
+        if (file_exists($file)) {
+            $content = file_get_contents($file);
+        } else {
+            $content = $this->getFallbackStub($stubName);
+        }
+
+        foreach ($tokens as $key => $value) {
+            $content = str_replace('{{ ' . $key . ' }}', $value, $content);
+        }
+        return $content;
+    }
+
+    private function getFallbackStub(string $name): string
+    {
+        return match ($name) {
+            'middleware' => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Http\\MiddlewareInterface;\nuse Pramnos\\Http\\Request;\n\nclass {{ class }} implements MiddlewareInterface\n{\n    public function handle(Request \$request, callable \$next): mixed\n    {\n        return \$next(\$request);\n    }\n}\n",
+            'test'       => "<?php\nnamespace Tests\\Unit;\n\nuse PHPUnit\\Framework\\TestCase;\n\nclass {{ class }}Test extends TestCase\n{\n    public function testItWorks(): void { \$this->assertTrue(true); }\n}\n",
+            default      => '',
+        };
+    }
+
+    /**
+     * Generate a PHPUnit test stub for a newly created class.
+     *
+     * Writes to <baseDir>/tests/Unit/<className>Test.php. Silently skips if the
+     * file already exists or the directory cannot be created.
+     *
+     * @param string $baseDir  Project root. Defaults to ROOT constant or cwd.
+     * @return string Human-readable summary line (empty if skipped).
+     */
+    public function generateTestStub(string $className, string $namespace, string $baseDir = ''): string
+    {
+        if ($baseDir === '') {
+            $baseDir = defined('ROOT') ? ROOT : getcwd();
+        }
+
+        $testsDir = $baseDir . '/tests/Unit';
+        if (!is_dir($testsDir)) {
+            @mkdir($testsDir, 0777, true);
+        }
+
+        $testFile = $testsDir . '/' . $className . 'Test.php';
+        if (file_exists($testFile)) {
+            return '';
+        }
+
+        $stub = $this->renderStub('test', ['class' => $className, 'namespace' => $namespace]);
+        if (file_put_contents($testFile, $stub) !== false) {
+            return "Test:      $testFile\n";
+        }
+        return '';
+    }
+
+    private function resolveScaffoldingDir(): string
+    {
+        $dir = __DIR__;
+        for ($i = 0; $i < 6; $i++) {
+            $candidate = $dir . '/scaffolding';
+            if (is_dir($candidate . '/templates')) {
+                return $candidate;
+            }
+            $dir = dirname($dir);
+        }
+        return (defined('ROOT') ? ROOT : getcwd()) . '/vendor/mrpc/pramnosframework/scaffolding';
+    }
+
+    // ── Entity creators ───────────────────────────────────────────────────────
 
     /**
      * Creates a CRUD system based on a model name
