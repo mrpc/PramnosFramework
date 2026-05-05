@@ -216,17 +216,7 @@
   - Σε TimescaleDB-enabled περιβάλλον: native policies ενεργοποιούνται — ο Policy Engine δεν αναλαμβάνει αυτές τις εργασίες
   - Εκτίθεται ως CLI command: `service:policy-engine` (extends `CommandBase`, τρέχει ως daemon ή cron job)
 
-- [ ] **Full ORM Layer:** Επέκταση του υπάρχοντος `Pramnos\Application\Model` σε πλήρες ORM:
-  - **Relationships:** `hasOne()`, `hasMany()`, `belongsTo()`, `belongsToMany()`, `hasManyThrough()`
-  - **Eager Loading:** `with('relation')` για αποφυγή N+1 queries
-  - **Scopes:** Local scopes (`scopeActive()`) και Global scopes που εφαρμόζονται αυτόματα
-  - **Model Events:** `creating`, `created`, `updating`, `updated`, `deleting`, `deleted` — ενσωμάτωση με το Event system (Φάση 2)
-  - **Casting:** Αυτόματη μετατροπή τιμών (`int`, `bool`, `json`, `datetime`, `array`)
-  - **Accessors / Mutators:** `getXAttribute()` / `setXAttribute()` για virtual fields
-  - **Soft Deletes:** `deleted_at` timestamp pattern με αυτόματο φιλτράρισμα
-  - **Timestamps:** Αυτόματη διαχείριση `created_at` / `updated_at`
-  - **Mass Assignment Protection:** `$fillable` / `$guarded` properties
-  - **Collections:** Επιστροφή αποτελεσμάτων ως typed collection με helper methods (`filter`, `map`, `pluck`, `groupBy`)
+- [ ] ~~**Full ORM Layer**~~ → *Μεταφέρθηκε στη Φάση 9 (βλ. τέλος).*
 
 ### 🔁 Internal Framework Migration to QueryBuilder
 *Εσωτερική αναδιαγραφή των framework classes που περιέχουν raw SQL, χρησιμοποιώντας το νέο QueryBuilder ως κινητήρα. Το εξωτερικό API κάθε κλάσης παραμένει **πανομοιότυπο**.*
@@ -507,7 +497,7 @@
 
 - [~] **Characterization Tests — `Model`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη `get()`, `save()`, `delete()`, column introspection, change tracking, και caching integration. Απαιτείται: επέκταση σε MySQL + TimescaleDB, επίσημα framework tests — **× 3 databases**.
 - [~] **Characterization Tests — `DataTable`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη dynamic filtering, multi-column sorting, pagination, και παραγόμενο SQL output. Απαιτείται: επέκταση σε MySQL + TimescaleDB — **× 3 databases**.
-- [ ] **Characterization Tests — `Migration`:** Κάλυψη schema creation/alteration/rollback — **× 3 databases**. Περιλαμβάνει: σωστή ταξινόμηση (priority/deps/datetime), σεβασμό του `migration_cutoff`, συμπεριφορά autorun=false, καταγραφή αποτυχίας στο history.
+- [x] **Characterization Tests — `Migration`:** Κάλυψη schema creation/alteration/rollback — **× 3 databases**. Περιλαμβάνει: σωστή ταξινόμηση (priority/deps/datetime), σεβασμό του `migration_cutoff`, συμπεριφορά autorun=false, καταγραφή αποτυχίας στο history.
 - [ ] **Characterization Tests — `Adjacencylist`:** Κάλυψη parent/children traversal, depth queries, και tree reconstruction — **× 3 databases**.
 - [~] **Characterization Tests — `Auth`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη credential lookup, session persistence, permission resolution. Απαιτείται: JWT issuance, login/logout flows, MySQL + TimescaleDB — **× 3 databases**.
 - [~] **Characterization Tests — `User`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη create, update, lookup, role assignment. Απαιτείται: επέκταση σε MySQL + TimescaleDB — **× 3 databases**.
@@ -665,3 +655,17 @@
 - [ ] **View Auto-escaping:** Σύστημα προστασίας XSS με αυτόματο escaping των μεταβλητών στα templates (με δυνατότητα `raw` bypass).
 - [ ] **CSRF Protection:** Native middleware για αυτόματο έλεγχο CSRF tokens σε POST requests.
 - [ ] **Secure Headers:** Εύκολος ορισμός CSP (Content Security Policy) και άλλων security headers.
+
+### 🗃️ Φάση 9: Full ORM Layer
+*Προϋπόθεση: Event system (Φάση 2) + Characterization tests × 3 databases (Φάση 5) ολοκληρωμένα.*
+
+- [ ] **Relationships:** `hasOne()`, `hasMany()`, `belongsTo()`, `belongsToMany()`, `hasManyThrough()`
+- [ ] **Eager Loading:** `with('relation')` για αποφυγή N+1 queries
+- [ ] **Scopes:** Local scopes (`scopeActive()`) και Global scopes που εφαρμόζονται αυτόματα
+- [ ] **Model Events:** `creating`, `created`, `updating`, `updated`, `deleting`, `deleted` — ενσωμάτωση με το Event system (Φάση 2)
+- [ ] **Casting:** Αυτόματη μετατροπή τιμών (`int`, `bool`, `json`, `datetime`, `array`)
+- [ ] **Accessors / Mutators:** `getXAttribute()` / `setXAttribute()` για virtual fields
+- [ ] **Soft Deletes:** `deleted_at` timestamp pattern με αυτόματο φιλτράρισμα
+- [ ] **Timestamps:** Αυτόματη διαχείριση `created_at` / `updated_at`
+- [ ] **Mass Assignment Protection:** `$fillable` / `$guarded` properties
+- [ ] **Collections:** Επιστροφή αποτελεσμάτων ως typed collection με helper methods (`filter`, `map`, `pluck`, `groupBy`)
