@@ -245,7 +245,7 @@
   - **Policy Engine Daemon** (`service:policy-engine`): TimescaleDB fallback simulator — εκτελεί retention/aggregate-refresh/compression policies σε MySQL/plain PG μέσω του `framework_policies` table (βλ. Φάση 1)
   - **Scheduled Tasks** (`service:scheduler`): Cron-like σύστημα για επαναλαμβανόμενα jobs που ορίζονται κώδικα (cron expression ή interval) — αντικαθιστά system crontab entries
 - [ ] **CLI UX Improvements:** Αναβάθμιση της εμπειρίας στο terminal (Progress bars, formatted tables, styling) στα CLI commands.
-- [ ] **Event / Hook System:** Επίσημο σύστημα events και listeners πάνω από το υπάρχον addon hook σύστημα — `Event::fire()`, `Event::listen()` — για αποσύζευξη εσωτερικών subsystems και δυνατότητα επέκτασης από addons.
+- [x] **Event / Hook System:** Επίσημο σύστημα events και listeners πάνω από το υπάρχον addon hook σύστημα — `Event::fire()`, `Event::listen()` — για αποσύζευξη εσωτερικών subsystems και δυνατότητα επέκτασης από addons.
   > **BC Strategy:** Τα υπάρχοντα addon hooks (Login, Logout, Auth κλπ.) εξακολουθούν να πυροδοτούνται κανονικά. Το νέο Event system τρέχει παράλληλα — δεν τα αντικαθιστά.
 
 ## 🛠️ Φάση 3: Developer Experience (DX) & Scaffolding
@@ -279,7 +279,7 @@
 - [x] **Modern Maker System:** `renderStub(name, tokens)` — loads `.stub` file, falls back to embedded skeleton. Χρησιμοποιείται από `Init` και `Create` commands.
 - [x] **Test Auto-generation:** `generateTestStub(className, namespace, baseDir)` — αυτόματη δημιουργία `tests/Unit/<Class>Test.php` από `test.stub`. Ενεργό στο `create:middleware`.
 - [x] **Middleware Scaffolding:** `php bin/pramnos create middleware <Name>` — `src/Middleware/<Name>.php` + `tests/Unit/<Name>MiddlewareTest.php`.
-- [ ] **Event/Listener Scaffolding:** `create:event` και `create:listener` — εξαρτάται από το Event System (Φάση 2).
+- [x] **Event/Listener Scaffolding:** `create:event` και `create:listener` — εξαρτάται από το Event System (Φάση 2).
 - [x] **`docs/1.2-new-features.md`:** Section 24 added.
 
 ## 🔒 Φάση 4: Framework-Level Infrastructure & Security
