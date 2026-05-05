@@ -1356,6 +1356,29 @@ class User extends \Pramnos\Framework\Base
                     groupid integer NOT NULL REFERENCES #PREFIX#usergroups(groupid) ON DELETE CASCADE ON UPDATE CASCADE,
                     PRIMARY KEY (userid, groupid)
                 );",
+                "CREATE TABLE IF NOT EXISTS #PREFIX#usertokens (
+                    tokenid serial PRIMARY KEY,
+                    userid bigint NOT NULL REFERENCES #PREFIX#users(userid) ON DELETE CASCADE,
+                    tokentype varchar(20) NOT NULL,
+                    token text NOT NULL,
+                    created integer NOT NULL DEFAULT 0,
+                    notes varchar(255) NOT NULL DEFAULT '',
+                    lastused integer NOT NULL DEFAULT 0,
+                    status smallint NOT NULL DEFAULT 0,
+                    \"parentToken\" integer DEFAULT NULL,
+                    applicationid integer DEFAULT NULL,
+                    actions integer NOT NULL DEFAULT 0,
+                    removedate integer NOT NULL DEFAULT 0,
+                    deviceinfo text,
+                    scope text,
+                    expires integer DEFAULT NULL,
+                    ipaddress varchar(45) DEFAULT NULL,
+                    code_challenge varchar(128) DEFAULT NULL,
+                    code_challenge_method varchar(10) DEFAULT NULL
+                );",
+                "CREATE INDEX IF NOT EXISTS idx_usertokens_userid_status ON #PREFIX#usertokens (userid, status);",
+                "CREATE INDEX IF NOT EXISTS idx_usertokens_type_status ON #PREFIX#usertokens (tokentype, status);",
+                "CREATE INDEX IF NOT EXISTS idx_usertokens_applicationid ON #PREFIX#usertokens (applicationid);",
                 "INSERT INTO #PREFIX#users (userid, username, active) VALUES (1, 'Guest', 1) ON CONFLICT (userid) DO NOTHING;",
                 // Advance the bigserial sequence past the explicitly-inserted Guest row (id=1).
                 // Without this, the next auto-generated userid would collide with the Guest user.
@@ -1411,6 +1434,31 @@ class User extends \Pramnos\Framework\Base
                   FOREIGN KEY (`userid`) REFERENCES `#PREFIX#users` (`userid`) ON DELETE CASCADE ON UPDATE CASCADE,
                   FOREIGN KEY (`groupid`) REFERENCES `#PREFIX#usergroups` (`groupid`) ON DELETE CASCADE ON UPDATE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Users to groups';",
+                "CREATE TABLE IF NOT EXISTS `#PREFIX#usertokens` (
+                  `tokenid` int(11) NOT NULL AUTO_INCREMENT,
+                  `userid` bigint(20) NOT NULL,
+                  `tokentype` varchar(20) NOT NULL,
+                  `token` text NOT NULL,
+                  `created` int(11) NOT NULL DEFAULT 0,
+                  `notes` varchar(255) NOT NULL DEFAULT '',
+                  `lastused` int(11) NOT NULL DEFAULT 0,
+                  `status` tinyint(4) NOT NULL DEFAULT 0,
+                  `parentToken` int(11) DEFAULT NULL,
+                  `applicationid` int(11) DEFAULT NULL,
+                  `actions` int(11) NOT NULL DEFAULT 0,
+                  `removedate` int(11) NOT NULL DEFAULT 0,
+                  `deviceinfo` text,
+                  `scope` text,
+                  `expires` int(11) DEFAULT NULL,
+                  `ipaddress` varchar(45) DEFAULT NULL,
+                  `code_challenge` varchar(128) DEFAULT NULL,
+                  `code_challenge_method` varchar(10) DEFAULT NULL,
+                  PRIMARY KEY (`tokenid`),
+                  KEY `idx_usertokens_userid_status` (`userid`,`status`),
+                  KEY `idx_usertokens_type_status` (`tokentype`,`status`),
+                  KEY `idx_usertokens_applicationid` (`applicationid`),
+                  FOREIGN KEY (`userid`) REFERENCES `#PREFIX#users` (`userid`) ON DELETE CASCADE ON UPDATE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;",
                 "INSERT IGNORE INTO `#PREFIX#users` (`userid`, `username`, `active`) VALUES (1, 'Guest', 1);"
             ];
         }
