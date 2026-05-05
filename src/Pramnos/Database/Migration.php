@@ -80,6 +80,17 @@ abstract class Migration extends \Pramnos\Framework\Base
      */
     public array $dependencies = [];
 
+    /**
+     * When true, MigrationRunner wraps up() in a database transaction on
+     * PostgreSQL (BEGIN / COMMIT / ROLLBACK). Has no effect on MySQL because
+     * DDL causes an implicit COMMIT regardless.
+     *
+     * Set to false for migrations that use TimescaleDB-native operations (e.g.
+     * createHypertable()) or any other DDL that cannot run inside a transaction.
+     * @var bool
+     */
+    public bool $transactional = false;
+
     // =========================================================================
     // Internal state
     // =========================================================================
@@ -243,6 +254,7 @@ abstract class Migration extends \Pramnos\Framework\Base
                 );
             }
         }
+        $this->queriesToExecute = [];
     }
 
     // =========================================================================
