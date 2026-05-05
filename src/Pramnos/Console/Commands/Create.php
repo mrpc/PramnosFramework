@@ -272,126 +272,57 @@ class Create extends Command
      */
     public function createMigration($migrationName)
     {
-        $name = preg_replace('/\W+/','',strtolower(strip_tags($migrationName ?? '')));
+        // Slug: lowercase alphanum + underscores only
+        $slug = preg_replace('/[^a-z0-9]+/', '_', strtolower(strip_tags($migrationName ?? '')));
+        $slug = trim($slug, '_');
+
         $application = $this->getApplication()->internalApplication;
         $application->init();
-
-        if (!file_exists(APP_PATH . DS . 'Migrations')) {
-            if (!mkdir(APP_PATH . DS . 'Migrations')) {
-                throw new \Exception('Cannot create migrations directory.');
-            }
-        }
-        $path = APP_PATH . DS . 'Migrations' . DS;
-
-        $migrationsFile = APP_PATH . DS . 'migrations.php';
-        if (file_exists($migrationsFile)) {
-            $migrations = require($migrationsFile);
-        }
 
         if (isset($application->applicationInfo['namespace'])) {
             $namespace = $application->applicationInfo['namespace'];
         } else {
-            $namespace = 'Pramnos';
+            $namespace = 'App';
         }
         if ($application->appName != '') {
             $namespace .= '\\' . $application->appName;
-            $path .= $application->appName . DS;
         }
-        $namespace .= '\\Migrations';
+        $fullNamespace = $namespace . '\\Migrations';
 
-
-        $className =  'Migration' . $name;
-        $filename = $path . DS . 'Migration' . $name . '.php';
-
-
-        if (class_exists('\\' . $namespace . '\\'. $className)
-            || file_exists($filename)) {
-            throw new \Exception('Migration already exists.');
+        // Directory: app/migrations/ (discovered automatically by MigrationLoader)
+        $migrationDir = APP_PATH . DS . 'migrations';
+        if (!is_dir($migrationDir) && !mkdir($migrationDir, 0755, true)) {
+            throw new \Exception('Cannot create migrations directory.');
         }
 
-        $date = date('d/m/Y H:i');
-        $fileContent = <<<content
-<?php
-namespace {$namespace};
+        // PascalCase class name from slug (e.g. create_users_table → CreateUsersTable)
+        $className = str_replace(' ', '', ucwords(str_replace('_', ' ', $slug)));
 
-/**
- * {$name} migration
- * Auto generated at: {$date}
- */
-final class {$className} extends \Pramnos\Database\Migration
-{
+        // Timestamp-based filename keeps MigrationLoader sort order correct
+        $timestamp = date('Y_m_d_His');
+        $filename  = $timestamp . '_' . $slug . '.php';
+        $filePath  = $migrationDir . DS . $filename;
 
-    /**
-     * Version that this migration sets
-     * @var string
-     */
-    public \$version = '{$migrationName}';
-    /**
-     * Description of the migration
-     * @var string
-     */
-    public \$description = '';
-    /**
-     * Should the migration executed automatically
-     * @var bool
-     */
-    public \$autoExecute = true;
+        if (file_exists($filePath)) {
+            throw new \Exception('Migration file already exists: ' . $filename);
+        }
 
-    /**
-     * Run the migration
-     * @return void
-     */
-    public function up() : void
-    {
-        // this up() migration is auto-generated, please modify it to your needs
-    }
+        $content = $this->renderStub('migration', [
+            'namespace'   => $fullNamespace,
+            'class'       => $className,
+            'description' => $migrationName,
+            'date'        => date('d/m/Y H:i'),
+        ]);
 
-    /**
-     * Undo the migration
-     * @return void
-     */
-    public function down() : void
-    {
-        // this down() migration is auto-generated, please modify it to your needs
-    }
-
-}
-content;
-        if (!file_put_contents($filename, $fileContent)) {
+        if (file_put_contents($filePath, $content) === false) {
             throw new \Exception('Cannot write migration file.');
         }
-        $migrations[$migrationName] = $className;
 
-        $migrationsContent = <<<migcontent
-<?php
-return [
-    /*
-    |--------------------------------------------------------------------------
-    | Migrations List
-    |--------------------------------------------------------------------------
-    |
-    | These migrations will be executed in order on application execution
-    |
-    */
-migcontent;
-        $comma = '';
-        foreach ($migrations as $version => $class) {
-            $migrationsContent .= $comma
-                . "\n    '"
-                . $version
-                . "' => '" .
-                $class
-                . "'";
-            $comma = ',';
-        }
-        $migrationsContent .= "\n];";
-        if (!file_put_contents($migrationsFile, $migrationsContent)) {
-            throw new \Exception('Cannot write migrations list file.');
-        }
-
-        return "Namespace: {$namespace}\n"
-            . "Class: {$className}\n"
-            . "File: {$filename}\n\nMigration created.";
+        return "Namespace: {$fullNamespace}\n"
+             . "Class:     {$className}\n"
+             . "File:      {$filePath}\n\n"
+             . "Migration created.\n"
+             . "Run with: php bin/pramnos migrate";
     }
 
     // ── Stub rendering ────────────────────────────────────────────────────────
@@ -426,11 +357,14 @@ migcontent;
     private function getFallbackStub(string $name): string
     {
         return match ($name) {
-            'middleware' => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Http\\MiddlewareInterface;\nuse Pramnos\\Http\\Request;\n\nclass {{ class }} implements MiddlewareInterface\n{\n    public function handle(Request \$request, callable \$next): mixed\n    {\n        return \$next(\$request);\n    }\n}\n",
-            'event'      => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\nclass {{ class }}\n{\n    public function __construct(\n        // TODO: add public readonly properties for event payload\n    ) {}\n}\n",
-            'listener'   => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\nuse Pramnos\\Event\\ListenerInterface;\n\nclass {{ class }} implements ListenerInterface\n{\n    public function handle(mixed ...\$args): mixed\n    {\n        return null;\n    }\n}\n",
-            'test'       => "<?php\nnamespace Tests\\Unit;\n\nuse PHPUnit\\Framework\\TestCase;\n\nclass {{ class }}Test extends TestCase\n{\n    public function testItWorks(): void { \$this->assertTrue(true); }\n}\n",
-            default      => '',
+            'middleware'  => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Http\\MiddlewareInterface;\nuse Pramnos\\Http\\Request;\n\nclass {{ class }} implements MiddlewareInterface\n{\n    public function handle(Request \$request, callable \$next): mixed\n    {\n        return \$next(\$request);\n    }\n}\n",
+            'event'       => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\nclass {{ class }}\n{\n    public function __construct(\n        // TODO: add public readonly properties for event payload\n    ) {}\n}\n",
+            'listener'    => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\nuse Pramnos\\Event\\ListenerInterface;\n\nclass {{ class }} implements ListenerInterface\n{\n    public function handle(mixed ...\$args): mixed\n    {\n        return null;\n    }\n}\n",
+            'migration'   => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Database\\Migration;\n\nfinal class {{ class }} extends Migration\n{\n    public string \$description = '{{ description }}';\n    public bool \$transactional = false;\n\n    public function up(): void\n    {\n        // TODO: implement\n    }\n\n    public function down(): void\n    {\n        // TODO: implement\n    }\n}\n",
+            'controller'  => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Application\\Controller;\n\nclass {{ class }} extends Controller\n{\n    public function __construct(?\\Pramnos\\Application\\Application \$application = null)\n    {\n        \$this->addAuthAction(['edit', 'save', 'delete']);\n        parent::__construct(\$application);\n    }\n\n    public function display(): string\n    {\n        \$view = \$this->getView('{{ view }}');\n        return \$view->display();\n    }\n}\n",
+            'model'       => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Application\\Model;\n\nclass {{ class }} extends Model\n{\n    protected \$_dbtable = '{{ table }}';\n    protected \$_primaryKey = 'id';\n}\n",
+            'test'        => "<?php\nnamespace Tests\\Unit;\n\nuse PHPUnit\\Framework\\TestCase;\n\nclass {{ class }}Test extends TestCase\n{\n    public function testItWorks(): void { \$this->assertTrue(true); }\n}\n",
+            default       => '',
         };
     }
 
@@ -1641,127 +1575,29 @@ class {$className} extends \Pramnos\Application\Controller
 
 content;
         if (!$full) {
-            $fileContent .= <<<content
-    /**
-     * Display a listing of the resource
-     * @return string
-     */
-    public function display()
-    {
-        \$view = \$this->getView('{$viewName}');
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+            // Simple controller skeleton generated from stub — no DB introspection needed
+            $viewName    = strtolower($name);
+            $fileContent = $this->renderStub('controller', [
+                'namespace' => $namespace,
+                'class'     => $className,
+                'view'      => $viewName,
+            ]);
 
-        \$view->items = \$model->getList();
-        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
-        \$doc = \Pramnos\Framework\Factory::getDocument();
-        \$doc->title = '{$className}';
-        return \$view->display();
-    }
+            if (file_put_contents($filename, $fileContent) === false) {
+                throw new \Exception('Cannot write controller file.');
+            }
 
-    /**
-     * Display the specified resource
-     * @return string
-     */
-    public function show()
-    {
-        \$view = \$this->getView('{$viewName}');
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-        \$request = new \Pramnos\Http\Request();
-        \$model->load(\$request->getOption());
-        \$view->addModel(\$model);
-        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
-        \$this->application->addbreadcrumb('View ' . \$model->{$primaryKey}, sURL . '{$className}/show/' . \$model->{$primaryKey});
-        \$doc = \Pramnos\Framework\Factory::getDocument();
-        \$doc->title = \$model->{$primaryKey} . ' | {$className}';
-        return \$view->display('show');
-    }
+            $testLine = $this->generateTestStub(
+                $className,
+                $namespace,
+                defined('ROOT') ? ROOT : getcwd()
+            );
 
-    /**
-     * Show the form for creating a new resource or editing an existing one
-     * @return string
-     */
-    public function edit()
-    {
-        \$view = \$this->getView('{$viewName}');
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-        \$request = new \Pramnos\Http\Request();
-        \$model->load(\$request->getOption());
-        \$view->addModel(\$model);
-
-{$loadForeignModelsContent}
-        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
-        if (\$model->{$primaryKey} > 0) {
-            \$this->application->addbreadcrumb('View ' . \$model->{$primaryKey}, sURL . '{$className}/show/' . \$model->{$primaryKey});
-            \$this->application->addbreadcrumb('Edit', sURL . '{$className}/edit/' . \$model->{$primaryKey});
-        } else {
-            \$this->application->addbreadcrumb('Create', sURL . '{$className}/edit/0');
-        }
-        
-        \$doc = \Pramnos\Framework\Factory::getDocument();
-        \$doc->title = (\$model->{$primaryKey} > 0 ? 'Edit' : 'Create') . ' | {$className}';
-        
-        return \$view->display('edit');
-    }
-
-    /**
-     * Store a newly created or edited resource in storage.
-     */
-    public function save()
-    {
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-        \$request = new \Pramnos\Http\Request();
-        \$model->load(\$request->getOption());
-{$saveContent}
-        \$model->save();
-        \$this->redirect(sURL . '{$className}');
-    }
-
-    /**
-     * Remove the specified resource from storage
-     */
-    public function delete()
-    {
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-        \$request = new \Pramnos\Http\Request();
-        \$model->delete(\$request->getOption());
-        \$this->redirect(sURL . '{$className}');
-    }
-
-    /**
-     * Returns the resource in JSON format
-     * @return string
-     */
-    public function get{$className}()
-    {
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-        \Pramnos\Framework\Factory::getDocument('json');
-        return \$model->getJsonList((bool)\Pramnos\Http\Request::staticGet('multiple', 0, 'int', 'get'));
-    }
-
-    /**
-     * Get an API-formatted list with pagination, field selection, and search capabilities
-     * @param array \$fields Array of field names to include in response. If empty, includes all fields
-     * @param string|array \$search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
-     * @param string \$order Order by clause (e.g., "field ASC" or "field DESC")
-     * @param int \$page Current page number (1-based, 0 = no pagination)
-     * @param int \$itemsPerPage Number of items per page (ignored if \$page = 0)
-     * @param bool \$debug Show debug information
-     * @param bool \$returnAsModels If true, return objects as models, otherwise return as arrays
-     * @param bool \$useGetData If true, use getData() to return data instead of model properties (returning an array)
-     * @return array API response with pagination info and data
-     */
-    public function getApiList(\$fields = array(), \$search = '', 
-        \$order = '', \$page = 0, \$itemsPerPage = 10, 
-        \$debug = false, \$returnAsModels = false, \$useGetData = true)
-    {
-        return parent::_getApiList(
-            \$fields, \$search, \$order, '', '', '',
-            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
-        );
-    }
-
-}
-content;
+            return "Namespace: {$namespace}\n"
+                 . "Class:     {$className}\n"
+                 . "File:      {$filename}\n"
+                 . $testLine
+                 . "\nController created.";
         } else {
             $database = \Pramnos\Database\Database::getInstance();
             $viewName = strtolower($name);
@@ -2092,14 +1928,8 @@ content;
         }
         
 
-        if (!$database->tableExists($tableName)) {
-            throw new \Exception(
-                'Table: ' . $tableName . ' does not exist.'
-            );
-        }
-
-        $result = $database->getColumns($tableName, $this->schema);
-        
+        // Compute namespace/path/className before the table check so the stub
+        // fallback path can use them without repeating the logic.
         $path = ROOT . DS . INCLUDES . DS;
 
         if (isset($application->applicationInfo['namespace'])) {
@@ -2113,9 +1943,38 @@ content;
         }
         $namespace .= '\\Models';
         $path .= 'Models';
-        
+
         $className = self::getProperClassName($name, true);
-        $filename = $path . DS . $className . '.php';
+        $filename  = $path . DS . $className . '.php';
+
+        if (!$database->tableExists($tableName)) {
+            // Table doesn't exist yet — generate a stub skeleton so schema-first
+            // workflows (write migration first, then model) work without a DB round-trip.
+            if (!is_dir($path)) {
+                mkdir($path, 0755, true);
+            }
+            if (file_exists($filename)) {
+                throw new \Exception('Model already exists: ' . $filename);
+            }
+            $content = $this->renderStub('model', [
+                'namespace' => $namespace,
+                'class'     => $className,
+                'table'     => $tableName,
+            ]);
+            if (file_put_contents($filename, $content) === false) {
+                throw new \Exception('Cannot write model file.');
+            }
+            $testLine = $this->generateTestStub(
+                $className, $namespace, defined('ROOT') ? ROOT : getcwd()
+            );
+            return "Namespace: {$namespace}\n"
+                 . "Class:     {$className}\n"
+                 . "File:      {$filename}\n"
+                 . $testLine
+                 . "\nModel skeleton created (table '{$tableName}' not found — fill in properties after running the migration).";
+        }
+
+        $result = $database->getColumns($tableName, $this->schema);
         
         $isUpdate = false;
         if (class_exists('\\' . $namespace . '\\'. $className)
@@ -2513,9 +2372,18 @@ content;
             ]);
         }
 
+        $testLine = '';
+        if (!$isUpdate) {
+            $testLine = $this->generateTestStub(
+                $className, $namespace, defined('ROOT') ? ROOT : getcwd()
+            );
+        }
+
         return "Namespace: {$namespace}\n"
-            . "Class: {$className}\n"
-            . "File: {$filename}\n\n" . ($isUpdate ? "Model updated." : "Model created.");
+            . "Class:     {$className}\n"
+            . "File:      {$filename}\n"
+            . $testLine
+            . "\n" . ($isUpdate ? "Model updated." : "Model created.");
     }
 
     /**
