@@ -11,68 +11,60 @@ use Symfony\Component\Console\Input\InputOption;
 
 /**
  * Initialize a new Pramnos Application project.
- * 
- * This command scaffolds the entire directory structure and necessary boilerplate
- * files to start a new application. It supports optional Docker environment
- * setup and Unit Testing infrastructure.
+ *
+ * Steps:
+ *  1. Project metadata (name, namespace)
+ *  2. Framework features (auth, authserver, queue, messaging)
+ *  3. UI system (plain-css, bootstrap, tailwind)
+ *  4. Extra libraries (local asset download into public/assets/vendor/)
+ *  5. Extra resources (favicon set, base CSS reset, print stylesheet)
+ *  6. Docker startup → composer install → migrate:framework → summary
  */
 class Init extends Command
 {
-    /**
-     * Target directory for scaffolding.
-     * @var string
-     */
-    public $targetBaseDir;
+    /** Target directory for scaffolding. */
+    public string $targetBaseDir = '';
 
-    /**
-     * Whether to skip the actual docker-compose up command (useful for tests).
-     * @var bool
-     */
-    public $skipDockerRun = false;
+    /** When true, docker-compose up is skipped (test mode). */
+    public bool $skipDockerRun = false;
 
-    /**
-     * Whether the automated docker-compose up command succeeded.
-     * @var bool
-     */
-    private $dockerSuccess = false;
+    /** Path to the scaffolding/ directory inside the framework package. */
+    public string $scaffoldingDir = '';
 
-    /**
-     * Whether the automated composer dump-autoload succeeded.
-     * @var bool
-     */
-    private $autoloadSuccess = true;
+    private bool $dockerSuccess     = false;
+    private bool $autoloadSuccess   = true;
+    private bool $migrationsSuccess = false;
 
-    /**
-     * Configure the command metadata.
-     */
-    protected function configure()
+    protected function configure(): void
     {
         $this->setName('init');
         $this->setDescription('Initialize a new Pramnos project structure');
-        $this->addOption('app-name', null, InputOption::VALUE_OPTIONAL, 'The name of the application');
-        $this->addOption('namespace', null, InputOption::VALUE_OPTIONAL, 'The PHP namespace for the application');
-        $this->addOption('docker', null, InputOption::VALUE_OPTIONAL, 'Whether to setup Docker environment (y/n)');
-        $this->addOption('docker-port', null, InputOption::VALUE_OPTIONAL, 'Local port for Docker mapping');
-        $this->addOption('cache-system', null, InputOption::VALUE_OPTIONAL, 'Cache system (none, redis, memcached)');
-        $this->addOption('db-type', null, InputOption::VALUE_OPTIONAL, 'Database type (mysql, postgresql, timescaledb)');
-        $this->addOption('db-host', null, InputOption::VALUE_OPTIONAL, 'Database host');
-        $this->addOption('db-name', null, InputOption::VALUE_OPTIONAL, 'Database name');
-        $this->addOption('db-user', null, InputOption::VALUE_OPTIONAL, 'Database user');
-        $this->addOption('db-pass', null, InputOption::VALUE_OPTIONAL, 'Database password');
-        $this->addOption('db-prefix', null, InputOption::VALUE_OPTIONAL, 'Database table prefix');
+        $this->addOption('app-name',      null, InputOption::VALUE_OPTIONAL, 'Application name');
+        $this->addOption('namespace',     null, InputOption::VALUE_OPTIONAL, 'PHP namespace');
+        $this->addOption('features',      null, InputOption::VALUE_OPTIONAL, 'Comma-separated feature list (auth,authserver,queue,messaging)');
+        $this->addOption('ui-system',     null, InputOption::VALUE_OPTIONAL, 'UI system (plain-css, bootstrap, tailwind)');
+        $this->addOption('docker',        null, InputOption::VALUE_OPTIONAL, 'Setup Docker environment (y/n)');
+        $this->addOption('docker-port',   null, InputOption::VALUE_OPTIONAL, 'Local port for Docker mapping');
+        $this->addOption('cache-system',  null, InputOption::VALUE_OPTIONAL, 'Cache system (none, redis, memcached)');
+        $this->addOption('db-type',       null, InputOption::VALUE_OPTIONAL, 'Database type (mysql, postgresql, timescaledb)');
+        $this->addOption('db-host',       null, InputOption::VALUE_OPTIONAL, 'Database host');
+        $this->addOption('db-name',       null, InputOption::VALUE_OPTIONAL, 'Database name');
+        $this->addOption('db-user',       null, InputOption::VALUE_OPTIONAL, 'Database user');
+        $this->addOption('db-pass',       null, InputOption::VALUE_OPTIONAL, 'Database password');
+        $this->addOption('db-prefix',     null, InputOption::VALUE_OPTIONAL, 'Database table prefix');
+        $this->addOption('libraries',     null, InputOption::VALUE_OPTIONAL, 'Comma-separated extra library list');
+        $this->addOption('no-download',   null, InputOption::VALUE_NONE,     'Skip asset download (record in assets.json only)');
+        $this->addOption('no-migrations', null, InputOption::VALUE_NONE,     'Skip migrate:framework after Docker startup');
     }
 
-    /**
-     * Execute the command logic.
-     * 
-     * @param InputInterface $input
-     * @param OutputInterface $output
-     * @return int
-     */
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        if (empty($this->targetBaseDir)) {
+        if ($this->targetBaseDir === '') {
             $this->targetBaseDir = defined('ROOT') ? ROOT : getcwd();
+        }
+
+        if ($this->scaffoldingDir === '') {
+            $this->scaffoldingDir = $this->resolveScaffoldingDir();
         }
 
         $helper = $this->getHelper('question');
@@ -85,96 +77,93 @@ class Init extends Command
             '',
         ]);
 
-        // 1. Basic Metadata
+        // ── Step 1: Project metadata ──────────────────────────────────────────
         $defaultAppName = basename($this->targetBaseDir);
-        $appName = $input->getOption('app-name') ?: $helper->ask($input, $output, new Question("Application Name [$defaultAppName]: ", $defaultAppName));
-        
-        // Default Namespace: CamelCase of app name
-        $defaultNamespace = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $appName)));
-        $namespace = $input->getOption('namespace') ?: $helper->ask($input, $output, new Question("Namespace [$defaultNamespace]: ", $defaultNamespace));
+        $appName = $input->getOption('app-name')
+            ?: $helper->ask($input, $output, new Question("Application Name [$defaultAppName]: ", $defaultAppName));
 
-        // 2. Docker setup
+        $defaultNamespace = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $appName)));
+        $namespace = $input->getOption('namespace')
+            ?: $helper->ask($input, $output, new Question("Namespace [$defaultNamespace]: ", $defaultNamespace));
+
+        // ── Step 2: Framework features ────────────────────────────────────────
+        $enabledFeatures = $this->askFeatures($input, $output, $helper);
+
+        // ── Step 3: UI system ─────────────────────────────────────────────────
+        $uiSystem = $this->askUiSystem($input, $output, $helper);
+
+        // ── Step 4: Extra libraries ───────────────────────────────────────────
+        $selectedLibraries = $this->askLibraries($input, $output, $helper, $uiSystem);
+
+        // ── Docker setup ──────────────────────────────────────────────────────
         $dockerOption = $input->getOption('docker');
         if ($dockerOption !== null) {
             $useDocker = in_array(strtolower($dockerOption), ['y', 'yes', '1', 'true']);
         } else {
-            $useDocker = $helper->ask($input, $output, new ConfirmationQuestion('Setup Docker environment? [y/N] ', true));
+            $useDocker = $helper->ask($input, $output, new ConfirmationQuestion('Setup Docker environment? [Y/n] ', true));
         }
-        
-        $dockerPort = 8080;
+
+        $dockerPort  = 8080;
         $cacheSystem = 'none';
 
         if ($useDocker) {
-            // Suggest the first available port starting from 8080
             while (!$this->isPortAvailable($dockerPort)) {
                 $dockerPort++;
             }
+            $dockerPort = (int) ($input->getOption('docker-port')
+                ?: $helper->ask($input, $output, new Question("Local mapping port [$dockerPort]: ", (string) $dockerPort)));
 
-            $dockerPort = $input->getOption('docker-port') ?: $helper->ask($input, $output, new Question("Local mapping port [$dockerPort]: ", $dockerPort));
-            
             $cacheSystemOption = $input->getOption('cache-system');
-            if ($cacheSystemOption !== null) {
-                $cacheSystem = $cacheSystemOption;
-            } else {
-                $cacheSystem = $helper->ask($input, $output, new ChoiceQuestion('Cache System: ', ['none', 'redis', 'memcached'], 1));
-            }
+            $cacheSystem = $cacheSystemOption !== null
+                ? $cacheSystemOption
+                : $helper->ask($input, $output, new ChoiceQuestion('Cache System: ', ['none', 'redis', 'memcached'], 0));
         }
 
-        // 3. Database Config
-        $randomPass = bin2hex(random_bytes(10));
+        // ── Database config ───────────────────────────────────────────────────
+        $randomPass  = bin2hex(random_bytes(10));
+        $dbRootPass  = bin2hex(random_bytes(10));
         $dbTypeChoices = ['mysql', 'postgresql', 'timescaledb'];
-        
+
         $dbTypeOption = $input->getOption('db-type');
-        if ($dbTypeOption !== null) {
-            $dbType = $dbTypeOption;
-        } else {
-            $dbType = $helper->ask($input, $output, new ChoiceQuestion('Database Type: ', $dbTypeChoices, 2)); // Default to TimescaleDB
-        }
-        
+        $dbType = $dbTypeOption !== null
+            ? $dbTypeOption
+            : $helper->ask($input, $output, new ChoiceQuestion('Database Type: ', $dbTypeChoices, 2));
+
         $defaultDbHost = $useDocker ? 'db' : 'localhost';
-        $dbHost = $input->getOption('db-host') ?: $helper->ask($input, $output, new Question("Database Host [$defaultDbHost]: ", $defaultDbHost));
-        
-        $dbSuffix = strtolower(str_replace(['-', ' '], '_', $appName));
+        $dbHost = $input->getOption('db-host')
+            ?: $helper->ask($input, $output, new Question("Database Host [$defaultDbHost]: ", $defaultDbHost));
+
+        $dbSuffix      = strtolower(str_replace(['-', ' '], '_', $appName));
         $dbNameDefault = $dbSuffix . '_db';
         $dbUserDefault = $dbSuffix . '_user';
-        
-        $dbName = $input->getOption('db-name') ?: $helper->ask($input, $output, new Question("Database Name [$dbNameDefault]: ", $dbNameDefault));
-        $dbUser = $input->getOption('db-user') ?: $helper->ask($input, $output, new Question("Database User [$dbUserDefault]: ", $dbUserDefault));
-        $dbPass = $input->getOption('db-pass') ?: $helper->ask($input, $output, new Question("Database Password [$randomPass]: ", $randomPass));
-        
-        $dbPrefixOption = $input->getOption('db-prefix');
-        if ($dbPrefixOption !== null) {
-            $dbPrefix = $dbPrefixOption;
-        } else {
-            $dbPrefix = $helper->ask($input, $output, new Question('Database Table Prefix [optional]: ', ''));
-        }
 
-        // 4. Tests setup - Always Y as requested
-        $useTests = true;
+        $dbName   = $input->getOption('db-name')   ?: $helper->ask($input, $output, new Question("Database Name [$dbNameDefault]: ", $dbNameDefault));
+        $dbUser   = $input->getOption('db-user')   ?: $helper->ask($input, $output, new Question("Database User [$dbUserDefault]: ", $dbUserDefault));
+        $dbPass   = $input->getOption('db-pass')   ?: $helper->ask($input, $output, new Question("Database Password [$randomPass]: ", $randomPass));
+        $dbPrefix = $input->getOption('db-prefix') !== null
+            ? $input->getOption('db-prefix')
+            : $helper->ask($input, $output, new Question('Database Table Prefix [optional]: ', ''));
 
-        // 5. Author Info
-        $userName = $helper->ask($input, $output, new Question("<question>Enter Project Author Name:</question> ", 'Pramnos Developer'));
-        
+        // ── Step 5: Author info ───────────────────────────────────────────────
+        $userName  = $helper->ask($input, $output, new Question('Author Name [Pramnos Developer]: ', 'Pramnos Developer'));
         $userEmail = '';
         while (true) {
-            $userEmail = $helper->ask($input, $output, new Question("<question>Enter Project Author Email:</question> ", 'developer@pramnos.com'));
+            $userEmail = $helper->ask($input, $output, new Question('Author Email [developer@pramnos.com]: ', 'developer@pramnos.com'));
             if (\Pramnos\Validation\Validator::checkEmail($userEmail)) {
                 break;
             }
-            $output->writeln("<error>Invalid email address. Please try again.</error>");
+            $output->writeln('<error>Invalid email address. Please try again.</error>');
         }
 
-        $dbRootPass = bin2hex(random_bytes(10));
-
+        // ── Scaffold ──────────────────────────────────────────────────────────
         $output->writeln("\n<info>Scaffolding project structure...</info>");
 
-        // --- Scaffold Directories ---
-        // Create the basic directory structure for a Pramnos application
         $this->mkdir('www');
         $this->mkdir('www/assets');
         $this->mkdir('www/assets/css');
         $this->mkdir('www/assets/js');
         $this->mkdir('www/assets/img');
+        $this->mkdir('www/assets/vendor');
         $this->mkdir('src/Controllers');
         $this->mkdir('src/Models');
         $this->mkdir('src/Views/home');
@@ -185,149 +174,397 @@ class Init extends Command
         $this->mkdir('var/cache');
         $this->mkdir('var/logs');
 
-        // --- Scaffold Files ---
-        
-        // app/config/settings.php
         $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true);
-        
-        // app/app.php
-        $this->writeFile('app/app.php', "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n    'csp' => [\n        'script-src' => [],\n        'style-src' => []\n    ]\n];\n");
-
-        // app/language/en.php
+        $this->scaffoldAppConfig('app/app.php', $appName, $namespace, $enabledFeatures);
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
-
-        // www/index.php
         $this->writeFile('www/index.php', $this->getIndexTemplate());
-
-        // www/.htaccess
         $this->writeFile('www/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?url=$1 [QSA,L]\n");
-
-        // src/Application.php
         $this->writeFile('src/Application.php', "<?php\nnamespace $namespace;\n\nclass Application extends \\Pramnos\\Application\\Application\n{\n}\n");
-
-        // src/Controllers/Home.php
-        $this->writeFile('src/Controllers/Home.php', "<?php\nnamespace $namespace\\Controllers;\n\nuse Pramnos\\Application\\Controller;\n\nclass Home extends Controller\n{\n    public function display()\n    {\n        \$doc = \Pramnos\Framework\Factory::getDocument();\n        \$doc->title = 'Welcome to ' . \\Pramnos\\Application\\Application::getInstance()->applicationInfo['name'];\n        \$view = \$this->getView('home');\n        return \$view->display('home');\n    }\n}\n");
-
-        // src/Views/home/home.html.php
+        $this->writeFile(
+            'src/Controllers/Home.php',
+            $this->renderStub('controller', [
+                'namespace' => "$namespace\\Controllers",
+                'class'     => 'Home',
+                'view'      => 'home',
+            ])
+        );
         $this->writeFile('src/Views/home/home.html.php', "<h1>Welcome to $appName</h1>\n<p>Your Pramnos project is ready.</p>\n");
 
-        // --- Theme ---
-        $this->scaffoldTheme($appName);
+        $this->scaffoldTheme($uiSystem, $appName);
 
-        // --- Docker ---
+        if (!empty($selectedLibraries)) {
+            $skipDownload = (bool) $input->getOption('no-download');
+            $this->scaffoldLibraries($selectedLibraries, $uiSystem, $skipDownload, $output);
+        }
+
         if ($useDocker) {
             $this->scaffoldDocker($namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem, $dbRootPass);
         }
 
-        // --- Tests ---
-        if ($useTests) {
-            $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker);
-        }
-
-        // --- Finalize Metadata ---
+        $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker);
         $this->updateComposerJson($appName, $namespace, $userName, $userEmail, $output);
 
         $output->writeln("\n<info>Project initialized successfully!</info>");
+
+        // ── Step 6: Docker startup + migrations ───────────────────────────────
         if ($useDocker && !$this->skipDockerRun) {
-            $this->dockerSuccess = ($this->runProcessWithSpinner('docker-compose up -d --build 2>/dev/null', "Starting Docker environment", $output) === 0);
-            
+            $this->dockerSuccess = ($this->runProcessWithSpinner(
+                'docker-compose up -d --build 2>/dev/null', 'Starting Docker environment', $output
+            ) === 0);
+
             if ($this->dockerSuccess) {
-                // Sync dependencies INSIDE the container where all PHP extensions are present
-                // Use full composer update to ensure vendor/ is populated
-                $syncStatus = $this->runProcessWithSpinner('docker-compose exec -T app composer update --no-interaction 2>/dev/null', "Syncing dependencies (in container)", $output);
-                $syncAutoloadStatus = $this->runProcessWithSpinner('docker-compose exec -T app composer dump-autoload --no-interaction 2>/dev/null', "Regenerating autoloader (in container)", $output);
-                
+                $syncStatus         = $this->runProcessWithSpinner('docker-compose exec -T app composer update --no-interaction 2>/dev/null',      'Syncing dependencies (in container)',     $output);
+                $syncAutoloadStatus = $this->runProcessWithSpinner('docker-compose exec -T app composer dump-autoload --no-interaction 2>/dev/null', 'Regenerating autoloader (in container)',  $output);
+
                 if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {
                     $this->autoloadSuccess = false;
                 }
+
+                if ($this->autoloadSuccess && !$input->getOption('no-migrations')) {
+                    $migStatus = $this->runProcessWithSpinner(
+                        'docker-compose exec -T app php bin/pramnos migrate:framework 2>/dev/null',
+                        'Running framework migrations',
+                        $output
+                    );
+                    $this->migrationsSuccess = ($migStatus === 0);
+                }
             }
         } elseif (!$useDocker) {
-            // Fallback for non-docker setup: run on host
-            $syncStatus = $this->runProcessWithSpinner('composer update --no-interaction --ignore-platform-reqs 2>/dev/null', "Syncing dependencies", $output);
-            $syncAutoloadStatus = $this->runProcessWithSpinner('composer dump-autoload --no-interaction 2>/dev/null', "Regenerating autoloader", $output);
-            
+            $syncStatus         = $this->runProcessWithSpinner('composer update --no-interaction --ignore-platform-reqs 2>/dev/null', 'Syncing dependencies',      $output);
+            $syncAutoloadStatus = $this->runProcessWithSpinner('composer dump-autoload --no-interaction 2>/dev/null',                 'Regenerating autoloader',   $output);
+
             if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {
                 $this->autoloadSuccess = false;
             }
         }
-        
-        $output->writeln("\nNext steps:");
-        $steps = [];
-        
-        if ($useDocker) {
-            if (!$this->dockerSuccess && !$this->skipDockerRun) {
-                $steps[] = "Run <comment>docker-compose up -d --build</comment>";
-            }
-            $steps[] = "Access your app at <comment>http://localhost:$dockerPort</comment>";
-            $toolPort = (int)$dockerPort + 1;
-            $toolName = ($dbType === 'mysql') ? 'PHPMyAdmin' : 'Adminer';
-            $steps[] = "Access $toolName at <comment>http://localhost:$toolPort</comment>";
-            $steps[] = "Use <comment>./dockerbash</comment> to enter the container";
-            $steps[] = "Database Info:\n    User: <comment>$dbUser</comment> / Pass: <comment>$dbPass</comment>" . ($dbType === 'mysql' ? "\n    Root Pass: <comment>$dbRootPass</comment>" : "");
-        }
-        
-        if (!$this->autoloadSuccess) {
-            $steps[] = "<warning>Warning: Autoloader sync failed.</warning> Run <comment>composer dump-autoload</comment> manually.";
-        }
 
-        foreach ($steps as $index => $step) {
-            $output->writeln(" " . ($index + 1) . ". $step");
-        }
+        $this->printSummary($output, $useDocker, $dockerPort, $dbType, $dbUser, $dbPass, $dbRootPass, (bool) $input->getOption('no-migrations'));
 
         return 0;
     }
 
+    // ── Step 2: Feature selection ─────────────────────────────────────────────
+
     /**
-     * Create a directory if it doesn't exist.
-     * 
-     * @param string $path Relative path from ROOT
+     * Ask which framework features to enable. Returns array of feature keys.
+     *
+     * @return list<string>
      */
-    private function mkdir($path)
+    private function askFeatures(InputInterface $input, OutputInterface $output, mixed $helper): array
     {
-        $fullPath = $this->targetBaseDir . '/' . $path;
-        if (!is_dir($fullPath)) {
-            mkdir($fullPath, 0777, true);
+        $featureOption = $input->getOption('features');
+        if ($featureOption !== null) {
+            return array_filter(array_map('trim', explode(',', $featureOption)));
         }
+
+        $output->writeln("\n<comment>Step 2 — Framework features</comment>");
+        $output->writeln("Core System is always enabled. Select optional features:");
+
+        $choices = [
+            'auth'       => 'Basic Auth System    [auth]',
+            'authserver' => 'OAuth Server         [authserver]',
+            'queue'      => 'Queue System         [queue]',
+            'messaging'  => 'Messaging            [messaging]',
+        ];
+
+        $enabled = [];
+        foreach ($choices as $key => $label) {
+            $default = ($key === 'auth');
+            $answer  = $helper->ask($input, $output, new ConfirmationQuestion("  Enable $label? [" . ($default ? 'Y/n' : 'y/N') . '] ', $default));
+            if ($answer) {
+                $enabled[] = $key;
+            }
+        }
+        return $enabled;
     }
 
-    /**
-     * Write content to a file in the project.
-     * 
-     * @param string $path Relative path from targetBaseDir
-     * @param string $content File content
-     */
-    private function writeFile($path, $content)
+    // ── Step 3: UI system ─────────────────────────────────────────────────────
+
+    private function askUiSystem(InputInterface $input, OutputInterface $output, mixed $helper): string
     {
-        file_put_contents($this->targetBaseDir . '/' . $path, $content);
+        $uiOption = $input->getOption('ui-system');
+        if ($uiOption !== null) {
+            return $uiOption;
+        }
+
+        $output->writeln("\n<comment>Step 3 — UI system</comment>");
+        $question = new ChoiceQuestion(
+            'Select UI system: ',
+            ['plain-css', 'bootstrap', 'tailwind'],
+            0
+        );
+        return $helper->ask($input, $output, $question);
     }
 
+    // ── Step 4: Extra libraries ───────────────────────────────────────────────
+
     /**
-     * Scaffold the settings.php file.
-     * 
-     * @param string $path File path
-     * @param string $type Database type
-     * @param string $host Database host
-     * @param string $name Database name
-     * @param string $user Database user
-     * @param string $pass Database password
-     * @param string $prefix Database table prefix
-     * @param bool   $dev Enable development mode
+     * @return list<string>
      */
-    private function scaffoldSettings($path, $type, $host, $name, $user, $pass, $prefix, $dev)
+    private function askLibraries(InputInterface $input, OutputInterface $output, mixed $helper, string $uiSystem): array
     {
-        $realType = ($type === 'timescaledb') ? 'postgresql' : $type;
-        $timescaleFlag = ($type === 'timescaledb') ? ",\n        'timescale' => true" : "";
-        
+        $libOption = $input->getOption('libraries');
+        if ($libOption !== null) {
+            return $libOption === '' ? [] : array_filter(array_map('trim', explode(',', $libOption)));
+        }
+
+        $output->writeln("\n<comment>Step 4 — Extra libraries</comment>");
+        $wantLibraries = $helper->ask($input, $output, new ConfirmationQuestion('Configure extra libraries? [y/N] ', false));
+        if (!$wantLibraries) {
+            return [];
+        }
+
+        $catalog = $this->loadAssetCatalog();
+        if (empty($catalog['libraries'])) {
+            return [];
+        }
+
+        $output->writeln("Select which libraries to include (assets downloaded locally):");
+
+        $skipAlways = ['bootstrap']; // bundled with bootstrap theme automatically
+        $selected   = [];
+
+        foreach ($catalog['libraries'] as $key => $lib) {
+            if (in_array($key, $skipAlways, true)) {
+                continue;
+            }
+            $requiredUi = $lib['requires_ui'] ?? [];
+            if (!empty($requiredUi) && !in_array($uiSystem, $requiredUi, true)) {
+                continue;
+            }
+            $requires = $lib['requires'] ?? [];
+            if (!empty($requires)) {
+                $missingDeps = array_diff($requires, $selected);
+                if (!empty($missingDeps)) {
+                    continue;
+                }
+            }
+            $answer = $helper->ask($input, $output, new ConfirmationQuestion("  Include $key@{$lib['version']}? [y/N] ", false));
+            if ($answer) {
+                $selected[] = $key;
+                // auto-include hard dependencies
+                foreach ($requires as $dep) {
+                    if (!in_array($dep, $selected, true)) {
+                        $selected[] = $dep;
+                    }
+                }
+            }
+        }
+        return $selected;
+    }
+
+    // ── Scaffold helpers ──────────────────────────────────────────────────────
+
+    /** Render a .stub template with token substitution. */
+    public function renderStub(string $stubName, array $tokens): string
+    {
+        $stubFile = $this->scaffoldingDir . '/templates/' . $stubName . '.stub';
+        if (file_exists($stubFile)) {
+            $content = file_get_contents($stubFile);
+        } else {
+            $content = $this->getFallbackStub($stubName);
+        }
+
+        foreach ($tokens as $key => $value) {
+            $content = str_replace('{{ ' . $key . ' }}', $value, $content);
+        }
+        return $content;
+    }
+
+    private function getFallbackStub(string $name): string
+    {
+        return match ($name) {
+            'controller' => "<?php\nnamespace {{ namespace }}\\Controllers;\n\nuse Pramnos\\Application\\Controller;\n\nclass {{ class }} extends Controller\n{\n    public function display() {}\n}\n",
+            'model'      => "<?php\nnamespace {{ namespace }}\\Models;\n\nuse Pramnos\\Application\\Model;\n\nclass {{ class }} extends Model\n{\n    protected \$_dbtable = '{{ table }}';\n}\n",
+            'migration'  => "<?php\nnamespace {{ namespace }}\\Migrations;\n\nfinal class {{ class }} extends \\Pramnos\\Database\\Migration\n{\n    public function up(): void {}\n    public function down(): void {}\n}\n",
+            'middleware' => "<?php\nnamespace {{ namespace }}\\Middleware;\n\nuse Pramnos\\Http\\MiddlewareInterface;\nuse Pramnos\\Http\\Request;\n\nclass {{ class }} implements MiddlewareInterface\n{\n    public function handle(Request \$r, callable \$next): mixed { return \$next(\$r); }\n}\n",
+            'test'       => "<?php\nnamespace Tests\\Unit;\n\nuse PHPUnit\\Framework\\TestCase;\n\nclass {{ class }}Test extends TestCase\n{\n    public function testItWorks(): void { \$this->assertTrue(true); }\n}\n",
+            default      => '',
+        };
+    }
+
+    private function scaffoldAppConfig(string $path, string $appName, string $namespace, array $features): void
+    {
+        $featuresPhp = empty($features)
+            ? "    'features' => [],\n"
+            : "    'features' => ['" . implode("', '", $features) . "'],\n";
+
+        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n$featuresPhp    'csp' => [\n        'script-src' => [],\n        'style-src'  => []\n    ]\n];\n";
+        $this->writeFile($path, $content);
+    }
+
+    private function scaffoldSettings(string $path, string $type, string $host, string $name, string $user, string $pass, string $prefix, bool $dev): void
+    {
+        $realType      = ($type === 'timescaledb') ? 'postgresql' : $type;
+        $timescaleFlag = ($type === 'timescaledb') ? ",\n        'timescale' => true" : '';
+
         $content = "<?php\nreturn [\n    'database' => [\n        'type' => '$realType',\n        'hostname' => '$host',\n        'database' => '$name',\n        'user' => '$user',\n        'password' => '$pass',\n        'prefix' => '$prefix'$timescaleFlag\n    ],\n    'dbsettings' => false,\n    'language' => 'en',\n    'development' => " . ($dev ? 'true' : 'false') . ",\n    'forcessl' => false\n];\n";
         $this->writeFile($path, $content);
     }
 
+    /** Scaffold the theme from scaffolding/themes/<uiSystem>/ files. */
+    private function scaffoldTheme(string $uiSystem, string $appName): void
+    {
+        $themeDir = $this->scaffoldingDir . '/themes/' . $uiSystem;
+        $dest     = 'app/themes/default';
+
+        $copyThemeFile = function (string $file) use ($themeDir, $dest): void {
+            $src = $themeDir . '/' . $file;
+            if (file_exists($src)) {
+                $this->writeFile($dest . '/' . $file, file_get_contents($src));
+            }
+        };
+
+        $copyThemeFile('theme.html.php');
+        $copyThemeFile('header.php');
+        $copyThemeFile('footer.php');
+
+        $cssFile = $themeDir . '/style.css';
+        if (file_exists($cssFile)) {
+            $this->writeFile('www/assets/css/style.css', file_get_contents($cssFile));
+        }
+
+        // Bootstrap: automatically include bootstrap assets if that theme was chosen
+        if ($uiSystem === 'bootstrap') {
+            $this->ensureBootstrapAssets();
+        }
+    }
+
+    /** Download (or stub) Bootstrap assets when bootstrap theme is selected. */
+    private function ensureBootstrapAssets(): void
+    {
+        $catalog = $this->loadAssetCatalog();
+        $lib     = $catalog['libraries']['bootstrap'] ?? null;
+        if ($lib === null) {
+            return;
+        }
+        $this->downloadLibraryAssets('bootstrap', $lib, false);
+    }
+
     /**
-     * Get the template for www/index.php.
-     * 
-     * @return string
+     * Download selected library assets into public/assets/vendor/<lib>/<version>/
+     * and write a project-level assets.json manifest.
+     *
+     * @param list<string> $libraries
      */
-    private function getIndexTemplate()
+    private function scaffoldLibraries(array $libraries, string $uiSystem, bool $skipDownload, OutputInterface $output): void
+    {
+        $catalog  = $this->loadAssetCatalog();
+        $manifest = [];
+
+        foreach ($libraries as $key) {
+            $lib = $catalog['libraries'][$key] ?? null;
+            if ($lib === null) {
+                continue;
+            }
+            $manifest[$key] = [
+                'version'    => $lib['version'],
+                'local_path' => str_replace('assets/', 'www/assets/', $lib['local_path']),
+                'css'        => [],
+                'js'         => [],
+            ];
+
+            if (!$skipDownload) {
+                $output->writeln("  <comment>→ Downloading $key@{$lib['version']}...</comment>");
+                [$downloadedCss, $downloadedJs] = $this->downloadLibraryAssets($key, $lib, true);
+                $manifest[$key]['css'] = $downloadedCss;
+                $manifest[$key]['js']  = $downloadedJs;
+            }
+        }
+
+        $this->mkdir('scaffolding');
+        $this->writeFile('scaffolding/assets.json', json_encode(['libraries' => $manifest], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Download CSS + JS files for a single library.
+     *
+     * @return array{list<string>, list<string>}  [downloaded_css_paths, downloaded_js_paths]
+     */
+    private function downloadLibraryAssets(string $key, array $lib, bool $verbose): array
+    {
+        $localBase = $this->targetBaseDir . '/www/' . $lib['local_path'];
+        if (!is_dir($localBase)) {
+            @mkdir($localBase, 0777, true);
+        }
+
+        $downloadedCss = [];
+        $downloadedJs  = [];
+
+        foreach ($lib['css'] as $url) {
+            $filename = basename(parse_url($url, PHP_URL_PATH));
+            $dest     = $localBase . '/' . $filename;
+            if ($this->downloadFile($url, $dest)) {
+                $downloadedCss[] = $lib['local_path'] . '/' . $filename;
+            }
+        }
+        foreach ($lib['js'] as $url) {
+            $filename = basename(parse_url($url, PHP_URL_PATH));
+            $dest     = $localBase . '/' . $filename;
+            if ($this->downloadFile($url, $dest)) {
+                $downloadedJs[] = $lib['local_path'] . '/' . $filename;
+            }
+        }
+
+        return [$downloadedCss, $downloadedJs];
+    }
+
+    private function downloadFile(string $url, string $dest): bool
+    {
+        $ctx = stream_context_create([
+            'http' => [
+                'timeout'    => 15,
+                'user_agent' => 'PramnosFramework/1.2 (+https://github.com/mrpc/PramnosFramework)',
+            ],
+        ]);
+        $data = @file_get_contents($url, false, $ctx);
+        if ($data === false) {
+            return false;
+        }
+        return file_put_contents($dest, $data) !== false;
+    }
+
+    private function loadAssetCatalog(): array
+    {
+        $file = $this->scaffoldingDir . '/assets.json';
+        if (!file_exists($file)) {
+            return ['libraries' => []];
+        }
+        return json_decode(file_get_contents($file), true) ?? ['libraries' => []];
+    }
+
+    private function scaffoldTests(string $namespace, string $dbType, string $dbHost, string $dbName, string $dbUser, string $dbPass, string $dbPrefix, bool $useDocker): void
+    {
+        $this->mkdir('tests/Unit');
+        $this->mkdir('tests/Integration');
+
+        $testDbName = $dbName . '_test';
+        $this->scaffoldSettings('app/config/testsettings.php', $dbType, $dbHost, $testDbName, $dbUser, $dbPass, $dbPrefix, true);
+
+        $this->writeFile('tests/bootstrap.php', "<?php\ndefine('ROOT', dirname(__DIR__));\nrequire ROOT . '/vendor/autoload.php';\n\n\\Pramnos\\Framework\\Testing\\TestEnvironment::setup(\n    ROOT . '/app/config/testsettings.php'\n);\n");
+        $this->writeFile('tests/BaseTestCase.php', "<?php\nnamespace Tests;\n\nclass BaseTestCase extends \\Pramnos\\Framework\\Testing\\BaseTestCase\n{\n}\n");
+        $this->writeFile('phpunit.xml', $this->getPhpunitXml());
+        $this->writeFile('tests/Unit/ExampleTest.php', $this->renderStub('test', ['class' => 'Example']));
+    }
+
+    private function getPhpunitXml(): string
+    {
+        return <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="tests/bootstrap.php" colors="true">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Integration">
+            <directory>tests/Integration</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
+XML;
+    }
+
+    private function getIndexTemplate(): string
     {
         return <<<PHP
 <?php
@@ -343,54 +580,27 @@ echo \$app->render();
 PHP;
     }
 
-    /**
-     * Scaffold Docker environment files.
-     * 
-     * @param string $namespace App namespace used for container names
-     * @param int    $port Local port mapping
-     * @param string $dbType Database type
-     * @param string $dbName Database name
-     * @param string $dbUser Database user
-     * @param string $dbPass Database password
-     * @param string $cacheSystem Cache system (none, redis, memcached)
-     */
-    private function scaffoldDocker($namespace, $port, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem, $dbRootPass)
+    private function scaffoldDocker(string $namespace, int $port, string $dbType, string $dbName, string $dbUser, string $dbPass, string $cacheSystem, string $dbRootPass): void
     {
-        $image = 'postgres:latest';
-        if ($dbType === 'timescaledb') {
-            $image = 'timescale/timescaledb:latest-pg17';
-        } elseif ($dbType === 'mysql') {
-            $image = 'mysql:8.0';
-        }
-        
-        $dbService = ($dbType === 'mysql') ? 'mysql' : 'postgres';
         $isPostgres = ($dbType === 'postgresql' || $dbType === 'timescaledb');
-        $slug = strtolower(str_replace([' ', '_'], '-', $namespace));
-        
-        // Detect if framework is local (symlinked via path repository)
-        $extraVolumes = "";
-        $composerPath = $this->targetBaseDir . '/composer.json';
-        if (file_exists($composerPath)) {
-            $composer = json_decode(file_get_contents($composerPath), true);
-            foreach ($composer['repositories'] ?? [] as $repo) {
-                if (($repo['type'] ?? '') === 'path' && (strpos($repo['url'] ?? '', 'PramnosFramework') !== false)) {
-                    // Extract the framework path and map it to /var/www/PramnosFramework
-                    // Most likely it's ../PramnosFramework
-                    $fwPath = $repo['url'];
-                    $extraVolumes = "      - $fwPath:/var/www/PramnosFramework\n";
-                    break;
-                }
-            }
-        }
+        $slug       = strtolower(str_replace([' ', '_'], '-', $namespace));
 
-        $compose = "services:\n  app:\n    container_name: {$slug}_php\n    build: .\n    ports:\n      - \"$port:80\"\n    volumes:\n      - .:/var/www/html\n$extraVolumes    depends_on:\n      - db\n";
-        
+        $image = match ($dbType) {
+            'timescaledb' => 'timescale/timescaledb:latest-pg17',
+            'mysql'       => 'mysql:8.0',
+            default       => 'postgres:latest',
+        };
+
+        $extraVolumes = $this->detectFrameworkDevVolume();
+
+        $compose  = "services:\n  app:\n    container_name: {$slug}_php\n    build: .\n    ports:\n      - \"$port:80\"\n    volumes:\n      - .:/var/www/html\n$extraVolumes    depends_on:\n      - db\n";
+
         if ($cacheSystem !== 'none') {
             $compose .= "      - cache\n";
         }
 
         $compose .= "  db:\n    container_name: {$slug}_db\n    image: $image\n";
-        
+
         if ($dbType === 'mysql') {
             $compose .= "    volumes:\n      - ./docker/mysql-init:/docker-entrypoint-initdb.d\n";
         }
@@ -401,8 +611,6 @@ PHP;
         } else {
             $compose .= "      MYSQL_DATABASE: $dbName\n      MYSQL_USER: $dbUser\n      MYSQL_PASSWORD: $dbPass\n      MYSQL_ROOT_PASSWORD: $dbRootPass\n";
             $compose .= "    command: mysqld --default-authentication-plugin=mysql_native_password --sql_mode=\"NO_AUTO_VALUE_ON_ZERO\" --general-log=1 --general-log-file=/var/lib/mysql/general-log.log\n";
-            
-            // Generate initialization script to grant permissions for test databases
             $this->mkdir('docker/mysql-init');
             $this->writeFile('docker/mysql-init/init.sql', "GRANT ALL PRIVILEGES ON *.* TO '$dbUser'@'%';\nFLUSH PRIVILEGES;\n");
         }
@@ -411,19 +619,19 @@ PHP;
             $compose .= "  cache:\n    container_name: {$slug}_cache\n    image: $cacheSystem:latest\n";
         }
 
-        $toolPort = (int)$port + 1;
+        $toolPort = $port + 1;
         if ($isPostgres) {
             $compose .= "  adminer:\n    container_name: {$slug}_adminer\n    image: adminer\n    ports:\n      - \"$toolPort:8080\"\n";
         } else {
-            $compose .= "  phpmyadmin:\n    container_name: {$slug}_pma\n    image: phpmyadmin/phpmyadmin\n    ports:\n      - \"$toolPort:80\"\n    environment:\n      PMA_HOST: db\n      UPLOAD_LIMIT: 5G\n      PHP_UPLOAD_MAX_FILESIZE: 5G\n      PHP_POST_MAX_SIZE: 5G\n";
+            $compose .= "  phpmyadmin:\n    container_name: {$slug}_pma\n    image: phpmyadmin/phpmyadmin\n    ports:\n      - \"$toolPort:80\"\n    environment:\n      PMA_HOST: db\n      UPLOAD_LIMIT: 5G\n";
         }
 
         $this->writeFile('docker-compose.yml', $compose);
-        
-        $phpExts = $isPostgres ? 'pdo_pgsql pgsql' : 'pdo_mysql mysqli';
-        $docRoot = "/var/www/html/www";
-        
-        $dockerfile = "FROM php:8.4-apache\n";
+
+        $phpExts  = $isPostgres ? 'pdo_pgsql pgsql' : 'pdo_mysql mysqli';
+        $docRoot  = '/var/www/html/www';
+
+        $dockerfile  = "FROM php:8.4-apache\n";
         $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev libonig-dev libzip-dev libxml2-dev git unzip\n";
         $dockerfile .= "COPY --from=composer:latest /usr/bin/composer /usr/bin/composer\n";
         $dockerfile .= "RUN docker-php-ext-configure intl\n";
@@ -439,24 +647,34 @@ PHP;
         $dockerfile .= "RUN composer install --no-scripts --no-autoloader || true\n";
         $dockerfile .= "COPY . .\n";
         $dockerfile .= "RUN composer dump-autoload\n";
-        
+
         $this->writeFile('Dockerfile', $dockerfile);
 
-        $this->writeFile('dockerbash', $this->getDockerBashTemplate());
-        chmod($this->targetBaseDir . '/dockerbash', 0755);
+        $dockerbashScript = $this->getDockerBashTemplate();
+        $this->writeFile('dockerbash', $dockerbashScript);
+        @chmod($this->targetBaseDir . '/dockerbash', 0755);
 
-        $this->writeFile('dockertest', $this->getDockerTestTemplate($namespace, $port));
-        chmod($this->targetBaseDir . '/dockertest', 0755);
+        $dockertestScript = $this->getDockerTestTemplate($namespace, $port);
+        $this->writeFile('dockertest', $dockertestScript);
+        @chmod($this->targetBaseDir . '/dockertest', 0755);
     }
 
-    /**
-     * Get the template for the dockertest bash script.
-     * 
-     * @param string $namespace
-     * @param int    $port
-     * @return string
-     */
-    private function getDockerTestTemplate($namespace, $port)
+    private function detectFrameworkDevVolume(): string
+    {
+        $composerPath = $this->targetBaseDir . '/composer.json';
+        if (!file_exists($composerPath)) {
+            return '';
+        }
+        $composer = json_decode(file_get_contents($composerPath), true) ?: [];
+        foreach ($composer['repositories'] ?? [] as $repo) {
+            if (($repo['type'] ?? '') === 'path' && str_contains($repo['url'] ?? '', 'PramnosFramework')) {
+                return "      - {$repo['url']}:/var/www/PramnosFramework\n";
+            }
+        }
+        return '';
+    }
+
+    private function getDockerTestTemplate(string $namespace, int $port): string
     {
         $nsLower = strtolower($namespace);
         return <<<BASH
@@ -478,51 +696,33 @@ for arg in "\$@"; do
     fi
 done
 
-# Check if containers are running
 if ! docker-compose ps | grep -q "app.*Up"; then
     echo "Containers not running. Starting them..."
     docker-compose up -d
-    echo "Waiting for services to be ready..."
     sleep 5
 fi
 
-# Check if database is initialized by accessing the app (optional but recommended)
-echo "Ensuring application is reachable..."
-curl -s http://localhost:$port/$nsLower/www/ > /dev/null 2>&1
-
-# Check if vendor folder exists, otherwise install dependencies
 if [ ! -f "vendor/bin/phpunit" ]; then
-    echo "Dependencies missing. Running composer install inside the container..."
+    echo "Dependencies missing. Running composer install..."
     docker-compose exec app composer install
 fi
 
-# Run tests
 extra_flags="--display-deprecations --display-warnings --display-notices --display-phpunit-deprecations"
 [[ "\$testdox" == true ]] && extra_flags="\$extra_flags --testdox"
 
 if [[ "\$coverage" == true ]]; then
-    # Ensure coverage directory exists
     mkdir -p coverage
     docker-compose exec app vendor/bin/phpunit --coverage-html coverage \$extra_flags "\${passthrough[@]}"
 else
     docker-compose exec app vendor/bin/phpunit \$extra_flags "\${passthrough[@]}"
 fi
 
-# Open coverage report if generated and not suppressed
 if [[ "\$coverage" == true && "\$nobrowser" == false && -f ./coverage/index.html ]]; then
-    echo "Opening coverage report..."
-    if [[ "\$OSTYPE" == "msys" || "\$OSTYPE" == "cygwin" || "\$OSTYPE" == "linux-gnu"* && "\$(uname -r)" == *"Microsoft"* || -n "\$WSL_DISTRO_NAME" ]]; then
-        # Check if we are in WSL
-        if command -v wslpath > /dev/null; then
-            win_path=\$(wslpath -w "\$(pwd)")
-            explorer.exe "\$win_path\coverage\index.html"
-        else
-            explorer.exe "coverage\index.html"
-        fi
-    elif [[ "\$OSTYPE" == "linux-gnu"* ]]; then
-        if command -v xdg-open > /dev/null; then
-            xdg-open ./coverage/index.html
-        fi
+    if command -v wslpath > /dev/null; then
+        win_path=\$(wslpath -w "\$(pwd)")
+        explorer.exe "\$win_path\\coverage\\index.html"
+    elif [[ "\$OSTYPE" == "linux-gnu"* ]] && command -v xdg-open > /dev/null; then
+        xdg-open ./coverage/index.html
     elif [[ "\$OSTYPE" == "darwin"* ]]; then
         open ./coverage/index.html
     fi
@@ -530,21 +730,14 @@ fi
 BASH;
     }
 
-    /**
-     * Get the template for the dockerbash script.
-     * 
-     * @return string
-     */
-    private function getDockerBashTemplate()
+    private function getDockerBashTemplate(): string
     {
         return <<<BASH
 #!/usr/bin/env bash
 
-# Check if containers are running
 if ! docker-compose ps | grep -q "app.*Up"; then
     echo "Containers not running. Starting them..."
     docker-compose up -d
-    echo "Waiting for services to be ready..."
     sleep 5
 fi
 
@@ -552,127 +745,106 @@ docker-compose exec app bash
 BASH;
     }
 
-    /**
-     * Scaffold the testing infrastructure.
-     * 
-     * @param string $namespace App namespace
-     * @param string $dbType Database type
-     * @param string $dbHost Database host
-     * @param string $dbName Database name
-     * @param string $dbUser Database user
-     * @param string $dbPass Database password
-     * @param string $dbPrefix Database prefix
-     * @param bool   $useDocker Whether Docker is being used
-     */
-    private function scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker)
-    {
-        $this->mkdir('tests/Unit');
-        $this->mkdir('tests/Integration');
-        
-        $testDbName = $dbName . 'tests';
-        $this->scaffoldSettings('app/config/testsettings.php', $dbType, $dbHost, $testDbName, $dbUser, $dbPass, $dbPrefix, true);
-
-        $bootstrap = "<?php\ndefine('ROOT', dirname(__DIR__));\nrequire ROOT . '/vendor/autoload.php';\n\n\Pramnos\Framework\Testing\TestEnvironment::setup(\n    ROOT . '/app/config/testsettings.php'\n);\n";
-        $this->writeFile('tests/bootstrap.php', $bootstrap);
-
-        $baseTest = "<?php\nnamespace Tests;\n\nclass BaseTestCase extends \\Pramnos\\Framework\\Testing\\BaseTestCase\n{\n}\n";
-        $this->writeFile('tests/BaseTestCase.php', $baseTest);
-
-        $phpunitXml = <<<XML
-<?xml version="1.0" encoding="UTF-8"?>
-<phpunit bootstrap="tests/bootstrap.php" colors="true">
-    <testsuites>
-        <testsuite name="Unit">
-            <directory>tests/Unit</directory>
-        </testsuite>
-        <testsuite name="Integration">
-            <directory>tests/Integration</directory>
-        </testsuite>
-    </testsuites>
-</phpunit>
-XML;
-        $this->writeFile('phpunit.xml', $phpunitXml);
-
-        $exampleTest = "<?php\nnamespace Tests\Unit;\n\nuse Tests\BaseTestCase;\n\nclass ExampleTest extends BaseTestCase\n{\n    public function test_it_works()\n    {\n        \$this->assertTrue(true);\n    }\n}\n";
-        $this->writeFile('tests/Unit/ExampleTest.php', $exampleTest);
-    }
-
-    /**
-     * Update the project's composer.json with actual project metadata.
-     * 
-     * @param string $appName
-     * @param string $namespace
-     * @param string $userName
-     * @param string $userEmail
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
-     */
-    private function updateComposerJson($appName, $namespace, $userName, $userEmail, $output)
+    private function updateComposerJson(string $appName, string $namespace, string $userName, string $userEmail, OutputInterface $output): void
     {
         $composerPath = $this->targetBaseDir . '/composer.json';
         if (!file_exists($composerPath)) {
             return;
         }
-
         $composer = json_decode(file_get_contents($composerPath), true);
         if (!$composer) {
             return;
         }
 
-        // Slugify app name for package name
         $slug = strtolower(str_replace([' ', '_'], '-', $appName));
-        
-        $composer['name'] = "app/$slug";
-        $composer['description'] = "Pramnos Application: $appName";
-        
-        $composer['authors'] = [
-            [
-                'name' => $userName,
-                'email' => $userEmail
-            ]
-        ];
 
-        // Add PHPUnit to require-dev
+        $composer['name']        = "app/$slug";
+        $composer['description'] = "Pramnos Application: $appName";
+        $composer['authors']     = [['name' => $userName, 'email' => $userEmail]];
+        $composer['keywords']    = ['pramnos', 'framework', 'application', $slug];
+
         if (!isset($composer['require-dev'])) {
             $composer['require-dev'] = [];
         }
         $composer['require-dev']['phpunit/phpunit'] = '^11.0';
-        
-        // Update autoloading
-        if (!isset($composer['autoload'])) {
-            $composer['autoload'] = ['psr-4' => []];
-        }
-        
-        $composer['autoload']['psr-4'] = [
-            "$namespace\\" => "src/"
-        ];
 
-        $composer['autoload-dev'] = [
-            'psr-4' => [
-                'Tests\\' => 'tests/'
-            ]
-        ];
+        $composer['autoload']     = ['psr-4' => ["$namespace\\" => 'src/']];
+        $composer['autoload-dev'] = ['psr-4' => ['Tests\\' => 'tests/']];
 
-        // Remove the initialization script from the project
-        if (isset($composer['scripts']['post-create-project-cmd'])) {
-            unset($composer['scripts']['post-create-project-cmd']);
-        }
-        
-        // Clean up keywords and potentially other template-only fields
-        $composer['keywords'] = ['pramnos', 'framework', 'application', $slug];
+        unset($composer['scripts']['post-create-project-cmd']);
 
         file_put_contents($composerPath, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-
-        // Automatically run composer dump-autoload to sync the new namespace
-        $output->writeln("");
     }
 
-    /**
-     * Check if a port is available on localhost.
-     * 
-     * @param int $port
-     * @return bool
-     */
-    private function isPortAvailable($port)
+    private function printSummary(OutputInterface $output, bool $useDocker, int $dockerPort, string $dbType, string $dbUser, string $dbPass, string $dbRootPass, bool $skipMigrations = false): void
+    {
+        $output->writeln("\nNext steps:");
+        $steps = [];
+
+        if ($useDocker) {
+            if (!$this->dockerSuccess && !$this->skipDockerRun) {
+                $steps[] = "Run <comment>docker-compose up -d --build</comment>";
+            }
+            $steps[] = "Access your app at <comment>http://localhost:$dockerPort</comment>";
+            $toolPort = $dockerPort + 1;
+            $toolName = ($dbType === 'mysql') ? 'PHPMyAdmin' : 'Adminer';
+            $steps[] = "Access $toolName at <comment>http://localhost:$toolPort</comment>";
+            $steps[] = "Use <comment>./dockerbash</comment> to enter the container";
+            $steps[] = "Database:\n    User: <comment>$dbUser</comment> / Pass: <comment>$dbPass</comment>"
+                . ($dbType === 'mysql' ? "\n    Root Pass: <comment>$dbRootPass</comment>" : '');
+
+            if ($this->migrationsSuccess) {
+                $steps[] = "<info>✓ Framework migrations ran successfully.</info>";
+            } elseif (!$skipMigrations) {
+                $steps[] = "Run <comment>docker-compose exec app php bin/pramnos migrate:framework</comment> when the container is ready.";
+            }
+        }
+
+        if (!$this->autoloadSuccess) {
+            $steps[] = "<comment>Warning: autoloader sync failed.</comment> Run <comment>composer dump-autoload</comment> manually.";
+        }
+
+        foreach ($steps as $i => $step) {
+            $output->writeln(' ' . ($i + 1) . '. ' . $step);
+        }
+    }
+
+    // ── Utilities ─────────────────────────────────────────────────────────────
+
+    private function resolveScaffoldingDir(): string
+    {
+        $candidates = [
+            dirname(__DIR__, 4) . '/scaffolding',                     // dependency install
+            dirname(__DIR__, 2) . '/../../scaffolding',               // dev symlink
+            dirname(__FILE__, 5) . '/scaffolding',                    // absolute from Commands/
+        ];
+        // Walk up from this file to find the framework root
+        $dir = __DIR__;
+        for ($i = 0; $i < 6; $i++) {
+            $candidate = $dir . '/scaffolding';
+            if (is_dir($candidate . '/templates')) {
+                return $candidate;
+            }
+            $dir = dirname($dir);
+        }
+        // Last resort: use well-known package path relative to ROOT
+        return (defined('ROOT') ? ROOT : getcwd()) . '/vendor/mrpc/pramnosframework/scaffolding';
+    }
+
+    private function mkdir(string $path): void
+    {
+        $fullPath = $this->targetBaseDir . '/' . $path;
+        if (!is_dir($fullPath)) {
+            @mkdir($fullPath, 0777, true);
+        }
+    }
+
+    private function writeFile(string $path, string $content): void
+    {
+        file_put_contents($this->targetBaseDir . '/' . $path, $content);
+    }
+
+    private function isPortAvailable(int $port): bool
     {
         $connection = @fsockopen('localhost', $port, $errno, $errstr, 0.1);
         if (is_resource($connection)) {
@@ -682,274 +854,23 @@ XML;
         return true;
     }
 
-    /**
-     * Scaffold the default theme.
-     * 
-     * @param string $appName
-     */
-    private function scaffoldTheme($appName)
-    {
-        $themeDir = 'app/themes/default';
-        
-        // theme.html.php
-        $this->writeFile($themeDir . '/theme.html.php', $this->getThemeHtmlTemplate());
-        
-        // header.php
-        $this->writeFile($themeDir . '/header.php', $this->getThemeHeaderTemplate($appName));
-        
-        // footer.php
-        $this->writeFile($themeDir . '/footer.php', $this->getThemeFooterTemplate());
-        
-        // style.css
-        $this->writeFile('www/assets/css/style.css', $this->getThemeCssTemplate());
-    }
-
-    /**
-     * Get the HTML wrapper template for the default theme.
-     * 
-     * @return string
-     */
-    private function getThemeHtmlTemplate()
-    {
-        return <<<'PHP'
-<?php $this->get_Header(); ?>
-<main class="main-content">
-    <div class="container">
-        [MODULE]
-    </div>
-</main>
-<?php $this->get_Footer(); ?>
-PHP;
-    }
-
-    /**
-     * Get the Header template for the default theme.
-     * 
-     * @param string $appName
-     * @return string
-     */
-    private function getThemeHeaderTemplate($appName)
-    {
-        return <<<PHP
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="<?php echo sURL; ?>assets/css/style.css">
-    <?php \$this->document->renderCss(); ?>
-    <header class="main-header">
-        <div class="container">
-            <a href="<?php echo sURL; ?>" class="logo">
-                <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>
-            </a>
-            <nav class="main-nav">
-                <ul>
-                    <li><a href="<?php echo sURL; ?>">Home</a></li>
-                </ul>
-            </nav>
-        </div>
-    </header>
-PHP;
-    }
-
-    /**
-     * Get the Footer template for the default theme.
-     * 
-     * @return string
-     */
-    private function getThemeFooterTemplate()
-    {
-        return <<<'PHP'
-    <footer class="main-footer">
-        <div class="container">
-            <div class="footer-content">
-                <p>&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
-                <p class="powered">Powered by <a href="https://github.com/mrpc/PramnosFramework" target="_blank">PramnosFramework</a></p>
-            </div>
-        </div>
-    </footer>
-    <?php $this->document->renderJs(); ?>
-PHP;
-    }
-
-    /**
-     * Get the CSS template for the default theme.
-     * 
-     * @return string
-     */
-    private function getThemeCssTemplate()
-    {
-        return <<<'CSS'
-:root {
-    --primary-color: #2563eb;
-    --primary-hover: #1d4ed8;
-    --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-    --text-main: #1e293b;
-    --text-muted: #64748b;
-    --white: #ffffff;
-    --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    --glass-bg: rgba(255, 255, 255, 0.8);
-}
-
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-body {
-    font-family: 'Inter', sans-serif;
-    color: var(--text-main);
-    background: var(--bg-gradient);
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    line-height: 1.6;
-}
-
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 2rem;
-}
-
-.main-header {
-    background: var(--white);
-    padding: 1.5rem 0;
-    box-shadow: var(--shadow);
-    position: sticky;
-    top: 0;
-    z-index: 100;
-}
-
-.main-header .container {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.logo {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--primary-color);
-    text-decoration: none;
-    letter-spacing: -0.025em;
-}
-
-.main-nav ul {
-    list-style: none;
-    display: flex;
-    gap: 2rem;
-}
-
-.main-nav a {
-    text-decoration: none;
-    color: var(--text-main);
-    font-weight: 500;
-    transition: color 0.2s ease;
-}
-
-.main-nav a:hover {
-    color: var(--primary-color);
-}
-
-.main-content {
-    flex: 1;
-    padding: 4rem 0;
-}
-
-.main-content .container {
-    background: var(--glass-bg);
-    backdrop-filter: blur(10px);
-    padding: 3rem;
-    border-radius: 1rem;
-    box-shadow: var(--shadow);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-.main-footer {
-    background: var(--white);
-    padding: 3rem 0;
-    margin-top: auto;
-    border-top: 1px solid #e2e8f0;
-}
-
-.footer-content {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    color: var(--text-muted);
-    font-size: 0.875rem;
-}
-
-.footer-content a {
-    color: var(--primary-color);
-    text-decoration: none;
-}
-
-.footer-content a:hover {
-    text-decoration: underline;
-}
-
-h1 {
-    font-size: 3rem;
-    font-weight: 800;
-    margin-bottom: 1.5rem;
-    color: var(--text-main);
-    letter-spacing: -0.05em;
-}
-
-p {
-    margin-bottom: 1rem;
-    font-size: 1.125rem;
-}
-
-@media (max-width: 768px) {
-    .main-content {
-        padding: 2rem 0;
-    }
-    .main-content .container {
-        padding: 1.5rem;
-    }
-    h1 {
-        font-size: 2rem;
-    }
-}
-CSS;
-    }
-
-    /**
-     * Run a shell command with an animated console spinner.
-     * 
-     * @param string $command
-     * @param string $message
-     * @param OutputInterface $output
-     * @return int Exit code of the command.
-     */
-    private function runProcessWithSpinner($command, $message, $output)
+    private function runProcessWithSpinner(string $command, string $message, OutputInterface $output): int
     {
         $isVerbose = $output->getVerbosity() >= OutputInterface::VERBOSITY_VERBOSE;
-        
+
         if ($isVerbose) {
             $output->writeln("<info>$message...</info>");
-            // Remove redirection if verbose to let output through
             $command = str_replace(' 2>/dev/null', '', $command);
         } else {
             $output->write("$message ");
         }
 
         $symbols = ['/', '-', '\\', '|'];
-        $i = 0;
+        $i       = 0;
 
-        $descriptorspec = [
-            1 => ['pipe', 'w'], // stdout
-            2 => ['pipe', 'w']  // stderr
-        ];
-
-        $process = proc_open($command, $descriptorspec, $pipes);
-
+        $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         if (!is_resource($process)) {
-            $output->writeln("<error>FAILED</error>");
+            $output->writeln('<error>FAILED</error>');
             return 1;
         }
 
@@ -961,25 +882,18 @@ CSS;
             if (!$status['running']) {
                 break;
             }
-
             if ($isVerbose) {
-                // In verbose mode, just stream the output
-                if ($stdout = stream_get_contents($pipes[1])) {
-                    $output->write($stdout);
-                }
-                if ($stderr = stream_get_contents($pipes[2])) {
-                    $output->write($stderr);
-                }
+                $out = stream_get_contents($pipes[1]);
+                $err = stream_get_contents($pipes[2]);
+                if ($out) $output->write($out);
+                if ($err) $output->write($err);
             } else {
-                // In normal mode, show spinner without tags to avoid UI glitches
-                $output->write("\r\033[K" . $message . ' ' . $symbols[$i % 4]);
+                $output->write("\r\033[K$message " . $symbols[$i % 4]);
             }
-            
             $i++;
-            usleep(100000);
+            usleep(100_000);
         }
 
-        // Final drain of pipes
         if ($isVerbose) {
             $output->write(stream_get_contents($pipes[1]));
             $output->write(stream_get_contents($pipes[2]));
@@ -992,17 +906,10 @@ CSS;
         $exitCode = proc_close($process);
 
         if ($isVerbose) {
-            if ($exitCode === 0) {
-                $output->writeln("<info>$message: DONE</info>");
-            } else {
-                $output->writeln("<error>$message: FAILED (Exit Code: $exitCode)</error>");
-            }
+            $output->writeln($exitCode === 0 ? "<info>$message: DONE</info>" : "<error>$message: FAILED (Exit Code: $exitCode)</error>");
         } else {
-            if ($exitCode === 0) {
-                $output->write("\r\033[K" . $message . " <info>DONE</info>\n");
-            } else {
-                $output->write("\r\033[K" . $message . " <error>FAILED</error>\n");
-            }
+            $suffix = $exitCode === 0 ? "<info>DONE</info>" : "<error>FAILED</error>";
+            $output->write("\r\033[K$message $suffix\n");
         }
 
         return $exitCode;

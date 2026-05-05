@@ -1,0 +1,207 @@
+{
+    "libraries": {
+        "jquery": {
+            "version": "3.7.1",
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"
+            ],
+            "local_path": "assets/vendor/jquery/3.7.1"
+        },
+        "alpinejs": {
+            "version": "3.13.10",
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/alpinejs@3.13.10/dist/cdn.min.js"
+            ],
+            "local_path": "assets/vendor/alpinejs/3.13.10"
+        },
+        "htmx": {
+            "version": "1.9.12",
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/htmx.org@1.9.12/dist/htmx.min.js"
+            ],
+            "local_path": "assets/vendor/htmx/1.9.12"
+        },
+        "datatables": {
+            "version": "1.13.8",
+            "requires": ["jquery"],
+            "css": [
+                "https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css"
+            ],
+            "js": [
+                "https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"
+            ],
+            "local_path": "assets/vendor/datatables/1.13.8"
+        },
+        "select2": {
+            "version": "4.1.0-rc.0",
+            "requires": ["jquery"],
+            "css": [
+                "https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css"
+            ],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"
+            ],
+            "local_path": "assets/vendor/select2/4.1.0-rc.0"
+        },
+        "tom-select": {
+            "version": "2.3.1",
+            "css": [
+                "https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.min.css"
+            ],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"
+            ],
+            "local_path": "assets/vendor/tom-select/2.3.1"
+        },
+        "flatpickr": {
+            "version": "4.6.13",
+            "css": [
+                "https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css"
+            ],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"
+            ],
+            "local_path": "assets/vendor/flatpickr/4.6.13"
+        },
+        "chartjs": {
+            "version": "4.4.3",
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
+            ],
+            "local_path": "assets/vendor/chartjs/4.4.3"
+        },
+        "apexcharts": {
+            "version": "3.49.2",
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/apexcharts@3.49.2/dist/apexcharts.min.js"
+            ],
+            "local_path": "assets/vendor/apexcharts/3.49.2"
+        },
+        "dropzone": {
+            "version": "6.0.0-beta.2",
+            "css": [
+                "https://unpkg.com/dropzone@6.0.0-beta.2/dist/dropzone.css"
+            ],
+            "js": [
+                "https://unpkg.com/dropzone@6.0.0-beta.2/dist/dropzone-min.js"
+            ],
+            "local_path": "assets/vendor/dropzone/6.0.0-beta.2"
+        },
+        "filepond": {
+            "version": "4.31.4",
+            "css": [
+                "https://cdn.jsdelivr.net/npm/filepond@4.31.4/dist/filepond.min.css"
+            ],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/filepond@4.31.4/dist/filepond.min.js"
+            ],
+            "local_path": "assets/vendor/filepond/4.31.4"
+        },
+        "sweetalert2": {
+            "version": "11.11.0",
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/sweetalert2@11.11.0/dist/sweetalert2.all.min.js"
+            ],
+            "local_path": "assets/vendor/sweetalert2/11.11.0"
+        },
+        "toastify": {
+            "version": "1.12.0",
+            "css": [
+                "https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css"
+            ],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.js"
+            ],
+            "local_path": "assets/vendor/toastify/1.12.0"
+        },
+        "sortablejs": {
+            "version": "1.15.2",
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"
+            ],
+            "local_path": "assets/vendor/sortablejs/1.15.2"
+        },
+        "cropperjs": {
+            "version": "1.6.2",
+            "css": [
+                "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css"
+            ],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"
+            ],
+            "local_path": "assets/vendor/cropperjs/1.6.2"
+        },
+        "leaflet": {
+            "version": "1.9.4",
+            "css": [
+                "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css"
+            ],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
+            ],
+            "local_path": "assets/vendor/leaflet/1.9.4"
+        },
+        "tinymce": {
+            "version": "7.2.0",
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/tinymce@7.2.0/tinymce.min.js"
+            ],
+            "local_path": "assets/vendor/tinymce/7.2.0"
+        },
+        "quill": {
+            "version": "2.0.2",
+            "css": [
+                "https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css"
+            ],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"
+            ],
+            "local_path": "assets/vendor/quill/2.0.2"
+        },
+        "fontawesome": {
+            "version": "6.5.2",
+            "css": [
+                "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css"
+            ],
+            "js": [],
+            "local_path": "assets/vendor/fontawesome/6.5.2"
+        },
+        "bootstrap-icons": {
+            "version": "1.11.3",
+            "requires_ui": ["bootstrap"],
+            "css": [
+                "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+            ],
+            "js": [],
+            "local_path": "assets/vendor/bootstrap-icons/1.11.3"
+        },
+        "flowbite": {
+            "version": "2.3.0",
+            "requires_ui": ["tailwind"],
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/flowbite@2.3.0/dist/flowbite.min.js"
+            ],
+            "local_path": "assets/vendor/flowbite/2.3.0"
+        },
+        "bootstrap": {
+            "version": "5.3.3",
+            "requires_ui": ["bootstrap"],
+            "css": [
+                "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+            ],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            ],
+            "local_path": "assets/vendor/bootstrap/5.3.3"
+        }
+    }
+}

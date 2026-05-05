@@ -1,0 +1,9 @@
+<?php
+namespace {{ namespace }}\Events;
+
+class {{ class }}
+{
+    public function __construct(
+        // TODO: add event payload properties
+    ) {}
+}
