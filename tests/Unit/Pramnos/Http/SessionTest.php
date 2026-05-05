@@ -30,7 +30,7 @@ class SessionTest extends \PHPUnit\Framework\TestCase
     {
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'none';
         $ip = $useIp ? ($_SERVER['REMOTE_ADDR'] ?? 'none') : '';
-        return md5($ua . $ip . $token);
+        return hash_hmac('sha256', $ua . $ip, $token);
     }
 
     /**
