@@ -1,8 +1,24 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-06 (session 34)
+## 📅 Last Updated: 2026-05-06 (session 35)
 
 ## 🚀 Completed Milestones
+
+### Phase 3: Migration Wizard & Seeder Generator (2026-05-06, session 35)
+
+- [x] **Interactive migration wizard** — `create migration` (no name) launches terminal wizard: description → table → PK → columns loop (type/length/nullable/default/comment/unique) → timestamps → soft-deletes → foreign keys loop → writes migration with full `up()`/`down()` bodies
+- [x] **Post-wizard scaffold** — after migration creation, wizard asks: Model, Web Controller, API Controller, Seeder — all created without DB connection
+- [x] **`Pramnos\Database\Seeder`** — new abstract base class with `insert(table, data)` helper using `Database::insertDataToTable()`
+- [x] **`seeder.stub`** — new template: extends Seeder, loops `{{ count }}` times, injects `{{ fields }}` block
+- [x] **`create seeder <Name>`** — standalone seeder creation (bare skeleton when no columns provided)
+- [x] **Public helper methods on `Create`**: `buildMigrationUpBody()`, `buildMigrationDownBody()`, `blueprintCall()`, `generateFakeValue()`, `buildSeederFields()`
+- [x] **`generateFakeValue()`** — name heuristics (email, status, phone, city, password, token, uuid, lat/lon, price …) with type fallbacks
+- [x] **`migration.stub`** updated — added `Blueprint` import, `{{ up_body }}`/`{{ down_body }}` tokens
+- [x] **`name` argument** changed REQUIRED → OPTIONAL (wizard needs it; other entities validate internally)
+- [x] **18 unit tests** in `MigrationWizardHelpersTest.php`
+- [x] **Characterization test** updated to assert `name` is optional
+- [x] **`docs/1.2-new-features.md`** — Section 28 added
+- **Tests:** 1456/1456 passing (1438 + 18 new)
 
 ### Phase 3: Scaffolding modernisation (2026-05-06, session 34)
 
