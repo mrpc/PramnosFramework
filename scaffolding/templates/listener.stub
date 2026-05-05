@@ -1,15 +1,21 @@
 <?php
-namespace {{ namespace }}\Listeners;
 
-class {{ class }}
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use Pramnos\Event\ListenerInterface;
+
+class {{ class }} implements ListenerInterface
 {
     /**
-     * Handle the event.
+     * Handle the incoming event.
      *
-     * @param object $event
+     * Return false to stop propagation to subsequent listeners.
      */
-    public function handle(object $event): void
+    public function handle(mixed ...$args): mixed
     {
         // TODO: implement listener logic
+        return null;
     }
 }

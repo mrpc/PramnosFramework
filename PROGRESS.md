@@ -1,8 +1,26 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-05 (session 31)
+## 📅 Last Updated: 2026-05-05 (session 32)
 
 ## 🚀 Completed Milestones
+
+### Phase 2: Event / Hook System (2026-05-05, session 32)
+
+- [x] **`Pramnos\Event\Event`** (`src/Pramnos/Event/Event.php`) — static priority-ordered event bus:
+  - `listen(event, listener, priority=10)` — accepts Closure, class-name string, or `ListenerInterface` instance
+  - `fire(event, ...$args): array` — executes listeners in priority order; returns all return values; stops chain on `false`
+  - `forget(event='')` — clear one event or all events
+  - `hasListeners(event): bool`, `getListeners(event): array`
+- [x] **`Pramnos\Event\ListenerInterface`** (`src/Pramnos/Event/ListenerInterface.php`) — `handle(mixed ...$args): mixed` contract
+- [x] **Event/Listener Scaffolding** (`src/Pramnos/Console/Commands/Create.php`):
+  - `create:event <Name>` — writes `src/Events/<Name>.php` (plain value-object class) + test stub
+  - `create:listener <Name>` — writes `src/Listeners/<Name>.php` implementing `ListenerInterface` + test stub
+  - `scaffolding/templates/event.stub` and `listener.stub` updated to use `declare(strict_types=1)` and `ListenerInterface`
+  - Fallback skeletons added to `getFallbackStub()` for both types
+- [x] **Tests** (`tests/Unit/Event/EventTest.php` — 17 tests; `tests/Unit/Console/CreateCommandUnitTest.php` — 2 new tests): basic fire/listen, argument forwarding, multiple args, zero-listener contract, return values, priority ordering, FIFO same-priority, propagation stopping, null-no-stop, class-based listener, hasListeners, forget(event), forget() all, getListeners order, cross-event isolation; event/listener stub content assertions
+- [x] **`docs/1.2-new-features.md`** — Section 25 added (Event system API, listener types, priority, propagation, BC notes, test summary)
+- [x] **`ROADMAP_1.2.md`** — Event/Hook System and Event/Listener Scaffolding marked `[x]`
+- **Tests:** 1355/1355 passing (1338 + 17 new)
 
 ### Phase 3: Scaffolding System (2026-05-05, session 31)
 

@@ -24,6 +24,8 @@ class CreateCommandUnitTest extends TestCase
         // Arrange — isolated temp workspace
         $this->tmpDir = sys_get_temp_dir() . '/pramnos_create_test_' . bin2hex(random_bytes(4));
         mkdir($this->tmpDir . '/src/Middleware', 0777, true);
+        mkdir($this->tmpDir . '/src/Events', 0777, true);
+        mkdir($this->tmpDir . '/src/Listeners', 0777, true);
         mkdir($this->tmpDir . '/tests/Unit', 0777, true);
 
         if (!defined('ROOT')) {
@@ -131,6 +133,50 @@ class CreateCommandUnitTest extends TestCase
         // Assert — file not overwritten and summary is empty
         $this->assertSame('', $summary);
         $this->assertSame('<?php // existing content', file_get_contents($testFile));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // renderStub() — event and listener stubs
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * renderStub() for 'event' produces a plain PHP class that can carry
+     * event payload. The event stub does NOT implement any interface — it is
+     * a value object, not a handler.
+     */
+    public function testRenderStubEventProducesPlainClass(): void
+    {
+        // Act
+        $result = $this->command->renderStub('event', [
+            'namespace' => 'App\\Events',
+            'class'     => 'UserRegistered',
+        ]);
+
+        // Assert — correctly namespaced class
+        $this->assertStringContainsString('namespace App\\Events;', $result);
+        $this->assertStringContainsString('class UserRegistered', $result);
+        // Event is a plain class, not a listener — no handle() method
+        $this->assertStringNotContainsString('ListenerInterface', $result);
+    }
+
+    /**
+     * renderStub() for 'listener' produces a class implementing ListenerInterface
+     * with a handle() method — this ensures generated listeners are compatible
+     * with Event::listen(MyListener::class).
+     */
+    public function testRenderStubListenerImplementsListenerInterface(): void
+    {
+        // Act
+        $result = $this->command->renderStub('listener', [
+            'namespace' => 'App\\Listeners',
+            'class'     => 'SendWelcomeEmail',
+        ]);
+
+        // Assert
+        $this->assertStringContainsString('namespace App\\Listeners;', $result);
+        $this->assertStringContainsString('class SendWelcomeEmail', $result);
+        $this->assertStringContainsString('ListenerInterface', $result);
+        $this->assertStringContainsString('public function handle', $result);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
