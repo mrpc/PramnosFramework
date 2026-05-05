@@ -238,7 +238,7 @@
 
 - [ ] **OAuth Server** *(feature key: `authserver`)*: Ενσωμάτωση του πλήρους oAuth Server ως core component του framework.
 - [ ] **Authentication System** *(feature key: `auth`)*: Νέο, αναβαθμισμένο σύστημα πιστοποίησης, βασισμένο στον oAuth Server.
-- [ ] **Queues System** *(feature key: `queue`)*: Σύστημα για Queues και Workers για εκτέλεση jobs στο background.
+- [x] **Queues System** *(feature key: `queue`)*: Backport `QueueManager`, `Worker`, `AbstractTask`, `TaskInterface`, `QueueItem`, `ProcessQueue`, `CleanupQueue` από Urbanwater. Configurable hooks για URLs, task namespace, table name, dashboard title. Urbanwater μπορεί να κάνει subclass και να override μόνο τα app-specific μέρη.
 - [ ] **Messaging** *(feature key: `messaging`)*: Σύστημα μηνυμάτων — threads, recipients, read status.
 - [ ] **Daemons & Background Tasks:** Ολοκληρωμένο σύστημα δημιουργίας, διαχείρισης και επίβλεψης daemons/background tasks. Περιλαμβάνει:
   - Γενικό daemon framework (process management, signals, heartbeat)

@@ -4,6 +4,18 @@
 
 ## 🚀 Completed Milestones
 
+### Phase 2: Queue System backport (2026-05-05, session 33)
+
+- [x] **`Pramnos\Queue\TaskInterface`** — `execute()`, `validate()`, `handleFailure()`, `getDescription()` contract
+- [x] **`Pramnos\Queue\AbstractTask`** — default `validate()`, `handleFailure()`, `log()` helpers; `$name`, `$lastMessage` properties
+- [x] **`Pramnos\Queue\QueueItem`** — ORM model for `queueitems` table; configurable `getItemShowUrl/EditUrl/DeleteUrl()` hooks replace hardcoded Urbanwater URLs
+- [x] **`Pramnos\Queue\QueueManager`** — full queue lifecycle: `addTask()`, `getNextTask()` (split pending/stalled queries), all `markTask*` transitions, `getStats()`, `purgeOldTasks()`; `getTasksDirectory()` / `getTasksNamespace()` hooks replace hardcoded Urbanwater namespace scan; `getQueueTableName()` hook; `createQueueItemModel()` factory
+- [x] **`Pramnos\Queue\Worker`** — dispatches to registered handlers; empty `$taskHandlers` by default; `createQueueManager()` factory hook; `processNextTask()` accepts `$startFromTimestamp` + `$reverseOrder` params
+- [x] **`Pramnos\Console\Commands\ProcessQueue`** — full daemon command with live dashboard, DB reconnect loop, heartbeat, stop-file detection; `getDashboardTitle()` / `getControllerName()` / `createWorker()` / `createQueueManager()` hooks
+- [x] **`Pramnos\Console\Commands\CleanupQueue`** — `queue:cleanup` command; `getControllerName()` / `createQueueManager()` hooks
+- [x] **Tests** (`tests/Unit/Queue/QueueManagerTest.php` — 16 tests; `tests/Unit/Queue/WorkerTest.php` — 9 tests)
+- **Tests:** 1435/1435 passing (1410 + 25 new)
+
 ### Phase 2: DaemonOrchestrator backport (2026-05-05, session 33)
 
 - [x] **`Pramnos\Console\DaemonOrchestrator`** (`src/Pramnos/Console/DaemonOrchestrator.php`) — abstract process supervisor backported from Urbanwater:
