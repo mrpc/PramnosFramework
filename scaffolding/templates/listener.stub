@@ -1,0 +1,15 @@
+<?php
+namespace {{ namespace }}\Listeners;
+
+class {{ class }}
+{
+    /**
+     * Handle the event.
+     *
+     * @param object $event
+     */
+    public function handle(object $event): void
+    {
+        // TODO: implement listener logic
+    }
+}

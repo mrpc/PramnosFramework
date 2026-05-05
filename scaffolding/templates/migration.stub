@@ -1,0 +1,30 @@
+<?php
+namespace {{ namespace }}\Migrations;
+
+use Pramnos\Database\Migration;
+use Pramnos\Database\SchemaBuilder;
+
+/**
+ * {{ description }}
+ * Auto-generated: {{ date }}
+ */
+final class {{ class }} extends Migration
+{
+    public string $description = '{{ description }}';
+
+    /**
+     * Set true to wrap up() in BEGIN/COMMIT/ROLLBACK on PostgreSQL.
+     * Leave false for TimescaleDB-native operations (e.g. createHypertable).
+     */
+    public bool $transactional = false;
+
+    public function up(): void
+    {
+        // TODO: implement
+    }
+
+    public function down(): void
+    {
+        // TODO: implement
+    }
+}

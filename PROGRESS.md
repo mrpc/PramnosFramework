@@ -1,8 +1,30 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-05 (session 30)
+## 📅 Last Updated: 2026-05-05 (session 31)
 
 ## 🚀 Completed Milestones
+
+### Phase 3: Scaffolding System (2026-05-05, session 31)
+
+- [x] **`scaffolding/` directory** — created with all template stubs and theme files:
+  - `templates/`: `controller.stub`, `model.stub`, `migration.stub` (with `transactional=false`), `middleware.stub`, `event.stub`, `listener.stub`, `test.stub`
+  - `themes/plain-css/`, `themes/bootstrap/`, `themes/tailwind/` — each with `header.php`, `footer.php`, `theme.html.php`, `style.css`
+  - `assets.json` — pinned versions for 21 libraries (jQuery, Alpine.js, htmx, DataTables, Select2, Tom Select, Flatpickr, Chart.js, ApexCharts, Dropzone.js, FilePond, SweetAlert2, Toastify, Sortable.js, Cropper.js, Leaflet.js, TinyMCE, Quill, Font Awesome, Bootstrap Icons, Flowbite)
+- [x] **`Init.php` — full wizard** (`src/Pramnos/Console/Commands/Init.php`):
+  - Step 2: Feature selection (auth, authserver, queue, messaging) with gate — writes `features` array to `app.php`
+  - Step 3: UI system selection (plain-css, bootstrap, tailwind) — loads theme from `scaffolding/themes/<ui>/`
+  - Step 4: Library selection with gate ("Configure extra libraries? [y/N]") — downloads to `www/assets/vendor/`, writes manifest, `--no-download` flag for CI
+  - Step 6: `docker-compose exec app php bin/pramnos migrate:framework` called after Docker startup and composer install; `--no-migrations` flag to skip
+  - All steps driveable via CLI options (`--features`, `--ui-system`, `--libraries`, `--no-download`, `--no-migrations`)
+  - BC: existing `setInputs` tests updated to provide 6 new inputs (4 feature + 1 UI + 1 library gate); options-driven tests unchanged
+  - `renderStub(string $name, array $tokens): string` — loads stub from `scaffolding/templates/`, falls back to embedded skeleton if absent
+- [x] **`Create.php` — middleware generator** (`src/Pramnos/Console/Commands/Create.php`):
+  - `create:middleware <Name>` — writes `src/Middleware/<Name>.php` implementing `MiddlewareInterface`
+  - Auto-generates `tests/Unit/<Name>MiddlewareTest.php` (never overwrites existing)
+  - `renderStub()` + `generateTestStub(string, string, string $baseDir = '')` helpers (stub-based, fallback-safe)
+  - `resolveScaffoldingDir()` walks up 6 directory levels to find `scaffolding/templates/`
+- [x] **Unit tests** (`tests/Unit/Console/InitCommandUnitTest.php` — 9 tests; `tests/Unit/Console/CreateCommandUnitTest.php` — 5 tests): stub rendering, token substitution, fallback, scaffolded files, feature array, timescaledb→postgresql mapping, Docker files, library manifest with `--no-download`
+- [x] **`docs/1.2-new-features.md`** — Section 24 added: wizard steps, CLI options table, Step 6 migration note, generated project structure, local asset download, `create:middleware`, stub system, BC notes
 
 ### Phase 5: Characterization Coverage — PostgreSQL mirrors (2026-05-05, session 30)
 

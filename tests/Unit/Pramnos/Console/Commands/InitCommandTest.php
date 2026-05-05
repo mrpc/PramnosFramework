@@ -49,16 +49,22 @@ class InitCommandTest extends TestCase
 
         // Simulate interactive inputs
         $commandTester->setInputs([
-            'Test App',     // App Name
-            'TestNamespace', // Namespace
-            'n',            // Setup Docker? (n)
-            '0',            // DB Type (mysql)
-            'localhost',    // Host
-            'testdb',       // DB Name
-            'root',         // User
-            '',             // Pass
-            '',             // Prefix
-            'Test Author',  // Author Name
+            'Test App',        // App Name
+            'TestNamespace',   // Namespace
+            'n',               // Step 2: Enable auth?
+            'n',               // Step 2: Enable authserver?
+            'n',               // Step 2: Enable queue?
+            'n',               // Step 2: Enable messaging?
+            '',                // Step 3: UI system (Enter = plain-css default)
+            'n',               // Step 4: Configure libraries?
+            'n',               // Setup Docker? (n)
+            '0',               // DB Type (mysql)
+            'localhost',       // Host
+            'testdb',          // DB Name
+            'root',            // User
+            '',                // Pass
+            '',                // Prefix
+            'Test Author',     // Author Name
             'test@example.com' // Author Email
         ]);
 
@@ -92,15 +98,21 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Docker App',
             'DockerApp',
-            'y',            // Setup Docker (y)
-            '8081',         // Port
-            '1',            // Redis
-            '1',            // PostgreSQL
+            'n',                 // Step 2: auth
+            'n',                 // Step 2: authserver
+            'n',                 // Step 2: queue
+            'n',                 // Step 2: messaging
+            '',                  // Step 3: UI (plain-css)
+            'n',                 // Step 4: libraries
+            'y',                 // Setup Docker (y)
+            '8081',              // Port
+            '1',                 // Redis
+            '1',                 // PostgreSQL
             'localhost',
             'dockerdb',
             'user',
             'pass',
-            '',             // Prefix
+            '',                  // Prefix
             'Docker Author',
             'docker@example.com'
         ]);
@@ -132,6 +144,12 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Minimal App',
             'MinApp',
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'n',            // No Docker
             '0',            // MySQL
             'localhost',
@@ -167,6 +185,12 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'PG Mem App',
             'PGMemApp',
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'y',            // Setup Docker
             '8085',         // Port
             '2',            // Memcached
@@ -240,6 +264,12 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'No Cache App',
             'NoCacheApp',
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'y',            // Setup Docker
             '8086',         // Port
             '0',            // No Cache
@@ -281,8 +311,14 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             '',             // App Name (ENTER -> my-auto-app)
             '',             // Namespace (ENTER -> MyAutoApp)
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'n',            // Setup Docker (n)
-            '',             // DB Type (ENTER -> now TimescaleDB/postgresql)
+            '',             // DB Type (ENTER -> TimescaleDB default)
             'localhost',    // Host
             '',             // DB Name (ENTER -> my_auto_app_db)
             '',             // DB User (ENTER -> my_auto_app_user)
@@ -332,6 +368,12 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Timescale App',
             'TimescaleApp',
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'y',            // Setup Docker (y)
             '8088',         // Port
             '1',            // Redis
@@ -371,6 +413,12 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Theme App',
             'ThemeApp',
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'n',            // No Docker
             '0',            // MySQL
             'localhost',

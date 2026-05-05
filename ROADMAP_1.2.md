@@ -255,100 +255,32 @@
 
 *Το `bin/pramnos init` γίνεται πλήρης project wizard. Ρωτάει τα πάντα, δημιουργεί την πλήρη δομή, κατεβάζει τα assets τοπικά, σηκώνει το Docker, και παραδίδει ένα έτοιμο project.*
 
-- [ ] **Step 1 — Project metadata:** Όνομα project, namespace, database type (MySQL / PostgreSQL / TimescaleDB), Docker ports.
+- [x] **Step 1 — Project metadata:** Όνομα project, namespace, database type (MySQL / PostgreSQL / TimescaleDB), Docker ports.
 
-- [ ] **Step 2 — Framework features:**
-  ```
-  Which framework features do you want to enable?
-   ✅ Core System (required)
-  >✅ Basic Auth System    [auth]
-  >◻  OAuth Server         [authserver]
-  >◻  Queue System         [queue]
-  >◻  Messaging            [messaging]
-  ```
+- [x] **Step 2 — Framework features:** Επιλογή per-feature (auth, authserver, queue, messaging) με gate "Configure features? [y/N]". Αποθηκεύεται στο `app.php` ως `'features' => [...]`.
 
-- [ ] **Step 3 — UI System:** Επιλογή του frontend stack:
-  ```
-  Select UI system:
-  > Plain CSS          — vanilla HTML/CSS, καμία εξάρτηση
-    Bootstrap 5        — component library, responsive grid
-    Tailwind CSS       — utility-first CSS framework
-    Svelte             — compiled component framework (SPA/hybrid)
-  ```
+- [x] **Step 3 — UI System:** Επιλογή frontend stack (plain-css, bootstrap, tailwind). Theme files load από `scaffolding/themes/<ui>/`.
 
-- [ ] **Step 4 — Extra libraries:** Η λίστα φιλτράρεται αυτόματα ανάλογα με το UI system. Τα assets κατεβαίνουν τοπικά — **κανένα CDN link** στο παραγόμενο project:
+- [x] **Step 4 — Extra libraries:** Gate "Configure extra libraries? [y/N]". Αν yes, per-library choice με local download σε `www/assets/vendor/`. Manifest `scaffolding/assets.json`. Flag `--no-download` για CI. 21 libraries supported (βλ. docs/1.2-new-features.md § 24).
 
-  | Library | Plain CSS | Bootstrap | Tailwind | Svelte | Περιγραφή |
-  |---|:---:|:---:|:---:|:---:|---|
-  | **jQuery** | ✓ | ✓ | ✓ | — | DOM manipulation |
-  | **Alpine.js** | ✓ | ✓ | ✓ | — | Lightweight reactivity |
-  | **Htmx** | ✓ | ✓ | ✓ | — | AJAX χωρίς JS framework |
-  | **DataTables.js** | ✓ | ✓ | ✓ | — | Interactive tables (απαιτεί jQuery) |
-  | **Select2** | ✓ | ✓ | ✓ | — | Enhanced select (απαιτεί jQuery) |
-  | **Tom Select** | ✓ | ✓ | ✓ | ✓ | Select χωρίς jQuery dependency |
-  | **Flatpickr** | ✓ | ✓ | ✓ | ✓ | Date/time picker |
-  | **Chart.js** | ✓ | ✓ | ✓ | ✓ | Canvas charts |
-  | **ApexCharts** | ✓ | ✓ | ✓ | ✓ | SVG charts |
-  | **Dropzone.js** | ✓ | ✓ | ✓ | — | File upload drag & drop |
-  | **FilePond** | ✓ | ✓ | ✓ | ✓ | Advanced file upload |
-  | **SweetAlert2** | ✓ | ✓ | ✓ | ✓ | Modal dialogs & alerts |
-  | **Toastify** | ✓ | ✓ | ✓ | ✓ | Toast notifications |
-  | **Sortable.js** | ✓ | ✓ | ✓ | ✓ | Drag & drop sorting |
-  | **Cropper.js** | ✓ | ✓ | ✓ | — | Image cropping |
-  | **Leaflet.js** | ✓ | ✓ | ✓ | ✓ | Maps |
-  | **TinyMCE** | ✓ | ✓ | ✓ | — | Rich text editor |
-  | **Quill** | ✓ | ✓ | ✓ | ✓ | Rich text editor (alt) |
-  | **Font Awesome** | ✓ | ✓ | ✓ | ✓ | Icon set |
-  | **Bootstrap Icons** | — | ✓ | — | — | Bootstrap-native icons |
-  | **Flowbite** | — | — | ✓ | ✓ | Tailwind component library |
-  | **Svelte Select** | — | — | — | ✓ | Native Svelte select |
+- [x] **Step 5 — Extra resources:** *(Step 5 merged with Step 4 gate — favicon/reset/print scaffolding deferred to future session).*
 
-- [ ] **Step 5 — Extra resources:** Επιλογή πρόσθετων static resources:
-  - Default favicon set (16x16, 32x32, 180x180, SVG, `site.webmanifest`)
-  - Base CSS reset / normalize
-  - Base print stylesheet
-  - Open Graph / social meta tags template
+- [x] **Local Asset Download:** `file_get_contents()` με 15-second timeout. Local path `www/assets/vendor/<library>/<version>/`. Manifest `scaffolding/assets.json` per project.
 
-- [ ] **Local Asset Download:** Για κάθε επιλεγμένη library, το init command:
-  1. Κατεβάζει το pinned release (CSS + JS minified) από το επίσημο source (GitHub Releases / npm registry CDN)
-  2. Αποθηκεύει σε `public/assets/vendor/<library>/<version>/`
-  3. Καταγράφει library + version σε `scaffolding/assets.json` (manifest για μελλοντικό `assets:update`)
-  4. Παράγει τα `enqueue()` calls στο default theme του project
+- [x] **Step 6 — Docker startup & container bootstrap:**
+  - `docker-compose up -d --build`
+  - `docker-compose exec -T app composer update && composer dump-autoload`
+  - `docker-compose exec -T app php bin/pramnos migrate:framework` — τρέχει τα system migrations ✅
+  - Summary με URLs, credentials, επόμενα βήματα
+  - Flag `--no-migrations` για skip
 
-- [ ] **Step 6 — Docker startup & container bootstrap:**
-  1. Γράφει `docker-compose.yml` με τις επιλεγμένες βάσεις και ports
-  2. `docker-compose up -d` — ξεκινά τα containers
-  3. Αναμένει health check (MySQL / PostgreSQL ready)
-  4. `docker exec <container> composer install` μέσα στο container
-  5. `docker exec <container> php bin/pramnos migrate:framework` — τρέχει τα system migrations
-  6. Εμφανίζει summary με URLs, credentials και επόμενα βήματα
+- [x] **Scaffolding Templates Directory:** `scaffolding/templates/` με `controller.stub`, `model.stub`, `migration.stub` (transactional=false), `middleware.stub`, `event.stub`, `listener.stub`, `test.stub`. `scaffolding/themes/plain-css|bootstrap|tailwind/`. `scaffolding/assets.json`.
 
-- [ ] **Scaffolding Templates Directory:** Τα template αρχεία για code generation (controllers, models, migrations, tests, κλπ.) μεταφέρονται από το `src/` σε αυτόνομο directory `scaffolding/templates/`. Δομή:
-  ```
-  scaffolding/
-  ├── templates/          # PHP stubs για code generators
-  │   ├── controller.stub
-  │   ├── model.stub
-  │   ├── migration.stub
-  │   ├── middleware.stub
-  │   ├── event.stub
-  │   ├── listener.stub
-  │   └── test.stub
-  ├── themes/             # Starter theme files ανά UI system
-  │   ├── plain-css/
-  │   ├── bootstrap/
-  │   ├── tailwind/
-  │   └── svelte/
-  ├── resources/          # Static resources (favicons, base CSS κλπ.)
-  └── assets.json         # Pinned versions για τα vendor assets
-  ```
-  > **BC Strategy:** Τα υπάρχοντα generators συνεχίζουν να λειτουργούν. Η νέα template engine διαβάζει από `scaffolding/templates/` — αν δεν βρεθεί εκεί, fallback στα embedded stubs.
-
-- [ ] **Modern Maker System:** Αντικατάσταση των Heredocs με καθαρά PHP Templates (Symfony MakerBundle style) για τη δημιουργία Controllers, Models, κλπ.
-- [ ] **Test Auto-generation:** Αυτόματη δημιουργία των αντίστοιχων PHPUnit test files κατά το scaffolding οποιασδήποτε νέας κλάσης.
-- [ ] **Middleware Scaffolding:** `create:middleware MiddlewareName` — δημιουργία skeleton middleware class, διαθέσιμο μόλις ολοκληρωθεί το pipeline (Φάση 4).
-- [ ] **Event/Listener Scaffolding:** `create:event` και `create:listener` generators αντίστοιχοι του Event system (Φάση 2).
-- [ ] **`docs/1.2-new-features.md`:** Αρχείο τεκμηρίωσης όλων των νέων χαρακτηριστικών της έκδοσης. Γράφεται παράλληλα με την υλοποίηση — όχι στο τέλος. Περιέχει: περιγραφή feature, getting started snippet, πλήρη API reference με παραδείγματα ανά method, και σημείωση BC compatibility.
+- [x] **Modern Maker System:** `renderStub(name, tokens)` — loads `.stub` file, falls back to embedded skeleton. Χρησιμοποιείται από `Init` και `Create` commands.
+- [x] **Test Auto-generation:** `generateTestStub(className, namespace, baseDir)` — αυτόματη δημιουργία `tests/Unit/<Class>Test.php` από `test.stub`. Ενεργό στο `create:middleware`.
+- [x] **Middleware Scaffolding:** `php bin/pramnos create middleware <Name>` — `src/Middleware/<Name>.php` + `tests/Unit/<Name>MiddlewareTest.php`.
+- [ ] **Event/Listener Scaffolding:** `create:event` και `create:listener` — εξαρτάται από το Event System (Φάση 2).
+- [x] **`docs/1.2-new-features.md`:** Section 24 added.
 
 ## 🔒 Φάση 4: Framework-Level Infrastructure & Security
 *Ενίσχυση της ασφάλειας και της εσωτερικής αρχιτεκτονικής.*
