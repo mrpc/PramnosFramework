@@ -1,8 +1,26 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-05 (session 32)
+## 📅 Last Updated: 2026-05-05 (session 33)
 
 ## 🚀 Completed Milestones
+
+### Phase 2: DaemonOrchestrator backport (2026-05-05, session 33)
+
+- [x] **`Pramnos\Console\DaemonOrchestrator`** (`src/Pramnos/Console/DaemonOrchestrator.php`) — abstract process supervisor backported from Urbanwater:
+  - Abstract contract: `buildDesiredProcesses()`, `getDashboardTitle()`, `getEntryPoint()`, `getJobName()`
+  - Overrideable hooks: `isOrchestratorEnabled()`, `getOrchestratorLockFile()`, `getStateFile()`, `getManagedLockFileGlobPattern()`
+  - Reconcile engine: desired-vs-actual diff, stale heartbeat detection (300s), crash detection, pre-spawn dedup guard (`/proc` + `ps`), graceful stop, SIGTERM after grace period (30s)
+  - Stop-file mechanism: `requestStop()`, `clearStopFile()`, `requestStopAll()`
+  - State persistence: `loadState()` / `saveState()` — JSON to `getStateFile()`
+  - Singleton flock guard: `tryAcquireOrchestratorLock()`, `releaseOrchestratorLock()`
+  - Git-hash restart: `getCurrentGitHash()` — parses `.git/HEAD` without spawning a process; restarts all daemons on new deployment
+  - Interactive dashboard: `renderInteractiveDashboard()` — calls `getDashboardTitle()` + `buildDesiredProcesses()`; all CommandBase dashboard primitives reused
+  - Announcement dedup: `shouldAnnounceHealthyProcess()` — suppresses repeated [ok] log noise
+  - Standard options: `--once`, `--interval`, `--php-binary`, `--dry-run`, `--interactive`, `--verbose-health`
+- [x] **Tests** (`tests/Unit/Console/DaemonOrchestratorTest.php` — 26 tests): buildShellTokens, requestStop/clearStopFile, loadState/saveState round-trip, readWorkerPidFromLockFile, readOrchestratorPidFromLock, getCurrentGitHash, shouldAnnounceHealthyProcess (dedup, pid-change, verbose mode), readLastLogLine, getProcessLogFile
+- [x] **`docs/1.2-new-features.md`** — Section 27 added (process definition keys, reconcile behaviour, stop-file mechanism, state file, overrideable hooks, migration guide, BC notes, test summary)
+- [x] **`ROADMAP_1.2.md`** — Daemon Orchestrator marked `[x]`
+- **Tests:** 1410/1410 passing (1384 + 26 new)
 
 ### Phase 2: CLI UX — CommandBase backport (2026-05-05, session 32)
 
