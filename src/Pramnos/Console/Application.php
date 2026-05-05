@@ -62,6 +62,10 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\ScheduleList());
         // Policy Engine (Phase 4)
         $this->add(new \Pramnos\Console\Commands\PolicyEngine());
+        // Queue System (Phase 2)
+        $this->add(new \Pramnos\Console\Commands\ProcessQueue());
+        $this->add(new \Pramnos\Console\Commands\CleanupQueue());
+        // DaemonOrchestrator is abstract — apps register their own concrete subclass
     }
 
 }

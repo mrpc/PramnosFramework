@@ -748,7 +748,7 @@ class ProcessQueue extends CommandBase
     /**
      * @return void
      */
-    private function updateTerminalSize(): void
+    protected function updateTerminalSize(): void
     {
         [$height, $width]      = $this->detectTerminalSize();
         $this->terminalHeight  = $height;
