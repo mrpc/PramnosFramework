@@ -1,8 +1,19 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-05 (session 28)
+## 📅 Last Updated: 2026-05-05 (session 29)
 
 ## 🚀 Completed Milestones
+
+### Migration System — Safety Improvements (2026-05-05, session 29)
+
+- [x] **`Migration::$transactional = false`** — opt-in transaction flag. Set to `true` to wrap `up()` in `BEGIN`/`COMMIT`/`ROLLBACK` on PostgreSQL. TimescaleDB-native operations (e.g. `createHypertable()`) must leave this `false`.
+- [x] **`MigrationRunner` — maintenance mode integration** — accepts `?Application $app` as 3rd constructor param. When provided, `run()` activates maintenance mode before the batch and deactivates it in `finally`. Skips deactivation if maintenance was already active.
+- [x] **`MigrationRunner` — transaction wrapping** — if `$migration->transactional && $db->type === 'postgresql'`, `run()` wraps each migration in `BEGIN`/`COMMIT`/`ROLLBACK`. Silently ignored on MySQL (DDL = implicit COMMIT).
+- [x] **Bug fix: `rollback()` no longer deletes history on failed `down()`** — prevents a migration appearing as "never ran" after a half-reverted schema.
+- [x] **Bug fix: `executeQueries()` clears queue after execution** — prevents double-run if called more than once on the same instance.
+- [x] Characterization tests updated to assert `transactional = false` in metadata defaults.
+- [x] Verified: 1307 tests, all Migration/MigrationRunner tests pass. (9 pre-existing errors in UserTokenManagementCharacterizationTest — missing usertokens table, unrelated.)
+- [x] commit: `e899ec5`
 
 ### Phase 5: Migration Characterization × 3 Databases (2026-05-05, session 28)
 
