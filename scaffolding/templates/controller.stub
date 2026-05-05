@@ -1,0 +1,15 @@
+<?php
+namespace {{ namespace }}\Controllers;
+
+use Pramnos\Application\Controller;
+
+class {{ class }} extends Controller
+{
+    public function display()
+    {
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = '{{ class }}';
+        $view = $this->getView('{{ view }}');
+        return $view->display('{{ view }}');
+    }
+}

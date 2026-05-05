@@ -1,0 +1,16 @@
+<?php
+namespace {{ namespace }};
+
+use Pramnos\Http\MiddlewareInterface;
+use Pramnos\Http\Request;
+
+class {{ class }} implements MiddlewareInterface
+{
+    public function handle(Request $request, callable $next): mixed
+    {
+        // TODO: add middleware logic before the next handler
+        $response = $next($request);
+        // TODO: add middleware logic after the next handler
+        return $response;
+    }
+}
