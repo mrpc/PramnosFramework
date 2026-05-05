@@ -93,6 +93,12 @@ class Create extends Command
             case "middleware":
                 $output->writeln($this->createMiddleware($name));
                 break;
+            case "event":
+                $output->writeln($this->createEvent($name));
+                break;
+            case "listener":
+                $output->writeln($this->createListener($name));
+                break;
             default:
                 throw new \InvalidArgumentException(
                     'Invalid type of entity to create: ' . $entity
@@ -151,6 +157,111 @@ class Create extends Command
             . "File:      {$filename}\n"
             . $testOutput
             . "\nMiddleware created.";
+    }
+
+    /**
+     * Create an event class from the event.stub template.
+     *
+     * Writes to src/Events/<Name>.php. An event is a plain value object that
+     * carries the payload for Event::fire(). Generates a matching test stub.
+     *
+     * @param string $eventName PascalCase class name (e.g. UserRegistered)
+     * @return string Summary of created files
+     * @throws \Exception
+     */
+    public function createEvent(string $eventName): string
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $namespace = isset($application->applicationInfo['namespace'])
+            ? $application->applicationInfo['namespace']
+            : 'App';
+
+        $className = ucfirst(preg_replace('/\W+/', '', $eventName));
+        if ($className === '') {
+            throw new \InvalidArgumentException('Event name must be a valid PHP class name.');
+        }
+
+        $dir = defined('ROOT') ? ROOT . '/src/Events' : getcwd() . '/src/Events';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+
+        $filename = $dir . '/' . $className . '.php';
+        if (file_exists($filename)) {
+            throw new \Exception("Event $className already exists at $filename.");
+        }
+
+        $stub = $this->renderStub('event', [
+            'namespace' => $namespace . '\\Events',
+            'class'     => $className,
+        ]);
+
+        if (!file_put_contents($filename, $stub)) {
+            throw new \Exception("Cannot write event file: $filename");
+        }
+
+        $testOutput = $this->generateTestStub($className . 'Event', $namespace . '\\Events');
+
+        return "Namespace: {$namespace}\\Events\n"
+            . "Class:     {$className}\n"
+            . "File:      {$filename}\n"
+            . $testOutput
+            . "\nEvent created.";
+    }
+
+    /**
+     * Create a listener class from the listener.stub template.
+     *
+     * Writes to src/Listeners/<Name>.php implementing ListenerInterface.
+     * Register the listener with: Event::listen('event.name', MyListener::class)
+     * Generates a matching test stub.
+     *
+     * @param string $listenerName PascalCase class name (e.g. SendWelcomeEmail)
+     * @return string Summary of created files
+     * @throws \Exception
+     */
+    public function createListener(string $listenerName): string
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $namespace = isset($application->applicationInfo['namespace'])
+            ? $application->applicationInfo['namespace']
+            : 'App';
+
+        $className = ucfirst(preg_replace('/\W+/', '', $listenerName));
+        if ($className === '') {
+            throw new \InvalidArgumentException('Listener name must be a valid PHP class name.');
+        }
+
+        $dir = defined('ROOT') ? ROOT . '/src/Listeners' : getcwd() . '/src/Listeners';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+
+        $filename = $dir . '/' . $className . '.php';
+        if (file_exists($filename)) {
+            throw new \Exception("Listener $className already exists at $filename.");
+        }
+
+        $stub = $this->renderStub('listener', [
+            'namespace' => $namespace . '\\Listeners',
+            'class'     => $className,
+        ]);
+
+        if (!file_put_contents($filename, $stub)) {
+            throw new \Exception("Cannot write listener file: $filename");
+        }
+
+        $testOutput = $this->generateTestStub($className . 'Listener', $namespace . '\\Listeners');
+
+        return "Namespace: {$namespace}\\Listeners\n"
+            . "Class:     {$className}\n"
+            . "File:      {$filename}\n"
+            . $testOutput
+            . "\nListener created.";
     }
 
     /**
@@ -316,6 +427,8 @@ migcontent;
     {
         return match ($name) {
             'middleware' => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Http\\MiddlewareInterface;\nuse Pramnos\\Http\\Request;\n\nclass {{ class }} implements MiddlewareInterface\n{\n    public function handle(Request \$request, callable \$next): mixed\n    {\n        return \$next(\$request);\n    }\n}\n",
+            'event'      => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\nclass {{ class }}\n{\n    public function __construct(\n        // TODO: add public readonly properties for event payload\n    ) {}\n}\n",
+            'listener'   => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\nuse Pramnos\\Event\\ListenerInterface;\n\nclass {{ class }} implements ListenerInterface\n{\n    public function handle(mixed ...\$args): mixed\n    {\n        return null;\n    }\n}\n",
             'test'       => "<?php\nnamespace Tests\\Unit;\n\nuse PHPUnit\\Framework\\TestCase;\n\nclass {{ class }}Test extends TestCase\n{\n    public function testItWorks(): void { \$this->assertTrue(true); }\n}\n",
             default      => '',
         };
