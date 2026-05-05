@@ -1,8 +1,16 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-05 (session 33)
+## 📅 Last Updated: 2026-05-06 (session 34)
 
 ## 🚀 Completed Milestones
+
+### Phase 3: Scaffolding modernisation (2026-05-06, session 34)
+
+- [x] **`create:migration`** — timestamp filename (`YYYY_MM_DD_HHmmss_slug.php`), PascalCase class name, uses `migration.stub` via `renderStub()`, drops legacy `migrations.php` list update
+- [x] **`create:controller`** (simple path) — replaced broken inline heredoc (used undefined `$viewName`, `$modelNameSpace` etc.) with `renderStub('controller')` + auto-generates test stub
+- [x] **`create:model`** — stub skeleton fallback when DB table absent (schema-first workflow); auto-generates test stub on fresh create
+- [x] **Stubs updated** — `controller.stub` full CRUD skeleton; `migration.stub` / `model.stub` use `namespace {{ namespace }};` (full namespace from caller); fallbacks added to `getFallbackStub()`
+- [x] **3 new unit tests** — `testRenderStubMigrationProducesCorrectClass`, `testRenderStubControllerProducesFullSkeleton`, `testRenderStubModelProducesActiveRecordSkeleton`
 
 ### Phase 2: Queue System backport (2026-05-05, session 33)
 
