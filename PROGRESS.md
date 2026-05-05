@@ -4,6 +4,21 @@
 
 ## 🚀 Completed Milestones
 
+### Phase 2: CLI UX — CommandBase backport (2026-05-05, session 32)
+
+- [x] **`Pramnos\Console\CommandBase`** (`src/Pramnos/Console/CommandBase.php`) — backport of `Urbanwater\ConsoleCommands\CommandBase`:
+  - Lock-file job guards: `beginJob()`, `endJob()`, `heartbeat()`, `checkIfRunning()`, stale-lock detection, PID liveness check
+  - Terminal control: `clearScreen()`, `hideCursor()`, `showCursor()`, `detectTerminalSize()`, `initializeInteractiveTerminal()`
+  - Signal/shutdown: `configureInterruptHandling()`, `handleInterruptSignal()`, `handleShutdown()`
+  - `getOrchestratorCommandName(): string` hook (default `'daemons:start'`) — overrideable without changing detection logic
+  - Progress bar: `buildProgressBar(current, total, width=50)` — block-char `█` / `.` style extracted from Urbanwater commands
+  - Text utilities: `formatBytes()`, `formatTime()`, `visibleLength()` (ANSI-aware), `truncateText()`, `wrapDashboardText()`
+  - Dashboard: `buildDashboardHeader/Separator/Footer`, `padDashboardLine/Row`, `buildDashboardRows`, `buildSystemStatusSegments`, `buildCommandStateSection`, `buildDashboardHelpSection`, `buildDashboardAdventureSection`, `renderDashboardFrame`, `renderDashboardFrameAutoSystem`, `renderDashboardGameMode`
+- [x] **Tests** (`tests/Unit/Console/CommandBaseTest.php` — 29 tests): all pure-computation methods + lock lifecycle
+- [x] **`docs/1.2-new-features.md`** — Section 26 added (full API table, migration guide, BC notes)
+- **Note:** `PramnosStyle` commit (`bcbf4e9`) was reverted — wrong approach (invention vs backport)
+- **Tests:** 1384/1384 passing (1355 + 29 new)
+
 ### Phase 2: Event / Hook System (2026-05-05, session 32)
 
 - [x] **`Pramnos\Event\Event`** (`src/Pramnos/Event/Event.php`) — static priority-ordered event bus:
