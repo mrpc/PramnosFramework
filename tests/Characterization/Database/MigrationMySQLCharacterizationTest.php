@@ -248,6 +248,8 @@ class MigrationMySQLCharacterizationTest extends TestCase
             'dependencies must default to empty array');
         $this->assertTrue($migration->autoExecute,
             'autoExecute must default to true so the runner includes it without --force');
+        $this->assertFalse($migration->transactional,
+            'transactional must default to false — opt-in only; TimescaleDB and MySQL DDL cannot run inside a transaction');
     }
 
     /**

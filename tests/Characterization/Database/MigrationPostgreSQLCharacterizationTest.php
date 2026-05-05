@@ -238,6 +238,8 @@ class MigrationPostgreSQLCharacterizationTest extends TestCase
         $this->assertSame(50,    $migration->priority);
         $this->assertSame([],    $migration->dependencies);
         $this->assertTrue($migration->autoExecute);
+        $this->assertFalse($migration->transactional,
+            'transactional must default to false — opt-in only; TimescaleDB DDL cannot run inside a transaction');
     }
 
     /**

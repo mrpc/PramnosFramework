@@ -26,14 +26,22 @@ class MigrationRunner
     /** @var string History table name. */
     private string $historyTable;
 
+    /** @var \Pramnos\Application\Application|null Optional application for maintenance-mode integration. */
+    private ?\Pramnos\Application\Application $app;
+
     /**
-     * @param Database|null $db           Live database connection. Pass null for unit tests that only use sort/filter methods.
-     * @param string        $historyTable Name of the migrations history table.
+     * @param Database|null                             $db           Live database connection. Pass null for unit tests that only use sort/filter methods.
+     * @param string                                    $historyTable Name of the migrations history table.
+     * @param \Pramnos\Application\Application|null     $app          When provided, MigrationRunner activates maintenance mode for the duration of each run() batch.
      */
-    public function __construct(?Database $db = null, string $historyTable = 'framework_migrations')
-    {
+    public function __construct(
+        ?Database $db = null,
+        string $historyTable = 'framework_migrations',
+        ?\Pramnos\Application\Application $app = null
+    ) {
         $this->db           = $db;
         $this->historyTable = $historyTable;
+        $this->app          = $app;
     }
 
     // =========================================================================
@@ -121,21 +129,55 @@ class MigrationRunner
         $ran    = [];
         $failed = [];
 
-        foreach ($pending as $migration) {
-            $slug  = $migration->getSlug();
-            $start = microtime(true);
+        // Activate maintenance mode for the batch duration so that concurrent
+        // HTTP requests cannot trigger a second migration run. Skip if
+        // maintenance was already active (we must not deactivate it on exit).
+        $maintenanceFlag      = $this->maintenanceFlagPath();
+        $weStartedMaintenance = false;
+        if ($this->app !== null && $maintenanceFlag !== null && !file_exists($maintenanceFlag)) {
+            $this->app->startMaintenance('Database migrations in progress');
+            $weStartedMaintenance = true;
+        }
 
-            try {
-                $migration->up();
-                $elapsed = microtime(true) - $start;
+        try {
+            foreach ($pending as $migration) {
+                $slug  = $migration->getSlug();
+                $start = microtime(true);
+                $db    = $this->requireDb();
 
-                $this->recordHistory($migration, $slug, $batch, $elapsed, 1, null);
-                $ran[] = $slug;
-            } catch (\Throwable $e) {
-                $elapsed = microtime(true) - $start;
+                // Wrap in a PostgreSQL transaction when the migration opts in.
+                // MySQL DDL always causes an implicit COMMIT, so transactional=true
+                // has no effect on MySQL and is silently ignored.
+                $useTransaction = $migration->transactional && $db->type === 'postgresql';
 
-                $this->recordHistory($migration, $slug, $batch, $elapsed, 0, $e->getMessage());
-                $failed[] = $slug;
+                if ($useTransaction) {
+                    $db->query('BEGIN');
+                }
+
+                try {
+                    $migration->up();
+                    $elapsed = microtime(true) - $start;
+
+                    if ($useTransaction) {
+                        $db->query('COMMIT');
+                    }
+
+                    $this->recordHistory($migration, $slug, $batch, $elapsed, 1, null);
+                    $ran[] = $slug;
+                } catch (\Throwable $e) {
+                    $elapsed = microtime(true) - $start;
+
+                    if ($useTransaction) {
+                        try { $db->query('ROLLBACK'); } catch (\Throwable) {}
+                    }
+
+                    $this->recordHistory($migration, $slug, $batch, $elapsed, 0, $e->getMessage());
+                    $failed[] = $slug;
+                }
+            }
+        } finally {
+            if ($weStartedMaintenance) {
+                $this->app->stopMaintenance();
             }
         }
 
@@ -181,11 +223,14 @@ class MigrationRunner
 
         // Roll back in reverse order (last ran = first to roll back)
         foreach (array_reverse($rows) as $row) {
-            $slug = $row['migration'];
+            $slug         = $row['migration'];
+            $downSucceeded = true;
+
             if (isset($map[$slug])) {
                 try {
                     $map[$slug]->down();
                 } catch (\Throwable $e) {
+                    $downSucceeded = false;
                     \Pramnos\Logs\Logger::log(
                         "Rollback failed for {$slug}: " . $e->getMessage(),
                         'upgradeerrors'
@@ -193,8 +238,13 @@ class MigrationRunner
                 }
             }
 
-            $this->deleteHistoryRow($slug);
-            $rolledBack[] = $slug;
+            // Only remove the history row when down() succeeded. A failed
+            // rollback leaves the row intact so the migration still appears
+            // as "ran" — prevents a silent re-run on a half-reverted schema.
+            if ($downSucceeded) {
+                $this->deleteHistoryRow($slug);
+                $rolledBack[] = $slug;
+            }
         }
 
         return ['rolledBack' => $rolledBack];
@@ -603,6 +653,18 @@ class MigrationRunner
                 $slug
             )
         );
+    }
+
+    /**
+     * Returns the absolute path to the maintenance flag file, or null when the
+     * ROOT constant is not defined (CLI/test environments without a full app).
+     */
+    private function maintenanceFlagPath(): ?string
+    {
+        if (!defined('ROOT')) {
+            return null;
+        }
+        return ROOT . \DS . 'var' . \DS . 'MAINTENANCE';
     }
 
     /**
