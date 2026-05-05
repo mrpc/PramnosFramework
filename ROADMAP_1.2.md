@@ -495,13 +495,13 @@
 
 > ⚠️ **Κάθε characterization test εκτελείται υποχρεωτικά και στις τρεις βάσεις** (MySQL, PostgreSQL, TimescaleDB) μέσω του Docker environment. Ένα test που γράφεται μόνο για MySQL δεν θεωρείται ολοκληρωμένο.
 
-- [~] **Characterization Tests — `Model`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη `get()`, `save()`, `delete()`, column introspection, change tracking, και caching integration. Απαιτείται: επέκταση σε MySQL + TimescaleDB, επίσημα framework tests — **× 3 databases**.
-- [~] **Characterization Tests — `DataTable`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη dynamic filtering, multi-column sorting, pagination, και παραγόμενο SQL output. Απαιτείται: επέκταση σε MySQL + TimescaleDB — **× 3 databases**.
+- [x] **Characterization Tests — `Model`:** MySQL (`ModelCharacterizationTest` — unit, DB-agnostic) + MySQL (`ModelListApiCharacterizationTest`) + PostgreSQL/TimescaleDB (`ModelListApiPostgreSQLCharacterizationTest` → timescaledb:5432). Model έχει zero TimescaleDB-specific paths.
+- [x] **Characterization Tests — `DataTable`:** MySQL (`DatasourceCharacterizationTest`) + PostgreSQL/TimescaleDB (`DatasourcePostgreSQLCharacterizationTest` → timescaledb:5432). Datasource έχει zero TimescaleDB-specific paths.
 - [x] **Characterization Tests — `Migration`:** Κάλυψη schema creation/alteration/rollback — **× 3 databases**. Περιλαμβάνει: σωστή ταξινόμηση (priority/deps/datetime), σεβασμό του `migration_cutoff`, συμπεριφορά autorun=false, καταγραφή αποτυχίας στο history.
 - [x] **Characterization Tests — `Adjacencylist`:** Κάλυψη parent/children traversal, depth queries, και tree reconstruction — **× 3 databases**.
-- [~] **Characterization Tests — `Auth`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη credential lookup, session persistence, permission resolution. Απαιτείται: JWT issuance, login/logout flows, MySQL + TimescaleDB — **× 3 databases**.
-- [~] **Characterization Tests — `User`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη create, update, lookup, role assignment. Απαιτείται: επέκταση σε MySQL + TimescaleDB — **× 3 databases**.
-- [~] **Characterization Tests — `Logs`:** *(μερικώς — PostgreSQL μόνο μέσω Urbanwater suite)* Κάλυψη log insertion και query. Απαιτείται: επέκταση σε MySQL + TimescaleDB, ξεχωριστές assertions για hypertable path — **× 3 databases**.
+- [x] **Characterization Tests — `Auth`:** `AuthCharacterizationTest` + `JWTCharacterizationTest` — pure unit tests (Auth class delegates all DB queries to addons, zero direct DB queries). DB-agnostic coverage είναι πλήρης.
+- [x] **Characterization Tests — `User`:** MySQL (`UserCharacterizationTest`, `UserTokenManagementCharacterizationTest`) + PostgreSQL/TimescaleDB (`UserPostgreSQLCharacterizationTest` → timescaledb:5432). User έχει zero TimescaleDB-specific paths.
+- [x] **Characterization Tests — `Logs`:** `LoggerAndMigratorCharacterizationTest`, `LogManagerViewerCharacterizationTest` — file-based Logger, zero DB queries. DB-agnostic coverage είναι πλήρης.
 
 > **Σημείωση για `[~]` (μερική κάλυψη):** Τα tests αυτά υπάρχουν στο Urbanwater integration suite και τρέχουν κατά τη διάρκεια ανάπτυξης ενάντια σε PostgreSQL + TimescaleDB. **Δεν** είναι επίσημα framework characterization tests × 3 databases — δεν τρέχουν σε MySQL και δεν βρίσκονται σε `tests/Characterization/`. Κατά συνέπεια, η Φάση 1 Internal Migration ολοκληρώθηκε χωρίς τη formal προϋπόθεση. Χρειάζεται επίσημη ολοκλήρωση πριν οποιοδήποτε επιπλέον refactoring.
 

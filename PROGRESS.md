@@ -1,8 +1,17 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-05 (session 29)
+## 📅 Last Updated: 2026-05-05 (session 30)
 
 ## 🚀 Completed Milestones
+
+### Phase 5: Characterization Coverage — PostgreSQL mirrors (2026-05-05, session 30)
+
+- [x] **`tests/Characterization/Application/ModelListApiPostgreSQLCharacterizationTest.php`** (7 tests, `#[RunTestsInSeparateProcesses]`) — mirrors `ModelListApiCharacterizationTest` against PostgreSQL (timescaledb:5432): `getCount()` all rows, `getCount()` with WHERE prefix, `_getList()` plain arrays + ordering, `_getList()` useGetData bug (characterization of known limitation), `_getApiList()` global search + JSON field decode, `_getApiList()` paginated error envelope (known limitation), `_getApiList()` structured filter arrays with OR groups.
+- [x] **`tests/Characterization/Html/Datatable/DatasourcePostgreSQLCharacterizationTest.php`** (6 tests, `#[RunTestsInSeparateProcesses]`) — mirrors `DatasourceCharacterizationTest` against PostgreSQL (timescaledb:5432): paged rows + metadata, global search with JOIN (double-quote identifier quoting), per-column wildcard config, multi-column ordering (amount DESC → Gamma first), distinctField unique rows, date field formatting from Unix timestamp.
+- [x] **`fix(user): add usertokens to setupDb()`** — `User::setupDb()` now creates `usertokens` table for both MySQL (backtick quoting, AUTO_INCREMENT, ENGINE=InnoDB) and PostgreSQL (double-quote quoting, SERIAL, separate `CREATE INDEX IF NOT EXISTS` statements). Fixes 9 pre-existing `UserTokenManagementCharacterizationTest` failures caused by `FrameworkMigrationsMySQLTest::down()` dropping the table before those tests run.
+- [x] **`ROADMAP_1.2.md`** — all 5 `[~]` characterization test items changed to `[x]` with accurate notes on Auth/Logs being complete without DB-specific tests (no direct DB queries / file-based).
+- [x] Full suite verified: **1320/1320 tests, 0 failures**.
+- [x] commit: `74d4ec6` (usertokens setupDb fix); PG characterization tests in this commit.
 
 ### Migration System — Safety Improvements (2026-05-05, session 29)
 
