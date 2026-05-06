@@ -64,14 +64,12 @@ class CreateQueueitemsTable extends Migration
             $table->json('payload')
                 ->comment('Task input data as JSON — decoded and passed to TaskInterface::execute()');
 
-            // Status column: native ENUM on PostgreSQL, TINYINT on MySQL
-            if ($caps->isPostgreSQL()) {
-                $table->string('status', 20)->default('pending')
-                    ->comment('Task lifecycle state: pending | processing | completed | failed | warning');
-            } else {
-                $table->tinyInteger('status')->default(0)
-                    ->comment('Task lifecycle state: 0=pending, 1=processing, 2=completed, 3=failed, 4=warning');
-            }
+            // Status column: VARCHAR(20) on all backends.
+            // QueueManager uses string values ('pending','processing','completed',
+            // 'failed','warning') in all WHERE clauses, so a numeric type would
+            // silently mis-coerce comparisons on MySQL and break the queue.
+            $table->string('status', 20)->default('pending')
+                ->comment('Task lifecycle state: pending | processing | completed | failed | warning');
 
             $table->smallInteger('priority')->default(10)
                 ->comment('Dispatch priority — lower number = higher priority; tasks with priority <=10 are treated as urgent');
