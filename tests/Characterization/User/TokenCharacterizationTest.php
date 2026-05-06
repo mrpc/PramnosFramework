@@ -144,18 +144,23 @@ class TokenCharacterizationTest extends TestCase
     }
 
     /**
-     * Ensures updateAction is a no-op on mysql path and does not throw.
+     * Ensures updateAction returns null and does not throw when the tokenactions
+     * table does not exist in the MySQL test context.
+     *
+     * With the full migration applied the method writes to the table; here we
+     * confirm the exception-handling path (table missing) is silent — no fatal.
      */
-    public function testUpdateActionOnMysqlReturnsWithoutFailure(): void
+    public function testUpdateActionReturnsNullWhenTableMissing(): void
     {
         // Arrange
         $token = new Token();
         $token->tokenid = 123;
 
-        // Act
+        // Act — tokenactions table was not created in this test's setUp, so
+        // the UPDATE query fails internally; the catch block logs and returns null.
         $result = $token->updateAction(1, 200, 12.4, ['ok' => true]);
 
-        // Assert
+        // Assert — method must not throw; silent failure when schema missing
         $this->assertNull($result);
     }
 
