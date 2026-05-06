@@ -38,7 +38,10 @@
 - [x] **`Pramnos\Console\Commands\ProcessQueue`** — full daemon command with live dashboard, DB reconnect loop, heartbeat, stop-file detection; `getDashboardTitle()` / `getControllerName()` / `createWorker()` / `createQueueManager()` hooks
 - [x] **`Pramnos\Console\Commands\CleanupQueue`** — `queue:cleanup` command; `getControllerName()` / `createQueueManager()` hooks
 - [x] **Tests** (`tests/Unit/Queue/QueueManagerTest.php` — 16 tests; `tests/Unit/Queue/WorkerTest.php` — 9 tests)
-- **Tests:** 1435/1435 passing (1410 + 25 new)
+- [x] **Integration tests** (`tests/Integration/Queue/QueueManagerMySQLTest.php` — 8 tests; `tests/Integration/Queue/QueueManagerPostgreSQLTest.php` — 8 tests) — full lifecycle against real MySQL 8.0 + TimescaleDB
+- [x] **Bug fix**: `queueitems` migration changed status column from `TINYINT` to `VARCHAR(20)` so string-based status comparisons work on both MySQL and PostgreSQL
+- [x] **`Pramnos\Console\Commands\DbSeed`** — `db:seed` CLI command: scans `database/seeds/`, loads Seeder subclasses, runs all or a named seeder; `--path` option for custom directory
+- **Tests:** 1472/1472 passing
 
 ### Phase 2: DaemonOrchestrator backport (2026-05-05, session 33)
 
