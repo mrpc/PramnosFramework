@@ -606,8 +606,13 @@ class FrameworkMigrationsMySQLTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * queueitems on MySQL must use TINYINT for status (not an ENUM type), and must
-     * have all the task management columns: lockedby, lockexpires, task_hash, etc.
+     * queueitems on MySQL must use VARCHAR(20) for status so that QueueManager's
+     * string-based queries ('pending', 'processing', etc.) work correctly.
+     *
+     * A TINYINT column would silently mis-coerce string comparisons on MySQL
+     * (e.g. WHERE status = 'pending' would evaluate as WHERE status = 0,
+     * matching ALL non-numeric strings — including 'processing' and 'completed').
+     * VARCHAR is the safe cross-DB choice that keeps QueueManager simple.
      */
     public function testQueueQueueitemsUpCreatesMysqlQueueTable(): void
     {
@@ -623,12 +628,14 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->assertColumnType('queueitems', 'type', 'varchar');
         $this->assertColumnType('queueitems', 'payload', 'json');
 
-        // Assert – on MySQL, status is TINYINT (not an ENUM type)
+        // Assert – status is VARCHAR(20) with string default 'pending'
+        // QueueManager uses string comparisons everywhere; a numeric type would
+        // silently break all WHERE status = 'xxx' queries on MySQL.
         $statusInfo = $this->getColumnInfo('queueitems', 'status');
-        $this->assertSame('tinyint', strtolower($statusInfo['DATA_TYPE']),
-            'On MySQL, queueitems.status must be TINYINT (not ENUM)');
-        $this->assertSame('0', (string) $statusInfo['COLUMN_DEFAULT'],
-            'status must default to 0 (pending)');
+        $this->assertSame('varchar', strtolower($statusInfo['DATA_TYPE']),
+            'queueitems.status must be VARCHAR so QueueManager string queries work on MySQL');
+        $this->assertSame('pending', (string) $statusInfo['COLUMN_DEFAULT'],
+            "status must default to 'pending'");
 
         // Assert – lock columns for atomic worker claims
         $this->assertColumnNullable('queueitems', 'lockedby', true);
