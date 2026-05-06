@@ -76,6 +76,19 @@ class QueueManagerPostgreSQLTest extends QueueManagerMySQLTest
         $this->manager = new \Pramnos\Queue\QueueManager($this->controller);
     }
 
+    protected function tearDown(): void
+    {
+        parent::tearDown();
+
+        // Restore the Database singleton to MySQL so subsequent tests in the full
+        // suite don't inherit this PostgreSQL connection.
+        $singleton = &\Pramnos\Framework\Factory::getDatabase();
+        $singleton = null;
+        \Pramnos\Application\Settings::loadSettings(
+            ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php'
+        );
+    }
+
     protected function dropQueueTable(): void
     {
         $this->db->query('DROP TABLE IF EXISTS "queueitems" CASCADE');
