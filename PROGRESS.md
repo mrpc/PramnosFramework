@@ -41,7 +41,18 @@
 - [x] **Integration tests** (`tests/Integration/Queue/QueueManagerMySQLTest.php` — 8 tests; `tests/Integration/Queue/QueueManagerPostgreSQLTest.php` — 8 tests) — full lifecycle against real MySQL 8.0 + TimescaleDB
 - [x] **Bug fix**: `queueitems` migration changed status column from `TINYINT` to `VARCHAR(20)` so string-based status comparisons work on both MySQL and PostgreSQL
 - [x] **`Pramnos\Console\Commands\DbSeed`** — `db:seed` CLI command: scans `database/seeds/`, loads Seeder subclasses, runs all or a named seeder; `--path` option for custom directory
-- **Tests:** 1472/1472 passing
+- **Tests:** 1479/1479 passing
+
+### Phase 2: Token Action Tracking — partial (2026-05-06, session 36)
+
+- [x] **Migrations** (`urls` + `tokenactions`) — already existed; verified schema matches spec
+- [x] **Sync trigger** — `sync_tokenactions_time` PL/pgSQL function + trigger added to `CreateTokenactionsTable.up()` for PostgreSQL; drops on `down()`
+- [x] **`Token::updateAction()` for MySQL** — removed early MySQL `return`; method now records response metrics on all backends
+- [x] **Integration tests** (`tests/Integration/User/TokenActionMySQLTest.php` — 3 tests; `tests/Integration/User/TokenActionPostgreSQLTest.php` — 4 tests incl. sync trigger verification)
+- [x] **`FrameworkMigrationsPostgreSQLTest`** — added trigger existence check after `tokenactions` migration
+- [x] **Bug fix**: `QueueManagerPostgreSQLTest` + `TokenActionPostgreSQLTest` now restore the MySQL singleton in `tearDown()`, preventing PostgreSQL state contamination of subsequent test classes
+- **Pending**: `applications.slow_api_calls` VIEW migration (depends on `applications` table — part of OAuth Server)
+- **Tests:** 1479/1479 passing
 
 ### Phase 2: DaemonOrchestrator backport (2026-05-05, session 33)
 
