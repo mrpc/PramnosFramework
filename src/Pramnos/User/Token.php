@@ -325,10 +325,6 @@ class Token extends \Pramnos\Framework\Base
     public function updateAction($actionid, $return_status, $execution_time_ms = 0, $return_data = null)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        // if database is mysql, return 
-        if ($database->type == 'mysql') {
-            return;
-        }
         if ($execution_time_ms == 0 && $this->lastActionTime !== null) {
             $execution_time_ms = (float) (microtime(true) * 1000) - $this->lastActionTime;
         }

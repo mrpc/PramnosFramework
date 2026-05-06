@@ -85,10 +85,43 @@ class CreateTokenactionsTable extends Migration
             ]);
             $schema->addCompressionPolicy('tokenactions', '60 days');
         });
+
+        // PostgreSQL: sync trigger keeps servertime (legacy UNIX int) and
+        // action_time (TIMESTAMPTZ) in sync bidirectionally so old code that
+        // writes only servertime still gets a correct action_time for range queries.
+        $schema->ifCapable('postgresql', function () {
+            $db = $this->application->database;
+            $db->query(
+                "CREATE OR REPLACE FUNCTION sync_tokenactions_time() RETURNS TRIGGER AS $$\n"
+                . "BEGIN\n"
+                . "  IF NEW.servertime IS NOT NULL AND NEW.servertime <> 0 THEN\n"
+                . "    NEW.action_time = TO_TIMESTAMP(NEW.servertime);\n"
+                . "  ELSE\n"
+                . "    NEW.action_time = CURRENT_TIMESTAMP;\n"
+                . "    NEW.servertime = EXTRACT(EPOCH FROM NEW.action_time)::INTEGER;\n"
+                . "  END IF;\n"
+                . "  RETURN NEW;\n"
+                . "END;\n"
+                . "$$ LANGUAGE plpgsql;"
+            );
+            $db->query(
+                'CREATE OR REPLACE TRIGGER sync_tokenactions_time'
+                . ' BEFORE INSERT OR UPDATE ON tokenactions'
+                . ' FOR EACH ROW EXECUTE FUNCTION sync_tokenactions_time()'
+            );
+        });
     }
 
     public function down(): void
     {
+        $caps = $this->application->database->schema()->getCapabilities();
+
+        if ($caps->isPostgreSQL()) {
+            $db = $this->application->database;
+            $db->query('DROP TRIGGER IF EXISTS sync_tokenactions_time ON tokenactions');
+            $db->query('DROP FUNCTION IF EXISTS sync_tokenactions_time()');
+        }
+
         $this->application->database->schema()->dropTableIfExists('tokenactions');
     }
 }

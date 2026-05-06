@@ -419,9 +419,27 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         // Assert — time-based lookup index exists
         $this->assertTrue($this->indexExists('tokenactions', 'idx_tokenactions_time_tokenid'));
 
-        // Assert — rollback drops the hypertable
+        // Assert — sync trigger exists (keeps servertime ↔ action_time bidirectional).
+        // information_schema.triggers lists one row per event, so BEFORE INSERT OR UPDATE
+        // produces 2 rows. We assert at least 1 row to confirm the trigger was created.
+        $triggerRow = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM information_schema.triggers"
+            . " WHERE trigger_name = 'sync_tokenactions_time'"
+            . "   AND event_object_table = 'tokenactions'"
+        );
+        $this->assertGreaterThan(0, (int)$triggerRow->fields['cnt'],
+            'sync_tokenactions_time trigger must be created by the migration');
+
+        // Assert — rollback drops the hypertable and the sync trigger
         $m->down();
         $this->assertFalse($this->tableExists('tokenactions'));
+        $afterDrop = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM information_schema.triggers"
+            . " WHERE trigger_name = 'sync_tokenactions_time'"
+            . "   AND event_object_table = 'tokenactions'"
+        );
+        $this->assertSame(0, (int)$afterDrop->fields['cnt'],
+            'sync_tokenactions_time trigger must be removed by down()');
     }
 
     // -------------------------------------------------------------------------
