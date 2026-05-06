@@ -65,6 +65,8 @@ class Application extends \Symfony\Component\Console\Application
         // Queue System (Phase 2)
         $this->add(new \Pramnos\Console\Commands\ProcessQueue());
         $this->add(new \Pramnos\Console\Commands\CleanupQueue());
+        // Database seeding
+        $this->add(new \Pramnos\Console\Commands\DbSeed());
         // DaemonOrchestrator is abstract — apps register their own concrete subclass
     }
 
