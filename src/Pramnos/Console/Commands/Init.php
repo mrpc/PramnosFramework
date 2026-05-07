@@ -182,7 +182,8 @@ class Init extends Command
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
         $this->writeFile('www/index.php', $this->getIndexTemplate());
         $this->writeFile('www/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?url=$1 [QSA,L]\n");
-        $this->writeFile('src/Application.php', "<?php\nnamespace $namespace;\n\nclass Application extends \\Pramnos\\Application\\Application\n{\n}\n");
+        $catalog = $this->loadAssetCatalog();
+        $this->writeFile('src/Application.php', $this->getApplicationTemplate($namespace, $selectedLibraries, $catalog));
         $this->writeFile('src/Console.php', $this->getConsoleTemplate($namespace, $appName));
         $this->writeFile("$cliName.php", $this->getCliEntryPointTemplate($namespace, $appName));
         $this->writeFile(
@@ -195,7 +196,7 @@ class Init extends Command
         );
         $this->writeFile('src/Views/home/home.html.php', "<h1>Welcome to $appName</h1>\n<p>Your Pramnos project is ready.</p>\n");
 
-        $this->scaffoldTheme($uiSystem, $appName, $selectedLibraries);
+        $this->scaffoldTheme($uiSystem, $appName, $catalog);
 
         if (!empty($selectedLibraries)) {
             $skipDownload = (bool) $input->getOption('no-download');
@@ -420,44 +421,24 @@ class Init extends Command
         $this->writeFile($path, $content);
     }
 
-    /** Scaffold the theme, generating header/footer with local-only asset paths. */
-    private function scaffoldTheme(string $uiSystem, string $appName, array $selectedLibraries = []): void
+    /**
+     * Scaffold the theme. header/footer include only layout-critical assets
+     * (bootstrap CSS+JS for the bootstrap theme). All other libraries are
+     * registered in Application::registerVendorLibraries() and enqueued
+     * per-page by controllers via addScript()/addStyle().
+     */
+    private function scaffoldTheme(string $uiSystem, string $appName, array $catalog = []): void
     {
         $themeDir = $this->scaffoldingDir . '/themes/' . $uiSystem;
         $dest     = 'app/themes/default';
-        $catalog  = $this->loadAssetCatalog();
 
-        // theme.html.php — structural wrapper, copy as-is
         $src = $themeDir . '/theme.html.php';
         if (file_exists($src)) {
             $this->writeFile($dest . '/theme.html.php', file_get_contents($src));
         }
 
-        // Build local-path CSS and JS tags for every selected library
-        $cssLines = [];
-        $jsLines  = [];
-        foreach ($selectedLibraries as $lib) {
-            $libDef = $catalog['libraries'][$lib] ?? null;
-            if ($libDef === null) {
-                continue;
-            }
-            foreach ($libDef['css'] as $url) {
-                $filename  = basename(parse_url($url, PHP_URL_PATH));
-                $localPath = $libDef['local_path'] . '/' . $filename;
-                $cssLines[] = "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>$localPath\">";
-            }
-            foreach ($libDef['js'] as $url) {
-                $filename  = basename(parse_url($url, PHP_URL_PATH));
-                $localPath = $libDef['local_path'] . '/' . $filename;
-                $jsLines[] = "    <script src=\"<?php echo sURL; ?>$localPath\"></script>";
-            }
-        }
-
-        $cssIncludes = $cssLines ? implode("\n", $cssLines) . "\n" : '';
-        $jsIncludes  = $jsLines  ? implode("\n", $jsLines)  . "\n" : '';
-
-        $this->writeFile($dest . '/header.php', $this->buildThemeHeader($uiSystem, $appName, $cssIncludes, $catalog));
-        $this->writeFile($dest . '/footer.php', $this->buildThemeFooter($uiSystem, $appName, $jsIncludes, $catalog));
+        $this->writeFile($dest . '/header.php', $this->buildThemeHeader($uiSystem, $appName, $catalog));
+        $this->writeFile($dest . '/footer.php', $this->buildThemeFooter($uiSystem, $appName, $catalog));
 
         $cssFile = $themeDir . '/style.css';
         if (file_exists($cssFile)) {
@@ -469,8 +450,10 @@ class Init extends Command
         }
     }
 
-    private function buildThemeHeader(string $uiSystem, string $appName, string $cssIncludes, array $catalog): string
+    private function buildThemeHeader(string $uiSystem, string $appName, array $catalog): string
     {
+        // Only layout-critical CSS lives here. Per-page libraries are
+        // enqueued by controllers and output via renderCss().
         $themeCss = '';
         if ($uiSystem === 'bootstrap') {
             $bsDef = $catalog['libraries']['bootstrap'] ?? null;
@@ -517,14 +500,15 @@ HTML,
 
         return "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
             . $themeCss
-            . $cssIncludes
             . "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>assets/css/style.css\">\n"
             . "    <?php \$this->document->renderCss(); ?>\n"
             . $nav . "\n";
     }
 
-    private function buildThemeFooter(string $uiSystem, string $appName, string $jsIncludes, array $catalog): string
+    private function buildThemeFooter(string $uiSystem, string $appName, array $catalog): string
     {
+        // Only layout-critical JS lives here. Per-page libraries are
+        // enqueued by controllers and output via renderJs().
         $themeJs = '';
         if ($uiSystem === 'bootstrap') {
             $bsDef = $catalog['libraries']['bootstrap'] ?? null;
@@ -555,7 +539,6 @@ HTML,
 
         return $footer . "\n"
             . $themeJs
-            . $jsIncludes
             . "    <?php \$this->document->renderJs(); ?>\n";
     }
 
@@ -945,6 +928,67 @@ BASH;
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────────
+
+    private function getApplicationTemplate(string $namespace, array $selectedLibraries, array $catalog): string
+    {
+        $lines = [];
+        foreach ($selectedLibraries as $lib) {
+            $libDef = $catalog['libraries'][$lib] ?? null;
+            if ($libDef === null) {
+                continue;
+            }
+            $version = $libDef['version'];
+            $deps    = $libDef['requires'] ?? [];
+            $depsPhp = $deps ? "['" . implode("', '", $deps) . "']" : '[]';
+
+            foreach ($libDef['js'] as $url) {
+                $filename = basename(parse_url($url, PHP_URL_PATH));
+                $path     = $libDef['local_path'] . '/' . $filename;
+                $lines[]  = "        \$doc->registerScript('$lib', sURL . '$path', $depsPhp, '$version', true);";
+            }
+            foreach ($libDef['css'] as $url) {
+                $filename = basename(parse_url($url, PHP_URL_PATH));
+                $path     = $libDef['local_path'] . '/' . $filename;
+                $lines[]  = "        \$doc->registerStyle('$lib', sURL . '$path', $depsPhp, '$version');";
+            }
+        }
+
+        $registrations = $lines
+            ? implode("\n", $lines)
+            : '        // No vendor libraries selected during init.';
+
+        return <<<PHP
+<?php
+namespace $namespace;
+
+class Application extends \\Pramnos\\Application\\Application
+{
+    public function init()
+    {
+        parent::init();
+        \$this->registerVendorLibraries();
+        return \$this;
+    }
+
+    /**
+     * Register vendor libraries with local paths.
+     * Nothing is enqueued here — controllers call addScript()/addStyle()
+     * for what each specific page needs.
+     *
+     * Example in a controller:
+     *   \$doc = \\Pramnos\\Framework\\Factory::getDocument();
+     *   \$doc->addScript('jquery');
+     *   \$doc->addScript('datatables');
+     *   \$doc->addStyle('datatables');
+     */
+    private function registerVendorLibraries(): void
+    {
+        \$doc = \\Pramnos\\Framework\\Factory::getDocument();
+$registrations
+    }
+}
+PHP;
+    }
 
     private function getConsoleTemplate(string $namespace, string $appName): string
     {
