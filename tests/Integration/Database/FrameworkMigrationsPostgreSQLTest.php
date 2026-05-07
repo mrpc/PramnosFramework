@@ -138,39 +138,71 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // Core: pramnos schema
+    // -------------------------------------------------------------------------
+
+    /**
+     * CreatePramnosSchema must create the `pramnos` PostgreSQL schema and
+     * drop it cleanly on rollback.
+     */
+    public function testCorePramnosSchemaUpCreatesSchema(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('core', 'CreatePramnosSchema');
+
+        // Act
+        $m->up();
+
+        // Assert — schema exists
+        $this->assertTrue($this->schemaExists('pramnos'), 'pramnos schema must exist after up()');
+
+        // Assert — rollback removes it
+        $m->down();
+        $this->assertFalse($this->schemaExists('pramnos'), 'pramnos schema must be gone after down()');
+    }
+
+    // -------------------------------------------------------------------------
     // Core: framework_policies
     // -------------------------------------------------------------------------
 
     /**
-     * framework_policies must have all PolicyEngine columns and both
-     * policy_type+enabled and next_run indexes.
+     * framework_policies must live in the `pramnos` schema on PostgreSQL and
+     * have all PolicyEngine columns and both indexes.
      */
     public function testCorePoliciesUpCreatesTableWithIndexes(): void
     {
-        // Arrange
+        // Arrange — schema must exist first (migration dependency)
+        $schema = $this->loadMigration('core', 'CreatePramnosSchema');
+        $schema->up();
         $m = $this->loadMigration('core', 'CreateFrameworkPoliciesTable');
 
         // Act
         $m->up();
 
-        // Assert — columns (PostgreSQL uses json not json, jsonb is separate type)
-        $this->assertTrue($this->tableExists('framework_policies'));
-        $this->assertColumnType('framework_policies', 'policyid', 'integer');
-        $this->assertColumnType('framework_policies', 'policy_type', 'character varying');
-        $this->assertColumnType('framework_policies', 'target', 'character varying');
-        $this->assertColumnType('framework_policies', 'config', 'json');
-        $this->assertColumnNullable('framework_policies', 'last_run', true);
-        $this->assertColumnNullable('framework_policies', 'next_run', true);
-        $this->assertColumnNullable('framework_policies', 'last_result', true);
-        $this->assertColumnNullable('framework_policies', 'last_error', true);
+        // Assert — table is in the pramnos schema, NOT in public
+        $this->assertTrue($this->tableExists('framework_policies', 'pramnos'),
+            'framework_policies must be in the pramnos schema');
+        $this->assertFalse($this->tableExists('framework_policies', 'public'),
+            'framework_policies must NOT exist in the public schema');
+
+        // Assert — columns
+        $this->assertColumnType('framework_policies', 'policyid', 'integer', 'pramnos');
+        $this->assertColumnType('framework_policies', 'policy_type', 'character varying', 'pramnos');
+        $this->assertColumnType('framework_policies', 'target', 'character varying', 'pramnos');
+        $this->assertColumnType('framework_policies', 'config', 'json', 'pramnos');
+        $this->assertColumnNullable('framework_policies', 'last_run', true, 'pramnos');
+        $this->assertColumnNullable('framework_policies', 'next_run', true, 'pramnos');
+        $this->assertColumnNullable('framework_policies', 'last_result', true, 'pramnos');
+        $this->assertColumnNullable('framework_policies', 'last_error', true, 'pramnos');
 
         // Assert — indexes
-        $this->assertTrue($this->indexExists('framework_policies', 'idx_framework_policies_type_enabled'));
-        $this->assertTrue($this->indexExists('framework_policies', 'idx_framework_policies_next_run'));
+        $this->assertTrue($this->indexExists('framework_policies', 'idx_framework_policies_type_enabled', 'pramnos'));
+        $this->assertTrue($this->indexExists('framework_policies', 'idx_framework_policies_next_run', 'pramnos'));
 
-        // Assert — rollback
+        // Assert — rollback (drops table only, not the schema)
         $m->down();
-        $this->assertFalse($this->tableExists('framework_policies'));
+        $this->assertFalse($this->tableExists('framework_policies', 'pramnos'),
+            'framework_policies must be gone after down()');
     }
 
     // -------------------------------------------------------------------------
@@ -1282,8 +1314,9 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
     protected function dropAllTestTables(): void
     {
-        // Drop the authserver schema with CASCADE first (removes all contained tables/sequences)
+        // Drop dedicated framework schemas with CASCADE (removes all contained objects)
         $this->db->query('DROP SCHEMA IF EXISTS authserver CASCADE');
+        $this->db->query('DROP SCHEMA IF EXISTS pramnos CASCADE');
 
         // Drop public-schema tables with CASCADE (handles FK dependencies automatically)
         $tables = [
@@ -1293,7 +1326,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             'usertokens', 'usernotes', 'userlog', 'userdetails',
             'users',
             'queueitems',
-            'framework_policies', 'settings', 'sessions',
+            'settings', 'sessions',
         ];
 
         foreach ($tables as $table) {

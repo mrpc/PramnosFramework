@@ -7,9 +7,15 @@ use Pramnos\Database\Migration;
 /**
  * Creates the framework_policies table for scheduled database maintenance tasks.
  *
- * On TimescaleDB, native policies (retention, compression, continuous aggregates)
- * handle their own scheduling. On MySQL and plain PostgreSQL, the PolicyEngine
- * reads this table and executes the appropriate SQL for each enabled policy.
+ * On PostgreSQL the table lives in the `pramnos` schema:
+ *   pramnos.framework_policies
+ *
+ * On MySQL (no schema concept) it is created in the default database as:
+ *   framework_policies
+ *
+ * On TimescaleDB this migration is a no-op because native TimescaleDB
+ * policies (retention, compression, continuous aggregates) handle their
+ * own scheduling.
  *
  * @package PramnosFramework
  */
@@ -18,24 +24,28 @@ class CreateFrameworkPoliciesTable extends Migration
     public string  $feature      = 'core';
     public string  $scope        = 'framework';
     public int     $priority     = 30;
-    public $description  = 'Creates the framework_policies table';
+    public array   $dependencies = ['create_pramnos_schema'];
+    public $description  = 'Creates the pramnos.framework_policies table';
 
     public function up(): void
     {
-        // TimescaleDB manages its own native policies — this table is only
-        // needed on MySQL and plain PostgreSQL.
-        $db = $this->application->database;
+        // TimescaleDB manages its own native policies.
+        $db   = $this->application->database;
+        $caps = $db->schema()->getCapabilities();
+
         if (!empty($db->timescale) || $db->type === 'timescaledb') {
             return;
         }
 
+        $tableName = $caps->isPostgreSQL() ? 'pramnos.framework_policies' : 'framework_policies';
+
         $schema = $db->schema();
 
-        if ($schema->hasTable('framework_policies')) {
+        if ($schema->hasTable($tableName)) {
             return;
         }
 
-        $schema->createTable('framework_policies', function ($table) {
+        $schema->createTable($tableName, function ($table) {
             $table->comment('Scheduled database maintenance policies executed by PolicyEngine (MySQL/plain PG only; no-op on TimescaleDB)');
 
             $table->increments('policyid')
@@ -66,10 +76,14 @@ class CreateFrameworkPoliciesTable extends Migration
 
     public function down(): void
     {
-        $db = $this->application->database;
+        $db   = $this->application->database;
+        $caps = $db->schema()->getCapabilities();
+
         if (!empty($db->timescale) || $db->type === 'timescaledb') {
             return;
         }
-        $db->schema()->dropTableIfExists('framework_policies');
+
+        $tableName = $caps->isPostgreSQL() ? 'pramnos.framework_policies' : 'framework_policies';
+        $db->schema()->dropTableIfExists($tableName);
     }
 }

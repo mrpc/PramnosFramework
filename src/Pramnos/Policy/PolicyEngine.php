@@ -101,9 +101,11 @@ class PolicyEngine
         $configJson = json_encode($config);
         $now        = date('Y-m-d H:i:s');
 
+        $table = $this->policyTable();
+
         if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
             $result = $this->db->query(
-                "INSERT INTO framework_policies (policy_type, target, config, enabled, created_at)
+                "INSERT INTO {$table} (policy_type, target, config, enabled, created_at)
                  VALUES ($1, $2, $3, TRUE, NOW())
                  RETURNING policyid",
                 [$type, $target, $configJson]
@@ -113,7 +115,7 @@ class PolicyEngine
             }
         } else {
             $this->db->query(
-                "INSERT INTO `framework_policies` (policy_type, target, config, enabled, created_at)
+                "INSERT INTO {$table} (policy_type, target, config, enabled, created_at)
                  VALUES (?, ?, ?, 1, ?)",
                 [$type, $target, $configJson, $now]
             );
@@ -130,14 +132,16 @@ class PolicyEngine
     {
         $value = $enabled ? 1 : 0;
 
+        $table = $this->policyTable();
+
         if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
             $this->db->query(
-                "UPDATE framework_policies SET enabled = $1 WHERE policyid = $2",
+                "UPDATE {$table} SET enabled = $1 WHERE policyid = $2",
                 [$enabled ? 'TRUE' : 'FALSE', $policyId]
             );
         } else {
             $this->db->query(
-                "UPDATE `framework_policies` SET `enabled` = ? WHERE `policyid` = ?",
+                "UPDATE {$table} SET `enabled` = ? WHERE `policyid` = ?",
                 [$value, $policyId]
             );
         }
@@ -148,16 +152,12 @@ class PolicyEngine
      */
     public function remove(int $policyId): void
     {
+        $table = $this->policyTable();
+
         if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
-            $this->db->query(
-                'DELETE FROM framework_policies WHERE policyid = $1',
-                [$policyId]
-            );
+            $this->db->query("DELETE FROM {$table} WHERE policyid = $1", [$policyId]);
         } else {
-            $this->db->query(
-                'DELETE FROM `framework_policies` WHERE `policyid` = ?',
-                [$policyId]
-            );
+            $this->db->query("DELETE FROM {$table} WHERE `policyid` = ?", [$policyId]);
         }
     }
 
@@ -180,18 +180,16 @@ class PolicyEngine
     {
         $now = date('Y-m-d H:i:s');
 
+        $table = $this->policyTable();
+
         if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
             $whereNextRun = $onlyDue ? 'AND (next_run IS NULL OR next_run <= NOW())' : '';
-            $sql = "SELECT * FROM framework_policies
-                    WHERE enabled = TRUE {$whereNextRun}
-                    ORDER BY policyid ASC";
+            $sql    = "SELECT * FROM {$table} WHERE enabled = TRUE {$whereNextRun} ORDER BY policyid ASC";
             $result = $this->db->query($sql);
         } else {
             $whereNextRun = $onlyDue ? 'AND (next_run IS NULL OR next_run <= ?)' : '';
             $params = $onlyDue ? [$now] : [];
-            $sql = "SELECT * FROM `framework_policies`
-                    WHERE `enabled` = 1 {$whereNextRun}
-                    ORDER BY `policyid` ASC";
+            $sql    = "SELECT * FROM {$table} WHERE `enabled` = 1 {$whereNextRun} ORDER BY `policyid` ASC";
             $result = $this->db->query($sql, $params);
         }
 
@@ -304,16 +302,18 @@ class PolicyEngine
         $error  = $result['error'];
         $id     = $policy->policyid;
 
+        $table = $this->policyTable();
+
         if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
             $this->db->query(
-                "UPDATE framework_policies
+                "UPDATE {$table}
                  SET last_run = NOW(), next_run = NULL, last_result = $1, last_error = $2
                  WHERE policyid = $3",
                 [$status, $error, $id]
             );
         } else {
             $this->db->query(
-                "UPDATE `framework_policies`
+                "UPDATE {$table}
                  SET `last_run` = ?, `next_run` = NULL, `last_result` = ?, `last_error` = ?
                  WHERE `policyid` = ?",
                 [$now, $status, $error, $id]
@@ -328,6 +328,19 @@ class PolicyEngine
     private function isTimescaleDb(): bool
     {
         return $this->db->type === 'timescaledb';
+    }
+
+    /**
+     * Returns the framework_policies table reference appropriate for the backend.
+     * PostgreSQL: pramnos.framework_policies  (dedicated schema, no backticks)
+     * MySQL:      `framework_policies`        (default database, backtick-quoted)
+     */
+    private function policyTable(): string
+    {
+        if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
+            return 'pramnos.framework_policies';
+        }
+        return '`framework_policies`';
     }
 
     private function quoteIdentifier(string $name): string
