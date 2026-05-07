@@ -495,6 +495,9 @@ class InitCommandTest extends TestCase
         $cliEntry = file_get_contents($this->tempDir . '/mycliapp.php');
         $this->assertStringContainsString("define('ROOT'", $cliEntry);
         $this->assertStringContainsString('MyCLIApp\\Console', $cliEntry);
+        // init() must be called so migrate and other commands have a DB connection
+        $this->assertStringContainsString('internalApplication->init(', $cliEntry);
+        $this->assertStringContainsString("app/config/settings.php", $cliEntry);
 
         // Assert — bash wrapper delegates to docker-compose exec
         $this->assertFileExists($this->tempDir . '/mycliapp');
