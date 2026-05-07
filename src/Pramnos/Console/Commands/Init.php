@@ -174,12 +174,17 @@ class Init extends Command
         $this->mkdir('var/cache');
         $this->mkdir('var/logs');
 
+        // CLI entry-point name: lowercase alphanumeric, e.g. "myapp" → myapp.php / ./myapp
+        $cliName = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $namespace));
+
         $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true);
         $this->scaffoldAppConfig('app/app.php', $appName, $namespace, $enabledFeatures);
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
         $this->writeFile('www/index.php', $this->getIndexTemplate());
         $this->writeFile('www/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?url=$1 [QSA,L]\n");
         $this->writeFile('src/Application.php', "<?php\nnamespace $namespace;\n\nclass Application extends \\Pramnos\\Application\\Application\n{\n}\n");
+        $this->writeFile('src/Console.php', $this->getConsoleTemplate($namespace, $appName));
+        $this->writeFile("$cliName.php", $this->getCliEntryPointTemplate($namespace, $appName));
         $this->writeFile(
             'src/Controllers/Home.php',
             $this->renderStub('controller', [
@@ -198,7 +203,7 @@ class Init extends Command
         }
 
         if ($useDocker) {
-            $this->scaffoldDocker($namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem, $dbRootPass);
+            $this->scaffoldDocker($namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem, $dbRootPass, $cliName);
         }
 
         $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker);
@@ -224,7 +229,7 @@ class Init extends Command
 
                 if ($this->autoloadSuccess && !$input->getOption('no-migrations')) {
                     $migStatus = $this->runProcessWithSpinner(
-                        'docker-compose exec -T app php vendor/bin/pramnos migrate:framework 2>/dev/null',
+                        "docker-compose exec -T app php $cliName.php migrate:framework 2>/dev/null",
                         'Running framework migrations',
                         $output
                     );
@@ -244,7 +249,7 @@ class Init extends Command
             }
         }
 
-        $this->printSummary($output, $useDocker, $dockerPort, $dbType, $dbUser, $dbPass, $dbRootPass, (bool) $input->getOption('no-migrations'));
+        $this->printSummary($output, $useDocker, $dockerPort, $dbType, $dbUser, $dbPass, $dbRootPass, $cliName, (bool) $input->getOption('no-migrations'));
 
         return 0;
     }
@@ -593,7 +598,7 @@ echo \$app->render();
 PHP;
     }
 
-    private function scaffoldDocker(string $namespace, int $port, string $dbType, string $dbName, string $dbUser, string $dbPass, string $cacheSystem, string $dbRootPass): void
+    private function scaffoldDocker(string $namespace, int $port, string $dbType, string $dbName, string $dbUser, string $dbPass, string $cacheSystem, string $dbRootPass, string $cliName = ''): void
     {
         $isPostgres = ($dbType === 'postgresql' || $dbType === 'timescaledb');
         $slug       = strtolower(str_replace([' ', '_'], '-', $namespace));
@@ -670,6 +675,12 @@ PHP;
         $dockertestScript = $this->getDockerTestTemplate($namespace, $port);
         $this->writeFile('dockertest', $dockertestScript);
         @chmod($this->targetBaseDir . '/dockertest', 0755);
+
+        if ($cliName !== '') {
+            $cliWrapper = "#!/usr/bin/env bash\ndocker-compose exec app php $cliName.php \"\$@\"\n";
+            $this->writeFile($cliName, $cliWrapper);
+            @chmod($this->targetBaseDir . '/' . $cliName, 0755);
+        }
     }
 
     private function detectFrameworkDevVolume(): string
@@ -789,7 +800,7 @@ BASH;
         file_put_contents($composerPath, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
-    private function printSummary(OutputInterface $output, bool $useDocker, int $dockerPort, string $dbType, string $dbUser, string $dbPass, string $dbRootPass, bool $skipMigrations = false): void
+    private function printSummary(OutputInterface $output, bool $useDocker, int $dockerPort, string $dbType, string $dbUser, string $dbPass, string $dbRootPass, string $cliName = '', bool $skipMigrations = false): void
     {
         $output->writeln("\nNext steps:");
         $steps = [];
@@ -809,7 +820,7 @@ BASH;
             if ($this->migrationsSuccess) {
                 $steps[] = "<info>✓ Framework migrations ran successfully.</info>";
             } elseif (!$skipMigrations) {
-                $steps[] = "Run <comment>docker-compose exec app php bin/pramnos migrate:framework</comment> when the container is ready.";
+                $steps[] = "Run <comment>./$cliName migrate:framework</comment> when the container is ready.";
             }
         }
 
@@ -823,6 +834,38 @@ BASH;
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────────
+
+    private function getConsoleTemplate(string $namespace, string $appName): string
+    {
+        return <<<PHP
+<?php
+namespace $namespace;
+
+class Console extends \\Pramnos\\Console\\Application
+{
+    protected function registerCommands(): void
+    {
+        parent::registerCommands();
+        // Register your custom commands here:
+        // \$this->add(new \\$namespace\\ConsoleCommands\\MyCommand());
+    }
+}
+PHP;
+    }
+
+    private function getCliEntryPointTemplate(string $namespace, string $appName): string
+    {
+        return <<<PHP
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+define('ROOT', dirname(__FILE__));
+require ROOT . '/vendor/autoload.php';
+
+\$app = new \\$namespace\\Console('$appName CLI');
+\$app->run();
+PHP;
+    }
 
     /**
      * Poll the database container until it accepts connections (max 60 s).
