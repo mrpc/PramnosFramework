@@ -31,9 +31,11 @@ class Init extends Command
     /** Path to the scaffolding/ directory inside the framework package. */
     public string $scaffoldingDir = '';
 
-    private bool $dockerSuccess     = false;
-    private bool $autoloadSuccess   = true;
-    private bool $migrationsSuccess = false;
+    private bool    $dockerSuccess     = false;
+    private bool    $autoloadSuccess   = true;
+    private bool    $migrationsSuccess = false;
+    /** @var array{username: string, email: string, password: string}|null */
+    private ?array  $adminCredentials  = null;
 
     protected function configure(): void
     {
@@ -194,7 +196,9 @@ class Init extends Command
                 'view'      => 'home',
             ])
         );
-        $this->writeFile('src/Views/home/home.html.php', "<h1>Welcome to $appName</h1>\n<p>Your Pramnos project is ready.</p>\n");
+        $this->writeFile('src/Views/home/home.html.php', $this->getHomepageView(
+            $appName, $namespace, $enabledFeatures, $selectedLibraries, $useDocker, $dockerPort, $dbType, $cliName
+        ));
 
         $this->scaffoldTheme($uiSystem, $appName, $catalog);
 
@@ -237,7 +241,7 @@ class Init extends Command
                     $this->migrationsSuccess = ($migStatus === 0);
 
                     if ($this->migrationsSuccess && in_array('auth', $enabledFeatures, true)) {
-                        $this->createAdminUser($input, $output, $helper, $userEmail);
+                        $this->createAdminUser($input, $output, $helper, $userEmail, $cliName);
                     }
                 }
             }
@@ -916,6 +920,14 @@ BASH;
             } elseif (!$skipMigrations) {
                 $steps[] = "Run <comment>./$cliName migrate --scope=framework</comment> when the container is ready.";
             }
+
+            if ($this->adminCredentials !== null) {
+                $creds = $this->adminCredentials;
+                $steps[] = "Admin account:\n"
+                    . "    Email:    <comment>{$creds['email']}</comment>\n"
+                    . "    Password: <comment>{$creds['password']}</comment>\n"
+                    . "    <info>Save this password — it will not be shown again.</info>";
+            }
         }
 
         if (!$this->autoloadSuccess) {
@@ -1023,6 +1035,52 @@ require ROOT . '/vendor/autoload.php';
 PHP;
     }
 
+    private function getHomepageView(
+        string $appName,
+        string $namespace,
+        array  $enabledFeatures,
+        array  $selectedLibraries,
+        bool   $useDocker,
+        int    $dockerPort,
+        string $dbType,
+        string $cliName
+    ): string {
+        $toolPort     = $dockerPort + 1;
+        $toolName     = ($dbType === 'mysql') ? 'PHPMyAdmin' : 'Adminer';
+        $featureList  = $enabledFeatures ? implode(', ', $enabledFeatures) : 'none';
+        $libList      = $selectedLibraries ? implode(', ', $selectedLibraries) : 'none';
+        $appUrl       = $useDocker ? "http://localhost:$dockerPort" : '/';
+        $toolUrl      = $useDocker ? "http://localhost:$toolPort" : '#';
+
+        $sections = "<h1>Welcome to $appName</h1>\n<p>Your Pramnos Framework application is ready.</p>\n\n";
+
+        $sections .= "<h2>Application</h2>\n<ul>\n";
+        $sections .= "  <li><strong>Namespace:</strong> $namespace</li>\n";
+        $sections .= "  <li><strong>Features:</strong> $featureList</li>\n";
+        $sections .= "  <li><strong>Libraries:</strong> $libList</li>\n";
+        $sections .= "</ul>\n\n";
+
+        if ($useDocker) {
+            $sections .= "<h2>Quick Links</h2>\n<ul>\n";
+            $sections .= "  <li><a href=\"$appUrl\">Application: $appUrl</a></li>\n";
+            $sections .= "  <li><a href=\"$toolUrl\">$toolName: $toolUrl</a></li>\n";
+            $sections .= "</ul>\n\n";
+        }
+
+        $sections .= "<h2>CLI Commands</h2>\n<ul>\n";
+        if ($useDocker) {
+            $sections .= "  <li><code>./$cliName migrate --scope=framework</code> — run framework migrations</li>\n";
+            $sections .= "  <li><code>./dockerbash</code> — enter the container shell</li>\n";
+        }
+        $sections .= "  <li><code>php $cliName.php migrate</code> — run app migrations</li>\n";
+        $sections .= "  <li><code>php $cliName.php migrate:status</code> — show migration status</li>\n";
+        $sections .= "</ul>\n\n";
+
+        $sections .= "<p><em>Remove or replace this view once your application is configured.</em></p>\n";
+
+        return $sections;
+    }
+
     /**
      * Poll the database container until it accepts connections (max 60 s).
      * Without this, migrate --scope=framework runs while MySQL/PostgreSQL is still
@@ -1062,7 +1120,7 @@ PHP;
      * After a successful migration run, ask if an admin user should be created
      * and run a PHP snippet inside the app container to INSERT the user.
      */
-    private function createAdminUser(InputInterface $input, OutputInterface $output, mixed $helper, string $developerEmail = ''): void
+    private function createAdminUser(InputInterface $input, OutputInterface $output, mixed $helper, string $developerEmail = '', string $cliName = 'app'): void
     {
         $output->writeln('');
         $wantAdmin = $helper->ask(
@@ -1139,10 +1197,15 @@ PHP;
         if (str_starts_with($result, 'OK:')) {
             $uid = substr($result, 3);
             $output->writeln("  <info>Admin user '$adminUsername' created (userid=$uid).</info>");
+            $this->adminCredentials = [
+                'username' => $adminUsername,
+                'email'    => $adminEmail,
+                'password' => $adminPassword,
+            ];
         } else {
             $msg = str_starts_with($result, 'FAIL:') ? substr($result, 5) : $result;
             $output->writeln("  <error>Admin user creation failed: $msg</error>");
-            $output->writeln("  Run manually: docker-compose exec app php bin/pramnos user:create --admin");
+            $output->writeln("  Run manually: docker-compose exec app php $cliName.php user:create --admin");
         }
     }
 
