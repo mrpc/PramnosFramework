@@ -447,7 +447,8 @@ class InitCommandTest extends TestCase
         $header = file_get_contents($themeDir . '/header.php');
         $this->assertStringContainsString('applicationInfo[\'name\']', $header);
         $this->assertStringNotContainsString('<!DOCTYPE html>', $header);
-        $this->assertStringContainsString('fonts.googleapis.com', $header);
+        // No CDN references — all assets must be served locally
+        $this->assertStringNotContainsString('fonts.googleapis.com', $header);
 
         $style = file_get_contents($this->tempDir . '/www/assets/css/style.css');
         $this->assertStringContainsString(':root', $style);
