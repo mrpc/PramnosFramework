@@ -148,7 +148,7 @@ class Init extends Command
         $userName  = $helper->ask($input, $output, new Question('Author Name [Pramnos Developer]: ', 'Pramnos Developer'));
         $userEmail = '';
         while (true) {
-            $userEmail = $helper->ask($input, $output, new Question('Author Email [developer@pramnos.com]: ', 'developer@pramnos.com'));
+            $userEmail = $helper->ask($input, $output, new Question('Author Email [developer@pramnos.net]: ', 'developer@pramnos.net'));
             if (\Pramnos\Validation\Validator::checkEmail($userEmail)) {
                 break;
             }
