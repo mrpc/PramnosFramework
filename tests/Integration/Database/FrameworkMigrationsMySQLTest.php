@@ -659,6 +659,211 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->assertFalse($this->tableExists('queueitems'));
     }
 
+    // =========================================================================
+    // AuthServer migrations (MySQL — applications, device_authorizations, etc.)
+    // =========================================================================
+
+    /**
+     * CreateApplicationsTable must create the `applications` table on MySQL with
+     * the columns needed by the OAuth2 server: apikey (unique), apisecret, callback,
+     * owner (FK-like), public_key (for JWT client auth), and jwks_uri.
+     *
+     * This table is the prerequisite for all OAuth2 grant flows because every
+     * usertokens.applicationid column references it.
+     */
+    public function testAuthserverApplicationsUpCreatesOauth2ClientTable(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('authserver', 'CreateApplicationsTable');
+
+        // Act
+        $m->up();
+
+        // Assert – table exists
+        $this->assertTrue($this->tableExists('applications'),
+            'applications table must be created by the authserver migration');
+
+        // Assert – key OAuth2 columns
+        $this->assertColumnType('applications', 'appid', 'int');
+        $this->assertColumnType('applications', 'name', 'varchar');
+        $this->assertColumnType('applications', 'apikey', 'varchar');
+        $this->assertColumnType('applications', 'apisecret', 'varchar');
+        $this->assertColumnType('applications', 'callback', 'text');
+        $this->assertColumnType('applications', 'public_key', 'text');
+        $this->assertColumnType('applications', 'scope', 'text');
+
+        // Assert – nullable columns for optional OAuth2 metadata
+        $this->assertColumnNullable('applications', 'apikey', true);
+        $this->assertColumnNullable('applications', 'callback', true);
+        $this->assertColumnNullable('applications', 'owner', true);
+        $this->assertColumnNullable('applications', 'public_key', true);
+        $this->assertColumnNullable('applications', 'jwks_uri', true);
+
+        // Assert – unique constraint on apikey (prevents duplicate client_id)
+        $this->assertTrue($this->indexExists('applications', 'uq_applications_apikey'),
+            'apikey must have a unique index so two clients cannot share the same client_id');
+
+        // Assert – rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('applications'),
+            'applications table must be dropped by down()');
+    }
+
+    /**
+     * CreateDeviceAuthorizationsTable must create the `device_authorizations` table
+     * on MySQL with the RFC 8628 columns: device_code (unique), user_code (unique),
+     * verification_uri, expires_at, and status ENUM.
+     *
+     * The device authorization flow requires storing the polling state (status) and
+     * expiry so the resource server can reject expired or already-consumed codes.
+     */
+    public function testAuthserverDeviceAuthorizationsUpCreatesRfc8628Table(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('authserver', 'CreateDeviceAuthorizationsTable');
+
+        // Act
+        $m->up();
+
+        // Assert – table exists
+        $this->assertTrue($this->tableExists('device_authorizations'),
+            'device_authorizations table must be created by the authserver migration');
+
+        // Assert – key columns
+        $this->assertColumnType('device_authorizations', 'device_code', 'varchar');
+        $this->assertColumnType('device_authorizations', 'user_code', 'varchar');
+        $this->assertColumnType('device_authorizations', 'verification_uri', 'varchar');
+        $this->assertColumnType('device_authorizations', 'expires_at', 'datetime');
+
+        // Assert – status is ENUM (MySQL-specific type) to constrain valid states
+        $statusInfo = $this->getColumnInfo('device_authorizations', 'status');
+        $this->assertSame('enum', strtolower($statusInfo['DATA_TYPE']),
+            'device_authorizations.status must be ENUM on MySQL to enforce valid states');
+        $this->assertSame('pending', (string)$statusInfo['COLUMN_DEFAULT'],
+            "status must default to 'pending' (device waiting for user approval)");
+
+        // Assert – uniqueness on both code columns
+        $this->assertTrue($this->indexExists('device_authorizations', 'uq_devauth_device_code'),
+            'device_code must be unique to prevent collisions across clients');
+        $this->assertTrue($this->indexExists('device_authorizations', 'uq_devauth_user_code'),
+            'user_code must be unique so users can identify the correct device');
+
+        // Assert – rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('device_authorizations'),
+            'device_authorizations table must be dropped by down()');
+    }
+
+    /**
+     * CreateJwtReplayPreventionTable must create the `jwt_replay_prevention` table
+     * on MySQL with a jti PRIMARY KEY and an expires_at index.
+     *
+     * JWT replay prevention works by recording every jti (JWT ID) on first use
+     * and rejecting subsequent requests with the same jti before its expiry.
+     * The expires_at index enables efficient cleanup of expired entries.
+     */
+    public function testAuthserverJwtReplayPreventionUpCreatesLookupTable(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('authserver', 'CreateJwtReplayPreventionTable');
+
+        // Act
+        $m->up();
+
+        // Assert – table exists
+        $this->assertTrue($this->tableExists('jwt_replay_prevention'),
+            'jwt_replay_prevention table must be created');
+
+        // Assert – jti is the primary key (fast lookup for token validation)
+        $this->assertColumnType('jwt_replay_prevention', 'jti', 'varchar');
+        $this->assertColumnType('jwt_replay_prevention', 'expires_at', 'datetime');
+
+        // Assert – expires_at index for efficient cleanup queries
+        $this->assertTrue($this->indexExists('jwt_replay_prevention', 'idx_jrp_expires'),
+            'expires_at index must exist to allow efficient cleanup of expired jti records');
+
+        // Assert – rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('jwt_replay_prevention'),
+            'jwt_replay_prevention table must be dropped by down()');
+    }
+
+    /**
+     * CreateOauth2ClientAuthMethodsTable must create the table and enforce
+     * a valid auth_method ENUM on MySQL.
+     *
+     * Per RFC 7591, clients may authenticate using different methods
+     * (client_secret_basic, client_secret_post, private_key_jwt, none).
+     * This table records which methods each application supports.
+     */
+    public function testAuthserverOauth2ClientAuthMethodsUpCreatesTable(): void
+    {
+        // Arrange — applications table must exist (FK dependency in appid column)
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $m = $this->loadMigration('authserver', 'CreateOauth2ClientAuthMethodsTable');
+
+        // Act
+        $m->up();
+
+        // Assert – table exists
+        $this->assertTrue($this->tableExists('oauth2_client_auth_methods'),
+            'oauth2_client_auth_methods table must be created');
+
+        // Assert – auth_method is ENUM (MySQL-specific type)
+        $methodInfo = $this->getColumnInfo('oauth2_client_auth_methods', 'auth_method');
+        $this->assertSame('enum', strtolower($methodInfo['DATA_TYPE']),
+            'auth_method must be ENUM on MySQL to prevent invalid values');
+
+        // Assert – unique constraint prevents duplicate method registrations per app
+        $this->assertTrue($this->indexExists('oauth2_client_auth_methods', 'uq_ocam_appid_method'),
+            'unique(appid, auth_method) must prevent duplicate method entries per application');
+
+        // Assert – rollback (applications first because of potential FK)
+        $m->down();
+        $this->assertFalse($this->tableExists('oauth2_client_auth_methods'));
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->down();
+    }
+
+    /**
+     * CreateOauth2WebhooksTables must create both the endpoints and events tables.
+     *
+     * The webhook system notifies external URLs when OAuth2 events occur
+     * (token revoked, user deauthorized, etc.). The events table is a delivery
+     * queue with a FK to the endpoints table — so both must be created together.
+     */
+    public function testAuthserverOauth2WebhooksUpCreatesBothWebhookTables(): void
+    {
+        // Arrange — applications must exist because endpoints.appid references it
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $m = $this->loadMigration('authserver', 'CreateOauth2WebhooksTables');
+
+        // Act
+        $m->up();
+
+        // Assert – both tables exist
+        $this->assertTrue($this->tableExists('oauth2_webhook_endpoints'),
+            'oauth2_webhook_endpoints table must be created');
+        $this->assertTrue($this->tableExists('oauth2_webhook_events'),
+            'oauth2_webhook_events table must be created');
+
+        // Assert – endpoints has required columns
+        $this->assertColumnType('oauth2_webhook_endpoints', 'url', 'text');
+        $this->assertColumnType('oauth2_webhook_endpoints', 'secret', 'varchar');
+        $this->assertColumnType('oauth2_webhook_endpoints', 'events', 'json');
+
+        // Assert – events has delivery tracking columns
+        $this->assertColumnType('oauth2_webhook_events', 'event_type', 'varchar');
+        $this->assertColumnType('oauth2_webhook_events', 'payload', 'json');
+        $this->assertColumnType('oauth2_webhook_events', 'delivered', 'tinyint');
+        $this->assertColumnType('oauth2_webhook_events', 'attempts', 'smallint');
+
+        // Assert – rollback (events before endpoints due to FK)
+        $m->down();
+        $this->assertFalse($this->tableExists('oauth2_webhook_events'));
+        $this->assertFalse($this->tableExists('oauth2_webhook_endpoints'));
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->down();
+    }
+
     /**
      * Running up() twice must be idempotent — the hasTable() guard prevents
      * duplicate-table errors on all framework migrations.
