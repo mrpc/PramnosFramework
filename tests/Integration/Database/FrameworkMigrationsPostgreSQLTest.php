@@ -877,6 +877,213 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     // Idempotency
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // AuthServer migrations (PostgreSQL — applications, device_authorizations, etc.)
+    // -------------------------------------------------------------------------
+
+    /**
+     * CreateApplicationsTable must create the `applications` table in the
+     * default (public) schema on PostgreSQL with the required OAuth2 columns.
+     *
+     * The applications table holds registered OAuth2 client applications.
+     * Its apikey column is the OAuth2 client_id; the unique constraint on it
+     * ensures no two clients can share the same public identifier.
+     */
+    public function testAuthserverApplicationsUpCreatesOauth2ClientTableOnPostgres(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $m = $this->loadMigration('authserver', 'CreateApplicationsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table exists in public schema
+        $this->assertTrue($this->tableExists('applications'),
+            'applications table must be created by the authserver migration on PostgreSQL');
+
+        // Assert — key OAuth2 columns with expected PostgreSQL types
+        $this->assertColumnType('applications', 'appid', 'integer');
+        $this->assertColumnType('applications', 'name', 'character varying');
+        $this->assertColumnType('applications', 'apikey', 'character varying');
+        $this->assertColumnType('applications', 'callback', 'text');
+        $this->assertColumnType('applications', 'public_key', 'text');
+
+        // Assert — nullable optional fields
+        $this->assertColumnNullable('applications', 'apikey', true);
+        $this->assertColumnNullable('applications', 'callback', true);
+        $this->assertColumnNullable('applications', 'owner', true);
+        $this->assertColumnNullable('applications', 'public_key', true);
+        $this->assertColumnNullable('applications', 'jwks_uri', true);
+
+        // Assert — a unique constraint exists on the apikey column.
+        // The PostgreSQL SchemaBuilder uses inline UNIQUE syntax without naming the
+        // constraint, so PostgreSQL auto-generates the name (e.g. applications_apikey_key).
+        // We verify the constraint via pg_constraint rather than looking for a fixed name.
+        $uniqueCheck = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM pg_constraint c"
+            . " JOIN pg_class t ON t.oid = c.conrelid"
+            . " JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)"
+            . " WHERE t.relname = 'applications' AND a.attname = 'apikey' AND c.contype = 'u'"
+        );
+        $this->assertGreaterThan(0, (int)$uniqueCheck->fields['cnt'],
+            'apikey must have a unique constraint on PostgreSQL');
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('applications'),
+            'applications table must be dropped by down()');
+
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->down();
+    }
+
+    /**
+     * CreateDeviceAuthorizationsTable must create the table inside the
+     * `authserver` schema on PostgreSQL with a CHECK constraint on status
+     * (instead of MySQL's ENUM type) and unique constraints on both code columns.
+     *
+     * PostgreSQL does not support ENUM for new columns without CREATE TYPE;
+     * the migration uses VARCHAR + CHECK to achieve the same constraint.
+     */
+    public function testAuthserverDeviceAuthorizationsCreatesTableInAuthserverSchemaOnPostgres(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $m = $this->loadMigration('authserver', 'CreateDeviceAuthorizationsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table exists in authserver schema (not public)
+        $this->assertTrue($this->tableExists('device_authorizations', 'authserver'),
+            'device_authorizations must be created in the authserver schema on PostgreSQL');
+
+        // Assert — key columns have correct PostgreSQL types
+        $this->assertColumnType('device_authorizations', 'device_code', 'character varying', 'authserver');
+        $this->assertColumnType('device_authorizations', 'user_code', 'character varying', 'authserver');
+        $this->assertColumnType('device_authorizations', 'verification_uri', 'character varying', 'authserver');
+        $this->assertColumnType('device_authorizations', 'expires_at', 'timestamp without time zone', 'authserver');
+
+        // Assert — status is VARCHAR (PostgreSQL uses CHECK instead of ENUM)
+        $this->assertColumnType('device_authorizations', 'status', 'character varying', 'authserver');
+
+        // Assert — rollback drops the table
+        $m->down();
+        $this->assertFalse($this->tableExists('device_authorizations', 'authserver'),
+            'device_authorizations must be dropped by down() on PostgreSQL');
+
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->down();
+    }
+
+    /**
+     * CreateJwtReplayPreventionTable must create the table inside the
+     * `authserver` schema on PostgreSQL with jti as the primary key and
+     * an expires_at index.
+     *
+     * The table stores seen JWT IDs to prevent replay attacks. Placing it
+     * in the authserver schema keeps it separate from application data.
+     */
+    public function testAuthserverJwtReplayPreventionCreatesTableInAuthserverSchemaOnPostgres(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $m = $this->loadMigration('authserver', 'CreateJwtReplayPreventionTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table in authserver schema
+        $this->assertTrue($this->tableExists('jwt_replay_prevention', 'authserver'),
+            'jwt_replay_prevention must be created in the authserver schema');
+
+        // Assert — jti and expires_at columns
+        $this->assertColumnType('jwt_replay_prevention', 'jti', 'character varying', 'authserver');
+        $this->assertColumnType('jwt_replay_prevention', 'expires_at', 'timestamp without time zone', 'authserver');
+
+        // Assert — expires_at index for cleanup
+        $this->assertTrue($this->indexExists('jwt_replay_prevention', 'idx_jrp_expires', 'authserver'),
+            'expires_at index must exist in authserver.jwt_replay_prevention for cleanup queries');
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('jwt_replay_prevention', 'authserver'),
+            'jwt_replay_prevention must be dropped by down()');
+
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->down();
+    }
+
+    /**
+     * CreateOauth2ClientAuthMethodsTable must create the table inside the
+     * `authserver` schema on PostgreSQL with a CHECK constraint on auth_method
+     * and a unique constraint on (appid, auth_method).
+     */
+    public function testAuthserverOauth2ClientAuthMethodsCreatesTableInAuthserverSchemaOnPostgres(): void
+    {
+        // Arrange — applications table must exist for appid column integrity
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $m = $this->loadMigration('authserver', 'CreateOauth2ClientAuthMethodsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table in authserver schema
+        $this->assertTrue($this->tableExists('oauth2_client_auth_methods', 'authserver'),
+            'oauth2_client_auth_methods must be created in the authserver schema');
+
+        // Assert — auth_method uses VARCHAR + CHECK (not ENUM) on PostgreSQL
+        $this->assertColumnType('oauth2_client_auth_methods', 'auth_method', 'character varying', 'authserver');
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('oauth2_client_auth_methods', 'authserver'));
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->down();
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->down();
+    }
+
+    /**
+     * CreateOauth2WebhooksTables must create both webhook tables inside the
+     * `authserver` schema on PostgreSQL with JSONB columns for events and payload.
+     *
+     * JSONB is the native PostgreSQL binary JSON type and enables efficient
+     * JSON indexing and querying. The events table has a FK to endpoints.
+     */
+    public function testAuthserverOauth2WebhooksCreatesBothTablesWithJsonbOnPostgres(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $m = $this->loadMigration('authserver', 'CreateOauth2WebhooksTables');
+
+        // Act
+        $m->up();
+
+        // Assert — both tables in authserver schema
+        $this->assertTrue($this->tableExists('oauth2_webhook_endpoints', 'authserver'),
+            'oauth2_webhook_endpoints must be created in the authserver schema');
+        $this->assertTrue($this->tableExists('oauth2_webhook_events', 'authserver'),
+            'oauth2_webhook_events must be created in the authserver schema');
+
+        // Assert — events column is JSONB (binary JSON for efficient querying)
+        $this->assertColumnType('oauth2_webhook_endpoints', 'events', 'jsonb', 'authserver',
+            'events on endpoints must be JSONB for efficient JSON path queries on PostgreSQL');
+
+        // Assert — payload column is JSONB
+        $this->assertColumnType('oauth2_webhook_events', 'payload', 'jsonb', 'authserver',
+            'payload on events must be JSONB on PostgreSQL');
+
+        // Assert — delivery tracking columns
+        $this->assertColumnType('oauth2_webhook_events', 'delivered', 'boolean', 'authserver');
+        $this->assertColumnType('oauth2_webhook_events', 'attempts', 'smallint', 'authserver');
+
+        // Assert — rollback drops both tables
+        $m->down();
+        $this->assertFalse($this->tableExists('oauth2_webhook_events', 'authserver'));
+        $this->assertFalse($this->tableExists('oauth2_webhook_endpoints', 'authserver'));
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->down();
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->down();
+    }
+
     /**
      * Running up() twice must be idempotent — the hasTable() guard prevents
      * duplicate-table errors on all framework migrations.

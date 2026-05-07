@@ -243,6 +243,7 @@ class FeatureRegistry
         ]);
         static::register('authserver', [
             'description' => 'OAuth 2.0 Authorization Server',
+            'provider'    => \Pramnos\Auth\AuthServerServiceProvider::class,
             'migrations'  => [
                 dirname(__DIR__, 3) . '/database/migrations/framework/authserver',
             ],
