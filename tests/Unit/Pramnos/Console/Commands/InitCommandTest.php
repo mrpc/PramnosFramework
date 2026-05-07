@@ -456,6 +456,230 @@ class InitCommandTest extends TestCase
     }
 
     /**
+     * Test that the CLI entry-point files are scaffolded when Docker is enabled.
+     *
+     * The init command must produce:
+     *  - {cliName}.php  — PHP entry point that defines ROOT and runs the app Console
+     *  - {cliName}      — bash wrapper calling docker-compose exec app php {cliName}.php
+     *  - src/Console.php — app Console class extending Pramnos\Console\Application
+     *
+     * Without these files the app has no CLI interface (migrate, queue, etc. are unusable).
+     */
+    public function test_it_scaffolds_app_cli_files(): void
+    {
+        $application = new Application();
+        $application->add(new Init());
+
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
+        $commandTester = new CommandTester($command);
+
+        // Arrange — namespace 'MyCLIApp' → cliName 'mycliapp'
+        $commandTester->setInputs([
+            'My CLI App', 'MyCLIApp',
+            'n', 'n', 'n', 'n',   // features
+            '',                    // UI plain-css
+            'n',                   // no libraries
+            'y', '8090', '0',      // Docker, port, no cache
+            '0',                   // MySQL
+            'localhost', 'clidb', 'root', '', '',
+            'Author', 'author@example.com',
+        ]);
+
+        // Act
+        $commandTester->execute([]);
+
+        // Assert — PHP CLI entry point
+        $this->assertFileExists($this->tempDir . '/mycliapp.php');
+        $cliEntry = file_get_contents($this->tempDir . '/mycliapp.php');
+        $this->assertStringContainsString("define('ROOT'", $cliEntry);
+        $this->assertStringContainsString('MyCLIApp\\Console', $cliEntry);
+
+        // Assert — bash wrapper delegates to docker-compose exec
+        $this->assertFileExists($this->tempDir . '/mycliapp');
+        $wrapper = file_get_contents($this->tempDir . '/mycliapp');
+        $this->assertStringContainsString('docker-compose exec app php mycliapp.php', $wrapper);
+
+        // Assert — app Console class extending the framework
+        $this->assertFileExists($this->tempDir . '/src/Console.php');
+        $console = file_get_contents($this->tempDir . '/src/Console.php');
+        $this->assertStringContainsString('class Console extends \\Pramnos\\Console\\Application', $console);
+        $this->assertStringContainsString('registerCommands', $console);
+    }
+
+    /**
+     * Test that the generated Application::init() signature matches the parent.
+     *
+     * The parent declares init($settingsFile = '').  PHP 8 raises a fatal error
+     * ("Declaration must be compatible") when a child overrides a method with an
+     * incompatible signature.  This was the first regression seen in production:
+     *   Fatal error: Declaration of TestApp\Application::init() must be compatible
+     *   with Pramnos\Application\Application::init($settingsFile = '')
+     */
+    public function test_application_php_has_correct_init_signature(): void
+    {
+        $application = new Application();
+        $application->add(new Init());
+
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
+        $commandTester = new CommandTester($command);
+
+        // Arrange
+        $commandTester->execute([
+            '--app-name'       => 'Sig App',
+            '--namespace'      => 'SigApp',
+            '--docker'         => 'n',
+            '--db-type'        => 'mysql',
+            '--features'       => '',
+            '--ui-system'      => 'plain-css',
+            '--libraries'      => '',
+            '--no-interaction' => true,
+        ]);
+
+        // Act
+        $this->assertFileExists($this->tempDir . '/src/Application.php');
+        $content = file_get_contents($this->tempDir . '/src/Application.php');
+
+        // Assert — must match parent signature exactly
+        $this->assertStringContainsString("public function init(\$settingsFile = '')", $content,
+            'init() must declare $settingsFile = \'\' to match parent signature');
+        $this->assertStringContainsString("parent::init(\$settingsFile)", $content);
+        $this->assertStringContainsString('registerVendorLibraries', $content);
+    }
+
+    /**
+     * Test that selected vendor libraries are registered via registerScript/registerStyle
+     * with local vendor paths — never CDN URLs.
+     *
+     * Libraries must be registered-but-not-enqueued: controllers decide what each
+     * page needs by calling addScript('jquery') / addStyle('datatables') etc.
+     */
+    public function test_application_php_registers_vendor_libraries(): void
+    {
+        $application = new Application();
+        $application->add(new Init());
+
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
+        $commandTester = new CommandTester($command);
+
+        // Arrange — select jquery + datatables (datatables depends on jquery)
+        $commandTester->execute([
+            '--app-name'       => 'Lib App',
+            '--namespace'      => 'LibApp',
+            '--docker'         => 'n',
+            '--db-type'        => 'mysql',
+            '--features'       => '',
+            '--ui-system'      => 'plain-css',
+            '--libraries'      => 'jquery,datatables',
+            '--no-download'    => true,
+            '--no-interaction' => true,
+        ]);
+
+        // Act
+        $this->assertFileExists($this->tempDir . '/src/Application.php');
+        $content = file_get_contents($this->tempDir . '/src/Application.php');
+
+        // Assert — jquery JS registered with local path
+        $this->assertStringContainsString("registerScript('jquery'", $content);
+        $this->assertStringContainsString("assets/vendor/jquery/", $content);
+
+        // Assert — datatables JS + CSS registered
+        $this->assertStringContainsString("registerScript('datatables'", $content);
+        $this->assertStringContainsString("registerStyle('datatables'", $content);
+        $this->assertStringContainsString("assets/vendor/datatables/", $content);
+
+        // Assert — no CDN references; runtime must not reach out to external hosts
+        foreach (['cdn.', 'jsdelivr', 'cdnjs', 'unpkg'] as $cdn) {
+            $this->assertStringNotContainsString($cdn, $content,
+                "Application.php must not reference CDN ($cdn found)");
+        }
+    }
+
+    /**
+     * Test that the post-init summary shows the correct migrate command.
+     *
+     * The Symfony Console application registers the command as 'migrate' with a
+     * --scope option.  'migrate:framework' does not exist and causes:
+     *   Command "migrate:framework" is not defined.
+     */
+    public function test_summary_shows_correct_migrate_command(): void
+    {
+        $application = new Application();
+        $application->add(new Init());
+
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true; // Docker enabled but skipped → shows manual step
+        $commandTester = new CommandTester($command);
+
+        // Arrange — Docker enabled so the migrate fallback line appears in summary
+        $commandTester->setInputs([
+            'Migrate App', 'MigrateApp',
+            'n', 'n', 'n', 'n',
+            '', 'n',
+            'y', '8091', '0', '0',
+            'localhost', 'migratedb', 'root', '', '',
+            'Author', 'author@example.com',
+        ]);
+
+        // Act
+        $commandTester->execute([]);
+        $output = $commandTester->getDisplay();
+
+        // Assert — correct command name in summary
+        $this->assertStringContainsString('migrate --scope=framework', $output);
+        $this->assertStringNotContainsString('migrate:framework', $output);
+    }
+
+    /**
+     * Test that theme header.php and footer.php contain no CDN references.
+     *
+     * Every library is downloaded locally during init and served from
+     * www/assets/vendor/.  CDN references at runtime are a security risk
+     * (supply-chain compromise) and break air-gapped deployments.
+     */
+    public function test_theme_files_have_no_cdn_references(): void
+    {
+        $application = new Application();
+        $application->add(new Init());
+
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
+        $commandTester = new CommandTester($command);
+
+        // Arrange
+        $commandTester->setInputs([
+            'CDN Test App', 'CDNTestApp',
+            'n', 'n', 'n', 'n',
+            '', 'n',
+            'n', '0',
+            'localhost', 'cdndb', 'root', '', '',
+            'Author', 'author@example.com',
+        ]);
+
+        // Act
+        $commandTester->execute([]);
+
+        // Assert — no CDN references in any theme file
+        $themeDir  = $this->tempDir . '/app/themes/default';
+        $cdnTokens = ['cdn.', 'jsdelivr', 'cdnjs', 'unpkg.com', 'googleapis', 'gstatic'];
+
+        foreach (['header.php', 'footer.php'] as $file) {
+            $content = file_get_contents($themeDir . '/' . $file);
+            foreach ($cdnTokens as $token) {
+                $this->assertStringNotContainsString($token, $content,
+                    "Theme $file must not reference CDN ('$token' found)");
+            }
+        }
+    }
+
+    /**
      * Test the internal port availability check.
      */
     public function test_is_port_available()
