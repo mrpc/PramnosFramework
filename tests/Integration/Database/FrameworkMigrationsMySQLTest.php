@@ -998,15 +998,28 @@ class FrameworkMigrationsMySQLTest extends TestCase
     {
         // Drop in dependency order (children first)
         $tables = [
+            // authserver (drop before applications due to FK-like references)
+            'oauth2_webhook_deliveries', 'oauth2_webhooks',
+            'oauth2_client_auth_methods',
+            'jwt_replay_prevention',
+            'device_authorizations',
+            'oauth2_access_tokens', 'oauth2_refresh_tokens',
+            'oauth2_auth_codes',
+            'applications',
+            'authserver_user_roles', 'authserver_audit_log',
+            'authserver_permissions', 'authserver_roles',
+            'authserver_schema',
+            // messaging
             'massmessagerecipients', 'massmessages',
             'mailtemplates', 'mails', 'messages',
+            // auth
             'tokenactions', 'urls',
             'usertokens', 'usernotes', 'userlog', 'userdetails',
             'users',
+            // queue
             'queueitems',
+            // core
             'framework_policies', 'settings', 'sessions',
-            'authserver_user_roles', 'authserver_audit_log',
-            'authserver_permissions', 'authserver_roles',
         ];
 
         foreach ($tables as $table) {
