@@ -963,9 +963,9 @@ namespace $namespace;
 
 class Application extends \\Pramnos\\Application\\Application
 {
-    public function init()
+    public function init(\$settingsFile = '')
     {
-        parent::init();
+        parent::init(\$settingsFile);
         \$this->registerVendorLibraries();
         return \$this;
     }
