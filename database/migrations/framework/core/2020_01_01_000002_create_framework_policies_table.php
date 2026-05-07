@@ -22,7 +22,14 @@ class CreateFrameworkPoliciesTable extends Migration
 
     public function up(): void
     {
-        $schema = $this->application->database->schema();
+        // TimescaleDB manages its own native policies — this table is only
+        // needed on MySQL and plain PostgreSQL.
+        $db = $this->application->database;
+        if (!empty($db->timescale) || $db->type === 'timescaledb') {
+            return;
+        }
+
+        $schema = $db->schema();
 
         if ($schema->hasTable('framework_policies')) {
             return;
@@ -59,6 +66,10 @@ class CreateFrameworkPoliciesTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('framework_policies');
+        $db = $this->application->database;
+        if (!empty($db->timescale) || $db->type === 'timescaledb') {
+            return;
+        }
+        $db->schema()->dropTableIfExists('framework_policies');
     }
 }
