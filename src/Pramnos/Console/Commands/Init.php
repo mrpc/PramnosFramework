@@ -1017,8 +1017,9 @@ declare(strict_types=1);
 define('ROOT', dirname(__FILE__));
 require ROOT . '/vendor/autoload.php';
 
-\$app = new \\$namespace\\Console('$appName CLI');
-\$app->run();
+\$consoleApp = new \\$namespace\\Console('$appName CLI');
+\$consoleApp->internalApplication->init(ROOT . '/app/config/settings.php');
+\$consoleApp->run();
 PHP;
     }
 
