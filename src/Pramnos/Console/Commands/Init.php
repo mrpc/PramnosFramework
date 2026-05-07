@@ -18,7 +18,7 @@ use Symfony\Component\Console\Input\InputOption;
  *  3. UI system (plain-css, bootstrap, tailwind)
  *  4. Extra libraries (local asset download into public/assets/vendor/)
  *  5. Extra resources (favicon set, base CSS reset, print stylesheet)
- *  6. Docker startup → composer install → migrate:framework → summary
+ *  6. Docker startup → composer install → migrate --scope=framework → summary
  */
 class Init extends Command
 {
@@ -54,7 +54,7 @@ class Init extends Command
         $this->addOption('db-prefix',     null, InputOption::VALUE_OPTIONAL, 'Database table prefix');
         $this->addOption('libraries',     null, InputOption::VALUE_OPTIONAL, 'Comma-separated extra library list');
         $this->addOption('no-download',   null, InputOption::VALUE_NONE,     'Skip asset download (record in assets.json only)');
-        $this->addOption('no-migrations', null, InputOption::VALUE_NONE,     'Skip migrate:framework after Docker startup');
+        $this->addOption('no-migrations', null, InputOption::VALUE_NONE,     'Skip migrate --scope=framework after Docker startup');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -195,7 +195,7 @@ class Init extends Command
         );
         $this->writeFile('src/Views/home/home.html.php', "<h1>Welcome to $appName</h1>\n<p>Your Pramnos project is ready.</p>\n");
 
-        $this->scaffoldTheme($uiSystem, $appName);
+        $this->scaffoldTheme($uiSystem, $appName, $selectedLibraries);
 
         if (!empty($selectedLibraries)) {
             $skipDownload = (bool) $input->getOption('no-download');
@@ -229,7 +229,7 @@ class Init extends Command
 
                 if ($this->autoloadSuccess && !$input->getOption('no-migrations')) {
                     $migStatus = $this->runProcessWithSpinner(
-                        "docker-compose exec -T app php $cliName.php migrate:framework 2>/dev/null",
+                        "docker-compose exec -T app php $cliName.php migrate --scope=framework 2>/dev/null",
                         'Running framework migrations',
                         $output
                     );
@@ -420,32 +420,143 @@ class Init extends Command
         $this->writeFile($path, $content);
     }
 
-    /** Scaffold the theme from scaffolding/themes/<uiSystem>/ files. */
-    private function scaffoldTheme(string $uiSystem, string $appName): void
+    /** Scaffold the theme, generating header/footer with local-only asset paths. */
+    private function scaffoldTheme(string $uiSystem, string $appName, array $selectedLibraries = []): void
     {
         $themeDir = $this->scaffoldingDir . '/themes/' . $uiSystem;
         $dest     = 'app/themes/default';
+        $catalog  = $this->loadAssetCatalog();
 
-        $copyThemeFile = function (string $file) use ($themeDir, $dest): void {
-            $src = $themeDir . '/' . $file;
-            if (file_exists($src)) {
-                $this->writeFile($dest . '/' . $file, file_get_contents($src));
+        // theme.html.php — structural wrapper, copy as-is
+        $src = $themeDir . '/theme.html.php';
+        if (file_exists($src)) {
+            $this->writeFile($dest . '/theme.html.php', file_get_contents($src));
+        }
+
+        // Build local-path CSS and JS tags for every selected library
+        $cssLines = [];
+        $jsLines  = [];
+        foreach ($selectedLibraries as $lib) {
+            $libDef = $catalog['libraries'][$lib] ?? null;
+            if ($libDef === null) {
+                continue;
             }
-        };
+            foreach ($libDef['css'] as $url) {
+                $filename  = basename(parse_url($url, PHP_URL_PATH));
+                $localPath = $libDef['local_path'] . '/' . $filename;
+                $cssLines[] = "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>$localPath\">";
+            }
+            foreach ($libDef['js'] as $url) {
+                $filename  = basename(parse_url($url, PHP_URL_PATH));
+                $localPath = $libDef['local_path'] . '/' . $filename;
+                $jsLines[] = "    <script src=\"<?php echo sURL; ?>$localPath\"></script>";
+            }
+        }
 
-        $copyThemeFile('theme.html.php');
-        $copyThemeFile('header.php');
-        $copyThemeFile('footer.php');
+        $cssIncludes = $cssLines ? implode("\n", $cssLines) . "\n" : '';
+        $jsIncludes  = $jsLines  ? implode("\n", $jsLines)  . "\n" : '';
+
+        $this->writeFile($dest . '/header.php', $this->buildThemeHeader($uiSystem, $appName, $cssIncludes, $catalog));
+        $this->writeFile($dest . '/footer.php', $this->buildThemeFooter($uiSystem, $appName, $jsIncludes, $catalog));
 
         $cssFile = $themeDir . '/style.css';
         if (file_exists($cssFile)) {
             $this->writeFile('www/assets/css/style.css', file_get_contents($cssFile));
         }
 
-        // Bootstrap: automatically include bootstrap assets if that theme was chosen
         if ($uiSystem === 'bootstrap') {
             $this->ensureBootstrapAssets();
         }
+    }
+
+    private function buildThemeHeader(string $uiSystem, string $appName, string $cssIncludes, array $catalog): string
+    {
+        $themeCss = '';
+        if ($uiSystem === 'bootstrap') {
+            $bsDef = $catalog['libraries']['bootstrap'] ?? null;
+            if ($bsDef) {
+                $filename = basename(parse_url($bsDef['css'][0] ?? '', PHP_URL_PATH));
+                $path     = $bsDef['local_path'] . '/' . $filename;
+                $themeCss = "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>$path\">\n";
+            }
+        }
+
+        $nav = match ($uiSystem) {
+            'bootstrap' => <<<HTML
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="<?php echo sURL; ?>">
+                <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>">Home</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+HTML,
+            default => <<<HTML
+    <header class="main-header">
+        <div class="container">
+            <a href="<?php echo sURL; ?>" class="logo">
+                <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>
+            </a>
+            <nav class="main-nav">
+                <ul>
+                    <li><a href="<?php echo sURL; ?>">Home</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+HTML,
+        };
+
+        return "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+            . $themeCss
+            . $cssIncludes
+            . "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>assets/css/style.css\">\n"
+            . "    <?php \$this->document->renderCss(); ?>\n"
+            . $nav . "\n";
+    }
+
+    private function buildThemeFooter(string $uiSystem, string $appName, string $jsIncludes, array $catalog): string
+    {
+        $themeJs = '';
+        if ($uiSystem === 'bootstrap') {
+            $bsDef = $catalog['libraries']['bootstrap'] ?? null;
+            if ($bsDef) {
+                $filename = basename(parse_url($bsDef['js'][0] ?? '', PHP_URL_PATH));
+                $path     = $bsDef['local_path'] . '/' . $filename;
+                $themeJs  = "    <script src=\"<?php echo sURL; ?>$path\"></script>\n";
+            }
+        }
+
+        $footer = match ($uiSystem) {
+            'bootstrap' => <<<HTML
+    <footer class="bg-dark text-light py-4 mt-auto">
+        <div class="container text-center">
+            <p class="mb-1">&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
+            <p class="mb-0 text-muted small">Powered by <a href="https://github.com/mrpc/PramnosFramework" target="_blank" class="text-secondary">PramnosFramework</a></p>
+        </div>
+    </footer>
+HTML,
+            default => <<<HTML
+    <footer class="main-footer">
+        <div class="container">
+            <p>&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
+        </div>
+    </footer>
+HTML,
+        };
+
+        return $footer . "\n"
+            . $themeJs
+            . $jsIncludes
+            . "    <?php \$this->document->renderJs(); ?>\n";
     }
 
     /** Download (or stub) Bootstrap assets when bootstrap theme is selected. */
@@ -820,7 +931,7 @@ BASH;
             if ($this->migrationsSuccess) {
                 $steps[] = "<info>✓ Framework migrations ran successfully.</info>";
             } elseif (!$skipMigrations) {
-                $steps[] = "Run <comment>./$cliName migrate:framework</comment> when the container is ready.";
+                $steps[] = "Run <comment>./$cliName migrate --scope=framework</comment> when the container is ready.";
             }
         }
 
@@ -869,7 +980,7 @@ PHP;
 
     /**
      * Poll the database container until it accepts connections (max 60 s).
-     * Without this, migrate:framework runs while MySQL/PostgreSQL is still
+     * Without this, migrate --scope=framework runs while MySQL/PostgreSQL is still
      * initialising and fails immediately after docker-compose up.
      */
     private function waitForDatabase(string $dbType, OutputInterface $output): void
