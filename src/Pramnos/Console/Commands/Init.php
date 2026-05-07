@@ -116,7 +116,7 @@ class Init extends Command
             $cacheSystemOption = $input->getOption('cache-system');
             $cacheSystem = $cacheSystemOption !== null
                 ? $cacheSystemOption
-                : $helper->ask($input, $output, new ChoiceQuestion('Cache System: ', ['none', 'redis', 'memcached'], 0));
+                : $helper->ask($input, $output, new ChoiceQuestion('Cache System [none]: ', ['none', 'redis', 'memcached'], 0));
         }
 
         // ── Database config ───────────────────────────────────────────────────
@@ -127,7 +127,7 @@ class Init extends Command
         $dbTypeOption = $input->getOption('db-type');
         $dbType = $dbTypeOption !== null
             ? $dbTypeOption
-            : $helper->ask($input, $output, new ChoiceQuestion('Database Type: ', $dbTypeChoices, 2));
+            : $helper->ask($input, $output, new ChoiceQuestion('Database Type [timescaledb]: ', $dbTypeChoices, 2));
 
         $defaultDbHost = $useDocker ? 'db' : 'localhost';
         $dbHost = $input->getOption('db-host')
@@ -295,7 +295,7 @@ class Init extends Command
 
         $output->writeln("\n<comment>Step 3 — UI system</comment>");
         $question = new ChoiceQuestion(
-            'Select UI system: ',
+            'Select UI system [plain-css]: ',
             ['plain-css', 'bootstrap', 'tailwind'],
             0
         );
@@ -315,7 +315,7 @@ class Init extends Command
         }
 
         $output->writeln("\n<comment>Step 4 — Extra libraries</comment>");
-        $wantLibraries = $helper->ask($input, $output, new ConfirmationQuestion('Configure extra libraries? [y/N] ', false));
+        $wantLibraries = $helper->ask($input, $output, new ConfirmationQuestion('Configure extra libraries? [Y/n] ', true));
         if (!$wantLibraries) {
             return [];
         }
@@ -991,15 +991,18 @@ PHP;
     {
         $isVerbose = $output->getVerbosity() >= OutputInterface::VERBOSITY_VERBOSE;
 
+        // Always strip the 2>/dev/null redirect so we can capture stderr for error display
+        $command = str_replace(' 2>/dev/null', '', $command);
+
         if ($isVerbose) {
             $output->writeln("<info>$message...</info>");
-            $command = str_replace(' 2>/dev/null', '', $command);
         } else {
             $output->write("$message ");
         }
 
-        $symbols = ['/', '-', '\\', '|'];
-        $i       = 0;
+        $symbols   = ['/', '-', '\\', '|'];
+        $i         = 0;
+        $stderrBuf = '';
 
         $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         if (!is_resource($process)) {
@@ -1021,15 +1024,21 @@ PHP;
                 if ($out) $output->write($out);
                 if ($err) $output->write($err);
             } else {
+                $stderrBuf .= (string) stream_get_contents($pipes[2]);
                 $output->write("\r\033[K$message " . $symbols[$i % 4]);
             }
             $i++;
             usleep(100_000);
         }
 
+        $remainingOut = stream_get_contents($pipes[1]);
+        $remainingErr = stream_get_contents($pipes[2]);
+
         if ($isVerbose) {
-            $output->write(stream_get_contents($pipes[1]));
-            $output->write(stream_get_contents($pipes[2]));
+            if ($remainingOut) $output->write($remainingOut);
+            if ($remainingErr) $output->write($remainingErr);
+        } else {
+            $stderrBuf .= (string) $remainingErr;
         }
 
         foreach ($pipes as $pipe) {
@@ -1043,6 +1052,9 @@ PHP;
         } else {
             $suffix = $exitCode === 0 ? "<info>DONE</info>" : "<error>FAILED</error>";
             $output->write("\r\033[K$message $suffix\n");
+            if ($exitCode !== 0 && $stderrBuf !== '') {
+                $output->writeln('<error>' . trim($stderrBuf) . '</error>');
+            }
         }
 
         return $exitCode;
