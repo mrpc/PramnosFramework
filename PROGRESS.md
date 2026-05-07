@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-06 (session 35)
+## 📅 Last Updated: 2026-05-07 (session 37)
 
 ## 🚀 Completed Milestones
 
@@ -42,6 +42,25 @@
 - [x] **Bug fix**: `queueitems` migration changed status column from `TINYINT` to `VARCHAR(20)` so string-based status comparisons work on both MySQL and PostgreSQL
 - [x] **`Pramnos\Console\Commands\DbSeed`** — `db:seed` CLI command: scans `database/seeds/`, loads Seeder subclasses, runs all or a named seeder; `--path` option for custom directory
 - **Tests:** 1479/1479 passing
+
+### Phase 2: OAuth Server — league/oauth2-server integration (2026-05-07, session 37)
+
+- [x] **`composer require league/oauth2-server:^8.5`** — 8 packages installed (lcobucci/jwt, defuse/php-encryption, etc.)
+- [x] **`docker-compose.yml`**: pinned MySQL to `8.4` (tag `8.0` now resolves to 9.7.0 which was incompatible)
+- [x] **Migrations** (authserver feature, framework scope):
+    - `000025_create_applications_table` — OAuth2 client registry (apikey unique, callback, scope, owner, public_key, jwks_uri)
+    - `000026_create_device_authorizations_table` — RFC 8628 Device Grant (ENUM/VARCHAR+CHECK status, unique device_code + user_code)
+    - `000027_create_jwt_replay_prevention_table` — jti lookup table with expires_at index for cleanup
+    - `000028_create_oauth2_client_auth_methods_table` — per-client auth method registry (ENUM/VARCHAR+CHECK)
+    - `000029_create_oauth2_webhooks_tables` — endpoints + events tables (JSON/JSONB, FK cascade, delivery tracking)
+- [x] **`Pramnos\Auth\Application`** — ORM model for applications table; `loadByApiKey()`, `validateCredentials()`, OAuth2 interface helpers
+- [x] **OAuth2 Entities** (6): ClientEntity, UserEntity, ScopeEntity, AccessTokenEntity, AuthCodeEntity, RefreshTokenEntity
+- [x] **OAuth2 Repositories** (6): ClientRepository, ScopeRepository (extensible), AccessTokenRepository, AuthCodeRepository, RefreshTokenRepository, UserRepository (delegates to User::validateUserCredentials)
+- [x] **`OAuth2ServerFactory`** — wires 4 grant types; `generateKeyPair()` for RSA 2048-bit keys; persistent encryption key
+- [x] **`OAuth2Middleware`** — Bearer token validation, scope checking, `getCurrentUserId()`, `revokeToken()`
+- [x] **`AuthServerServiceProvider`** — registered in FeatureRegistry
+- [x] **Integration tests**: 5 MySQL + 5 PostgreSQL migration tests (column types, schema placement, rollback, JSONB vs JSON)
+- **Tests:** 1489/1489 passing (1479 + 10 new)
 
 ### Phase 2: Token Action Tracking — partial (2026-05-06, session 36)
 
