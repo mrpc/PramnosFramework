@@ -224,7 +224,7 @@ class Init extends Command
 
                 if ($this->autoloadSuccess && !$input->getOption('no-migrations')) {
                     $migStatus = $this->runProcessWithSpinner(
-                        'docker-compose exec -T app php bin/pramnos migrate:framework 2>/dev/null',
+                        'docker-compose exec -T app php vendor/bin/pramnos migrate:framework 2>/dev/null',
                         'Running framework migrations',
                         $output
                     );
@@ -327,6 +327,9 @@ class Init extends Command
 
         $output->writeln("Select which libraries to include (assets downloaded locally):");
 
+        // Libraries we use across the framework and urbanwater — default yes
+        $defaultEnabled = ['jquery', 'datatables', 'select2', 'leaflet', 'chartjs'];
+
         $skipAlways = ['bootstrap']; // bundled with bootstrap theme automatically
         $selected   = [];
 
@@ -345,7 +348,11 @@ class Init extends Command
                     continue;
                 }
             }
-            $answer = $helper->ask($input, $output, new ConfirmationQuestion("  Include $key@{$lib['version']}? [y/N] ", false));
+            $default = in_array($key, $defaultEnabled, true);
+            $answer  = $helper->ask($input, $output, new ConfirmationQuestion(
+                "  Include $key@{$lib['version']}? [" . ($default ? 'Y/n' : 'y/N') . '] ',
+                $default
+            ));
             if ($answer) {
                 $selected[] = $key;
                 // auto-include hard dependencies
