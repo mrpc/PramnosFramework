@@ -237,7 +237,7 @@ class Init extends Command
                     $this->migrationsSuccess = ($migStatus === 0);
 
                     if ($this->migrationsSuccess && in_array('auth', $enabledFeatures, true)) {
-                        $this->createAdminUser($input, $output, $helper);
+                        $this->createAdminUser($input, $output, $helper, $userEmail);
                     }
                 }
             }
@@ -1062,7 +1062,7 @@ PHP;
      * After a successful migration run, ask if an admin user should be created
      * and run a PHP snippet inside the app container to INSERT the user.
      */
-    private function createAdminUser(InputInterface $input, OutputInterface $output, mixed $helper): void
+    private function createAdminUser(InputInterface $input, OutputInterface $output, mixed $helper, string $developerEmail = ''): void
     {
         $output->writeln('');
         $wantAdmin = $helper->ask(
@@ -1075,24 +1075,20 @@ PHP;
 
         $adminUsername = $helper->ask($input, $output, new Question('  Admin username [admin]: ', 'admin'));
 
-        $adminEmail = '';
+        $emailDefault  = $developerEmail ?: 'admin@example.com';
+        $emailPrompt   = "  Admin email [$emailDefault]: ";
+        $adminEmail    = '';
         while (true) {
-            $adminEmail = $helper->ask($input, $output, new Question('  Admin email: ', ''));
+            $adminEmail = $helper->ask($input, $output, new Question($emailPrompt, $emailDefault));
             if (\Pramnos\Validation\Validator::checkEmail($adminEmail)) {
                 break;
             }
             $output->writeln('  <error>Invalid email. Please try again.</error>');
         }
 
-        $adminPassQuestion = new Question('  Admin password: ');
-        $adminPassQuestion->setHidden(true);
-        $adminPassQuestion->setHiddenFallback(false);
-        $adminPassword = $helper->ask($input, $output, $adminPassQuestion);
-
-        if (empty($adminPassword)) {
-            $output->writeln('  <comment>Empty password — admin user creation skipped.</comment>');
-            return;
-        }
+        // Generate a strong random password and display it — no prompt needed
+        $adminPassword = $this->generateRandomPassword(16);
+        $output->writeln("  <info>Generated password:</info> <comment>$adminPassword</comment>");
 
         // Escape values for safe injection into the single-quoted PHP string
         $safeUsername = addslashes($adminUsername);
@@ -1168,6 +1164,17 @@ PHP;
         }
         // Last resort: use well-known package path relative to ROOT
         return (defined('ROOT') ? ROOT : getcwd()) . '/vendor/mrpc/pramnosframework/scaffolding';
+    }
+
+    private function generateRandomPassword(int $length = 16): string
+    {
+        $chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!@#$%^&*';
+        $max   = strlen($chars) - 1;
+        $pass  = '';
+        for ($i = 0; $i < $length; $i++) {
+            $pass .= $chars[random_int(0, $max)];
+        }
+        return $pass;
     }
 
     private function mkdir(string $path): void
