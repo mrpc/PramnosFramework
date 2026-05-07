@@ -1,8 +1,25 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-07 (session 37)
+## 📅 Last Updated: 2026-05-07 (session 38)
 
 ## 🚀 Completed Milestones
+
+### `pramnos init` scaffolding improvements (2026-05-07, session 38)
+
+- [x] **DB readiness polling** — `waitForDatabase()` polls `pg_isready` / `mysqladmin ping` before running migrations (max 30 attempts × 2s)
+- [x] **Admin user creation** — after successful migrations, creates admin user via temp PHP file copied into container (avoids shell quoting issues)
+- [x] **Default email domain** — changed from `pramnos.com` → `pramnos.net`
+- [x] **Default values shown in ALL prompts** — ChoiceQuestion prompts now display selected default (e.g. `[plain-css]`, `[none]`, `[timescaledb]`)
+- [x] **Extra libraries default** — changed to `[Y/n]` (yes by default)
+- [x] **App CLI scaffold (urbanwater pattern)** — generates `{cliName}.php` (PHP entry point), `{cliName}` (bash wrapper: `docker-compose exec app php {cliName}.php "$@"`), and `src/Console.php` extending `\Pramnos\Console\Application`
+- [x] **Library catalog cleanup** — removed `alpinejs`, `htmx`, `sweetalert2`; added `ckeditor 4.22.1`; default selection matches used stack (jquery, datatables, select2, leaflet, chartjs, ckeditor)
+- [x] **Local-only asset delivery** — all selected libraries downloaded to `assets/vendor/{name}/{version}/` during init; no CDN references in generated theme files
+- [x] **Per-page library loading** — `Application::registerVendorLibraries()` calls `$doc->registerScript()`/`registerStyle()` (register without include); controllers enqueue per-page via `addScript()`/`addStyle()`; theme renders only what's enqueued
+- [x] **Correct migrate command** — uses `migrate --scope=framework` (not the non-existent `migrate:framework`)
+- [x] **PHP signature compatibility** — generated `Application::init($settingsFile = '')` matches parent; no fatal error on instantiation
+- [x] **stdout capture on failure** — `runProcessWithSpinner()` buffers both stdout and stderr; combines on failure so Symfony Console errors (written to stdout) are always surfaced
+- [x] **5 regression tests** — cover CLI files scaffold, init() signature, local-path registration, migrate command name, no-CDN theme files
+- **Tests:** 1489/1489 passing (all 15 InitCommandTest tests pass)
 
 ### Phase 3: Migration Wizard & Seeder Generator (2026-05-06, session 35)
 
