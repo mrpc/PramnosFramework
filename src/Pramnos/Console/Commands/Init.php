@@ -1163,6 +1163,7 @@ PHP;
 
         $symbols   = ['/', '-', '\\', '|'];
         $i         = 0;
+        $stdoutBuf = '';
         $stderrBuf = '';
 
         $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -1185,6 +1186,7 @@ PHP;
                 if ($out) $output->write($out);
                 if ($err) $output->write($err);
             } else {
+                $stdoutBuf .= (string) stream_get_contents($pipes[1]);
                 $stderrBuf .= (string) stream_get_contents($pipes[2]);
                 $output->write("\r\033[K$message " . $symbols[$i % 4]);
             }
@@ -1199,6 +1201,7 @@ PHP;
             if ($remainingOut) $output->write($remainingOut);
             if ($remainingErr) $output->write($remainingErr);
         } else {
+            $stdoutBuf .= (string) $remainingOut;
             $stderrBuf .= (string) $remainingErr;
         }
 
@@ -1213,8 +1216,11 @@ PHP;
         } else {
             $suffix = $exitCode === 0 ? "<info>DONE</info>" : "<error>FAILED</error>";
             $output->write("\r\033[K$message $suffix\n");
-            if ($exitCode !== 0 && $stderrBuf !== '') {
-                $output->writeln('<error>' . trim($stderrBuf) . '</error>');
+            if ($exitCode !== 0) {
+                $combined = trim($stdoutBuf . "\n" . $stderrBuf);
+                if ($combined !== '') {
+                    $output->writeln('<error>' . $combined . '</error>');
+                }
             }
         }
 
