@@ -333,7 +333,7 @@ class Init extends Command
         $output->writeln("Select which libraries to include (assets downloaded locally):");
 
         // Libraries we use across the framework and urbanwater — default yes
-        $defaultEnabled = ['jquery', 'datatables', 'select2', 'leaflet', 'chartjs'];
+        $defaultEnabled = ['jquery', 'datatables', 'select2', 'leaflet', 'chartjs', 'ckeditor'];
 
         $skipAlways = ['bootstrap']; // bundled with bootstrap theme automatically
         $selected   = [];

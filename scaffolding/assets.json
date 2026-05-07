@@ -8,22 +8,6 @@
             ],
             "local_path": "assets/vendor/jquery/3.7.1"
         },
-        "alpinejs": {
-            "version": "3.13.10",
-            "css": [],
-            "js": [
-                "https://cdn.jsdelivr.net/npm/alpinejs@3.13.10/dist/cdn.min.js"
-            ],
-            "local_path": "assets/vendor/alpinejs/3.13.10"
-        },
-        "htmx": {
-            "version": "1.9.12",
-            "css": [],
-            "js": [
-                "https://cdn.jsdelivr.net/npm/htmx.org@1.9.12/dist/htmx.min.js"
-            ],
-            "local_path": "assets/vendor/htmx/1.9.12"
-        },
         "datatables": {
             "version": "1.13.8",
             "requires": ["jquery"],
@@ -46,15 +30,31 @@
             ],
             "local_path": "assets/vendor/select2/4.1.0-rc.0"
         },
-        "tom-select": {
-            "version": "2.3.1",
+        "leaflet": {
+            "version": "1.9.4",
             "css": [
-                "https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.min.css"
+                "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css"
             ],
             "js": [
-                "https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"
+                "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
             ],
-            "local_path": "assets/vendor/tom-select/2.3.1"
+            "local_path": "assets/vendor/leaflet/1.9.4"
+        },
+        "chartjs": {
+            "version": "4.4.3",
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
+            ],
+            "local_path": "assets/vendor/chartjs/4.4.3"
+        },
+        "ckeditor": {
+            "version": "4.22.1",
+            "css": [],
+            "js": [
+                "https://cdn.ckeditor.com/4.22.1/standard/ckeditor.js"
+            ],
+            "local_path": "assets/vendor/ckeditor/4.22.1"
         },
         "flatpickr": {
             "version": "4.6.13",
@@ -65,14 +65,6 @@
                 "https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"
             ],
             "local_path": "assets/vendor/flatpickr/4.6.13"
-        },
-        "chartjs": {
-            "version": "4.4.3",
-            "css": [],
-            "js": [
-                "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
-            ],
-            "local_path": "assets/vendor/chartjs/4.4.3"
         },
         "apexcharts": {
             "version": "3.49.2",
@@ -102,14 +94,6 @@
             ],
             "local_path": "assets/vendor/filepond/4.31.4"
         },
-        "sweetalert2": {
-            "version": "11.11.0",
-            "css": [],
-            "js": [
-                "https://cdn.jsdelivr.net/npm/sweetalert2@11.11.0/dist/sweetalert2.all.min.js"
-            ],
-            "local_path": "assets/vendor/sweetalert2/11.11.0"
-        },
         "toastify": {
             "version": "1.12.0",
             "css": [
@@ -137,16 +121,6 @@
                 "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"
             ],
             "local_path": "assets/vendor/cropperjs/1.6.2"
-        },
-        "leaflet": {
-            "version": "1.9.4",
-            "css": [
-                "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css"
-            ],
-            "js": [
-                "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
-            ],
-            "local_path": "assets/vendor/leaflet/1.9.4"
         },
         "tinymce": {
             "version": "7.2.0",
