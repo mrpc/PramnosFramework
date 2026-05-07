@@ -213,6 +213,8 @@ class Init extends Command
             ) === 0);
 
             if ($this->dockerSuccess) {
+                $this->waitForDatabase($dbType, $output);
+
                 $syncStatus         = $this->runProcessWithSpinner('docker-compose exec -T app composer update --no-interaction 2>/dev/null',      'Syncing dependencies (in container)',     $output);
                 $syncAutoloadStatus = $this->runProcessWithSpinner('docker-compose exec -T app composer dump-autoload --no-interaction 2>/dev/null', 'Regenerating autoloader (in container)',  $output);
 
@@ -227,6 +229,10 @@ class Init extends Command
                         $output
                     );
                     $this->migrationsSuccess = ($migStatus === 0);
+
+                    if ($this->migrationsSuccess && in_array('auth', $enabledFeatures, true)) {
+                        $this->createAdminUser($input, $output, $helper);
+                    }
                 }
             }
         } elseif (!$useDocker) {
@@ -810,6 +816,133 @@ BASH;
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────────
+
+    /**
+     * Poll the database container until it accepts connections (max 60 s).
+     * Without this, migrate:framework runs while MySQL/PostgreSQL is still
+     * initialising and fails immediately after docker-compose up.
+     */
+    private function waitForDatabase(string $dbType, OutputInterface $output): void
+    {
+        $isPostgres = ($dbType === 'postgresql' || $dbType === 'timescaledb');
+        $output->write('Waiting for database ');
+
+        $symbols = ['/', '-', '\\', '|'];
+        $i       = 0;
+        $maxTries = 30;
+
+        for ($try = 0; $try < $maxTries; $try++) {
+            $output->write("\r\033[KWaiting for database " . $symbols[$i % 4]);
+            $i++;
+
+            if ($isPostgres) {
+                $cmd = 'docker-compose exec -T db pg_isready -q 2>/dev/null';
+            } else {
+                $cmd = 'docker-compose exec -T db mysqladmin ping -h 127.0.0.1 --silent 2>/dev/null';
+            }
+
+            exec($cmd, $ignored, $exitCode);
+            if ($exitCode === 0) {
+                $output->writeln("\r\033[KWaiting for database <info>READY</info>");
+                return;
+            }
+            sleep(2);
+        }
+
+        $output->writeln("\r\033[KWaiting for database <comment>TIMEOUT (proceeding anyway)</comment>");
+    }
+
+    /**
+     * After a successful migration run, ask if an admin user should be created
+     * and run a PHP snippet inside the app container to INSERT the user.
+     */
+    private function createAdminUser(InputInterface $input, OutputInterface $output, mixed $helper): void
+    {
+        $output->writeln('');
+        $wantAdmin = $helper->ask(
+            $input, $output,
+            new ConfirmationQuestion('Create an admin user? [Y/n] ', true)
+        );
+        if (!$wantAdmin) {
+            return;
+        }
+
+        $adminUsername = $helper->ask($input, $output, new Question('  Admin username [admin]: ', 'admin'));
+
+        $adminEmail = '';
+        while (true) {
+            $adminEmail = $helper->ask($input, $output, new Question('  Admin email: ', ''));
+            if (\Pramnos\Validation\Validator::checkEmail($adminEmail)) {
+                break;
+            }
+            $output->writeln('  <error>Invalid email. Please try again.</error>');
+        }
+
+        $adminPassQuestion = new Question('  Admin password: ');
+        $adminPassQuestion->setHidden(true);
+        $adminPassQuestion->setHiddenFallback(false);
+        $adminPassword = $helper->ask($input, $output, $adminPassQuestion);
+
+        if (empty($adminPassword)) {
+            $output->writeln('  <comment>Empty password — admin user creation skipped.</comment>');
+            return;
+        }
+
+        // Escape values for safe injection into the single-quoted PHP string
+        $safeUsername = addslashes($adminUsername);
+        $safeEmail    = addslashes($adminEmail);
+        $safePassword = addslashes($adminPassword);
+
+        $phpSnippet = <<<PHP
+define('ROOT', '/var/www/html');
+define('SP', 1);
+require ROOT . '/vendor/autoload.php';
+\$app = \Pramnos\Application\Application::getInstance();
+\$app->init();
+\$user = new \Pramnos\User\User(0);
+\$user->username  = '$safeUsername';
+\$user->email     = '$safeEmail';
+\$user->password  = password_hash('$safePassword', PASSWORD_BCRYPT);
+\$user->usertype  = 10;
+\$user->active    = 1;
+\$user->validated = 1;
+\$user->regdate   = time();
+\$user->maingroup = 1;
+\$user->save();
+if (\$user->userid > 0) {
+    echo 'OK:' . \$user->userid;
+} else {
+    echo 'FAIL:' . implode(', ', \$user->getErrors());
+}
+PHP;
+
+        // Wrap snippet in a temp file to avoid shell quoting issues
+        $tmpFile  = sys_get_temp_dir() . '/pramnos_admin_' . uniqid() . '.php';
+        file_put_contents($tmpFile, '<?php ' . $phpSnippet);
+
+        // Copy to container and execute
+        $containerName = trim((string) shell_exec("docker-compose ps -q app 2>/dev/null"));
+        if (empty($containerName)) {
+            $output->writeln('  <error>Could not determine container name — admin user creation skipped.</error>');
+            @unlink($tmpFile);
+            return;
+        }
+
+        shell_exec("docker cp " . escapeshellarg($tmpFile) . " " . escapeshellarg($containerName . ":/tmp/pramnos_admin.php") . " 2>/dev/null");
+        @unlink($tmpFile);
+
+        $result = trim((string) shell_exec("docker-compose exec -T app php /tmp/pramnos_admin.php 2>/dev/null"));
+        shell_exec("docker-compose exec -T app rm -f /tmp/pramnos_admin.php 2>/dev/null");
+
+        if (str_starts_with($result, 'OK:')) {
+            $uid = substr($result, 3);
+            $output->writeln("  <info>Admin user '$adminUsername' created (userid=$uid).</info>");
+        } else {
+            $msg = str_starts_with($result, 'FAIL:') ? substr($result, 5) : $result;
+            $output->writeln("  <error>Admin user creation failed: $msg</error>");
+            $output->writeln("  Run manually: docker-compose exec app php bin/pramnos user:create --admin");
+        }
+    }
 
     private function resolveScaffoldingDir(): string
     {
