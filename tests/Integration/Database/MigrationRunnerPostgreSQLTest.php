@@ -80,9 +80,9 @@ class MigrationRunnerPostgreSQLTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * ensureHistoryTable() must create the history table with all Phase 4
-     * columns on PostgreSQL: migration, scope, feature, batch, execution_time,
-     * result, error_message, description, ran_at.
+     * ensureHistoryTable() must create the schemaversion table with the
+     * urbanwater base columns (when, key, extra) plus logging columns
+     * (scope, feature, batch, execution_time, result, error_message).
      */
     public function testEnsureHistoryTableCreatesTableWithAllColumns(): void
     {
@@ -103,7 +103,7 @@ class MigrationRunnerPostgreSQLTest extends TestCase
         $this->assertSame('1', (string) $result->fields['cnt'], 'History table must exist after ensureHistoryTable()');
 
         // Assert – all required columns present
-        $required = ['migration', 'scope', 'feature', 'batch', 'execution_time', 'result', 'error_message', 'description', 'ran_at'];
+        $required = ['when', 'key', 'extra', 'scope', 'feature', 'batch', 'execution_time', 'result', 'error_message'];
         $colsResult = $this->db->query(
             $this->db->prepareQuery(
                 "SELECT column_name FROM information_schema.columns
@@ -169,7 +169,7 @@ class MigrationRunnerPostgreSQLTest extends TestCase
         // Assert – history row recorded with correct metadata
         $histRow = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT * FROM \"{$this->historyTable}\" WHERE migration = %s",
+                "SELECT * FROM \"{$this->historyTable}\" WHERE \"key\" = %s",
                 'create_mr_pg_roles'
             )
         );
@@ -177,7 +177,7 @@ class MigrationRunnerPostgreSQLTest extends TestCase
         $this->assertSame('framework', $histRow->fields['scope']);
         $this->assertSame('core',      $histRow->fields['feature']);
         $this->assertSame('1',         (string) $histRow->fields['result']);
-        $this->assertNotNull($histRow->fields['ran_at']);
+        $this->assertNotNull($histRow->fields['when']);
 
         // Assert – run() return lists ran migration
         $this->assertContains('create_mr_pg_roles', $result['ran']);
@@ -229,7 +229,7 @@ class MigrationRunnerPostgreSQLTest extends TestCase
         // Assert – broken migration has result=0 in history
         $brokenRow = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT * FROM \"{$this->historyTable}\" WHERE migration = %s",
+                "SELECT * FROM \"{$this->historyTable}\" WHERE \"key\" = %s",
                 'broken_mr_pg_migration'
             )
         );
@@ -239,7 +239,7 @@ class MigrationRunnerPostgreSQLTest extends TestCase
         // Assert – valid migration still ran
         $validRow = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT * FROM \"{$this->historyTable}\" WHERE migration = %s",
+                "SELECT * FROM \"{$this->historyTable}\" WHERE \"key\" = %s",
                 'create_mr_pg_roles'
             )
         );
@@ -369,7 +369,7 @@ class MigrationRunnerPostgreSQLTest extends TestCase
         // Assert – two rows returned
         $this->assertCount(2, $history, 'getHistory() must return one row per executed migration');
 
-        $slugs = array_column($history, 'migration');
+        $slugs = array_column($history, 'key');
         $this->assertContains('create_mr_pg_roles', $slugs);
         $this->assertContains('create_mr_pg_users', $slugs);
 

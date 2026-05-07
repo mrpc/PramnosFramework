@@ -36,7 +36,7 @@ class MigrationRunner
      */
     public function __construct(
         ?Database $db = null,
-        string $historyTable = 'framework_migrations',
+        string $historyTable = 'schemaversion',
         ?\Pramnos\Application\Application $app = null
     ) {
         $this->db           = $db;
@@ -59,31 +59,33 @@ class MigrationRunner
     {
         $db = $this->requireDb();
 
+        // Schema matches the urbanwater schemaversion table (`when`, `key`, `extra`)
+        // with additional columns for logging (scope, feature, batch, execution_time,
+        // result, error_message). `key` is the PRIMARY KEY so each migration slug
+        // appears exactly once; retries are handled via UPSERT.
         if ($db->type === 'postgresql') {
             $db->query("CREATE TABLE IF NOT EXISTS \"{$this->historyTable}\" (
-                id             SERIAL PRIMARY KEY,
-                migration      VARCHAR(255)  NOT NULL,
-                scope          VARCHAR(255)  NOT NULL DEFAULT 'app',
-                feature        VARCHAR(255)  NULL,
-                batch          INTEGER       NULL,
-                execution_time DOUBLE PRECISION NULL,
-                result         SMALLINT      NOT NULL DEFAULT 1,
-                error_message  TEXT          NULL,
-                description    VARCHAR(255)  NULL,
-                ran_at         TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+                \"when\"          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+                \"key\"           VARCHAR(255)  PRIMARY KEY,
+                \"extra\"         VARCHAR(255)  NULL,
+                \"scope\"         VARCHAR(255)  NOT NULL DEFAULT 'app',
+                \"feature\"       VARCHAR(255)  NULL,
+                \"batch\"         INTEGER       NULL,
+                \"execution_time\" DOUBLE PRECISION NULL,
+                \"result\"        SMALLINT      NOT NULL DEFAULT 1,
+                \"error_message\" TEXT          NULL
             )");
         } else {
             $db->query("CREATE TABLE IF NOT EXISTS `{$this->historyTable}` (
-                id             INT AUTO_INCREMENT PRIMARY KEY,
-                migration      VARCHAR(255)  NOT NULL,
-                scope          VARCHAR(255)  NOT NULL DEFAULT 'app',
-                feature        VARCHAR(255)  NULL,
-                batch          INT           NULL,
-                execution_time DOUBLE        NULL,
-                result         SMALLINT      NOT NULL DEFAULT 1,
-                error_message  TEXT          NULL,
-                description    VARCHAR(255)  NULL,
-                ran_at         TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
+                `when`           TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                `key`            VARCHAR(255)  NOT NULL PRIMARY KEY,
+                `extra`          VARCHAR(255)  NULL,
+                `scope`          VARCHAR(255)  NOT NULL DEFAULT 'app',
+                `feature`        VARCHAR(255)  NULL,
+                `batch`          INT           NULL,
+                `execution_time` DOUBLE        NULL,
+                `result`         SMALLINT      NOT NULL DEFAULT 1,
+                `error_message`  TEXT          NULL
             )");
         }
     }
@@ -283,7 +285,7 @@ class MigrationRunner
         $this->ensureHistoryTable();
 
         $result = $db->query(
-            "SELECT * FROM {$quote}{$this->historyTable}{$quote} ORDER BY batch ASC, id ASC"
+            "SELECT * FROM {$quote}{$this->historyTable}{$quote} ORDER BY {$quote}batch{$quote} ASC, {$quote}when{$quote} ASC"
         );
 
         $rows = [];
@@ -516,12 +518,12 @@ class MigrationRunner
 
         $quote = $db->type === 'postgresql' ? '"' : '`';
         $result = $db->query(
-            "SELECT migration FROM {$quote}{$this->historyTable}{$quote} WHERE result = 1"
+            "SELECT {$quote}key{$quote} FROM {$quote}{$this->historyTable}{$quote} WHERE {$quote}result{$quote} = 1"
         );
 
         $slugs = [];
         while ($result->fetch()) {
-            $slugs[] = $result->fields['migration'];
+            $slugs[] = $result->fields['key'];
         }
 
         return $slugs;
@@ -537,7 +539,7 @@ class MigrationRunner
         $quote = $db->type === 'postgresql' ? '"' : '`';
 
         $result = $db->query(
-            "SELECT MAX(batch) as max_batch FROM {$quote}{$this->historyTable}{$quote}"
+            "SELECT MAX({$quote}batch{$quote}) as max_batch FROM {$quote}{$this->historyTable}{$quote}"
         );
 
         $val = $result->fields['max_batch'] ?? null;
@@ -565,15 +567,15 @@ class MigrationRunner
 
         $result = $db->query(
             $db->prepareQuery(
-                "SELECT migration FROM {$quote}{$this->historyTable}{$quote}
-                 WHERE batch = %d ORDER BY id ASC",
+                "SELECT {$quote}key{$quote} FROM {$quote}{$this->historyTable}{$quote}
+                 WHERE {$quote}batch{$quote} = %d ORDER BY {$quote}when{$quote} ASC",
                 $batch
             )
         );
 
         $rows = [];
         while ($result->fetch()) {
-            $rows[] = ['migration' => $result->fields['migration']];
+            $rows[] = ['migration' => $result->fields['key']];
         }
 
         return $rows;
@@ -598,42 +600,38 @@ class MigrationRunner
         ?string $errorMessage
     ): void {
         $db    = $this->requireDb();
-        $quote = $db->type === 'postgresql' ? '"' : '`';
 
         $feature      = $migration->feature      !== '' ? $migration->feature : null;
-        $description  = $migration->description  !== '' ? $migration->description : null;
+        $extra        = $migration->description  !== '' ? mb_substr($migration->description, 0, 255) : null;
         $errorMessage = ($errorMessage !== null) ? mb_substr($errorMessage, 0, 65535) : null;
+        $execTime     = number_format($elapsed, 6, '.', '');
 
         if ($db->type === 'postgresql') {
             $db->query(
                 $db->prepareQuery(
                     "INSERT INTO \"{$this->historyTable}\"
-                     (migration, scope, feature, batch, execution_time, result, error_message, description, ran_at)
-                     VALUES (%s, %s, %s, %d, %s, %d, %s, %s, NOW())",
-                    $slug,
-                    $migration->scope,
-                    $feature,
-                    $batch,
-                    number_format($elapsed, 6, '.', ''),
-                    $result,
-                    $errorMessage,
-                    $description
+                     (\"key\", \"extra\", \"scope\", \"feature\", \"batch\", \"execution_time\", \"result\", \"error_message\")
+                     VALUES (%s, %s, %s, %s, %d, %s, %d, %s)
+                     ON CONFLICT (\"key\") DO UPDATE SET
+                       \"when\" = NOW(), \"extra\" = EXCLUDED.\"extra\",
+                       \"scope\" = EXCLUDED.\"scope\", \"feature\" = EXCLUDED.\"feature\",
+                       \"batch\" = EXCLUDED.\"batch\", \"execution_time\" = EXCLUDED.\"execution_time\",
+                       \"result\" = EXCLUDED.\"result\", \"error_message\" = EXCLUDED.\"error_message\"",
+                    $slug, $extra, $migration->scope, $feature, $batch, $execTime, $result, $errorMessage
                 )
             );
         } else {
             $db->query(
                 $db->prepareQuery(
                     "INSERT INTO `{$this->historyTable}`
-                     (migration, scope, feature, batch, execution_time, result, error_message, description)
-                     VALUES (%s, %s, %s, %d, %s, %d, %s, %s)",
-                    $slug,
-                    $migration->scope,
-                    $feature,
-                    $batch,
-                    number_format($elapsed, 6, '.', ''),
-                    $result,
-                    $errorMessage,
-                    $description
+                     (`key`, `extra`, `scope`, `feature`, `batch`, `execution_time`, `result`, `error_message`)
+                     VALUES (%s, %s, %s, %s, %d, %s, %d, %s)
+                     ON DUPLICATE KEY UPDATE
+                       `extra` = VALUES(`extra`), `scope` = VALUES(`scope`),
+                       `feature` = VALUES(`feature`), `batch` = VALUES(`batch`),
+                       `execution_time` = VALUES(`execution_time`),
+                       `result` = VALUES(`result`), `error_message` = VALUES(`error_message`)",
+                    $slug, $extra, $migration->scope, $feature, $batch, $execTime, $result, $errorMessage
                 )
             );
         }
@@ -649,7 +647,7 @@ class MigrationRunner
 
         $db->query(
             $db->prepareQuery(
-                "DELETE FROM {$quote}{$this->historyTable}{$quote} WHERE migration = %s",
+                "DELETE FROM {$quote}{$this->historyTable}{$quote} WHERE {$quote}key{$quote} = %s",
                 $slug
             )
         );

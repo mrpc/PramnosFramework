@@ -88,9 +88,9 @@ class MigrationRunnerMySQLTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * ensureHistoryTable() must create the framework_migrations table with all
-     * Phase 4 columns: migration, scope, feature, batch, execution_time, result,
-     * error_message, description, ran_at.
+     * ensureHistoryTable() must create the schemaversion table with the
+     * urbanwater base columns (when, key, extra) plus logging columns
+     * (scope, feature, batch, execution_time, result, error_message).
      */
     public function testEnsureHistoryTableCreatesTableWithAllColumns(): void
     {
@@ -112,7 +112,7 @@ class MigrationRunnerMySQLTest extends TestCase
         $this->assertSame('1', (string) $result->fields['cnt'], 'History table must exist after ensureHistoryTable()');
 
         // Assert – all required columns are present
-        $required = ['migration', 'scope', 'feature', 'batch', 'execution_time', 'result', 'error_message', 'description', 'ran_at'];
+        $required = ['when', 'key', 'extra', 'scope', 'feature', 'batch', 'execution_time', 'result', 'error_message'];
         $colsResult = $this->db->query(
             $this->db->prepareQuery(
                 "SELECT COLUMN_NAME FROM information_schema.COLUMNS
@@ -156,7 +156,7 @@ class MigrationRunnerMySQLTest extends TestCase
     /**
      * run() must execute pending migrations' up() methods and record a row
      * in the history table for each one. The recorded row must carry scope,
-     * feature, description, result=1 (success), and a non-null ran_at.
+     * feature, extra, result=1 (success), and a non-null `when`.
      */
     public function testRunExecutesMigrationsAndRecordsHistory(): void
     {
@@ -181,7 +181,7 @@ class MigrationRunnerMySQLTest extends TestCase
         // Assert – history row exists with correct metadata
         $histRow = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT * FROM `{$this->historyTable}` WHERE migration = %s",
+                "SELECT * FROM `{$this->historyTable}` WHERE `key` = %s",
                 'create_mr_my_roles'
             )
         );
@@ -189,7 +189,7 @@ class MigrationRunnerMySQLTest extends TestCase
         $this->assertSame('framework', $histRow->fields['scope']); // CreateMrMyRoles declares scope='framework'
         $this->assertSame('core', $histRow->fields['feature']);
         $this->assertSame('1',    (string) $histRow->fields['result'], 'result must be 1 for successful migration');
-        $this->assertNotNull($histRow->fields['ran_at'], 'ran_at must be set');
+        $this->assertNotNull($histRow->fields['when'], '`when` must be set after migration runs');
         $this->assertNotNull($histRow->fields['execution_time'], 'execution_time must be recorded');
 
         // Assert – run() return value reports success
@@ -276,7 +276,7 @@ class MigrationRunnerMySQLTest extends TestCase
         // Assert – broken migration recorded with result=0
         $brokenRow = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT * FROM `{$this->historyTable}` WHERE migration = %s",
+                "SELECT * FROM `{$this->historyTable}` WHERE `key` = %s",
                 'broken_mr_my_migration'
             )
         );
@@ -286,7 +286,7 @@ class MigrationRunnerMySQLTest extends TestCase
         // Assert – valid migration still ran (batch did not stop)
         $validRow = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT * FROM `{$this->historyTable}` WHERE migration = %s",
+                "SELECT * FROM `{$this->historyTable}` WHERE `key` = %s",
                 'create_mr_my_roles'
             )
         );
@@ -417,7 +417,7 @@ class MigrationRunnerMySQLTest extends TestCase
         // Assert – users (batch 2) is still recorded in history
         $row = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT result FROM `{$this->historyTable}` WHERE migration = %s",
+                "SELECT result FROM `{$this->historyTable}` WHERE `key` = %s",
                 'create_mr_my_users'
             )
         );
@@ -464,7 +464,7 @@ class MigrationRunnerMySQLTest extends TestCase
 
     /**
      * getHistory() must return an array with one row per executed migration,
-     * including all metadata columns (scope, feature, batch, result, ran_at).
+     * including all metadata columns (scope, feature, batch, result, when).
      */
     public function testGetHistoryReturnsAllRows(): void
     {
@@ -482,7 +482,7 @@ class MigrationRunnerMySQLTest extends TestCase
         // Assert – two rows, one per migration
         $this->assertCount(2, $history, 'getHistory() must return one row per executed migration');
 
-        $slugs = array_column($history, 'migration');
+        $slugs = array_column($history, 'key');
         $this->assertContains('create_mr_my_roles', $slugs);
         $this->assertContains('create_mr_my_users', $slugs);
 

@@ -58,8 +58,9 @@ class MigrateStatus extends Command
             return 1;
         }
 
-        $path       = $input->getOption('path') ?? $this->defaultMigrationPath();
-        $migrations = MigrationLoader::loadFromDirectory($path, $app);
+        $explicitPath = $input->getOption('path');
+        $dirs         = $explicitPath ? [$explicitPath] : $this->resolveMigrationDirectories();
+        $migrations   = MigrationLoader::loadFromDirectories($dirs, $app);
 
         $runner  = new MigrationRunner($db);
         $history = $runner->getHistory();
@@ -67,7 +68,7 @@ class MigrateStatus extends Command
         // Build a slug → history row map for fast lookup
         $historyMap = [];
         foreach ($history as $row) {
-            $historyMap[$row['migration']] = $row;
+            $historyMap[$row['key']] = $row;
         }
 
         if (empty($migrations) && empty($history)) {
@@ -93,7 +94,7 @@ class MigrateStatus extends Command
                     $status,
                     $row['batch']    ?? '-',
                     isset($row['execution_time']) ? number_format((float) $row['execution_time'], 4) : '-',
-                    $row['ran_at']   ?? '-',
+                    $row['when']     ?? '-',
                 ]);
                 unset($historyMap[$slug]);
             } else {
@@ -136,12 +137,21 @@ class MigrateStatus extends Command
         return 0;
     }
 
-    /**
-     * Returns the default migrations directory path.
-     */
-    private function defaultMigrationPath(): string
+    private function resolveMigrationDirectories(): array
     {
         $root = defined('ROOT') ? ROOT : getcwd();
-        return $root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'Migrations';
+        $dirs = [$root . '/app/Migrations'];
+
+        $base = dirname(__DIR__, 4) . '/database/migrations/framework';
+        if (!is_dir($base)) {
+            $base = $root . '/vendor/mrpc/pramnosframework/database/migrations/framework';
+        }
+        if (is_dir($base)) {
+            foreach (glob($base . '/*', GLOB_ONLYDIR) ?: [] as $d) {
+                $dirs[] = $d;
+            }
+        }
+
+        return $dirs;
     }
 }
