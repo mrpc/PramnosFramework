@@ -88,8 +88,11 @@ class Migrate extends Command
             return 1;
         }
 
-        $path       = $input->getOption('path') ?? $this->defaultMigrationPath();
-        $migrations = MigrationLoader::loadFromDirectory($path, $app);
+        $explicitPath = $input->getOption('path');
+        $dirs         = $explicitPath
+            ? [$explicitPath]
+            : $this->resolveMigrationDirectories();
+        $migrations   = MigrationLoader::loadFromDirectories($dirs, $app);
 
         if (empty($migrations)) {
             $output->writeln('<comment>No migrations found in: ' . $path . '</comment>');
@@ -151,11 +154,51 @@ class Migrate extends Command
     }
 
     /**
-     * Returns the default migrations directory path.
+     * Returns all directories that should be scanned for migrations.
+     *
+     * Includes the app's own Migrations directory plus every feature
+     * subdirectory under the framework's database/migrations/framework/ tree.
+     * This means --scope=framework automatically finds built-in migrations
+     * without requiring a --path override.
+     *
+     * @return string[]
      */
-    private function defaultMigrationPath(): string
+    private function resolveMigrationDirectories(): array
     {
         $root = defined('ROOT') ? ROOT : getcwd();
-        return $root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'Migrations';
+        $dirs = [$root . '/app/Migrations'];
+
+        $frameworkBase = $this->findFrameworkMigrationsBase();
+        if ($frameworkBase !== null && is_dir($frameworkBase)) {
+            foreach (glob($frameworkBase . '/*', GLOB_ONLYDIR) ?: [] as $featureDir) {
+                $dirs[] = $featureDir;
+            }
+        }
+
+        return $dirs;
+    }
+
+    /**
+     * Locates the framework's database/migrations/framework directory.
+     *
+     * Works whether the framework is used as the project root (development)
+     * or installed as a Composer package inside vendor/.
+     */
+    private function findFrameworkMigrationsBase(): ?string
+    {
+        // Path relative to this file: src/Pramnos/Console/Commands → ../../../../database/migrations/framework
+        $fromSource = dirname(__DIR__, 4) . '/database/migrations/framework';
+        if (is_dir($fromSource)) {
+            return $fromSource;
+        }
+
+        // Installed as Composer package
+        $root = defined('ROOT') ? ROOT : getcwd();
+        $fromVendor = $root . '/vendor/mrpc/pramnosframework/database/migrations/framework';
+        if (is_dir($fromVendor)) {
+            return $fromVendor;
+        }
+
+        return null;
     }
 }
