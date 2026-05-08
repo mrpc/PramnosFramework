@@ -583,8 +583,9 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * massmessages must have the broadcast-specific fields: locationid (text for
-     * JSON array), totalrecipients (integer), request (json nullable).
+     * massmessages must have the generic broadcast fields: subject, message, type,
+     * sender, status, totalrecipients, request. Domain-specific targeting fields
+     * (locationid, deyaid, zoneid) belong to the application, not the framework.
      */
     public function testMessagingMassmessagesUpCreatesBroadcastTable(): void
     {
@@ -599,7 +600,6 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->assertColumnType('massmessages', 'messageid', 'integer');
         $this->assertColumnType('massmessages', 'message', 'text');
         $this->assertColumnType('massmessages', 'type', 'integer');
-        $this->assertColumnType('massmessages', 'locationid', 'text');
         $this->assertColumnType('massmessages', 'totalrecipients', 'integer');
 
         // Assert — rollback

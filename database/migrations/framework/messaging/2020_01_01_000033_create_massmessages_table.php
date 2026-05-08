@@ -40,12 +40,6 @@ class CreateMassmessagesTable extends Migration
                 ->comment('Message body (same content sent to all recipients)');
             $table->integer('type')->default(1)
                 ->comment('Delivery channel: 0 = Email, 1 = Internal message, 2 = Push notification');
-            $table->text('locationid')
-                ->comment('Location filter — plain location ID or JSON array of IDs; used to target recipients by geography');
-            $table->integer('deyaid')->nullable()
-                ->comment('DEYA (utility organisation) filter; NULL = all organisations');
-            $table->integer('zoneid')->nullable()
-                ->comment('Zone / district filter; NULL = all zones');
             $table->bigInteger('sender')->nullable()
                 ->comment('FK to users.userid of the administrator who authored the broadcast');
             $table->integer('status')->default(0)->nullable()
@@ -54,8 +48,6 @@ class CreateMassmessagesTable extends Migration
                 ->comment('Unix timestamp when the broadcast was created');
             $table->integer('scheduled')->default(0)->nullable()
                 ->comment('Unix timestamp for scheduled delivery; 0 = send immediately');
-            $table->integer('filters')->default(0)->nullable()
-                ->comment('Recipient targeting mode: 0 = specific user ID list, 1 = filter-based (location/zone/deya)');
             $table->integer('totalrecipients')->default(0)
                 ->comment('Total number of recipients this broadcast was dispatched to');
             $table->json('request')->nullable()
