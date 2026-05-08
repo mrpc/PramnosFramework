@@ -4,6 +4,11 @@
 
 ## 🚀 Completed Milestones
 
+### Pramnos\Auth\Scopes + OAuthPolicyHelper (2026-05-08, session 42 continued)
+
+- [x] **`Pramnos\Auth\Scopes`** — `src/Pramnos/Auth/Scopes.php`; static OAuth2 scope registry: `getScopes()` (grouped), `getScopeDescriptions()` (flat map), `getDefaultScopes()`, `hasInvalidScopes()`, `resolveInheritedScopes()` (transitive, dedup, sorted), `areApplicationScopesGranted()` (requires applications table); unit tests: `ScopesTest` (12 tests)
+- [x] **`Pramnos\Auth\OAuthPolicyHelper`** — `src/Pramnos/Auth/OAuthPolicyHelper.php`; default auth methods (client_secret_basic/post, private_key_jwt) + default grant types (authorization_code, client_credentials, device_code, refresh_token, exchange_token); unit tests: `OAuthPolicyHelperTest` (6 tests)
+
 ### Pramnos\Auth\TwoFactorAuthService + TOTPHelper (2026-05-08, session 42 continued)
 
 - [x] **`Pramnos\Auth\TOTPHelper`** — `src/Pramnos/Auth/TOTPHelper.php`; static RFC 6238 TOTP utility: `generateSecret()`, `generateCode()`, `verifyCode()` with drift tolerance, `getQRCodeUrl()`, `generateBackupCodes()`, `hashBackupCode()`, `verifyBackupCode()`, `isValidSecret()`, `getRemainingTime()`
