@@ -1,8 +1,14 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-08 (session 41)
+## 📅 Last Updated: 2026-05-08 (session 41 continued)
 
 ## 🚀 Completed Milestones
+
+### SchemaBuilderTimescaleDBTest (2026-05-08, session 41 continued)
+
+- [x] **`SchemaBuilderTimescaleDBTest`** — extends `SchemaBuilderPostgreSQLTest`; all 24 PG tests inherited + 4 TimescaleDB-specific: `createHypertable()` (verified via `timescaledb_information.hypertables`), `addRetentionPolicy()` (verified via scheduler jobs), `addCompressionPolicy()` (verified via scheduler jobs), `createContinuousAggregate()` (verified via `continuous_aggregates` catalog), `ifCapable(TIMESCALEDB)` callback/fallback routing
+- [x] **ROADMAP Phase 5 audit** — verified that Middleware Pipeline, Response, ExceptionHandler, Event System, and Service Provider tests already exist from prior sessions; ROADMAP updated to reflect reality
+- **Tests:** 1638 passing (full suite), commit `3aefada`
 
 ### Messaging models + MessagingServiceProvider (2026-05-08, session 41)
 
