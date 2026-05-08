@@ -272,7 +272,7 @@
   - [ ] Integration tests × 3 databases (grant flows, token validation, PKCE)
 
 - **Authentication System** *(feature key: `auth`)*: Αναβαθμισμένο σύστημα auth — login lockout, 2FA (TOTP), GDPR, RBAC. Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 4.
-  - [ ] `Pramnos\Auth\Loginlockout` — progressive lockout (3→60s, 5→300s, 7→900s, 10+→3600s), 3 scopes (user/identifier/ip)
+  - [x] `Pramnos\Auth\Loginlockout` — progressive lockout (3→60s, 5→300s, 7→900s, 10+→3600s), 3 scopes (user/identifier/ip) — `src/Pramnos/Auth/Loginlockout.php`, migration `000017`, integration tests × MySQL + PostgreSQL
   - [ ] `Pramnos\Auth\TwoFactorAuthService` + `Pramnos\Auth\TOTPHelper`
   - [ ] `Pramnos\Auth\Scopes`, `Pramnos\Auth\OAuthPolicyHelper`
   - [ ] System migrations — 2FA tables: `user_twofactor`, `twofactor_setup`, `twofactor_attempts` (TimescaleDB hypertable: 7-day chunks, compress after 7 days, retain 2 years)

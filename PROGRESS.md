@@ -1,8 +1,14 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-08 (session 41 continued)
+## 📅 Last Updated: 2026-05-08 (session 42)
 
 ## 🚀 Completed Milestones
+
+### Pramnos\Auth\Loginlockout (2026-05-08, session 42)
+
+- [x] **Migration `000017`** — `database/migrations/framework/auth/2020_01_01_000017_create_loginlockout_table.php`; `loginlockout` table with (locktype, lookupvalue) unique index; unix integer timestamps for cross-DB compatibility; priority 70
+- [x] **`Pramnos\Auth\Loginlockout`** — `src/Pramnos/Auth/Loginlockout.php`; progressive lockout (3→60s, 5→300s, 7→900s, 10+→3600s); sliding window 900 s; API: `recordFailedAttempt($scope, $identifier)`, `getLockoutStatus($scope, $identifier)`, `clearSuccessfulLoginState($scope, $identifier)`
+- [x] **Integration tests × 2 databases** — `LoginlockoutMySQLTest` (11) + `LoginlockoutPostgreSQLTest` (11, `#[RunTestsInSeparateProcesses]`); covers row creation, counter increment, all 4 lockout thresholds, sliding window reset, scope isolation, clear+restart
 
 ### SchemaBuilderTimescaleDBTest (2026-05-08, session 41 continued)
 
