@@ -30,7 +30,11 @@ class CreateAuthserverRbacFunctions extends Migration
     public string  $feature      = 'authserver';
     public string  $scope        = 'framework';
     public int     $priority     = 75;
-    public array   $dependencies = ['create_authserver_effective_permissions_view'];
+    public array   $dependencies = [
+        'create_authserver_effective_permissions_view',
+        'create_authserver_user_roles_table',
+        'create_authserver_user_deyas_table',
+    ];
     public $description  = 'Creates 7 PL/pgSQL RBAC helper functions and 2 triggers (PostgreSQL only)';
 
     public function up(): void
