@@ -30,17 +30,14 @@ class CreateDeviceAuthorizationsTable extends Migration
         $db     = $this->application->database;
         $schema = $db->schema();
         $caps   = $schema->getCapabilities();
+        $t      = $schema->quoteTable('authserver.device_authorizations');
 
-        $hasTable = $caps->isPostgreSQL()
-            ? (int)$db->query("SELECT COUNT(*) AS c FROM information_schema.tables WHERE table_schema='authserver' AND table_name='device_authorizations'")->fields['c'] > 0
-            : $schema->hasTable('authserver_device_authorizations');
-
-        if ($hasTable) {
+        if ($schema->hasTable('authserver.device_authorizations')) {
             return;
         }
 
         if ($caps->isPostgreSQL()) {
-            $db->query("CREATE TABLE IF NOT EXISTS authserver.device_authorizations (
+            $db->query("CREATE TABLE IF NOT EXISTS {$t} (
                 device_authorization_id BIGSERIAL PRIMARY KEY,
                 device_code             VARCHAR(128) NOT NULL UNIQUE,
                 user_code               VARCHAR(10)  NOT NULL UNIQUE,
@@ -55,11 +52,10 @@ class CreateDeviceAuthorizationsTable extends Migration
                 userid                  BIGINT,
                 created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
             )");
-            $db->query('CREATE INDEX IF NOT EXISTS idx_devauth_user_code ON authserver.device_authorizations (user_code)');
-            $db->query('CREATE INDEX IF NOT EXISTS idx_devauth_expires   ON authserver.device_authorizations (expires_at)');
+            $db->query("CREATE INDEX IF NOT EXISTS idx_devauth_user_code ON {$t} (user_code)");
+            $db->query("CREATE INDEX IF NOT EXISTS idx_devauth_expires   ON {$t} (expires_at)");
         } else {
-            // MySQL: table in default database (no schemas)
-            $db->query("CREATE TABLE IF NOT EXISTS `authserver_device_authorizations` (
+            $db->query("CREATE TABLE IF NOT EXISTS {$t} (
                 `device_authorization_id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `device_code`             VARCHAR(128) NOT NULL,
                 `user_code`               VARCHAR(10)  NOT NULL,
@@ -84,10 +80,6 @@ class CreateDeviceAuthorizationsTable extends Migration
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();
 
-        if ($caps->isPostgreSQL()) {
-            $db->query('DROP TABLE IF EXISTS authserver.device_authorizations CASCADE');
-        } else {
-            $db->query('DROP TABLE IF EXISTS `authserver_device_authorizations`');
-        }
+        $db->schema()->dropTableIfExists('authserver.device_authorizations');
     }
 }

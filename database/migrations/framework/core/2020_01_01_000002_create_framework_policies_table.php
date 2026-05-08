@@ -10,8 +10,8 @@ use Pramnos\Database\Migration;
  * On PostgreSQL the table lives in the `pramnos` schema:
  *   pramnos.framework_policies
  *
- * On MySQL (no schema concept) the schema is translated to a prefix:
- *   pramnos_framework_policies
+ * On MySQL, SchemaBuilder automatically translates the schema to a prefix:
+ *   pramnos.framework_policies → pramnos_framework_policies
  *
  * On TimescaleDB this migration is a no-op because native TimescaleDB
  * policies (retention, compression, continuous aggregates) handle their
@@ -37,15 +37,13 @@ class CreateFrameworkPoliciesTable extends Migration
             return;
         }
 
-        $tableName = $caps->isPostgreSQL() ? 'pramnos.framework_policies' : 'pramnos_framework_policies';
-
         $schema = $db->schema();
 
-        if ($schema->hasTable($tableName)) {
+        if ($schema->hasTable('pramnos.framework_policies')) {
             return;
         }
 
-        $schema->createTable($tableName, function ($table) {
+        $schema->createTable('pramnos.framework_policies', function ($table) {
             $table->comment('Scheduled database maintenance policies executed by PolicyEngine (MySQL/plain PG only; no-op on TimescaleDB)');
 
             $table->increments('policyid')
@@ -76,14 +74,12 @@ class CreateFrameworkPoliciesTable extends Migration
 
     public function down(): void
     {
-        $db   = $this->application->database;
-        $caps = $db->schema()->getCapabilities();
+        $db = $this->application->database;
 
         if (!empty($db->timescale) || $db->type === 'timescaledb') {
             return;
         }
 
-        $tableName = $caps->isPostgreSQL() ? 'pramnos.framework_policies' : 'pramnos_framework_policies';
-        $db->schema()->dropTableIfExists($tableName);
+        $db->schema()->dropTableIfExists('pramnos.framework_policies');
     }
 }
