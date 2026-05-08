@@ -250,13 +250,13 @@
   - [x] Integration tests × 2 databases — `tests/Integration/Queue/QueueManagerMySQLTest.php` (8 tests), `QueueManagerPostgreSQLTest.php` (8 inherited); queueitems schema, status VARCHAR+CHECK, index verification
 
 - **Token Action Tracking** *(feature key: `auth`)*: Πλήρης αναβάθμιση του `tokenactions` + `urls` schema — hypertable support, execution time tracking, MySQL compat. Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 9.
-  - [ ] System migration: `urls` table (urlid, url, hash)
-  - [ ] System migration: `tokenactions` full schema (actionid, tokenid, urlid, method, params, servertime, return_status, execution_time_ms, return_data, action_time) + composite PK (actionid, action_time) για TimescaleDB compat
-  - [ ] Sync trigger `sync_tokenactions_time` (bidirectional servertime ↔ action_time) — PostgreSQL only
-  - [ ] TimescaleDB hypertable migration (`ifCapable`): chunk 14 days, compress after 60 days, indexes
-  - [ ] `applications.slow_api_calls` VIEW migration (PostgreSQL/TimescaleDB)
-  - [ ] Πλήρης `Token::updateAction()` για MySQL (αντικαθιστά fragile auto-create-columns pattern)
-  - [ ] Integration tests × 3 databases
+  - [x] System migration: `urls` table — `database/migrations/framework/auth/2020_01_01_000015_create_urls_table.php`
+  - [x] System migration: `tokenactions` full schema — composite PK (actionid, action_time), hypertable on TimescaleDB (14-day chunks, compress after 60 days), `database/migrations/framework/auth/2020_01_01_000016_create_tokenactions_table.php`
+  - [x] Sync trigger `sync_tokenactions_time` (bidirectional servertime ↔ action_time) — PostgreSQL only (inside tokenactions migration)
+  - [x] TimescaleDB hypertable migration via `ifCapable()` in tokenactions migration
+  - [x] `authserver.slow_api_calls` VIEW migration — `database/migrations/framework/authserver/2020_01_01_000030_create_slow_api_calls_view.php` (MySQL: `authserver_slow_api_calls`)
+  - [x] `Token::updateAction()` — `src/Pramnos/User/Token.php:325`
+  - [x] Integration tests × 2 databases — `tests/Integration/User/TokenActionMySQLTest.php`, `TokenActionPostgreSQLTest.php`; view migration tested in `FrameworkMigrationsMySQLTest` and `FrameworkMigrationsPostgreSQLTest`
 
 - **OAuth Server** *(feature key: `authserver`)*: Ενσωμάτωση του πλήρους OAuth2 server (league/oauth2-server). Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 3.
   - [ ] `Pramnos\Auth\OAuth2\OAuth2ServerFactory` — 4 grant types (ClientCredentials, Password, AuthCode, RefreshToken)
