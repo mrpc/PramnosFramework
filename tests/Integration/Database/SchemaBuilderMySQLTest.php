@@ -663,4 +663,103 @@ class SchemaBuilderMySQLTest extends TestCase
         $r = $this->db->query("SELECT name FROM `sb_view` LIMIT 0");
         $this->assertNotNull($r, 'replaced view must expose the name column');
     }
+
+    // -------------------------------------------------------------------------
+    // quoteTable / resolveTableName — schema→prefix translation (MySQL)
+    // -------------------------------------------------------------------------
+
+    /**
+     * quoteTable() on MySQL must translate schema.table to `schema_table`.
+     *
+     * On MySQL there is no schema concept; SchemaBuilder::resolveTable() folds the
+     * schema name into the table name as a prefix (e.g. authserver.roles →
+     * authserver_roles). The MySQL grammar then wraps the result in backticks.
+     * This test verifies the combined output from both steps.
+     */
+    public function testQuoteTableTranslatesSchemaNotationOnMySQL(): void
+    {
+        // Act
+        $quoted = $this->schema->quoteTable('authserver.roles');
+
+        // Assert — dot removed, schema becomes a prefix, whole thing backtick-quoted
+        $this->assertSame('`authserver_roles`', $quoted);
+    }
+
+    /**
+     * resolveTableName() must return the physical table name (schema→prefix) without quoting.
+     *
+     * This is the public façade for callers that need the bare resolved name —
+     * e.g. to embed in a raw SQL string where they control their own quoting.
+     * The dot notation must be fully flattened on MySQL.
+     */
+    public function testResolveTableNameTranslatesSchemaOnMySQL(): void
+    {
+        // Act
+        $name = $this->schema->resolveTableName('authserver.roles');
+
+        // Assert — schema prefix translation without any quoting
+        $this->assertSame('authserver_roles', $name);
+    }
+
+    /**
+     * createTable() and hasTable() must both accept schema.table notation on MySQL.
+     *
+     * The physical table that gets created is schema_table (the schema becomes a
+     * name prefix). hasTable('schema.table') must find that physical table.
+     * This tests the full round-trip: resolve → DDL → introspect.
+     */
+    public function testSchemaQualifiedCreateAndHasTableOnMySQL(): void
+    {
+        // Arrange — ensure the physical table does not already exist
+        $this->db->query("DROP TABLE IF EXISTS `testns_sb_ns`");
+        $this->assertFalse(
+            $this->schema->hasTable('testns.sb_ns'),
+            'table must not exist before createTable()'
+        );
+
+        // Act — create using schema.table notation
+        $this->schema->createTable('testns.sb_ns', function ($t) {
+            $t->increments('id');
+            $t->string('label');
+        });
+
+        // Assert — hasTable with schema.table notation finds the resolved physical table
+        $this->assertTrue(
+            $this->schema->hasTable('testns.sb_ns'),
+            'hasTable(schema.table) must return true for the resolved physical table'
+        );
+        // Confirm that the physical table name is testns_sb_ns (schema prefix translation)
+        $this->assertTrue(
+            $this->tableExists('testns_sb_ns'),
+            'physical table testns_sb_ns must exist in the database'
+        );
+
+        // Cleanup
+        $this->db->query("DROP TABLE IF EXISTS `testns_sb_ns`");
+    }
+
+    /**
+     * When a table prefix is configured on the DB connection, quoteTable('schema.table')
+     * must produce `prefix_schema_table` — prefix and schema-prefix are concatenated.
+     *
+     * This ensures that applications sharing a MySQL database can isolate all their
+     * tables (including schema-namespaced ones) under a single app-level prefix.
+     */
+    public function testPrefixCombinesWithSchemaNotationOnMySQL(): void
+    {
+        // Arrange — temporarily set a prefix on the DB connection
+        $original = $this->db->prefix ?? '';
+        $this->db->prefix = 'myapp_';
+        // A fresh schema() call picks up the new prefix in resolveTable()
+        $schemaWithPrefix = $this->db->schema();
+
+        // Act
+        $quoted = $schemaWithPrefix->quoteTable('authserver.roles');
+
+        // Assert — prefix + schema + table, all backtick-quoted as a single identifier
+        $this->assertSame('`myapp_authserver_roles`', $quoted);
+
+        // Cleanup
+        $this->db->prefix = $original;
+    }
 }

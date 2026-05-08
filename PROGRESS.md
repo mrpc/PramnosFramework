@@ -1,8 +1,21 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-07 (session 38)
+## 📅 Last Updated: 2026-05-08 (session 39)
 
 ## 🚀 Completed Milestones
+
+### SchemaBuilder centralized schema→prefix translation (2026-05-08, session 39)
+
+- [x] **`SchemaBuilder::resolveTable()` centralised** — handles both `#PREFIX#` token and `schema.table`→`prefix_schema_table` for MySQL; PostgreSQL dot notation is preserved and handled by the grammar
+- [x] **New public methods** — `resolveTableName(string $table): string` and `quoteTable(string $table): string` expose the resolved physical name and a fully-quoted form for embedding in raw SQL
+- [x] **All framework migrations simplified** — use uniform `schema.table` notation (`pramnos.framework_policies`, `authserver.roles`, etc.); translation is automatic per-backend
+- [x] **`PolicyEngine::policyTable()`** — delegates entirely to `$this->db->schema()->quoteTable('pramnos.framework_policies')`
+- [x] **Authserver migrations (021–029) fixed** — removed manual `$caps->isPostgreSQL()` branching and `#PREFIX#` placeholders; all use `$schema->createTable('authserver.xxx', ...)` / `$schema->quoteTable('authserver.xxx')`
+- [x] **`users.locationid` removed** — UrbanWater-specific FK to locations table stripped from framework users migration
+- [x] **`massmessages` UW-specific fields removed** — `locationid`, `deyaid`, `zoneid`, `filters` stripped (geographic targeting belongs in UW, not the framework)
+- [x] **Framework migration DDL tests updated** — MySQL and PostgreSQL integration test suites pass (50 tests); authserver table references updated to `authserver_` prefix for MySQL assertions
+- [x] **SchemaBuilder integration tests for new methods** — `quoteTable()` and `resolveTableName()` covered in both `SchemaBuilderMySQLTest` and `SchemaBuilderPostgreSQLTest` (4 new tests per backend; 8 total)
+- **Tests:** all passing
 
 ### `pramnos init` scaffolding improvements (2026-05-07, session 38)
 
