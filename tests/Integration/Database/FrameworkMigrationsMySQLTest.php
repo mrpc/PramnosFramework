@@ -147,24 +147,24 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $m->up();
 
         // Assert – columns
-        $this->assertTrue($this->tableExists('framework_policies'));
-        $this->assertColumnType('framework_policies', 'policyid', 'int');
-        $this->assertColumnType('framework_policies', 'policy_type', 'varchar');
-        $this->assertColumnType('framework_policies', 'target', 'varchar');
-        $this->assertColumnType('framework_policies', 'config', 'json');
-        $this->assertColumnType('framework_policies', 'enabled', 'tinyint');
-        $this->assertColumnNullable('framework_policies', 'last_run', true);
-        $this->assertColumnNullable('framework_policies', 'next_run', true);
-        $this->assertColumnNullable('framework_policies', 'last_result', true);
-        $this->assertColumnNullable('framework_policies', 'last_error', true);
+        $this->assertTrue($this->tableExists('pramnos_framework_policies'));
+        $this->assertColumnType('pramnos_framework_policies', 'policyid', 'int');
+        $this->assertColumnType('pramnos_framework_policies', 'policy_type', 'varchar');
+        $this->assertColumnType('pramnos_framework_policies', 'target', 'varchar');
+        $this->assertColumnType('pramnos_framework_policies', 'config', 'json');
+        $this->assertColumnType('pramnos_framework_policies', 'enabled', 'tinyint');
+        $this->assertColumnNullable('pramnos_framework_policies', 'last_run', true);
+        $this->assertColumnNullable('pramnos_framework_policies', 'next_run', true);
+        $this->assertColumnNullable('pramnos_framework_policies', 'last_result', true);
+        $this->assertColumnNullable('pramnos_framework_policies', 'last_error', true);
 
         // Assert – indexes
-        $this->assertTrue($this->indexExists('framework_policies', 'idx_framework_policies_type_enabled'));
-        $this->assertTrue($this->indexExists('framework_policies', 'idx_framework_policies_next_run'));
+        $this->assertTrue($this->indexExists('pramnos_framework_policies', 'idx_framework_policies_type_enabled'));
+        $this->assertTrue($this->indexExists('pramnos_framework_policies', 'idx_framework_policies_next_run'));
 
         // Assert – rollback
         $m->down();
-        $this->assertFalse($this->tableExists('framework_policies'));
+        $this->assertFalse($this->tableExists('pramnos_framework_policies'));
     }
 
     // -------------------------------------------------------------------------
@@ -1019,7 +1019,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             // queue
             'queueitems',
             // core
-            'framework_policies', 'settings', 'sessions',
+            'pramnos_framework_policies', 'settings', 'sessions',
         ];
 
         foreach ($tables as $table) {
