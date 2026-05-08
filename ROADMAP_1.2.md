@@ -259,16 +259,17 @@
   - [x] Integration tests × 2 databases — `tests/Integration/User/TokenActionMySQLTest.php`, `TokenActionPostgreSQLTest.php`; view migration tested in `FrameworkMigrationsMySQLTest` and `FrameworkMigrationsPostgreSQLTest`
 
 - **OAuth Server** *(feature key: `authserver`)*: Ενσωμάτωση του πλήρους OAuth2 server (league/oauth2-server). Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 3.
-  - [ ] `Pramnos\Auth\OAuth2\OAuth2ServerFactory` — 4 grant types (ClientCredentials, Password, AuthCode, RefreshToken)
-  - [ ] Repositories (6): `ClientRepository`, `ScopeRepository`, `AccessTokenRepository`, `AuthCodeRepository`, `RefreshTokenRepository`, `UserRepository`
-  - [ ] Entities (6): `ClientEntity`, `UserEntity`, `ScopeEntity`, `AuthCodeEntity`, `RefreshTokenEntity`, `AccessTokenEntity`
-  - [ ] `Pramnos\Auth\OAuth2\OAuth2Middleware` (PSR-7 resource validation)
+  - [x] `Pramnos\Auth\OAuth2\OAuth2ServerFactory` — 4 grant types (ClientCredentials, Password, AuthCode, RefreshToken) — `src/Pramnos/Auth/OAuth2/OAuth2ServerFactory.php` (commit b4d7be9)
+  - [x] Repositories (6): `ClientRepository`, `ScopeRepository`, `AccessTokenRepository`, `AuthCodeRepository`, `RefreshTokenRepository`, `UserRepository` — `src/Pramnos/Auth/OAuth2/Repositories/`
+  - [x] Entities (6): `ClientEntity`, `UserEntity`, `ScopeEntity`, `AuthCodeEntity`, `RefreshTokenEntity`, `AccessTokenEntity` — `src/Pramnos/Auth/OAuth2/Entities/`
+  - [x] `Pramnos\Auth\OAuth2\OAuth2Middleware` (PSR-7 resource validation) — `src/Pramnos/Auth/OAuth2/OAuth2Middleware.php`
   - [ ] `Pramnos\Auth\WebhookService`
-  - [ ] `AuthServerServiceProvider` με route registration
-  - [ ] System migrations: PKCE columns σε `usertokens` (code_challenge, code_challenge_method + constraints + indexes), `usertokens.token` TEXT (από VARCHAR), `authserver.device_authorizations` (RFC 8628), `authserver.jwt_replay_prevention`, `authserver.oauth2_client_auth_methods`, `oauth2_webhook_endpoints`, `oauth2_webhook_events`, 5 PL/pgSQL functions, `oauth2_application_permissions` + `oauth2_active_tokens` views
+  - [x] `AuthServerServiceProvider` με route registration — `src/Pramnos/Auth/AuthServerServiceProvider.php`
+  - [x] System migrations: `authserver.device_authorizations` (RFC 8628, 000026), `authserver.jwt_replay_prevention` (000027), `authserver.oauth2_client_auth_methods` (000028), `oauth2_webhook_endpoints` + `oauth2_webhook_events` (000029), `authserver.slow_api_calls` VIEW (000030)
+  - [ ] PKCE columns σε `usertokens` (code_challenge, code_challenge_method + constraints + indexes), `usertokens.token` TEXT (από VARCHAR), 5 PL/pgSQL functions, `oauth2_application_permissions` + `oauth2_active_tokens` views
   - [ ] RSA key generation (`openssl_pkey_new`) στο `pramnos init`
   - [ ] Auth Controllers: `Oauth.php`, `Session.php`, `Device.php`, `Discovery.php`, `Gdpr.php`, `TwoFactorAuth.php`, `Dashboard.php`
-  - [ ] `composer require league/oauth2-server:^8.5`
+  - [x] `composer require league/oauth2-server:^8.5` — in composer.json
   - [ ] Integration tests × 3 databases (grant flows, token validation, PKCE)
 
 - **Authentication System** *(feature key: `auth`)*: Αναβαθμισμένο σύστημα auth — login lockout, 2FA (TOTP), GDPR, RBAC. Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 4.
@@ -465,7 +466,7 @@
 - [x] **Service Providers:** Καθιέρωση `ServiceProvider` interface (`register()` / `boot()`) για την ομαλή εγγραφή routes, bindings και listeners από addons κατά το bootstrap.
   > **BC Strategy:** Το υπάρχον addon bootstrap mechanism συνεχίζει να λειτουργεί. Το `ServiceProvider` pattern είναι νέος, προαιρετικός τρόπος εγγραφής — όχι υποχρεωτικός.
 - [x] **PHP 8.1 Minimum Version:** Ανύψωση του minimum requirement στην PHP 8.1 (η 7.4 και 8.0 είναι EOL). Ανοίγει enums, readonly properties και intersection types στο core.
-- [ ] **Security Fixes:**
+- [x] **Security Fixes:**
   - [x] Αναβαθμισμένο CSRF Protection.
   - [x] Εφαρμογή strict ρυθμίσεων (HttpOnly, SameSite) στα session cookies.
   - [x] Αυτόματο (ή πιο ασφαλές) escaping στα views/templates του framework.
@@ -504,7 +505,7 @@
 - [x] **Service Provider Tests:** `ServiceProviderUnitTest` (324 lines) — register/boot lifecycle, provider FQCN via FeatureRegistry, manually-added providers, multi-provider phase order.
 
 ### General Coverage (υπάρχον codebase → >80%)
-- [ ] **Coverage Baseline:** Μέτρηση τρέχοντος coverage του `src/Pramnos/` με Xdebug report — ορισμός αφετηρίας.
+- [x] **Coverage Baseline:** Μέτρηση τρέχοντος coverage του `src/Pramnos/` με Xdebug report — ορισμός αφετηρίας. **Current (2026-05-08):** Statements 36.0% (8153/22658), Methods 44.1% (801/1815), 157 classes; Clover XML at `coverage/clover.xml`.
 - [ ] **Coverage Reports:** Αυτόματη παραγωγή HTML coverage report στο CI (dockertest) με ορατό summary ανά class.
 - [ ] **Auth & Security Coverage:** PHPUnit tests για login flows, JWT issuance, CSRF validation και permission checks — **× 3 databases** για τα query paths.
 - [ ] **Theme / View Layer Coverage:** Tests για asset enqueuing, widget rendering και variable passing από controllers στα views.
