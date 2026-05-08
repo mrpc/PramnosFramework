@@ -331,16 +331,12 @@ class PolicyEngine
     }
 
     /**
-     * Returns the framework_policies table reference appropriate for the backend.
-     * PostgreSQL: pramnos.framework_policies     (dedicated schema, no backticks)
-     * MySQL:      `pramnos_framework_policies`   (schema translated to prefix)
+     * Returns a properly-quoted table reference for framework_policies.
+     * Delegates to SchemaBuilder so the schema→prefix translation is centralised.
      */
     private function policyTable(): string
     {
-        if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
-            return 'pramnos.framework_policies';
-        }
-        return '`pramnos_framework_policies`';
+        return $this->db->schema()->quoteTable('pramnos.framework_policies');
     }
 
     private function quoteIdentifier(string $name): string

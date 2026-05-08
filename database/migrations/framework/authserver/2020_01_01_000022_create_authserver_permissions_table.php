@@ -29,15 +29,12 @@ class CreateAuthserverPermissionsTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        $caps   = $schema->getCapabilities();
 
-        $tableName = $caps->isPostgreSQL() ? 'authserver.permissions' : 'authserver_permissions';
-
-        if ($schema->hasTable($tableName)) {
+        if ($schema->hasTable('authserver.permissions')) {
             return;
         }
 
-        $schema->createTable($tableName, function ($table) {
+        $schema->createTable('authserver.permissions', function ($table) {
             $table->comment('Fine-grained RBAC permissions — deny entries take absolute priority over allow entries');
 
             $table->increments('permissionid')
@@ -76,9 +73,6 @@ class CreateAuthserverPermissionsTable extends Migration
 
     public function down(): void
     {
-        $schema = $this->application->database->schema();
-        $caps   = $schema->getCapabilities();
-        $tableName = $caps->isPostgreSQL() ? 'authserver.permissions' : 'authserver_permissions';
-        $schema->dropTableIfExists($tableName);
+        $this->application->database->schema()->dropTableIfExists('authserver.permissions');
     }
 }
