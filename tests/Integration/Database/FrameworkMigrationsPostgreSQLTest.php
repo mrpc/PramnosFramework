@@ -1115,6 +1115,63 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->loadMigration('authserver', 'CreateAuthserverSchema')->down();
     }
 
+    // -------------------------------------------------------------------------
+    // AuthServer: slow_api_calls view (PostgreSQL / TimescaleDB)
+    // -------------------------------------------------------------------------
+
+    /**
+     * CreateSlowApiCallsView must create the authserver.slow_api_calls view on PostgreSQL.
+     *
+     * The view lives in the `authserver` schema and joins public.tokenactions +
+     * public.usertokens + public.applications to surface API calls that took
+     * longer than 5 000 ms (5 seconds) in the last 7 days.
+     *
+     * On TimescaleDB the view works equally well — tokenactions may be a hypertable
+     * partitioned by action_time, but the view query is standard SQL.
+     */
+    public function testAuthserverSlowApiCallsViewCreatedOnPostgres(): void
+    {
+        // Arrange — all prerequisite tables must exist before the view can be created
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateTokenactionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateSlowApiCallsView');
+
+        // Act
+        $m->up();
+
+        // Assert — view must exist in the authserver schema
+        $r = $this->db->execute(
+            "SELECT 1 FROM information_schema.views
+              WHERE table_schema = 'authserver' AND table_name = 'slow_api_calls'"
+        );
+        $this->assertTrue(
+            $r && $r->numRows > 0,
+            'authserver.slow_api_calls view must exist after up()'
+        );
+
+        // Assert — the view must be queryable (returns 0 rows since no tokenactions data)
+        $r2 = $this->db->execute(
+            'SELECT COUNT(*) AS cnt FROM "authserver"."slow_api_calls"'
+        );
+        $this->assertSame(0, (int) $r2->fields['cnt'], 'empty view must return 0 rows');
+
+        // Assert — rollback removes the view
+        $m->down();
+        $r3 = $this->db->execute(
+            "SELECT 1 FROM information_schema.views
+              WHERE table_schema = 'authserver' AND table_name = 'slow_api_calls'"
+        );
+        $this->assertFalse(
+            $r3 && $r3->numRows > 0,
+            'view must be gone from authserver schema after down()'
+        );
+    }
+
     /**
      * Running up() twice must be idempotent — the hasTable() guard prevents
      * duplicate-table errors on all framework migrations.
