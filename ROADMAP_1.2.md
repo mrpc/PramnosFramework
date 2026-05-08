@@ -275,9 +275,9 @@
   - [x] `Pramnos\Auth\Loginlockout` — progressive lockout (3→60s, 5→300s, 7→900s, 10+→3600s), 3 scopes (user/identifier/ip) — `src/Pramnos/Auth/Loginlockout.php`, migration `000017`, integration tests × MySQL + PostgreSQL
   - [x] `Pramnos\Auth\TwoFactorAuthService` + `Pramnos\Auth\TOTPHelper` — migrations 000018/000019/000020 (user_twofactor, twofactor_setup, twofactor_attempts hypertable via ifCapable); TOTPHelper unit tests (15); service integration tests × MySQL + PostgreSQL (17 each)
   - [x] `Pramnos\Auth\Scopes`, `Pramnos\Auth\OAuthPolicyHelper` — static helpers; Scopes registry with inheritance resolution; OAuthPolicyHelper default auth methods + grant types; unit tests (12 + 6)
-  - [ ] System migrations — 2FA tables: `user_twofactor`, `twofactor_setup`, `twofactor_attempts` (TimescaleDB hypertable: 7-day chunks, compress after 7 days, retain 2 years)
-  - [ ] System migrations — GDPR hypertables: `user_activity_log` (1-day chunks), `user_privacy_settings`, `user_consents` (1-month chunks), `data_processing_records` (1-week chunks), `gdpr_requests` (1-month chunks), `daily_activity_summary` continuous aggregate
-  - [ ] System migrations — GDPR columns σε `users` table (gdpr_consent, gdpr_consent_date, gdpr_data_export_requested, gdpr_deletion_requested, gdpr_deletion_date)
+  - [x] System migrations — 2FA tables: `user_twofactor`, `twofactor_setup`, `twofactor_attempts` (TimescaleDB hypertable: 7-day chunks, compress after 7 days, retain 2 years) — done in migrations 000018/000019/000020
+  - [x] System migrations — GDPR hypertables: `user_activity_log` (1-day chunks, 000021), `user_privacy_settings` (000022), `user_consents` (1-month chunks, 000023), `data_processing_records` (1-week chunks, 000024), `gdpr_requests` (1-month chunks, 000025), `daily_activity_summary` continuous aggregate (000026); all via ifCapable(TIMESCALEDB)
+  - [x] System migrations — GDPR columns σε `users` table (000027): gdpr_consent, gdpr_consent_date, gdpr_data_export_requested, gdpr_deletion_requested, gdpr_deletion_date
   - [ ] System migrations — authserver RBAC schema: `authserver` schema, `permissions`, `roles`, `user_deyas`, `user_roles`, `permission_templates`, `role_templates`, `permission_inheritance`, `audit_log`, `effective_permissions` VIEW, 7 PL/pgSQL functions
   - [ ] 2FA controllers + views (setup, challenge, backup codes)
   - [ ] GDPR controller + views (export, delete, consents)
