@@ -10,8 +10,8 @@ use Pramnos\Database\Migration;
  * On PostgreSQL the table lives in the `pramnos` schema:
  *   pramnos.framework_policies
  *
- * On MySQL (no schema concept) it is created in the default database as:
- *   framework_policies
+ * On MySQL (no schema concept) the schema is translated to a prefix:
+ *   pramnos_framework_policies
  *
  * On TimescaleDB this migration is a no-op because native TimescaleDB
  * policies (retention, compression, continuous aggregates) handle their
@@ -37,7 +37,7 @@ class CreateFrameworkPoliciesTable extends Migration
             return;
         }
 
-        $tableName = $caps->isPostgreSQL() ? 'pramnos.framework_policies' : 'framework_policies';
+        $tableName = $caps->isPostgreSQL() ? 'pramnos.framework_policies' : 'pramnos_framework_policies';
 
         $schema = $db->schema();
 
@@ -83,7 +83,7 @@ class CreateFrameworkPoliciesTable extends Migration
             return;
         }
 
-        $tableName = $caps->isPostgreSQL() ? 'pramnos.framework_policies' : 'framework_policies';
+        $tableName = $caps->isPostgreSQL() ? 'pramnos.framework_policies' : 'pramnos_framework_policies';
         $db->schema()->dropTableIfExists($tableName);
     }
 }
