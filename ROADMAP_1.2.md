@@ -281,7 +281,7 @@
   - [x] System migrations — authserver RBAC schema: `authserver` schema, `permissions`, `roles`, `user_deyas`, `user_roles`, `permission_templates`, `role_templates`, `permission_inheritance`, `audit_log`, `effective_permissions` VIEW, 7 PL/pgSQL functions — migrations 000031–000036; permissions.object_id fixed to VARCHAR(100) + unique constraint; integration tests × MySQL + PostgreSQL
   - [ ] 2FA controllers + views (setup, challenge, backup codes)
   - [ ] GDPR controller + views (export, delete, consents)
-  - [ ] BC: υπάρχον addon hook interface (`onAuth()`, `onLogout()`, `onAuthCheck()`) παραμένει αμετάβλητο
+  - [x] BC: υπάρχον addon hook interface (`onAuth()`, `onLogout()`, `onAuthCheck()`) παραμένει αμετάβλητο — `Auth.php` αμετάβλητο, καλύπτεται από `AuthCharacterizationTest` (testAuthCallsOnAuthOnAddon, testAuthCheckTriggersAddonAuthCheckHandlers, testLogoutSetsSessionLoggedFalseAndTriggersAddonLogoutHandlers)
   - [x] Integration tests × 3 databases — `FrameworkMigrationsTimescaleDBTest` (6 tests): twofactor_attempts, user_activity_log, user_consents, data_processing_records, gdpr_requests hypertables verified in timescaledb_information.hypertables; daily_activity_summary verified as continuous aggregate with refresh test
 
 - **Messaging** *(feature key: `messaging`)*: Σύστημα μηνυμάτων — private messages, notifications, mass broadcast, email queue. Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 7.
