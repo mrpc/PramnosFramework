@@ -1698,4 +1698,51 @@ class QueryBuilderPostgreSQLTest extends TestCase
         $lastRow = end($rows);
         $this->assertEqualsWithDelta(7.00, (float)$lastRow['running_total'], 0.01);
     }
+
+    // -------------------------------------------------------------------------
+    // timeBucket() — PostgreSQL dialect (DATE_TRUNC fallback)
+    // -------------------------------------------------------------------------
+
+    /**
+     * timeBucket() on plain PostgreSQL must translate to date_trunc() and produce
+     * valid SQL that PostgreSQL 14 can actually execute.
+     *
+     * We seed qb_events with 4 rows: 2 in the 09:xx hour and 2 in the 11:xx hour.
+     * GROUP BY with a 1-hour bucket must produce exactly 2 groups each containing
+     * 2 events. This verifies the end-to-end path: timeBucket() →
+     * PostgreSQLGrammar → date_trunc('hour', col) → real query.
+     *
+     * On the timescaledb container the result is the same as plain PG because
+     * the default type is 'postgresql' (timescale flag not set), so no native
+     * time_bucket() is used here.
+     */
+    public function testTimeBucketGroupByHourOnPostgres(): void
+    {
+        // Arrange — 2 events per hour in two distinct hourly windows
+        $this->db->execute("INSERT INTO qb_events (name, event_time) VALUES
+            ('a', '2026-03-15 09:05:00+00'),
+            ('b', '2026-03-15 09:55:00+00'),
+            ('c', '2026-03-15 11:10:00+00'),
+            ('d', '2026-03-15 11:50:00+00')
+        ");
+
+        // Act — group by 1-hour bucket using the QB timeBucket() helper
+        $qb     = $this->db->queryBuilder()->from('qb_events');
+        $bucket = $qb->timeBucket('1 hour', 'event_time');
+
+        $result = $qb
+            ->select([$bucket, $qb->raw('COUNT(*) AS cnt')])
+            ->groupBy([$bucket])
+            ->orderByRaw('1 ASC')
+            ->get();
+
+        // Assert — two distinct hour buckets, each containing exactly 2 events
+        $this->assertSame(2, $result->numRows, 'must produce 2 hourly time buckets');
+
+        $counts = [];
+        while ($result->fetch()) {
+            $counts[] = (int) $result->fields['cnt'];
+        }
+        $this->assertSame([2, 2], $counts, 'each hourly bucket must contain exactly 2 events');
+    }
 }

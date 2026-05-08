@@ -1795,4 +1795,47 @@ class QueryBuilderMySQLTest extends TestCase
         $this->assertEqualsWithDelta(4.70, (float)$byName['Banana']['cat_total'], 0.01);
         $this->assertEqualsWithDelta(2.30, (float)$byName['Carrot']['cat_total'], 0.01);
     }
+
+    // -------------------------------------------------------------------------
+    // timeBucket() — MySQL dialect (UNIX_TIMESTAMP arithmetic fallback)
+    // -------------------------------------------------------------------------
+
+    /**
+     * timeBucket() on MySQL must translate to FROM_UNIXTIME / UNIX_TIMESTAMP
+     * arithmetic and produce valid SQL that MySQL 8.0 can actually execute.
+     *
+     * We seed qb_events with 4 rows: 2 in the 09:xx hour and 2 in the 11:xx hour.
+     * GROUP BY with a 1-hour bucket must produce exactly 2 groups each containing
+     * 2 events. This verifies the end-to-end path: timeBucket() → MySQLGrammar
+     * → FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(col) / 3600) * 3600) → real query.
+     */
+    public function testTimeBucketGroupByHourOnMySQL(): void
+    {
+        // Arrange — 2 events per hour in two distinct hourly windows
+        $this->db->query("INSERT INTO `qb_events` (name, event_time) VALUES
+            ('a', '2026-03-15 09:05:00'),
+            ('b', '2026-03-15 09:55:00'),
+            ('c', '2026-03-15 11:10:00'),
+            ('d', '2026-03-15 11:50:00')
+        ");
+
+        // Act — group by 1-hour bucket using the QB timeBucket() helper
+        $qb     = $this->db->queryBuilder()->from('qb_events');
+        $bucket = $qb->timeBucket('1 hour', 'event_time');
+
+        $result = $qb
+            ->select([$bucket, $qb->raw('COUNT(*) AS cnt')])
+            ->groupBy([$bucket])
+            ->orderByRaw('1 ASC')
+            ->get();
+
+        // Assert — two distinct hour buckets, each containing exactly 2 events
+        $this->assertSame(2, $result->numRows, 'must produce 2 hourly time buckets');
+
+        $counts = [];
+        while ($result->fetch()) {
+            $counts[] = (int) $result->fields['cnt'];
+        }
+        $this->assertSame([2, 2], $counts, 'each hourly bucket must contain exactly 2 events');
+    }
 }
