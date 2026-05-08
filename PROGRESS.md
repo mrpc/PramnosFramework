@@ -1,8 +1,15 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-08 (session 43)
+## 📅 Last Updated: 2026-05-09 (session 44)
 
 ## 🚀 Completed Milestones
+
+### Scaffold bug fix — create_authserver_rbac_functions ordering (2026-05-09, session 44)
+
+- [x] **Root cause identified**: MigrationRunner Kahn sort splices newly-ready migrations at queue position 0 (`array_splice($q, 0, 0, $new)`). This displaced `create_authserver_user_roles_table` (priority 40) behind the audit_log→rbac_functions chain (50→75), causing `CREATE TRIGGER … ON authserver.user_roles` to fail because the table didn't exist yet.
+- [x] **Fix**: added `create_authserver_user_roles_table` and `create_authserver_user_deyas_table` as explicit dependencies of migration 000036, guaranteeing correct ordering regardless of queue-insertion behaviour.
+- [x] **Regression tests**: added 2 unit tests to `MigrationRunnerUnitTest` — one models the exact authserver scenario (11-migration graph), one documents the general sibling-displacement pattern.
+- [x] commit: `18be917`
 
 ### AuthServer RBAC Schema Completion (2026-05-08, session 43)
 
