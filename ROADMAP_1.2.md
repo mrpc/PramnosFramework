@@ -282,7 +282,7 @@
   - [ ] 2FA controllers + views (setup, challenge, backup codes)
   - [ ] GDPR controller + views (export, delete, consents)
   - [ ] BC: υπάρχον addon hook interface (`onAuth()`, `onLogout()`, `onAuthCheck()`) παραμένει αμετάβλητο
-  - [ ] Integration tests × 3 databases
+  - [x] Integration tests × 3 databases — `FrameworkMigrationsTimescaleDBTest` (6 tests): twofactor_attempts, user_activity_log, user_consents, data_processing_records, gdpr_requests hypertables verified in timescaledb_information.hypertables; daily_activity_summary verified as continuous aggregate with refresh test
 
 - **Messaging** *(feature key: `messaging`)*: Σύστημα μηνυμάτων — private messages, notifications, mass broadcast, email queue. Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 7.
   - [x] `Pramnos\Messaging\Message` model (`messages` table, PK: messageid)
