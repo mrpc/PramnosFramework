@@ -17,6 +17,16 @@
 - [x] **Integration tests** — `FrameworkMigrationsMySQLTest`: 5 new tests (user_deyas, permission_templates, role_templates, permission_inheritance, effective_permissions view + deny-takes-priority assertion)
 - [x] **Integration tests** — `FrameworkMigrationsPostgreSQLTest`: 6 new tests (all 5 tables/view + PL/pgSQL functions with trigger validation + apply_permission_template execution test)
 
+### Auth Migrations — TimescaleDB Hypertable Tests (2026-05-08, session 43)
+
+- [x] **`FrameworkMigrationsTimescaleDBTest`** (6 tests) — verifies auth migrations create real TimescaleDB hypertables (not plain table fallback):
+  - `twofactor_attempts` — hypertable in timescaledb_information.hypertables + INSERT/SELECT test
+  - `user_activity_log` — hypertable + INSERT/SELECT test
+  - `user_consents` — hypertable + INSERT/SELECT test
+  - `data_processing_records` — hypertable + INSERT/SELECT test
+  - `gdpr_requests` — hypertable + INSERT/SELECT test
+  - `daily_activity_summary` — continuous aggregate verified in timescaledb_information.continuous_aggregates; CALL refresh_continuous_aggregate() + row count assertion
+
 ## 🚀 Completed Milestones
 
 ### GDPR Migrations (2026-05-08, session 42 continued)
