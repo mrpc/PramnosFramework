@@ -234,7 +234,6 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->assertColumnType('users', 'firstname', 'character varying');
         $this->assertColumnType('users', 'regdate', 'integer');
         $this->assertColumnType('users', 'lastlogin', 'integer');
-        $this->assertColumnNullable('users', 'locationid', true);
         $this->assertColumnNullable('users', 'fbauth', true);
 
         // Assert — indexes

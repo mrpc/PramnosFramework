@@ -13,7 +13,7 @@ use Pramnos\Database\Migration;
  * after the token's expiry time passes.
  *
  * On PostgreSQL: lives in the `authserver` schema.
- * On MySQL: created in the default database.
+ * On MySQL, the schema is translated to a prefix: authserver_jwt_replay_prevention.
  *
  * @package PramnosFramework
  */
@@ -38,7 +38,7 @@ class CreateJwtReplayPreventionTable extends Migration
             )");
             $db->query('CREATE INDEX IF NOT EXISTS idx_jrp_expires ON authserver.jwt_replay_prevention (expires_at)');
         } else {
-            $db->query("CREATE TABLE IF NOT EXISTS `#PREFIX#jwt_replay_prevention` (
+            $db->query("CREATE TABLE IF NOT EXISTS `authserver_jwt_replay_prevention` (
                 `jti`        VARCHAR(255) NOT NULL PRIMARY KEY,
                 `expires_at` DATETIME     NOT NULL,
                 `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -55,7 +55,7 @@ class CreateJwtReplayPreventionTable extends Migration
         if ($caps->isPostgreSQL()) {
             $db->query('DROP TABLE IF EXISTS authserver.jwt_replay_prevention');
         } else {
-            $db->query('DROP TABLE IF EXISTS `#PREFIX#jwt_replay_prevention`');
+            $db->query('DROP TABLE IF EXISTS `authserver_jwt_replay_prevention`');
         }
     }
 }

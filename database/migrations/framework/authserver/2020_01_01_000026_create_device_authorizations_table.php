@@ -13,7 +13,7 @@ use Pramnos\Database\Migration;
  * a secondary device (phone or computer).
  *
  * On PostgreSQL, the table lives in the `authserver` schema.
- * On MySQL, it is created in the default database.
+ * On MySQL, the schema is translated to a prefix: authserver_device_authorizations.
  *
  * @package PramnosFramework
  */
@@ -31,10 +31,9 @@ class CreateDeviceAuthorizationsTable extends Migration
         $schema = $db->schema();
         $caps   = $schema->getCapabilities();
 
-        $tableRef = $caps->isPostgreSQL() ? '"authserver"."device_authorizations"' : '`#PREFIX#device_authorizations`';
         $hasTable = $caps->isPostgreSQL()
             ? (int)$db->query("SELECT COUNT(*) AS c FROM information_schema.tables WHERE table_schema='authserver' AND table_name='device_authorizations'")->fields['c'] > 0
-            : $schema->hasTable('device_authorizations');
+            : $schema->hasTable('authserver_device_authorizations');
 
         if ($hasTable) {
             return;
@@ -60,7 +59,7 @@ class CreateDeviceAuthorizationsTable extends Migration
             $db->query('CREATE INDEX IF NOT EXISTS idx_devauth_expires   ON authserver.device_authorizations (expires_at)');
         } else {
             // MySQL: table in default database (no schemas)
-            $db->query("CREATE TABLE IF NOT EXISTS `#PREFIX#device_authorizations` (
+            $db->query("CREATE TABLE IF NOT EXISTS `authserver_device_authorizations` (
                 `device_authorization_id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `device_code`             VARCHAR(128) NOT NULL,
                 `user_code`               VARCHAR(10)  NOT NULL,
@@ -88,7 +87,7 @@ class CreateDeviceAuthorizationsTable extends Migration
         if ($caps->isPostgreSQL()) {
             $db->query('DROP TABLE IF EXISTS authserver.device_authorizations CASCADE');
         } else {
-            $db->query('DROP TABLE IF EXISTS `#PREFIX#device_authorizations`');
+            $db->query('DROP TABLE IF EXISTS `authserver_device_authorizations`');
         }
     }
 }
