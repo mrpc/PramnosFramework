@@ -1,8 +1,15 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-08 (session 42)
+## 📅 Last Updated: 2026-05-08 (session 42 continued)
 
 ## 🚀 Completed Milestones
+
+### Pramnos\Auth\TwoFactorAuthService + TOTPHelper (2026-05-08, session 42 continued)
+
+- [x] **`Pramnos\Auth\TOTPHelper`** — `src/Pramnos/Auth/TOTPHelper.php`; static RFC 6238 TOTP utility: `generateSecret()`, `generateCode()`, `verifyCode()` with drift tolerance, `getQRCodeUrl()`, `generateBackupCodes()`, `hashBackupCode()`, `verifyBackupCode()`, `isValidSecret()`, `getRemainingTime()`
+- [x] **`Pramnos\Auth\TwoFactorAuthService`** — `src/Pramnos/Auth/TwoFactorAuthService.php`; full 2FA lifecycle: `startSetup()`, `completeSetup()`, `verifyCode()` (TOTP + backup code), `disable()`, `regenerateBackupCodes()`, `cleanupExpiredSessions()`; replay protection; attempt logging
+- [x] **Migrations 000018–000020** — `user_twofactor` (PK=userid, unix timestamps), `twofactor_setup` (15-min TTL), `twofactor_attempts` (TimescaleDB hypertable via `ifCapable(TIMESCALEDB)`: 7-day chunks, compress after 7 days, retain 2 years; plain table on MySQL/plain PG)
+- [x] **Tests** — `TOTPHelperTest` (15 unit), `TwoFactorAuthServiceMySQLTest` (17 integration), `TwoFactorAuthServicePostgreSQLTest` (17 integration, `#[RunTestsInSeparateProcesses]`)
 
 ### Pramnos\Auth\Loginlockout (2026-05-08, session 42)
 
