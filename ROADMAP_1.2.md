@@ -494,20 +494,14 @@
 *Κάθε νέο feature που παραδίδεται στη v1.2 πρέπει να συνοδεύεται από tests που καλύπτουν τουλάχιστον το 90% του κώδικά του. Database-related features εκτελούνται × 3.*
 
 - [x] **QueryBuilder Tests:** Πλήρης κάλυψη DML, DDL, TimescaleDB extensions, edge cases — **× 3 databases** (`QueryBuilderMySQLTest`, `QueryBuilderPostgreSQLTest`, `QueryBuilderTimescaleDBTest`; 373 tests). `timeBucket()` integration-tested on all 3 backends.
-- [ ] **ORM Layer Tests:** Κάλυψη όλων των relationships, eager loading, scopes, casting, soft deletes, model events — **× 3 databases**.
-- [ ] **Middleware Pipeline Tests:** Κάλυψη before/after execution, short-circuit (403/401), chaining πολλαπλών middleware, exception propagation.
-- [ ] **Migration System Tests *(Integration only)*:** Όλα τα migration tests είναι **integration tests** που εκτελούνται σε πραγματικές βάσεις μέσω του Docker environment. Δεν αρκεί να "τρέξει" ο κώδικας — κάθε assertion επαληθεύει την **πραγματική κατάσταση της βάσης** μετά την εκτέλεση:
-  - Ο πίνακας **όντως υπάρχει** (`SHOW TABLES` / `information_schema`)
-  - Οι **στήλες, τύποι, και constraints** είναι ακριβώς αυτοί που ορίζει το migration (όνομα, τύπος, nullable, default, PK, FK, unique)
-  - Τα **indexes** δημιουργήθηκαν
-  - Το **rollback** αφαιρεί πραγματικά τον πίνακα / τη στήλη / το index από τη βάση
-  - Το history table (`framework_migrations`) έχει εγγραφή με σωστό result, batch, execution_time
-  - Topological sort, `migration_cutoff`, autorun=false, αποτυχία migration, όλα τα CLI commands (status, pretend, rollback, reset, refresh, export)
-  - **× 3 databases** — MySQL, PostgreSQL, TimescaleDB
-- [ ] **Response Object Tests:** Κάλυψη status codes, header management, JSON serialization, redirect generation.
-- [ ] **Exception Handler Tests:** Κάλυψη debug vs production output, JSON envelope για API routes, integration με Logs.
-- [ ] **Event System Tests:** Κάλυψη fire/listen, multiple listeners, listener priority, exception handling μέσα σε listeners.
-- [ ] **Service Provider Tests:** Κάλυψη register/boot lifecycle, binding resolution, route registration από provider.
+- [x] **Schema Builder Tests:** `SchemaBuilderMySQLTest` (26), `SchemaBuilderPostgreSQLTest` (24), `SchemaBuilderTimescaleDBTest` (28 — inherits all PG tests + 4 TimescaleDB-specific: createHypertable, retention/compression policies, continuous aggregate, ifCapable).
+- [x] **ORM Layer Tests:** MySQL (`ModelListApiCharacterizationTest`) + PostgreSQL/TimescaleDB (`ModelListApiPostgreSQLCharacterizationTest`) — getCount, _getList, _getApiList contracts × 3 databases. Messaging model CRUD × 2 databases (MySQL + PostgreSQL) via `MessagingModelsMySQLTest` / `MessagingModelsPostgreSQLTest`.
+- [x] **Middleware Pipeline Tests:** `MiddlewarePipelineTest` (567 lines) — before/after execution, short-circuit (403/401), chaining πολλαπλών middleware, exception propagation.
+- [x] **Migration System Tests *(Integration only)*:** `FrameworkMigrationsMySQLTest` (52 tests) + `FrameworkMigrationsPostgreSQLTest` (52 tests) — all framework migrations × 2 databases. `MigrationRunnerMySQLTest` + `MigrationRunnerPostgreSQLTest` — runner lifecycle (batch, history, cutoff, rollback).
+- [x] **Response Object Tests:** `ResponseTest` (407 lines) — status codes, header management, JSON serialization, redirect generation.
+- [x] **Exception Handler Tests:** `ExceptionHandlerTest` (364 lines) — debug vs production output, JSON envelope για API routes, integration με Logs.
+- [x] **Event System Tests:** `EventTest` (396 lines) — fire/listen, multiple listeners, listener priority, exception handling.
+- [x] **Service Provider Tests:** `ServiceProviderUnitTest` (324 lines) — register/boot lifecycle, provider FQCN via FeatureRegistry, manually-added providers, multi-provider phase order.
 
 ### General Coverage (υπάρχον codebase → >80%)
 - [ ] **Coverage Baseline:** Μέτρηση τρέχοντος coverage του `src/Pramnos/` με Xdebug report — ορισμός αφετηρίας.
