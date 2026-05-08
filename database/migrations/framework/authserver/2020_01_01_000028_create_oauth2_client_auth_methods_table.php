@@ -13,7 +13,7 @@ use Pramnos\Database\Migration;
  * private_key_jwt, none).
  *
  * On PostgreSQL: lives in the `authserver` schema.
- * On MySQL: created in the default database.
+ * On MySQL, the schema is translated to a prefix: authserver_oauth2_client_auth_methods.
  *
  * @package PramnosFramework
  */
@@ -42,7 +42,7 @@ class CreateOauth2ClientAuthMethodsTable extends Migration
             )");
             $db->query('CREATE INDEX IF NOT EXISTS idx_ocam_appid ON authserver.oauth2_client_auth_methods (appid)');
         } else {
-            $db->query("CREATE TABLE IF NOT EXISTS `#PREFIX#oauth2_client_auth_methods` (
+            $db->query("CREATE TABLE IF NOT EXISTS `authserver_oauth2_client_auth_methods` (
                 `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `appid`       INT UNSIGNED NOT NULL,
                 `auth_method` ENUM('client_secret_basic','client_secret_post','private_key_jwt','none') NOT NULL,
@@ -62,7 +62,7 @@ class CreateOauth2ClientAuthMethodsTable extends Migration
         if ($caps->isPostgreSQL()) {
             $db->query('DROP TABLE IF EXISTS authserver.oauth2_client_auth_methods');
         } else {
-            $db->query('DROP TABLE IF EXISTS `#PREFIX#oauth2_client_auth_methods`');
+            $db->query('DROP TABLE IF EXISTS `authserver_oauth2_client_auth_methods`');
         }
     }
 }

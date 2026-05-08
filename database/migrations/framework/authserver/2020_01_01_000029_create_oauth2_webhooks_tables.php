@@ -14,7 +14,7 @@ use Pramnos\Database\Migration;
  *   payloads sent (or pending to be sent) to each endpoint.
  *
  * On PostgreSQL: both tables live in the `authserver` schema.
- * On MySQL: created in the default database.
+ * On MySQL, the schema is translated to a prefix: authserver_oauth2_webhook_{endpoints,events}.
  *
  * @package PramnosFramework
  */
@@ -58,7 +58,7 @@ class CreateOauth2WebhooksTables extends Migration
             $db->query('CREATE INDEX IF NOT EXISTS idx_oawev_endpoint  ON authserver.oauth2_webhook_events (endpoint_id)');
             $db->query('CREATE INDEX IF NOT EXISTS idx_oawev_delivered ON authserver.oauth2_webhook_events (delivered)');
         } else {
-            $db->query("CREATE TABLE IF NOT EXISTS `#PREFIX#oauth2_webhook_endpoints` (
+            $db->query("CREATE TABLE IF NOT EXISTS `authserver_oauth2_webhook_endpoints` (
                 `endpoint_id`  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `appid`        INT    UNSIGNED NOT NULL,
                 `url`          TEXT            NOT NULL,
@@ -71,7 +71,7 @@ class CreateOauth2WebhooksTables extends Migration
                 KEY `idx_oawe_active` (`is_active`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-            $db->query("CREATE TABLE IF NOT EXISTS `#PREFIX#oauth2_webhook_events` (
+            $db->query("CREATE TABLE IF NOT EXISTS `authserver_oauth2_webhook_events` (
                 `event_id`     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `endpoint_id`  BIGINT UNSIGNED NOT NULL,
                 `event_type`   VARCHAR(100)    NOT NULL,
@@ -83,7 +83,7 @@ class CreateOauth2WebhooksTables extends Migration
                 KEY `idx_oawev_endpoint`  (`endpoint_id`),
                 KEY `idx_oawev_delivered` (`delivered`),
                 CONSTRAINT `fk_oawev_endpoint` FOREIGN KEY (`endpoint_id`)
-                    REFERENCES `#PREFIX#oauth2_webhook_endpoints` (`endpoint_id`) ON DELETE CASCADE
+                    REFERENCES `authserver_oauth2_webhook_endpoints` (`endpoint_id`) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
     }
@@ -97,8 +97,8 @@ class CreateOauth2WebhooksTables extends Migration
             $db->query('DROP TABLE IF EXISTS authserver.oauth2_webhook_events CASCADE');
             $db->query('DROP TABLE IF EXISTS authserver.oauth2_webhook_endpoints CASCADE');
         } else {
-            $db->query('DROP TABLE IF EXISTS `#PREFIX#oauth2_webhook_events`');
-            $db->query('DROP TABLE IF EXISTS `#PREFIX#oauth2_webhook_endpoints`');
+            $db->query('DROP TABLE IF EXISTS `authserver_oauth2_webhook_events`');
+            $db->query('DROP TABLE IF EXISTS `authserver_oauth2_webhook_endpoints`');
         }
     }
 }
