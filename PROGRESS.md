@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-08 (session 39)
+## 📅 Last Updated: 2026-05-08 (session 39/40)
 
 ## 🚀 Completed Milestones
 
@@ -15,7 +15,10 @@
 - [x] **`massmessages` UW-specific fields removed** — `locationid`, `deyaid`, `zoneid`, `filters` stripped (geographic targeting belongs in UW, not the framework)
 - [x] **Framework migration DDL tests updated** — MySQL and PostgreSQL integration test suites pass (50 tests); authserver table references updated to `authserver_` prefix for MySQL assertions
 - [x] **SchemaBuilder integration tests for new methods** — `quoteTable()` and `resolveTableName()` covered in both `SchemaBuilderMySQLTest` and `SchemaBuilderPostgreSQLTest` (4 new tests per backend; 8 total)
-- **Tests:** all passing
+- [x] **`timeBucket()` integration tests × 3 databases** — new `QueryBuilderTimescaleDBTest` extends PostgreSQL suite; MySQL/PG tests extended with `testTimeBucketGroupByHour*`; 373 QB tests total
+- [x] **`authserver.slow_api_calls` view migration** — `database/migrations/framework/authserver/2020_01_01_000030_create_slow_api_calls_view.php`; joins tokenactions + usertokens + applications; MySQL: `authserver_slow_api_calls`, PG: `authserver.slow_api_calls`; 2 integration tests
+- [x] **ROADMAP updated** — Token Action Tracking, Queue, QueryBuilder tests marked as complete
+- **Tests:** 1510+ passing (full suite)
 
 ### `pramnos init` scaffolding improvements (2026-05-07, session 38)
 
