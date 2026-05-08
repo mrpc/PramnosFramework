@@ -244,10 +244,10 @@
   - [x] `Pramnos\Queue\QueueItem` model — `src/Pramnos/Queue/QueueItem.php` (hooks: `getItemShowUrl()`, `getItemEditUrl()`, `getItemDeleteUrl()`)
   - [x] `queue:process` CLI command — `src/Pramnos/Console/Commands/ProcessQueue.php` (full dashboard, DB reconnect, stop-file; hooks: `getDashboardTitle()`, `getControllerName()`, `createWorker()`, `createQueueManager()`)
   - [x] `cleanup:queue` CLI command — `src/Pramnos/Console/Commands/CleanupQueue.php`
-  - [ ] System migration για `queueitems` table (PostgreSQL `queue_status` ENUM + MySQL TINYINT εκδοχή, indexes)
-  - [ ] `Pramnos\Queue\QueueServiceProvider`
+  - [x] System migration για `queueitems` table — `database/migrations/framework/queue/2020_01_01_000040_create_queueitems_table.php` (VARCHAR status + CHECK constraint on PG, composite indexes)
+  - [x] `Pramnos\Queue\QueueServiceProvider` — `src/Pramnos/Queue/QueueServiceProvider.php`
   - [x] Unit tests: `tests/Unit/Queue/QueueManagerTest.php` (16 tests), `tests/Unit/Queue/WorkerTest.php` (9 tests)
-  - [ ] Integration tests × 3 databases — `queueitems` schema, ENUM fallback, index verification
+  - [x] Integration tests × 2 databases — `tests/Integration/Queue/QueueManagerMySQLTest.php` (8 tests), `QueueManagerPostgreSQLTest.php` (8 inherited); queueitems schema, status VARCHAR+CHECK, index verification
 
 - **Token Action Tracking** *(feature key: `auth`)*: Πλήρης αναβάθμιση του `tokenactions` + `urls` schema — hypertable support, execution time tracking, MySQL compat. Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 9.
   - [ ] System migration: `urls` table (urlid, url, hash)
@@ -493,7 +493,7 @@
 ### New Feature Tests (>90% coverage, στόχος 100%)
 *Κάθε νέο feature που παραδίδεται στη v1.2 πρέπει να συνοδεύεται από tests που καλύπτουν τουλάχιστον το 90% του κώδικά του. Database-related features εκτελούνται × 3.*
 
-- [ ] **QueryBuilder Tests:** Πλήρης κάλυψη DML, DDL, TimescaleDB extensions, edge cases (empty results, null values, special characters) — **× 3 databases**.
+- [x] **QueryBuilder Tests:** Πλήρης κάλυψη DML, DDL, TimescaleDB extensions, edge cases — **× 3 databases** (`QueryBuilderMySQLTest`, `QueryBuilderPostgreSQLTest`, `QueryBuilderTimescaleDBTest`; 373 tests). `timeBucket()` integration-tested on all 3 backends.
 - [ ] **ORM Layer Tests:** Κάλυψη όλων των relationships, eager loading, scopes, casting, soft deletes, model events — **× 3 databases**.
 - [ ] **Middleware Pipeline Tests:** Κάλυψη before/after execution, short-circuit (403/401), chaining πολλαπλών middleware, exception propagation.
 - [ ] **Migration System Tests *(Integration only)*:** Όλα τα migration tests είναι **integration tests** που εκτελούνται σε πραγματικές βάσεις μέσω του Docker environment. Δεν αρκεί να "τρέξει" ο κώδικας — κάθε assertion επαληθεύει την **πραγματική κατάσταση της βάσης** μετά την εκτέλεση:

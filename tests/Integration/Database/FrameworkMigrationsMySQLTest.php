@@ -863,6 +863,49 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->loadMigration('authserver', 'CreateApplicationsTable')->down();
     }
 
+    // -------------------------------------------------------------------------
+    // AuthServer: slow_api_calls view
+    // -------------------------------------------------------------------------
+
+    /**
+     * CreateSlowApiCallsView must create the authserver_slow_api_calls view on MySQL.
+     *
+     * The view joins tokenactions + usertokens + applications to surface slow API
+     * calls (> 5 000 ms) from the last 7 days. On MySQL the view is named
+     * authserver_slow_api_calls (schema-as-prefix convention).
+     */
+    public function testAuthserverSlowApiCallsViewCreatedOnMySQL(): void
+    {
+        // Arrange — all prerequisite tables must exist before the view can be created
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateTokenactionsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateSlowApiCallsView');
+
+        // Act
+        $m->up();
+
+        // Assert — view must exist in information_schema.VIEWS
+        $this->assertTrue(
+            $this->viewExists('authserver_slow_api_calls'),
+            'authserver_slow_api_calls view must exist on MySQL after up()'
+        );
+
+        // Assert — the view must be queryable (zero rows — no tokenactions data yet)
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_slow_api_calls`");
+        $this->assertSame('0', (string) $r->fields['cnt'], 'empty view must return 0 rows');
+
+        // Assert — rollback removes the view
+        $m->down();
+        $this->assertFalse(
+            $this->viewExists('authserver_slow_api_calls'),
+            'view must be gone after down()'
+        );
+    }
+
     /**
      * Running up() twice must be idempotent — the hasTable() guard prevents
      * duplicate-table errors on all framework migrations.
@@ -962,6 +1005,19 @@ class FrameworkMigrationsMySQLTest extends TestCase
         return (int) $result->fields['cnt'] > 0;
     }
 
+    protected function viewExists(string $name): bool
+    {
+        $result = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.VIEWS
+                 WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
+                'pramnos_test',
+                $name
+            )
+        );
+        return (int) $result->fields['cnt'] > 0;
+    }
+
     protected function assertColumnType(string $table, string $column, string $expectedType): void
     {
         $info = $this->getColumnInfo($table, $column);
@@ -996,6 +1052,9 @@ class FrameworkMigrationsMySQLTest extends TestCase
     protected function dropAllTestTables(): void
     {
         // Drop in dependency order (children first)
+        // Drop views first (before the underlying tables are removed)
+        $this->db->query("DROP VIEW IF EXISTS `authserver_slow_api_calls`");
+
         $tables = [
             // authserver (drop before applications due to FK-like references)
             'authserver_oauth2_webhook_events', 'authserver_oauth2_webhook_endpoints',
