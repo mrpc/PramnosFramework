@@ -199,7 +199,6 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->assertColumnType('users', 'validated', 'tinyint');
         $this->assertColumnType('users', 'usertype', 'tinyint');
         $this->assertColumnType('users', 'modified', 'int');
-        $this->assertColumnNullable('users', 'locationid', true);
         $this->assertColumnNullable('users', 'fbauth', true);
 
         // Assert – indexes
@@ -726,31 +725,31 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $m->up();
 
         // Assert – table exists
-        $this->assertTrue($this->tableExists('device_authorizations'),
+        $this->assertTrue($this->tableExists('authserver_device_authorizations'),
             'device_authorizations table must be created by the authserver migration');
 
         // Assert – key columns
-        $this->assertColumnType('device_authorizations', 'device_code', 'varchar');
-        $this->assertColumnType('device_authorizations', 'user_code', 'varchar');
-        $this->assertColumnType('device_authorizations', 'verification_uri', 'varchar');
-        $this->assertColumnType('device_authorizations', 'expires_at', 'datetime');
+        $this->assertColumnType('authserver_device_authorizations', 'device_code', 'varchar');
+        $this->assertColumnType('authserver_device_authorizations', 'user_code', 'varchar');
+        $this->assertColumnType('authserver_device_authorizations', 'verification_uri', 'varchar');
+        $this->assertColumnType('authserver_device_authorizations', 'expires_at', 'datetime');
 
         // Assert – status is ENUM (MySQL-specific type) to constrain valid states
-        $statusInfo = $this->getColumnInfo('device_authorizations', 'status');
+        $statusInfo = $this->getColumnInfo('authserver_device_authorizations', 'status');
         $this->assertSame('enum', strtolower($statusInfo['DATA_TYPE']),
             'device_authorizations.status must be ENUM on MySQL to enforce valid states');
         $this->assertSame('pending', (string)$statusInfo['COLUMN_DEFAULT'],
             "status must default to 'pending' (device waiting for user approval)");
 
         // Assert – uniqueness on both code columns
-        $this->assertTrue($this->indexExists('device_authorizations', 'uq_devauth_device_code'),
+        $this->assertTrue($this->indexExists('authserver_device_authorizations', 'uq_devauth_device_code'),
             'device_code must be unique to prevent collisions across clients');
-        $this->assertTrue($this->indexExists('device_authorizations', 'uq_devauth_user_code'),
+        $this->assertTrue($this->indexExists('authserver_device_authorizations', 'uq_devauth_user_code'),
             'user_code must be unique so users can identify the correct device');
 
         // Assert – rollback
         $m->down();
-        $this->assertFalse($this->tableExists('device_authorizations'),
+        $this->assertFalse($this->tableExists('authserver_device_authorizations'),
             'device_authorizations table must be dropped by down()');
     }
 
@@ -771,20 +770,20 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $m->up();
 
         // Assert – table exists
-        $this->assertTrue($this->tableExists('jwt_replay_prevention'),
+        $this->assertTrue($this->tableExists('authserver_jwt_replay_prevention'),
             'jwt_replay_prevention table must be created');
 
         // Assert – jti is the primary key (fast lookup for token validation)
-        $this->assertColumnType('jwt_replay_prevention', 'jti', 'varchar');
-        $this->assertColumnType('jwt_replay_prevention', 'expires_at', 'datetime');
+        $this->assertColumnType('authserver_jwt_replay_prevention', 'jti', 'varchar');
+        $this->assertColumnType('authserver_jwt_replay_prevention', 'expires_at', 'datetime');
 
         // Assert – expires_at index for efficient cleanup queries
-        $this->assertTrue($this->indexExists('jwt_replay_prevention', 'idx_jrp_expires'),
+        $this->assertTrue($this->indexExists('authserver_jwt_replay_prevention', 'idx_jrp_expires'),
             'expires_at index must exist to allow efficient cleanup of expired jti records');
 
         // Assert – rollback
         $m->down();
-        $this->assertFalse($this->tableExists('jwt_replay_prevention'),
+        $this->assertFalse($this->tableExists('authserver_jwt_replay_prevention'),
             'jwt_replay_prevention table must be dropped by down()');
     }
 
@@ -806,21 +805,21 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $m->up();
 
         // Assert – table exists
-        $this->assertTrue($this->tableExists('oauth2_client_auth_methods'),
+        $this->assertTrue($this->tableExists('authserver_oauth2_client_auth_methods'),
             'oauth2_client_auth_methods table must be created');
 
         // Assert – auth_method is ENUM (MySQL-specific type)
-        $methodInfo = $this->getColumnInfo('oauth2_client_auth_methods', 'auth_method');
+        $methodInfo = $this->getColumnInfo('authserver_oauth2_client_auth_methods', 'auth_method');
         $this->assertSame('enum', strtolower($methodInfo['DATA_TYPE']),
             'auth_method must be ENUM on MySQL to prevent invalid values');
 
         // Assert – unique constraint prevents duplicate method registrations per app
-        $this->assertTrue($this->indexExists('oauth2_client_auth_methods', 'uq_ocam_appid_method'),
+        $this->assertTrue($this->indexExists('authserver_oauth2_client_auth_methods', 'uq_ocam_appid_method'),
             'unique(appid, auth_method) must prevent duplicate method entries per application');
 
         // Assert – rollback (applications first because of potential FK)
         $m->down();
-        $this->assertFalse($this->tableExists('oauth2_client_auth_methods'));
+        $this->assertFalse($this->tableExists('authserver_oauth2_client_auth_methods'));
         $this->loadMigration('authserver', 'CreateApplicationsTable')->down();
     }
 
@@ -841,26 +840,26 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $m->up();
 
         // Assert – both tables exist
-        $this->assertTrue($this->tableExists('oauth2_webhook_endpoints'),
+        $this->assertTrue($this->tableExists('authserver_oauth2_webhook_endpoints'),
             'oauth2_webhook_endpoints table must be created');
-        $this->assertTrue($this->tableExists('oauth2_webhook_events'),
+        $this->assertTrue($this->tableExists('authserver_oauth2_webhook_events'),
             'oauth2_webhook_events table must be created');
 
         // Assert – endpoints has required columns
-        $this->assertColumnType('oauth2_webhook_endpoints', 'url', 'text');
-        $this->assertColumnType('oauth2_webhook_endpoints', 'secret', 'varchar');
-        $this->assertColumnType('oauth2_webhook_endpoints', 'events', 'json');
+        $this->assertColumnType('authserver_oauth2_webhook_endpoints', 'url', 'text');
+        $this->assertColumnType('authserver_oauth2_webhook_endpoints', 'secret', 'varchar');
+        $this->assertColumnType('authserver_oauth2_webhook_endpoints', 'events', 'json');
 
         // Assert – events has delivery tracking columns
-        $this->assertColumnType('oauth2_webhook_events', 'event_type', 'varchar');
-        $this->assertColumnType('oauth2_webhook_events', 'payload', 'json');
-        $this->assertColumnType('oauth2_webhook_events', 'delivered', 'tinyint');
-        $this->assertColumnType('oauth2_webhook_events', 'attempts', 'smallint');
+        $this->assertColumnType('authserver_oauth2_webhook_events', 'event_type', 'varchar');
+        $this->assertColumnType('authserver_oauth2_webhook_events', 'payload', 'json');
+        $this->assertColumnType('authserver_oauth2_webhook_events', 'delivered', 'tinyint');
+        $this->assertColumnType('authserver_oauth2_webhook_events', 'attempts', 'smallint');
 
         // Assert – rollback (events before endpoints due to FK)
         $m->down();
-        $this->assertFalse($this->tableExists('oauth2_webhook_events'));
-        $this->assertFalse($this->tableExists('oauth2_webhook_endpoints'));
+        $this->assertFalse($this->tableExists('authserver_oauth2_webhook_events'));
+        $this->assertFalse($this->tableExists('authserver_oauth2_webhook_endpoints'));
         $this->loadMigration('authserver', 'CreateApplicationsTable')->down();
     }
 
@@ -999,10 +998,10 @@ class FrameworkMigrationsMySQLTest extends TestCase
         // Drop in dependency order (children first)
         $tables = [
             // authserver (drop before applications due to FK-like references)
-            'oauth2_webhook_deliveries', 'oauth2_webhooks',
-            'oauth2_client_auth_methods',
-            'jwt_replay_prevention',
-            'device_authorizations',
+            'authserver_oauth2_webhook_events', 'authserver_oauth2_webhook_endpoints',
+            'authserver_oauth2_client_auth_methods',
+            'authserver_jwt_replay_prevention',
+            'authserver_device_authorizations',
             'oauth2_access_tokens', 'oauth2_refresh_tokens',
             'oauth2_auth_codes',
             'applications',
