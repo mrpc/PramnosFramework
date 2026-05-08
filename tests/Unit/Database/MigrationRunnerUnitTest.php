@@ -276,6 +276,138 @@ class MigrationRunnerUnitTest extends TestCase
         $runner->sort([$a]);
     }
 
+    /**
+     * Regression: the authserver RBAC functions migration must run AFTER
+     * the user_roles table migration, even though user_roles is not in the
+     * transitive dependency chain of the RBAC functions migration through
+     * the audit_log → permission_templates → … path.
+     *
+     * The Kahn's algorithm implementation splices newly-ready migrations at
+     * queue position 0 (array_splice($queue, 0, 0, $insertable)).  When
+     * create_authserver_permissions_table (pri=30) is emitted, it makes
+     * create_authserver_audit_log_table (pri=50) newly ready.  That is
+     * inserted at position 0 in front of create_authserver_user_roles_table
+     * (pri=40) which was already waiting.  The audit_log chain (50 → 55 →
+     * 65 → 70 → 75) then runs entirely before user_roles (pri=40), causing
+     * "CREATE TRIGGER … ON authserver.user_roles" to fail because the table
+     * did not exist yet.
+     *
+     * The fix: declare create_authserver_user_roles_table as an explicit dep
+     * of create_authserver_rbac_functions (000036) so the topological sort
+     * guarantees the correct ordering regardless of queue-insertion order.
+     *
+     * This test uses a minimal graph that reproduces the exact branching
+     * pattern from the authserver migration set.
+     */
+    public function testRbacFunctionsMigrationRunsAfterUserRolesTable(): void
+    {
+        // Arrange — minimal graph that mirrors the real authserver migration set
+        //
+        //   schema (10)
+        //     └→ roles (20)
+        //          ├→ permissions (30)
+        //          │    └→ audit_log (50)
+        //          │         └→ perm_templates (55)
+        //          │              └→ role_templates (60)
+        //          │                   └→ perm_inheritance (65)
+        //          │                        └→ effective_perms (70)
+        //          │                             └→ rbac_functions (75) ← also explicit dep on user_roles
+        //          └→ user_roles (40)    ← NOT in the audit_log chain above
+        //               └→ user_deyas (45)
+        //
+        // Without the explicit dep, the queue-splice bug causes rbac_functions
+        // to run while user_roles is still in the queue (not yet emitted).
+        $schema     = $this->makeMigration('create_authserver_schema',                 priority: 10);
+        $roles      = $this->makeMigration('create_authserver_roles_table',            priority: 20, deps: ['create_authserver_schema']);
+        $perms      = $this->makeMigration('create_authserver_permissions_table',      priority: 30, deps: ['create_authserver_roles_table']);
+        $userRoles  = $this->makeMigration('create_authserver_user_roles_table',       priority: 40, deps: ['create_authserver_roles_table']);
+        $auditLog   = $this->makeMigration('create_authserver_audit_log_table',        priority: 50, deps: ['create_authserver_permissions_table']);
+        $userDeyas  = $this->makeMigration('create_authserver_user_deyas_table',       priority: 45, deps: ['create_authserver_user_roles_table']);
+        $permTmpl   = $this->makeMigration('create_authserver_permission_templates_table', priority: 55, deps: ['create_authserver_audit_log_table']);
+        $roleTmpl   = $this->makeMigration('create_authserver_role_templates_table',   priority: 60, deps: ['create_authserver_permission_templates_table']);
+        $permInh    = $this->makeMigration('create_authserver_permission_inheritance_table', priority: 65, deps: ['create_authserver_role_templates_table']);
+        $effPerms   = $this->makeMigration('create_authserver_effective_permissions_view', priority: 70, deps: ['create_authserver_permission_inheritance_table']);
+        $rbacFns    = $this->makeMigration('create_authserver_rbac_functions',         priority: 75, deps: [
+            'create_authserver_effective_permissions_view',
+            'create_authserver_user_roles_table',     // the fix
+            'create_authserver_user_deyas_table',     // the fix
+        ]);
+
+        $runner = new MigrationRunner();
+
+        // Act
+        $sorted = $runner->sort([
+            $schema, $roles, $perms, $userRoles, $auditLog, $userDeyas,
+            $permTmpl, $roleTmpl, $permInh, $effPerms, $rbacFns,
+        ]);
+
+        // Assert — extract just the slugs for readable failure messages
+        $slugs = array_map(fn($m) => $m->getSlug(), $sorted);
+
+        $userRolesPos = array_search('create_authserver_user_roles_table', $slugs, true);
+        $rbacFnsPos   = array_search('create_authserver_rbac_functions',   $slugs, true);
+
+        $this->assertNotFalse($userRolesPos, 'create_authserver_user_roles_table must appear in sorted output');
+        $this->assertNotFalse($rbacFnsPos,   'create_authserver_rbac_functions must appear in sorted output');
+        $this->assertLessThan(
+            $rbacFnsPos,
+            $userRolesPos,
+            'create_authserver_user_roles_table must run before create_authserver_rbac_functions ' .
+            '(triggers reference authserver.user_roles which must exist at CREATE TRIGGER time)'
+        );
+
+        // Also assert user_deyas runs before rbac_functions
+        $userDeyasPos = array_search('create_authserver_user_deyas_table', $slugs, true);
+        $this->assertLessThan(
+            $rbacFnsPos,
+            $userDeyasPos,
+            'create_authserver_user_deyas_table must run before create_authserver_rbac_functions'
+        );
+    }
+
+    /**
+     * The Kahn's algorithm splice-at-front bug (array_splice($q, 0, 0, $new))
+     * can displace already-queued lower-priority siblings behind newly-unlocked
+     * higher-priority ones.  This test documents the behaviour with the MINIMAL
+     * reproducer: A→B (pri=30), A→C (pri=50 in dep chain); both B and C unlock
+     * after A but C should NOT run before B even if C is inserted at front.
+     *
+     * With the fix (explicit dep C→B), the correct order is enforced
+     * regardless of queue-insertion order.
+     */
+    public function testSiblingWithLowerPriorityRunsBeforeHigherPrioritySiblingInSameDepTree(): void
+    {
+        // Arrange — two siblings, both unlocked by A; B has lower priority (runs
+        // first by convention) but is displaced by C being spliced at front when
+        // A is emitted and C's chain follows immediately.
+        //
+        //   A (pri=10)
+        //     ├→ B (pri=20, no further deps)
+        //     └→ C-chain-root (pri=30, leads to D pri=40 which needs B)
+        //          └→ D (pri=40, explicit dep on B)
+        //
+        // Without explicit dep D→B: C is inserted at front ahead of B; D then
+        // runs without B having been created — wrong order.
+        // With explicit dep D→B: D cannot run until B is emitted — correct.
+        $a = $this->makeMigration('migration_a',       priority: 10);
+        $b = $this->makeMigration('migration_b',       priority: 20, deps: ['migration_a']);
+        $c = $this->makeMigration('migration_c_chain', priority: 30, deps: ['migration_a']);
+        $d = $this->makeMigration('migration_d_needs_b', priority: 40, deps: ['migration_c_chain', 'migration_b']);
+
+        $runner = new MigrationRunner();
+
+        // Act
+        $sorted = $runner->sort([$a, $b, $c, $d]);
+        $slugs  = array_map(fn($m) => $m->getSlug(), $sorted);
+
+        $bPos = array_search('migration_b',         $slugs, true);
+        $dPos = array_search('migration_d_needs_b', $slugs, true);
+
+        // Assert — B must always precede D (D explicitly depends on B)
+        $this->assertLessThan($dPos, $bPos,
+            'migration_b must run before migration_d_needs_b (explicit dep declared)');
+    }
+
     // -----------------------------------------------------------------------
     // Autorun and migration_cutoff filtering
     // -----------------------------------------------------------------------
