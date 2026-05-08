@@ -4,6 +4,17 @@
 
 ## 🚀 Completed Milestones
 
+### GDPR Migrations (2026-05-08, session 42 continued)
+
+- [x] **Migration 000021** — `user_activity_log` hypertable: 1-day chunks, compress after 30 days, retain 24 months; ifCapable(TIMESCALEDB)
+- [x] **Migration 000022** — `user_privacy_settings`: plain table, PK=userid; share_usage_analytics, marketing_emails, data_processing flags
+- [x] **Migration 000023** — `user_consents` hypertable: 1-month chunks, compress after 6 months, retain 7 years; ifCapable(TIMESCALEDB)
+- [x] **Migration 000024** — `data_processing_records` hypertable: 1-week chunks, compress after 90 days, retain 36 months; ifCapable(TIMESCALEDB)
+- [x] **Migration 000025** — `gdpr_requests` hypertable: 1-month chunks, compress after 1 year, retain 7 years; ifCapable(TIMESCALEDB)
+- [x] **Migration 000026** — `daily_activity_summary`: TimescaleDB continuous aggregate; materialized view fallback on plain PG; plain view on MySQL
+- [x] **Migration 000027** — GDPR columns on `users` table: gdpr_consent, gdpr_consent_date, gdpr_data_export_requested, gdpr_deletion_requested, gdpr_deletion_date (idempotent, uses hasColumn checks)
+- All 7 migrations pass `FrameworkMigrationsMySQLTest` and `FrameworkMigrationsPostgreSQLTest`
+
 ### Pramnos\Auth\Scopes + OAuthPolicyHelper (2026-05-08, session 42 continued)
 
 - [x] **`Pramnos\Auth\Scopes`** — `src/Pramnos/Auth/Scopes.php`; static OAuth2 scope registry: `getScopes()` (grouped), `getScopeDescriptions()` (flat map), `getDefaultScopes()`, `hasInvalidScopes()`, `resolveInheritedScopes()` (transitive, dedup, sorted), `areApplicationScopesGranted()` (requires applications table); unit tests: `ScopesTest` (12 tests)
