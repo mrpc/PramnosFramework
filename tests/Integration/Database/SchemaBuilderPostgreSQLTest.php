@@ -663,4 +663,75 @@ class SchemaBuilderPostgreSQLTest extends TestCase
         $this->assertFalse($this->matviewExists('sb_matview'),
             'materialized view must be gone after drop');
     }
+
+    // -------------------------------------------------------------------------
+    // quoteTable / resolveTableName — schema-qualified names (PostgreSQL)
+    // -------------------------------------------------------------------------
+
+    /**
+     * quoteTable() on PostgreSQL must produce "schema"."table" double-quoted form.
+     *
+     * On PostgreSQL the schema.table notation is preserved (no prefix flattening).
+     * The grammar splits on '.' and wraps each part in double quotes, which is the
+     * correct PostgreSQL identifier quoting for schema-qualified references.
+     */
+    public function testQuoteTableProducesDoubleQuotedSchemaTableOnPostgres(): void
+    {
+        // Act
+        $quoted = $this->schema->quoteTable('authserver.roles');
+
+        // Assert — both schema and table parts are individually double-quoted
+        $this->assertSame('"authserver"."roles"', $quoted);
+    }
+
+    /**
+     * resolveTableName() must return the schema.table string unchanged on PostgreSQL.
+     *
+     * PostgreSQL supports the dot notation natively via search_path and schema
+     * qualification. Unlike MySQL (which has no schema concept), no prefix
+     * flattening occurs — the dot is preserved for the grammar to handle.
+     */
+    public function testResolveTableNamePreservesSchemaOnPostgres(): void
+    {
+        // Act
+        $name = $this->schema->resolveTableName('authserver.roles');
+
+        // Assert — returned verbatim; PostgreSQL grammar handles the dot
+        $this->assertSame('authserver.roles', $name);
+    }
+
+    /**
+     * createTable() and hasTable() must both accept schema.table notation on PostgreSQL.
+     *
+     * 'public.sb_types' creates the table in the public schema (always present in
+     * the test database), and hasTable('public.sb_types') must find it.
+     * Verifies the full round-trip: resolve → grammar quote → DDL → introspect.
+     */
+    public function testSchemaQualifiedCreateAndHasTableOnPostgres(): void
+    {
+        // Arrange — use the 'public' schema which is always present in the test database
+        $this->assertFalse(
+            $this->schema->hasTable('public.sb_types'),
+            'table must not exist before createTable()'
+        );
+
+        // Act — create using schema.table notation
+        $this->schema->createTable('public.sb_types', function ($t) {
+            $t->increments('id');
+            $t->string('label');
+        });
+
+        // Assert — hasTable with schema.table notation finds the table via schema filter
+        $this->assertTrue(
+            $this->schema->hasTable('public.sb_types'),
+            'hasTable(public.sb_types) must return true for the created table'
+        );
+        // Confirm the physical table is in the public schema (visible without schema prefix too)
+        $this->assertTrue(
+            $this->tableExists('sb_types'),
+            'table must be visible in the public schema'
+        );
+
+        // Cleanup is handled by dropAll() in tearDown()
+    }
 }
