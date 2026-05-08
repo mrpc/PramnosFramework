@@ -45,8 +45,8 @@ class CreateAuthserverPermissionsTable extends Migration
                 ->comment('Identifier of the subject: userid, roleid, or applicationid depending on subject_type');
             $table->string('object_type', 50)
                 ->comment('Type of the protected resource (e.g. "invoice", "device", "report")');
-            $table->bigInteger('object_id')->nullable()
-                ->comment('Specific object instance ID; NULL = permission applies to ALL objects of object_type');
+            $table->string('object_id', 100)->nullable()
+                ->comment('Specific object instance ID — VARCHAR to support wildcards ("*") and non-integer IDs; NULL = all objects of object_type');
             $table->string('action', 20)
                 ->comment('Permitted or denied action: create | read | update | delete | * (wildcard = all actions)');
             $table->string('grant_type', 5)->default('allow')
@@ -63,6 +63,12 @@ class CreateAuthserverPermissionsTable extends Migration
                 ->comment('Soft-delete flag — inactive permissions are ignored by the policy engine');
             $table->text('description')->nullable()
                 ->comment('Optional human-readable note explaining why this permission was granted');
+
+            // Unique constraint required for ON CONFLICT DO NOTHING in apply_permission_template()
+            $table->unique(
+                ['subject_type', 'subject_id', 'object_type', 'object_id', 'action', 'grant_type'],
+                'uq_authserver_perms_grant'
+            );
 
             $table->index(['subject_type', 'subject_id'], 'idx_authserver_perms_subject');
             $table->index(['object_type', 'object_id'], 'idx_authserver_perms_object');
