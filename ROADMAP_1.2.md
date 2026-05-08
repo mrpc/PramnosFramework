@@ -278,7 +278,7 @@
   - [x] System migrations — 2FA tables: `user_twofactor`, `twofactor_setup`, `twofactor_attempts` (TimescaleDB hypertable: 7-day chunks, compress after 7 days, retain 2 years) — done in migrations 000018/000019/000020
   - [x] System migrations — GDPR hypertables: `user_activity_log` (1-day chunks, 000021), `user_privacy_settings` (000022), `user_consents` (1-month chunks, 000023), `data_processing_records` (1-week chunks, 000024), `gdpr_requests` (1-month chunks, 000025), `daily_activity_summary` continuous aggregate (000026); all via ifCapable(TIMESCALEDB)
   - [x] System migrations — GDPR columns σε `users` table (000027): gdpr_consent, gdpr_consent_date, gdpr_data_export_requested, gdpr_deletion_requested, gdpr_deletion_date
-  - [ ] System migrations — authserver RBAC schema: `authserver` schema, `permissions`, `roles`, `user_deyas`, `user_roles`, `permission_templates`, `role_templates`, `permission_inheritance`, `audit_log`, `effective_permissions` VIEW, 7 PL/pgSQL functions
+  - [x] System migrations — authserver RBAC schema: `authserver` schema, `permissions`, `roles`, `user_deyas`, `user_roles`, `permission_templates`, `role_templates`, `permission_inheritance`, `audit_log`, `effective_permissions` VIEW, 7 PL/pgSQL functions — migrations 000031–000036; permissions.object_id fixed to VARCHAR(100) + unique constraint; integration tests × MySQL + PostgreSQL
   - [ ] 2FA controllers + views (setup, challenge, backup codes)
   - [ ] GDPR controller + views (export, delete, consents)
   - [ ] BC: υπάρχον addon hook interface (`onAuth()`, `onLogout()`, `onAuthCheck()`) παραμένει αμετάβλητο

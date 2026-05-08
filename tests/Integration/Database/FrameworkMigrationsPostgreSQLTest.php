@@ -1172,6 +1172,325 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         );
     }
 
+    // -------------------------------------------------------------------------
+    // AuthServer: RBAC tables (user_deyas, permission_templates, role_templates,
+    //             permission_inheritance, effective_permissions VIEW, PL/pgSQL fns)
+    // -------------------------------------------------------------------------
+
+    /**
+     * CreateAuthserverUserDeyasTable must create authserver.user_deyas with the
+     * (userid, deyaid) composite PK and the expected columns.
+     */
+    public function testAuthserverUserDeyasUpCreatesTable(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverUserDeyasTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table exists in authserver schema
+        $this->assertTrue(
+            $this->tableExists('user_deyas', 'authserver'),
+            'authserver.user_deyas must exist after up()'
+        );
+        $this->assertTrue($this->columnExists('user_deyas', 'userid', 'authserver'));
+        $this->assertTrue($this->columnExists('user_deyas', 'deyaid', 'authserver'));
+        $this->assertTrue($this->columnExists('user_deyas', 'is_active', 'authserver'));
+        $this->assertTrue($this->columnExists('user_deyas', 'expires_at', 'authserver'));
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('user_deyas', 'authserver'));
+    }
+
+    /**
+     * CreateAuthserverPermissionTemplatesTable must create authserver.permission_templates.
+     */
+    public function testAuthserverPermissionTemplatesUpCreatesTable(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverAuditLogTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverPermissionTemplatesTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue(
+            $this->tableExists('permission_templates', 'authserver'),
+            'authserver.permission_templates must exist after up()'
+        );
+        $this->assertTrue($this->columnExists('permission_templates', 'template_name', 'authserver'));
+        $this->assertTrue($this->columnExists('permission_templates', 'template_type', 'authserver'));
+        $this->assertTrue($this->columnExists('permission_templates', 'object_type', 'authserver'));
+        $this->assertTrue($this->columnExists('permission_templates', 'action', 'authserver'));
+        $this->assertTrue($this->columnExists('permission_templates', 'grant_type', 'authserver'));
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('permission_templates', 'authserver'));
+    }
+
+    /**
+     * CreateAuthserverRoleTemplatesTable must create authserver.role_templates with
+     * a TEXT permission_templateids column (JSON array, cross-DB compatible).
+     */
+    public function testAuthserverRoleTemplatesUpCreatesTable(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverAuditLogTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionTemplatesTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverRoleTemplatesTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue(
+            $this->tableExists('role_templates', 'authserver'),
+            'authserver.role_templates must exist after up()'
+        );
+        $this->assertTrue($this->columnExists('role_templates', 'role_templateid', 'authserver'));
+        $this->assertTrue($this->columnExists('role_templates', 'permission_templateids', 'authserver'));
+        $this->assertTrue($this->columnExists('role_templates', 'is_system_template', 'authserver'));
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('role_templates', 'authserver'));
+    }
+
+    /**
+     * CreateAuthserverPermissionInheritanceTable must create authserver.permission_inheritance
+     * with child/parent object columns and traversal indexes.
+     */
+    public function testAuthserverPermissionInheritanceUpCreatesTable(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverAuditLogTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionTemplatesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRoleTemplatesTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverPermissionInheritanceTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue(
+            $this->tableExists('permission_inheritance', 'authserver'),
+            'authserver.permission_inheritance must exist after up()'
+        );
+        $this->assertTrue($this->columnExists('permission_inheritance', 'child_object_type', 'authserver'));
+        $this->assertTrue($this->columnExists('permission_inheritance', 'child_object_id', 'authserver'));
+        $this->assertTrue($this->columnExists('permission_inheritance', 'parent_object_type', 'authserver'));
+        $this->assertTrue($this->columnExists('permission_inheritance', 'parent_object_id', 'authserver'));
+        $this->assertTrue($this->columnExists('permission_inheritance', 'inheritance_type', 'authserver'));
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('permission_inheritance', 'authserver'));
+    }
+
+    /**
+     * CreateAuthserverEffectivePermissionsView must create authserver.effective_permissions
+     * as a queryable view that applies deny-takes-priority logic.
+     *
+     * Verify: (1) view exists, (2) returns 0 rows on empty table, (3) deny with
+     * higher priority dominates an allow for the same subject+object+action.
+     */
+    public function testAuthserverEffectivePermissionsViewCreatedOnPostgreSQL(): void
+    {
+        // Arrange — all dependency tables must exist
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverAuditLogTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionTemplatesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRoleTemplatesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionInheritanceTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverEffectivePermissionsView');
+
+        // Act
+        $m->up();
+
+        // Assert — view exists in information_schema
+        $r = $this->db->execute(
+            "SELECT 1 FROM information_schema.views
+              WHERE table_schema = 'authserver'
+                AND table_name = 'effective_permissions'"
+        );
+        $this->assertTrue(
+            $r && $r->numRows > 0,
+            'authserver.effective_permissions view must exist on PostgreSQL after up()'
+        );
+
+        // Assert — queryable, returns 0 rows on empty permissions table
+        $r = $this->db->execute(
+            'SELECT COUNT(*) AS cnt FROM authserver.effective_permissions'
+        );
+        $this->assertSame('0', (string) $r->fields['cnt']);
+
+        // Assert — deny-takes-priority: insert allow(priority=10) and deny(priority=1010)
+        $this->db->execute(
+            "INSERT INTO authserver.permissions
+             (subject_type, subject_id, object_type, object_id, action, grant_type, priority)
+             VALUES ('user', 1, 'report', '42', 'read', 'allow', 10)"
+        );
+        $this->db->execute(
+            "INSERT INTO authserver.permissions
+             (subject_type, subject_id, object_type, object_id, action, grant_type, priority)
+             VALUES ('user', 1, 'report', '42', 'read', 'deny', 1010)"
+        );
+        $r = $this->db->execute(
+            "SELECT effective_grant FROM authserver.effective_permissions
+              WHERE subject_type='user' AND subject_id=1
+                AND object_type='report' AND object_id='42' AND action='read'"
+        );
+        $this->assertSame('deny', $r->fields['effective_grant'],
+            'deny with higher priority must dominate allow in effective_permissions');
+
+        // Assert — rollback removes the view
+        $m->down();
+        $r2 = $this->db->execute(
+            "SELECT 1 FROM information_schema.views
+              WHERE table_schema = 'authserver'
+                AND table_name = 'effective_permissions'"
+        );
+        $this->assertFalse(
+            $r2 && $r2->numRows > 0,
+            'effective_permissions view must be gone after down()'
+        );
+    }
+
+    /**
+     * CreateAuthserverRbacFunctions must install 7 PL/pgSQL functions and 2 triggers
+     * in the authserver schema on PostgreSQL.
+     *
+     * Verified: functions exist in pg_proc; triggers exist on permissions and
+     * user_roles; the priority trigger auto-increments deny permissions by 1000;
+     * apply_permission_template() creates a real permission row.
+     */
+    public function testAuthserverRbacFunctionsInstalledOnPostgreSQL(): void
+    {
+        // Arrange — all dependency tables/views must exist
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverAuditLogTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionTemplatesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRoleTemplatesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionInheritanceTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverEffectivePermissionsView')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverRbacFunctions');
+
+        // Act
+        $m->up();
+
+        // Assert — all 7 functions exist in pg_proc
+        $fns = [
+            'set_permission_priority',
+            'check_user_deya_membership',
+            'apply_permission_template',
+            'apply_role_template',
+            'log_audit_event',
+            'check_permission_with_inheritance',
+            'get_user_effective_permissions',
+        ];
+        foreach ($fns as $fn) {
+            $r = $this->db->execute(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt FROM pg_proc p
+                     JOIN pg_namespace n ON n.oid = p.pronamespace
+                     WHERE n.nspname = 'authserver' AND p.proname = %s",
+                    $fn
+                )
+            );
+            $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+                "PL/pgSQL function authserver.{$fn}() must exist after up()");
+        }
+
+        // Assert — trigger_set_permission_priority is attached to authserver.permissions
+        $r = $this->db->execute(
+            "SELECT COUNT(*) AS cnt FROM information_schema.triggers
+              WHERE trigger_schema = 'authserver'
+                AND event_object_table = 'permissions'
+                AND trigger_name = 'trigger_set_permission_priority'"
+        );
+        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+            'trigger_set_permission_priority must be attached to authserver.permissions');
+
+        // Assert — trigger auto-increments deny priority by 1000
+        $this->db->execute(
+            "INSERT INTO authserver.permissions
+             (subject_type, subject_id, object_type, object_id, action, grant_type, priority)
+             VALUES ('user', 99, 'zone', '7', 'delete', 'deny', 0)"
+        );
+        $r = $this->db->execute(
+            "SELECT priority FROM authserver.permissions
+              WHERE subject_type='user' AND subject_id=99 AND action='delete'"
+        );
+        $this->assertSame('1000', (string) $r->fields['priority'],
+            'set_permission_priority trigger must add 1000 to deny priority');
+
+        // Assert — apply_permission_template() creates a permission row
+        $this->db->execute(
+            "INSERT INTO authserver.permission_templates
+             (template_name, template_type, object_type, object_id_pattern, action, grant_type, priority)
+             VALUES ('test_read_all', 'role_template', 'report', '*', 'read', 'allow', 5)"
+        );
+        $r = $this->db->execute(
+            "SELECT authserver.apply_permission_template(
+                 (SELECT templateid FROM authserver.permission_templates WHERE template_name='test_read_all'),
+                 'role', 1, NULL, NULL
+             ) AS cnt"
+        );
+        $this->assertSame('1', (string) $r->fields['cnt'],
+            'apply_permission_template() must return 1 for a newly created permission');
+
+        // Verify the permission was actually created
+        $r2 = $this->db->execute(
+            "SELECT COUNT(*) AS cnt FROM authserver.permissions
+              WHERE subject_type='role' AND subject_id=1
+                AND object_type='report' AND action='read'"
+        );
+        $this->assertGreaterThan(0, (int) $r2->fields['cnt'],
+            'apply_permission_template() must insert a real permission row');
+
+        // Assert — rollback removes triggers and functions
+        $m->down();
+        $r3 = $this->db->execute(
+            "SELECT COUNT(*) AS cnt FROM pg_proc p
+             JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'authserver' AND p.proname = 'set_permission_priority'"
+        );
+        $this->assertSame('0', (string) $r3->fields['cnt'],
+            'set_permission_priority function must be gone after down()');
+    }
+
     /**
      * Running up() twice must be idempotent — the hasTable() guard prevents
      * duplicate-table errors on all framework migrations.

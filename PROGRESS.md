@@ -1,6 +1,21 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-08 (session 42 continued)
+## 📅 Last Updated: 2026-05-08 (session 43)
+
+## 🚀 Completed Milestones
+
+### AuthServer RBAC Schema Completion (2026-05-08, session 43)
+
+- [x] **Migration 000031** — `authserver.user_deyas`: composite PK (userid, deyaid), org membership table; no FK to deya (application-level concern)
+- [x] **Migration 000032** — `authserver.permission_templates`: reusable permission blueprints with `{deyaid}` placeholder support in object_id_pattern
+- [x] **Migration 000033** — `authserver.role_templates`: role blueprints bundling permission_templateids (JSON array in TEXT, cross-DB compatible)
+- [x] **Migration 000034** — `authserver.permission_inheritance`: parent→child object hierarchy with full/read_only/custom inheritance modes
+- [x] **Migration 000035** — `authserver.effective_permissions` VIEW: deny-takes-priority aggregation on both PostgreSQL and MySQL
+- [x] **Migration 000036** — 7 PL/pgSQL functions + 2 triggers (PostgreSQL only; no-op on MySQL): set_permission_priority, check_user_deya_membership, apply_permission_template, apply_role_template, log_audit_event, check_permission_with_inheritance, get_user_effective_permissions
+- [x] **Schema fix** — `authserver.permissions.object_id`: BIGINT → VARCHAR(100) to support wildcards and template placeholders
+- [x] **Schema fix** — `authserver.permissions`: added unique constraint `uq_authserver_perms_grant` on (subject_type, subject_id, object_type, object_id, action, grant_type) for ON CONFLICT support
+- [x] **Integration tests** — `FrameworkMigrationsMySQLTest`: 5 new tests (user_deyas, permission_templates, role_templates, permission_inheritance, effective_permissions view + deny-takes-priority assertion)
+- [x] **Integration tests** — `FrameworkMigrationsPostgreSQLTest`: 6 new tests (all 5 tables/view + PL/pgSQL functions with trigger validation + apply_permission_template execution test)
 
 ## 🚀 Completed Milestones
 
