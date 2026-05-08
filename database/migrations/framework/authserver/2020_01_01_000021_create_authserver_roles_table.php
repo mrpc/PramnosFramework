@@ -12,7 +12,8 @@ use Pramnos\Database\Migration;
  * all organisations.
  *
  * PostgreSQL: created in the `authserver` schema.
- * MySQL: created in the default schema with no schema prefix.
+ * MySQL: the schema is translated to a prefix automatically by SchemaBuilder
+ * (authserver.roles → authserver_roles, plus any configured table prefix).
  *
  * @package PramnosFramework
  */
@@ -27,15 +28,12 @@ class CreateAuthserverRolesTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        $caps   = $schema->getCapabilities();
 
-        $tableName = $caps->isPostgreSQL() ? 'authserver.roles' : 'authserver_roles';
-
-        if ($schema->hasTable($tableName)) {
+        if ($schema->hasTable('authserver.roles')) {
             return;
         }
 
-        $schema->createTable($tableName, function ($table) {
+        $schema->createTable('authserver.roles', function ($table) {
             $table->comment('RBAC role definitions — roles group permissions and can be scoped to an organisation (deyaid)');
 
             $table->increments('roleid')
@@ -59,9 +57,6 @@ class CreateAuthserverRolesTable extends Migration
 
     public function down(): void
     {
-        $schema = $this->application->database->schema();
-        $caps   = $schema->getCapabilities();
-        $tableName = $caps->isPostgreSQL() ? 'authserver.roles' : 'authserver_roles';
-        $schema->dropTableIfExists($tableName);
+        $this->application->database->schema()->dropTableIfExists('authserver.roles');
     }
 }

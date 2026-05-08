@@ -24,15 +24,12 @@ class CreateAuthserverAuditLogTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        $caps   = $schema->getCapabilities();
 
-        $tableName = $caps->isPostgreSQL() ? 'authserver.audit_log' : 'authserver_audit_log';
-
-        if ($schema->hasTable($tableName)) {
+        if ($schema->hasTable('authserver.audit_log')) {
             return;
         }
 
-        $schema->createTable($tableName, function ($table) {
+        $schema->createTable('authserver.audit_log', function ($table) {
             $table->comment('Immutable audit trail for all RBAC changes — permission grants/revocations, role assignments');
 
             $table->bigIncrements('logid')
@@ -65,9 +62,6 @@ class CreateAuthserverAuditLogTable extends Migration
 
     public function down(): void
     {
-        $schema = $this->application->database->schema();
-        $caps   = $schema->getCapabilities();
-        $tableName = $caps->isPostgreSQL() ? 'authserver.audit_log' : 'authserver_audit_log';
-        $schema->dropTableIfExists($tableName);
+        $this->application->database->schema()->dropTableIfExists('authserver.audit_log');
     }
 }

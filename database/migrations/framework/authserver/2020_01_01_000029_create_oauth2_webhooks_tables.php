@@ -31,8 +31,12 @@ class CreateOauth2WebhooksTables extends Migration
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();
 
+        $schema  = $db->schema();
+        $tEndp   = $schema->quoteTable('authserver.oauth2_webhook_endpoints');
+        $tEvents = $schema->quoteTable('authserver.oauth2_webhook_events');
+
         if ($caps->isPostgreSQL()) {
-            $db->query("CREATE TABLE IF NOT EXISTS authserver.oauth2_webhook_endpoints (
+            $db->query("CREATE TABLE IF NOT EXISTS {$tEndp} (
                 endpoint_id  BIGSERIAL    PRIMARY KEY,
                 appid        INTEGER      NOT NULL,
                 url          VARCHAR(2000) NOT NULL,
@@ -42,12 +46,12 @@ class CreateOauth2WebhooksTables extends Migration
                 created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
             )");
-            $db->query('CREATE INDEX IF NOT EXISTS idx_oawe_appid    ON authserver.oauth2_webhook_endpoints (appid)');
-            $db->query('CREATE INDEX IF NOT EXISTS idx_oawe_active   ON authserver.oauth2_webhook_endpoints (is_active)');
+            $db->query("CREATE INDEX IF NOT EXISTS idx_oawe_appid    ON {$tEndp} (appid)");
+            $db->query("CREATE INDEX IF NOT EXISTS idx_oawe_active   ON {$tEndp} (is_active)");
 
-            $db->query("CREATE TABLE IF NOT EXISTS authserver.oauth2_webhook_events (
+            $db->query("CREATE TABLE IF NOT EXISTS {$tEvents} (
                 event_id     BIGSERIAL    PRIMARY KEY,
-                endpoint_id  BIGINT       NOT NULL REFERENCES authserver.oauth2_webhook_endpoints (endpoint_id) ON DELETE CASCADE,
+                endpoint_id  BIGINT       NOT NULL REFERENCES {$tEndp} (endpoint_id) ON DELETE CASCADE,
                 event_type   VARCHAR(100) NOT NULL,
                 payload      JSONB        NOT NULL DEFAULT '{}',
                 delivered    BOOLEAN      NOT NULL DEFAULT FALSE,
@@ -55,10 +59,10 @@ class CreateOauth2WebhooksTables extends Migration
                 last_attempt TIMESTAMP,
                 created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
             )");
-            $db->query('CREATE INDEX IF NOT EXISTS idx_oawev_endpoint  ON authserver.oauth2_webhook_events (endpoint_id)');
-            $db->query('CREATE INDEX IF NOT EXISTS idx_oawev_delivered ON authserver.oauth2_webhook_events (delivered)');
+            $db->query("CREATE INDEX IF NOT EXISTS idx_oawev_endpoint  ON {$tEvents} (endpoint_id)");
+            $db->query("CREATE INDEX IF NOT EXISTS idx_oawev_delivered ON {$tEvents} (delivered)");
         } else {
-            $db->query("CREATE TABLE IF NOT EXISTS `authserver_oauth2_webhook_endpoints` (
+            $db->query("CREATE TABLE IF NOT EXISTS {$tEndp} (
                 `endpoint_id`  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `appid`        INT    UNSIGNED NOT NULL,
                 `url`          TEXT            NOT NULL,
@@ -71,7 +75,7 @@ class CreateOauth2WebhooksTables extends Migration
                 KEY `idx_oawe_active` (`is_active`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-            $db->query("CREATE TABLE IF NOT EXISTS `authserver_oauth2_webhook_events` (
+            $db->query("CREATE TABLE IF NOT EXISTS {$tEvents} (
                 `event_id`     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `endpoint_id`  BIGINT UNSIGNED NOT NULL,
                 `event_type`   VARCHAR(100)    NOT NULL,
@@ -83,7 +87,7 @@ class CreateOauth2WebhooksTables extends Migration
                 KEY `idx_oawev_endpoint`  (`endpoint_id`),
                 KEY `idx_oawev_delivered` (`delivered`),
                 CONSTRAINT `fk_oawev_endpoint` FOREIGN KEY (`endpoint_id`)
-                    REFERENCES `authserver_oauth2_webhook_endpoints` (`endpoint_id`) ON DELETE CASCADE
+                    REFERENCES {$tEndp} (`endpoint_id`) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
     }
@@ -93,12 +97,8 @@ class CreateOauth2WebhooksTables extends Migration
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();
 
-        if ($caps->isPostgreSQL()) {
-            $db->query('DROP TABLE IF EXISTS authserver.oauth2_webhook_events CASCADE');
-            $db->query('DROP TABLE IF EXISTS authserver.oauth2_webhook_endpoints CASCADE');
-        } else {
-            $db->query('DROP TABLE IF EXISTS `authserver_oauth2_webhook_events`');
-            $db->query('DROP TABLE IF EXISTS `authserver_oauth2_webhook_endpoints`');
-        }
+        $schema = $db->schema();
+        $schema->dropTableIfExists('authserver.oauth2_webhook_events');
+        $schema->dropTableIfExists('authserver.oauth2_webhook_endpoints');
     }
 }

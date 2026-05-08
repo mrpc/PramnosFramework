@@ -24,16 +24,12 @@ class CreateAuthserverUserRolesTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        $caps   = $schema->getCapabilities();
 
-        $tableName   = $caps->isPostgreSQL() ? 'authserver.user_roles' : 'authserver_user_roles';
-        $rolesTable  = $caps->isPostgreSQL() ? 'authserver.roles'      : 'authserver_roles';
-
-        if ($schema->hasTable($tableName)) {
+        if ($schema->hasTable('authserver.user_roles')) {
             return;
         }
 
-        $schema->createTable($tableName, function ($table) use ($rolesTable) {
+        $schema->createTable('authserver.user_roles', function ($table) {
             $table->comment('User-to-role assignments — one row per (user, role) pair; supports temporary and org-scoped grants');
 
             $table->bigInteger('userid')
@@ -58,9 +54,6 @@ class CreateAuthserverUserRolesTable extends Migration
 
     public function down(): void
     {
-        $schema = $this->application->database->schema();
-        $caps   = $schema->getCapabilities();
-        $tableName = $caps->isPostgreSQL() ? 'authserver.user_roles' : 'authserver_user_roles';
-        $schema->dropTableIfExists($tableName);
+        $this->application->database->schema()->dropTableIfExists('authserver.user_roles');
     }
 }
