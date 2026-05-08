@@ -86,8 +86,6 @@ class CreateUsersTable extends Migration
                 ->comment('Unix timestamp of the last profile modification');
             $table->bigInteger('fbauth')->nullable()
                 ->comment('Facebook numeric user ID for OAuth-linked accounts; NULL if not linked');
-            $table->integer('locationid')->nullable()
-                ->comment('FK to the locations table; NULL if no location is associated');
 
             $table->index(['username'], 'idx_users_username');
             $table->index(['email'], 'idx_users_email');
