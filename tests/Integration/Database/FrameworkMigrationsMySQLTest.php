@@ -906,6 +906,250 @@ class FrameworkMigrationsMySQLTest extends TestCase
         );
     }
 
+    // -------------------------------------------------------------------------
+    // AuthServer: RBAC tables (user_deyas, permission_templates, role_templates,
+    //             permission_inheritance, effective_permissions VIEW)
+    // -------------------------------------------------------------------------
+
+    /**
+     * CreateAuthserverUserDeyasTable must create authserver_user_deyas with the
+     * (userid, deyaid) composite PK and the expected columns.
+     *
+     * user_deyas is the organisation membership table — a user must be a member
+     * of an organisation before they can be assigned any org-scoped role.
+     */
+    public function testAuthserverUserDeyasUpCreatesTable(): void
+    {
+        // Arrange — depends on user_roles which depends on roles
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverUserDeyasTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table created
+        $this->assertTrue(
+            $this->tableExists('authserver_user_deyas'),
+            'authserver_user_deyas table must exist after up()'
+        );
+
+        // Assert — critical columns present
+        $this->assertTrue($this->columnExists('authserver_user_deyas', 'userid'));
+        $this->assertTrue($this->columnExists('authserver_user_deyas', 'deyaid'));
+        $this->assertTrue($this->columnExists('authserver_user_deyas', 'granted_by'));
+        $this->assertTrue($this->columnExists('authserver_user_deyas', 'granted_at'));
+        $this->assertTrue($this->columnExists('authserver_user_deyas', 'expires_at'));
+        $this->assertTrue($this->columnExists('authserver_user_deyas', 'is_active'));
+
+        // Assert — granted_by and expires_at are nullable (optional metadata)
+        $this->assertColumnNullable('authserver_user_deyas', 'granted_by', true);
+        $this->assertColumnNullable('authserver_user_deyas', 'expires_at', true);
+
+        // Assert — indexes for membership lookup
+        $this->assertTrue($this->indexExists('authserver_user_deyas', 'idx_authserver_ud_userid'));
+        $this->assertTrue($this->indexExists('authserver_user_deyas', 'idx_authserver_ud_deyaid'));
+
+        // Assert — rollback removes the table
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_user_deyas'));
+    }
+
+    /**
+     * CreateAuthserverPermissionTemplatesTable must create authserver_permission_templates
+     * with the expected columns for reusable permission blueprints.
+     */
+    public function testAuthserverPermissionTemplatesUpCreatesTable(): void
+    {
+        // Arrange — depends on audit_log which depends on permissions → roles
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverAuditLogTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverPermissionTemplatesTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table created
+        $this->assertTrue(
+            $this->tableExists('authserver_permission_templates'),
+            'authserver_permission_templates must exist after up()'
+        );
+
+        // Assert — blueprint-specific columns
+        $this->assertTrue($this->columnExists('authserver_permission_templates', 'templateid'));
+        $this->assertTrue($this->columnExists('authserver_permission_templates', 'template_name'));
+        $this->assertTrue($this->columnExists('authserver_permission_templates', 'template_type'));
+        $this->assertTrue($this->columnExists('authserver_permission_templates', 'object_type'));
+        $this->assertTrue($this->columnExists('authserver_permission_templates', 'object_id_pattern'));
+        $this->assertTrue($this->columnExists('authserver_permission_templates', 'action'));
+        $this->assertTrue($this->columnExists('authserver_permission_templates', 'grant_type'));
+        $this->assertTrue($this->columnExists('authserver_permission_templates', 'priority'));
+        $this->assertTrue($this->columnExists('authserver_permission_templates', 'is_active'));
+
+        // Assert — template_name index for fast lookup
+        $this->assertTrue($this->indexExists('authserver_permission_templates', 'idx_authserver_pt_name'));
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_permission_templates'));
+    }
+
+    /**
+     * CreateAuthserverRoleTemplatesTable must create authserver_role_templates
+     * with a JSON-compatible permission_templateids TEXT column.
+     *
+     * role_templates bundle permission templates so a complete access profile
+     * can be applied in a single call. The permission_templateids column stores
+     * a JSON array of integer IDs (TEXT type for cross-DB compatibility).
+     */
+    public function testAuthserverRoleTemplatesUpCreatesTable(): void
+    {
+        // Arrange — depends on permission_templates
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverAuditLogTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionTemplatesTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverRoleTemplatesTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table created
+        $this->assertTrue(
+            $this->tableExists('authserver_role_templates'),
+            'authserver_role_templates must exist after up()'
+        );
+
+        // Assert — key columns
+        $this->assertTrue($this->columnExists('authserver_role_templates', 'role_templateid'));
+        $this->assertTrue($this->columnExists('authserver_role_templates', 'template_name'));
+        $this->assertTrue($this->columnExists('authserver_role_templates', 'permission_templateids'));
+        $this->assertTrue($this->columnExists('authserver_role_templates', 'is_system_template'));
+
+        // permission_templateids is TEXT (cross-DB JSON array)
+        $this->assertColumnType('authserver_role_templates', 'permission_templateids', 'text');
+        $this->assertColumnNullable('authserver_role_templates', 'permission_templateids', true);
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_role_templates'));
+    }
+
+    /**
+     * CreateAuthserverPermissionInheritanceTable must create authserver_permission_inheritance
+     * with child/parent object columns and indexes for fast hierarchy traversal.
+     *
+     * This table defines hierarchical relationships between resource objects so
+     * that permissions cascade from parent to child (zone → location pattern).
+     */
+    public function testAuthserverPermissionInheritanceUpCreatesTable(): void
+    {
+        // Arrange — depends on role_templates
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverAuditLogTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionTemplatesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRoleTemplatesTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverPermissionInheritanceTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table created
+        $this->assertTrue(
+            $this->tableExists('authserver_permission_inheritance'),
+            'authserver_permission_inheritance must exist after up()'
+        );
+
+        // Assert — hierarchy columns
+        $this->assertTrue($this->columnExists('authserver_permission_inheritance', 'inheritanceid'));
+        $this->assertTrue($this->columnExists('authserver_permission_inheritance', 'child_object_type'));
+        $this->assertTrue($this->columnExists('authserver_permission_inheritance', 'child_object_id'));
+        $this->assertTrue($this->columnExists('authserver_permission_inheritance', 'parent_object_type'));
+        $this->assertTrue($this->columnExists('authserver_permission_inheritance', 'parent_object_id'));
+        $this->assertTrue($this->columnExists('authserver_permission_inheritance', 'inheritance_type'));
+
+        // Assert — traversal indexes
+        $this->assertTrue($this->indexExists('authserver_permission_inheritance', 'idx_authserver_pi_child'));
+        $this->assertTrue($this->indexExists('authserver_permission_inheritance', 'idx_authserver_pi_parent'));
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_permission_inheritance'));
+    }
+
+    /**
+     * CreateAuthserverEffectivePermissionsView must create the
+     * authserver_effective_permissions view on MySQL.
+     *
+     * The view aggregates authserver_permissions rows and resolves the effective
+     * grant (allow/deny) using deny-takes-priority logic. On MySQL the view is
+     * named authserver_effective_permissions (schema-as-prefix convention).
+     */
+    public function testAuthserverEffectivePermissionsViewCreatedOnMySQL(): void
+    {
+        // Arrange — all dependency tables must exist
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverAuditLogTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionTemplatesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRoleTemplatesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionInheritanceTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverEffectivePermissionsView');
+
+        // Act
+        $m->up();
+
+        // Assert — view present in information_schema
+        $this->assertTrue(
+            $this->viewExists('authserver_effective_permissions'),
+            'authserver_effective_permissions view must exist on MySQL after up()'
+        );
+
+        // Assert — the view is queryable (returns 0 rows on empty permissions table)
+        $r = $this->db->query('SELECT COUNT(*) AS cnt FROM `authserver_effective_permissions`');
+        $this->assertSame('0', (string) $r->fields['cnt'],
+            'empty permissions table must yield 0 rows from effective_permissions view');
+
+        // Assert — deny-takes-priority: insert allow and deny for same subject+object+action;
+        //          the view must resolve to 'deny' because the deny has higher priority (0+1000)
+        $this->db->query(
+            "INSERT INTO `authserver_permissions`
+             (subject_type, subject_id, object_type, object_id, action, grant_type, priority)
+             VALUES ('user', 1, 'report', '42', 'read', 'allow', 10)"
+        );
+        $this->db->query(
+            "INSERT INTO `authserver_permissions`
+             (subject_type, subject_id, object_type, object_id, action, grant_type, priority)
+             VALUES ('user', 1, 'report', '42', 'read', 'deny', 1010)"
+        );
+        $r = $this->db->query(
+            "SELECT effective_grant FROM `authserver_effective_permissions`
+             WHERE subject_type='user' AND subject_id=1
+               AND object_type='report' AND object_id='42' AND action='read'"
+        );
+        $this->assertSame('deny', $r->fields['effective_grant'],
+            'deny with higher priority must dominate allow in effective_permissions');
+
+        // Assert — rollback removes the view
+        $m->down();
+        $this->assertFalse(
+            $this->viewExists('authserver_effective_permissions'),
+            'view must be gone after down()'
+        );
+    }
+
     /**
      * Running up() twice must be idempotent — the hasTable() guard prevents
      * duplicate-table errors on all framework migrations.
@@ -1054,8 +1298,14 @@ class FrameworkMigrationsMySQLTest extends TestCase
         // Drop in dependency order (children first)
         // Drop views first (before the underlying tables are removed)
         $this->db->query("DROP VIEW IF EXISTS `authserver_slow_api_calls`");
+        $this->db->query("DROP VIEW IF EXISTS `authserver_effective_permissions`");
 
         $tables = [
+            // authserver RBAC extension tables (drop before base RBAC tables)
+            'authserver_permission_inheritance',
+            'authserver_role_templates',
+            'authserver_permission_templates',
+            'authserver_user_deyas',
             // authserver (drop before applications due to FK-like references)
             'authserver_oauth2_webhook_events', 'authserver_oauth2_webhook_endpoints',
             'authserver_oauth2_client_auth_methods',
