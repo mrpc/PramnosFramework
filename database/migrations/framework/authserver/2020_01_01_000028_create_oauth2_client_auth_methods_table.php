@@ -30,8 +30,15 @@ class CreateOauth2ClientAuthMethodsTable extends Migration
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();
 
+        $schema = $db->schema();
+        $t      = $schema->quoteTable('authserver.oauth2_client_auth_methods');
+
+        if ($schema->hasTable('authserver.oauth2_client_auth_methods')) {
+            return;
+        }
+
         if ($caps->isPostgreSQL()) {
-            $db->query("CREATE TABLE IF NOT EXISTS authserver.oauth2_client_auth_methods (
+            $db->query("CREATE TABLE IF NOT EXISTS {$t} (
                 id            SERIAL PRIMARY KEY,
                 appid         INTEGER  NOT NULL,
                 auth_method   VARCHAR(50) NOT NULL
@@ -40,9 +47,9 @@ class CreateOauth2ClientAuthMethodsTable extends Migration
                 created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (appid, auth_method)
             )");
-            $db->query('CREATE INDEX IF NOT EXISTS idx_ocam_appid ON authserver.oauth2_client_auth_methods (appid)');
+            $db->query("CREATE INDEX IF NOT EXISTS idx_ocam_appid ON {$t} (appid)");
         } else {
-            $db->query("CREATE TABLE IF NOT EXISTS `authserver_oauth2_client_auth_methods` (
+            $db->query("CREATE TABLE IF NOT EXISTS {$t} (
                 `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `appid`       INT UNSIGNED NOT NULL,
                 `auth_method` ENUM('client_secret_basic','client_secret_post','private_key_jwt','none') NOT NULL,
@@ -56,13 +63,6 @@ class CreateOauth2ClientAuthMethodsTable extends Migration
 
     public function down(): void
     {
-        $db   = $this->application->database;
-        $caps = $db->schema()->getCapabilities();
-
-        if ($caps->isPostgreSQL()) {
-            $db->query('DROP TABLE IF EXISTS authserver.oauth2_client_auth_methods');
-        } else {
-            $db->query('DROP TABLE IF EXISTS `authserver_oauth2_client_auth_methods`');
-        }
+        $this->application->database->schema()->dropTableIfExists('authserver.oauth2_client_auth_methods');
     }
 }

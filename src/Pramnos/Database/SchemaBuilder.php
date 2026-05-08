@@ -674,11 +674,63 @@ class SchemaBuilder
     // =========================================================================
 
     /**
-     * Resolve the table name: replace #PREFIX# with the configured table prefix.
+     * Resolve a logical table name to the physical name for the current backend.
+     *
+     * Two transformations are applied (in order):
+     *
+     * 1. `#PREFIX#` token → replaced with the configured table prefix (e.g. `myapp_`).
+     *    This is the explicit opt-in mechanism for apps that namespace all tables.
+     *
+     * 2. `schema.table` notation on MySQL → translated to `{prefix}schema_table`.
+     *    MySQL has no schema concept; the schema name becomes a name prefix instead,
+     *    mirroring the convention used by the authserver and pramnos schemas.
+     *    On PostgreSQL the dot notation is preserved and handled by the grammar.
+     *
+     * Plain table names (no `#PREFIX#`, no dot) are returned as-is so that existing
+     * tables are not accidentally renamed by introducing a prefix.
      */
     protected function resolveTable(string $table): string
     {
-        return str_replace('#PREFIX#', $this->db->prefix ?? '', $table);
+        $prefix = $this->db->prefix ?? '';
+
+        // Explicit #PREFIX# token — substitute in place.
+        if (strpos($table, '#PREFIX#') !== false) {
+            return str_replace('#PREFIX#', $prefix, $table);
+        }
+
+        // schema.table on MySQL → {prefix}schema_table.
+        if ($this->capabilities->isMySQL() && strpos($table, '.') !== false) {
+            [$schema, $name] = explode('.', $table, 2);
+            return $prefix . $schema . '_' . $name;
+        }
+
+        return $table;
+    }
+
+    /**
+     * Returns the physical table name for the current backend (public façade over resolveTable).
+     *
+     * Use this when you need the resolved name outside of SchemaBuilder DDL methods,
+     * e.g. in raw SQL strings or to build a properly-quoted table reference via quoteTable().
+     */
+    public function resolveTableName(string $table): string
+    {
+        return $this->resolveTable($table);
+    }
+
+    /**
+     * Returns a fully-quoted table reference suitable for embedding in raw SQL.
+     *
+     * Combines resolveTable() (schema→prefix on MySQL, #PREFIX# substitution) with
+     * the grammar's quoteTable() (backtick on MySQL, double-quote on PostgreSQL).
+     *
+     * Example:
+     *   quoteTable('authserver.roles')  →  `authserver_roles`   (MySQL)
+     *   quoteTable('authserver.roles')  →  "authserver"."roles"  (PostgreSQL)
+     */
+    public function quoteTable(string $table): string
+    {
+        return $this->getGrammar()->quoteTable($this->resolveTable($table));
     }
 
     /**
