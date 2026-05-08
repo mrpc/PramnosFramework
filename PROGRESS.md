@@ -1,8 +1,20 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-08 (session 39/40)
+## 📅 Last Updated: 2026-05-08 (session 41)
 
 ## 🚀 Completed Milestones
+
+### Messaging models + MessagingServiceProvider (2026-05-08, session 41)
+
+- [x] **`Pramnos\Messaging\Mail`** — ORM model for `mails` table; STATUS_FAILED/SENT/QUEUED constants; load/save/delete/getList
+- [x] **`Pramnos\Messaging\MailTemplate`** — ORM model for `mailtemplates` table; TYPE_EMAIL/SMS/PUSH + SENDMETHOD_* constants; `findByKey(category, language, type)` helper
+- [x] **`Pramnos\Messaging\Message`** — ORM model for `messages` table; 10 TYPE_* state-machine constants; `countUnread(userId)` and `countUnreadNotifications(userId)` helpers
+- [x] **`Pramnos\Messaging\MassMessage`** — ORM model for `massmessages` table; TYPE_*/STATUS_* constants
+- [x] **`Pramnos\Messaging\MassMessageRecipient`** — ORM model for `massmessagerecipients` table; STATUS_PENDING/DELIVERED/FAILED constants
+- [x] **`Pramnos\Messaging\MessagingServiceProvider`** — service provider for `messaging` feature key; register()/boot() hooks for applications
+- [x] **Integration tests × 2 databases** — `MessagingModelsMySQLTest` (11) + `MessagingModelsPostgreSQLTest` (11, separate processes for PG singleton); cover save/load/update/delete/findByKey/countUnread
+- [x] **Bug fix: `MailTemplate::findByKey()`** — used `reset()` instead of `[0]` since `_getList()` keyes by PK value, not sequential integer
+- **Tests:** 1610 passing (full suite), commit `4dcd17d`
 
 ### SchemaBuilder centralized schema→prefix translation (2026-05-08, session 39)
 

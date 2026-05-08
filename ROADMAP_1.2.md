@@ -285,13 +285,13 @@
   - [ ] Integration tests × 3 databases
 
 - **Messaging** *(feature key: `messaging`)*: Σύστημα μηνυμάτων — private messages, notifications, mass broadcast, email queue. Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 7.
-  - [ ] `Pramnos\Messaging\Message` model (`messages` table, PK: messageid)
-  - [ ] `Pramnos\Messaging\Mail` model (`mails` table — email history + queue)
-  - [ ] `Pramnos\Messaging\MailTemplate` model (`mailtemplates` table)
-  - [ ] `Pramnos\Messaging\MassMessage` + `MassMessageRecipient` models
-  - [ ] `MessagingServiceProvider`
-  - [ ] System migrations: `mails`, `mailtemplates`, `messages`, `massmessages`, `massmessagerecipients`
-  - [ ] Integration tests × 3 databases
+  - [x] `Pramnos\Messaging\Message` model (`messages` table, PK: messageid)
+  - [x] `Pramnos\Messaging\Mail` model (`mails` table — email history + queue)
+  - [x] `Pramnos\Messaging\MailTemplate` model (`mailtemplates` table, findByKey())
+  - [x] `Pramnos\Messaging\MassMessage` + `MassMessageRecipient` models
+  - [x] `MessagingServiceProvider`
+  - [x] System migrations: `mails`, `mailtemplates`, `messages`, `massmessages`, `massmessagerecipients`
+  - [x] Integration tests × 3 databases (MySQL + PostgreSQL model CRUD, TimescaleDB via PostgreSQL path)
 - [ ] **Daemons & Background Tasks** *(Policy Engine + Scheduler)*: Ολοκληρωμένο σύστημα δημιουργίας, διαχείρισης και επίβλεψης daemons/background tasks. Περιλαμβάνει:
   - Γενικό daemon framework (process management, signals, heartbeat)
   - **Policy Engine Daemon** (`service:policy-engine`): TimescaleDB fallback simulator — εκτελεί retention/aggregate-refresh/compression policies σε MySQL/plain PG μέσω του `framework_policies` table (βλ. Φάση 1)
