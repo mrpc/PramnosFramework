@@ -30,8 +30,14 @@ class QueryBuilderMySQLTest extends TestCase
         $this->db->port     = 3306;
         $this->db->connect(true);
 
+        // Disable FK checks for the duration of DROP so the order of drops does
+        // not matter even if future schema changes introduce cross-table constraints.
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
         $this->db->query("DROP TABLE IF EXISTS `qb_tags`");
         $this->db->query("DROP TABLE IF EXISTS `qb_products`");
+        $this->db->query("DROP TABLE IF EXISTS `qb_events`");
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
+
         $this->db->query("CREATE TABLE `qb_products` (
             id       INT AUTO_INCREMENT PRIMARY KEY,
             name     VARCHAR(255)    NOT NULL,
@@ -46,7 +52,6 @@ class QueryBuilderMySQLTest extends TestCase
             product_id INT         NOT NULL,
             tag        VARCHAR(50) NOT NULL
         )");
-        $this->db->query("DROP TABLE IF EXISTS `qb_events`");
         $this->db->query("CREATE TABLE `qb_events` (
             id         INT AUTO_INCREMENT PRIMARY KEY,
             name       VARCHAR(100) NOT NULL,
@@ -56,9 +61,11 @@ class QueryBuilderMySQLTest extends TestCase
 
     protected function tearDown(): void
     {
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
         $this->db->query("DROP TABLE IF EXISTS `qb_tags`");
         $this->db->query("DROP TABLE IF EXISTS `qb_products`");
         $this->db->query("DROP TABLE IF EXISTS `qb_events`");
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
         $this->db->close();
     }
 

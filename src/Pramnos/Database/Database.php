@@ -768,7 +768,9 @@ class Database extends \Pramnos\Framework\Base
     public function close()
     {
         $connection = $this->_dbConnection;
-        $this->_dbConnection = null;
+        $this->_dbConnection   = null;
+        $this->_writeConnection = null;
+        $this->_readConnection  = null;
         $this->connected = false;
 
         foreach ($this->statements as $key=>$statement) {

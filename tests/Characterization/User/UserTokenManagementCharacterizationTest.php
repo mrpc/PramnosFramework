@@ -38,6 +38,20 @@ class UserTokenManagementCharacterizationTest extends TestCase
         if (!$this->db->connected) {
             $this->db->connect();
         }
+
+        // Drop tables before (re)creating them with User::setupDb().
+        // User::setupDb() uses CREATE TABLE IF NOT EXISTS, so it silently skips
+        // table creation when the table already exists. If a previous test run left
+        // a table with a stale schema (e.g. missing a column that was added later),
+        // subsequent INSERT statements would fail with "Field ... doesn't have a
+        // default value" or "Unknown column" errors.
+        // Explicitly dropping ensures every setUp starts with the canonical schema.
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (['usertokens', 'userstogroups', 'userdetails', 'users', 'usergroups'] as $t) {
+            $this->db->query("DROP TABLE IF EXISTS `{$t}`");
+        }
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+
         User::setupDb();
     }
 

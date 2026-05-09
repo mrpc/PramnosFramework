@@ -48,12 +48,17 @@ class SchemaBuilderMySQLTest extends TestCase
 
     private function dropAll(): void
     {
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
         $this->db->query("DROP TABLE IF EXISTS `sb_child`");
         $this->db->query("DROP TABLE IF EXISTS `sb_parent`");
         $this->db->query("DROP TABLE IF EXISTS `sb_alter`");
         $this->db->query("DROP TABLE IF EXISTS `sb_types`");
         $this->db->query("DROP TABLE IF EXISTS `sb_renamed`");
         $this->db->query("DROP TABLE IF EXISTS `sb_trunc`");
+        // regression test tables
+        $this->db->query("DROP TABLE IF EXISTS `sb_regression_indexes`");
+        $this->db->query("DROP TABLE IF EXISTS `sb_regression_usable`");
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
         $this->db->query("DROP VIEW  IF EXISTS `sb_view`");
     }
 
@@ -761,5 +766,115 @@ class SchemaBuilderMySQLTest extends TestCase
 
         // Cleanup
         $this->db->prefix = $original;
+    }
+
+    // =========================================================================
+    // Regression: inline KEY indexes (atomicity fix)
+    // =========================================================================
+
+    /**
+     * Regression: non-unique indexes defined via Blueprint->index() must exist
+     * in the database after createTable() completes.
+     *
+     * Prior to the inline-indexes fix, MySQLSchemaGrammar emitted a separate
+     * CREATE INDEX statement for each non-unique index. A connection interruption
+     * between CREATE TABLE and the first CREATE INDEX could leave the table
+     * without its indexes (observed as an intermittent "Table doesn't exist"
+     * error when the recreated connection couldn't see the just-created table,
+     * causing CREATE INDEX to fail).
+     *
+     * After the fix, all KEY clauses are embedded inside a single CREATE TABLE
+     * statement — the operation is atomic from MySQL's perspective. This test
+     * verifies the end-to-end result: the indexes must be present.
+     */
+    public function testNonUniqueIndexesExistAfterCreateTable(): void
+    {
+        // Arrange — blueprint with two non-unique indexes
+        $tableName = 'sb_regression_indexes';
+
+        // Act — create table with multiple indexes
+        $this->schema->createTable($tableName, function ($t) {
+            $t->increments('id');
+            $t->string('status', 20);
+            $t->string('category', 50)->nullable();
+            $t->integer('score')->default(0);
+
+            $t->index(['status'], 'idx_sb_status');
+            $t->index(['category', 'score'], 'idx_sb_category_score');
+        });
+
+        // Assert — table exists
+        $this->assertTrue(
+            $this->schema->hasTable($tableName),
+            'Table must exist after createTable()'
+        );
+
+        // Assert — both non-unique indexes exist in information_schema.statistics.
+        // This is the critical check: if indexes were in separate CREATE INDEX
+        // statements and one failed, this would detect it.
+        $r = $this->db->query(
+            "SELECT INDEX_NAME
+             FROM information_schema.statistics
+             WHERE TABLE_SCHEMA = 'pramnos_test'
+               AND TABLE_NAME   = '{$tableName}'
+               AND NON_UNIQUE   = 1
+             GROUP BY INDEX_NAME
+             ORDER BY INDEX_NAME"
+        );
+
+        $found = [];
+        while (!$r->eof) {
+            $found[] = $r->fields['INDEX_NAME'];
+            $r->moveNext();
+        }
+
+        $this->assertContains(
+            'idx_sb_status',
+            $found,
+            'idx_sb_status must be present in MySQL after createTable()'
+        );
+        $this->assertContains(
+            'idx_sb_category_score',
+            $found,
+            'idx_sb_category_score must be present in MySQL after createTable()'
+        );
+
+        // Cleanup
+        $this->schema->dropTableIfExists($tableName);
+    }
+
+    /**
+     * Regression: createTable() must create the table and ALL its indexes in one
+     * logical step — inserting a row immediately after createTable() must succeed,
+     * and the index must be used for lookups.
+     *
+     * This test catches the pathological scenario where the table was created but
+     * an index statement failed: an INSERT to a table without the expected index
+     * would still work (MySQL does not require indexes for inserts), but the
+     * information_schema check in the previous test would catch the missing index.
+     * This test provides an additional sanity check via data round-trip.
+     */
+    public function testCreateTableWithIndexesIsFullyUsableAfterCreation(): void
+    {
+        // Arrange
+        $tableName = 'sb_regression_usable';
+
+        // Act
+        $this->schema->createTable($tableName, function ($t) {
+            $t->increments('id');
+            $t->string('token', 64);
+            $t->tinyInteger('status')->default(1);
+            $t->index(['token'], 'idx_sb_usable_token');
+            $t->index(['status'], 'idx_sb_usable_status');
+        });
+
+        // Assert — table is immediately insertable and queryable
+        $this->db->query("INSERT INTO `{$tableName}` (token, status) VALUES ('abc123', 1)");
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `{$tableName}` WHERE token = 'abc123'");
+        $this->assertSame('1', (string) $r->fields['cnt'],
+            'Newly created table must accept inserts and return correct count immediately after createTable()');
+
+        // Cleanup
+        $this->schema->dropTableIfExists($tableName);
     }
 }
