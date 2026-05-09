@@ -170,6 +170,27 @@ class MySQLSchemaGrammar extends SchemaGrammar
     }
 
     // =========================================================================
+    // Non-unique indexes inline in CREATE TABLE
+    // =========================================================================
+
+    /**
+     * MySQL embeds non-unique indexes inline as KEY clauses inside CREATE TABLE,
+     * making the entire schema creation a single atomic statement.
+     */
+    protected function inlineIndexes(): bool
+    {
+        return true;
+    }
+
+    /**
+     * MySQL inline KEY syntax: KEY `name` (`col1`, `col2`)
+     */
+    protected function compileInlineIndex(string $name, array $quotedCols): string
+    {
+        return "KEY `{$name}` (" . implode(', ', $quotedCols) . ')';
+    }
+
+    // =========================================================================
     // Column position (AFTER / FIRST — MySQL only)
     // =========================================================================
 
