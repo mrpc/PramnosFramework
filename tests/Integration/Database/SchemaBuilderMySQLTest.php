@@ -825,7 +825,7 @@ class SchemaBuilderMySQLTest extends TestCase
         $found = [];
         while (!$r->eof) {
             $found[] = $r->fields['INDEX_NAME'];
-            $r->moveNext();
+            $r->fetch();
         }
 
         $this->assertContains(
