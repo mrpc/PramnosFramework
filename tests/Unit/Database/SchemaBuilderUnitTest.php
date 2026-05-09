@@ -300,17 +300,69 @@ class SchemaBuilderUnitTest extends TestCase
         $this->assertStringContainsString('DEFAULT 1', $sql);
     }
 
-    public function testMySQLCreateTableProducesPostCreateIndexStatements(): void
+    /**
+     * Non-unique indexes must be embedded inline as KEY clauses inside the
+     * CREATE TABLE statement for MySQL — NOT emitted as separate CREATE INDEX
+     * statements.
+     *
+     * Inline KEY clauses make the entire DDL operation atomic: there is no
+     * window between CREATE TABLE and a follow-up CREATE INDEX where a
+     * connection interruption could leave the table without its indexes.
+     * MySQL has supported inline KEY syntax since the earliest InnoDB releases.
+     */
+    public function testMySQLCreateTableEmbeddsNonUniqueIndexesInline(): void
     {
         $g  = new MySQLSchemaGrammar();
         $bp = new Blueprint('logs', 'create');
         $bp->bigIncrements('logid');
-        $bp->index(['user_id', 'created_at']);
+        $bp->index(['user_id', 'created_at'], 'idx_logs_user_created');
 
         $stmts = $g->compileCreate($bp, 'logs');
-        $this->assertCount(2, $stmts);
-        $this->assertStringContainsString('CREATE INDEX', $stmts[1]);
-        $this->assertStringContainsString('`user_id`', $stmts[1]);
+
+        // MySQL must return exactly ONE statement — the full CREATE TABLE with
+        // inline KEY, not a separate post-CREATE CREATE INDEX.
+        $this->assertCount(1, $stmts,
+            'MySQL compileCreate() must return a single CREATE TABLE statement with inline KEY clauses');
+
+        // The inline KEY clause must appear inside the CREATE TABLE body.
+        $this->assertStringContainsString('KEY `idx_logs_user_created`', $stmts[0],
+            'Non-unique index must be declared as inline KEY inside CREATE TABLE');
+        $this->assertStringContainsString('`user_id`', $stmts[0],
+            'First column of the index must appear inside the CREATE TABLE body');
+        $this->assertStringContainsString('`created_at`', $stmts[0],
+            'Second column of the index must appear inside the CREATE TABLE body');
+
+        // No separate CREATE INDEX must be emitted.
+        $this->assertStringNotContainsString('CREATE INDEX', $stmts[0],
+            'No separate CREATE INDEX statement must be present for MySQL');
+    }
+
+    /**
+     * PostgreSQL must still emit separate post-CREATE CREATE INDEX statements
+     * because the PostgreSQL CREATE TABLE syntax does not support inline KEY clauses.
+     *
+     * This test guards the symmetry: changing the MySQL grammar must not
+     * accidentally break the PostgreSQL grammar which must continue to use
+     * separate CREATE INDEX statements.
+     */
+    public function testPostgreSQLCreateTableStillEmitsPostCreateIndexStatements(): void
+    {
+        $g  = new PostgreSQLSchemaGrammar();
+        $bp = new Blueprint('logs', 'create');
+        $bp->bigIncrements('logid');
+        $bp->index(['user_id', 'created_at'], 'idx_logs_user_created');
+
+        $stmts = $g->compileCreate($bp, 'logs');
+
+        // PostgreSQL must return at least 2 statements: CREATE TABLE + CREATE INDEX.
+        $this->assertGreaterThanOrEqual(2, count($stmts),
+            'PostgreSQL compileCreate() must emit CREATE TABLE plus separate CREATE INDEX');
+
+        // The CREATE INDEX must be a separate statement.
+        $indexStmt = $stmts[1];
+        $this->assertStringContainsString('CREATE INDEX', $indexStmt,
+            'PostgreSQL must emit a separate CREATE INDEX statement for non-unique indexes');
+        $this->assertStringContainsString('idx_logs_user_created', $indexStmt);
     }
 
     // =========================================================================

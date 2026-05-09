@@ -1,8 +1,19 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-09 (session 44)
+## 📅 Last Updated: 2026-05-09 (session 45)
 
 ## 🚀 Completed Milestones
+
+### MySQL index atomicity + test isolation fixes (2026-05-09, session 45)
+
+- [x] **Root cause**: `SchemaGrammar::compileCreate()` emitted N+1 separate SQL statements for MySQL (CREATE TABLE + N CREATE INDEX). Between statements, `Database::getConnection()` ran `SELECT 1` health-check; any reconnect between them left the table without indexes, causing "Table doesn't exist" on the CREATE INDEX.
+- [x] **Fix**: Added `inlineIndexes()` template method (false in base, true in MySQL) and `compileInlineIndex()`. MySQL now embeds all non-unique indexes as `KEY name (cols)` clauses inside the single CREATE TABLE statement — making table creation fully atomic.
+- [x] **Fix**: `Database::close()` was only resetting `_dbConnection` but leaving `_writeConnection`/`_readConnection` pointing to the closed mysqli object. Now resets all three.
+- [x] **Fix**: `UserTokenManagementCharacterizationTest::setUp()` now explicitly DROPs all user tables before `User::setupDb()`, preventing stale-schema failures where `CREATE TABLE IF NOT EXISTS` silently skipped re-creation.
+- [x] **Fix**: `QueryBuilderMySQLTest` `setUp`/`tearDown` wrapped DROP TABLE calls in `SET FOREIGN_KEY_CHECKS = 0/1` for defensive isolation.
+- [x] **Regression tests** (unit): `testMySQLCreateTableEmbeddsNonUniqueIndexesInline` + `testPostgreSQLCreateTableStillEmitsPostCreateIndexStatements` in `SchemaBuilderUnitTest`.
+- [x] **Regression tests** (integration): `testNonUniqueIndexesExistAfterCreateTable` + `testCreateTableWithIndexesIsFullyUsableAfterCreation` in `SchemaBuilderMySQLTest` — verify indexes physically exist in `information_schema.statistics` after `createTable()`.
+- [x] **Stability confirmed**: 5× full coverage run: all 1747 tests pass consistently.
 
 ### Scaffold bug fix — create_authserver_rbac_functions ordering (2026-05-09, session 44)
 
