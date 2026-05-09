@@ -88,6 +88,34 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
         return false;
     }
 
+    /**
+     * Returns true when non-unique indexes should be declared inline inside
+     * CREATE TABLE rather than as separate post-CREATE statements.
+     *
+     * MySQL supports inline KEY clauses; PostgreSQL requires separate CREATE INDEX.
+     * Keeping indexes in a single CREATE TABLE statement makes schema creation
+     * atomic — it eliminates the window between CREATE TABLE and CREATE INDEX
+     * where a connection interruption could leave a table without its indexes.
+     */
+    protected function inlineIndexes(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Compile an inline non-unique index clause for embedding inside CREATE TABLE.
+     * Called only when inlineIndexes() returns true.
+     * Override in dialect subclasses for dialect-specific quoting.
+     *
+     * @param string   $name       Index name (unquoted)
+     * @param string[] $quotedCols Already-quoted column expressions
+     * @return string
+     */
+    protected function compileInlineIndex(string $name, array $quotedCols): string
+    {
+        return "KEY {$name} (" . implode(', ', $quotedCols) . ')';
+    }
+
     // =========================================================================
     // CREATE TABLE
     // =========================================================================
@@ -131,6 +159,18 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
             }
         }
 
+        // ---- inline non-unique indexes (MySQL) ----
+        // On MySQL, embedding KEY clauses directly inside CREATE TABLE makes the
+        // entire DDL a single atomic statement — there is no window between CREATE
+        // TABLE and a separate CREATE INDEX where a connection interruption could
+        // leave the table without its indexes.
+        if ($this->inlineIndexes()) {
+            foreach ($blueprint->getIndexes() as $idx) {
+                $quotedCols   = array_map(fn($c) => $this->quoteColumn($c), $idx['columns']);
+                $columnSqls[] = $this->compileInlineIndex($idx['name'], $quotedCols);
+            }
+        }
+
         $tmp = $blueprint->isTemporary() ? 'TEMPORARY ' : '';
         $sql = "CREATE {$tmp}TABLE " . $this->quoteTable($table)
             . " (\n    " . implode(",\n    ", $columnSqls) . "\n)"
@@ -138,9 +178,11 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
 
         $statements[] = $sql;
 
-        // ---- post-CREATE: non-unique indexes ----
-        foreach ($blueprint->getIndexes() as $idx) {
-            $statements[] = $this->compileCreateIndex($table, $idx['name'], $idx['columns'], false);
+        // ---- post-CREATE: non-unique indexes (PostgreSQL and other dialects) ----
+        if (!$this->inlineIndexes()) {
+            foreach ($blueprint->getIndexes() as $idx) {
+                $statements[] = $this->compileCreateIndex($table, $idx['name'], $idx['columns'], false);
+            }
         }
 
         // ---- post-CREATE: FOREIGN KEYS (PostgreSQL: ALTER TABLE ADD CONSTRAINT) ----
