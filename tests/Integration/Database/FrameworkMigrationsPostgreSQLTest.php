@@ -381,6 +381,119 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->assertFalse($this->tableExists('usertokens'));
     }
 
+    /**
+     * CreateUsertokensTable must also install PKCE-specific partial indexes and
+     * CHECK constraints on PostgreSQL (RFC 7636 §4.2/§4.3).
+     *
+     * The three partial indexes target only the rows that actually participate in
+     * PKCE auth-code flows, keeping the index footprint small. Two CHECK
+     * constraints enforce the allowed method values ('plain' | 'S256') and the
+     * 43-128 character URL-safe challenge format.
+     *
+     * These are PostgreSQL-only constructs; MySQL gets a plain index + method check.
+     */
+    public function testUsertokensPkceConstraintsAndIndexesOnPostgreSQL(): void
+    {
+        // Arrange
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $m = $this->loadMigration('auth', 'CreateUsertokensTable');
+
+        // Act
+        $m->up();
+
+        // Assert — partial index on code_challenge (only non-null rows indexed)
+        $idxChallengeCount = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_indexes
+                 WHERE tablename = %s AND indexname = %s",
+                'usertokens',
+                'idx_usertokens_code_challenge'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $idxChallengeCount,
+            'idx_usertokens_code_challenge partial index must be created on PostgreSQL');
+
+        // Assert — unique partial index for auth_code+PKCE combos
+        $idxUniqueCount = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_indexes
+                 WHERE tablename = %s AND indexname = %s",
+                'usertokens',
+                'idx_usertokens_auth_code_unique'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $idxUniqueCount,
+            'idx_usertokens_auth_code_unique partial unique index must exist for PKCE auth codes');
+
+        // Assert — PKCE lookup composite index
+        $idxPkceCount = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_indexes
+                 WHERE tablename = %s AND indexname = %s",
+                'usertokens',
+                'idx_usertokens_auth_code_pkce'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $idxPkceCount,
+            'idx_usertokens_auth_code_pkce lookup index must exist for auth_code PKCE rows');
+
+        // Assert — CHECK constraint on method values
+        $chkMethod = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt
+                 FROM information_schema.check_constraints
+                 WHERE constraint_name = %s",
+                'chk_code_challenge_method'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $chkMethod,
+            'chk_code_challenge_method CHECK constraint must enforce plain|S256 values');
+
+        // Assert — CHECK constraint on format (43-128 URL-safe chars)
+        $chkFormat = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt
+                 FROM information_schema.check_constraints
+                 WHERE constraint_name = %s",
+                'chk_code_challenge_format'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $chkFormat,
+            'chk_code_challenge_format CHECK constraint must enforce RFC 7636 §4.2 format');
+
+        // Assert — constraint rejects invalid method value
+        $rejected = false;
+        try {
+            $this->db->query(
+                "INSERT INTO public.usertokens
+                 (userid, tokentype, token, created, status, deviceinfo, scope,
+                  code_challenge, code_challenge_method)
+                 VALUES (1, 'auth_code', 'tok', 0, 1, '{}', '',
+                  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 'MD5')"
+            );
+        } catch (\Exception $e) {
+            $rejected = true;
+        }
+        $this->assertTrue($rejected,
+            'chk_code_challenge_method must reject invalid method values like MD5');
+
+        // Assert — constraint rejects a challenge that is too short (< 43 chars)
+        $rejectedShort = false;
+        try {
+            $this->db->query(
+                "INSERT INTO public.usertokens
+                 (userid, tokentype, token, created, status, deviceinfo, scope,
+                  code_challenge, code_challenge_method)
+                 VALUES (1, 'auth_code', 'tok2', 0, 1, '{}', '',
+                  'tooshort', 'S256')"
+            );
+        } catch (\Exception $e) {
+            $rejectedShort = true;
+        }
+        $this->assertTrue($rejectedShort,
+            'chk_code_challenge_format must reject challenges shorter than 43 characters');
+    }
+
     // -------------------------------------------------------------------------
     // Auth: urls
     // -------------------------------------------------------------------------
@@ -1192,6 +1305,271 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         // Assert — rollback removes the table
         $m->down();
         $this->assertFalse($this->tableExists('organizations', 'public'));
+    }
+
+    // -------------------------------------------------------------------------
+    // AuthServer: oauth2_application_grants + views + cleanup function
+    // -------------------------------------------------------------------------
+
+    /**
+     * CreateOauth2ApplicationGrantsTable must create:
+     *   - applications.oauth2_application_grants (table with grant_type CHECK)
+     *   - applications.oauth2_application_permissions (VIEW using array_agg)
+     *   - applications.oauth2_active_tokens (VIEW)
+     *   - authserver.cleanup_expired_oauth2_tokens() (PL/pgSQL function)
+     *
+     * The view oauth2_application_permissions aggregates an application's OAuth2
+     * profile (scopes, redirect URI, allowed grant types) for authorisation decisions.
+     * cleanup_expired_oauth2_tokens() removes tokens expired for more than 7 days.
+     */
+    public function testOauth2ApplicationGrantsTableAndViewsOnPostgreSQL(): void
+    {
+        // Arrange — prerequisites: applications schema, applications table, usertokens, users
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateOauth2ApplicationGrantsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — grants table exists in applications schema
+        $grantsCnt = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.tables
+                 WHERE table_schema = %s AND table_name = %s",
+                'applications',
+                'oauth2_application_grants'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $grantsCnt,
+            'applications.oauth2_application_grants table must be created');
+
+        // Assert — grant_type CHECK constraint exists (prevents invalid grant types)
+        $chkGrant = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt
+                 FROM information_schema.table_constraints
+                 WHERE table_schema = %s AND table_name = %s
+                   AND constraint_type = 'CHECK'",
+                'applications',
+                'oauth2_application_grants'
+            )
+        )->fields['cnt'];
+        $this->assertGreaterThan(0, $chkGrant,
+            'oauth2_application_grants must have a CHECK constraint on grant_type');
+
+        // Assert — essential columns
+        $this->assertTrue(
+            $this->columnExists('oauth2_application_grants', 'grant_id', 'applications'),
+            'grant_id (serial PK) must exist'
+        );
+        $this->assertTrue(
+            $this->columnExists('oauth2_application_grants', 'is_enabled', 'applications'),
+            'is_enabled flag must exist'
+        );
+
+        // Assert — oauth2_application_permissions VIEW exists
+        $permViewCnt = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.views
+                 WHERE table_schema = %s AND table_name = %s",
+                'applications',
+                'oauth2_application_permissions'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $permViewCnt,
+            'applications.oauth2_application_permissions VIEW must be created');
+
+        // Assert — view is queryable (empty result set OK, no exception)
+        $this->db->query('SELECT * FROM applications.oauth2_application_permissions LIMIT 0');
+
+        // Assert — oauth2_active_tokens VIEW exists
+        $tokViewCnt = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.views
+                 WHERE table_schema = %s AND table_name = %s",
+                'applications',
+                'oauth2_active_tokens'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $tokViewCnt,
+            'applications.oauth2_active_tokens VIEW must be created');
+
+        $this->db->query('SELECT * FROM applications.oauth2_active_tokens LIMIT 0');
+
+        // Assert — cleanup_expired_oauth2_tokens() function exists in authserver schema
+        $fnCnt = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.routines
+                 WHERE routine_schema = %s AND routine_name = %s AND routine_type = 'FUNCTION'",
+                'authserver',
+                'cleanup_expired_oauth2_tokens'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $fnCnt,
+            'authserver.cleanup_expired_oauth2_tokens() function must be created');
+
+        // Assert — function is callable and returns an integer
+        $fnResult = $this->db->query('SELECT authserver.cleanup_expired_oauth2_tokens() AS deleted');
+        $this->assertNotNull($fnResult, 'cleanup_expired_oauth2_tokens() must be callable without error');
+        $this->assertSame('0', (string) $fnResult->fields['deleted'],
+            'Cleanup on empty usertokens must return 0 deleted rows');
+
+        // Assert — rollback removes all objects
+        $m->down();
+        $this->assertFalse(
+            (bool) (int) $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt FROM information_schema.tables
+                     WHERE table_schema = %s AND table_name = %s",
+                    'applications',
+                    'oauth2_application_grants'
+                )
+            )->fields['cnt'],
+            'oauth2_application_grants must be removed by down()'
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // AuthServer: OAuth2 helper functions + trigger + webhook status view
+    // -------------------------------------------------------------------------
+
+    /**
+     * CreateOauth2HelperFunctions must install four PL/pgSQL functions, one
+     * trigger on public.usertokens, and the oauth2_webhook_status monitoring view.
+     *
+     * deauthorize_user_from_app() — revokes tokens and fires user_deauthorized webhook
+     * create_gdpr_request()       — creates GDPR request and notifies all apps
+     * notify_user_profile_changed() — fires user_profile_changed webhook
+     * token_revocation_webhook()  — trigger function: fires webhook on status 1→0
+     *
+     * The trigger must be installed on public.usertokens so that any PHP code
+     * path that updates token status automatically fans out the webhook without
+     * extra application logic.
+     */
+    public function testOauth2HelperFunctionsInstalledOnPostgreSQL(): void
+    {
+        // Arrange — full dependency chain (schema must exist before any authserver.* table)
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateTokenactionsTable')->up();
+        $this->loadMigration('auth', 'CreateUserActivityLogTable')->up();
+        $this->loadMigration('auth', 'CreateGdprRequestsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('authserver', 'CreateOauth2WebhooksTables')->up();
+        $this->loadMigration('authserver', 'CreateOauth2ApplicationGrantsTable')->up();
+        $this->loadMigration('authserver', 'CreateOrganizationsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserOrganizationsTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateOauth2HelperFunctions');
+
+        // Act
+        $m->up();
+
+        // Assert — deauthorize_user_from_app() function exists
+        $fn1 = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.routines
+                 WHERE routine_schema = %s AND routine_name = %s",
+                'applications',
+                'deauthorize_user_from_app'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $fn1,
+            'applications.deauthorize_user_from_app() function must be installed');
+
+        // Assert — create_gdpr_request() function exists
+        $fn2 = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.routines
+                 WHERE routine_schema = %s AND routine_name = %s",
+                'applications',
+                'create_gdpr_request'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $fn2,
+            'applications.create_gdpr_request() function must be installed');
+
+        // Assert — notify_user_profile_changed() function exists
+        $fn3 = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.routines
+                 WHERE routine_schema = %s AND routine_name = %s",
+                'applications',
+                'notify_user_profile_changed'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $fn3,
+            'applications.notify_user_profile_changed() function must be installed');
+
+        // Assert — token_revocation_webhook() trigger function exists in public schema
+        $fn4 = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.routines
+                 WHERE routine_schema = %s AND routine_name = %s",
+                'public',
+                'token_revocation_webhook'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $fn4,
+            'public.token_revocation_webhook() trigger function must be installed');
+
+        // Assert — trigger is installed on public.usertokens
+        $trigCnt = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.triggers
+                 WHERE event_object_schema = %s
+                   AND event_object_table = %s
+                   AND trigger_name = %s",
+                'public',
+                'usertokens',
+                'trigger_token_revocation_webhook'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $trigCnt,
+            'trigger_token_revocation_webhook must be installed on public.usertokens');
+
+        // Assert — oauth2_webhook_status VIEW exists and is queryable
+        $viewCnt = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.views
+                 WHERE table_schema = %s AND table_name = %s",
+                'applications',
+                'oauth2_webhook_status'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $viewCnt,
+            'applications.oauth2_webhook_status monitoring view must be created');
+
+        $this->db->query('SELECT * FROM applications.oauth2_webhook_status LIMIT 0');
+
+        // Assert — down() removes all objects
+        $m->down();
+
+        $fnAfter = (int) $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM information_schema.routines
+             WHERE routine_schema IN ('applications', 'public')
+               AND routine_name IN (
+                   'deauthorize_user_from_app', 'create_gdpr_request',
+                   'notify_user_profile_changed', 'token_revocation_webhook'
+               )"
+        )->fields['cnt'];
+        $this->assertSame(0, $fnAfter,
+            'All OAuth2 helper functions must be removed by down()');
+
+        $trigAfter = (int) $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM information_schema.triggers
+             WHERE trigger_name = 'trigger_token_revocation_webhook'"
+        )->fields['cnt'];
+        $this->assertSame(0, $trigAfter,
+            'trigger_token_revocation_webhook must be removed by down()');
     }
 
     // -------------------------------------------------------------------------

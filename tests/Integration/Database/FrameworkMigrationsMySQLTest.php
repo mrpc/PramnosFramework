@@ -350,6 +350,55 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->assertFalse($this->tableExists('usertokens'));
     }
 
+    /**
+     * CreateUsertokensTable must add a plain index on code_challenge and a
+     * CHECK constraint on code_challenge_method on MySQL.
+     *
+     * MySQL does not support partial (WHERE clause) indexes, so the implementation
+     * falls back to a full index on the code_challenge(128) prefix.
+     * The CHECK constraint on method values ('plain' | 'S256') is supported
+     * by MySQL 8.0.16+ and must reject invalid values.
+     */
+    public function testUsertokensPkceIndexAndConstraintOnMySQL(): void
+    {
+        // Arrange
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $m = $this->loadMigration('auth', 'CreateUsertokensTable');
+
+        // Act
+        $m->up();
+
+        // Assert — code_challenge index exists (MySQL STATISTICS catalog)
+        $idxCnt = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.STATISTICS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = %s
+                   AND INDEX_NAME = %s",
+                'usertokens',
+                'idx_usertokens_code_challenge'
+            )
+        )->fields['cnt'];
+        $this->assertSame(1, $idxCnt,
+            'idx_usertokens_code_challenge index must exist on MySQL');
+
+        // Assert — CHECK constraint on method values is enforced
+        $rejected = false;
+        try {
+            $this->db->query(
+                "INSERT INTO `usertokens`
+                 (userid, tokentype, token, created, status, deviceinfo, scope,
+                  code_challenge, code_challenge_method)
+                 VALUES (1, 'auth_code', 'tok', 0, 1, '{}', '',
+                  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 'MD5')"
+            );
+        } catch (\Exception $e) {
+            $rejected = true;
+        }
+        $this->assertTrue($rejected,
+            'chk_code_challenge_method must reject method values other than plain/S256 on MySQL 8.0+');
+    }
+
     // -------------------------------------------------------------------------
     // Auth: urls
     // -------------------------------------------------------------------------
@@ -889,6 +938,105 @@ class FrameworkMigrationsMySQLTest extends TestCase
         // Assert — rollback
         $m->down();
         $this->assertFalse($this->tableExists('organizations'));
+    }
+
+    // -------------------------------------------------------------------------
+    // AuthServer: oauth2_application_grants + views
+    // -------------------------------------------------------------------------
+
+    /**
+     * CreateOauth2ApplicationGrantsTable must create on MySQL:
+     *   - applications_oauth2_application_grants (table)
+     *   - applications_oauth2_application_permissions (VIEW with GROUP_CONCAT)
+     *   - applications_oauth2_active_tokens (VIEW)
+     *
+     * MySQL names are schema-as-prefix (applications_*) because MySQL does not
+     * support schemas as namespaces. GROUP_CONCAT replaces array_agg in the
+     * permissions view. The cleanup function is PostgreSQL-only and is skipped.
+     */
+    public function testOauth2ApplicationGrantsTableAndViewsOnMySQL(): void
+    {
+        // Arrange
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+
+        $m = $this->loadMigration('authserver', 'CreateOauth2ApplicationGrantsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — grants table exists with MySQL prefix convention
+        $this->assertTrue(
+            $this->tableExists('applications_oauth2_application_grants'),
+            'applications_oauth2_application_grants table must exist on MySQL'
+        );
+
+        // Assert — essential columns on the grants table
+        $this->assertTrue(
+            $this->columnExists('applications_oauth2_application_grants', 'grant_id'),
+            'grant_id (serial PK) must exist'
+        );
+        $this->assertTrue(
+            $this->columnExists('applications_oauth2_application_grants', 'grant_type'),
+            'grant_type must exist'
+        );
+        $this->assertTrue(
+            $this->columnExists('applications_oauth2_application_grants', 'is_enabled'),
+            'is_enabled flag must exist'
+        );
+
+        // Assert — grant_type CHECK constraint rejects invalid values
+        $rejected = false;
+        try {
+            $this->db->query(
+                "INSERT INTO `applications_oauth2_application_grants`
+                 (appid, grant_type) VALUES (999, 'invalid_grant_type')"
+            );
+        } catch (\Exception $e) {
+            $rejected = true;
+        }
+        $this->assertTrue($rejected,
+            'CHECK constraint on grant_type must reject unknown grant types');
+
+        // Assert — oauth2_application_permissions VIEW exists
+        $this->assertTrue(
+            $this->viewExists('applications_oauth2_application_permissions'),
+            'applications_oauth2_application_permissions VIEW must exist on MySQL'
+        );
+
+        $r = $this->db->query(
+            'SELECT COUNT(*) AS cnt FROM `applications_oauth2_application_permissions`'
+        );
+        $this->assertSame('0', (string) $r->fields['cnt'],
+            'Empty permissions view must return 0 rows');
+
+        // Assert — oauth2_active_tokens VIEW exists and is queryable
+        $this->assertTrue(
+            $this->viewExists('applications_oauth2_active_tokens'),
+            'applications_oauth2_active_tokens VIEW must exist on MySQL'
+        );
+
+        $r2 = $this->db->query(
+            'SELECT COUNT(*) AS cnt FROM `applications_oauth2_active_tokens`'
+        );
+        $this->assertSame('0', (string) $r2->fields['cnt'],
+            'Empty active tokens view must return 0 rows');
+
+        // Assert — rollback removes table and views
+        $m->down();
+        $this->assertFalse(
+            $this->tableExists('applications_oauth2_application_grants'),
+            'Table must be removed by down()'
+        );
+        $this->assertFalse(
+            $this->viewExists('applications_oauth2_application_permissions'),
+            'Permissions view must be removed by down()'
+        );
+        $this->assertFalse(
+            $this->viewExists('applications_oauth2_active_tokens'),
+            'Active tokens view must be removed by down()'
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -1643,14 +1791,15 @@ class FrameworkMigrationsMySQLTest extends TestCase
         // Drop views first (before the underlying tables are removed)
         $this->db->query("DROP VIEW IF EXISTS `authserver_slow_api_calls`");
         $this->db->query("DROP VIEW IF EXISTS `authserver_effective_permissions`");
-
-        // Drop views first (before the underlying tables are removed)
         $this->db->query("DROP VIEW IF EXISTS `authserver_daily_activity_summary`");
+        $this->db->query("DROP VIEW IF EXISTS `applications_oauth2_application_permissions`");
+        $this->db->query("DROP VIEW IF EXISTS `applications_oauth2_active_tokens`");
 
         $tables = [
             // applications schema tables (drop before applications table)
             'applications_oauth2_webhook_events', 'applications_oauth2_webhook_endpoints',
             'applications_oauth2_client_auth_methods',
+            'applications_oauth2_application_grants',
             // authserver RBAC extension tables (drop before base RBAC tables)
             'authserver_permission_inheritance',
             'authserver_role_templates',

@@ -3,6 +3,7 @@
 namespace Pramnos\Framework\Migrations\Auth;
 
 use Pramnos\Database\Migration;
+use Pramnos\Database\DatabaseCapabilities;
 
 /**
  * Creates the usertokens table — multi-purpose token store for auth flows.
@@ -16,6 +17,8 @@ use Pramnos\Database\Migration;
  *
  * PKCE support (RFC 7636): code_challenge and code_challenge_method columns
  * allow the OAuth authorization code flow to verify the original code verifier.
+ * PostgreSQL gets partial indexes and a regex format check constraint.
+ * MySQL gets a plain index on code_challenge and a CHECK on the method column.
  *
  * @package PramnosFramework
  */
@@ -25,11 +28,13 @@ class CreateUsertokensTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 50;
     public array   $dependencies = ['create_users_table'];
-    public $description  = 'Creates the usertokens table';
+    public $description  = 'Creates the usertokens table with PKCE (RFC 7636) support';
 
     public function up(): void
     {
-        $schema = $this->application->database->schema();
+        $db     = $this->application->database;
+        $schema = $db->schema();
+        $caps   = $schema->getCapabilities();
 
         if ($schema->hasTable('usertokens')) {
             return;
@@ -86,6 +91,40 @@ class CreateUsertokensTable extends Migration
                 ->on('users')
                 ->onDelete('CASCADE');
         });
+
+        // PKCE indexes and constraints — vary by backend
+        if ($caps->isPostgreSQL()) {
+            // Partial indexes: only index rows that actually use PKCE / auth_code flow
+            $db->query("CREATE INDEX IF NOT EXISTS idx_usertokens_code_challenge
+                ON public.usertokens (code_challenge) WHERE code_challenge IS NOT NULL");
+            $db->query("CREATE UNIQUE INDEX IF NOT EXISTS idx_usertokens_auth_code_unique
+                ON public.usertokens (token, code_challenge)
+                WHERE tokentype = 'auth_code' AND code_challenge IS NOT NULL");
+            $db->query("CREATE INDEX IF NOT EXISTS idx_usertokens_auth_code_pkce
+                ON public.usertokens (token, tokentype, status, expires, code_challenge)
+                WHERE tokentype = 'auth_code'");
+
+            // Validate method is one of the two allowed values (RFC 7636 §4.3)
+            $db->query("ALTER TABLE public.usertokens
+                ADD CONSTRAINT chk_code_challenge_method
+                CHECK (code_challenge_method IS NULL
+                    OR code_challenge_method IN ('plain', 'S256'))");
+            // Validate challenge is 43–128 URL-safe BASE64 characters (RFC 7636 §4.2)
+            $db->query("ALTER TABLE public.usertokens
+                ADD CONSTRAINT chk_code_challenge_format
+                CHECK (code_challenge IS NULL
+                    OR (length(code_challenge) >= 43
+                        AND length(code_challenge) <= 128
+                        AND code_challenge ~ '^[A-Za-z0-9\\-._~]+$'))");
+        } else {
+            // MySQL: plain index (no partial-index support); method check via CHECK
+            $db->query("ALTER TABLE `usertokens`
+                ADD INDEX `idx_usertokens_code_challenge` (`code_challenge`(128))");
+            $db->query("ALTER TABLE `usertokens`
+                ADD CONSTRAINT `chk_code_challenge_method`
+                CHECK (`code_challenge_method` IS NULL
+                    OR `code_challenge_method` IN ('plain', 'S256'))");
+        }
     }
 
     public function down(): void
