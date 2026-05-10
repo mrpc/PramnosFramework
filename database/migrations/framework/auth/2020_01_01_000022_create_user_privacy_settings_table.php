@@ -17,18 +17,18 @@ class CreateUserPrivacySettingsTable extends Migration
     public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 105;
-    public array   $dependencies = [];
-    public $description  = 'Creates the user_privacy_settings GDPR preference table';
+    public array   $dependencies = ['create_authserver_schema'];
+    public $description  = 'Creates the authserver.user_privacy_settings GDPR preference table';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('user_privacy_settings')) {
+        if ($schema->hasTable('authserver.user_privacy_settings')) {
             return;
         }
 
-        $schema->createTable('user_privacy_settings', function ($table) {
+        $schema->createTable('authserver.user_privacy_settings', function ($table) {
             $table->comment('Per-user GDPR privacy preferences — one row per user; created on first privacy settings update');
 
             $table->bigInteger('userid')
@@ -48,6 +48,6 @@ class CreateUserPrivacySettingsTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('user_privacy_settings');
+        $this->application->database->schema()->dropTableIfExists('authserver.user_privacy_settings');
     }
 }

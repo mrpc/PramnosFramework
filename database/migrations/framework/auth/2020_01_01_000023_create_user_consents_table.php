@@ -23,18 +23,18 @@ class CreateUserConsentsTable extends Migration
     public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 110;
-    public array   $dependencies = [];
-    public $description  = 'Creates the user_consents GDPR consent log (TimescaleDB hypertable when available)';
+    public array   $dependencies = ['create_authserver_schema'];
+    public $description  = 'Creates the authserver.user_consents GDPR consent log (TimescaleDB hypertable when available)';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('user_consents')) {
+        if ($schema->hasTable('authserver.user_consents')) {
             return;
         }
 
-        $schema->createTable('user_consents', function ($table) {
+        $schema->createTable('authserver.user_consents', function ($table) {
             $table->comment('Append-only GDPR consent records; TimescaleDB hypertable with 7-year retention');
 
             $table->bigInteger('userid')
@@ -57,18 +57,18 @@ class CreateUserConsentsTable extends Migration
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,
             function () use ($schema) {
-                $schema->createHypertable('user_consents', 'granted_at', [
+                $schema->createHypertable('authserver.user_consents', 'granted_at', [
                     'chunk_time_interval' => '1 month',
                 ]);
-                $schema->enableCompression('user_consents');
-                $schema->addCompressionPolicy('user_consents', '6 months');
-                $schema->addRetentionPolicy('user_consents', '7 years');
+                $schema->enableCompression('authserver.user_consents');
+                $schema->addCompressionPolicy('authserver.user_consents', '6 months');
+                $schema->addRetentionPolicy('authserver.user_consents', '7 years');
             }
         );
     }
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('user_consents');
+        $this->application->database->schema()->dropTableIfExists('authserver.user_consents');
     }
 }

@@ -18,18 +18,18 @@ class CreateTwofactorSetupTable extends Migration
     public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 85;
-    public array   $dependencies = [];
-    public $description  = 'Creates the twofactor_setup temporary setup session table';
+    public array   $dependencies = ['create_authserver_schema'];
+    public $description  = 'Creates the authserver.twofactor_setup temporary setup session table';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('twofactor_setup')) {
+        if ($schema->hasTable('authserver.twofactor_setup')) {
             return;
         }
 
-        $schema->createTable('twofactor_setup', function ($table) {
+        $schema->createTable('authserver.twofactor_setup', function ($table) {
             $table->comment('Temporary 2FA setup sessions — 15-minute TTL; used=1 once completeSetup() succeeds');
 
             $table->increments('id')
@@ -52,6 +52,6 @@ class CreateTwofactorSetupTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('twofactor_setup');
+        $this->application->database->schema()->dropTableIfExists('authserver.twofactor_setup');
     }
 }

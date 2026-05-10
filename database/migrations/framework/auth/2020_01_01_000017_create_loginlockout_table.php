@@ -23,18 +23,18 @@ class CreateLoginlockoutTable extends Migration
     public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 70;
-    public array   $dependencies = [];
-    public $description  = 'Creates the loginlockout progressive brute-force state table';
+    public array   $dependencies = ['create_authserver_schema'];
+    public $description  = 'Creates the authserver.loginlockouts progressive brute-force state table';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('loginlockout')) {
+        if ($schema->hasTable('authserver.loginlockouts')) {
             return;
         }
 
-        $schema->createTable('loginlockout', function ($table) {
+        $schema->createTable('authserver.loginlockouts', function ($table) {
             $table->comment('Progressive brute-force lockout state: tracks failed login attempts per scope+identifier pair');
 
             $table->increments('lockoutid')
@@ -63,6 +63,6 @@ class CreateLoginlockoutTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('loginlockout');
+        $this->application->database->schema()->dropTableIfExists('authserver.loginlockouts');
     }
 }
