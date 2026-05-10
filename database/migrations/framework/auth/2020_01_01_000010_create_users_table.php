@@ -92,6 +92,23 @@ class CreateUsersTable extends Migration
             $table->index(['active', 'validated'], 'idx_users_active_validated');
             $table->index(['usertype'], 'idx_users_usertype');
         });
+
+        // Reserve userid=1 for the Guest/anonymous identity by advancing the
+        // auto-increment sequence to 2 before any application row is inserted.
+        // This ensures the scaffold's first admin user receives userid=2 and
+        // does not collide with the Guest account that User::setupDb() seeds
+        // separately at userid=1.
+        $db = $this->application->database;
+
+        $schema->ifCapable('postgresql', function () use ($db) {
+            // setval(seq, 1, true) → current value = 1, is_called = true,
+            // so the next nextval() call returns 2.
+            $db->query("SELECT setval(pg_get_serial_sequence('users', 'userid'), 1)");
+        });
+
+        $schema->ifCapable('mysql', function () use ($db) {
+            $db->query('ALTER TABLE users AUTO_INCREMENT = 2');
+        });
     }
 
     public function down(): void
