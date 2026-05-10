@@ -1575,6 +1575,12 @@ class Database extends \Pramnos\Framework\Base
             $result['message'] = mysqli_error($this->_dbConnection);
             $result['code'] = mysqli_errno($this->_dbConnection);
         }
+        // insertDataToTable/updateTableData catch PHP-level exceptions and store
+        // them in error_text; fall back to that when the DB driver has no pending error.
+        if (empty($result['message']) && !empty($this->error_text)) {
+            $result['message'] = $this->error_text;
+            $result['code']    = $this->error_number ?? 0;
+        }
         return $result;
     }
 
