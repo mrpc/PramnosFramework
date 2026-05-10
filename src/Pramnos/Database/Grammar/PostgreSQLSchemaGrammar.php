@@ -50,9 +50,13 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
             case 'smallInteger':
                 return 'SMALLINT';
             case 'integer':
-                return 'INTEGER';
+                // integer()->autoIncrement() is equivalent to increments() — map to SERIAL
+                return $col->get('autoIncrement') ? 'SERIAL' : 'INTEGER';
             case 'bigInteger':
-                return 'BIGINT';
+                // bigInteger()->autoIncrement() is equivalent to bigIncrements() — map to BIGSERIAL.
+                // This pattern is used by migrations that want a signed BIGINT auto-increment
+                // (BIGSERIAL) but need the explicit bigInteger type for MySQL cross-compatibility.
+                return $col->get('autoIncrement') ? 'BIGSERIAL' : 'BIGINT';
             case 'increments':
                 return 'SERIAL';
             case 'bigIncrements':
