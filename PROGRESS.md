@@ -1,8 +1,15 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-10 (session 47)
+## 📅 Last Updated: 2026-05-10 (session 48)
 
 ## 🚀 Completed Milestones
+
+### Admin user scaffolding false-success fix (2026-05-10, session 48)
+
+- [x] **`Init.php` PHP snippet**: Fixed two-condition bug in `createAdminUser()`:
+  - `userid > 0` success check → `empty($user->getErrors())`. The `$userid = 1` class default never changes on failed INSERT, making `userid > 0` always TRUE even when the user wasn't created. `getErrors()` is the reliable indicator (populated by `_save()` on any failure).
+  - Added `empty($user->getErrors())` guard to the two-save condition (`userid > 1`) so a failed first save doesn't trigger a redundant re-save. The `> 1` threshold is preserved to avoid the double-INSERT bug in `_save()` for userid=1 (admin sentinel uses md5 — intentional per characterization tests).
+- Commit: `68f954b`
 
 ### QueryBuilder schema resolution + Auth service refactor (2026-05-10, session 47)
 
