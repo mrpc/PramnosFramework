@@ -734,8 +734,8 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
     /**
      * authserver.roles must be created inside the 'authserver' schema — not in public.
-     * The table must have role_name (varchar), deyaid (nullable int for org scoping),
-     * is_active (boolean), and the standard lookup indexes.
+     * The table must have role_name (varchar), organization_id (nullable int for org
+     * scoping), is_active (boolean), and the standard lookup indexes.
      */
     public function testAuthserverRolesTableIsInAuthserverSchema(): void
     {
@@ -756,11 +756,12 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->assertColumnType('roles', 'roleid', 'integer', 'authserver');
         $this->assertColumnType('roles', 'role_name', 'character varying', 'authserver');
         $this->assertColumnType('roles', 'is_active', 'boolean', 'authserver');
-        $this->assertColumnNullable('roles', 'deyaid', true, 'authserver');
+        // organization_id is the generic column name (override via authserver_organization_column setting)
+        $this->assertColumnNullable('roles', 'organization_id', true, 'authserver');
 
         // Assert — indexes
         $this->assertTrue($this->indexExists('roles', 'idx_authserver_roles_name', 'authserver'));
-        $this->assertTrue($this->indexExists('roles', 'idx_authserver_roles_deyaid', 'authserver'));
+        $this->assertTrue($this->indexExists('roles', 'idx_authserver_roles_org', 'authserver'));
 
         // Assert — rollback
         $m->down();
@@ -1173,15 +1174,18 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // AuthServer: RBAC tables (user_deyas, permission_templates, role_templates,
+    // AuthServer: RBAC tables (user_organizations, permission_templates, role_templates,
     //             permission_inheritance, effective_permissions VIEW, PL/pgSQL fns)
     // -------------------------------------------------------------------------
 
     /**
-     * CreateAuthserverUserDeyasTable must create authserver.user_deyas with the
-     * (userid, deyaid) composite PK and the expected columns.
+     * CreateAuthserverUserOrganizationsTable must create authserver.user_organizations
+     * with the (userid, organization_id) composite PK and the expected columns.
+     *
+     * The table name and org column are configurable via Settings; this test verifies
+     * the framework defaults (user_organizations / organization_id).
      */
-    public function testAuthserverUserDeyasUpCreatesTable(): void
+    public function testAuthserverUserOrganizationsUpCreatesTable(): void
     {
         // Arrange
         $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
@@ -1189,24 +1193,25 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
         $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
 
-        $m = $this->loadMigration('authserver', 'CreateAuthserverUserDeyasTable');
+        $m = $this->loadMigration('authserver', 'CreateAuthserverUserOrganizationsTable');
 
         // Act
         $m->up();
 
-        // Assert — table exists in authserver schema
+        // Assert — table exists in authserver schema with default name
         $this->assertTrue(
-            $this->tableExists('user_deyas', 'authserver'),
-            'authserver.user_deyas must exist after up()'
+            $this->tableExists('user_organizations', 'authserver'),
+            'authserver.user_organizations must exist after up() with default Settings'
         );
-        $this->assertTrue($this->columnExists('user_deyas', 'userid', 'authserver'));
-        $this->assertTrue($this->columnExists('user_deyas', 'deyaid', 'authserver'));
-        $this->assertTrue($this->columnExists('user_deyas', 'is_active', 'authserver'));
-        $this->assertTrue($this->columnExists('user_deyas', 'expires_at', 'authserver'));
+        $this->assertTrue($this->columnExists('user_organizations', 'userid', 'authserver'));
+        // organization_id is the generic default (override via authserver_organization_column)
+        $this->assertTrue($this->columnExists('user_organizations', 'organization_id', 'authserver'));
+        $this->assertTrue($this->columnExists('user_organizations', 'is_active', 'authserver'));
+        $this->assertTrue($this->columnExists('user_organizations', 'expires_at', 'authserver'));
 
-        // Assert — rollback
+        // Assert — rollback removes the table
         $m->down();
-        $this->assertFalse($this->tableExists('user_deyas', 'authserver'));
+        $this->assertFalse($this->tableExists('user_organizations', 'authserver'));
     }
 
     /**

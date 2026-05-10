@@ -907,54 +907,57 @@ class FrameworkMigrationsMySQLTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // AuthServer: RBAC tables (user_deyas, permission_templates, role_templates,
+    // AuthServer: RBAC tables (user_organizations, permission_templates, role_templates,
     //             permission_inheritance, effective_permissions VIEW)
     // -------------------------------------------------------------------------
 
     /**
-     * CreateAuthserverUserDeyasTable must create authserver_user_deyas with the
-     * (userid, deyaid) composite PK and the expected columns.
+     * CreateAuthserverUserOrganizationsTable must create authserver_user_organizations
+     * with the (userid, organization_id) composite PK and the expected columns.
      *
-     * user_deyas is the organisation membership table — a user must be a member
-     * of an organisation before they can be assigned any org-scoped role.
+     * user_organizations is the organisation membership table — a user must be a
+     * member of an organisation before they can be assigned any org-scoped role.
+     * The table name and column are configurable via Settings; this test verifies
+     * the framework defaults (user_organizations / organization_id).
      */
-    public function testAuthserverUserDeyasUpCreatesTable(): void
+    public function testAuthserverUserOrganizationsUpCreatesTable(): void
     {
         // Arrange — depends on user_roles which depends on roles
         $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
         $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
         $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
 
-        $m = $this->loadMigration('authserver', 'CreateAuthserverUserDeyasTable');
+        $m = $this->loadMigration('authserver', 'CreateAuthserverUserOrganizationsTable');
 
         // Act
         $m->up();
 
-        // Assert — table created
+        // Assert — table created with default name
         $this->assertTrue(
-            $this->tableExists('authserver_user_deyas'),
-            'authserver_user_deyas table must exist after up()'
+            $this->tableExists('authserver_user_organizations'),
+            'authserver_user_organizations table must exist after up() with default Settings'
         );
 
         // Assert — critical columns present
-        $this->assertTrue($this->columnExists('authserver_user_deyas', 'userid'));
-        $this->assertTrue($this->columnExists('authserver_user_deyas', 'deyaid'));
-        $this->assertTrue($this->columnExists('authserver_user_deyas', 'granted_by'));
-        $this->assertTrue($this->columnExists('authserver_user_deyas', 'granted_at'));
-        $this->assertTrue($this->columnExists('authserver_user_deyas', 'expires_at'));
-        $this->assertTrue($this->columnExists('authserver_user_deyas', 'is_active'));
+        $this->assertTrue($this->columnExists('authserver_user_organizations', 'userid'));
+        // organization_id is the generic default (override via authserver_organization_column)
+        $this->assertTrue($this->columnExists('authserver_user_organizations', 'organization_id'));
+        $this->assertTrue($this->columnExists('authserver_user_organizations', 'granted_by'));
+        $this->assertTrue($this->columnExists('authserver_user_organizations', 'granted_at'));
+        $this->assertTrue($this->columnExists('authserver_user_organizations', 'expires_at'));
+        $this->assertTrue($this->columnExists('authserver_user_organizations', 'is_active'));
 
         // Assert — granted_by and expires_at are nullable (optional metadata)
-        $this->assertColumnNullable('authserver_user_deyas', 'granted_by', true);
-        $this->assertColumnNullable('authserver_user_deyas', 'expires_at', true);
+        $this->assertColumnNullable('authserver_user_organizations', 'granted_by', true);
+        $this->assertColumnNullable('authserver_user_organizations', 'expires_at', true);
 
         // Assert — indexes for membership lookup
-        $this->assertTrue($this->indexExists('authserver_user_deyas', 'idx_authserver_ud_userid'));
-        $this->assertTrue($this->indexExists('authserver_user_deyas', 'idx_authserver_ud_deyaid'));
+        $this->assertTrue($this->indexExists('authserver_user_organizations', 'idx_authserver_ud_userid'));
+        $this->assertTrue($this->indexExists('authserver_user_organizations', 'idx_authserver_ud_org'));
 
         // Assert — rollback removes the table
         $m->down();
-        $this->assertFalse($this->tableExists('authserver_user_deyas'));
+        $this->assertFalse($this->tableExists('authserver_user_organizations'));
     }
 
     /**
@@ -1620,7 +1623,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             'authserver_permission_inheritance',
             'authserver_role_templates',
             'authserver_permission_templates',
-            'authserver_user_deyas',
+            'authserver_user_organizations',
             // authserver (drop before applications due to FK-like references)
             'authserver_oauth2_webhook_events', 'authserver_oauth2_webhook_endpoints',
             'authserver_oauth2_client_auth_methods',
