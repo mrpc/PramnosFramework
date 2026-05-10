@@ -27,18 +27,18 @@ class CreateTwofactorAttemptsTable extends Migration
     public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 90;
-    public array   $dependencies = [];
-    public $description  = 'Creates the twofactor_attempts audit log (TimescaleDB hypertable when available)';
+    public array   $dependencies = ['create_authserver_schema'];
+    public $description  = 'Creates the authserver.twofactor_attempts audit log (TimescaleDB hypertable when available)';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('twofactor_attempts')) {
+        if ($schema->hasTable('authserver.twofactor_attempts')) {
             return;
         }
 
-        $schema->createTable('twofactor_attempts', function ($table) {
+        $schema->createTable('authserver.twofactor_attempts', function ($table) {
             $table->comment('Append-only 2FA attempt log; TimescaleDB hypertable on capable backends');
 
             $table->bigInteger('userid')
@@ -62,18 +62,18 @@ class CreateTwofactorAttemptsTable extends Migration
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,
             function () use ($schema) {
-                $schema->createHypertable('twofactor_attempts', 'attempt_time', [
+                $schema->createHypertable('authserver.twofactor_attempts', 'attempt_time', [
                     'chunk_time_interval' => '7 days',
                 ]);
-                $schema->enableCompression('twofactor_attempts');
-                $schema->addCompressionPolicy('twofactor_attempts', '7 days');
-                $schema->addRetentionPolicy('twofactor_attempts', '2 years');
+                $schema->enableCompression('authserver.twofactor_attempts');
+                $schema->addCompressionPolicy('authserver.twofactor_attempts', '7 days');
+                $schema->addRetentionPolicy('authserver.twofactor_attempts', '2 years');
             }
         );
     }
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('twofactor_attempts');
+        $this->application->database->schema()->dropTableIfExists('authserver.twofactor_attempts');
     }
 }

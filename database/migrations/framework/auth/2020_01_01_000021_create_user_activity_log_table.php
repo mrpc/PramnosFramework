@@ -25,18 +25,18 @@ class CreateUserActivityLogTable extends Migration
     public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 100;
-    public array   $dependencies = [];
-    public $description  = 'Creates the user_activity_log GDPR audit table (TimescaleDB hypertable when available)';
+    public array   $dependencies = ['create_authserver_schema'];
+    public $description  = 'Creates the authserver.user_activity_log GDPR audit table (TimescaleDB hypertable when available)';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('user_activity_log')) {
+        if ($schema->hasTable('authserver.user_activity_log')) {
             return;
         }
 
-        $schema->createTable('user_activity_log', function ($table) {
+        $schema->createTable('authserver.user_activity_log', function ($table) {
             $table->comment('GDPR-compliant user action audit trail; TimescaleDB hypertable on capable backends');
 
             $table->bigInteger('userid')
@@ -59,18 +59,18 @@ class CreateUserActivityLogTable extends Migration
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,
             function () use ($schema) {
-                $schema->createHypertable('user_activity_log', 'created_at', [
+                $schema->createHypertable('authserver.user_activity_log', 'created_at', [
                     'chunk_time_interval' => '1 day',
                 ]);
-                $schema->enableCompression('user_activity_log');
-                $schema->addCompressionPolicy('user_activity_log', '30 days');
-                $schema->addRetentionPolicy('user_activity_log', '24 months');
+                $schema->enableCompression('authserver.user_activity_log');
+                $schema->addCompressionPolicy('authserver.user_activity_log', '30 days');
+                $schema->addRetentionPolicy('authserver.user_activity_log', '24 months');
             }
         );
     }
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('user_activity_log');
+        $this->application->database->schema()->dropTableIfExists('authserver.user_activity_log');
     }
 }
