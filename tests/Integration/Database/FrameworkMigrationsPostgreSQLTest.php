@@ -2068,9 +2068,12 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
     protected function dropAllTestTables(): void
     {
-        // Drop dedicated framework schemas with CASCADE (removes all contained objects)
-        $this->db->query('DROP SCHEMA IF EXISTS authserver CASCADE');
-        $this->db->query('DROP SCHEMA IF EXISTS pramnos CASCADE');
+        // DROP SCHEMA CASCADE can deadlock or get a lock conflict when another
+        // test process (e.g. TwoFactorAuthServicePostgreSQLTest.setUp) holds DDL
+        // locks inside authserver at the same moment.  We retry with backoff so
+        // a transient lock wait does not fail the test.
+        $this->dropSchemaWithRetry('authserver');
+        $this->dropSchemaWithRetry('pramnos');
 
         // Drop public-schema tables with CASCADE (handles FK dependencies automatically)
         $tables = [
@@ -2089,5 +2092,38 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
         // Drop the queue_status ENUM type if it was left behind by a failed test
         $this->db->query('DROP TYPE IF EXISTS queue_status');
+    }
+
+    /**
+     * Drop a schema with retry-on-lock-conflict.
+     *
+     * PostgreSQL's DROP SCHEMA CASCADE requires AccessExclusiveLock on all
+     * contained objects.  If another session holds a DDL lock inside the schema
+     * (e.g. an in-progress CREATE TABLE from a concurrent setUp()), the DROP
+     * blocks and can cause a deadlock.  We set a short lock_timeout so the
+     * server aborts the DROP quickly, then retry after a brief sleep.
+     */
+    private function dropSchemaWithRetry(string $schema, int $maxAttempts = 5): void
+    {
+        $sql = "DROP SCHEMA IF EXISTS {$schema} CASCADE";
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                // Short timeout so we fail fast instead of blocking indefinitely
+                $this->db->query('SET lock_timeout = \'2s\'');
+                $this->db->query($sql);
+                $this->db->query('SET lock_timeout = 0'); // restore default
+                return;
+            } catch (\Exception $e) {
+                if ($attempt === $maxAttempts) {
+                    throw $e;
+                }
+                // Wait before retrying: 200ms, 400ms, 600ms, 800ms
+                usleep(200000 * $attempt);
+                // Re-connect if the connection was broken by the aborted transaction
+                if (!$this->db->connected) {
+                    $this->db->connect();
+                }
+            }
+        }
     }
 }
