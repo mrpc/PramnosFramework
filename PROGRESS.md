@@ -1,8 +1,28 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-09 (session 45)
+## 📅 Last Updated: 2026-05-10 (session 46)
 
 ## 🚀 Completed Milestones
+
+### Auth Tables → authserver Schema + Service Fixes (2026-05-10, session 46)
+
+- [x] **Migrations 000017–000026**: All 10 auth migrations now create tables in the `authserver` schema (PostgreSQL) / `authserver_` prefix (MySQL), matching urbanwater's layout exactly:
+  - `authserver.loginlockouts` (was `loginlockout`)
+  - `authserver.user_twofactor`, `authserver.twofactor_setup`, `authserver.twofactor_attempts`
+  - `authserver.user_activity_log`, `authserver.user_privacy_settings`, `authserver.user_consents`
+  - `authserver.data_processing_records`, `authserver.gdpr_requests`
+  - `authserver.daily_activity_summary` (continuous aggregate / view)
+- [x] **MigrationRunner Kahn sort bug fixed**: `array_splice($queue, 0, 0, $insertable)` caused high-priority-number siblings to jump ahead; replaced with full `topoQueue()` re-sort after each batch. Regression test added.
+- [x] **`TwoFactorAuthService`**: Replaced all hardcoded bare table names with `$db->schema()->quoteTable('authserver.tablename')` resolved in constructor. Works correctly on both MySQL and PostgreSQL.
+- [x] **`Loginlockout`**: Added `tbl(Database $db)` helper using `quoteTable('authserver.loginlockouts')`; replaced all hardcoded `loginlockout` references.
+- [x] **`SchemaBuilder::enableCompression()`**: Fixed quoting bug — was emitting `ALTER TABLE "authserver.twofactor_attempts"` (dot inside quotes); now uses `$this->getGrammar()->quoteTable($resolved)`.
+- [x] **`CreateDailyActivitySummaryView` migration**: MySQL fallback SQL body now uses `quoteTable()` for `authserver.user_activity_log` to avoid "Unknown database 'authserver'" error on MySQL.
+- [x] **Admin creation fix**: `Init.php` two-save pattern ensures `setPassword()` applies correct salt for userid > 1; `2>/dev/null` changed to `2>&1`; diagnostic message added when migrations fail.
+- [x] **Integration tests** — `FrameworkMigrationsMySQLTest`: 10 new tests (000017–000026), verifying `authserver_*` table presence on MySQL.
+- [x] **Integration tests** — `FrameworkMigrationsPostgreSQLTest`: 10 new tests (000017–000026), verifying tables are in `authserver` schema (not `public`) on PostgreSQL.
+- [x] **Integration tests** — `FrameworkMigrationsTimescaleDBTest`: updated setUp + all assertions to use `authserver` schema.
+- [x] **Integration tests** — `TwoFactorAuthServiceMySQLTest` + `TwoFactorAuthServicePostgreSQLTest`: updated `dropTables()`/`createTables()` and all inline SQL to use `authserver_*` / `authserver.*` notation.
+- [x] **Integration tests** — `LoginlockoutMySQLTest` + `LoginlockoutPostgreSQLTest`: updated `dropTable()`/`createTable()` and all inline SQL to use `authserver_loginlockouts` / `authserver.loginlockouts`.
 
 ### MySQL index atomicity + test isolation fixes (2026-05-09, session 45)
 
