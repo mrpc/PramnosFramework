@@ -910,6 +910,129 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->assertFalse($this->tableExists('roles', 'authserver'));
     }
 
+    /**
+     * When `authserver_organization_column` is overridden via Settings (e.g. to
+     * 'deyaid' for UrbanWater), the roles table must be created with that column
+     * name instead of the generic 'organization_id'.
+     *
+     * This verifies that the configurable-naming mechanism works end-to-end:
+     * any application that cannot rename existing data can override the column
+     * name in settings.php without modifying the migration.
+     */
+    public function testAuthserverRolesTableRespectsOrganizationColumnOverride(): void
+    {
+        // Arrange — override before running the migration
+        \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid', false);
+
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $m = $this->loadMigration('authserver', 'CreateAuthserverRolesTable');
+
+        try {
+            // Act
+            $m->up();
+
+            // Assert — custom column name is used instead of the default
+            $this->assertTrue(
+                $this->columnExists('roles', 'deyaid', 'authserver'),
+                'roles must contain the overridden column name "deyaid"'
+            );
+            $this->assertFalse(
+                $this->columnExists('roles', 'organization_id', 'authserver'),
+                'roles must NOT contain "organization_id" when the column is overridden'
+            );
+
+            // Assert — index still created (uses overridden name internally)
+            $this->assertTrue(
+                $this->indexExists('roles', 'idx_authserver_roles_org', 'authserver'),
+                'idx_authserver_roles_org index must exist regardless of column name override'
+            );
+
+            // Assert — rollback
+            $m->down();
+            $this->assertFalse($this->tableExists('roles', 'authserver'));
+        } finally {
+            // Always restore default so subsequent tests are unaffected
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', null, false);
+        }
+    }
+
+    /**
+     * When both `authserver_organization_table` and `authserver_organization_column`
+     * are overridden (UrbanWater pattern: table='user_deyas', column='deyaid'), the
+     * user-organisations migration must:
+     *   - create authserver.user_deyas (not authserver.user_organizations)
+     *   - use 'deyaid' as the organisation FK column (not 'organization_id')
+     *   - skip the FK to public.organizations (because the FK target is app-defined)
+     *   - drop authserver.user_deyas on rollback
+     */
+    public function testAuthserverUserOrganizationsTableRespectsFullOverride(): void
+    {
+        // Arrange — configure UrbanWater-style naming before running the migration
+        \Pramnos\Application\Settings::setSetting('authserver_organization_table',  'user_deyas', false);
+        \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid',     false);
+
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        // NOTE: CreateOrganizationsTable is intentionally NOT loaded here —
+        // the override path must NOT add an FK to public.organizations
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverUserOrganizationsTable');
+
+        try {
+            // Act
+            $m->up();
+
+            // Assert — table created under the overridden name
+            $this->assertTrue(
+                $this->tableExists('user_deyas', 'authserver'),
+                'authserver.user_deyas must be created when table name is overridden'
+            );
+            $this->assertFalse(
+                $this->tableExists('user_organizations', 'authserver'),
+                'authserver.user_organizations must NOT be created when table name is overridden'
+            );
+
+            // Assert — overridden column name used as part of composite PK
+            $this->assertTrue(
+                $this->columnExists('user_deyas', 'deyaid', 'authserver'),
+                'authserver.user_deyas must contain the "deyaid" column'
+            );
+            $this->assertFalse(
+                $this->columnExists('user_deyas', 'organization_id', 'authserver'),
+                'authserver.user_deyas must NOT contain "organization_id" when overridden'
+            );
+
+            // Assert — no FK to public.organizations (override path skips it)
+            $fkCnt = (int) $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt
+                     FROM information_schema.table_constraints tc
+                     JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                     WHERE tc.constraint_type = 'FOREIGN KEY'
+                       AND tc.table_schema = %s
+                       AND tc.table_name = %s",
+                    'authserver',
+                    'user_deyas'
+                )
+            )->fields['cnt'];
+            $this->assertSame(0, $fkCnt,
+                'No FK to public.organizations must be added when organisation table is overridden');
+
+            // Assert — rollback removes the overridden-name table
+            $m->down();
+            $this->assertFalse(
+                $this->tableExists('user_deyas', 'authserver'),
+                'authserver.user_deyas must be dropped by down()'
+            );
+        } finally {
+            \Pramnos\Application\Settings::setSetting('authserver_organization_table',  null, false);
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', null, false);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Authserver: permissions table
     // -------------------------------------------------------------------------

@@ -1088,6 +1088,47 @@ class FrameworkMigrationsMySQLTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
+     * When `authserver_organization_column` is overridden (e.g. to 'deyaid' for
+     * UrbanWater), the roles table must use that column name instead of the
+     * default 'organization_id'.
+     *
+     * MySQL: table is `authserver_roles` (prefix convention, no schema namespace).
+     */
+    public function testAuthserverRolesTableRespectsOrganizationColumnOverrideOnMySQL(): void
+    {
+        // Arrange — set override before migration runs
+        \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid', false);
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverRolesTable');
+
+        try {
+            // Act
+            $m->up();
+
+            // Assert — overridden column name present
+            $this->assertTrue(
+                $this->columnExists('authserver_roles', 'deyaid'),
+                'authserver_roles must contain the overridden column "deyaid"'
+            );
+            $this->assertFalse(
+                $this->columnExists('authserver_roles', 'organization_id'),
+                'authserver_roles must NOT contain "organization_id" when column is overridden'
+            );
+
+            // Assert — idx_authserver_roles_org still created regardless of column name
+            $this->assertTrue(
+                $this->indexExists('authserver_roles', 'idx_authserver_roles_org'),
+                'idx_authserver_roles_org must exist regardless of the column name override'
+            );
+
+            $m->down();
+            $this->assertFalse($this->tableExists('authserver_roles'));
+        } finally {
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', null, false);
+        }
+    }
+
+    /**
      * CreateAuthserverUserOrganizationsTable must create authserver_user_organizations
      * with the (userid, organization_id) composite PK and the expected columns.
      *
@@ -1135,6 +1176,62 @@ class FrameworkMigrationsMySQLTest extends TestCase
         // Assert — rollback removes the table
         $m->down();
         $this->assertFalse($this->tableExists('authserver_user_organizations'));
+    }
+
+    /**
+     * When `authserver_organization_column` is overridden via Settings (e.g. to
+     * 'deyaid' for UrbanWater), the user_organizations migration must use that
+     * column name for the organisation FK column on MySQL.
+     *
+     * MySQL prefix convention: authserver_user_deyas (table) + deyaid (column).
+     */
+    public function testAuthserverUserOrganizationsRespectsFullOverrideOnMySQL(): void
+    {
+        // Arrange — override Settings before running the migration
+        \Pramnos\Application\Settings::setSetting('authserver_organization_table',  'user_deyas', false);
+        \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid',     false);
+
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        // NOTE: CreateOrganizationsTable intentionally NOT loaded — override path skips FK
+
+        $m = $this->loadMigration('authserver', 'CreateAuthserverUserOrganizationsTable');
+
+        try {
+            // Act
+            $m->up();
+
+            // Assert — table created under the overridden name (authserver prefix + user_deyas)
+            $this->assertTrue(
+                $this->tableExists('authserver_user_deyas'),
+                'authserver_user_deyas must be created when table name is overridden'
+            );
+            $this->assertFalse(
+                $this->tableExists('authserver_user_organizations'),
+                'authserver_user_organizations must NOT be created when table name is overridden'
+            );
+
+            // Assert — overridden column name
+            $this->assertTrue(
+                $this->columnExists('authserver_user_deyas', 'deyaid'),
+                'deyaid column must exist when organization column is overridden'
+            );
+            $this->assertFalse(
+                $this->columnExists('authserver_user_deyas', 'organization_id'),
+                'organization_id must NOT exist when column name is overridden to deyaid'
+            );
+
+            // Assert — rollback removes the overridden-name table
+            $m->down();
+            $this->assertFalse(
+                $this->tableExists('authserver_user_deyas'),
+                'authserver_user_deyas must be dropped by down()'
+            );
+        } finally {
+            \Pramnos\Application\Settings::setSetting('authserver_organization_table',  null, false);
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', null, false);
+        }
     }
 
     /**
@@ -1800,6 +1897,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             'applications_oauth2_webhook_events', 'applications_oauth2_webhook_endpoints',
             'applications_oauth2_client_auth_methods',
             'applications_oauth2_application_grants',
+            'authserver_user_deyas',
             // authserver RBAC extension tables (drop before base RBAC tables)
             'authserver_permission_inheritance',
             'authserver_role_templates',
