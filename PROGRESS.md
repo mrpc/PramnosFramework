@@ -1,8 +1,17 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-10 (session 50)
+## 📅 Last Updated: 2026-05-11 (session 51)
 
 ## 🚀 Completed Milestones
+
+### PKCE constraints, oauth2_application_grants, OAuth2 helper functions (2026-05-11, session 51)
+
+- [x] **`auth/000014` usertokens** (updated): Added PostgreSQL partial indexes for PKCE (`idx_usertokens_code_challenge` WHERE NOT NULL, `idx_usertokens_auth_code_unique` WHERE auth_code PKCE, `idx_usertokens_auth_code_pkce`) and two CHECK constraints (`chk_code_challenge_method` enforces plain|S256, `chk_code_challenge_format` enforces RFC 7636 §4.2 43-128 URL-safe chars). MySQL gets plain index + method CHECK.
+- [x] **`authserver/000039` oauth2_application_grants** (new): `applications.oauth2_application_grants` table (grant_type CHECK constraint, unique per appid+grant_type); `applications.oauth2_application_permissions` VIEW (array_agg on PG, GROUP_CONCAT on MySQL); `applications.oauth2_active_tokens` VIEW; `authserver.cleanup_expired_oauth2_tokens()` PL/pgSQL function (removes tokens expired >7 days).
+- [x] **`authserver/000040` OAuth2 helper functions** (new, PostgreSQL only): `applications.deauthorize_user_from_app()` (revokes tokens, logs to user_activity_log, fires user_deauthorized webhook); `applications.create_gdpr_request()` (creates GDPR request row, notifies all apps with active tokens); `applications.notify_user_profile_changed()` (fires user_profile_changed webhook); `public.token_revocation_webhook()` trigger function + `trigger_token_revocation_webhook` AFTER UPDATE trigger on `public.usertokens`; `applications.oauth2_webhook_status` monitoring VIEW.
+- Integration tests: 5 new tests (MySQL × 2 + PostgreSQL × 3) covering all new objects
+- Suite: 1795 tests, 4641 assertions — OK
+- Commit: `9600f81`
 
 ### Schema fixes: organizations table, correct applications schema content (2026-05-11, session 50 cont.)
 

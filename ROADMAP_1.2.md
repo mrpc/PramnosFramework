@@ -266,7 +266,7 @@
   - [ ] `Pramnos\Auth\WebhookService`
   - [x] `AuthServerServiceProvider` με route registration — `src/Pramnos/Auth/AuthServerServiceProvider.php`
   - [x] System migrations: `authserver.device_authorizations` (RFC 8628, 000026), `authserver.jwt_replay_prevention` (000027), `authserver.oauth2_client_auth_methods` (000028), `oauth2_webhook_endpoints` + `oauth2_webhook_events` (000029), `authserver.slow_api_calls` VIEW (000030)
-  - [ ] PKCE columns σε `usertokens` (code_challenge, code_challenge_method + constraints + indexes), `usertokens.token` TEXT (από VARCHAR), 5 PL/pgSQL functions, `oauth2_application_permissions` + `oauth2_active_tokens` views
+  - [x] PKCE columns σε `usertokens` (code_challenge, code_challenge_method + constraints + indexes), `usertokens.token` TEXT (από VARCHAR), 5 PL/pgSQL functions, `oauth2_application_permissions` + `oauth2_active_tokens` views — 000039 (oauth2_application_grants + views + cleanup fn), 000040 (deauthorize_user_from_app, create_gdpr_request, notify_user_profile_changed, token_revocation_webhook trigger + oauth2_webhook_status VIEW)
   - [ ] RSA key generation (`openssl_pkey_new`) στο `pramnos init`
   - [ ] Auth Controllers: `Oauth.php`, `Session.php`, `Device.php`, `Discovery.php`, `Gdpr.php`, `TwoFactorAuth.php`, `Dashboard.php`
   - [x] `composer require league/oauth2-server:^8.5` — in composer.json
