@@ -981,6 +981,8 @@ class Database extends \Pramnos\Framework\Base
 
             $result = @pg_prepare($connection, $stmtName, $query);
             if (!$result) {
+                // Save the real error before DEALLOCATE overwrites pg_last_error().
+                $prepareError = @pg_last_error($connection);
                 // Plan may already exist in the PostgreSQL session (e.g., left from a prior exception).
                 // Deallocate it and re-prepare so the statement is fresh.
                 @pg_query($connection, 'DEALLOCATE "' . $stmtName . '"');
@@ -1000,6 +1002,11 @@ class Database extends \Pramnos\Framework\Base
                     'isWrite' => $isWrite
                 );
                 return $statement;
+            }
+            // Both prepares failed — persist whichever error we have
+            $finalError = @pg_last_error($connection) ?: ($prepareError ?? '');
+            if (!empty($finalError) && empty($this->error_text)) {
+                $this->error_text = $finalError;
             }
             return false;
         }
@@ -1045,7 +1052,18 @@ class Database extends \Pramnos\Framework\Base
         }
 
         if (!$statement || !isset($this->statements[$statement->id])) {
-             return false;
+            // prepare() returned false — persist the DB error before it is lost
+            if (empty($this->error_text)) {
+                if ($this->type === 'postgresql' && $this->_dbConnection) {
+                    $err = @pg_last_error($this->_dbConnection);
+                } else {
+                    $err = $this->_dbConnection ? @mysqli_error($this->_dbConnection) : '';
+                }
+                if (!empty($err)) {
+                    $this->error_text = $err;
+                }
+            }
+            return false;
         }
 
         $stmtData = $this->statements[$statement->id];
