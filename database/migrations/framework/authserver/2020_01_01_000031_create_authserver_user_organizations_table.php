@@ -21,9 +21,10 @@ use Pramnos\Database\Migration;
  *   'authserver_organization_table'  => 'user_deyas',
  *   'authserver_organization_column' => 'deyaid',
  *
- * The organisation ID column is a bare integer without a framework-level FK —
- * the framework does not assume a particular organisations table. Applications
- * that have an organisations table may add the FK in an app-level migration.
+ * When using the framework defaults (user_organizations / organization_id), a FK
+ * to the public.organizations table is added automatically. When using Settings
+ * overrides, the FK target is the application's own organisations table, which
+ * should be added in an app-level migration.
  *
  * @package PramnosFramework
  */
@@ -32,12 +33,17 @@ class CreateAuthserverUserOrganizationsTable extends Migration
     public string  $feature      = 'authserver';
     public string  $scope        = 'framework';
     public int     $priority     = 45;
-    public array   $dependencies = ['create_authserver_user_roles_table'];
+    public array   $dependencies = [
+        'create_authserver_user_roles_table',
+        'create_organizations_table',
+    ];
     public $description  = 'Creates the authserver user_organizations organisation membership table';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $db     = $this->application->database;
+        $caps   = $db->schema()->getCapabilities();
 
         $orgTable  = Settings::getSetting('authserver_organization_table', 'user_organizations');
         $orgColumn = Settings::getSetting('authserver_organization_column', 'organization_id');
@@ -54,7 +60,7 @@ class CreateAuthserverUserOrganizationsTable extends Migration
             $table->bigInteger('userid')
                 ->comment('FK to users.userid — the user who belongs to the organisation');
             $table->integer($orgColumn)
-                ->comment('Organisation identifier — no framework FK; apps may add one in their own migrations');
+                ->comment('Organisation identifier — FK to organizations.organization_id (or app-specific override)');
             $table->bigInteger('granted_by')->nullable()
                 ->comment('FK to users.userid of the administrator who added this user to the organisation');
             $table->timestamp('granted_at')->useCurrent()
@@ -69,6 +75,29 @@ class CreateAuthserverUserOrganizationsTable extends Migration
             $table->index(['userid', 'is_active'], 'idx_authserver_ud_userid');
             $table->index([$orgColumn, 'is_active'], 'idx_authserver_ud_org');
         });
+
+        // Add FK to organizations table when using framework defaults.
+        // When using Settings overrides (e.g. UrbanWater: user_deyas/deyaid),
+        // the FK target is the app's own organisations table — add it in an app migration.
+        if ($orgTable === 'user_organizations' && $orgColumn === 'organization_id') {
+            if ($caps->isPostgreSQL()) {
+                $db->query(
+                    "ALTER TABLE authserver.user_organizations
+                     ADD CONSTRAINT fk_user_org_organization_id
+                     FOREIGN KEY (organization_id)
+                     REFERENCES public.organizations(organization_id)
+                     ON DELETE RESTRICT"
+                );
+            } else {
+                $db->query(
+                    "ALTER TABLE `authserver_user_organizations`
+                     ADD CONSTRAINT `fk_user_org_organization_id`
+                     FOREIGN KEY (`organization_id`)
+                     REFERENCES `organizations`(`organization_id`)
+                     ON DELETE RESTRICT"
+                );
+            }
+        }
     }
 
     public function down(): void

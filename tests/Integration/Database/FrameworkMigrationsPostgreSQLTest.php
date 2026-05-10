@@ -1075,74 +1075,123 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
     /**
      * CreateOauth2ClientAuthMethodsTable must create the table inside the
-     * `authserver` schema on PostgreSQL with a CHECK constraint on auth_method
+     * `applications` schema on PostgreSQL with a CHECK constraint on auth_method
      * and a unique constraint on (appid, auth_method).
      */
-    public function testAuthserverOauth2ClientAuthMethodsCreatesTableInAuthserverSchemaOnPostgres(): void
+    public function testAuthserverOauth2ClientAuthMethodsCreatesTableInApplicationsSchemaOnPostgres(): void
     {
-        // Arrange — applications table must exist for appid column integrity
-        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        // Arrange — applications schema + table must exist for FK integrity
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
         $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
         $m = $this->loadMigration('authserver', 'CreateOauth2ClientAuthMethodsTable');
 
         // Act
         $m->up();
 
-        // Assert — table in authserver schema
-        $this->assertTrue($this->tableExists('oauth2_client_auth_methods', 'authserver'),
-            'oauth2_client_auth_methods must be created in the authserver schema');
+        // Assert — table in applications schema (not authserver)
+        $this->assertTrue($this->tableExists('oauth2_client_auth_methods', 'applications'),
+            'oauth2_client_auth_methods must be created in the applications schema');
+        $this->assertFalse($this->tableExists('oauth2_client_auth_methods', 'authserver'),
+            'oauth2_client_auth_methods must NOT be in the authserver schema');
 
         // Assert — auth_method uses VARCHAR + CHECK (not ENUM) on PostgreSQL
-        $this->assertColumnType('oauth2_client_auth_methods', 'auth_method', 'character varying', 'authserver');
+        $this->assertColumnType('oauth2_client_auth_methods', 'auth_method', 'character varying', 'applications');
 
         // Assert — rollback
         $m->down();
-        $this->assertFalse($this->tableExists('oauth2_client_auth_methods', 'authserver'));
+        $this->assertFalse($this->tableExists('oauth2_client_auth_methods', 'applications'));
         $this->loadMigration('authserver', 'CreateApplicationsTable')->down();
-        $this->loadMigration('authserver', 'CreateAuthserverSchema')->down();
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->down();
     }
 
     /**
      * CreateOauth2WebhooksTables must create both webhook tables inside the
-     * `authserver` schema on PostgreSQL with JSONB columns for events and payload.
-     *
-     * JSONB is the native PostgreSQL binary JSON type and enables efficient
-     * JSON indexing and querying. The events table has a FK to endpoints.
+     * `applications` schema on PostgreSQL with JSONB payload and the correct
+     * UrbanWater-aligned column schema (webhook_id, endpoint_url, webhook_type,
+     * secret_key). Also verifies the create_webhook_event() PL/pgSQL function.
      */
-    public function testAuthserverOauth2WebhooksCreatesBothTablesWithJsonbOnPostgres(): void
+    public function testAuthserverOauth2WebhooksCreatesBothTablesInApplicationsSchemaOnPostgres(): void
     {
-        // Arrange
-        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        // Arrange — users and applications tables needed for FK constraints in events table
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
         $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
         $m = $this->loadMigration('authserver', 'CreateOauth2WebhooksTables');
 
         // Act
         $m->up();
 
-        // Assert — both tables in authserver schema
-        $this->assertTrue($this->tableExists('oauth2_webhook_endpoints', 'authserver'),
-            'oauth2_webhook_endpoints must be created in the authserver schema');
-        $this->assertTrue($this->tableExists('oauth2_webhook_events', 'authserver'),
-            'oauth2_webhook_events must be created in the authserver schema');
+        // Assert — both tables in applications schema (not authserver)
+        $this->assertTrue($this->tableExists('oauth2_webhook_endpoints', 'applications'),
+            'oauth2_webhook_endpoints must be created in the applications schema');
+        $this->assertTrue($this->tableExists('oauth2_webhook_events', 'applications'),
+            'oauth2_webhook_events must be created in the applications schema');
+        $this->assertFalse($this->tableExists('oauth2_webhook_endpoints', 'authserver'),
+            'oauth2_webhook_endpoints must NOT be in authserver schema');
 
-        // Assert — events column is JSONB (binary JSON for efficient querying)
-        $this->assertColumnType('oauth2_webhook_endpoints', 'events', 'jsonb', 'authserver',
-            'events on endpoints must be JSONB for efficient JSON path queries on PostgreSQL');
+        // Assert — endpoints has the correct columns
+        $this->assertColumnType('oauth2_webhook_endpoints', 'webhook_id', 'integer', 'applications');
+        $this->assertColumnType('oauth2_webhook_endpoints', 'endpoint_url', 'character varying', 'applications');
+        $this->assertColumnType('oauth2_webhook_endpoints', 'webhook_type', 'character varying', 'applications');
+        $this->assertColumnType('oauth2_webhook_endpoints', 'secret_key', 'character varying', 'applications');
 
-        // Assert — payload column is JSONB
-        $this->assertColumnType('oauth2_webhook_events', 'payload', 'jsonb', 'authserver',
-            'payload on events must be JSONB on PostgreSQL');
+        // Assert — events has JSONB payload and status lifecycle
+        $this->assertColumnType('oauth2_webhook_events', 'payload', 'jsonb', 'applications',
+            'payload must be JSONB on PostgreSQL for efficient JSON querying');
+        $this->assertColumnType('oauth2_webhook_events', 'status', 'character varying', 'applications');
+        $this->assertColumnType('oauth2_webhook_events', 'attempts', 'integer', 'applications');
 
-        // Assert — delivery tracking columns
-        $this->assertColumnType('oauth2_webhook_events', 'delivered', 'boolean', 'authserver');
-        $this->assertColumnType('oauth2_webhook_events', 'attempts', 'smallint', 'authserver');
+        // Assert — create_webhook_event() function was created in applications schema
+        $result = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM information_schema.routines
+             WHERE routine_schema = 'applications' AND routine_name = 'create_webhook_event'"
+        );
+        $this->assertEquals(1, (int) $result->fields['cnt'],
+            'applications.create_webhook_event() function must exist after up()');
 
-        // Assert — rollback drops both tables
+        // Assert — rollback drops both tables and the function
         $m->down();
-        $this->assertFalse($this->tableExists('oauth2_webhook_events', 'authserver'));
-        $this->assertFalse($this->tableExists('oauth2_webhook_endpoints', 'authserver'));
+        $this->assertFalse($this->tableExists('oauth2_webhook_events', 'applications'));
+        $this->assertFalse($this->tableExists('oauth2_webhook_endpoints', 'applications'));
+        $result2 = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM information_schema.routines
+             WHERE routine_schema = 'applications' AND routine_name = 'create_webhook_event'"
+        );
+        $this->assertEquals(0, (int) $result2->fields['cnt'],
+            'create_webhook_event() must be dropped by down()');
         $this->loadMigration('authserver', 'CreateApplicationsTable')->down();
-        $this->loadMigration('authserver', 'CreateAuthserverSchema')->down();
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->down();
+    }
+
+    /**
+     * CreateOrganizationsTable must create the public.organizations table with an
+     * auto-increment organization_id PK, name, org_type, and is_active columns.
+     *
+     * The organizations table is the FK target for user_organizations.organization_id
+     * and provides the generic organisation registry used by the authserver RBAC system.
+     */
+    public function testOrganizationsTableCreatedInPublicSchema(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('authserver', 'CreateOrganizationsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table exists in public schema
+        $this->assertTrue($this->tableExists('organizations', 'public'),
+            'organizations must be created in the public schema');
+
+        // Assert — essential columns
+        $this->assertColumnType('organizations', 'organization_id', 'integer', 'public');
+        $this->assertColumnType('organizations', 'name', 'character varying', 'public');
+        $this->assertColumnType('organizations', 'is_active', 'boolean', 'public');
+        $this->assertColumnNullable('organizations', 'description', true, 'public');
+        $this->assertColumnNullable('organizations', 'org_type', true, 'public');
+
+        // Assert — rollback removes the table
+        $m->down();
+        $this->assertFalse($this->tableExists('organizations', 'public'));
     }
 
     // -------------------------------------------------------------------------
@@ -1216,11 +1265,12 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
      */
     public function testAuthserverUserOrganizationsUpCreatesTable(): void
     {
-        // Arrange
+        // Arrange — user_roles (→ roles → authserver schema) + organizations (FK target)
         $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
         $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
         $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
         $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateOrganizationsTable')->up();
 
         $m = $this->loadMigration('authserver', 'CreateAuthserverUserOrganizationsTable');
 
@@ -2119,6 +2169,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             'users',
             'queueitems',
             'settings', 'sessions',
+            'organizations',
         ];
 
         foreach ($tables as $table) {
