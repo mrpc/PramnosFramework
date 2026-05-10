@@ -13,8 +13,9 @@ use Pramnos\Database\Migration;
  * creates actual permission rows from the template values — useful for
  * setting up standard access patterns without manual per-row inserts.
  *
- * The object_id_pattern may contain placeholders such as `{deyaid}` that
+ * The object_id_pattern may contain placeholders such as `{organization_id}` that
  * are resolved at apply-time by the apply_permission_template() function.
+ * The placeholder name matches authserver_organization_column Setting (default: organization_id).
  *
  * @package PramnosFramework
  */
@@ -48,7 +49,7 @@ class CreateAuthserverPermissionTemplatesTable extends Migration
             $table->string('object_type', 50)
                 ->comment('Resource type this template applies to (e.g. "deya", "device", "report")');
             $table->string('object_id_pattern', 100)->nullable()
-                ->comment('Object ID with optional placeholders, e.g. "{deyaid}" or "*" for all');
+                ->comment('Object ID with optional placeholders, e.g. "{organization_id}" or "*" for all');
             $table->string('action', 20)
                 ->comment('Action being permitted or denied: create | read | update | delete');
             $table->string('grant_type', 10)->default('allow')

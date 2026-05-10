@@ -2,14 +2,17 @@
 
 namespace Pramnos\Framework\Migrations\AuthServer;
 
+use Pramnos\Application\Settings;
 use Pramnos\Database\Migration;
 
 /**
  * Creates the authserver roles table — RBAC role definitions.
  *
- * Roles group permissions and can optionally be scoped to a DEYA (utility
- * organisation). A role with deyaid=NULL is a system-wide role applicable to
- * all organisations.
+ * Roles group permissions and can optionally be scoped to an organisation.
+ * A role with organization_id=NULL is a system-wide role applicable to all
+ * organisations. The organisation column name is configurable via Settings
+ * (key: authserver_organization_column, default: organization_id) so that
+ * applications can use their own naming convention (e.g. deyaid for UrbanWater).
  *
  * PostgreSQL: created in the `authserver` schema.
  * MySQL: the schema is translated to a prefix automatically by SchemaBuilder
@@ -33,8 +36,10 @@ class CreateAuthserverRolesTable extends Migration
             return;
         }
 
-        $schema->createTable('authserver.roles', function ($table) {
-            $table->comment('RBAC role definitions — roles group permissions and can be scoped to an organisation (deyaid)');
+        $orgColumn = Settings::getSetting('authserver_organization_column', 'organization_id');
+
+        $schema->createTable('authserver.roles', function ($table) use ($orgColumn) {
+            $table->comment('RBAC role definitions — roles group permissions and can be scoped to an organisation');
 
             $table->increments('roleid')
                 ->comment('Auto-increment role identifier');
@@ -42,15 +47,15 @@ class CreateAuthserverRolesTable extends Migration
                 ->comment('Unique role name used in code (e.g. "admin", "operator", "viewer")');
             $table->text('description')->nullable()
                 ->comment('Human-readable description of what this role grants');
-            $table->integer('deyaid')->nullable()
-                ->comment('FK to DEYA organisation — NULL = system-wide role valid for all organisations');
+            $table->integer($orgColumn)->nullable()
+                ->comment('FK to organisation — NULL = system-wide role valid for all organisations');
             $table->timestamp('created_at')->useCurrent()
                 ->comment('Timestamp when the role was created');
             $table->boolean('is_active')->default(true)
                 ->comment('Whether this role can currently be assigned to users');
 
             $table->index(['role_name'], 'idx_authserver_roles_name');
-            $table->index(['deyaid'], 'idx_authserver_roles_deyaid');
+            $table->index([$orgColumn], 'idx_authserver_roles_org');
             $table->index(['is_active'], 'idx_authserver_roles_active');
         });
     }

@@ -313,7 +313,7 @@ class MigrationRunnerUnitTest extends TestCase
         //          │                        └→ effective_perms (70)
         //          │                             └→ rbac_functions (75) ← also explicit dep on user_roles
         //          └→ user_roles (40)    ← NOT in the audit_log chain above
-        //               └→ user_deyas (45)
+        //               └→ user_organizations (45)
         //
         // Without the explicit dep, the queue-splice bug causes rbac_functions
         // to run while user_roles is still in the queue (not yet emitted).
@@ -322,22 +322,22 @@ class MigrationRunnerUnitTest extends TestCase
         $perms      = $this->makeMigration('create_authserver_permissions_table',      priority: 30, deps: ['create_authserver_roles_table']);
         $userRoles  = $this->makeMigration('create_authserver_user_roles_table',       priority: 40, deps: ['create_authserver_roles_table']);
         $auditLog   = $this->makeMigration('create_authserver_audit_log_table',        priority: 50, deps: ['create_authserver_permissions_table']);
-        $userDeyas  = $this->makeMigration('create_authserver_user_deyas_table',       priority: 45, deps: ['create_authserver_user_roles_table']);
+        $userOrgs   = $this->makeMigration('create_authserver_user_organizations_table', priority: 45, deps: ['create_authserver_user_roles_table']);
         $permTmpl   = $this->makeMigration('create_authserver_permission_templates_table', priority: 55, deps: ['create_authserver_audit_log_table']);
         $roleTmpl   = $this->makeMigration('create_authserver_role_templates_table',   priority: 60, deps: ['create_authserver_permission_templates_table']);
         $permInh    = $this->makeMigration('create_authserver_permission_inheritance_table', priority: 65, deps: ['create_authserver_role_templates_table']);
         $effPerms   = $this->makeMigration('create_authserver_effective_permissions_view', priority: 70, deps: ['create_authserver_permission_inheritance_table']);
         $rbacFns    = $this->makeMigration('create_authserver_rbac_functions',         priority: 75, deps: [
             'create_authserver_effective_permissions_view',
-            'create_authserver_user_roles_table',     // the fix
-            'create_authserver_user_deyas_table',     // the fix
+            'create_authserver_user_roles_table',         // the fix
+            'create_authserver_user_organizations_table', // the fix
         ]);
 
         $runner = new MigrationRunner();
 
         // Act
         $sorted = $runner->sort([
-            $schema, $roles, $perms, $userRoles, $auditLog, $userDeyas,
+            $schema, $roles, $perms, $userRoles, $auditLog, $userOrgs,
             $permTmpl, $roleTmpl, $permInh, $effPerms, $rbacFns,
         ]);
 
@@ -356,12 +356,12 @@ class MigrationRunnerUnitTest extends TestCase
             '(triggers reference authserver.user_roles which must exist at CREATE TRIGGER time)'
         );
 
-        // Also assert user_deyas runs before rbac_functions
-        $userDeyasPos = array_search('create_authserver_user_deyas_table', $slugs, true);
+        // Also assert user_organizations runs before rbac_functions
+        $userOrgsPos = array_search('create_authserver_user_organizations_table', $slugs, true);
         $this->assertLessThan(
             $rbacFnsPos,
-            $userDeyasPos,
-            'create_authserver_user_deyas_table must run before create_authserver_rbac_functions'
+            $userOrgsPos,
+            'create_authserver_user_organizations_table must run before create_authserver_rbac_functions'
         );
     }
 
