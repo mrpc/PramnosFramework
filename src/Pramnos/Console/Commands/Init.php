@@ -1182,8 +1182,14 @@ try {
     if (empty(\$user->_errors)) {
         echo 'OK:' . \$user->userid;
     } else {
+        \$db = \Pramnos\Framework\Factory::getDatabase();
+        \$dbErr = \$db->getError();
+        \$dbErrText = isset(\$db->error_text) ? \$db->error_text : '';
         \$msg = implode(', ', array_filter(\$user->_errors, 'strlen'));
-        echo 'FAIL:' . (\$msg ?: 'save failed — check database logs');
+        if (!\$msg) {
+            \$msg = \$dbErr['message'] ?: \$dbErrText ?: 'no error captured (type=' . \$db->type . ')';
+        }
+        echo 'FAIL:' . \$msg;
     }
 } catch (\Throwable \$e) {
     echo 'FAIL:' . \$e->getMessage();
