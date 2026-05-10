@@ -30,9 +30,9 @@ use Pramnos\User\User;
  * Database::prepare() and Database::execute(): when an INSERT fails, the
  * caller must receive a non-empty, human-readable error message.
  *
- * @group postgresql
- * @group characterization
  */
+#[\PHPUnit\Framework\Attributes\Group('postgresql')]
+#[\PHPUnit\Framework\Attributes\Group('characterization')]
 #[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
 class UserAdminCreationPostgreSQLCharacterizationTest extends TestCase
 {
