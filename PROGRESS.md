@@ -1,8 +1,19 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-10 (session 49)
+## 📅 Last Updated: 2026-05-10 (session 50)
 
 ## 🚀 Completed Milestones
+
+### Schema cleanup: GDPR columns, user_deyas→user_organizations, applications schema (2026-05-10, session 50)
+
+- [x] **Deleted `auth/000027_add_gdpr_columns_to_users`**: UrbanWater uses dedicated GDPR tables (000021-000025 in `authserver` schema); GDPR columns on the `users` table were redundant and not used.
+- [x] **`authserver/000021` roles table**: Renamed `deyaid` column → `organization_id`. Column name is configurable via `Settings::getSetting('authserver_organization_column', 'organization_id')`. Index renamed `idx_authserver_roles_deyaid` → `idx_authserver_roles_org`.
+- [x] **`authserver/000031` replaced**: `CreateAuthserverUserDeyasTable` → `CreateAuthserverUserOrganizationsTable`. Both the table name (`authserver_organization_table`, default: `user_organizations`) and org column (`authserver_organization_column`, default: `organization_id`) are configurable via Settings so UrbanWater can override to `user_deyas`/`deyaid` in its `settings.php`.
+- [x] **`authserver/000036` RBAC functions**: All PL/pgSQL references to `user_deyas` and `deyaid` are now PHP-interpolated from Settings at migration time. Function and trigger names unchanged.
+- [x] **`authserver/000037` applications schema** (new): Creates the `applications` PostgreSQL schema namespace (priority 11, PostgreSQL-only, no-op on MySQL). Needed for Auth Server infrastructure. Integration test added; `dropAllTestTables` updated.
+- [x] **GDPR tables (000021-000025) verified**: All 5 tables (`user_activity_log`, `user_privacy_settings`, `user_consents`, `data_processing_records`, `gdpr_requests`) properly backported in the `authserver` schema with TimescaleDB hypertable support. All have integration tests in MySQL, PostgreSQL and TimescaleDB suites.
+- Suite: 1787 tests, 4565 assertions — OK
+- Commits: `0e499e1`, `be7ea93`
 
 ### userid=1 reservation fix — migration sequence advance (2026-05-10, session 49)
 
