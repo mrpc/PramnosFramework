@@ -29,9 +29,9 @@ use Pramnos\Database\Database;
  * they rely on already-stored error_text.  Tests C requires a real PostgreSQL
  * instance (see characterization suite for that coverage).
  *
- * @group unit
- * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('unit')]
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class DatabaseErrorPropagationTest extends TestCase
 {
     /**
