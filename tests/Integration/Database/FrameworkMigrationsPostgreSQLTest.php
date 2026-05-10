@@ -1509,6 +1509,385 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     }
 
     // =========================================================================
+    // Auth 000017-000026: authserver.* tables on plain PostgreSQL (no TimescaleDB)
+    // =========================================================================
+
+    /**
+     * Migration 000017 (loginlockout) creates authserver.loginlockouts on PostgreSQL.
+     * The table must be in the authserver schema (not public) for compatibility
+     * with the urbanwater codebase which references authserver.loginlockouts.
+     */
+    public function testLoginlockoutsCreatedInAuthserverSchemaOnPostgreSQL(): void
+    {
+        // Arrange — authserver schema must exist first
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $m = $this->loadMigration('auth', 'CreateLoginlockoutTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table is in the authserver schema
+        $this->assertTrue($this->tableExists('loginlockouts', 'authserver'),
+            'loginlockouts must be in the authserver schema after up()');
+        $this->assertFalse($this->tableExists('loginlockouts', 'public'),
+            'loginlockouts must NOT be in the public schema');
+
+        // Assert — insertable and queryable
+        $this->db->query(
+            "INSERT INTO authserver.loginlockouts
+             (locktype, lookupvalue, failedattempts, firstfailedat, lastfailedat, lockoutuntil, createdat, updatedat)
+             VALUES ('ip', '127.0.0.1', 1, EXTRACT(EPOCH FROM NOW())::INT,
+                     EXTRACT(EPOCH FROM NOW())::INT, 0,
+                     EXTRACT(EPOCH FROM NOW())::INT, EXTRACT(EPOCH FROM NOW())::INT)"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.loginlockouts");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('loginlockouts', 'authserver'),
+            'loginlockouts must be gone after down()');
+    }
+
+    /**
+     * Migration 000018 (user_twofactor) creates authserver.user_twofactor.
+     * userid is the PK — no auto-increment.
+     */
+    public function testUserTwofactorCreatedInAuthserverSchemaOnPostgreSQL(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $m = $this->loadMigration('auth', 'CreateUserTwofactorTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('user_twofactor', 'authserver'),
+            'user_twofactor must be in the authserver schema');
+        $this->assertFalse($this->tableExists('user_twofactor', 'public'));
+
+        $this->db->query(
+            "INSERT INTO authserver.user_twofactor (userid, enabled, created_at, updated_at)
+             VALUES (999, 0, EXTRACT(EPOCH FROM NOW())::INT, EXTRACT(EPOCH FROM NOW())::INT)"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.user_twofactor");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('user_twofactor', 'authserver'));
+    }
+
+    /**
+     * Migration 000019 (twofactor_setup) creates authserver.twofactor_setup.
+     */
+    public function testTwofactorSetupCreatedInAuthserverSchemaOnPostgreSQL(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $m = $this->loadMigration('auth', 'CreateTwofactorSetupTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('twofactor_setup', 'authserver'),
+            'twofactor_setup must be in the authserver schema');
+        $this->assertFalse($this->tableExists('twofactor_setup', 'public'));
+
+        $this->db->query(
+            "INSERT INTO authserver.twofactor_setup (userid, temp_secret, used, expires_at, created_at)
+             VALUES (999, 'JBSWY3DPEHPK3PXP', 0,
+                     EXTRACT(EPOCH FROM NOW())::INT + 900,
+                     EXTRACT(EPOCH FROM NOW())::INT)"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.twofactor_setup");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('twofactor_setup', 'authserver'));
+    }
+
+    /**
+     * Migration 000020 (twofactor_attempts) creates authserver.twofactor_attempts.
+     * On plain PostgreSQL (no TimescaleDB) ifCapable(TIMESCALEDB) is a no-op —
+     * a plain table is created, not a hypertable.
+     */
+    public function testTwofactorAttemptsCreatedInAuthserverSchemaOnPostgreSQL(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $m = $this->loadMigration('auth', 'CreateTwofactorAttemptsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — plain table in authserver schema
+        $this->assertTrue($this->tableExists('twofactor_attempts', 'authserver'),
+            'twofactor_attempts must be in the authserver schema');
+        $this->assertFalse($this->tableExists('twofactor_attempts', 'public'));
+
+        $this->db->query(
+            "INSERT INTO authserver.twofactor_attempts (userid, success, ip_address, attempt_time)
+             VALUES (999, 1, '127.0.0.1', NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.twofactor_attempts");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('twofactor_attempts', 'authserver'));
+    }
+
+    /**
+     * Migration 000021 (user_activity_log) creates authserver.user_activity_log.
+     * On plain PostgreSQL: plain table (no TimescaleDB hypertable).
+     */
+    public function testUserActivityLogCreatedInAuthserverSchemaOnPostgreSQL(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $m = $this->loadMigration('auth', 'CreateUserActivityLogTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('user_activity_log', 'authserver'),
+            'user_activity_log must be in the authserver schema');
+        $this->assertFalse($this->tableExists('user_activity_log', 'public'));
+
+        $this->db->query(
+            "INSERT INTO authserver.user_activity_log (userid, action, created_at)
+             VALUES (999, 'login', NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.user_activity_log");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('user_activity_log', 'authserver'));
+    }
+
+    /**
+     * Migration 000022 (user_privacy_settings) creates authserver.user_privacy_settings.
+     */
+    public function testUserPrivacySettingsCreatedInAuthserverSchemaOnPostgreSQL(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $m = $this->loadMigration('auth', 'CreateUserPrivacySettingsTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('user_privacy_settings', 'authserver'),
+            'user_privacy_settings must be in the authserver schema');
+        $this->assertFalse($this->tableExists('user_privacy_settings', 'public'));
+
+        $this->db->query(
+            "INSERT INTO authserver.user_privacy_settings (userid, updated_at)
+             VALUES (999, NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.user_privacy_settings");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('user_privacy_settings', 'authserver'));
+    }
+
+    /**
+     * Migration 000023 (user_consents) creates authserver.user_consents.
+     * On plain PostgreSQL: plain table (no TimescaleDB hypertable).
+     */
+    public function testUserConsentsCreatedInAuthserverSchemaOnPostgreSQL(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUserPrivacySettingsTable')->up();
+        $m = $this->loadMigration('auth', 'CreateUserConsentsTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('user_consents', 'authserver'),
+            'user_consents must be in the authserver schema');
+        $this->assertFalse($this->tableExists('user_consents', 'public'));
+
+        $this->db->query(
+            "INSERT INTO authserver.user_consents (userid, consent_type, granted, granted_at)
+             VALUES (999, 'marketing', 1, NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.user_consents");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('user_consents', 'authserver'));
+    }
+
+    /**
+     * Migration 000024 (data_processing_records) creates authserver.data_processing_records.
+     * On plain PostgreSQL: plain table (no TimescaleDB hypertable).
+     */
+    public function testDataProcessingRecordsCreatedInAuthserverSchemaOnPostgreSQL(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $m = $this->loadMigration('auth', 'CreateDataProcessingRecordsTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('data_processing_records', 'authserver'),
+            'data_processing_records must be in the authserver schema');
+        $this->assertFalse($this->tableExists('data_processing_records', 'public'));
+
+        $this->db->query(
+            "INSERT INTO authserver.data_processing_records
+             (userid, operation, data_category, legal_basis, processed_at)
+             VALUES (999, 'export', 'profile', 'consent', NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.data_processing_records");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('data_processing_records', 'authserver'));
+    }
+
+    /**
+     * Migration 000025 (gdpr_requests) creates authserver.gdpr_requests.
+     * On plain PostgreSQL: plain table (no TimescaleDB hypertable).
+     */
+    public function testGdprRequestsCreatedInAuthserverSchemaOnPostgreSQL(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $m = $this->loadMigration('auth', 'CreateGdprRequestsTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('gdpr_requests', 'authserver'),
+            'gdpr_requests must be in the authserver schema');
+        $this->assertFalse($this->tableExists('gdpr_requests', 'public'));
+
+        $this->db->query(
+            "INSERT INTO authserver.gdpr_requests (userid, request_type, status, requested_at)
+             VALUES (999, 'erasure', 'pending', NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.gdpr_requests");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('gdpr_requests', 'authserver'));
+    }
+
+    /**
+     * Migration 000026 (daily_activity_summary) creates a materialized view or
+     * continuous aggregate in the authserver schema.
+     *
+     * On plain PostgreSQL (no TimescaleDB) the migration creates a MATERIALIZED
+     * VIEW (checked via pg_matviews). On the TimescaleDB host (which this test
+     * suite connects to) TimescaleDB is detected and a continuous aggregate is
+     * created instead — both cases must produce an authserver-scoped object that
+     * is NOT in the public schema and is queryable.
+     *
+     * After down(), the object must be removed.
+     */
+    public function testDailyActivitySummaryMaterializedViewOnPostgreSQL(): void
+    {
+        // Arrange — source table must exist
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUserActivityLogTable')->up();
+
+        $m = $this->loadMigration('auth', 'CreateDailyActivitySummaryView');
+
+        // Act
+        $m->up();
+
+        // Assert — object exists in authserver schema: either pg_matviews OR
+        // timescaledb_information.continuous_aggregates (TimescaleDB host)
+        $matviewCnt = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_matviews
+                 WHERE schemaname = %s AND matviewname = %s",
+                'authserver',
+                'daily_activity_summary'
+            )
+        )->fields['cnt'];
+
+        $caggCnt = 0;
+        $caggResult = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM information_schema.tables
+             WHERE table_schema = 'timescaledb_information'
+               AND table_name = 'continuous_aggregates'"
+        );
+        if ((int) $caggResult->fields['cnt'] > 0) {
+            $caggCnt = (int) $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt
+                     FROM timescaledb_information.continuous_aggregates
+                     WHERE view_schema = %s AND view_name = %s",
+                    'authserver',
+                    'daily_activity_summary'
+                )
+            )->fields['cnt'];
+        }
+
+        $this->assertGreaterThan(0, $matviewCnt + $caggCnt,
+            'authserver.daily_activity_summary must be a materialized view or continuous aggregate');
+
+        // Assert — NOT in public schema
+        $rPub = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_matviews
+                 WHERE schemaname = %s AND matviewname = %s",
+                'public',
+                'daily_activity_summary'
+            )
+        );
+        $this->assertSame('0', (string) $rPub->fields['cnt'],
+            'daily_activity_summary must NOT be in the public schema');
+
+        // Assert — queryable
+        $r2 = $this->db->query('SELECT COUNT(*) AS cnt FROM authserver.daily_activity_summary');
+        $this->assertNotNull($r2, 'authserver.daily_activity_summary must be queryable');
+
+        // Assert — down() removes the object
+        $m->down();
+        $matviewAfter = (int) $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_matviews
+                 WHERE schemaname = %s AND matviewname = %s",
+                'authserver',
+                'daily_activity_summary'
+            )
+        )->fields['cnt'];
+
+        $caggAfter = 0;
+        if ((int) $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM information_schema.tables
+             WHERE table_schema = 'timescaledb_information'
+               AND table_name = 'continuous_aggregates'"
+        )->fields['cnt'] > 0) {
+            $caggAfter = (int) $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt
+                     FROM timescaledb_information.continuous_aggregates
+                     WHERE view_schema = %s AND view_name = %s",
+                    'authserver',
+                    'daily_activity_summary'
+                )
+            )->fields['cnt'];
+        }
+
+        $this->assertSame(0, $matviewAfter + $caggAfter,
+            'authserver.daily_activity_summary must be gone after down()');
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 

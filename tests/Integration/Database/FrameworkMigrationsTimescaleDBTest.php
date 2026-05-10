@@ -63,6 +63,11 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
         $this->app            = $this->makeApp();
 
         $this->dropAllTestTables();
+
+        // Ensure the authserver schema exists before any migration runs.
+        // Auth migrations 000017-000026 now create their tables in authserver.*;
+        // the schema creation migration must run first.
+        $this->db->execute('CREATE SCHEMA IF NOT EXISTS authserver');
     }
 
     protected function tearDown(): void
@@ -98,22 +103,22 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
         // Act
         $m->up();
 
-        // Assert — registered as a hypertable
-        $this->assertIsHypertable('twofactor_attempts', 'public',
+        // Assert — registered as a hypertable in the authserver schema
+        $this->assertIsHypertable('twofactor_attempts', 'authserver',
             'twofactor_attempts must be a TimescaleDB hypertable after up()');
 
         // Assert — the hypertable is insertable and queryable (success is SMALLINT, not BOOL)
         $this->db->execute(
-            "INSERT INTO twofactor_attempts (userid, success, attempt_time)
+            "INSERT INTO authserver.twofactor_attempts (userid, success, attempt_time)
              VALUES (1, 1, NOW())"
         );
-        $r = $this->db->execute('SELECT COUNT(*) AS cnt FROM twofactor_attempts');
+        $r = $this->db->execute('SELECT COUNT(*) AS cnt FROM authserver.twofactor_attempts');
         $this->assertSame('1', (string) $r->fields['cnt'],
             'hypertable must accept inserts and return rows');
 
         // Assert — down() removes the table
         $m->down();
-        $this->assertFalse($this->tableExists('twofactor_attempts'),
+        $this->assertFalse($this->tableExists('twofactor_attempts', 'authserver'),
             'twofactor_attempts must be gone after down()');
     }
 
@@ -139,21 +144,21 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
         // Act
         $m->up();
 
-        // Assert — registered as a hypertable
-        $this->assertIsHypertable('user_activity_log', 'public',
+        // Assert — registered as a hypertable in the authserver schema
+        $this->assertIsHypertable('user_activity_log', 'authserver',
             'user_activity_log must be a TimescaleDB hypertable after up()');
 
         // Assert — queryable
         $this->db->execute(
-            "INSERT INTO user_activity_log (userid, action, created_at)
+            "INSERT INTO authserver.user_activity_log (userid, action, created_at)
              VALUES (1, 'login', NOW())"
         );
-        $r = $this->db->execute('SELECT COUNT(*) AS cnt FROM user_activity_log');
+        $r = $this->db->execute('SELECT COUNT(*) AS cnt FROM authserver.user_activity_log');
         $this->assertSame('1', (string) $r->fields['cnt']);
 
         // Assert — down() removes the table
         $m->down();
-        $this->assertFalse($this->tableExists('user_activity_log'));
+        $this->assertFalse($this->tableExists('user_activity_log', 'authserver'));
     }
 
     // -------------------------------------------------------------------------
@@ -178,21 +183,21 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
         // Act
         $m->up();
 
-        // Assert — registered as a hypertable
-        $this->assertIsHypertable('user_consents', 'public',
+        // Assert — registered as a hypertable in the authserver schema
+        $this->assertIsHypertable('user_consents', 'authserver',
             'user_consents must be a TimescaleDB hypertable after up()');
 
         // Assert — queryable
         $this->db->execute(
-            "INSERT INTO user_consents (userid, consent_type, granted, granted_at)
+            "INSERT INTO authserver.user_consents (userid, consent_type, granted, granted_at)
              VALUES (1, 'marketing', 1, NOW())"
         );
-        $r = $this->db->execute('SELECT COUNT(*) AS cnt FROM user_consents');
+        $r = $this->db->execute('SELECT COUNT(*) AS cnt FROM authserver.user_consents');
         $this->assertSame('1', (string) $r->fields['cnt']);
 
         // Assert — down()
         $m->down();
-        $this->assertFalse($this->tableExists('user_consents'));
+        $this->assertFalse($this->tableExists('user_consents', 'authserver'));
     }
 
     // -------------------------------------------------------------------------
@@ -218,22 +223,22 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
         // Act
         $m->up();
 
-        // Assert — registered as a hypertable
-        $this->assertIsHypertable('data_processing_records', 'public',
+        // Assert — registered as a hypertable in the authserver schema
+        $this->assertIsHypertable('data_processing_records', 'authserver',
             'data_processing_records must be a TimescaleDB hypertable after up()');
 
         // Assert — queryable
         $this->db->execute(
-            "INSERT INTO data_processing_records
+            "INSERT INTO authserver.data_processing_records
              (userid, operation, data_category, legal_basis, processor, processed_at)
              VALUES (1, 'export', 'personal_data', 'consent', 'pramnos', NOW())"
         );
-        $r = $this->db->execute('SELECT COUNT(*) AS cnt FROM data_processing_records');
+        $r = $this->db->execute('SELECT COUNT(*) AS cnt FROM authserver.data_processing_records');
         $this->assertSame('1', (string) $r->fields['cnt']);
 
         // Assert — down()
         $m->down();
-        $this->assertFalse($this->tableExists('data_processing_records'));
+        $this->assertFalse($this->tableExists('data_processing_records', 'authserver'));
     }
 
     // -------------------------------------------------------------------------
@@ -261,21 +266,21 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
         // Act
         $m->up();
 
-        // Assert — registered as a hypertable
-        $this->assertIsHypertable('gdpr_requests', 'public',
+        // Assert — registered as a hypertable in the authserver schema
+        $this->assertIsHypertable('gdpr_requests', 'authserver',
             'gdpr_requests must be a TimescaleDB hypertable after up()');
 
         // Assert — queryable
         $this->db->execute(
-            "INSERT INTO gdpr_requests (userid, request_type, status, requested_at)
+            "INSERT INTO authserver.gdpr_requests (userid, request_type, status, requested_at)
              VALUES (1, 'erasure', 'pending', NOW())"
         );
-        $r = $this->db->execute('SELECT COUNT(*) AS cnt FROM gdpr_requests');
+        $r = $this->db->execute('SELECT COUNT(*) AS cnt FROM authserver.gdpr_requests');
         $this->assertSame('1', (string) $r->fields['cnt']);
 
         // Assert — down()
         $m->down();
-        $this->assertFalse($this->tableExists('gdpr_requests'));
+        $this->assertFalse($this->tableExists('gdpr_requests', 'authserver'));
     }
 
     // -------------------------------------------------------------------------
@@ -305,32 +310,32 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
         // Act
         $m->up();
 
-        // Assert — registered as a continuous aggregate (not just a plain view)
+        // Assert — registered as a continuous aggregate in the authserver schema
         $r = $this->db->execute(
             "SELECT COUNT(*) AS cnt
              FROM timescaledb_information.continuous_aggregates
-             WHERE view_name = 'daily_activity_summary'"
+             WHERE view_schema = 'authserver' AND view_name = 'daily_activity_summary'"
         );
         $this->assertGreaterThan(0, (int) $r->fields['cnt'],
-            'daily_activity_summary must be a TimescaleDB continuous aggregate on TimescaleDB');
+            'authserver.daily_activity_summary must be a TimescaleDB continuous aggregate');
 
         // Assert — queryable (zero rows before data)
-        $r2 = $this->db->execute('SELECT COUNT(*) AS cnt FROM daily_activity_summary');
+        $r2 = $this->db->execute('SELECT COUNT(*) AS cnt FROM authserver.daily_activity_summary');
         $this->assertSame('0', (string) $r2->fields['cnt'],
             'empty continuous aggregate must return 0 rows');
 
-        // Assert — inserts to user_activity_log eventually populate the aggregate;
+        // Assert — inserts to authserver.user_activity_log eventually populate the aggregate;
         //          CALL refresh_continuous_aggregate to force immediate refresh
         $this->db->execute(
-            "INSERT INTO user_activity_log (userid, action, created_at)
+            "INSERT INTO authserver.user_activity_log (userid, action, created_at)
              VALUES (1, 'login', NOW() - INTERVAL '1 hour'),
                     (1, 'view_page', NOW() - INTERVAL '30 minutes'),
                     (2, 'login', NOW() - INTERVAL '2 hours')"
         );
         $this->db->execute(
-            "CALL refresh_continuous_aggregate('daily_activity_summary', NULL, NULL)"
+            "CALL refresh_continuous_aggregate('authserver.daily_activity_summary', NULL, NULL)"
         );
-        $r3 = $this->db->execute('SELECT COUNT(*) AS cnt FROM daily_activity_summary');
+        $r3 = $this->db->execute('SELECT COUNT(*) AS cnt FROM authserver.daily_activity_summary');
         $this->assertGreaterThan(0, (int) $r3->fields['cnt'],
             'continuous aggregate must return rows after refresh');
 
@@ -339,7 +344,7 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
         $r4 = $this->db->execute(
             "SELECT COUNT(*) AS cnt
              FROM timescaledb_information.continuous_aggregates
-             WHERE view_name = 'daily_activity_summary'"
+             WHERE view_schema = 'authserver' AND view_name = 'daily_activity_summary'"
         );
         $this->assertSame('0', (string) $r4->fields['cnt'],
             'continuous aggregate must be removed by down()');
@@ -424,25 +429,28 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
     protected function dropAllTestTables(): void
     {
         // Drop continuous aggregate + views before source hypertables
-        $this->db->execute('DROP MATERIALIZED VIEW IF EXISTS daily_activity_summary CASCADE');
+        $this->db->execute('DROP MATERIALIZED VIEW IF EXISTS authserver.daily_activity_summary CASCADE');
 
-        // Drop hypertables (CASCADE handles chunks and policies automatically)
+        // Drop hypertables from authserver schema (CASCADE handles chunks and policies)
         $hypertables = [
             'gdpr_requests', 'data_processing_records',
             'user_consents', 'user_activity_log',
             'twofactor_attempts',
         ];
         foreach ($hypertables as $t) {
-            $this->db->execute("DROP TABLE IF EXISTS public.\"{$t}\" CASCADE");
+            $this->db->execute("DROP TABLE IF EXISTS authserver.\"{$t}\" CASCADE");
         }
 
-        // Drop plain auth tables
-        $plainTables = [
-            'user_privacy_settings', 'twofactor_setup',
-            'user_twofactor', 'users',
+        // Drop plain auth tables from authserver schema
+        $authserverTables = [
+            'user_privacy_settings', 'twofactor_setup', 'user_twofactor',
+            'loginlockouts',
         ];
-        foreach ($plainTables as $t) {
-            $this->db->execute("DROP TABLE IF EXISTS public.\"{$t}\" CASCADE");
+        foreach ($authserverTables as $t) {
+            $this->db->execute("DROP TABLE IF EXISTS authserver.\"{$t}\" CASCADE");
         }
+
+        // Drop public-schema tables
+        $this->db->execute('DROP TABLE IF EXISTS public."users" CASCADE');
     }
 }
