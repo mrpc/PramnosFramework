@@ -4,6 +4,15 @@
 
 ## 🚀 Completed Milestones
 
+### Schema fixes: organizations table, correct applications schema content (2026-05-11, session 50 cont.)
+
+- [x] **`000038_create_organizations_table`** (new): Generic organisation registry in public schema (signed INT PK for MySQL FK compatibility). Provides FK target for `user_organizations.organization_id`.
+- [x] **`000031` user_organizations**: Added FK to `organizations.organization_id` when using framework defaults (Settings override skips it). Added `create_organizations_table` as explicit dependency.
+- [x] **`000028` oauth2_client_auth_methods**: Moved from `authserver` → `applications` schema (matches UrbanWater production). Added `is_primary` column. FK to `applications.appid`.
+- [x] **`000029` oauth2_webhooks**: Complete rewrite — correct `applications` schema with UrbanWater-aligned columns (`webhook_id`, `endpoint_url`, `webhook_type`, `secret_key`, `retry_count`, `timeout_seconds`). Added `applications.create_webhook_event()` PL/pgSQL function (PostgreSQL only) for event fan-out.
+- Suite: 1790 tests, 4602 assertions — OK (+3 new tests)
+- Commit: `131a88b`
+
 ### Schema cleanup: GDPR columns, user_deyas→user_organizations, applications schema (2026-05-10, session 50)
 
 - [x] **Deleted `auth/000027_add_gdpr_columns_to_users`**: UrbanWater uses dedicated GDPR tables (000021-000025 in `authserver` schema); GDPR columns on the `users` table were redundant and not used.
