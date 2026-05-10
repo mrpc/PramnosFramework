@@ -18,8 +18,8 @@ namespace Pramnos\Auth;
  *                                        on TimescaleDB, plain table otherwise)
  *
  * On MySQL the authserver schema is expressed as a table-name prefix
- * (e.g. `authserver_user_twofactor`). Quoting is handled automatically by
- * SchemaBuilder::quoteTable() which is called once in the constructor.
+ * (e.g. `authserver_user_twofactor`). Schema resolution and dialect-appropriate
+ * quoting is handled automatically by QueryBuilder::table() for all DML operations.
  *
  * Password verification is intentionally NOT performed inside this service —
  * that concern belongs in the calling controller.
@@ -32,26 +32,9 @@ class TwoFactorAuthService
     /** @var \Pramnos\Database\Database */
     private $database;
 
-    /** @var string Fully-quoted `authserver.user_twofactor` for the current backend */
-    private string $tblUserTwofactor;
-
-    /** @var string Fully-quoted `authserver.twofactor_setup` for the current backend */
-    private string $tblTwofactorSetup;
-
-    /** @var string Fully-quoted `authserver.twofactor_attempts` for the current backend */
-    private string $tblTwofactorAttempts;
-
     public function __construct($database = null)
     {
         $this->database = $database ?: \Pramnos\Framework\Factory::getDatabase();
-
-        // Resolve schema-qualified names once; quoteTable() handles MySQL prefix
-        // conversion (authserver.foo → `authserver_foo`) vs PostgreSQL dot notation
-        // ("authserver"."foo") transparently.
-        $schema = $this->database->schema();
-        $this->tblUserTwofactor     = $schema->quoteTable('authserver.user_twofactor');
-        $this->tblTwofactorSetup    = $schema->quoteTable('authserver.twofactor_setup');
-        $this->tblTwofactorAttempts = $schema->quoteTable('authserver.twofactor_attempts');
     }
 
     // ── State queries ─────────────────────────────────────────────────────────
@@ -63,11 +46,11 @@ class TwoFactorAuthService
      */
     public function isEnabled(int $userId): bool
     {
-        $sql    = $this->database->prepareQuery(
-            "SELECT enabled FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
-            $userId
-        );
-        $result = $this->database->query($sql);
+        $result = $this->database->queryBuilder()
+            ->table('authserver.user_twofactor')
+            ->select('enabled')
+            ->where('userid', $userId)
+            ->first();
 
         return $result->numRows > 0 && (bool) $result->fields['enabled'];
     }
@@ -79,11 +62,11 @@ class TwoFactorAuthService
      */
     public function getSecret(int $userId): ?string
     {
-        $sql    = $this->database->prepareQuery(
-            "SELECT secret FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
-            $userId
-        );
-        $result = $this->database->query($sql);
+        $result = $this->database->queryBuilder()
+            ->table('authserver.user_twofactor')
+            ->select('secret')
+            ->where('userid', $userId)
+            ->first();
 
         return $result->numRows > 0 ? ($result->fields['secret'] ?: null) : null;
     }
@@ -96,17 +79,17 @@ class TwoFactorAuthService
      */
     public function getStatus(int $userId): array
     {
-        $sql    = $this->database->prepareQuery(
-            "SELECT enabled, secret FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
-            $userId
-        );
-        $result = $this->database->query($sql);
+        $result = $this->database->queryBuilder()
+            ->table('authserver.user_twofactor')
+            ->select(['enabled', 'secret'])
+            ->where('userid', $userId)
+            ->first();
 
         if ($result->numRows === 0) {
             return ['enabled' => false, 'setup' => false, 'backup_codes_remaining' => 0];
         }
 
-        $enabled  = (bool) $result->fields['enabled'];
+        $enabled   = (bool) $result->fields['enabled'];
         $hasSecret = !empty($result->fields['secret']);
 
         return [
@@ -123,11 +106,11 @@ class TwoFactorAuthService
      */
     public function getRemainingBackupCodes(int $userId): int
     {
-        $sql    = $this->database->prepareQuery(
-            "SELECT backup_codes FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
-            $userId
-        );
-        $result = $this->database->query($sql);
+        $result = $this->database->queryBuilder()
+            ->table('authserver.user_twofactor')
+            ->select('backup_codes')
+            ->where('userid', $userId)
+            ->first();
 
         if ($result->numRows === 0) {
             return 0;
@@ -161,24 +144,21 @@ class TwoFactorAuthService
         $expires = time() + 900; // 15-minute TTL
 
         // Remove any leftover incomplete setup sessions
-        $this->database->query(
-            $this->database->prepareQuery(
-                "DELETE FROM {$this->tblTwofactorSetup} WHERE userid = %d",
-                $userId
-            )
-        );
+        $this->database->queryBuilder()
+            ->table('authserver.twofactor_setup')
+            ->where('userid', $userId)
+            ->delete();
 
         // Create the new setup session
-        $this->database->query(
-            $this->database->prepareQuery(
-                "INSERT INTO {$this->tblTwofactorSetup} (userid, temp_secret, used, expires_at, created_at)
-                 VALUES (%d, %s, 0, %d, %d)",
-                $userId,
-                $secret,
-                $expires,
-                time()
-            )
-        );
+        $this->database->queryBuilder()
+            ->table('authserver.twofactor_setup')
+            ->insert([
+                'userid'     => $userId,
+                'temp_secret'=> $secret,
+                'used'       => 0,
+                'expires_at' => $expires,
+                'created_at' => time(),
+            ]);
 
         return [
             'secret'           => $secret,
@@ -205,14 +185,14 @@ class TwoFactorAuthService
         $now = time();
 
         // Load the active (unexpired, unused) setup session
-        $sql    = $this->database->prepareQuery(
-            "SELECT id, temp_secret FROM {$this->tblTwofactorSetup}
-              WHERE userid = %d AND used = 0 AND expires_at > %d
-              ORDER BY created_at DESC LIMIT 1",
-            $userId,
-            $now
-        );
-        $result = $this->database->query($sql);
+        $result = $this->database->queryBuilder()
+            ->table('authserver.twofactor_setup')
+            ->select(['id', 'temp_secret'])
+            ->where('userid', $userId)
+            ->where('used', 0)
+            ->where('expires_at', '>', $now)
+            ->orderBy('created_at', 'desc')
+            ->first();
 
         if ($result->numRows === 0) {
             return false;
@@ -230,52 +210,43 @@ class TwoFactorAuthService
         $hashedCodes = array_map([TOTPHelper::class, 'hashBackupCode'], $plainCodes);
 
         // Upsert user_twofactor: check for existing row first (cross-DB portable)
-        $existsSql = $this->database->prepareQuery(
-            "SELECT userid FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
-            $userId
-        );
-        $exists = $this->database->query($existsSql);
+        $exists = $this->database->queryBuilder()
+            ->table('authserver.user_twofactor')
+            ->select('userid')
+            ->where('userid', $userId)
+            ->first();
 
         if ($exists->numRows > 0) {
-            $this->database->query(
-                $this->database->prepareQuery(
-                    "UPDATE {$this->tblUserTwofactor}
-                        SET enabled              = 1,
-                            secret               = %s,
-                            backup_codes         = %s,
-                            setup_completed_at   = %d,
-                            updated_at           = %d
-                      WHERE userid = %d",
-                    $tempSecret,
-                    json_encode($hashedCodes),
-                    $now,
-                    $now,
-                    $userId
-                )
-            );
+            $this->database->queryBuilder()
+                ->table('authserver.user_twofactor')
+                ->where('userid', $userId)
+                ->update([
+                    'enabled'            => 1,
+                    'secret'             => $tempSecret,
+                    'backup_codes'       => json_encode($hashedCodes),
+                    'setup_completed_at' => $now,
+                    'updated_at'         => $now,
+                ]);
         } else {
-            $this->database->query(
-                $this->database->prepareQuery(
-                    "INSERT INTO {$this->tblUserTwofactor}
-                         (userid, enabled, secret, backup_codes, last_used, setup_completed_at, created_at, updated_at)
-                     VALUES (%d, 1, %s, %s, 0, %d, %d, %d)",
-                    $userId,
-                    $tempSecret,
-                    json_encode($hashedCodes),
-                    $now,
-                    $now,
-                    $now
-                )
-            );
+            $this->database->queryBuilder()
+                ->table('authserver.user_twofactor')
+                ->insert([
+                    'userid'             => $userId,
+                    'enabled'            => 1,
+                    'secret'             => $tempSecret,
+                    'backup_codes'       => json_encode($hashedCodes),
+                    'last_used'          => 0,
+                    'setup_completed_at' => $now,
+                    'created_at'         => $now,
+                    'updated_at'         => $now,
+                ]);
         }
 
         // Mark setup session as used
-        $this->database->query(
-            $this->database->prepareQuery(
-                "UPDATE {$this->tblTwofactorSetup} SET used = 1 WHERE id = %d",
-                $setupId
-            )
-        );
+        $this->database->queryBuilder()
+            ->table('authserver.twofactor_setup')
+            ->where('id', $setupId)
+            ->update(['used' => 1]);
 
         $this->logAttempt($userId, true, 'SETUP', $_SERVER['REMOTE_ADDR'] ?? null);
 
@@ -339,37 +310,31 @@ class TwoFactorAuthService
      */
     public function disable(int $userId): bool
     {
-        $sql    = $this->database->prepareQuery(
-            "SELECT userid FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
-            $userId
-        );
-        $result = $this->database->query($sql);
+        $result = $this->database->queryBuilder()
+            ->table('authserver.user_twofactor')
+            ->select('userid')
+            ->where('userid', $userId)
+            ->first();
 
         if ($result->numRows === 0) {
             return false;
         }
 
-        $now = time();
-        $this->database->query(
-            $this->database->prepareQuery(
-                "UPDATE {$this->tblUserTwofactor}
-                    SET enabled            = 0,
-                        secret             = NULL,
-                        backup_codes       = NULL,
-                        last_used          = 0,
-                        updated_at         = %d
-                  WHERE userid = %d",
-                $now,
-                $userId
-            )
-        );
+        $this->database->queryBuilder()
+            ->table('authserver.user_twofactor')
+            ->where('userid', $userId)
+            ->update([
+                'enabled'      => 0,
+                'secret'       => null,
+                'backup_codes' => null,
+                'last_used'    => 0,
+                'updated_at'   => time(),
+            ]);
 
-        $this->database->query(
-            $this->database->prepareQuery(
-                "DELETE FROM {$this->tblTwofactorSetup} WHERE userid = %d",
-                $userId
-            )
-        );
+        $this->database->queryBuilder()
+            ->table('authserver.twofactor_setup')
+            ->where('userid', $userId)
+            ->delete();
 
         $this->logAttempt($userId, true, 'DISABLE', $_SERVER['REMOTE_ADDR'] ?? null);
         return true;
@@ -393,16 +358,13 @@ class TwoFactorAuthService
         $plainCodes  = TOTPHelper::generateBackupCodes();
         $hashedCodes = array_map([TOTPHelper::class, 'hashBackupCode'], $plainCodes);
 
-        $this->database->query(
-            $this->database->prepareQuery(
-                "UPDATE {$this->tblUserTwofactor}
-                    SET backup_codes = %s, updated_at = %d
-                  WHERE userid = %d",
-                json_encode($hashedCodes),
-                time(),
-                $userId
-            )
-        );
+        $this->database->queryBuilder()
+            ->table('authserver.user_twofactor')
+            ->where('userid', $userId)
+            ->update([
+                'backup_codes' => json_encode($hashedCodes),
+                'updated_at'   => time(),
+            ]);
 
         $this->logAttempt($userId, true, 'REGEN_BACKUP', $_SERVER['REMOTE_ADDR'] ?? null);
         return $plainCodes;
@@ -415,11 +377,11 @@ class TwoFactorAuthService
      */
     public function cleanupExpiredSessions(): void
     {
-        $sql = $this->database->prepareQuery(
-            "DELETE FROM {$this->tblTwofactorSetup} WHERE used = 1 OR expires_at < %d",
-            time()
-        );
-        $this->database->query($sql);
+        $this->database->queryBuilder()
+            ->table('authserver.twofactor_setup')
+            ->where('used', 1)
+            ->orWhere('expires_at', '<', time())
+            ->delete();
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -432,11 +394,11 @@ class TwoFactorAuthService
      */
     private function verifyAndConsumeBackupCode(int $userId, string $code): bool
     {
-        $sql    = $this->database->prepareQuery(
-            "SELECT backup_codes FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
-            $userId
-        );
-        $result = $this->database->query($sql);
+        $result = $this->database->queryBuilder()
+            ->table('authserver.user_twofactor')
+            ->select('backup_codes')
+            ->where('userid', $userId)
+            ->first();
 
         if ($result->numRows === 0) {
             return false;
@@ -451,16 +413,13 @@ class TwoFactorAuthService
             if (TOTPHelper::verifyBackupCode($code, (string) $hash)) {
                 unset($codes[$index]);
 
-                $this->database->query(
-                    $this->database->prepareQuery(
-                        "UPDATE {$this->tblUserTwofactor}
-                            SET backup_codes = %s, updated_at = %d
-                          WHERE userid = %d",
-                        json_encode(array_values($codes)),
-                        time(),
-                        $userId
-                    )
-                );
+                $this->database->queryBuilder()
+                    ->table('authserver.user_twofactor')
+                    ->where('userid', $userId)
+                    ->update([
+                        'backup_codes' => json_encode(array_values($codes)),
+                        'updated_at'   => time(),
+                    ]);
 
                 return true;
             }
@@ -477,19 +436,19 @@ class TwoFactorAuthService
      */
     private function isRecentlyUsed(int $userId): bool
     {
-        $sql    = $this->database->prepareQuery(
-            "SELECT last_used FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
-            $userId
-        );
-        $result = $this->database->query($sql);
+        $result = $this->database->queryBuilder()
+            ->table('authserver.user_twofactor')
+            ->select('last_used')
+            ->where('userid', $userId)
+            ->first();
 
         if ($result->numRows === 0) {
             return false;
         }
 
-        $lastUsed        = (int) $result->fields['last_used'];
-        $currentWindow   = intval(time() / 30);
-        $lastUsedWindow  = intval($lastUsed / 30);
+        $lastUsed       = (int) $result->fields['last_used'];
+        $currentWindow  = intval(time() / 30);
+        $lastUsedWindow = intval($lastUsed / 30);
 
         return abs($currentWindow - $lastUsedWindow) <= 1;
     }
@@ -499,14 +458,14 @@ class TwoFactorAuthService
      */
     private function updateLastUsed(int $userId): void
     {
-        $this->database->query(
-            $this->database->prepareQuery(
-                "UPDATE {$this->tblUserTwofactor} SET last_used = %d, updated_at = %d WHERE userid = %d",
-                time(),
-                time(),
-                $userId
-            )
-        );
+        $now = time();
+        $this->database->queryBuilder()
+            ->table('authserver.user_twofactor')
+            ->where('userid', $userId)
+            ->update([
+                'last_used'  => $now,
+                'updated_at' => $now,
+            ]);
     }
 
     /**
@@ -522,21 +481,15 @@ class TwoFactorAuthService
      */
     private function logAttempt(int $userId, bool $success, string $codeUsed, ?string $ipAddress): void
     {
-        $hashedCode = sprintf('%08x', crc32($codeUsed));
-        $now        = gmdate('Y-m-d H:i:s', time());
-        $userAgent  = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
-
-        $sql = $this->database->prepareQuery(
-            "INSERT INTO {$this->tblTwofactorAttempts}
-                 (userid, success, ip_address, code_used, user_agent, attempt_time)
-             VALUES (%d, %d, %s, %s, %s, %s)",
-            $userId,
-            $success ? 1 : 0,
-            $ipAddress,
-            $hashedCode,
-            $userAgent,
-            $now
-        );
-        $this->database->query($sql);
+        $this->database->queryBuilder()
+            ->table('authserver.twofactor_attempts')
+            ->insert([
+                'userid'       => $userId,
+                'success'      => $success ? 1 : 0,
+                'ip_address'   => $ipAddress,
+                'code_used'    => sprintf('%08x', crc32($codeUsed)),
+                'user_agent'   => (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''),
+                'attempt_time' => gmdate('Y-m-d H:i:s', time()),
+            ]);
     }
 }
