@@ -288,8 +288,8 @@ class Init extends Command
 
         $enabled = [];
         foreach ($choices as $key => $label) {
-            $default = ($key === 'auth');
-            $answer  = $helper->ask($input, $output, new ConfirmationQuestion("  Enable $label? [" . ($default ? 'Y/n' : 'y/N') . '] ', $default));
+            $default = true;
+            $answer  = $helper->ask($input, $output, new ConfirmationQuestion("  Enable $label? [Y/n] ", $default));
             if ($answer) {
                 $enabled[] = $key;
             }
