@@ -77,13 +77,17 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
 
     protected function dropTables(): void
     {
-        $this->db->execute('DROP TABLE IF EXISTS twofactor_attempts CASCADE');
-        $this->db->execute('DROP TABLE IF EXISTS twofactor_setup CASCADE');
-        $this->db->execute('DROP TABLE IF EXISTS user_twofactor CASCADE');
+        // Tables live in the authserver schema on PostgreSQL
+        $this->db->execute('DROP TABLE IF EXISTS authserver.twofactor_attempts CASCADE');
+        $this->db->execute('DROP TABLE IF EXISTS authserver.twofactor_setup CASCADE');
+        $this->db->execute('DROP TABLE IF EXISTS authserver.user_twofactor CASCADE');
     }
 
     protected function createTables(): void
     {
+        // authserver schema must exist before any authserver.* tables can be created
+        $this->db->execute('CREATE SCHEMA IF NOT EXISTS authserver');
+
         $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
             ->disableOriginalConstructor()
             ->getMock();
@@ -133,7 +137,7 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         $this->assertTrue(TOTPHelper::isValidSecret($info['secret']));
 
         // Assert — row was inserted
-        $result = $this->db->query("SELECT userid, used, expires_at FROM twofactor_setup WHERE userid = 1");
+        $result = $this->db->query("SELECT userid, used, expires_at FROM authserver.twofactor_setup WHERE userid = 1");
         $this->assertSame(1, $result->numRows);
         $this->assertSame(0, (int) $result->fields['used']);
         $this->assertGreaterThan(time(), (int) $result->fields['expires_at']);
@@ -146,12 +150,12 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
     {
         // Arrange
         $this->service->startSetup(2, 'bob@example.com');
-        $first       = $this->db->query("SELECT temp_secret FROM twofactor_setup WHERE userid = 2");
+        $first       = $this->db->query("SELECT temp_secret FROM authserver.twofactor_setup WHERE userid = 2");
         $firstSecret = $first->fields['temp_secret'];
 
         // Act
         $this->service->startSetup(2, 'bob@example.com');
-        $second = $this->db->query("SELECT temp_secret FROM twofactor_setup WHERE userid = 2");
+        $second = $this->db->query("SELECT temp_secret FROM authserver.twofactor_setup WHERE userid = 2");
 
         // Assert
         $this->assertSame(1, $second->numRows);
@@ -178,12 +182,12 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         // Assert
         $this->assertTrue($result);
 
-        $row = $this->db->query("SELECT enabled, secret FROM user_twofactor WHERE userid = 10");
+        $row = $this->db->query("SELECT enabled, secret FROM authserver.user_twofactor WHERE userid = 10");
         $this->assertSame(1, $row->numRows);
         $this->assertSame(1, (int) $row->fields['enabled']);
         $this->assertSame($info['secret'], $row->fields['secret']);
 
-        $setup = $this->db->query("SELECT used FROM twofactor_setup WHERE userid = 10");
+        $setup = $this->db->query("SELECT used FROM authserver.twofactor_setup WHERE userid = 10");
         $this->assertSame(1, (int) $setup->fields['used']);
     }
 
@@ -200,7 +204,7 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
 
         // Assert
         $this->assertFalse($result);
-        $row = $this->db->query("SELECT userid FROM user_twofactor WHERE userid = 11");
+        $row = $this->db->query("SELECT userid FROM authserver.user_twofactor WHERE userid = 11");
         $this->assertSame(0, $row->numRows);
     }
 
@@ -269,7 +273,7 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         // Assert
         $this->assertTrue($result);
 
-        $attempts = $this->db->query("SELECT success FROM twofactor_attempts WHERE userid = 30 ORDER BY attempt_time DESC LIMIT 1");
+        $attempts = $this->db->query("SELECT success FROM authserver.twofactor_attempts WHERE userid = 30 ORDER BY attempt_time DESC LIMIT 1");
         $this->assertSame(1, (int) $attempts->fields['success']);
     }
 
@@ -341,7 +345,7 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         $this->assertTrue($result);
         $this->assertFalse($this->service->isEnabled(50));
 
-        $row = $this->db->query("SELECT enabled, secret FROM user_twofactor WHERE userid = 50");
+        $row = $this->db->query("SELECT enabled, secret FROM authserver.user_twofactor WHERE userid = 50");
         $this->assertSame(1, $row->numRows);
         $this->assertSame(0, (int) $row->fields['enabled']);
         $this->assertEmpty($row->fields['secret']);
@@ -395,15 +399,15 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         $expired = $now - 1;
         $future  = $now + 900;
 
-        $this->db->query("INSERT INTO twofactor_setup (userid, temp_secret, used, expires_at, created_at) VALUES (70, 'EXPIRED1234567890', 0, {$expired}, {$now})");
-        $this->db->query("INSERT INTO twofactor_setup (userid, temp_secret, used, expires_at, created_at) VALUES (71, 'USED12345678901234', 1, {$future}, {$now})");
-        $this->db->query("INSERT INTO twofactor_setup (userid, temp_secret, used, expires_at, created_at) VALUES (72, 'ACTIVE123456789012', 0, {$future}, {$now})");
+        $this->db->query("INSERT INTO authserver.twofactor_setup (userid, temp_secret, used, expires_at, created_at) VALUES (70, 'EXPIRED1234567890', 0, {$expired}, {$now})");
+        $this->db->query("INSERT INTO authserver.twofactor_setup (userid, temp_secret, used, expires_at, created_at) VALUES (71, 'USED12345678901234', 1, {$future}, {$now})");
+        $this->db->query("INSERT INTO authserver.twofactor_setup (userid, temp_secret, used, expires_at, created_at) VALUES (72, 'ACTIVE123456789012', 0, {$future}, {$now})");
 
         // Act
         $this->service->cleanupExpiredSessions();
 
         // Assert
-        $remaining = $this->db->query("SELECT userid FROM twofactor_setup ORDER BY userid");
+        $remaining = $this->db->query("SELECT userid FROM authserver.twofactor_setup ORDER BY userid");
         $this->assertSame(1, $remaining->numRows);
         $this->assertSame(72, (int) $remaining->fields['userid']);
     }

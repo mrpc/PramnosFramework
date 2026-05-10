@@ -79,11 +79,15 @@ class LoginlockoutPostgreSQLTest extends TestCase
 
     protected function dropTable(): void
     {
-        $this->db->execute('DROP TABLE IF EXISTS loginlockout CASCADE');
+        // Table lives in the authserver schema on PostgreSQL
+        $this->db->execute('DROP TABLE IF EXISTS authserver.loginlockouts CASCADE');
     }
 
     protected function createTable(): void
     {
+        // authserver schema must exist before authserver.loginlockouts can be created
+        $this->db->execute('CREATE SCHEMA IF NOT EXISTS authserver');
+
         $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
             ->disableOriginalConstructor()
             ->getMock();
@@ -139,7 +143,7 @@ class LoginlockoutPostgreSQLTest extends TestCase
         $this->lockout->recordFailedAttempt('identifier', 'user@example.com');
 
         // Assert — row was created
-        $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM loginlockout WHERE locktype = 'identifier' AND lookupvalue = 'user@example.com'");
+        $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM authserver.loginlockouts WHERE locktype = 'identifier' AND lookupvalue = 'user@example.com'");
         $this->assertSame(1, $result->numRows, 'row must be created on first failed attempt');
         $this->assertSame(1, (int) $result->fields['failedattempts']);
         $this->assertSame(0, (int) $result->fields['lockoutuntil'], 'no lockout after 1 attempt');
@@ -160,7 +164,7 @@ class LoginlockoutPostgreSQLTest extends TestCase
         $this->lockout->recordFailedAttempt('identifier', 'user2@example.com');
 
         // Assert
-        $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM loginlockout WHERE locktype = 'identifier' AND lookupvalue = 'user2@example.com'");
+        $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM authserver.loginlockouts WHERE locktype = 'identifier' AND lookupvalue = 'user2@example.com'");
         $this->assertSame(2, (int) $result->fields['failedattempts']);
         $this->assertSame(0, (int) $result->fields['lockoutuntil'], 'no lockout after 2 attempts');
     }
@@ -284,7 +288,7 @@ class LoginlockoutPostgreSQLTest extends TestCase
         $this->lockout->clearSuccessfulLoginState($scope, $id);
 
         // Assert — row is gone
-        $result = $this->db->query("SELECT COUNT(*) AS cnt FROM loginlockout WHERE locktype = 'identifier' AND lookupvalue = 'clearme@example.com'");
+        $result = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.loginlockouts WHERE locktype = 'identifier' AND lookupvalue = 'clearme@example.com'");
         $this->assertSame(0, (int) $result->fields['cnt'], 'row must be deleted after clearSuccessfulLoginState()');
 
         $after = $this->lockout->getLockoutStatus($scope, $id);
@@ -312,7 +316,7 @@ class LoginlockoutPostgreSQLTest extends TestCase
         $this->lockout->recordFailedAttempt($scope, $id);
 
         // Assert — counter is 1, no lockout
-        $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM loginlockout WHERE locktype = 'identifier' AND lookupvalue = 'restart@example.com'");
+        $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM authserver.loginlockouts WHERE locktype = 'identifier' AND lookupvalue = 'restart@example.com'");
         $this->assertSame(1, (int) $result->fields['failedattempts']);
         $this->assertSame(0, (int) $result->fields['lockoutuntil']);
     }
@@ -336,7 +340,7 @@ class LoginlockoutPostgreSQLTest extends TestCase
         $oldTime = time() - Loginlockout::DEFAULT_WINDOW_SECONDS - 60;
 
         $this->db->query(
-            "INSERT INTO loginlockout
+            "INSERT INTO authserver.loginlockouts
              (locktype, lookupvalue, failedattempts, firstfailedat, lastfailedat, lockoutuntil, createdat, updatedat)
              VALUES ('identifier', 'oldwindow@example.com', 9, {$oldTime}, {$oldTime}, 0, {$oldTime}, {$oldTime})"
         );
@@ -345,7 +349,7 @@ class LoginlockoutPostgreSQLTest extends TestCase
         $this->lockout->recordFailedAttempt($scope, $id);
 
         // Assert
-        $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM loginlockout WHERE locktype = 'identifier' AND lookupvalue = 'oldwindow@example.com'");
+        $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM authserver.loginlockouts WHERE locktype = 'identifier' AND lookupvalue = 'oldwindow@example.com'");
         $this->assertSame(1, (int) $result->fields['failedattempts'],
             'counter must reset when last failure is outside the sliding window');
         $this->assertSame(0, (int) $result->fields['lockoutuntil'],
