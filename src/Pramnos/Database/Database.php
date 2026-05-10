@@ -186,6 +186,21 @@ class Database extends \Pramnos\Framework\Base
     protected $writeConfig = [];
 
     /**
+     * Last error text from a failed operation (prepare/execute/insert/update).
+     * Declared as a real property so that empty() checks work correctly — the
+     * Base magic __set/__get pattern bypasses __isset(), which would cause
+     * empty($this->error_text) to always return true.
+     * @var string
+     */
+    public $error_text = '';
+
+    /**
+     * Last error number from a failed operation.
+     * @var int
+     */
+    public $error_number = 0;
+
+    /**
      * Database connection link (Legacy property, now points to active connection)
      * @var \mysqli|\PgSql\Connection
      */
@@ -1587,11 +1602,12 @@ class Database extends \Pramnos\Framework\Base
     public function getError()
     {
         if ($this->type == 'postgresql') {
-            $result['message'] = pg_last_error($this->_dbConnection);
+            // pg_last_error() with a null connection emits a deprecation in PHP 8.1+
+            $result['message'] = $this->_dbConnection ? pg_last_error($this->_dbConnection) : '';
             $result['code'] = 0;
         } else {
-            $result['message'] = mysqli_error($this->_dbConnection);
-            $result['code'] = mysqli_errno($this->_dbConnection);
+            $result['message'] = $this->_dbConnection ? mysqli_error($this->_dbConnection) : '';
+            $result['code']    = $this->_dbConnection ? mysqli_errno($this->_dbConnection) : 0;
         }
         // insertDataToTable/updateTableData catch PHP-level exceptions and store
         // them in error_text; fall back to that when the DB driver has no pending error.
