@@ -233,4 +233,43 @@ class UserAdminCreationPostgreSQLCharacterizationTest extends TestCase
         $this->assertStringContainsString('username', strtolower($message),
             'Exception message must mention the offending field');
     }
+
+    /**
+     * After CreateUsersTable::up() advances the PostgreSQL sequence to 1
+     * (is_called=true → next nextval() returns 2), the first admin created by
+     * the scaffold must receive userid=2, not userid=1.
+     *
+     * userid=1 is permanently reserved for the Guest/anonymous identity that
+     * User::setupDb() seeds separately. Before this fix the migration did not
+     * advance the sequence, so the first INSERT always landed at userid=1.
+     */
+    public function testAdminUserDoesNotClaimGuestUserid(): void
+    {
+        // Arrange — advance the sequence exactly as CreateUsersTable::up() now does.
+        // setval(seq, 1, true=default) → current=1, is_called=true → next nextval()=2.
+        $this->db->query("SELECT setval(pg_get_serial_sequence('users', 'userid'), 1)");
+
+        $user = new User(0);
+        $user->username  = 'admin';
+        $user->email     = 'admin@example.com';
+        $user->usertype  = 10;
+        $user->active    = 1;
+        $user->validated = 1;
+        $user->regdate   = time();
+        $user->setPassword('Test1234!');
+
+        // Act
+        $user->save();
+
+        // Assert — admin must NOT land on the reserved Guest userid
+        $this->assertEmpty(
+            $user->_errors,
+            'save() must produce no errors; got: ' . implode(', ', $user->_errors)
+        );
+        $this->assertGreaterThan(1, (int) $user->userid,
+            'Admin userid must be > 1; userid=1 is reserved for the Guest/anonymous user. '
+            . 'Got userid=' . $user->userid . ' — migration sequence advance is broken or '
+            . '_save() is not honouring it.'
+        );
+    }
 }
