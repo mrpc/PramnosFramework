@@ -398,10 +398,16 @@ class MigrationRunner
                 }
             }
 
-            // Merge newly-ready into queue in correct order
+            // Merge newly-ready migrations into the queue maintaining priority order.
+            // Re-sorting the full queue (rather than inserting at position 0) ensures
+            // that a high-priority-number migration becoming ready (e.g. daily_activity_summary
+            // at priority 125) does not jump ahead of lower-priority-number siblings
+            // (e.g. user_consents at 110, data_processing at 115) that are already queued.
             if (!empty($newReady)) {
-                $insertable = $this->topoQueue($newReady, $map);
-                array_splice($queue, 0, 0, $insertable);
+                foreach ($newReady as $slug) {
+                    $queue[] = $slug;
+                }
+                $queue = $this->topoQueue($queue, $map);
             }
         }
 
