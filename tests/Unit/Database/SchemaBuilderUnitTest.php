@@ -184,7 +184,28 @@ class SchemaBuilderUnitTest extends TestCase
 
     public function testPGBigInteger(): void
     {
+        // bigInteger without autoIncrement must remain plain BIGINT
         $this->assertEquals('BIGINT', $this->pgColumn('bigInteger'));
+    }
+
+    /**
+     * bigInteger()->autoIncrement() is the cross-compatible pattern used by
+     * migrations that need a signed BIGINT auto-increment on both MySQL and
+     * PostgreSQL. On PostgreSQL this must compile to BIGSERIAL (not plain BIGINT),
+     * otherwise the column has no sequence and INSERT without an explicit userid
+     * fails with "null value in column violates not-null constraint".
+     */
+    public function testPGBigIntegerWithAutoIncrementMapsToBigSerial(): void
+    {
+        $this->assertEquals('BIGSERIAL', $this->pgColumn('bigInteger', ['autoIncrement' => true]));
+    }
+
+    /**
+     * integer()->autoIncrement() must compile to SERIAL on PostgreSQL.
+     */
+    public function testPGIntegerWithAutoIncrementMapsToSerial(): void
+    {
+        $this->assertEquals('SERIAL', $this->pgColumn('integer', ['autoIncrement' => true]));
     }
 
     public function testPGIncrements(): void
