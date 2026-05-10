@@ -28,14 +28,14 @@ class CreateDailyActivitySummaryView extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 125;
     public array   $dependencies = ['create_user_activity_log_table'];
-    public $description  = 'Creates the daily_activity_summary continuous aggregate / materialized view';
+    public $description  = 'Creates the authserver.daily_activity_summary continuous aggregate / materialized view';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        // Requires user_activity_log to exist
-        if (!$schema->hasTable('user_activity_log')) {
+        // Requires authserver.user_activity_log to exist
+        if (!$schema->hasTable('authserver.user_activity_log')) {
             return;
         }
 
@@ -44,27 +44,31 @@ class CreateDailyActivitySummaryView extends Migration
             // TimescaleDB: continuous aggregate — auto-refreshed by background worker
             function () use ($schema) {
                 $schema->createContinuousAggregate(
-                    'daily_activity_summary',
+                    'authserver.daily_activity_summary',
                     "SELECT
                          time_bucket('1 day', created_at) AS day,
                          userid,
                          COUNT(*) AS action_count,
                          COUNT(DISTINCT action) AS distinct_action_types
-                     FROM user_activity_log
+                     FROM authserver.user_activity_log
                      GROUP BY day, userid"
                 );
             },
             // Fallback: materialized view on PostgreSQL, plain view on MySQL
             function () use ($schema) {
+                // quoteTable() handles the schema→prefix translation per backend:
+                // MySQL → `authserver_user_activity_log`, PostgreSQL → "authserver"."user_activity_log"
+                $activityLog = $schema->quoteTable('authserver.user_activity_log');
+
                 $sql = "SELECT
                             DATE(created_at) AS day,
                             userid,
                             COUNT(*) AS action_count,
                             COUNT(DISTINCT action) AS distinct_action_types
-                        FROM user_activity_log
+                        FROM {$activityLog}
                         GROUP BY DATE(created_at), userid";
 
-                $schema->createMaterializedView('daily_activity_summary', $sql);
+                $schema->createMaterializedView('authserver.daily_activity_summary', $sql);
             }
         );
     }
@@ -77,11 +81,11 @@ class CreateDailyActivitySummaryView extends Migration
             DatabaseCapabilities::TIMESCALEDB,
             function () {
                 $this->application->database->query(
-                    'DROP MATERIALIZED VIEW IF EXISTS daily_activity_summary CASCADE'
+                    'DROP MATERIALIZED VIEW IF EXISTS authserver.daily_activity_summary CASCADE'
                 );
             },
             function () use ($schema) {
-                $schema->dropView('daily_activity_summary');
+                $schema->dropView('authserver.daily_activity_summary');
             }
         );
     }

@@ -23,18 +23,18 @@ class CreateDataProcessingRecordsTable extends Migration
     public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 115;
-    public array   $dependencies = [];
-    public $description  = 'Creates the data_processing_records GDPR Art.30 log (TimescaleDB hypertable when available)';
+    public array   $dependencies = ['create_authserver_schema'];
+    public $description  = 'Creates the authserver.data_processing_records GDPR Art.30 log (TimescaleDB hypertable when available)';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('data_processing_records')) {
+        if ($schema->hasTable('authserver.data_processing_records')) {
             return;
         }
 
-        $schema->createTable('data_processing_records', function ($table) {
+        $schema->createTable('authserver.data_processing_records', function ($table) {
             $table->comment('GDPR Article 30 data processing activity log; TimescaleDB hypertable with 36-month retention');
 
             $table->bigInteger('userid')
@@ -59,18 +59,18 @@ class CreateDataProcessingRecordsTable extends Migration
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,
             function () use ($schema) {
-                $schema->createHypertable('data_processing_records', 'processed_at', [
+                $schema->createHypertable('authserver.data_processing_records', 'processed_at', [
                     'chunk_time_interval' => '1 week',
                 ]);
-                $schema->enableCompression('data_processing_records');
-                $schema->addCompressionPolicy('data_processing_records', '90 days');
-                $schema->addRetentionPolicy('data_processing_records', '36 months');
+                $schema->enableCompression('authserver.data_processing_records');
+                $schema->addCompressionPolicy('authserver.data_processing_records', '90 days');
+                $schema->addRetentionPolicy('authserver.data_processing_records', '36 months');
             }
         );
     }
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('data_processing_records');
+        $this->application->database->schema()->dropTableIfExists('authserver.data_processing_records');
     }
 }

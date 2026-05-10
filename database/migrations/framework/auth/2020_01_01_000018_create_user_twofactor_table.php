@@ -19,18 +19,18 @@ class CreateUserTwofactorTable extends Migration
     public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 80;
-    public array   $dependencies = [];
-    public $description  = 'Creates the user_twofactor 2FA state table';
+    public array   $dependencies = ['create_authserver_schema'];
+    public $description  = 'Creates the authserver.user_twofactor 2FA state table';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('user_twofactor')) {
+        if ($schema->hasTable('authserver.user_twofactor')) {
             return;
         }
 
-        $schema->createTable('user_twofactor', function ($table) {
+        $schema->createTable('authserver.user_twofactor', function ($table) {
             $table->comment('Two-factor authentication state — one row per user; userid is the PK matching users.userid');
 
             $table->bigInteger('userid')
@@ -56,6 +56,6 @@ class CreateUserTwofactorTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('user_twofactor');
+        $this->application->database->schema()->dropTableIfExists('authserver.user_twofactor');
     }
 }
