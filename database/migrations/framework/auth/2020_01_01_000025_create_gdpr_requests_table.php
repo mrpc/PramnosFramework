@@ -23,18 +23,18 @@ class CreateGdprRequestsTable extends Migration
     public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 120;
-    public array   $dependencies = [];
-    public $description  = 'Creates the gdpr_requests GDPR rights request table (TimescaleDB hypertable when available)';
+    public array   $dependencies = ['create_authserver_schema'];
+    public $description  = 'Creates the authserver.gdpr_requests GDPR rights request table (TimescaleDB hypertable when available)';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('gdpr_requests')) {
+        if ($schema->hasTable('authserver.gdpr_requests')) {
             return;
         }
 
-        $schema->createTable('gdpr_requests', function ($table) {
+        $schema->createTable('authserver.gdpr_requests', function ($table) {
             $table->comment('GDPR rights exercise requests (erasure, access, portability); TimescaleDB hypertable with 7-year retention');
 
             $table->bigInteger('userid')
@@ -59,18 +59,18 @@ class CreateGdprRequestsTable extends Migration
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,
             function () use ($schema) {
-                $schema->createHypertable('gdpr_requests', 'requested_at', [
+                $schema->createHypertable('authserver.gdpr_requests', 'requested_at', [
                     'chunk_time_interval' => '1 month',
                 ]);
-                $schema->enableCompression('gdpr_requests');
-                $schema->addCompressionPolicy('gdpr_requests', '1 year');
-                $schema->addRetentionPolicy('gdpr_requests', '7 years');
+                $schema->enableCompression('authserver.gdpr_requests');
+                $schema->addCompressionPolicy('authserver.gdpr_requests', '1 year');
+                $schema->addRetentionPolicy('authserver.gdpr_requests', '7 years');
             }
         );
     }
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('gdpr_requests');
+        $this->application->database->schema()->dropTableIfExists('authserver.gdpr_requests');
     }
 }
