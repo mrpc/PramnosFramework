@@ -322,7 +322,8 @@ class MigrationRunnerUnitTest extends TestCase
         $perms      = $this->makeMigration('create_authserver_permissions_table',      priority: 30, deps: ['create_authserver_roles_table']);
         $userRoles  = $this->makeMigration('create_authserver_user_roles_table',       priority: 40, deps: ['create_authserver_roles_table']);
         $auditLog   = $this->makeMigration('create_authserver_audit_log_table',        priority: 50, deps: ['create_authserver_permissions_table']);
-        $userOrgs   = $this->makeMigration('create_authserver_user_organizations_table', priority: 45, deps: ['create_authserver_user_roles_table']);
+        $orgs       = $this->makeMigration('create_organizations_table',               priority: 16);
+        $userOrgs   = $this->makeMigration('create_authserver_user_organizations_table', priority: 45, deps: ['create_authserver_user_roles_table', 'create_organizations_table']);
         $permTmpl   = $this->makeMigration('create_authserver_permission_templates_table', priority: 55, deps: ['create_authserver_audit_log_table']);
         $roleTmpl   = $this->makeMigration('create_authserver_role_templates_table',   priority: 60, deps: ['create_authserver_permission_templates_table']);
         $permInh    = $this->makeMigration('create_authserver_permission_inheritance_table', priority: 65, deps: ['create_authserver_role_templates_table']);
@@ -337,7 +338,7 @@ class MigrationRunnerUnitTest extends TestCase
 
         // Act
         $sorted = $runner->sort([
-            $schema, $roles, $perms, $userRoles, $auditLog, $userOrgs,
+            $schema, $roles, $perms, $userRoles, $auditLog, $orgs, $userOrgs,
             $permTmpl, $roleTmpl, $permInh, $effPerms, $rbacFns,
         ]);
 
