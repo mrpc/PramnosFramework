@@ -529,6 +529,40 @@ class MigrationRunnerUnitTest extends TestCase
         $this->assertSame('create_users_table', $pending[0]->getSlug());
     }
 
+    /**
+     * Regression: when a high-priority-number migration becomes newly ready
+     * mid-sort (because its lower-priority-number dependency just ran), it must
+     * NOT jump ahead of siblings with lower priority numbers that are already in
+     * the queue waiting to run.
+     *
+     * Concrete scenario: auth schema migrations 000020–000025 all depend on
+     * create_authserver_schema (priority 10). After that runs, priority 90–125
+     * all become ready and get enqueued together — sorted correctly. Then when
+     * priority 100 (user_activity_log) runs, priority 125 (daily_activity_summary)
+     * becomes newly ready. It must be inserted AFTER priority 110, 115, 120 —
+     * not at position 0 of the queue.
+     */
+    public function testHighPriorityNumberSiblingDoesNotJumpQueueWhenMadeReady(): void
+    {
+        // Arrange
+        // schema (10) → [a(90), b(100), c(110), d(125→depends on b)]
+        $schema = $this->makeMigration('schema',  10);
+        $a      = $this->makeMigration('a',        90, ['schema']);
+        $b      = $this->makeMigration('b',       100, ['schema']);
+        $c      = $this->makeMigration('c',       110, ['schema']);
+        $d      = $this->makeMigration('d',       125, ['b']);     // only depends on b(100)
+
+        $runner = new MigrationRunner();
+
+        // Act
+        $sorted = $runner->sort([$schema, $a, $b, $c, $d]);
+
+        // Assert — d(125) must come after c(110) despite becoming ready when b(100) runs
+        $slugs = array_map(fn($m) => $m->getSlug(), $sorted);
+        $this->assertSame(['schema', 'a', 'b', 'c', 'd'], $slugs,
+            'd(125) must not jump ahead of c(110) when it becomes ready after b(100) runs');
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
