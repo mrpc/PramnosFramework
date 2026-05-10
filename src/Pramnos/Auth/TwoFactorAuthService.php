@@ -12,10 +12,14 @@ namespace Pramnos\Auth;
  * attempt logging.
  *
  * Three database tables are used (created by corresponding migrations):
- *   - `user_twofactor`   — one row per user; stores the secret and state
- *   - `twofactor_setup`  — temporary rows during the setup flow (15-min TTL)
- *   - `twofactor_attempts` — append-only attempt log (TimescaleDB hypertable
- *                             on TimescaleDB, plain table otherwise)
+ *   - `authserver.user_twofactor`   — one row per user; stores the secret and state
+ *   - `authserver.twofactor_setup`  — temporary rows during the setup flow (15-min TTL)
+ *   - `authserver.twofactor_attempts` — append-only attempt log (TimescaleDB hypertable
+ *                                        on TimescaleDB, plain table otherwise)
+ *
+ * On MySQL the authserver schema is expressed as a table-name prefix
+ * (e.g. `authserver_user_twofactor`). Quoting is handled automatically by
+ * SchemaBuilder::quoteTable() which is called once in the constructor.
  *
  * Password verification is intentionally NOT performed inside this service —
  * that concern belongs in the calling controller.
@@ -28,9 +32,26 @@ class TwoFactorAuthService
     /** @var \Pramnos\Database\Database */
     private $database;
 
+    /** @var string Fully-quoted `authserver.user_twofactor` for the current backend */
+    private string $tblUserTwofactor;
+
+    /** @var string Fully-quoted `authserver.twofactor_setup` for the current backend */
+    private string $tblTwofactorSetup;
+
+    /** @var string Fully-quoted `authserver.twofactor_attempts` for the current backend */
+    private string $tblTwofactorAttempts;
+
     public function __construct($database = null)
     {
         $this->database = $database ?: \Pramnos\Framework\Factory::getDatabase();
+
+        // Resolve schema-qualified names once; quoteTable() handles MySQL prefix
+        // conversion (authserver.foo → `authserver_foo`) vs PostgreSQL dot notation
+        // ("authserver"."foo") transparently.
+        $schema = $this->database->schema();
+        $this->tblUserTwofactor     = $schema->quoteTable('authserver.user_twofactor');
+        $this->tblTwofactorSetup    = $schema->quoteTable('authserver.twofactor_setup');
+        $this->tblTwofactorAttempts = $schema->quoteTable('authserver.twofactor_attempts');
     }
 
     // ── State queries ─────────────────────────────────────────────────────────
@@ -43,7 +64,7 @@ class TwoFactorAuthService
     public function isEnabled(int $userId): bool
     {
         $sql    = $this->database->prepareQuery(
-            "SELECT enabled FROM user_twofactor WHERE userid = %d LIMIT 1",
+            "SELECT enabled FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
             $userId
         );
         $result = $this->database->query($sql);
@@ -59,7 +80,7 @@ class TwoFactorAuthService
     public function getSecret(int $userId): ?string
     {
         $sql    = $this->database->prepareQuery(
-            "SELECT secret FROM user_twofactor WHERE userid = %d LIMIT 1",
+            "SELECT secret FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
             $userId
         );
         $result = $this->database->query($sql);
@@ -76,7 +97,7 @@ class TwoFactorAuthService
     public function getStatus(int $userId): array
     {
         $sql    = $this->database->prepareQuery(
-            "SELECT enabled, secret FROM user_twofactor WHERE userid = %d LIMIT 1",
+            "SELECT enabled, secret FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
             $userId
         );
         $result = $this->database->query($sql);
@@ -103,7 +124,7 @@ class TwoFactorAuthService
     public function getRemainingBackupCodes(int $userId): int
     {
         $sql    = $this->database->prepareQuery(
-            "SELECT backup_codes FROM user_twofactor WHERE userid = %d LIMIT 1",
+            "SELECT backup_codes FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
             $userId
         );
         $result = $this->database->query($sql);
@@ -142,7 +163,7 @@ class TwoFactorAuthService
         // Remove any leftover incomplete setup sessions
         $this->database->query(
             $this->database->prepareQuery(
-                "DELETE FROM twofactor_setup WHERE userid = %d",
+                "DELETE FROM {$this->tblTwofactorSetup} WHERE userid = %d",
                 $userId
             )
         );
@@ -150,7 +171,7 @@ class TwoFactorAuthService
         // Create the new setup session
         $this->database->query(
             $this->database->prepareQuery(
-                "INSERT INTO twofactor_setup (userid, temp_secret, used, expires_at, created_at)
+                "INSERT INTO {$this->tblTwofactorSetup} (userid, temp_secret, used, expires_at, created_at)
                  VALUES (%d, %s, 0, %d, %d)",
                 $userId,
                 $secret,
@@ -185,7 +206,7 @@ class TwoFactorAuthService
 
         // Load the active (unexpired, unused) setup session
         $sql    = $this->database->prepareQuery(
-            "SELECT id, temp_secret FROM twofactor_setup
+            "SELECT id, temp_secret FROM {$this->tblTwofactorSetup}
               WHERE userid = %d AND used = 0 AND expires_at > %d
               ORDER BY created_at DESC LIMIT 1",
             $userId,
@@ -210,7 +231,7 @@ class TwoFactorAuthService
 
         // Upsert user_twofactor: check for existing row first (cross-DB portable)
         $existsSql = $this->database->prepareQuery(
-            "SELECT userid FROM user_twofactor WHERE userid = %d LIMIT 1",
+            "SELECT userid FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
             $userId
         );
         $exists = $this->database->query($existsSql);
@@ -218,7 +239,7 @@ class TwoFactorAuthService
         if ($exists->numRows > 0) {
             $this->database->query(
                 $this->database->prepareQuery(
-                    "UPDATE user_twofactor
+                    "UPDATE {$this->tblUserTwofactor}
                         SET enabled              = 1,
                             secret               = %s,
                             backup_codes         = %s,
@@ -235,7 +256,7 @@ class TwoFactorAuthService
         } else {
             $this->database->query(
                 $this->database->prepareQuery(
-                    "INSERT INTO user_twofactor
+                    "INSERT INTO {$this->tblUserTwofactor}
                          (userid, enabled, secret, backup_codes, last_used, setup_completed_at, created_at, updated_at)
                      VALUES (%d, 1, %s, %s, 0, %d, %d, %d)",
                     $userId,
@@ -251,7 +272,7 @@ class TwoFactorAuthService
         // Mark setup session as used
         $this->database->query(
             $this->database->prepareQuery(
-                "UPDATE twofactor_setup SET used = 1 WHERE id = %d",
+                "UPDATE {$this->tblTwofactorSetup} SET used = 1 WHERE id = %d",
                 $setupId
             )
         );
@@ -319,7 +340,7 @@ class TwoFactorAuthService
     public function disable(int $userId): bool
     {
         $sql    = $this->database->prepareQuery(
-            "SELECT userid FROM user_twofactor WHERE userid = %d LIMIT 1",
+            "SELECT userid FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
             $userId
         );
         $result = $this->database->query($sql);
@@ -331,7 +352,7 @@ class TwoFactorAuthService
         $now = time();
         $this->database->query(
             $this->database->prepareQuery(
-                "UPDATE user_twofactor
+                "UPDATE {$this->tblUserTwofactor}
                     SET enabled            = 0,
                         secret             = NULL,
                         backup_codes       = NULL,
@@ -345,7 +366,7 @@ class TwoFactorAuthService
 
         $this->database->query(
             $this->database->prepareQuery(
-                "DELETE FROM twofactor_setup WHERE userid = %d",
+                "DELETE FROM {$this->tblTwofactorSetup} WHERE userid = %d",
                 $userId
             )
         );
@@ -374,7 +395,7 @@ class TwoFactorAuthService
 
         $this->database->query(
             $this->database->prepareQuery(
-                "UPDATE user_twofactor
+                "UPDATE {$this->tblUserTwofactor}
                     SET backup_codes = %s, updated_at = %d
                   WHERE userid = %d",
                 json_encode($hashedCodes),
@@ -395,7 +416,7 @@ class TwoFactorAuthService
     public function cleanupExpiredSessions(): void
     {
         $sql = $this->database->prepareQuery(
-            "DELETE FROM twofactor_setup WHERE used = 1 OR expires_at < %d",
+            "DELETE FROM {$this->tblTwofactorSetup} WHERE used = 1 OR expires_at < %d",
             time()
         );
         $this->database->query($sql);
@@ -412,7 +433,7 @@ class TwoFactorAuthService
     private function verifyAndConsumeBackupCode(int $userId, string $code): bool
     {
         $sql    = $this->database->prepareQuery(
-            "SELECT backup_codes FROM user_twofactor WHERE userid = %d LIMIT 1",
+            "SELECT backup_codes FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
             $userId
         );
         $result = $this->database->query($sql);
@@ -432,7 +453,7 @@ class TwoFactorAuthService
 
                 $this->database->query(
                     $this->database->prepareQuery(
-                        "UPDATE user_twofactor
+                        "UPDATE {$this->tblUserTwofactor}
                             SET backup_codes = %s, updated_at = %d
                           WHERE userid = %d",
                         json_encode(array_values($codes)),
@@ -457,7 +478,7 @@ class TwoFactorAuthService
     private function isRecentlyUsed(int $userId): bool
     {
         $sql    = $this->database->prepareQuery(
-            "SELECT last_used FROM user_twofactor WHERE userid = %d LIMIT 1",
+            "SELECT last_used FROM {$this->tblUserTwofactor} WHERE userid = %d LIMIT 1",
             $userId
         );
         $result = $this->database->query($sql);
@@ -480,7 +501,7 @@ class TwoFactorAuthService
     {
         $this->database->query(
             $this->database->prepareQuery(
-                "UPDATE user_twofactor SET last_used = %d, updated_at = %d WHERE userid = %d",
+                "UPDATE {$this->tblUserTwofactor} SET last_used = %d, updated_at = %d WHERE userid = %d",
                 time(),
                 time(),
                 $userId
@@ -506,7 +527,7 @@ class TwoFactorAuthService
         $userAgent  = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
 
         $sql = $this->database->prepareQuery(
-            "INSERT INTO twofactor_attempts
+            "INSERT INTO {$this->tblTwofactorAttempts}
                  (userid, success, ip_address, code_used, user_agent, attempt_time)
              VALUES (%d, %d, %s, %s, %s, %s)",
             $userId,
