@@ -518,7 +518,12 @@ class User extends \Pramnos\Framework\Base
         */
 
         $itemdata = $this->_alterFields($itemdata);
-        if ($this->_isnew === 1 || $this->userid == 1) {
+        // _isnew is the authoritative flag for INSERT vs UPDATE.
+        // The old "|| $this->userid == 1" condition was wrong: after the first
+        // INSERT, _isnew is set to 0 and userid becomes 1 (first auto-ID), so
+        // the condition would fire again on every subsequent save of user 1,
+        // inserting a duplicate row instead of updating the existing one.
+        if ($this->_isnew === 1) {
             $this->_isnew = 0;
             if ($this->userid != 1) {
                 $itemdata[] = array(
