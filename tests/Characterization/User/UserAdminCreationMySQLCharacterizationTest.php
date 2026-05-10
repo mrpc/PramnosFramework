@@ -26,9 +26,9 @@ use Pramnos\User\User;
  * itemdata array, both schemas should accept the INSERT. If they do not, these
  * tests surface the real MySQL error rather than a silent failure.
  *
- * @group mysql
- * @group characterization
  */
+#[\PHPUnit\Framework\Attributes\Group('mysql')]
+#[\PHPUnit\Framework\Attributes\Group('characterization')]
 #[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
 class UserAdminCreationMySQLCharacterizationTest extends TestCase
 {
@@ -98,10 +98,14 @@ class UserAdminCreationMySQLCharacterizationTest extends TestCase
             $this->db->connect();
         }
 
-        // Disable FK checks so we can drop tables regardless of foreign key constraints
-        // from other tables (e.g. userstogroups referencing users)
+        // Drop all user-family tables (FK_CHECKS=0) and rebuild with migration schema.
+        // We drop usertokens/userstogroups/usergroups too because setupDb() creates them
+        // with FKs pointing to users; leaving them orphaned between tests causes
+        // "Table doesn't exist" errors in the next test's tearDown.
         $this->db->query('SET FOREIGN_KEY_CHECKS=0');
-        // Rebuild tables fresh for each test — migration-compatible schema
+        $this->db->query('DROP TABLE IF EXISTS usertokens');
+        $this->db->query('DROP TABLE IF EXISTS userstogroups');
+        $this->db->query('DROP TABLE IF EXISTS usergroups');
         $this->db->query('DROP TABLE IF EXISTS userdetails');
         $this->db->query('DROP TABLE IF EXISTS users');
         $this->db->query('SET FOREIGN_KEY_CHECKS=1');
@@ -111,9 +115,12 @@ class UserAdminCreationMySQLCharacterizationTest extends TestCase
 
     protected function tearDown(): void
     {
-        // Drop the test tables then restore to the canonical setupDb() schema so
-        // other test classes in the same suite run do not see an absent users table.
+        // Drop all user-family tables then restore via setupDb() so that other
+        // test classes in the same suite run see a consistent schema.
         $this->db->query('SET FOREIGN_KEY_CHECKS=0');
+        $this->db->query('DROP TABLE IF EXISTS usertokens');
+        $this->db->query('DROP TABLE IF EXISTS userstogroups');
+        $this->db->query('DROP TABLE IF EXISTS usergroups');
         $this->db->query('DROP TABLE IF EXISTS userdetails');
         $this->db->query('DROP TABLE IF EXISTS users');
         $this->db->query('SET FOREIGN_KEY_CHECKS=1');
