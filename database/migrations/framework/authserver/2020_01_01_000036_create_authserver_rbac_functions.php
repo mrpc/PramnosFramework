@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\AuthServer;
 
+use Pramnos\Application\Settings;
 use Pramnos\Database\Migration;
 
 /**
@@ -10,9 +11,14 @@ use Pramnos\Database\Migration;
  * These functions are PostgreSQL-specific and are silently skipped on MySQL.
  * MySQL applications must implement equivalent logic in PHP.
  *
+ * The organisation table name and column name are read from Settings at
+ * migration time so that applications can use domain-specific naming:
+ *   - authserver_organization_table  (default: user_organizations)
+ *   - authserver_organization_column (default: organization_id)
+ *
  * Functions created:
  *  1. set_permission_priority()     — trigger fn: deny entries get priority+1000
- *  2. check_user_deya_membership()  — trigger fn: DEYA role assignment guard
+ *  2. check_user_deya_membership()  — trigger fn: org-scoped role assignment guard
  *  3. apply_permission_template()   — apply a permission template to a subject
  *  4. apply_role_template()         — create a role from a role template
  *  5. log_audit_event()             — helper to insert an audit_log row
@@ -33,7 +39,7 @@ class CreateAuthserverRbacFunctions extends Migration
     public array   $dependencies = [
         'create_authserver_effective_permissions_view',
         'create_authserver_user_roles_table',
-        'create_authserver_user_deyas_table',
+        'create_authserver_user_organizations_table',
     ];
     public $description  = 'Creates 7 PL/pgSQL RBAC helper functions and 2 triggers (PostgreSQL only)';
 
@@ -46,6 +52,12 @@ class CreateAuthserverRbacFunctions extends Migration
         }
 
         $db = $this->application->database;
+
+        $orgTable  = Settings::getSetting('authserver_organization_table', 'user_organizations');
+        $orgColumn = Settings::getSetting('authserver_organization_column', 'organization_id');
+
+        // The placeholder used in object_id_pattern values, e.g. "{organization_id}"
+        $orgPlaceholder = '{' . $orgColumn . '}';
 
         // 1. Auto-prioritise deny permissions (priority + 1000)
         $db->query(
@@ -71,28 +83,28 @@ class CreateAuthserverRbacFunctions extends Migration
                  EXECUTE FUNCTION authserver.set_permission_priority()"
         );
 
-        // 2. Enforce DEYA membership before assigning an organisation-scoped role
+        // 2. Enforce organisation membership before assigning an organisation-scoped role
         $db->query(
             "CREATE OR REPLACE FUNCTION authserver.check_user_deya_membership()
              RETURNS TRIGGER AS \$\$
              DECLARE
-                 role_deyaid INTEGER;
+                 role_org_id INTEGER;
              BEGIN
-                 SELECT deyaid INTO role_deyaid
+                 SELECT {$orgColumn} INTO role_org_id
                  FROM authserver.roles
                  WHERE roleid = NEW.roleid;
 
-                 IF role_deyaid IS NOT NULL THEN
+                 IF role_org_id IS NOT NULL THEN
                      IF NOT EXISTS (
-                         SELECT 1 FROM authserver.user_deyas
+                         SELECT 1 FROM authserver.{$orgTable}
                          WHERE userid = NEW.userid
-                           AND deyaid = role_deyaid
+                           AND {$orgColumn} = role_org_id
                            AND is_active = TRUE
                            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
                      ) THEN
                          RAISE EXCEPTION
-                             'User % cannot be assigned role % — not a member of DEYA %',
-                             NEW.userid, NEW.roleid, role_deyaid;
+                             'User % cannot be assigned role % — not a member of organisation %',
+                             NEW.userid, NEW.roleid, role_org_id;
                      END IF;
                  END IF;
 
@@ -115,11 +127,11 @@ class CreateAuthserverRbacFunctions extends Migration
         // 3. Apply a single permission template to a subject
         $db->query(
             "CREATE OR REPLACE FUNCTION authserver.apply_permission_template(
-                 p_templateid    INTEGER,
-                 p_subject_type  VARCHAR(20),
-                 p_subject_id    INTEGER,
-                 p_context_deyaid INTEGER DEFAULT NULL,
-                 p_granted_by    INTEGER DEFAULT NULL
+                 p_templateid     INTEGER,
+                 p_subject_type   VARCHAR(20),
+                 p_subject_id     INTEGER,
+                 p_context_org_id INTEGER DEFAULT NULL,
+                 p_granted_by     INTEGER DEFAULT NULL
              ) RETURNS INTEGER AS \$\$
              DECLARE
                  tmpl            RECORD;
@@ -135,8 +147,8 @@ class CreateAuthserverRbacFunctions extends Migration
                  END IF;
 
                  resolved_obj_id := tmpl.object_id_pattern;
-                 IF p_context_deyaid IS NOT NULL THEN
-                     resolved_obj_id := REPLACE(resolved_obj_id, '{deyaid}', p_context_deyaid::TEXT);
+                 IF p_context_org_id IS NOT NULL THEN
+                     resolved_obj_id := REPLACE(resolved_obj_id, '{$orgPlaceholder}', p_context_org_id::TEXT);
                  END IF;
 
                  INSERT INTO authserver.permissions (
@@ -161,7 +173,7 @@ class CreateAuthserverRbacFunctions extends Migration
             "CREATE OR REPLACE FUNCTION authserver.apply_role_template(
                  p_role_templateid INTEGER,
                  p_role_name       VARCHAR(100),
-                 p_deyaid          INTEGER DEFAULT NULL,
+                 p_org_id          INTEGER DEFAULT NULL,
                  p_created_by      INTEGER DEFAULT NULL
              ) RETURNS INTEGER AS \$\$
              DECLARE
@@ -180,11 +192,11 @@ class CreateAuthserverRbacFunctions extends Migration
                      RAISE EXCEPTION 'Role template % not found or inactive', p_role_templateid;
                  END IF;
 
-                 INSERT INTO authserver.roles (role_name, description, deyaid, created_at)
+                 INSERT INTO authserver.roles (role_name, description, {$orgColumn}, created_at)
                  VALUES (
                      p_role_name,
                      'Created from template: ' || tmpl.template_name,
-                     p_deyaid,
+                     p_org_id,
                      CURRENT_TIMESTAMP
                  )
                  RETURNING roleid INTO new_roleid;
@@ -200,7 +212,7 @@ class CreateAuthserverRbacFunctions extends Migration
                          template_id := template_id_str::INTEGER;
                          permissions_created := permissions_created +
                              authserver.apply_permission_template(
-                                 template_id, 'role', new_roleid, p_deyaid, p_created_by
+                                 template_id, 'role', new_roleid, p_org_id, p_created_by
                              );
                      END LOOP;
                  END IF;
@@ -304,7 +316,7 @@ class CreateAuthserverRbacFunctions extends Migration
         $db->query(
             "CREATE OR REPLACE FUNCTION authserver.get_user_effective_permissions(
                  p_userid  INTEGER,
-                 p_deyaid  INTEGER DEFAULT NULL
+                 p_org_id  INTEGER DEFAULT NULL
              ) RETURNS TABLE (
                  object_type       VARCHAR(50),
                  object_id         VARCHAR(100),
@@ -341,7 +353,7 @@ class CreateAuthserverRbacFunctions extends Migration
                        AND ur.is_active = TRUE
                        AND (ur.expires_at IS NULL OR ur.expires_at > CURRENT_TIMESTAMP)
                        AND r.is_active  = TRUE
-                       AND (p_deyaid IS NULL OR r.deyaid IS NULL OR r.deyaid = p_deyaid)
+                       AND (p_org_id IS NULL OR r.{$orgColumn} IS NULL OR r.{$orgColumn} = p_org_id)
                  )
                  SELECT
                      c.object_type,
