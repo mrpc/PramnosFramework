@@ -1172,11 +1172,11 @@ require ROOT . '/vendor/autoload.php';
 \$user->maingroup = 1;
 \$user->setPassword('$safePassword');
 \$user->save();
-if (\$user->userid > 1) {
+if (\$user->userid > 1 && empty(\$user->getErrors())) {
     \$user->setPassword('$safePassword');
     \$user->save();
 }
-if (\$user->userid > 0) {
+if (empty(\$user->getErrors())) {
     echo 'OK:' . \$user->userid;
 } else {
     echo 'FAIL:' . implode(', ', \$user->getErrors());
