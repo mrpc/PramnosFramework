@@ -1,8 +1,15 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-10 (session 48)
+## 📅 Last Updated: 2026-05-10 (session 49)
 
 ## 🚀 Completed Milestones
+
+### userid=1 reservation fix — migration sequence advance (2026-05-10, session 49)
+
+- [x] **`CreateUsersTable::up()`**: After `createTable()`, now advances AUTO_INCREMENT to 2 on MySQL (`ALTER TABLE users AUTO_INCREMENT = 2`) and the BIGSERIAL sequence to position 1/is_called=true on PostgreSQL (`SELECT setval(pg_get_serial_sequence('users','userid'),1)`). Reserves userid=1 for the Guest/anonymous user that `User::setupDb()` seeds separately; first scaffold-created admin receives userid=2.
+- [x] **Characterization tests**: Added `testAdminUserDoesNotClaimGuestUserid` to both `UserAdminCreationMySQLCharacterizationTest` and `UserAdminCreationPostgreSQLCharacterizationTest`. Verifies that after the sequence advance, `User::save()` assigns userid > 1 to the first admin user.
+- Suite: 1787 tests, 4565 assertions — OK
+- Commits: `91121ba`
 
 ### Admin user scaffolding false-success fix (2026-05-10, session 48)
 
