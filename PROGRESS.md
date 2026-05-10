@@ -1,8 +1,15 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-10 (session 46)
+## 📅 Last Updated: 2026-05-10 (session 47)
 
 ## 🚀 Completed Milestones
+
+### QueryBuilder schema resolution + Auth service refactor (2026-05-10, session 47)
+
+- [x] **`QueryBuilder::from()` / `join()` / `crossJoin()`**: MySQL-only schema resolution — `authserver.foo` → `authserver_foo` via `SchemaBuilder::resolveTableName()`. Guards skip PostgreSQL (schema.table works natively) and aliased expressions (containing space).
+- [x] **`TwoFactorAuthService`**: Refactored all 13 raw `prepareQuery()/query()` calls to fluent QueryBuilder chains (`->table('authserver.user_twofactor')->select/where/first/insert/update/delete`). Removed private table-name properties; schema resolution now handled by QueryBuilder.
+- [x] **`Loginlockout`**: Refactored `recordFailedAttempt()`, `clearSuccessfulLoginState()`, and `loadRow()` to QueryBuilder; removed `tbl()` helper.
+- 3 commits: `4e7e153`, `4778039`, `6b52d37`
 
 ### Auth Tables → authserver Schema + Service Fixes (2026-05-10, session 46)
 
