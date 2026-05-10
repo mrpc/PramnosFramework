@@ -1168,6 +1168,318 @@ class FrameworkMigrationsMySQLTest extends TestCase
     }
 
     // =========================================================================
+    // Auth 000017-000026: authserver.* tables on MySQL
+    // On MySQL, schema.table notation becomes schema_table (no separate schema).
+    // =========================================================================
+
+    /**
+     * Migration 000017 (loginlockout) creates authserver.loginlockouts.
+     * On MySQL this produces the table authserver_loginlockouts with the
+     * composite unique index uq_loginlockout_type_value for upsert-by-lookup.
+     */
+    public function testLoginlockoutsCreatedInAuthserverPrefixOnMySQL(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('auth', 'CreateLoginlockoutTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table exists with MySQL authserver_ prefix
+        $this->assertTrue($this->tableExists('authserver_loginlockouts'),
+            'authserver_loginlockouts must exist after up()');
+
+        // Assert — insertable and queryable
+        $this->db->query(
+            "INSERT INTO `authserver_loginlockouts`
+             (locktype, lookupvalue, failedattempts, firstfailedat, lastfailedat, lockoutuntil, createdat, updatedat)
+             VALUES ('ip', '127.0.0.1', 1, UNIX_TIMESTAMP(), UNIX_TIMESTAMP(), 0, UNIX_TIMESTAMP(), UNIX_TIMESTAMP())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_loginlockouts`");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        // Assert — down() removes the table
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_loginlockouts'),
+            'authserver_loginlockouts must be gone after down()');
+    }
+
+    /**
+     * Migration 000018 (user_twofactor) creates authserver.user_twofactor.
+     * On MySQL this produces authserver_user_twofactor with userid as PK.
+     */
+    public function testUserTwofactorCreatedInAuthserverPrefixOnMySQL(): void
+    {
+        // Arrange
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $m = $this->loadMigration('auth', 'CreateUserTwofactorTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('authserver_user_twofactor'),
+            'authserver_user_twofactor must exist after up()');
+
+        $this->db->query(
+            "INSERT INTO `authserver_user_twofactor` (userid, enabled, created_at, updated_at)
+             VALUES (999, 0, UNIX_TIMESTAMP(), UNIX_TIMESTAMP())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_user_twofactor`");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_user_twofactor'));
+    }
+
+    /**
+     * Migration 000019 (twofactor_setup) creates authserver.twofactor_setup.
+     * On MySQL: authserver_twofactor_setup. Setup sessions expire after 15 min.
+     */
+    public function testTwofactorSetupCreatedInAuthserverPrefixOnMySQL(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('auth', 'CreateTwofactorSetupTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('authserver_twofactor_setup'),
+            'authserver_twofactor_setup must exist after up()');
+
+        $this->db->query(
+            "INSERT INTO `authserver_twofactor_setup` (userid, temp_secret, used, expires_at, created_at)
+             VALUES (999, 'JBSWY3DPEHPK3PXP', 0, UNIX_TIMESTAMP() + 900, UNIX_TIMESTAMP())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_twofactor_setup`");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_twofactor_setup'));
+    }
+
+    /**
+     * Migration 000020 (twofactor_attempts) creates authserver.twofactor_attempts.
+     * On MySQL: plain table (ifCapable(TIMESCALEDB) is a no-op on MySQL).
+     */
+    public function testTwofactorAttemptsCreatedInAuthserverPrefixOnMySQL(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('auth', 'CreateTwofactorAttemptsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — plain table on MySQL (no hypertable)
+        $this->assertTrue($this->tableExists('authserver_twofactor_attempts'),
+            'authserver_twofactor_attempts must exist after up()');
+
+        $this->db->query(
+            "INSERT INTO `authserver_twofactor_attempts` (userid, success, ip_address, attempt_time)
+             VALUES (999, 1, '127.0.0.1', NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_twofactor_attempts`");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_twofactor_attempts'));
+    }
+
+    /**
+     * Migration 000021 (user_activity_log) creates authserver.user_activity_log.
+     * On MySQL: plain table. The continuous aggregate migration (000026)
+     * creates a VIEW over this table.
+     */
+    public function testUserActivityLogCreatedInAuthserverPrefixOnMySQL(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('auth', 'CreateUserActivityLogTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('authserver_user_activity_log'),
+            'authserver_user_activity_log must exist after up()');
+
+        $this->db->query(
+            "INSERT INTO `authserver_user_activity_log` (userid, action, created_at)
+             VALUES (999, 'login', NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_user_activity_log`");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_user_activity_log'));
+    }
+
+    /**
+     * Migration 000022 (user_privacy_settings) creates authserver.user_privacy_settings.
+     * On MySQL: authserver_user_privacy_settings with userid as PK.
+     */
+    public function testUserPrivacySettingsCreatedInAuthserverPrefixOnMySQL(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('auth', 'CreateUserPrivacySettingsTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('authserver_user_privacy_settings'),
+            'authserver_user_privacy_settings must exist after up()');
+
+        $this->db->query(
+            "INSERT INTO `authserver_user_privacy_settings` (userid, updated_at)
+             VALUES (999, NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_user_privacy_settings`");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_user_privacy_settings'));
+    }
+
+    /**
+     * Migration 000023 (user_consents) creates authserver.user_consents.
+     * On MySQL: plain table (ifCapable(TIMESCALEDB) is a no-op).
+     */
+    public function testUserConsentsCreatedInAuthserverPrefixOnMySQL(): void
+    {
+        // Arrange
+        $this->loadMigration('auth', 'CreateUserPrivacySettingsTable')->up();
+        $m = $this->loadMigration('auth', 'CreateUserConsentsTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('authserver_user_consents'),
+            'authserver_user_consents must exist after up()');
+
+        $this->db->query(
+            "INSERT INTO `authserver_user_consents` (userid, consent_type, granted, granted_at)
+             VALUES (999, 'marketing', 1, NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_user_consents`");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_user_consents'));
+    }
+
+    /**
+     * Migration 000024 (data_processing_records) creates authserver.data_processing_records.
+     * On MySQL: plain table (ifCapable(TIMESCALEDB) is a no-op).
+     */
+    public function testDataProcessingRecordsCreatedInAuthserverPrefixOnMySQL(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('auth', 'CreateDataProcessingRecordsTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('authserver_data_processing_records'),
+            'authserver_data_processing_records must exist after up()');
+
+        $this->db->query(
+            "INSERT INTO `authserver_data_processing_records`
+             (userid, operation, data_category, legal_basis, processed_at)
+             VALUES (999, 'export', 'profile', 'consent', NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_data_processing_records`");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_data_processing_records'));
+    }
+
+    /**
+     * Migration 000025 (gdpr_requests) creates authserver.gdpr_requests.
+     * On MySQL: plain table (ifCapable(TIMESCALEDB) is a no-op).
+     * 7-year retention policy is enforced at the application level on MySQL.
+     */
+    public function testGdprRequestsCreatedInAuthserverPrefixOnMySQL(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('auth', 'CreateGdprRequestsTable');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertTrue($this->tableExists('authserver_gdpr_requests'),
+            'authserver_gdpr_requests must exist after up()');
+
+        $this->db->query(
+            "INSERT INTO `authserver_gdpr_requests` (userid, request_type, status, requested_at)
+             VALUES (999, 'erasure', 'pending', NOW())"
+        );
+        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_gdpr_requests`");
+        $this->assertSame('1', (string) $r->fields['cnt']);
+
+        $m->down();
+        $this->assertFalse($this->tableExists('authserver_gdpr_requests'));
+    }
+
+    /**
+     * Migration 000026 (daily_activity_summary) creates a plain VIEW on MySQL
+     * over authserver_user_activity_log. On MySQL ifCapable(TIMESCALEDB) is
+     * a no-op, so the fallback (materialized/plain view) path runs instead.
+     */
+    public function testDailyActivitySummaryCreatesViewOnMySQL(): void
+    {
+        // Arrange — source table must exist
+        $this->loadMigration('auth', 'CreateUserActivityLogTable')->up();
+
+        $m = $this->loadMigration('auth', 'CreateDailyActivitySummaryView');
+
+        // Act
+        $m->up();
+
+        // Assert — view exists (information_schema.VIEWS for MySQL)
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.VIEWS
+                 WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
+                'pramnos_test',
+                'authserver_daily_activity_summary'
+            )
+        );
+        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+            'authserver_daily_activity_summary VIEW must exist after up()');
+
+        // Assert — view is queryable (returns 0 rows before any data)
+        $r2 = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_daily_activity_summary`");
+        $this->assertSame('0', (string) $r2->fields['cnt']);
+
+        // Assert — inserts to the source table are reflected in the view
+        $this->db->query(
+            "INSERT INTO `authserver_user_activity_log` (userid, action, created_at)
+             VALUES (999, 'login', NOW()), (999, 'view_page', NOW())"
+        );
+        $r3 = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_daily_activity_summary`");
+        $this->assertGreaterThan(0, (int) $r3->fields['cnt'],
+            'daily_activity_summary view must reflect inserts into user_activity_log');
+
+        // Assert — down() removes the view
+        $m->down();
+        $r4 = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.VIEWS
+                 WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
+                'pramnos_test',
+                'authserver_daily_activity_summary'
+            )
+        );
+        $this->assertSame('0', (string) $r4->fields['cnt'],
+            'authserver_daily_activity_summary VIEW must be gone after down()');
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
@@ -1300,6 +1612,9 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->db->query("DROP VIEW IF EXISTS `authserver_slow_api_calls`");
         $this->db->query("DROP VIEW IF EXISTS `authserver_effective_permissions`");
 
+        // Drop views first (before the underlying tables are removed)
+        $this->db->query("DROP VIEW IF EXISTS `authserver_daily_activity_summary`");
+
         $tables = [
             // authserver RBAC extension tables (drop before base RBAC tables)
             'authserver_permission_inheritance',
@@ -1317,6 +1632,16 @@ class FrameworkMigrationsMySQLTest extends TestCase
             'authserver_user_roles', 'authserver_audit_log',
             'authserver_permissions', 'authserver_roles',
             'authserver_schema',
+            // auth 000017-000026 (authserver-prefixed on MySQL)
+            'authserver_gdpr_requests',
+            'authserver_data_processing_records',
+            'authserver_user_consents',
+            'authserver_user_privacy_settings',
+            'authserver_user_activity_log',
+            'authserver_twofactor_attempts',
+            'authserver_twofactor_setup',
+            'authserver_user_twofactor',
+            'authserver_loginlockouts',
             // messaging
             'massmessagerecipients', 'massmessages',
             'mailtemplates', 'mails', 'messages',
