@@ -250,6 +250,20 @@ class QueryBuilder
      */
     public function from($table)
     {
+        // On MySQL, schema.table notation (e.g. authserver.foo) is a cross-database
+        // reference rather than a schema namespace. Resolve it so authserver.foo
+        // becomes prefix_authserver_foo within the current database.
+        // Guards:
+        //  - PostgreSQL/TimescaleDB support schema.table natively — no transformation.
+        //  - Aliased expressions contain a space (e.g. "tbl a") — skip to preserve alias.
+        //  - Subquery fragments from fromSub() bypass from() entirely — not a concern.
+        if (is_string($table)
+            && strpos($table, '.') !== false
+            && strpos($table, ' ') === false
+            && $this->db->type !== 'postgresql'
+        ) {
+            $table = $this->db->schema()->resolveTableName($table);
+        }
         $this->from = $table;
         return $this;
     }
@@ -498,6 +512,13 @@ class QueryBuilder
      */
     public function join($table, $first, $operator = null, $second = null, $type = 'inner')
     {
+        if (is_string($table)
+            && strpos($table, '.') !== false
+            && strpos($table, ' ') === false
+            && $this->db->type !== 'postgresql'
+        ) {
+            $table = $this->db->schema()->resolveTableName($table);
+        }
         $this->joins[] = compact('table', 'first', 'operator', 'second', 'type');
         return $this;
     }
@@ -553,6 +574,13 @@ class QueryBuilder
      */
     public function crossJoin($table)
     {
+        if (is_string($table)
+            && strpos($table, '.') !== false
+            && strpos($table, ' ') === false
+            && $this->db->type !== 'postgresql'
+        ) {
+            $table = $this->db->schema()->resolveTableName($table);
+        }
         $this->joins[] = ['table' => $table, 'type' => 'cross'];
         return $this;
     }
