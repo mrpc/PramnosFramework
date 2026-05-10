@@ -472,12 +472,13 @@ class SchemaBuilder
         }
 
         $resolved = $this->resolveTable($table);
+        $quoted   = $this->getGrammar()->quoteTable($resolved);
         $parts = ["timescaledb.compress"];
         foreach ($options as $key => $value) {
             $parts[] = "timescaledb.compress_{$key} = '{$value}'";
         }
         return (bool)$this->db->query(
-            "ALTER TABLE \"{$resolved}\" SET (" . implode(', ', $parts) . ')'
+            "ALTER TABLE {$quoted} SET (" . implode(', ', $parts) . ')'
         );
     }
 
