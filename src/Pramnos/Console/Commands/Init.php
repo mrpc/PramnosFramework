@@ -1157,29 +1157,36 @@ PHP;
         $safePassword = addslashes($adminPassword);
 
         $phpSnippet = <<<PHP
+ob_start();
 define('ROOT', '/var/www/html');
 define('SP', 1);
 require ROOT . '/vendor/autoload.php';
 \$app = \Pramnos\Application\Application::getInstance();
 \$app->init();
-\$user = new \Pramnos\User\User(0);
-\$user->username  = '$safeUsername';
-\$user->email     = '$safeEmail';
-\$user->usertype  = 10;
-\$user->active    = 1;
-\$user->validated = 1;
-\$user->regdate   = time();
-\$user->maingroup = 1;
-\$user->setPassword('$safePassword');
-\$user->save();
-if (\$user->userid > 1 && empty(\$user->_errors)) {
+ob_end_clean();
+try {
+    \$user = new \Pramnos\User\User(0);
+    \$user->username  = '$safeUsername';
+    \$user->email     = '$safeEmail';
+    \$user->usertype  = 10;
+    \$user->active    = 1;
+    \$user->validated = 1;
+    \$user->regdate   = time();
+    \$user->maingroup = 1;
     \$user->setPassword('$safePassword');
     \$user->save();
-}
-if (empty(\$user->_errors)) {
-    echo 'OK:' . \$user->userid;
-} else {
-    echo 'FAIL:' . implode(', ', \$user->_errors);
+    if (\$user->userid > 1 && empty(\$user->_errors)) {
+        \$user->setPassword('$safePassword');
+        \$user->save();
+    }
+    if (empty(\$user->_errors)) {
+        echo 'OK:' . \$user->userid;
+    } else {
+        \$msg = implode(', ', array_filter(\$user->_errors, 'strlen'));
+        echo 'FAIL:' . (\$msg ?: 'save failed — check database logs');
+    }
+} catch (\Throwable \$e) {
+    echo 'FAIL:' . \$e->getMessage();
 }
 PHP;
 
