@@ -788,8 +788,8 @@ class FrameworkMigrationsMySQLTest extends TestCase
     }
 
     /**
-     * CreateOauth2ClientAuthMethodsTable must create the table and enforce
-     * a valid auth_method ENUM on MySQL.
+     * CreateOauth2ClientAuthMethodsTable must create the table in the applications_
+     * prefix on MySQL and enforce a valid auth_method ENUM.
      *
      * Per RFC 7591, clients may authenticate using different methods
      * (client_secret_basic, client_secret_post, private_key_jwt, none).
@@ -804,31 +804,29 @@ class FrameworkMigrationsMySQLTest extends TestCase
         // Act
         $m->up();
 
-        // Assert – table exists
-        $this->assertTrue($this->tableExists('authserver_oauth2_client_auth_methods'),
-            'oauth2_client_auth_methods table must be created');
+        // Assert – table exists with applications_ prefix
+        $this->assertTrue($this->tableExists('applications_oauth2_client_auth_methods'),
+            'oauth2_client_auth_methods must be created with applications_ prefix on MySQL');
 
         // Assert – auth_method is ENUM (MySQL-specific type)
-        $methodInfo = $this->getColumnInfo('authserver_oauth2_client_auth_methods', 'auth_method');
+        $methodInfo = $this->getColumnInfo('applications_oauth2_client_auth_methods', 'auth_method');
         $this->assertSame('enum', strtolower($methodInfo['DATA_TYPE']),
             'auth_method must be ENUM on MySQL to prevent invalid values');
 
         // Assert – unique constraint prevents duplicate method registrations per app
-        $this->assertTrue($this->indexExists('authserver_oauth2_client_auth_methods', 'uq_ocam_appid_method'),
+        $this->assertTrue($this->indexExists('applications_oauth2_client_auth_methods', 'uq_ocam_appid_method'),
             'unique(appid, auth_method) must prevent duplicate method entries per application');
 
-        // Assert – rollback (applications first because of potential FK)
+        // Assert – rollback
         $m->down();
-        $this->assertFalse($this->tableExists('authserver_oauth2_client_auth_methods'));
+        $this->assertFalse($this->tableExists('applications_oauth2_client_auth_methods'));
         $this->loadMigration('authserver', 'CreateApplicationsTable')->down();
     }
 
     /**
-     * CreateOauth2WebhooksTables must create both the endpoints and events tables.
-     *
-     * The webhook system notifies external URLs when OAuth2 events occur
-     * (token revoked, user deauthorized, etc.). The events table is a delivery
-     * queue with a FK to the endpoints table — so both must be created together.
+     * CreateOauth2WebhooksTables must create both the endpoints and events tables
+     * with the applications_ prefix on MySQL, using the correct column schema
+     * (webhook_id, endpoint_url, webhook_type, secret_key) from the Auth Server.
      */
     public function testAuthserverOauth2WebhooksUpCreatesBothWebhookTables(): void
     {
@@ -839,28 +837,58 @@ class FrameworkMigrationsMySQLTest extends TestCase
         // Act
         $m->up();
 
-        // Assert – both tables exist
-        $this->assertTrue($this->tableExists('authserver_oauth2_webhook_endpoints'),
-            'oauth2_webhook_endpoints table must be created');
-        $this->assertTrue($this->tableExists('authserver_oauth2_webhook_events'),
-            'oauth2_webhook_events table must be created');
+        // Assert – both tables exist with applications_ prefix
+        $this->assertTrue($this->tableExists('applications_oauth2_webhook_endpoints'),
+            'oauth2_webhook_endpoints must be created with applications_ prefix on MySQL');
+        $this->assertTrue($this->tableExists('applications_oauth2_webhook_events'),
+            'oauth2_webhook_events must be created with applications_ prefix on MySQL');
 
-        // Assert – endpoints has required columns
-        $this->assertColumnType('authserver_oauth2_webhook_endpoints', 'url', 'text');
-        $this->assertColumnType('authserver_oauth2_webhook_endpoints', 'secret', 'varchar');
-        $this->assertColumnType('authserver_oauth2_webhook_endpoints', 'events', 'json');
+        // Assert – endpoints has the correct Auth Server column schema
+        $this->assertColumnType('applications_oauth2_webhook_endpoints', 'endpoint_url', 'varchar');
+        $this->assertColumnType('applications_oauth2_webhook_endpoints', 'webhook_type', 'varchar');
+        $this->assertColumnType('applications_oauth2_webhook_endpoints', 'secret_key', 'varchar');
 
         // Assert – events has delivery tracking columns
-        $this->assertColumnType('authserver_oauth2_webhook_events', 'event_type', 'varchar');
-        $this->assertColumnType('authserver_oauth2_webhook_events', 'payload', 'json');
-        $this->assertColumnType('authserver_oauth2_webhook_events', 'delivered', 'tinyint');
-        $this->assertColumnType('authserver_oauth2_webhook_events', 'attempts', 'smallint');
+        $this->assertColumnType('applications_oauth2_webhook_events', 'event_type', 'varchar');
+        $this->assertColumnType('applications_oauth2_webhook_events', 'payload', 'json');
+        $this->assertColumnType('applications_oauth2_webhook_events', 'status', 'varchar');
+        $this->assertColumnType('applications_oauth2_webhook_events', 'attempts', 'int');
 
         // Assert – rollback (events before endpoints due to FK)
         $m->down();
-        $this->assertFalse($this->tableExists('authserver_oauth2_webhook_events'));
-        $this->assertFalse($this->tableExists('authserver_oauth2_webhook_endpoints'));
+        $this->assertFalse($this->tableExists('applications_oauth2_webhook_events'));
+        $this->assertFalse($this->tableExists('applications_oauth2_webhook_endpoints'));
         $this->loadMigration('authserver', 'CreateApplicationsTable')->down();
+    }
+
+    /**
+     * CreateOrganizationsTable must create the organizations table in the default
+     * MySQL database with an auto-increment organization_id PK, name, and is_active.
+     *
+     * The organizations table is the FK target for authserver_user_organizations.organization_id.
+     */
+    public function testOrganizationsTableCreatedOnMySQL(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('authserver', 'CreateOrganizationsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table exists
+        $this->assertTrue($this->tableExists('organizations'),
+            'organizations table must be created on MySQL');
+
+        // Assert — essential columns
+        $this->assertColumnType('organizations', 'organization_id', 'int');
+        $this->assertColumnType('organizations', 'name', 'varchar');
+        $this->assertColumnType('organizations', 'is_active', 'tinyint');
+        $this->assertColumnNullable('organizations', 'description', true);
+        $this->assertColumnNullable('organizations', 'org_type', true);
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse($this->tableExists('organizations'));
     }
 
     // -------------------------------------------------------------------------
@@ -922,10 +950,11 @@ class FrameworkMigrationsMySQLTest extends TestCase
      */
     public function testAuthserverUserOrganizationsUpCreatesTable(): void
     {
-        // Arrange — depends on user_roles which depends on roles
+        // Arrange — depends on user_roles (which depends on roles) and organizations (FK target)
         $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
         $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
         $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateOrganizationsTable')->up();
 
         $m = $this->loadMigration('authserver', 'CreateAuthserverUserOrganizationsTable');
 
@@ -1619,19 +1648,20 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->db->query("DROP VIEW IF EXISTS `authserver_daily_activity_summary`");
 
         $tables = [
+            // applications schema tables (drop before applications table)
+            'applications_oauth2_webhook_events', 'applications_oauth2_webhook_endpoints',
+            'applications_oauth2_client_auth_methods',
             // authserver RBAC extension tables (drop before base RBAC tables)
             'authserver_permission_inheritance',
             'authserver_role_templates',
             'authserver_permission_templates',
             'authserver_user_organizations',
-            // authserver (drop before applications due to FK-like references)
-            'authserver_oauth2_webhook_events', 'authserver_oauth2_webhook_endpoints',
-            'authserver_oauth2_client_auth_methods',
             'authserver_jwt_replay_prevention',
             'authserver_device_authorizations',
             'oauth2_access_tokens', 'oauth2_refresh_tokens',
             'oauth2_auth_codes',
             'applications',
+            'organizations',
             'authserver_user_roles', 'authserver_audit_log',
             'authserver_permissions', 'authserver_roles',
             'authserver_schema',
