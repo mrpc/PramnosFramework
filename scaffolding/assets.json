@@ -66,24 +66,6 @@
             ],
             "local_path": "assets/vendor/flatpickr/4.6.13"
         },
-        "apexcharts": {
-            "version": "3.49.2",
-            "css": [],
-            "js": [
-                "https://cdn.jsdelivr.net/npm/apexcharts@3.49.2/dist/apexcharts.min.js"
-            ],
-            "local_path": "assets/vendor/apexcharts/3.49.2"
-        },
-        "dropzone": {
-            "version": "6.0.0-beta.2",
-            "css": [
-                "https://unpkg.com/dropzone@6.0.0-beta.2/dist/dropzone.css"
-            ],
-            "js": [
-                "https://unpkg.com/dropzone@6.0.0-beta.2/dist/dropzone-min.js"
-            ],
-            "local_path": "assets/vendor/dropzone/6.0.0-beta.2"
-        },
         "filepond": {
             "version": "4.31.4",
             "css": [
@@ -94,34 +76,6 @@
             ],
             "local_path": "assets/vendor/filepond/4.31.4"
         },
-        "toastify": {
-            "version": "1.12.0",
-            "css": [
-                "https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css"
-            ],
-            "js": [
-                "https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.js"
-            ],
-            "local_path": "assets/vendor/toastify/1.12.0"
-        },
-        "sortablejs": {
-            "version": "1.15.2",
-            "css": [],
-            "js": [
-                "https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"
-            ],
-            "local_path": "assets/vendor/sortablejs/1.15.2"
-        },
-        "cropperjs": {
-            "version": "1.6.2",
-            "css": [
-                "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css"
-            ],
-            "js": [
-                "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"
-            ],
-            "local_path": "assets/vendor/cropperjs/1.6.2"
-        },
         "tinymce": {
             "version": "7.2.0",
             "css": [],
@@ -129,16 +83,6 @@
                 "https://cdn.jsdelivr.net/npm/tinymce@7.2.0/tinymce.min.js"
             ],
             "local_path": "assets/vendor/tinymce/7.2.0"
-        },
-        "quill": {
-            "version": "2.0.2",
-            "css": [
-                "https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css"
-            ],
-            "js": [
-                "https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"
-            ],
-            "local_path": "assets/vendor/quill/2.0.2"
         },
         "fontawesome": {
             "version": "6.5.2",
