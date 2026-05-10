@@ -728,6 +728,35 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             "'authserver' schema must be dropped by down()");
     }
 
+    /**
+     * CreateApplicationsSchema must create the 'applications' schema in PostgreSQL.
+     *
+     * The applications schema separates app-level infrastructure (webhook endpoints,
+     * per-app settings, usage stats) from public and authserver schemas. On MySQL
+     * this migration is a no-op. Must be idempotent (CREATE SCHEMA IF NOT EXISTS).
+     */
+    public function testApplicationsSchemaIsCreatedByMigration(): void
+    {
+        // Arrange
+        $m = $this->loadMigration('authserver', 'CreateApplicationsSchema');
+
+        // Act
+        $m->up();
+
+        // Assert — applications schema exists in pg_catalog
+        $this->assertTrue($this->schemaExists('applications'),
+            "'applications' schema must be created by the migration");
+
+        // Idempotent re-run must not throw
+        $m->up();
+        $this->assertTrue($this->schemaExists('applications'));
+
+        // Assert — rollback drops the schema (CASCADE removes any contained objects)
+        $m->down();
+        $this->assertFalse($this->schemaExists('applications'),
+            "'applications' schema must be dropped by down()");
+    }
+
     // -------------------------------------------------------------------------
     // Authserver: roles table
     // -------------------------------------------------------------------------
@@ -2078,6 +2107,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         // locks inside authserver at the same moment.  We retry with backoff so
         // a transient lock wait does not fail the test.
         $this->dropSchemaWithRetry('authserver');
+        $this->dropSchemaWithRetry('applications');
         $this->dropSchemaWithRetry('pramnos');
 
         // Drop public-schema tables with CASCADE (handles FK dependencies automatically)
