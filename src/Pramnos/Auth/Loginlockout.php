@@ -24,6 +24,8 @@ namespace Pramnos\Auth;
  * All timestamps are stored as Unix integers in the `authserver.loginlockouts` table.
  * On MySQL the schema prefix is expressed as a table-name prefix
  * (`authserver_loginlockouts`); on PostgreSQL the schema is the `authserver` namespace.
+ * Schema resolution and dialect-appropriate quoting is handled automatically by
+ * QueryBuilder::table().
  *
  * @package     PramnosFramework
  * @subpackage  Auth
@@ -62,15 +64,14 @@ class Loginlockout
     public function recordFailedAttempt(string $scope, string $identifier): void
     {
         $db  = \Pramnos\Database\Database::getInstance();
-        $tbl = $this->tbl($db);
         $now = time();
         $row = $this->loadRow($scope, $identifier);
 
         // Determine attempt count within the current sliding window
         $windowStart = $now - self::DEFAULT_WINDOW_SECONDS;
         if ($row && (int) $row['lastfailedat'] >= $windowStart) {
-            $attempts     = (int) $row['failedattempts'] + 1;
-            $firstFailed  = (int) $row['firstfailedat'];
+            $attempts    = (int) $row['failedattempts'] + 1;
+            $firstFailed = (int) $row['firstfailedat'];
         } else {
             $attempts    = 1;
             $firstFailed = $now;
@@ -80,40 +81,30 @@ class Loginlockout
         $lockoutUntil = $duration > 0 ? $now + $duration : 0;
 
         if ($row) {
-            $lockoutid = (int) $row['lockoutid'];
-            $sql = $db->prepareQuery(
-                "UPDATE {$tbl}
-                    SET failedattempts = %d,
-                        firstfailedat  = %d,
-                        lastfailedat   = %d,
-                        lockoutuntil   = %d,
-                        updatedat      = %d
-                  WHERE lockoutid = %d",
-                $attempts,
-                $firstFailed,
-                $now,
-                $lockoutUntil,
-                $now,
-                $lockoutid
-            );
+            $db->queryBuilder()
+                ->table('authserver.loginlockouts')
+                ->where('lockoutid', (int) $row['lockoutid'])
+                ->update([
+                    'failedattempts' => $attempts,
+                    'firstfailedat'  => $firstFailed,
+                    'lastfailedat'   => $now,
+                    'lockoutuntil'   => $lockoutUntil,
+                    'updatedat'      => $now,
+                ]);
         } else {
-            $sql = $db->prepareQuery(
-                "INSERT INTO {$tbl}
-                     (locktype, lookupvalue, failedattempts, firstfailedat,
-                      lastfailedat, lockoutuntil, createdat, updatedat)
-                 VALUES (%s, %s, %d, %d, %d, %d, %d, %d)",
-                $scope,
-                $identifier,
-                $attempts,
-                $firstFailed,
-                $now,
-                $lockoutUntil,
-                $now,
-                $now
-            );
+            $db->queryBuilder()
+                ->table('authserver.loginlockouts')
+                ->insert([
+                    'locktype'       => $scope,
+                    'lookupvalue'    => $identifier,
+                    'failedattempts' => $attempts,
+                    'firstfailedat'  => $firstFailed,
+                    'lastfailedat'   => $now,
+                    'lockoutuntil'   => $lockoutUntil,
+                    'createdat'      => $now,
+                    'updatedat'      => $now,
+                ]);
         }
-
-        $db->query($sql);
     }
 
     /**
@@ -154,26 +145,15 @@ class Loginlockout
      */
     public function clearSuccessfulLoginState(string $scope, string $identifier): void
     {
-        $db  = \Pramnos\Database\Database::getInstance();
-        $tbl = $this->tbl($db);
-        $sql = $db->prepareQuery(
-            "DELETE FROM {$tbl} WHERE locktype = %s AND lookupvalue = %s",
-            $scope,
-            $identifier
-        );
-        $db->query($sql);
+        $db = \Pramnos\Database\Database::getInstance();
+        $db->queryBuilder()
+            ->table('authserver.loginlockouts')
+            ->where('locktype', $scope)
+            ->where('lookupvalue', $identifier)
+            ->delete();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    /**
-     * Return the fully-quoted table name for the current backend.
-     * MySQL → `authserver_loginlockouts`; PostgreSQL → "authserver"."loginlockouts".
-     */
-    private function tbl(\Pramnos\Database\Database $db): string
-    {
-        return $db->schema()->quoteTable('authserver.loginlockouts');
-    }
 
     /**
      * Load the lockout row for the given scope+identifier, or null if absent.
@@ -182,16 +162,13 @@ class Loginlockout
      */
     protected function loadRow(string $scope, string $identifier): ?array
     {
-        $db  = \Pramnos\Database\Database::getInstance();
-        $tbl = $this->tbl($db);
-        $sql = $db->prepareQuery(
-            "SELECT * FROM {$tbl}
-              WHERE locktype = %s AND lookupvalue = %s
-              LIMIT 1",
-            $scope,
-            $identifier
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Database\Database::getInstance();
+        $result = $db->queryBuilder()
+            ->table('authserver.loginlockouts')
+            ->select('*')
+            ->where('locktype', $scope)
+            ->where('lookupvalue', $identifier)
+            ->first();
 
         if (!$result || $result->numRows < 1) {
             return null;
