@@ -242,6 +242,9 @@ class Init extends Command
 
                     if ($this->migrationsSuccess && in_array('auth', $enabledFeatures, true)) {
                         $this->createAdminUser($input, $output, $helper, $userEmail, $cliName);
+                    } elseif (!$this->migrationsSuccess) {
+                        $output->writeln('  <comment>Admin user creation skipped — migrations did not complete successfully.</comment>');
+                        $output->writeln("  Run manually after fixing migrations: docker-compose exec app php $cliName.php migrate --scope=framework");
                     }
                 }
             }
@@ -1162,13 +1165,17 @@ require ROOT . '/vendor/autoload.php';
 \$user = new \Pramnos\User\User(0);
 \$user->username  = '$safeUsername';
 \$user->email     = '$safeEmail';
-\$user->password  = password_hash('$safePassword', PASSWORD_BCRYPT);
 \$user->usertype  = 10;
 \$user->active    = 1;
 \$user->validated = 1;
 \$user->regdate   = time();
 \$user->maingroup = 1;
+\$user->setPassword('$safePassword');
 \$user->save();
+if (\$user->userid > 1) {
+    \$user->setPassword('$safePassword');
+    \$user->save();
+}
 if (\$user->userid > 0) {
     echo 'OK:' . \$user->userid;
 } else {
@@ -1191,7 +1198,7 @@ PHP;
         shell_exec("docker cp " . escapeshellarg($tmpFile) . " " . escapeshellarg($containerName . ":/tmp/pramnos_admin.php") . " 2>/dev/null");
         @unlink($tmpFile);
 
-        $result = trim((string) shell_exec("docker-compose exec -T app php /tmp/pramnos_admin.php 2>/dev/null"));
+        $result = trim((string) shell_exec("docker-compose exec -T app php /tmp/pramnos_admin.php 2>&1"));
         shell_exec("docker-compose exec -T app rm -f /tmp/pramnos_admin.php 2>/dev/null");
 
         if (str_starts_with($result, 'OK:')) {
