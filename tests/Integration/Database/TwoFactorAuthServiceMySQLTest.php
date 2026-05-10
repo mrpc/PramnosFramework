@@ -76,10 +76,10 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
 
     protected function dropTables(): void
     {
-        // Drop in reverse dependency order
-        $this->db->query('DROP TABLE IF EXISTS twofactor_attempts');
-        $this->db->query('DROP TABLE IF EXISTS twofactor_setup');
-        $this->db->query('DROP TABLE IF EXISTS user_twofactor');
+        // On MySQL the authserver schema is expressed as a table-name prefix
+        $this->db->query('DROP TABLE IF EXISTS authserver_twofactor_attempts');
+        $this->db->query('DROP TABLE IF EXISTS authserver_twofactor_setup');
+        $this->db->query('DROP TABLE IF EXISTS authserver_user_twofactor');
     }
 
     protected function createTables(): void
@@ -146,7 +146,7 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
         $this->assertTrue(TOTPHelper::isValidSecret($info['secret']));
 
         // Assert — row was inserted in twofactor_setup
-        $result = $this->db->query("SELECT userid, used, expires_at FROM twofactor_setup WHERE userid = 1");
+        $result = $this->db->query("SELECT userid, used, expires_at FROM authserver_twofactor_setup WHERE userid = 1");
         $this->assertSame(1, $result->numRows, 'startSetup() must create a setup session row');
         $this->assertSame(0, (int) $result->fields['used'], 'setup session must start as unused');
         $this->assertGreaterThan(time(), (int) $result->fields['expires_at'], 'expires_at must be in the future');
@@ -162,12 +162,12 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
     {
         // Arrange
         $this->service->startSetup(2, 'bob@example.com');
-        $first = $this->db->query("SELECT temp_secret FROM twofactor_setup WHERE userid = 2");
+        $first = $this->db->query("SELECT temp_secret FROM authserver_twofactor_setup WHERE userid = 2");
         $firstSecret = $first->fields['temp_secret'];
 
         // Act
         $this->service->startSetup(2, 'bob@example.com');
-        $second = $this->db->query("SELECT temp_secret FROM twofactor_setup WHERE userid = 2");
+        $second = $this->db->query("SELECT temp_secret FROM authserver_twofactor_setup WHERE userid = 2");
 
         // Assert — only one row, with a new secret
         $this->assertSame(1, $second->numRows, 'only one setup session per user must exist');
@@ -199,13 +199,13 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
         $this->assertTrue($result, 'completeSetup() must return true on valid code');
 
         // Assert — user_twofactor row created with enabled=1
-        $row = $this->db->query("SELECT enabled, secret FROM user_twofactor WHERE userid = 10");
+        $row = $this->db->query("SELECT enabled, secret FROM authserver_user_twofactor WHERE userid = 10");
         $this->assertSame(1, $row->numRows, 'user_twofactor row must be created');
         $this->assertSame(1, (int) $row->fields['enabled']);
         $this->assertSame($secret, $row->fields['secret']);
 
         // Assert — setup session marked as used
-        $setup = $this->db->query("SELECT used FROM twofactor_setup WHERE userid = 10");
+        $setup = $this->db->query("SELECT used FROM authserver_twofactor_setup WHERE userid = 10");
         $this->assertSame(1, (int) $setup->fields['used'], 'setup session must be marked used after completeSetup()');
     }
 
@@ -225,7 +225,7 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
 
         // Assert
         $this->assertFalse($result, 'completeSetup() must return false on wrong code');
-        $row = $this->db->query("SELECT userid FROM user_twofactor WHERE userid = 11");
+        $row = $this->db->query("SELECT userid FROM authserver_user_twofactor WHERE userid = 11");
         $this->assertSame(0, $row->numRows, 'user_twofactor must not be created on bad code');
     }
 
@@ -306,7 +306,7 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
         $this->assertTrue($result, 'verifyCode() must accept the correct TOTP code');
 
         // Assert — attempt was logged
-        $attempts = $this->db->query("SELECT success FROM twofactor_attempts WHERE userid = 30 ORDER BY attempt_time DESC LIMIT 1");
+        $attempts = $this->db->query("SELECT success FROM authserver_twofactor_attempts WHERE userid = 30 ORDER BY attempt_time DESC LIMIT 1");
         $this->assertSame(1, (int) $attempts->fields['success'], 'successful attempt must be logged');
     }
 
@@ -402,7 +402,7 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
         $this->assertFalse($this->service->isEnabled(50), 'isEnabled() must return false after disable()');
 
         // Assert — row retained but secret cleared
-        $row = $this->db->query("SELECT enabled, secret FROM user_twofactor WHERE userid = 50");
+        $row = $this->db->query("SELECT enabled, secret FROM authserver_user_twofactor WHERE userid = 50");
         $this->assertSame(1, $row->numRows, 'user_twofactor row must be retained after disable()');
         $this->assertSame(0, (int) $row->fields['enabled']);
         $this->assertEmpty($row->fields['secret'], 'secret must be cleared after disable()');
@@ -466,15 +466,15 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
         $future  = $now + 900;
 
         $this->db->query(
-            "INSERT INTO twofactor_setup (userid, temp_secret, used, expires_at, created_at)
+            "INSERT INTO authserver_twofactor_setup (userid, temp_secret, used, expires_at, created_at)
              VALUES (70, 'EXPIRED1234567890', 0, {$expired}, {$now})"
         );
         $this->db->query(
-            "INSERT INTO twofactor_setup (userid, temp_secret, used, expires_at, created_at)
+            "INSERT INTO authserver_twofactor_setup (userid, temp_secret, used, expires_at, created_at)
              VALUES (71, 'USED12345678901234', 1, {$future}, {$now})"
         );
         $this->db->query(
-            "INSERT INTO twofactor_setup (userid, temp_secret, used, expires_at, created_at)
+            "INSERT INTO authserver_twofactor_setup (userid, temp_secret, used, expires_at, created_at)
              VALUES (72, 'ACTIVE123456789012', 0, {$future}, {$now})"
         );
 
@@ -482,7 +482,7 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
         $this->service->cleanupExpiredSessions();
 
         // Assert — only the active session remains
-        $remaining = $this->db->query("SELECT userid FROM twofactor_setup ORDER BY userid");
+        $remaining = $this->db->query("SELECT userid FROM authserver_twofactor_setup ORDER BY userid");
         $this->assertSame(1, $remaining->numRows, 'only the active session must survive cleanup');
         $this->assertSame(72, (int) $remaining->fields['userid']);
     }
