@@ -277,4 +277,40 @@ class UserAdminCreationMySQLCharacterizationTest extends TestCase
         $this->assertStringContainsString('username', strtolower($message),
             'Exception message must mention the offending field');
     }
+
+    /**
+     * After CreateUsersTable::up() runs ALTER TABLE users AUTO_INCREMENT = 2,
+     * the first admin created by the scaffold must receive userid=2, not userid=1.
+     *
+     * userid=1 is permanently reserved for the Guest/anonymous identity that
+     * User::setupDb() seeds separately. Before this fix the migration did not
+     * set AUTO_INCREMENT, so the first INSERT always landed at userid=1.
+     */
+    public function testAdminUserDoesNotClaimGuestUserid(): void
+    {
+        // Arrange — advance AUTO_INCREMENT exactly as CreateUsersTable::up() now does.
+        $this->db->query('ALTER TABLE users AUTO_INCREMENT = 2');
+
+        $user = new User(0);
+        $user->username  = 'admin';
+        $user->email     = 'admin@example.com';
+        $user->usertype  = 10;
+        $user->active    = 1;
+        $user->validated = 1;
+        $user->regdate   = time();
+        $user->setPassword('Test1234!');
+
+        // Act
+        $user->save();
+
+        // Assert — admin must NOT land on the reserved Guest userid
+        $this->assertEmpty(
+            $user->_errors,
+            'save() must produce no errors; got: ' . implode(', ', $user->_errors)
+        );
+        $this->assertGreaterThan(1, (int) $user->userid,
+            'Admin userid must be > 1; userid=1 is reserved for the Guest/anonymous user. '
+            . 'Got userid=' . $user->userid . ' — migration AUTO_INCREMENT advance is broken.'
+        );
+    }
 }
