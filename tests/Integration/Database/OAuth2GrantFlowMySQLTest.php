@@ -94,45 +94,64 @@ class OAuth2GrantFlowMySQLTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * Drop tables that belong exclusively to this test class.
-     * The shared framework tables (users, applications, usertokens) are left intact.
+     * Drop tables managed by this test class.
+     *
+     * oauth2_device_codes and oauth2_user_consents are fully owned by this test.
+     * applications is also dropped and recreated so its schema is always the
+     * full-compatible version — nothing in this test creates a FK to applications,
+     * so the drop is safe.  users and usertokens are NOT dropped because
+     * userstogroups has a FK to users that MySQL 9.x enforces even with
+     * FOREIGN_KEY_CHECKS = 0 during CREATE.
      */
     protected function dropOwnedTables(): void
     {
         $this->db->query('DROP TABLE IF EXISTS `oauth2_user_consents`');
         $this->db->query('DROP TABLE IF EXISTS `oauth2_device_codes`');
+        $this->db->query('DROP TABLE IF EXISTS `applications`');
     }
 
     /**
-     * Ensure the shared framework tables exist.
+     * Ensure the shared framework tables that we cannot safely drop exist.
      *
-     * CREATE TABLE IF NOT EXISTS is a no-op when the full-schema table already
-     * exists (e.g. after FrameworkMigrationsMySQLTest).  When running in
-     * isolation it creates a minimal compatible schema so the DML queries work.
+     * Only users and usertokens are created IF NOT EXISTS here.  applications
+     * is dropped and recreated (with the full schema) in createOwnedTables(),
+     * so it is always in the correct state.
      *
-     * NOTE: signed BIGINT is used for userid to match the existing
-     * userstogroups.userid FK reference type (MySQL 9.x enforces strict
-     * FK type compatibility even for dangling references).
+     * Signed BIGINT is used for userid to match the existing userstogroups.userid
+     * FK reference type (MySQL 9.x enforces strict FK type compatibility even for
+     * dangling references created by other tests).
      */
     protected function ensureSharedTables(): void
     {
+        // Full schema must match User::setupDb() exactly so that User::save()
+        // can write all its fields if this test creates the table first.
         $this->db->query("CREATE TABLE IF NOT EXISTS `users` (
-            `userid`    BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-            `username`  VARCHAR(255) NOT NULL DEFAULT '',
-            `email`     VARCHAR(255) NOT NULL DEFAULT '',
-            `password`  VARCHAR(255) NOT NULL DEFAULT '',
-            `active`    TINYINT NOT NULL DEFAULT 1
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-        $this->db->query("CREATE TABLE IF NOT EXISTS `applications` (
-            `appid`     INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-            `name`      VARCHAR(255) NOT NULL DEFAULT '',
-            `apikey`    VARCHAR(255) NULL,
-            `apisecret` VARCHAR(255) NULL,
-            `status`    TINYINT NOT NULL DEFAULT 1,
-            `callback`  TEXT NULL,
-            UNIQUE KEY `uq_applications_apikey` (`apikey`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            `userid`          bigint(20)            NOT NULL AUTO_INCREMENT,
+            `username`        varchar(50)           NOT NULL DEFAULT '',
+            `password`        varchar(100)          NOT NULL DEFAULT '',
+            `email`           varchar(150)          NOT NULL DEFAULT '',
+            `lastname`        varchar(128)          NOT NULL DEFAULT '',
+            `firstname`       varchar(128)          NOT NULL DEFAULT '',
+            `regdate`         int(11)               NOT NULL DEFAULT '0',
+            `regcompletion`   int(10) UNSIGNED      DEFAULT NULL,
+            `lasttermsagreed` int(10) UNSIGNED      DEFAULT NULL,
+            `lastlogin`       int(11)               NOT NULL DEFAULT '0',
+            `active`          tinyint(1)            NOT NULL DEFAULT '1',
+            `validated`       tinyint(4)            NOT NULL DEFAULT '1',
+            `language`        varchar(50)           NOT NULL DEFAULT '',
+            `timezone`        char(3)               NOT NULL DEFAULT '',
+            `dateformat`      varchar(15)           NOT NULL DEFAULT 'd/m/Y H:i',
+            `usertype`        tinyint(4)            NOT NULL DEFAULT '0',
+            `sex`             tinyint(3) UNSIGNED   NOT NULL DEFAULT '0',
+            `birthdate`       bigint(20)            NOT NULL DEFAULT '0',
+            `photo`           int(11)               DEFAULT NULL,
+            `phone`           varchar(50)           NOT NULL DEFAULT '',
+            `mobile`          varchar(50)           NOT NULL DEFAULT '',
+            `fax`             varchar(50)           NOT NULL DEFAULT '',
+            `website`         varchar(255)          NOT NULL DEFAULT '',
+            `modified`        int(11)               NOT NULL DEFAULT '0',
+            PRIMARY KEY (`userid`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8");
 
         $this->db->query("CREATE TABLE IF NOT EXISTS `usertokens` (
             `tokenid`               INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -164,11 +183,34 @@ class OAuth2GrantFlowMySQLTest extends TestCase
     }
 
     /**
-     * Create the tables owned by this test (oauth2_device_codes and oauth2_user_consents).
-     * These are dropped and recreated each test run.
+     * Create the tables owned by this test (applications, oauth2_device_codes, oauth2_user_consents).
+     * These are dropped and recreated each test run so the schema is always
+     * the full-compatible version.  The applications schema must exactly match
+     * ApikeyCharacterizationTest::ensureApplicationsTableExists() so that if
+     * either test class runs first, the other finds a compatible table.
      */
     protected function createOwnedTables(): void
     {
+        $this->db->query("CREATE TABLE IF NOT EXISTS `applications` (
+            `appid`           INT AUTO_INCREMENT PRIMARY KEY,
+            `name`            VARCHAR(191) NOT NULL,
+            `apikey`          VARCHAR(191) NOT NULL,
+            `apisecret`       VARCHAR(191) NOT NULL,
+            `status`          INT NOT NULL DEFAULT 0,
+            `added`           INT NOT NULL DEFAULT 0,
+            `description`     TEXT NULL,
+            `organization`    VARCHAR(191) NULL,
+            `organizationurl` VARCHAR(255) NULL,
+            `url`             VARCHAR(255) NULL,
+            `apptype`         INT NOT NULL DEFAULT 0,
+            `accesstype`      INT NOT NULL DEFAULT 0,
+            `apiversion`      VARCHAR(50) NULL,
+            `scope`           TEXT NULL,
+            `public`          INT NOT NULL DEFAULT 0,
+            `callback`        VARCHAR(255) NULL,
+            `owner`           INT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
         $this->db->query("CREATE TABLE IF NOT EXISTS `oauth2_device_codes` (
             `id`            INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
             `device_code`   VARCHAR(64)  NOT NULL,
