@@ -227,8 +227,11 @@ class Scopes
         $problematic       = $invalidScopes;
 
         $db     = \Pramnos\Framework\Factory::getDatabase();
-        $sql    = $db->prepareQuery("SELECT scope FROM applications WHERE apikey = %s", $apiKey);
-        $result = $db->query($sql);
+        $result = $db->queryBuilder()
+            ->table('applications')
+            ->select('scope')
+            ->where('apikey', $apiKey)
+            ->first();
 
         $allowedScopes = [];
         if ($result && $result->numRows > 0) {
