@@ -1,17 +1,22 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-11 (session 54)
+## 📅 Last Updated: 2026-05-11 (session 55)
 
 ## 🚀 Completed Milestones
 
+### Auth Controllers — Device.php + Dashboard.php (2026-05-11, session 55)
+
+- [x] **`Pramnos\Auth\Controllers\Device`** (`src/Pramnos/Auth/Controllers/Device.php`): RFC 8628 user-facing verification controller. `display()` → `handleVerification()` (POST action=verify) ή `showVerificationForm()`. Αν ο χρήστης είναι ήδη logged-in εμφανίζεται confirmation screen. `approveDevice()`: UPDATE status='authorized' + webhook `device_authorized`. `denyDevice()`: UPDATE status='denied' + webhook `device_deauthorized`. `validateCredentials()`: χρησιμοποιεί `User::validateUserCredentials()` ή fallback `validateCredentialsViaDb()` (SHA-256 direct DB check).
+- [x] **`Pramnos\Auth\Controllers\Dashboard`** (`src/Pramnos/Auth/Controllers/Dashboard.php`): Dashboard διαχείρισης λογαριασμού χρήστη. `applications()`: GROUP BY appid με MAX(lastused) + COUNT(tokenid). `revokeapplication()`: status=3 (audit-preserving) + DELETE oauth2_user_consents, AJAX/redirect. `exportdata()`: JSON download με όλα τα δεδομένα χρήστη (χωρίς password/salt). `deleteaccount()`: POST με password + "DELETE" confirmation → cascading delete (usertokens → oauth2_user_consents → user_activity_log → user_privacy_settings → user_twofactor → twofactor_setup → users) → logout. `privacy()`: INSERT ... ON CONFLICT DO UPDATE για user_privacy_settings. `changepassword()`: bcrypt + SHA-256 fallback, policy check (≥8 chars, digit, symbol, match).
+- [x] **`docs/1.2-new-features.md`** — Ενότητες 41 (Device) + 42 (Dashboard) προστέθηκαν.
+- [x] **ROADMAP** — item 271 κλείνει πλήρως.
+
 ### Auth Controllers — Oauth.php (2026-05-11, session 54)
 
-- [x] **`Pramnos\Auth\Controllers\Oauth`** (`src/Pramnos/Auth/Controllers/Oauth.php`): Controller OAuth2/OIDC completo. `authorize()` flusso manuale: valida params (PKCE S256/plain), check login, auto-approve se già consenso, form HTML (view OAuth2/authorize), registra consenso in `oauth2_user_consents`, genera auth code in `usertokens`. `token()` delega a `AuthorizationServer::respondToAccessTokenRequest()` via PSR-7 bridge manuale (nyholm/psr7 senza ServerRequestCreator). `revoke()` = RFC 7009 (UPDATE usertokens status=0). `introspect()` = RFC 7662 (query DB + campo `active`). `userinfo()` = OIDC §5.3 (scope-filtered user data). `logout()` = revoca tutti i token del sid. `deviceauthorization()` = RFC 8628 (device_code hex 64 char, user_code BCDFGHJKLMNPQRSTVWXZ XXXX-XXXX, 600s TTL, 5s polling).
-- [x] **`nyholm/psr7: ^1.8`** aggiunto a `composer.json` (già installato nel vendor).
-- [x] **14 nuovi unit tests** (`OauthControllerTest`): user code format, alfabeto non ambiguo, randomness, Bearer extraction, PKCE validation, HTTP header fallback extraction, device code format. Totale 39/39 controller tests.
-- [x] **`docs/1.2-new-features.md`** — Sezione 40 aggiunta.
-- [x] **ROADMAP** — item 271 aggiornato.
-- Deferred: `Device.php`, `Dashboard.php`
+- [x] **`Pramnos\Auth\Controllers\Oauth`** (`src/Pramnos/Auth/Controllers/Oauth.php`): Πλήρης OAuth2/OIDC controller. `authorize()` manual flow: validation params (PKCE S256/plain), login check, auto-approve αν υπάρχει consent, HTML form (view OAuth2/authorize), καταχώρηση consent σε `oauth2_user_consents`, δημιουργία auth code σε `usertokens`. `token()` εκχωρεί στο `AuthorizationServer::respondToAccessTokenRequest()` μέσω PSR-7 bridge (nyholm/psr7 χωρίς ServerRequestCreator). `revoke()` = RFC 7009 (UPDATE usertokens status=0). `introspect()` = RFC 7662. `userinfo()` = OIDC §5.3 (scope-filtered). `logout()` = revoke όλων των tokens του sid. `deviceauthorization()` = RFC 8628 (device_code hex 64 char, user_code BCDFGHJKLMNPQRSTVWXZ XXXX-XXXX, 600s TTL).
+- [x] **`nyholm/psr7: ^1.8`** προστέθηκε στο `composer.json`.
+- [x] **14 unit tests** (`OauthControllerTest`): user code format, alphabet χωρίς αμφίσημα γράμματα, randomness, Bearer extraction, PKCE validation, HTTP header fallback, device code format. Σύνολο 39/39 controller tests.
+- [x] **`docs/1.2-new-features.md`** — Ενότητα 40 προστέθηκε.
 
 ### Auth Controllers — Discovery, Session, TwoFactorAuth, Gdpr (2026-05-11, session 53)
 
