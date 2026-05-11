@@ -4,9 +4,10 @@
 
 ## 🚀 Completed Milestones
 
-### WebhookService + Settings isolation fix (2026-05-11, session 52)
+### RSA key generation in pramnos init + WebhookService (2026-05-11, session 52)
 
 - [x] **`Pramnos\Auth\WebhookService`** (`src/Pramnos/Auth/WebhookService.php`): Cross-DB webhook delivery service. `queueEvent()` fans out events to all active endpoints (MySQL-path; PG uses PL/pgSQL). `processQueue(batchSize)` fetches pending events, sends HTTP POST with HMAC-SHA256 signature, updates status (sent/failed/cancelled), applies exponential back-off (5 min × 2^(attempt−1), capped 24 h). `purgeOldEvents()` removes old completed events. Static `verifySignature()` / `buildSignature()` helpers for inbound + outbound signing. 9 unit tests — all pass.
+- [x] **RSA key generation in `pramnos init`**: When `authserver` is in the enabled features, `pramnos init` now generates a 2048-bit RSA key pair at `app/keys/private.key` (chmod 0600) and `app/keys/public.key` (chmod 0644). Directory created with chmod 0700. Idempotent — existing keys are not overwritten. `.gitignore` created/updated to exclude `app/keys/private.key` and `app/keys/encryption.key`. 5 new unit tests (key generation, idempotency, no-authserver path, gitignore with/without authserver).
 - [x] **Settings isolation fix**: Override tests in `FrameworkMigrationsPostgreSQLTest` had a try-finally pattern that could leave `Settings::$settings['authserver_organization_column']` = null after an exception, causing DB lookup using MySQL backtick syntax on a PostgreSQL connection. Fixed by restoring to explicit default strings (`'organization_id'`, `'user_organizations'`) instead of null.
 - [x] **Full suite**: 1799 tests, 4660 assertions — OK (0 errors, 0 failures)
 - Commits: `622e39d` (isolation fix), this session (WebhookService)
