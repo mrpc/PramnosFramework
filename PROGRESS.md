@@ -1,8 +1,17 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-11 (session 59)
+## 📅 Last Updated: 2026-05-11 (session 60)
 
 ## 🚀 Completed Milestones
+
+### Dashboard.php QB migration + GDPR views (2026-05-11, session 60)
+
+- [x] **`Dashboard.php`** — all 10 private DB helper methods migrated from `prepareQuery`/`query` to QueryBuilder: `getAuthorizedApplications` (JOIN+DISTINCT+GROUP BY+MAX/COUNT), `getActivityLog` (ORDER BY+LIMIT), `isTwoFactorEnabled`, `getPrivacySettings`, `verifyUserPassword`, `updatePassword`, `eraseUserData`, `revokeapplication`, `privacy` POST (upsert), `buildExportData`.
+- [x] **Pre-existing bugs fixed**: removed non-existent `users.salt` column from `verifyUserPassword()` SELECT; changed `modified = NOW()` to `modified = time()` (column type is `int`, not DATETIME).
+- [x] **`DashboardCharacterizationTest`** (new) — 8 MySQL integration tests with inline table creation: `testGetAuthorizedApplicationsReturnsActiveApps`, `testGetAuthorizedApplicationsExcludesExpiredAndRevoked`, `testGetActivityLogReturnsOrderedAndLimited`, `testIsTwoFactorEnabledReturnsTrueOnlyWhenEnabled`, `testGetPrivacySettingsReturnsDefaultsAndPersistedValues`, `testVerifyUserPasswordBcryptBranch`, `testUpdatePasswordPersistsNewHash`, `testEraseUserDataDeletesAllRowsForUser`.
+- [x] **18 view templates** (6 views × 3 themes) created: `dashboard/dashboard.html.php`, `OAuth2/authorized_applications.html.php`, `OAuth2/delete_account.html.php`, `OAuth2/privacy_settings.html.php`, `OAuth2/security.html.php`, `OAuth2/change_password.html.php` — in bootstrap, tailwind, and plain-css themes.
+- [x] **ROADMAP item** `[ ] GDPR user-facing views` → `[x]` closed.
+- [x] Suite: 1902 tests, 5274 assertions, 0 failures.
 
 ### QB refactoring — User class + integration tests (2026-05-11, session 59)
 
