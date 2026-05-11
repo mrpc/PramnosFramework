@@ -409,6 +409,235 @@ class InitCommandUnitTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // RSA key generation (authserver feature)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * When the authserver feature is selected, pramnos init must generate an
+     * RSA key pair at app/keys/private.key and app/keys/public.key.
+     *
+     * This verifies the same first-time-setup path as OAuth2ServerFactory::
+     * generateKeyPair() but triggered at project scaffold time rather than
+     * on first HTTP request.
+     */
+    public function testAuthserverFeatureGeneratesRsaKeyPair(): void
+    {
+        if (!extension_loaded('openssl')) {
+            $this->markTestSkipped('OpenSSL extension required for RSA key generation');
+        }
+
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — enable authserver which triggers key generation
+        $tester->execute([
+            '--app-name'  => 'KeyTestApp',
+            '--namespace' => 'KeyTestApp',
+            '--features'  => 'auth,authserver',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'postgresql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'keytestapp_db',
+            '--db-user'   => 'keytestapp',
+            '--db-pass'   => 'secret',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — both key files exist
+        $this->assertFileExists($this->tmpDir . '/app/keys/private.key',
+            'private.key must be created during authserver init');
+        $this->assertFileExists($this->tmpDir . '/app/keys/public.key',
+            'public.key must be created during authserver init');
+
+        // Assert — key files contain valid PEM blocks
+        $private = file_get_contents($this->tmpDir . '/app/keys/private.key');
+        $public  = file_get_contents($this->tmpDir . '/app/keys/public.key');
+
+        $this->assertStringContainsString('-----BEGIN', $private,
+            'private.key must be a PEM-encoded key');
+        $this->assertStringContainsString('-----BEGIN PUBLIC KEY-----', $public,
+            'public.key must be a SPKI PEM public key');
+
+        // Assert — private key is loadable by openssl (validates the PEM)
+        $parsed = openssl_pkey_get_private($private);
+        $this->assertNotFalse($parsed, 'private.key must be parseable by openssl_pkey_get_private()');
+
+        // Assert — the key is RSA 2048-bit
+        $details = openssl_pkey_get_details($parsed);
+        $this->assertSame(OPENSSL_KEYTYPE_RSA, $details['type'], 'Key type must be RSA');
+        $this->assertSame(2048, $details['bits'], 'Key size must be 2048 bits');
+    }
+
+    /**
+     * Key generation must be idempotent: if app/keys/ already contains valid
+     * keys, init must not overwrite them.
+     *
+     * This matters for re-running init on an existing project — existing OAuth2
+     * tokens signed with the original private key must remain valid.
+     */
+    public function testKeyGenerationIsIdempotentWhenKeysAlreadyExist(): void
+    {
+        if (!extension_loaded('openssl')) {
+            $this->markTestSkipped('OpenSSL extension required for RSA key generation');
+        }
+
+        // Arrange — pre-create the keys directory with sentinel content
+        $keysDir = $this->tmpDir . '/app/keys';
+        mkdir($keysDir, 0700, true);
+        file_put_contents($keysDir . '/private.key', 'SENTINEL_PRIVATE');
+        file_put_contents($keysDir . '/public.key',  'SENTINEL_PUBLIC');
+
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'IdempotentApp',
+            '--namespace' => 'IdempotentApp',
+            '--features'  => 'authserver',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'idempotentapp_db',
+            '--db-user'   => 'idempotentapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — original sentinel content is preserved (keys were NOT regenerated)
+        $this->assertSame('SENTINEL_PRIVATE', file_get_contents($keysDir . '/private.key'),
+            'Existing private.key must not be overwritten');
+        $this->assertSame('SENTINEL_PUBLIC',  file_get_contents($keysDir . '/public.key'),
+            'Existing public.key must not be overwritten');
+    }
+
+    /**
+     * Without the authserver feature, no key pair must be generated.
+     *
+     * Key generation has a side-effect (files on disk) and must only run when
+     * the OAuth2 server is actually enabled; otherwise app/keys/ remains absent.
+     */
+    public function testNoKeyPairGeneratedWithoutAuthserverFeature(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — only 'auth', no 'authserver'
+        $tester->execute([
+            '--app-name'  => 'NoAuthserverApp',
+            '--namespace' => 'NoAuthserverApp',
+            '--features'  => 'auth',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'noauthserver_db',
+            '--db-user'   => 'noauthserver',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — app/keys directory must NOT be created
+        $this->assertDirectoryDoesNotExist($this->tmpDir . '/app/keys',
+            'app/keys must not be created when authserver is not enabled');
+    }
+
+    /**
+     * .gitignore must include app/keys/private.key when authserver is enabled.
+     *
+     * RSA private keys must never be committed to version control; the init
+     * command is responsible for protecting them at scaffold time.
+     */
+    public function testGitignoreExcludesPrivateKeyWhenAuthserverEnabled(): void
+    {
+        if (!extension_loaded('openssl')) {
+            $this->markTestSkipped('OpenSSL extension required for key generation path');
+        }
+
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'GitignoreApp',
+            '--namespace' => 'GitignoreApp',
+            '--features'  => 'authserver',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'postgresql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'gitignoreapp_db',
+            '--db-user'   => 'gitignoreapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — .gitignore exists and contains the private key exclusion
+        $gitignorePath = $this->tmpDir . '/.gitignore';
+        $this->assertFileExists($gitignorePath, '.gitignore must be created');
+
+        $contents = file_get_contents($gitignorePath);
+        $this->assertStringContainsString('/app/keys/private.key', $contents,
+            '.gitignore must exclude the RSA private key');
+    }
+
+    /**
+     * .gitignore must NOT contain the private key exclusion when authserver is
+     * not enabled — the extra entry would be misleading noise.
+     */
+    public function testGitignoreDoesNotExcludeKeyWhenAuthserverDisabled(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no authserver
+        $tester->execute([
+            '--app-name'  => 'NoKeyApp',
+            '--namespace' => 'NoKeyApp',
+            '--features'  => 'auth',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'nokeyapp_db',
+            '--db-user'   => 'nokeyapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert
+        $gitignorePath = $this->tmpDir . '/.gitignore';
+        if (!file_exists($gitignorePath)) {
+            $this->addToAssertionCount(1); // no .gitignore at all is also acceptable
+            return;
+        }
+        $contents = file_get_contents($gitignorePath);
+        $this->assertStringNotContainsString('app/keys/private.key', $contents,
+            '.gitignore must not contain private key entry when authserver is not enabled');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
