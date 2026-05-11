@@ -921,13 +921,15 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
      */
     public function testAuthserverRolesTableRespectsOrganizationColumnOverride(): void
     {
-        // Arrange — override before running the migration
-        \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid', false);
-
-        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
-        $m = $this->loadMigration('authserver', 'CreateAuthserverRolesTable');
-
+        // The entire test — including prerequisite setUp calls — lives inside the
+        // try block so that the finally always restores Settings even on exception.
         try {
+            // Arrange — override before running the migration
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid', false);
+
+            $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+            $m = $this->loadMigration('authserver', 'CreateAuthserverRolesTable');
+
             // Act
             $m->up();
 
@@ -951,8 +953,11 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             $m->down();
             $this->assertFalse($this->tableExists('roles', 'authserver'));
         } finally {
-            // Always restore default so subsequent tests are unaffected
-            \Pramnos\Application\Settings::setSetting('authserver_organization_column', null, false);
+            // Always restore default so subsequent tests are unaffected,
+            // even if an exception was thrown during setUp or assertions.
+            // Set to the explicit default (not null) to avoid a DB-lookup
+            // attempt on the next getSetting() call.
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'organization_id', false);
         }
     }
 
@@ -967,20 +972,20 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
      */
     public function testAuthserverUserOrganizationsTableRespectsFullOverride(): void
     {
-        // Arrange — configure UrbanWater-style naming before running the migration
-        \Pramnos\Application\Settings::setSetting('authserver_organization_table',  'user_deyas', false);
-        \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid',     false);
-
-        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
-        $this->loadMigration('auth', 'CreateUsersTable')->up();
-        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
-        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
-        // NOTE: CreateOrganizationsTable is intentionally NOT loaded here —
-        // the override path must NOT add an FK to public.organizations
-
-        $m = $this->loadMigration('authserver', 'CreateAuthserverUserOrganizationsTable');
-
         try {
+            // Arrange — configure UrbanWater-style naming before running the migration
+            \Pramnos\Application\Settings::setSetting('authserver_organization_table',  'user_deyas', false);
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid',     false);
+
+            $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+            $this->loadMigration('auth', 'CreateUsersTable')->up();
+            $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+            $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+            // NOTE: CreateOrganizationsTable is intentionally NOT loaded here —
+            // the override path must NOT add an FK to public.organizations
+
+            $m = $this->loadMigration('authserver', 'CreateAuthserverUserOrganizationsTable');
+
             // Act
             $m->up();
 
@@ -1028,8 +1033,8 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
                 'authserver.user_deyas must be dropped by down()'
             );
         } finally {
-            \Pramnos\Application\Settings::setSetting('authserver_organization_table',  null, false);
-            \Pramnos\Application\Settings::setSetting('authserver_organization_column', null, false);
+            \Pramnos\Application\Settings::setSetting('authserver_organization_table',  'user_organizations', false);
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'organization_id',    false);
         }
     }
 
