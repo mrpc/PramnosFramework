@@ -85,12 +85,12 @@ class OAuth2Middleware
      */
     public function revokeToken(string $token): bool
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "UPDATE `#PREFIX#usertokens` SET `status` = 0 WHERE `token` = %s AND `tokentype` = 'access_token'",
-            $token
-        );
-        return (bool)$db->query($sql);
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        return (bool) $db->queryBuilder()
+            ->table('usertokens')
+            ->where('token', $token)
+            ->where('tokentype', 'access_token')
+            ->update(['status' => 0]);
     }
 
     /**
@@ -120,16 +120,14 @@ class OAuth2Middleware
         $db  = \Pramnos\Framework\Factory::getDatabase();
         $now = time();
 
-        $sql = $db->prepareQuery(
-            "SELECT ut.*, a.name AS client_name"
-            . " FROM `#PREFIX#usertokens` ut"
-            . " LEFT JOIN `#PREFIX#applications` a ON ut.applicationid = a.appid"
-            . " WHERE ut.token = %s AND ut.tokentype = 'access_token'"
-            . " AND ut.status = 1 AND (ut.expires = 0 OR ut.expires > %d)",
-            $token,
-            $now
-        );
-        $result = $db->query($sql);
+        $result = $db->queryBuilder()
+            ->table('usertokens ut')
+            ->leftJoin('applications a', 'ut.applicationid = a.appid')
+            ->select('ut.*, a.name AS client_name')
+            ->where('ut.token', $token)
+            ->where('ut.tokentype', 'access_token')
+            ->where('ut.status', 1)
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             return false;
@@ -137,13 +135,14 @@ class OAuth2Middleware
 
         $row = $result->fields;
 
-        // Update last-used timestamp without blocking the response.
-        $upd = $db->prepareQuery(
-            'UPDATE `#PREFIX#usertokens` SET `lastused` = %d WHERE `tokenid` = %d',
-            $now,
-            (int)$row['tokenid']
-        );
-        $db->query($upd);
+        if ((int)$row['expires'] !== 0 && (int)$row['expires'] <= $now) {
+            return false;
+        }
+
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->where('tokenid', (int)$row['tokenid'])
+            ->update(['lastused' => $now]);
 
         return $row;
     }

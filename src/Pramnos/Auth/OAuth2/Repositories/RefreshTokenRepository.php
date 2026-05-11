@@ -45,7 +45,6 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
         $db  = \Pramnos\Framework\Factory::getDatabase();
         $now = time();
 
-        // Resolve parent access token row
         $parentAccessTokenId = $this->resolveAccessTokenId($refreshTokenEntity->getAccessToken()->getIdentifier());
         $parentRow           = $this->loadAccessTokenRow($parentAccessTokenId);
 
@@ -53,20 +52,19 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
             ? $refreshTokenEntity->getExpiryDateTime()->getTimestamp()
             : 0;
 
-        $sql = $db->prepareQuery(
-            'INSERT INTO `#PREFIX#usertokens`'
-            . ' (userid, tokentype, token, created, status, applicationid, parentToken, expires, deviceinfo)'
-            . ' VALUES (%d, %s, %s, %d, 1, %d, %d, %d, %s)',
-            (int) ($parentRow['userid'] ?? 0),
-            'refresh_token',
-            $refreshTokenEntity->getIdentifier(),
-            $now,
-            (int) ($parentRow['applicationid'] ?? 0),
-            $parentAccessTokenId,
-            $expires,
-            ''
-        );
-        $db->query($sql);
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->insert([
+                'userid'        => (int) ($parentRow['userid'] ?? 0),
+                'tokentype'     => 'refresh_token',
+                'token'         => $refreshTokenEntity->getIdentifier(),
+                'created'       => $now,
+                'status'        => 1,
+                'applicationid' => (int) ($parentRow['applicationid'] ?? 0),
+                'parentToken'   => $parentAccessTokenId,
+                'expires'       => $expires,
+                'deviceinfo'    => '',
+            ]);
     }
 
     /**
@@ -74,12 +72,12 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
      */
     public function revokeRefreshToken(string $tokenId): void
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "UPDATE `#PREFIX#usertokens` SET `status` = 0 WHERE `token` = %s AND `tokentype` = 'refresh_token'",
-            $tokenId
-        );
-        $db->query($sql);
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->where('token', $tokenId)
+            ->where('tokentype', 'refresh_token')
+            ->update(['status' => 0]);
     }
 
     /**
@@ -87,12 +85,13 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
      */
     public function isRefreshTokenRevoked(string $tokenId): bool
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "SELECT status FROM `#PREFIX#usertokens` WHERE `token` = %s AND `tokentype` = 'refresh_token'",
-            $tokenId
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('usertokens')
+            ->select('status')
+            ->where('token', $tokenId)
+            ->where('tokentype', 'refresh_token')
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             return true;
@@ -102,12 +101,13 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
 
     private function resolveAccessTokenId(string $identifier): int
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "SELECT tokenid FROM `#PREFIX#usertokens` WHERE `token` = %s AND `tokentype` = 'access_token'",
-            $identifier
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('usertokens')
+            ->select('tokenid')
+            ->where('token', $identifier)
+            ->where('tokentype', 'access_token')
+            ->first();
         return ($result && $result->numRows > 0) ? (int)$result->fields['tokenid'] : 0;
     }
 
@@ -116,12 +116,12 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
         if ($tokenId === 0) {
             return [];
         }
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            'SELECT userid, applicationid FROM `#PREFIX#usertokens` WHERE tokenid = %d',
-            $tokenId
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('usertokens')
+            ->select('userid, applicationid')
+            ->where('tokenid', $tokenId)
+            ->first();
         return ($result && $result->numRows > 0) ? $result->fields : [];
     }
 }

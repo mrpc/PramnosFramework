@@ -52,21 +52,20 @@ class AuthCodeRepository implements AuthCodeRepositoryInterface
             ? $authCodeEntity->getExpiryDateTime()->getTimestamp()
             : 0;
 
-        $sql = $db->prepareQuery(
-            'INSERT INTO `#PREFIX#usertokens`'
-            . ' (userid, tokentype, token, created, status, applicationid, scope, expires, notes, deviceinfo)'
-            . ' VALUES (%d, %s, %s, %d, 1, %d, %s, %d, %s, %s)',
-            (int) ($authCodeEntity->getUserIdentifier() ?? 0),
-            'auth_code',
-            $authCodeEntity->getIdentifier(),
-            $now,
-            $appId,
-            $scopes,
-            $expires,
-            (string) $authCodeEntity->getRedirectUri(),
-            ''
-        );
-        $db->query($sql);
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->insert([
+                'userid'        => (int) ($authCodeEntity->getUserIdentifier() ?? 0),
+                'tokentype'     => 'auth_code',
+                'token'         => $authCodeEntity->getIdentifier(),
+                'created'       => $now,
+                'status'        => 1,
+                'applicationid' => $appId,
+                'scope'         => $scopes,
+                'expires'       => $expires,
+                'notes'         => (string) $authCodeEntity->getRedirectUri(),
+                'deviceinfo'    => '',
+            ]);
     }
 
     /**
@@ -74,12 +73,12 @@ class AuthCodeRepository implements AuthCodeRepositoryInterface
      */
     public function revokeAuthCode(string $codeId): void
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "UPDATE `#PREFIX#usertokens` SET `status` = 0 WHERE `token` = %s AND `tokentype` = 'auth_code'",
-            $codeId
-        );
-        $db->query($sql);
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->where('token', $codeId)
+            ->where('tokentype', 'auth_code')
+            ->update(['status' => 0]);
     }
 
     /**
@@ -87,12 +86,13 @@ class AuthCodeRepository implements AuthCodeRepositoryInterface
      */
     public function isAuthCodeRevoked(string $codeId): bool
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "SELECT status FROM `#PREFIX#usertokens` WHERE `token` = %s AND `tokentype` = 'auth_code'",
-            $codeId
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('usertokens')
+            ->select('status')
+            ->where('token', $codeId)
+            ->where('tokentype', 'auth_code')
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             return true;
@@ -105,12 +105,12 @@ class AuthCodeRepository implements AuthCodeRepositoryInterface
         if (empty($clientIdentifier)) {
             return 0;
         }
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            'SELECT appid FROM `#PREFIX#applications` WHERE apikey = %s',
-            (string) $clientIdentifier
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('applications')
+            ->select('appid')
+            ->where('apikey', (string)$clientIdentifier)
+            ->first();
         return ($result && $result->numRows > 0) ? (int)$result->fields['appid'] : 0;
     }
 }
