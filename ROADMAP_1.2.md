@@ -179,7 +179,7 @@
   - [x] `addCompressionPolicy($table, $interval)` / `enableCompression()` — TimescaleDB native; silent no-op αλλού
   - [x] `QueryBuilder::timeBucket($interval, $column)` — dialect-transparent expression helper
   - [x] `addContinuousAggregatePolicy($view, $startOffset, $endOffset, $scheduleInterval)` — TimescaleDB native; non-TimescaleDB: inserts `aggregate_refresh` row into `framework_policies` via QB
-  - [ ] Πρόσβαση στα TimescaleDB informational views (`timescaledb_information.*`)
+  - [x] Πρόσβαση στα TimescaleDB informational views (`timescaledb_information.*`) — `SchemaBuilder::getHypertables()`, `isHypertable()`, `getContinuousAggregates()`, `getHypertableDimensions()`, `getTimescaleJobs()`, `getChunks()` — returns `[]`/`false` on non-TimescaleDB; 10 integration tests in `SchemaBuilderTimescaleDBInfoTest`
 
 - [x] **`DatabaseCapabilities` — Runtime Detection & Graceful Fallback:**
   - [x] `has(string $capability): bool` — runtime detection; WeakMap static cache (auto-cleans on GC)
@@ -633,9 +633,9 @@
 - [ ] **Named Routes & URL Generation:** Βελτίωση της παραγωγής URLs βάσει ονόματος route.
 
 ### 🛡️ Φάση 8: Security & Templating
-- [ ] **View Auto-escaping:** Σύστημα προστασίας XSS με αυτόματο escaping των μεταβλητών στα templates (με δυνατότητα `raw` bypass).
-- [ ] **CSRF Protection:** Native middleware για αυτόματο έλεγχο CSRF tokens σε POST requests.
-- [ ] **Secure Headers:** Εύκολος ορισμός CSP (Content Security Policy) και άλλων security headers.
+- [x] **View Auto-escaping:** Σύστημα προστασίας XSS με αυτόματο escaping των μεταβλητών στα templates (με δυνατότητα `raw` bypass). *`View::escape(mixed $value): string` + `View::e()` alias — delegates to global `e()` helper. Templates use `<?= $this->e($var) ?>`.*
+- [x] **CSRF Protection:** Native middleware για αυτόματο έλεγχο CSRF tokens σε POST requests. *`CsrfMiddleware` (`src/Pramnos/Http/Middleware/CsrfMiddleware.php`) implements `MiddlewareInterface`; protects POST/PUT/PATCH/DELETE; supports field token + `X-CSRF-Token` header; `CsrfMiddleware::tokenField()` helper for forms; 20 characterization tests.*
+- [x] **Secure Headers:** Εύκολος ορισμός CSP (Content Security Policy) και άλλων security headers. *`Application::sendCspHeader()` + `getCspDomains()`: builds `Content-Security-Policy` from `$applicationInfo['csp']` config array; per-request nonce injected automatically; default-src 'none' base + script/style/img/font/connect/frame directives; `upgrade-insecure-requests` included.*
 
 ### 🗃️ Φάση 9: Full ORM Layer
 *Προϋπόθεση: Event system (Φάση 2) + Characterization tests × 3 databases (Φάση 5) ολοκληρωμένα.*
