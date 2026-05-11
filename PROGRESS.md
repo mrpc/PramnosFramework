@@ -1,8 +1,17 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-11 (session 53)
+## 📅 Last Updated: 2026-05-11 (session 54)
 
 ## 🚀 Completed Milestones
+
+### Auth Controllers — Oauth.php (2026-05-11, session 54)
+
+- [x] **`Pramnos\Auth\Controllers\Oauth`** (`src/Pramnos/Auth/Controllers/Oauth.php`): Controller OAuth2/OIDC completo. `authorize()` flusso manuale: valida params (PKCE S256/plain), check login, auto-approve se già consenso, form HTML (view OAuth2/authorize), registra consenso in `oauth2_user_consents`, genera auth code in `usertokens`. `token()` delega a `AuthorizationServer::respondToAccessTokenRequest()` via PSR-7 bridge manuale (nyholm/psr7 senza ServerRequestCreator). `revoke()` = RFC 7009 (UPDATE usertokens status=0). `introspect()` = RFC 7662 (query DB + campo `active`). `userinfo()` = OIDC §5.3 (scope-filtered user data). `logout()` = revoca tutti i token del sid. `deviceauthorization()` = RFC 8628 (device_code hex 64 char, user_code BCDFGHJKLMNPQRSTVWXZ XXXX-XXXX, 600s TTL, 5s polling).
+- [x] **`nyholm/psr7: ^1.8`** aggiunto a `composer.json` (già installato nel vendor).
+- [x] **14 nuovi unit tests** (`OauthControllerTest`): user code format, alfabeto non ambiguo, randomness, Bearer extraction, PKCE validation, HTTP header fallback extraction, device code format. Totale 39/39 controller tests.
+- [x] **`docs/1.2-new-features.md`** — Sezione 40 aggiunta.
+- [x] **ROADMAP** — item 271 aggiornato.
+- Deferred: `Device.php`, `Dashboard.php`
 
 ### Auth Controllers — Discovery, Session, TwoFactorAuth, Gdpr (2026-05-11, session 53)
 
