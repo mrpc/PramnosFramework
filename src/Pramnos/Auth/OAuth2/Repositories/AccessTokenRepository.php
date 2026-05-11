@@ -65,20 +65,19 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
             ? $accessTokenEntity->getExpiryDateTime()->getTimestamp()
             : 0;
 
-        $sql = $db->prepareQuery(
-            'INSERT INTO `#PREFIX#usertokens`'
-            . ' (userid, tokentype, token, created, status, applicationid, scope, expires, deviceinfo)'
-            . ' VALUES (%d, %s, %s, %d, 1, %d, %s, %d, %s)',
-            (int) $accessTokenEntity->getUserIdentifier(),
-            'access_token',
-            $accessTokenEntity->getIdentifier(),
-            $now,
-            $appId,
-            $scopes,
-            $expires,
-            ''
-        );
-        $db->query($sql);
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->insert([
+                'userid'        => (int) $accessTokenEntity->getUserIdentifier(),
+                'tokentype'     => 'access_token',
+                'token'         => $accessTokenEntity->getIdentifier(),
+                'created'       => $now,
+                'status'        => 1,
+                'applicationid' => $appId,
+                'scope'         => $scopes,
+                'expires'       => $expires,
+                'deviceinfo'    => '',
+            ]);
     }
 
     /**
@@ -86,12 +85,12 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
      */
     public function revokeAccessToken(string $tokenId): void
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "UPDATE `#PREFIX#usertokens` SET `status` = 0 WHERE `token` = %s AND `tokentype` = 'access_token'",
-            $tokenId
-        );
-        $db->query($sql);
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->where('token', $tokenId)
+            ->where('tokentype', 'access_token')
+            ->update(['status' => 0]);
     }
 
     /**
@@ -99,12 +98,13 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
      */
     public function isAccessTokenRevoked(string $tokenId): bool
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "SELECT status FROM `#PREFIX#usertokens` WHERE `token` = %s AND `tokentype` = 'access_token'",
-            $tokenId
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('usertokens')
+            ->select('status')
+            ->where('token', $tokenId)
+            ->where('tokentype', 'access_token')
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             return true;
@@ -117,12 +117,12 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
         if (empty($clientIdentifier)) {
             return 0;
         }
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            'SELECT appid FROM `#PREFIX#applications` WHERE apikey = %s',
-            (string) $clientIdentifier
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('applications')
+            ->select('appid')
+            ->where('apikey', (string)$clientIdentifier)
+            ->first();
         return ($result && $result->numRows > 0) ? (int)$result->fields['appid'] : 0;
     }
 
