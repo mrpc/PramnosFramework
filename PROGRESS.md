@@ -1,6 +1,6 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-11 (session 60)
+## 📅 Last Updated: 2026-05-12 (session 61)
 
 ## 🚀 Completed Milestones
 
@@ -1030,9 +1030,35 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 
 ## 🛠️ Work in Progress
 
-### Phase 1.4: TimescaleDB Extension Builder
-- [x] `time_bucket()` dialect translation in QueryBuilder
-- [ ] Continuous aggregate CLI/migration support
+*(No active work-in-progress items — all Phase 1/4 items complete.)*
+
+---
+
+## 📌 Session 61 (2026-05-12) — Policy Engine QB Migration + SchemaBuilder Fallbacks
+
+### What was done
+- **`PolicyEngine` QB migration** (`src/Pramnos/Policy/PolicyEngine.php`):
+  - Replaced all 5 DB helper methods (`register`, `setEnabled`, `remove`, `loadPolicies`, `updateHistory`) from dialect-specific raw SQL (`$1/$2` PG, `?` MySQL) to QueryBuilder
+  - Physical table name resolved once in constructor via `$db->schema()->resolveTableName('pramnos.framework_policies')` — correctly maps to `pramnos_framework_policies` on MySQL
+  - `whereRaw('enabled = TRUE')` and `whereRaw('(next_run IS NULL OR next_run <= NOW()')` for cross-dialect compatibility
+  - `POLICY_TABLE_LOGICAL` constant + `$policyTableName` instance property pattern
+- **`SchemaBuilder` additions** (`src/Pramnos/Database/SchemaBuilder.php`):
+  - `addRetentionPolicy()`: new optional `$timeColumn` param; on non-TimescaleDB now inserts `retention` policy into `framework_policies` via QB (previously returned `false`)
+  - `addContinuousAggregatePolicy($view, $startOffset, $endOffset, $scheduleInterval)`: new method; TimescaleDB native via `add_continuous_aggregate_policy()`; non-TimescaleDB inserts `aggregate_refresh` policy via QB
+- **Integration tests** (`tests/Characterization/Policy/PolicyEngineCharacterizationTest.php`):
+  - 8 MySQL integration tests covering: `register`/`getAllEnabled`, multiple policies, `setEnabled` toggle, `remove` permanence, `run()` history update, due/not-due filtering, retention DELETE execution, unknown type → error result
+  - Uses mock Application pattern (same as `MigrationMySQLCharacterizationTest`) with real Database connection
+
+### ROADMAP items closed
+- `[x] addContinuousAggregatePolicy()` (SchemaBuilder)
+- `[x] Retention policy fallback` (SchemaBuilder → framework_policies)
+- `[x] Continuous aggregate fallback Policy` (SchemaBuilder → framework_policies)
+- `[x] Policy Engine Daemon — TimescaleDB Fallback Simulator`
+- `[x] Daemons & Background Tasks` (Policy Engine + Scheduler both complete)
+
+### Test results
+- PolicyEngineCharacterizationTest: **8/8** ✓
+- Full suite: **1910/1910** ✓ (up from 1902 — 8 new tests)
 
 ---
 

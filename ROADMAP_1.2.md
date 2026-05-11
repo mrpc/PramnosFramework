@@ -175,10 +175,10 @@
   - [x] `createHypertable($table, $timeColumn)` — στο TimescaleDB εκτελεί `SELECT create_hypertable()`; σε άλλα backends: silent no-op
   - [x] `addSpaceDimension($table, $column, $partitions)` — TimescaleDB native; silent no-op αλλού
   - [x] `createContinuousAggregate($name, $query, $interval)` — TimescaleDB native / PG MATERIALIZED VIEW / MySQL VIEW
-  - [x] `addRetentionPolicy($table, $interval)` — TimescaleDB native; silent no-op αλλού (future: Policy Engine)
+  - [x] `addRetentionPolicy($table, $interval, $timeColumn='created_at')` — TimescaleDB native; non-TimescaleDB: inserts `retention` row into `framework_policies` via QB; Policy Engine daemon executes DELETE job
   - [x] `addCompressionPolicy($table, $interval)` / `enableCompression()` — TimescaleDB native; silent no-op αλλού
   - [x] `QueryBuilder::timeBucket($interval, $column)` — dialect-transparent expression helper
-  - [ ] `addContinuousAggregatePolicy()` — αυτόματο refresh policy (depends on Policy Engine / framework_policies)
+  - [x] `addContinuousAggregatePolicy($view, $startOffset, $endOffset, $scheduleInterval)` — TimescaleDB native; non-TimescaleDB: inserts `aggregate_refresh` row into `framework_policies` via QB
   - [ ] Πρόσβαση στα TimescaleDB informational views (`timescaledb_information.*`)
 
 - [x] **`DatabaseCapabilities` — Runtime Detection & Graceful Fallback:**
@@ -189,11 +189,11 @@
   - [x] Backport Spec Section 14.1 alignment complete (constants, static cache, new capabilities)
   - [x] `SchemaBuilder::ifCapable()` — conditional DDL execution (passes SchemaBuilder, not Database)
   - [x] **Compression/Hypertable fallback:** Silent no-op on non-TimescaleDB backends ✓
-  - [ ] **Retention policy fallback:** εγγραφή στο `framework_policies` → Policy Engine εκτελεί DELETE job *(depends on Migration System + Policy Engine)*
-  - [ ] **Continuous aggregate fallback Policy:** εγγραφή στο `framework_policies` για αυτόματο refresh *(depends on Migration System + Policy Engine)*
+  - [x] **Retention policy fallback:** `addRetentionPolicy()` inserts `retention` policy into `framework_policies` on non-TimescaleDB; Policy Engine daemon executes the DELETE job
+  - [x] **Continuous aggregate fallback Policy:** `addContinuousAggregatePolicy()` inserts `aggregate_refresh` policy into `framework_policies` on non-TimescaleDB
   - Αναλυτική προδιαγραφή: βλ. `UrbanWater-Backport-Features.md` Section 14
 
-- [ ] **Policy Engine Daemon — TimescaleDB Fallback Simulator:** Σύστημα που προσομοιώνει τις χρονοδιαγραμμένες λειτουργίες του TimescaleDB (retention policies, continuous aggregate refresh, compression) σε MySQL και plain PostgreSQL, όπου δεν υπάρχει native scheduler.
+- [x] **Policy Engine Daemon — TimescaleDB Fallback Simulator:** Σύστημα που προσομοιώνει τις χρονοδιαγραμμένες λειτουργίες του TimescaleDB (retention policies, continuous aggregate refresh, compression) σε MySQL και plain PostgreSQL, όπου δεν υπάρχει native scheduler.
 
   **`framework_policies` table** *(scope: `core`)*:
   ```sql
@@ -295,10 +295,9 @@
   - [x] `MessagingServiceProvider`
   - [x] System migrations: `mails`, `mailtemplates`, `messages`, `massmessages`, `massmessagerecipients`
   - [x] Integration tests × 3 databases (MySQL + PostgreSQL model CRUD, TimescaleDB via PostgreSQL path)
-- [ ] **Daemons & Background Tasks** *(Policy Engine + Scheduler)*: Ολοκληρωμένο σύστημα δημιουργίας, διαχείρισης και επίβλεψης daemons/background tasks. Περιλαμβάνει:
-  - Γενικό daemon framework (process management, signals, heartbeat)
-  - **Policy Engine Daemon** (`service:policy-engine`): TimescaleDB fallback simulator — εκτελεί retention/aggregate-refresh/compression policies σε MySQL/plain PG μέσω του `framework_policies` table (βλ. Φάση 1)
-  - **Scheduled Tasks** (`service:scheduler`): Cron-like σύστημα για επαναλαμβανόμενα jobs που ορίζονται κώδικα (cron expression ή interval) — αντικαθιστά system crontab entries
+- [x] **Daemons & Background Tasks** *(Policy Engine + Scheduler)*: Ολοκληρωμένο σύστημα δημιουργίας, διαχείρισης και επίβλεψης daemons/background tasks. Περιλαμβάνει:
+  - **Policy Engine Daemon** (`service:policy-engine`): QB-migrated; `PolicyEngine::register/setEnabled/remove/loadPolicies/updateHistory` χρησιμοποιούν QB; `addRetentionPolicy()` + `addContinuousAggregatePolicy()` στο SchemaBuilder καταχωρούν policies στο `framework_policies`; 8 integration tests (`PolicyEngineCharacterizationTest`)
+  - **Scheduled Tasks** (`service:scheduler` / `service:schedule-list`): `Scheduler`, `ScheduledTask`, `CronExpression`, `ScheduleRun`, `ScheduleList` — 29 unit tests + 6 PolicyRecord unit tests; full cron/interval API (`->cron()`, `->daily()`, `->everyHour()`, `->weekly()`, `->withoutOverlapping()`, `->isDue()`, `->run()`)
 - [x] **CLI UX Improvements:** Backport `CommandBase` από Urbanwater — lock-file job guards, terminal control (cursor/clear/size), bordered dashboard rendering, block-character progress bar, text utils (formatBytes, formatTime, visibleLength, wrapDashboardText). Urbanwater commands μπορούν να extend-άρουν `Pramnos\Console\CommandBase`.
 - [x] **Daemon Orchestrator:** Backport `DaemonOrchestrator` abstract class από Urbanwater — generic reconcile engine, desired-vs-actual process management, stop-file mechanism, flock singleton guard, dedup scan, git-hash restart detection, interactive dashboard. Apps override abstract methods (`buildDesiredProcesses`, `getDashboardTitle`, `getEntryPoint`) και hooks (`isOrchestratorEnabled`). Urbanwater's orchestrator μπορεί να κάνει extend `Pramnos\Console\DaemonOrchestrator` και να παρέχει μόνο την app-specific λογική.
 - [x] **Event / Hook System:** Επίσημο σύστημα events και listeners πάνω από το υπάρχον addon hook σύστημα — `Event::fire()`, `Event::listen()` — για αποσύζευξη εσωτερικών subsystems και δυνατότητα επέκτασης από addons.
