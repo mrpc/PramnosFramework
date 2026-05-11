@@ -108,39 +108,36 @@ class Dashboard extends Controller
         }
 
         try {
-            $db  = \Pramnos\Framework\Factory::getDatabase();
-            $sql = $db->prepareQuery(
-                'SELECT appid, name FROM applications WHERE apikey = %s AND status = 1',
-                $clientId
-            );
-            $result = $db->query($sql);
+            $db     = \Pramnos\Framework\Factory::getDatabase();
+            $result = $db->queryBuilder()
+                ->table('applications')
+                ->select(['appid', 'name'])
+                ->where('apikey', $clientId)
+                ->where('status', 1)
+                ->first();
 
             if (!$result || $result->numRows == 0) {
                 $this->sendRevokeResponse($isAjax, false, 'Application not found');
                 return;
             }
 
-            $appId   = (int) $result->fields['appid'];
+            $appId   = (int)    $result->fields['appid'];
             $appName = (string) $result->fields['name'];
 
             // Revoke tokens (status 3 = revoked, kept for audit trail)
-            $sql = $db->prepareQuery(
-                'UPDATE usertokens SET status = 3, removedate = %d
-                  WHERE userid = %d AND applicationid = %d AND status = 1',
-                time(),
-                $currentUser->userid,
-                $appId
-            );
-            $db->query($sql);
+            $db->queryBuilder()
+                ->table('usertokens')
+                ->where('userid', $currentUser->userid)
+                ->where('applicationid', $appId)
+                ->where('status', 1)
+                ->update(['status' => 3, 'removedate' => time()]);
 
             // Remove consent record if present
-            $sql = $db->prepareQuery(
-                'DELETE FROM oauth2_user_consents
-                  WHERE userid = %d AND applicationid = %d',
-                $currentUser->userid,
-                $appId
-            );
-            $db->query($sql);
+            $db->queryBuilder()
+                ->table('oauth2_user_consents')
+                ->where('userid', $currentUser->userid)
+                ->where('applicationid', $appId)
+                ->delete();
 
             $this->sendRevokeResponse($isAjax, true, "Access revoked for {$appName}");
 
@@ -239,19 +236,19 @@ class Dashboard extends Controller
         $currentUser = \Pramnos\User\User::getCurrentUser();
 
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-            $db  = \Pramnos\Framework\Factory::getDatabase();
-            $sql = $db->prepareQuery(
-                "INSERT INTO user_privacy_settings (userid, analytics_consent, marketing_consent, updated_at)
-                 VALUES (%d, %d, %d, NOW())
-                 ON CONFLICT (userid) DO UPDATE
-                     SET analytics_consent  = EXCLUDED.analytics_consent,
-                         marketing_consent  = EXCLUDED.marketing_consent,
-                         updated_at         = NOW()",
-                $currentUser->userid,
-                isset($_POST['analytics'])  ? 1 : 0,
-                isset($_POST['marketing'])  ? 1 : 0
-            );
-            $db->query($sql);
+            $db = \Pramnos\Framework\Factory::getDatabase();
+            $qb = $db->queryBuilder();
+            $qb->table('user_privacy_settings')
+               ->upsert(
+                   [
+                       'userid'            => (int) $currentUser->userid,
+                       'analytics_consent' => isset($_POST['analytics']) ? 1 : 0,
+                       'marketing_consent' => isset($_POST['marketing']) ? 1 : 0,
+                       'updated_at'        => $qb->raw('NOW()'),
+                   ],
+                   ['userid'],
+                   ['analytics_consent', 'marketing_consent', 'updated_at']
+               );
 
             $this->redirect(sURL . 'Dashboard/privacy');
             return;
@@ -341,21 +338,25 @@ class Dashboard extends Controller
      */
     private function getAuthorizedApplications(int $userId): array
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            'SELECT DISTINCT a.appid, a.name, a.apikey, a.description,
-                    MAX(ut.lastused) AS last_used, COUNT(ut.tokenid) AS token_count
-               FROM usertokens ut
-               JOIN applications a ON ut.applicationid = a.appid
-              WHERE ut.userid = %d AND ut.status = 1
-                AND (ut.expires = 0 OR ut.expires > %d)
-              GROUP BY a.appid, a.name, a.apikey, a.description',
-            $userId,
-            time()
-        );
-        $result = $db->query($sql);
-        $apps   = [];
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('usertokens ut')
+            ->join('applications a', 'ut.applicationid', '=', 'a.appid')
+            ->select([
+                'a.appid', 'a.name', 'a.apikey', 'a.description',
+                'MAX(ut.lastused) AS last_used',
+                'COUNT(ut.tokenid) AS token_count',
+            ])
+            ->distinct()
+            ->where('ut.userid', $userId)
+            ->where('ut.status', 1)
+            ->where(function ($q) {
+                $q->where('ut.expires', 0)->orWhere('ut.expires', '>', time());
+            })
+            ->groupBy(['a.appid', 'a.name', 'a.apikey', 'a.description'])
+            ->get();
 
+        $apps = [];
         if ($result) {
             while ($result->fetch()) {
                 $apps[] = (array) $result->fields;
@@ -372,19 +373,16 @@ class Dashboard extends Controller
      */
     private function getActivityLog(int $userId, int $limit = 10): array
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            'SELECT action, created_at, ip_address, user_agent
-               FROM user_activity_log
-              WHERE userid = %d
-              ORDER BY created_at DESC
-              LIMIT %d',
-            $userId,
-            $limit
-        );
-        $result = $db->query($sql);
-        $log    = [];
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('user_activity_log')
+            ->select(['action', 'created_at', 'ip_address', 'user_agent'])
+            ->where('userid', $userId)
+            ->orderBy('created_at', 'desc')
+            ->limit($limit)
+            ->get();
 
+        $log = [];
         if ($result) {
             while ($result->fetch()) {
                 $log[] = (array) $result->fields;
@@ -399,12 +397,13 @@ class Dashboard extends Controller
      */
     private function isTwoFactorEnabled(int $userId): bool
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "SELECT enabled FROM user_twofactor WHERE userid = %d",
-            $userId
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('user_twofactor')
+            ->select(['enabled'])
+            ->where('userid', $userId)
+            ->first();
+
         return $result && $result->numRows > 0 && (int) ($result->fields['enabled'] ?? 0) === 1;
     }
 
@@ -415,24 +414,24 @@ class Dashboard extends Controller
      */
     private function buildExportData(int $userId): array
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            'SELECT * FROM users WHERE userid = %d',
-            $userId
-        );
-        $result   = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('users')
+            ->where('userid', $userId)
+            ->first();
+
         $userData = $result ? (array) $result->fields : [];
 
         // Remove sensitive fields
         unset($userData['password'], $userData['salt']);
 
         return [
-            'export_date'          => date('c'),
-            'userid'               => $userId,
-            'data'                 => $userData,
-            'authorized_apps'      => $this->getAuthorizedApplications($userId),
-            'recent_activity'      => $this->getActivityLog($userId, 1000),
-            'privacy_settings'     => $this->getPrivacySettings($userId),
+            'export_date'      => date('c'),
+            'userid'           => $userId,
+            'data'             => $userData,
+            'authorized_apps'  => $this->getAuthorizedApplications($userId),
+            'recent_activity'  => $this->getActivityLog($userId, 1000),
+            'privacy_settings' => $this->getPrivacySettings($userId),
         ];
     }
 
@@ -444,25 +443,25 @@ class Dashboard extends Controller
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $tables = [
-            'usertokens'              => 'userid',
-            'oauth2_user_consents'    => 'userid',
-            'user_activity_log'       => 'userid',
-            'user_privacy_settings'   => 'userid',
-            'user_twofactor'          => 'userid',
-            'twofactor_setup'         => 'userid',
+            'usertokens'            => 'userid',
+            'oauth2_user_consents'  => 'userid',
+            'user_activity_log'     => 'userid',
+            'user_privacy_settings' => 'userid',
+            'user_twofactor'        => 'userid',
+            'twofactor_setup'       => 'userid',
         ];
 
         foreach ($tables as $table => $col) {
-            $sql = $db->prepareQuery(
-                "DELETE FROM {$table} WHERE {$col} = %d",
-                $userId
-            );
-            $db->query($sql);
+            $db->queryBuilder()
+                ->table($table)
+                ->where($col, $userId)
+                ->delete();
         }
 
-        // Delete the account itself
-        $sql = $db->prepareQuery('DELETE FROM users WHERE userid = %d', $userId);
-        $db->query($sql);
+        $db->queryBuilder()
+            ->table('users')
+            ->where('userid', $userId)
+            ->delete();
     }
 
     /**
@@ -472,17 +471,17 @@ class Dashboard extends Controller
      */
     private function getPrivacySettings(int $userId): array
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            'SELECT analytics_consent, marketing_consent FROM user_privacy_settings WHERE userid = %d',
-            $userId
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('user_privacy_settings')
+            ->select(['analytics_consent', 'marketing_consent'])
+            ->where('userid', $userId)
+            ->first();
 
         if ($result && $result->numRows > 0) {
             return [
-                'analytics'  => (bool) ($result->fields['analytics_consent'] ?? false),
-                'marketing'  => (bool) ($result->fields['marketing_consent'] ?? false),
+                'analytics' => (bool) ($result->fields['analytics_consent'] ?? false),
+                'marketing' => (bool) ($result->fields['marketing_consent'] ?? false),
             ];
         }
 
@@ -495,26 +494,25 @@ class Dashboard extends Controller
     private function verifyUserPassword(int $userId, string $password): bool
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
-        $sql    = $db->prepareQuery(
-            'SELECT password, salt FROM users WHERE userid = %d AND active = 1',
-            $userId
-        );
-        $result = $db->query($sql);
+        $result = $db->queryBuilder()
+            ->table('users')
+            ->select(['password'])
+            ->where('userid', $userId)
+            ->where('active', 1)
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             return false;
         }
 
         $stored = (string) ($result->fields['password'] ?? '');
-        $salt   = (string) ($result->fields['salt']     ?? '');
 
-        // Support both bcrypt (default) and legacy SHA-256+salt
+        // Bcrypt hashes (default since v1.2); legacy SHA-256 plain fallback
         if (str_starts_with($stored, '$2')) {
             return password_verify($password, $stored);
         }
 
-        return hash('sha256', $salt . $password) === $stored
-            || hash('sha256', $password) === $stored;
+        return hash('sha256', $password) === $stored;
     }
 
     /**
@@ -548,12 +546,13 @@ class Dashboard extends Controller
     {
         $db   = \Pramnos\Framework\Factory::getDatabase();
         $hash = password_hash($newPassword, PASSWORD_BCRYPT);
-        $sql  = $db->prepareQuery(
-            'UPDATE users SET password = %s, modified = NOW() WHERE userid = %d',
-            $hash,
-            $userId
-        );
-        $db->query($sql);
+        $db->queryBuilder()
+           ->table('users')
+           ->where('userid', $userId)
+           ->update([
+               'password' => $hash,
+               'modified' => time(),
+           ]);
     }
 
     // ── Private — response helpers ────────────────────────────────────────────
