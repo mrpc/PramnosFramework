@@ -1,8 +1,16 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-11 (session 55)
+## 📅 Last Updated: 2026-05-11 (session 55 cont.)
 
 ## 🚀 Completed Milestones
+
+### OAuth2 Integration Tests × 3 DB (2026-05-11, session 55 cont.)
+
+- [x] **`tests/Integration/Database/OAuth2GrantFlowMySQLTest`** (13 tests): Device code flow (insert+retrieve, expiry filter, approve, deny), user consent (insert, scope merge, check pass/fail), PKCE auth_code token (S256 challenge INSERT+SELECT, single-use consumption), token revocation (status=0), token introspection (JOIN usertokens+applications, active/inactive). Test isolation: owned tables (oauth2_device_codes, oauth2_user_consents) dropped/recreated each run; shared tables (users, applications, usertokens) created IF NOT EXISTS and cleaned via DELETE of tracked row IDs.
+- [x] **`tests/Integration/Database/OAuth2GrantFlowPostgreSQLTest`** (12 tests): Mirrors MySQL tests + 2 PostgreSQL-specific: `testPkceInvalidMethodRejectedByConstraint` (CHECK rejects 'SHA512'), `testPkceShortChallengeRejectedByConstraint` (CHECK rejects < 43 chars). Runs against TimescaleDB container.
+- [x] **Migration `authserver/000041`** (`CreateOauth2DeviceCodesTable`): `oauth2_device_codes` table — device_code (VARCHAR 64 UNIQUE), user_code (VARCHAR 9 UNIQUE), client_id, scope, expires_at (INT unix timestamp), status (pending/authorized/denied), user_id, authorized_at. Priority 55, feature 'authserver'.
+- [x] **Migration `authserver/000042`** (`CreateOauth2UserConsentsTable`): `oauth2_user_consents` table — userid + applicationid UNIQUE pair, scope TEXT, created_at + updated_at TIMESTAMP. Priority 56, feature 'authserver'.
+- [x] **ROADMAP** — item 273 κλείνει πλήρως.
 
 ### Auth Controllers — Device.php + Dashboard.php (2026-05-11, session 55)
 
