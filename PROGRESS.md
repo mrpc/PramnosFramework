@@ -1,8 +1,19 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-11 (session 52)
+## 📅 Last Updated: 2026-05-11 (session 53)
 
 ## 🚀 Completed Milestones
+
+### Auth Controllers — Discovery, Session, TwoFactorAuth, Gdpr (2026-05-11, session 53)
+
+- [x] **`Pramnos\Auth\Controllers\Discovery`** (`src/Pramnos/Auth/Controllers/Discovery.php`): Pure-JSON, fully public controller. `configuration()` = OIDC discovery document with all supported scopes (sourced from `Scopes::getScopeDescriptions()`), response types, PKCE methods — Cache-Control 1h. `jwks()` = RSA public key as base64url JWK (RFC 7517) — Cache-Control 24h. `oauth2Metadata()` = RFC 8414 subset — Cache-Control 1h. `health()` = DB connectivity check, returns HTTP 503 on failure. All endpoints set `Access-Control-Allow-Origin: *`.
+- [x] **`Pramnos\Auth\Controllers\Session`** (`src/Pramnos/Auth/Controllers/Session.php`): Dual-auth (session + Bearer token) controller. `check()` — active/expired status + `expires_in`. `heartbeat()` — updates `last_activity` for session clients, no-op for Bearer. `info()` — full user data + per-application token summary (grouped by `app_name`). `refresh()` — extends session lifetime (returns HTTP 400 for Bearer clients). Bearer validation reads `usertokens` + verifies JWT (RS256 or HS256 fallback).
+- [x] **`Pramnos\Auth\Controllers\TwoFactorAuth`** (`src/Pramnos/Auth/Controllers/TwoFactorAuth.php`): Wraps `TwoFactorAuthService` + `TOTPHelper`. Actions: `display`, `setup` (GET/POST), `disable` (password confirmation), `backup` (view/regenerate codes), `status` (JSON), `test` (debug). All state-changing actions require login via `addAuthAction`.
+- [x] **`Pramnos\Auth\Controllers\Gdpr`** (`src/Pramnos/Auth/Controllers/Gdpr.php`): GDPR data-management endpoints. `request()` inserts into `oauth2_gdpr_requests` + queues `gdpr_request_created` webhook event. `status()` + `listRequests()` — paginated query with user/admin access control. `deauthorizeAll()` — revokes all active `usertokens` + queues `token_revoked` event. `notifyChange()` — queues `profile_changed` event. Uses `WebhookService::queueEvent()` for asynchronous delivery.
+- [x] **Unit tests** — 24 new tests: `DiscoveryControllerTest` (11: public-action registration, scope key invariants, base64url round-trip, required OIDC/RFC 8414 keys, grant types, PKCE, scopes) + `SessionControllerTest` (13: Bearer extraction, case-insensitive matching, Basic auth rejection, groupTokensByApp aggregation, extractField from array/object, session timeout arithmetic). All pass.
+- [x] **`docs/1.2-new-features.md`** — Section 39 (39.1–39.4) added.
+- [x] **ROADMAP** — item 271 marked partial-done.
+- Deferred: `Oauth.php`, `Device.php`, `Dashboard.php`
 
 ### RSA key generation in pramnos init + WebhookService (2026-05-11, session 52)
 
