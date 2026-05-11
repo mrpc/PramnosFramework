@@ -120,11 +120,11 @@ class Application extends \Pramnos\Application\Model
     public function loadByApiKey(string $apikey): static|false
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            'SELECT * FROM `#PREFIX#applications` WHERE `apikey` = %s AND `status` = 1',
-            $apikey
-        );
-        $result = $database->query($sql);
+        $result   = $database->queryBuilder()
+            ->table('applications')
+            ->where('apikey', $apikey)
+            ->where('status', 1)
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             return false;
@@ -150,23 +150,43 @@ class Application extends \Pramnos\Application\Model
     public function validateCredentials(string $clientId, ?string $clientSecret): bool
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
+        $qb       = $database->queryBuilder()
+            ->table('applications')
+            ->where('apikey', $clientId)
+            ->where('status', 1);
 
-        if ($clientSecret === null) {
-            $sql = $database->prepareQuery(
-                'SELECT appid FROM `#PREFIX#applications` WHERE `apikey` = %s AND `status` = 1',
-                $clientId
-            );
-        } else {
-            $sql = $database->prepareQuery(
-                'SELECT appid FROM `#PREFIX#applications` WHERE `apikey` = %s AND `apisecret` = %s AND `status` = 1',
-                $clientId,
-                $clientSecret
-            );
+        if ($clientSecret !== null) {
+            $qb->where('apisecret', $clientSecret);
         }
 
-        $result = $database->query($sql);
+        return $qb->count() > 0;
+    }
 
-        return $result && $result->numRows > 0;
+    /**
+     * Assign a system user to this application (used by JWT client_credentials grant).
+     *
+     * Updates the `systemuser` column in the applications table for the current
+     * application record.  Called after a new sys_* user has been created so the
+     * same user is reused on subsequent token requests (regression fix UW-461).
+     *
+     * @param int $userId FK to users.userid
+     * @return bool True on success, false if the application has no PK yet.
+     */
+    public function assignSystemUser(int $userId): bool
+    {
+        if ($this->appid === 0) {
+            return false;
+        }
+
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $database->queryBuilder()
+            ->table('applications')
+            ->where('appid', $this->appid)
+            ->update(['systemuser' => $userId]);
+
+        $this->systemuser = $userId;
+
+        return true;
     }
 
     // --- OAuth2 client interface helpers ------------------------------------

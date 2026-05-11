@@ -177,12 +177,12 @@ class Oauth extends Controller
         }
 
         // RFC 7009: revocation always returns 200 (even for unknown tokens)
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "UPDATE usertokens SET status = 0 WHERE token = %s AND status = 1",
-            $token
-        );
-        $db->query($sql);
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->where('token', $token)
+            ->where('status', 1)
+            ->update(['status' => 0]);
 
         http_response_code(200);
         echo json_encode(['success' => true]);
@@ -223,16 +223,14 @@ class Oauth extends Controller
             exit;
         }
 
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "SELECT ut.*, u.username, u.email, a.apikey AS client_id
-               FROM usertokens ut
-               JOIN users u ON ut.userid = u.userid
-               JOIN applications a ON ut.applicationid = a.appid
-              WHERE ut.token = %s",
-            $token
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('usertokens ut')
+            ->join('users u', 'ut.userid = u.userid')
+            ->join('applications a', 'ut.applicationid = a.appid')
+            ->select('ut.*, u.username, u.email, a.apikey AS client_id')
+            ->where('ut.token', $token)
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             echo json_encode(['active' => false]);
@@ -281,14 +279,13 @@ class Oauth extends Controller
             exit;
         }
 
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "SELECT ut.userid, ut.scope, ut.expires, ut.status
-               FROM usertokens ut
-              WHERE ut.token = %s AND ut.tokentype = 'access_token'",
-            $token
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('usertokens')
+            ->select('userid, scope, expires, status')
+            ->where('token', $token)
+            ->where('tokentype', 'access_token')
+            ->first();
 
         if (!$result || $result->numRows == 0
             || (int) $result->fields['status'] !== 1
@@ -332,12 +329,13 @@ class Oauth extends Controller
             exit;
         }
 
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "SELECT userid, sid FROM usertokens WHERE token = %s AND status = 1",
-            $token
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('usertokens')
+            ->select('userid, sid')
+            ->where('token', $token)
+            ->where('status', 1)
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             // Token not found — still return success per RFC 7009 spirit
@@ -349,19 +347,16 @@ class Oauth extends Controller
         $sid    = $result->fields['sid'] ?? null;
 
         // Revoke all tokens for this user session
+        $updateQb = $db->queryBuilder()
+            ->table('usertokens')
+            ->where('userid', $userId)
+            ->where('status', 1);
+
         if ($sid !== null) {
-            $sql = $db->prepareQuery(
-                "UPDATE usertokens SET status = 0 WHERE userid = %d AND sid = %s AND status = 1",
-                $userId,
-                $sid
-            );
-        } else {
-            $sql = $db->prepareQuery(
-                "UPDATE usertokens SET status = 0 WHERE userid = %d AND status = 1",
-                $userId
-            );
+            $updateQb->where('sid', $sid);
         }
-        $db->query($sql);
+
+        $updateQb->update(['status' => 0]);
 
         echo json_encode(['success' => true, 'user_id' => $userId]);
         exit;
@@ -393,18 +388,17 @@ class Oauth extends Controller
             $userCode    = $this->generateUserCode();
             $expiresIn   = 600;
 
-            $db  = \Pramnos\Framework\Factory::getDatabase();
-            $sql = $db->prepareQuery(
-                "INSERT INTO oauth2_device_codes
-                    (device_code, user_code, client_id, scope, expires_at, status)
-                 VALUES (%s, %s, %s, %s, %d, 'pending')",
-                $deviceCode,
-                $userCode,
-                $clientId,
-                $scope,
-                time() + $expiresIn
-            );
-            $db->query($sql);
+            $db = \Pramnos\Framework\Factory::getDatabase();
+            $db->queryBuilder()
+                ->table('oauth2_device_codes')
+                ->insert([
+                    'device_code' => $deviceCode,
+                    'user_code'   => $userCode,
+                    'client_id'   => $clientId,
+                    'scope'       => $scope,
+                    'expires_at'  => time() + $expiresIn,
+                    'status'      => 'pending',
+                ]);
 
             $verificationUri = sURL . 'device';
 
@@ -575,35 +569,36 @@ class Oauth extends Controller
         $code    = bin2hex(random_bytes(32));
         $expires = time() + 600; // 10 minutes
 
-        $db  = \Pramnos\Framework\Factory::getDatabase();
+        $db = \Pramnos\Framework\Factory::getDatabase();
 
         // Get application ID from client_id (apikey)
-        $appSql = $db->prepareQuery(
-            'SELECT appid FROM applications WHERE apikey = %s AND status = 1',
-            $clientId
-        );
-        $appResult = $db->query($appSql);
+        $appResult = $db->queryBuilder()
+            ->table('applications')
+            ->select('appid')
+            ->where('apikey', $clientId)
+            ->where('status', 1)
+            ->first();
+
         if (!$appResult || $appResult->numRows == 0) {
             throw new \RuntimeException('Invalid client');
         }
         $appId = (int) $appResult->fields['appid'];
 
-        $sql = $db->prepareQuery(
-            "INSERT INTO usertokens
-                (token, userid, applicationid, tokentype, scope, redirect_uri,
-                 code_challenge, code_challenge_method, expires, status, created)
-             VALUES (%s, %d, %d, 'auth_code', %s, %s, %s, %s, %d, 1, %d)",
-            $code,
-            $userId,
-            $appId,
-            $scope,
-            $redirectUri,
-            $codeChallenge       ?? '',
-            $codeChallengeMethod ?? 'plain',
-            $expires,
-            time()
-        );
-        $db->query($sql);
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->insert([
+                'token'               => $code,
+                'userid'              => $userId,
+                'applicationid'       => $appId,
+                'tokentype'           => 'auth_code',
+                'scope'               => $scope,
+                'redirect_uri'        => $redirectUri,
+                'code_challenge'      => $codeChallenge       ?? '',
+                'code_challenge_method' => $codeChallengeMethod ?? 'plain',
+                'expires'             => $expires,
+                'status'              => 1,
+                'created'             => time(),
+            ]);
 
         return $code;
     }
@@ -632,11 +627,11 @@ class Oauth extends Controller
     private function buildUserInfoPayload(int $userId, array $scopes): array
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
-        $sql    = $db->prepareQuery(
-            'SELECT * FROM users WHERE userid = %d AND active = 1',
-            $userId
-        );
-        $result = $db->query($sql);
+        $result = $db->queryBuilder()
+            ->table('users')
+            ->where('userid', $userId)
+            ->where('active', 1)
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             return ['sub' => (string) $userId];
@@ -684,13 +679,13 @@ class Oauth extends Controller
      */
     private function hasUserAuthorizedApp(int $userId, int $appId, array $requestedScopes): bool
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            'SELECT scope FROM oauth2_user_consents WHERE userid = %d AND applicationid = %d',
-            $userId,
-            $appId
-        );
-        $result = $db->query($sql);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('oauth2_user_consents')
+            ->select('scope')
+            ->where('userid', $userId)
+            ->where('applicationid', $appId)
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             return false;
@@ -716,12 +711,13 @@ class Oauth extends Controller
 
         // Read existing scopes so we only ever expand, never shrink
         $existing = '';
-        $sql      = $db->prepareQuery(
-            'SELECT scope FROM oauth2_user_consents WHERE userid = %d AND applicationid = %d',
-            $userId,
-            $appId
-        );
-        $result = $db->query($sql);
+        $result   = $db->queryBuilder()
+            ->table('oauth2_user_consents')
+            ->select('scope')
+            ->where('userid', $userId)
+            ->where('applicationid', $appId)
+            ->first();
+
         if ($result && $result->numRows > 0) {
             $existing = (string) ($result->fields['scope'] ?? '');
         }
@@ -732,23 +728,22 @@ class Oauth extends Controller
         ))));
 
         if ($existing !== '') {
-            $sql = $db->prepareQuery(
-                'UPDATE oauth2_user_consents SET scope = %s, updated_at = NOW()
-                  WHERE userid = %d AND applicationid = %d',
-                $merged,
-                $userId,
-                $appId
-            );
+            $db->queryBuilder()
+                ->table('oauth2_user_consents')
+                ->where('userid', $userId)
+                ->where('applicationid', $appId)
+                ->update(['scope' => $merged, 'updated_at' => date('Y-m-d H:i:s')]);
         } else {
-            $sql = $db->prepareQuery(
-                'INSERT INTO oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
-                 VALUES (%d, %d, %s, NOW(), NOW())',
-                $userId,
-                $appId,
-                $merged
-            );
+            $db->queryBuilder()
+                ->table('oauth2_user_consents')
+                ->insert([
+                    'userid'        => $userId,
+                    'applicationid' => $appId,
+                    'scope'         => $merged,
+                    'created_at'    => date('Y-m-d H:i:s'),
+                    'updated_at'    => date('Y-m-d H:i:s'),
+                ]);
         }
-        $db->query($sql);
     }
 
     // ── Client helpers ────────────────────────────────────────────────────────
@@ -762,11 +757,11 @@ class Oauth extends Controller
     private function loadClient(string $clientId): array
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
-        $sql    = $db->prepareQuery(
-            'SELECT * FROM applications WHERE apikey = %s AND status = 1',
-            $clientId
-        );
-        $result = $db->query($sql);
+        $result = $db->queryBuilder()
+            ->table('applications')
+            ->where('apikey', $clientId)
+            ->where('status', 1)
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             throw new \RuntimeException('Invalid or inactive client');
@@ -782,14 +777,11 @@ class Oauth extends Controller
      */
     private function validateClientCredentials(array $credentials): bool
     {
-        $db     = \Pramnos\Framework\Factory::getDatabase();
-        $sql    = $db->prepareQuery(
-            'SELECT appid FROM applications WHERE apikey = %s AND apisecret = %s AND status = 1',
+        $app = new \Pramnos\Auth\Application($this);
+        return $app->validateCredentials(
             $credentials['client_id'],
             $credentials['client_secret']
         );
-        $result = $db->query($sql);
-        return $result && $result->numRows > 0;
     }
 
     /**
@@ -857,11 +849,10 @@ class Oauth extends Controller
             ]);
         }
 
-        $db = \Pramnos\Framework\Factory::getDatabase();
-
-        // Validate assertion and resolve the application's primary key
-        $appId = $this->validateJwtClientAssertion($assertion, $clientId);
-        if ($appId === null) {
+        // Validate assertion — returns a fully-hydrated Application object so we
+        // already have systemuser without a second SELECT (regression fix UW-461).
+        $app = $this->validateJwtClientAssertion($assertion, $clientId);
+        if ($app === null) {
             http_response_code(401);
             return (string) json_encode([
                 'error'             => 'invalid_client',
@@ -869,24 +860,10 @@ class Oauth extends Controller
             ]);
         }
 
-        // Fetch the application row to read the existing system user.
-        // This SELECT must happen BEFORE any INSERT so the same sys_* user is
-        // reused across repeated token requests (regression fix — UW-461).
-        $appSql = $db->prepareQuery(
-            "SELECT systemuser FROM applications WHERE appid = %d AND status = 1",
-            $appId
-        );
-        $appResult = $db->query($appSql);
-        if (!$appResult || $appResult->numRows == 0) {
-            http_response_code(401);
-            return (string) json_encode([
-                'error'             => 'invalid_client',
-                'error_description' => 'Application not found',
-            ]);
-        }
-        $systemUserId = $appResult->fields['systemuser']
-            ? (int) $appResult->fields['systemuser']
-            : null;
+        // systemuser is already populated by loadByApiKey() — no extra SELECT needed.
+        // This is the key fix for UW-461: reuse the existing system user instead of
+        // creating a new one on every repeated token request.
+        $systemUserId = $app->systemuser ? (int) $app->systemuser : null;
 
         // Create a system user only when this application has none yet
         if (!$systemUserId) {
@@ -900,12 +877,7 @@ class Oauth extends Controller
             $user->save();
             $systemUserId = (int) $user->userid;
 
-            $updateSql = $db->prepareQuery(
-                "UPDATE applications SET systemuser = %d WHERE appid = %d",
-                $systemUserId,
-                $appId
-            );
-            if (!$db->query($updateSql)) {
+            if (!$app->assignSystemUser($systemUserId)) {
                 http_response_code(500);
                 return (string) json_encode([
                     'error'             => 'server_error',
@@ -939,19 +911,20 @@ class Oauth extends Controller
         }
 
         // Persist the token so introspect() / revoke() can find it
-        $insertSql = $db->prepareQuery(
-            "INSERT INTO usertokens
-                (userid, tokentype, token, created, status, applicationid, scope, expires, deviceinfo)
-             VALUES (%d, 'access_token', %s, %d, 1, %d, %s, %d, %s)",
-            $systemUserId,
-            $token,
-            $now,
-            $appId,
-            $scope,
-            $now + 3600,
-            'jwt_bearer'
-        );
-        $db->query($insertSql);
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->insert([
+                'userid'        => $systemUserId,
+                'tokentype'     => 'access_token',
+                'token'         => $token,
+                'created'       => $now,
+                'status'        => 1,
+                'applicationid' => $app->appid,
+                'scope'         => $scope,
+                'expires'       => $now + 3600,
+                'deviceinfo'    => 'jwt_bearer',
+            ]);
 
         return (string) json_encode([
             'access_token'       => $token,
@@ -969,25 +942,23 @@ class Oauth extends Controller
      * application's registered public key and checks the mandatory claims
      * (sub = client_id, exp in the future).
      *
+     * Returns the fully-hydrated Application model on success so the caller
+     * can access systemuser and other fields without an additional SELECT.
+     *
      * @param string $assertion Raw JWT string from the request
      * @param string $clientId  The client_id claim to verify
-     * @return int|null         Application's appid on success, null on failure
+     * @return \Pramnos\Auth\Application|null  Hydrated Application on success, null on failure
      */
-    private function validateJwtClientAssertion(string $assertion, string $clientId): ?int
+    private function validateJwtClientAssertion(string $assertion, string $clientId): ?\Pramnos\Auth\Application
     {
-        $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            "SELECT appid, public_key, accesstype FROM applications WHERE apikey = %s AND status = 1",
-            $clientId
-        );
-        $result = $db->query($sql);
+        $app = new \Pramnos\Auth\Application($this);
+        $loaded = $app->loadByApiKey($clientId);
 
-        if (!$result || $result->numRows == 0) {
+        if ($loaded === false) {
             return null;
         }
 
-        $row       = (array) $result->fields;
-        $publicKey = $row['public_key'] ?? null;
+        $publicKey = $app->public_key;
         if (empty($publicKey)) {
             return null;
         }
@@ -1008,7 +979,7 @@ class Oauth extends Controller
             return null;
         }
 
-        return (int) $row['appid'];
+        return $app;
     }
 
     // ── Device-code helpers ───────────────────────────────────────────────────
