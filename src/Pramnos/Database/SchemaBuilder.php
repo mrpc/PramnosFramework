@@ -613,6 +613,233 @@ class SchemaBuilder
     }
 
     // =========================================================================
+    // TimescaleDB Informational Views
+    // =========================================================================
+
+    /**
+     * Return all hypertables visible to the current user.
+     * Each row object has at least: hypertable_schema, hypertable_name,
+     * num_dimensions, num_chunks, compression_enabled.
+     * Returns [] on non-TimescaleDB backends.
+     *
+     * @param  string $schema Filter by schema (empty = all schemas).
+     * @return array<int, object>
+     */
+    public function getHypertables(string $schema = ''): array
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return [];
+        }
+
+        if ($schema !== '') {
+            $result = $this->db->query(
+                $this->db->prepareQuery(
+                    'SELECT * FROM timescaledb_information.hypertables WHERE hypertable_schema = %s',
+                    $schema
+                )
+            );
+        } else {
+            $result = $this->db->query('SELECT * FROM timescaledb_information.hypertables');
+        }
+
+        if (!$result || !$result->numRows) {
+            return [];
+        }
+
+        return array_map(
+            static fn(array $row) => (object) $row,
+            $result->fetchAll()
+        );
+    }
+
+    /**
+     * Return true when the given table is registered as a TimescaleDB hypertable.
+     * Returns false on non-TimescaleDB backends.
+     *
+     * @param  string $table  Plain table name (no schema prefix).
+     * @param  string $schema Schema to check (empty = resolved schema).
+     * @return bool
+     */
+    public function isHypertable(string $table, string $schema = ''): bool
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return false;
+        }
+
+        if ($schema === '') {
+            $schema = $this->resolveSchema();
+        }
+
+        $result = $this->db->query(
+            $this->db->prepareQuery(
+                'SELECT COUNT(*) AS cnt FROM timescaledb_information.hypertables
+                 WHERE hypertable_schema = %s AND hypertable_name = %s',
+                $schema,
+                $table
+            )
+        );
+
+        return $result && (int) ($result->fields['cnt'] ?? 0) > 0;
+    }
+
+    /**
+     * Return all continuous aggregates, optionally filtered by view schema.
+     * Each row object has at least: view_schema, view_name, hypertable_schema,
+     * hypertable_name, materialized_only, finalized.
+     * Returns [] on non-TimescaleDB backends.
+     *
+     * @param  string $schema Filter by view_schema (empty = all schemas).
+     * @return array<int, object>
+     */
+    public function getContinuousAggregates(string $schema = ''): array
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return [];
+        }
+
+        if ($schema !== '') {
+            $result = $this->db->query(
+                $this->db->prepareQuery(
+                    'SELECT * FROM timescaledb_information.continuous_aggregates WHERE view_schema = %s',
+                    $schema
+                )
+            );
+        } else {
+            $result = $this->db->query('SELECT * FROM timescaledb_information.continuous_aggregates');
+        }
+
+        if (!$result || !$result->numRows) {
+            return [];
+        }
+
+        return array_map(
+            static fn(array $row) => (object) $row,
+            $result->fetchAll()
+        );
+    }
+
+    /**
+     * Return partitioning dimensions for a hypertable.
+     * Each row object has at least: dimension_type, column_name, column_type.
+     * Returns [] on non-TimescaleDB backends.
+     *
+     * @param  string $table  Hypertable name.
+     * @param  string $schema Schema (empty = resolved schema).
+     * @return array<int, object>
+     */
+    public function getHypertableDimensions(string $table, string $schema = ''): array
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return [];
+        }
+
+        if ($schema === '') {
+            $schema = $this->resolveSchema();
+        }
+
+        $result = $this->db->query(
+            $this->db->prepareQuery(
+                'SELECT * FROM timescaledb_information.dimensions
+                 WHERE hypertable_schema = %s AND hypertable_name = %s',
+                $schema,
+                $table
+            )
+        );
+
+        if (!$result || !$result->numRows) {
+            return [];
+        }
+
+        return array_map(
+            static fn(array $row) => (object) $row,
+            $result->fetchAll()
+        );
+    }
+
+    /**
+     * Return TimescaleDB background jobs (retention, compression,
+     * aggregate refresh, user-defined actions, etc.).
+     * Each row object has at least: job_id, application_name,
+     * schedule_interval, max_runtime, max_retries, scheduled,
+     * config, next_start, owner.
+     * Returns [] on non-TimescaleDB backends.
+     *
+     * @param  string $procName Substring filter on application_name (empty = all).
+     * @return array<int, object>
+     */
+    public function getTimescaleJobs(string $procName = ''): array
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return [];
+        }
+
+        if ($procName !== '') {
+            $result = $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT * FROM timescaledb_information.jobs WHERE application_name ILIKE %s",
+                    '%' . $procName . '%'
+                )
+            );
+        } else {
+            $result = $this->db->query('SELECT * FROM timescaledb_information.jobs');
+        }
+
+        if (!$result || !$result->numRows) {
+            return [];
+        }
+
+        return array_map(
+            static fn(array $row) => (object) $row,
+            $result->fetchAll()
+        );
+    }
+
+    /**
+     * Return chunks for a hypertable (or all hypertables when $table is empty).
+     * Each row object has at least: hypertable_schema, hypertable_name,
+     * chunk_schema, chunk_name, range_start, range_end, is_compressed.
+     * Returns [] on non-TimescaleDB backends.
+     *
+     * @param  string $table  Hypertable name (empty = all hypertables).
+     * @param  string $schema Schema (empty = resolved schema; ignored when $table is empty).
+     * @return array<int, object>
+     */
+    public function getChunks(string $table = '', string $schema = ''): array
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return [];
+        }
+
+        if ($table !== '') {
+            if ($schema === '') {
+                $schema = $this->resolveSchema();
+            }
+            $result = $this->db->query(
+                $this->db->prepareQuery(
+                    'SELECT * FROM timescaledb_information.chunks
+                     WHERE hypertable_schema = %s AND hypertable_name = %s
+                     ORDER BY range_start',
+                    $schema,
+                    $table
+                )
+            );
+        } else {
+            $result = $this->db->query(
+                'SELECT * FROM timescaledb_information.chunks ORDER BY hypertable_name, range_start'
+            );
+        }
+
+        if (!$result || !$result->numRows) {
+            return [];
+        }
+
+        return array_map(
+            static fn(array $row) => (object) $row,
+            $result->fetchAll()
+        );
+    }
+
+    // =========================================================================
     // Capability-conditional DDL
     // =========================================================================
 
