@@ -1,6 +1,17 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-12 (session 61)
+## 📅 Last Updated: 2026-05-12 (session 62)
+
+## 🏁 Phase 5 QA Coverage — COMPLETE (2026-05-12, session 62)
+
+All 4 remaining Phase 5 QA items + known bug closed:
+
+- [x] **HTTP Layer Coverage** — confirmed closed as-is: 69 tests (CsrfTest 20, SessionSecurityTest, RequestTest, SessionTest) covering all ROADMAP criteria (Request parsing, fingerprinting, cookie management, CSRF lifecycle).
+- [x] **Theme / View Layer Coverage** — 6 new widget management tests in `ThemeCharacterizationTest`: `testAddWidgetToRegisteredAreaReturnsTrue`, `testAddWidgetToNonExistentAreaReturnsFalse`, `testAddWidgetWithMissingWidgetIdReturnsFalse`, `testGetWidgetsWithNoFilterReturnsAll`, `testGetWidgetsFilteredByAreaReturnsOnlyMatchingWidgets`, `testAddWidgetDebugModeReturnsDescriptiveString`. Asset enqueuing already covered by DocumentTest (4 tests).
+- [x] **Email & Media Coverage** — new `ResizeToolsCharacterizationTest` (6 tests: 3 always-run + 3 `#[RequiresPhpExtension('gd')]`): default property values, maxsize guard (oversized input → thumbW=defaultwidth), zero-dimensions guard, + 3 GD pipeline tests skipped when gd absent. Email coverage from EmailCharacterizationTest (13 tests).
+- [x] **Coverage Reports / clover.xml stale bug** — fixed `dockertest` script: `--coverage-html` branch now also passes `--coverage-clover coverage/clover.xml` explicitly, ensuring HTML + XML are regenerated in the same PHPUnit pass.
+- [x] **RBAC behavioral tests** (session 62, committed 93ab34a) — 10 PostgreSQL tests for `check_permission_with_inheritance`, `get_user_effective_permissions`, `apply_role_template`, `log_audit_event`, `check_user_deya_membership` trigger.
+- Suite: 1932 tests, 5363 assertions, 3 skipped (GD), 0 failures.
 
 ## 🚀 Completed Milestones
 
