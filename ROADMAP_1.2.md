@@ -508,7 +508,7 @@
 ### General Coverage (υπάρχον codebase → >80%)
 - [x] **Coverage Baseline:** Μέτρηση τρέχοντος coverage του `src/Pramnos/` με Xdebug report — ορισμός αφετηρίας. **Current (2026-05-08):** Statements 36.0% (8153/22658), Methods 44.1% (801/1815), 157 classes; Clover XML at `coverage/clover.xml`.
 - [ ] **Coverage Reports:** Αυτόματη παραγωγή HTML coverage report στο CI (dockertest) με ορατό summary ανά class.
-- [ ] **Auth & Security Coverage:** PHPUnit tests για login flows, JWT issuance, CSRF validation και permission checks — **× 3 databases** για τα query paths.
+- [x] **Auth & Security Coverage:** PHPUnit tests για login flows, JWT issuance, CSRF validation και permission checks — **× 3 databases** για τα query paths. *(Login flows: Auth/OAuth2 integration tests; JWT: JWTCharacterizationTest; CSRF: CsrfTest 20 tests; Permission checks: RBAC function behavioral tests — `check_permission_with_inheritance`, `get_user_effective_permissions`, `apply_role_template`, `log_audit_event`, `check_user_deya_membership` trigger — 10 PostgreSQL characterization tests in `RbacFunctionsCharacterizationTest`)*
 - [ ] **Theme / View Layer Coverage:** Tests για asset enqueuing, widget rendering και variable passing από controllers στα views.
 - [ ] **Email & Media Coverage:** Βασικά unit tests για SMTP email building και Media/image processing pipeline.
 - [ ] **HTTP Layer Coverage:** Tests για Request parsing, Session fingerprinting, cookie management, CSRF token lifecycle.
