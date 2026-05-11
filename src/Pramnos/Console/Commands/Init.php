@@ -212,6 +212,12 @@ class Init extends Command
         }
 
         $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker);
+        $this->scaffoldGitignore($enabledFeatures);
+
+        if (in_array('authserver', $enabledFeatures, true)) {
+            $this->generateOAuth2KeyPair($output);
+        }
+
         $this->updateComposerJson($appName, $namespace, $userName, $userEmail, $output);
 
         $output->writeln("\n<info>Project initialized successfully!</info>");
@@ -1227,6 +1233,97 @@ PHP;
             $output->writeln("  <error>Admin user creation failed: $msg</error>");
             $output->writeln("  Run manually: docker-compose exec app php $cliName.php user:create --admin");
         }
+    }
+
+    /**
+     * Write a root .gitignore (or append to an existing one) that prevents
+     * committing RSA private keys and other generated secrets.
+     *
+     * @param list<string> $features
+     */
+    private function scaffoldGitignore(array $features): void
+    {
+        $path = $this->targetBaseDir . '/.gitignore';
+        $lines = [];
+
+        $lines[] = '/vendor/';
+        $lines[] = '/var/cache/';
+        $lines[] = '/var/logs/';
+
+        if (in_array('authserver', $features, true)) {
+            $lines[] = '/app/keys/private.key';
+            $lines[] = '/app/keys/encryption.key';
+        }
+
+        $content = implode("\n", $lines) . "\n";
+
+        if (file_exists($path)) {
+            $existing = file_get_contents($path);
+            // Only append entries not already present
+            foreach ($lines as $line) {
+                if (strpos($existing, $line) === false) {
+                    $existing .= $line . "\n";
+                }
+            }
+            file_put_contents($path, $existing);
+        } else {
+            file_put_contents($path, $content);
+        }
+    }
+
+    /**
+     * Generate a 2048-bit RSA key pair for the OAuth2 server (authserver feature).
+     *
+     * Mirrors OAuth2ServerFactory::generateKeyPair() but writes to the TARGET
+     * project directory rather than ROOT, since init runs from the framework.
+     *
+     * - private.key  → app/keys/private.key   (chmod 0600)
+     * - public.key   → app/keys/public.key    (chmod 0644)
+     * - Directory    → app/keys/              (chmod 0700)
+     *
+     * Idempotent: does nothing if both files already exist.
+     */
+    private function generateOAuth2KeyPair(OutputInterface $output): void
+    {
+        $keysDir     = $this->targetBaseDir . '/app/keys';
+        $privatePath = $keysDir . '/private.key';
+        $publicPath  = $keysDir . '/public.key';
+
+        if (!is_dir($keysDir)) {
+            mkdir($keysDir, 0700, true);
+        }
+
+        if (file_exists($privatePath) && file_exists($publicPath)) {
+            $output->writeln('  RSA keys already exist — skipping generation.');
+            return;
+        }
+
+        if (!extension_loaded('openssl')) {
+            $output->writeln('  <comment>Warning: OpenSSL not available — RSA keys NOT generated.</comment>');
+            $output->writeln('  Generate manually: openssl genrsa -out app/keys/private.key 2048');
+            return;
+        }
+
+        $privateKey = openssl_pkey_new([
+            'digest_alg'       => 'sha256',
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ]);
+
+        if ($privateKey === false) {
+            $output->writeln('  <error>RSA key generation failed: ' . openssl_error_string() . '</error>');
+            return;
+        }
+
+        openssl_pkey_export($privateKey, $privateKeyPem);
+        file_put_contents($privatePath, $privateKeyPem);
+        chmod($privatePath, 0600);
+
+        $details = openssl_pkey_get_details($privateKey);
+        file_put_contents($publicPath, $details['key']);
+        chmod($publicPath, 0644);
+
+        $output->writeln('  <info>RSA key pair generated</info> at app/keys/ (private.key 0600, public.key 0644)');
     }
 
     private function resolveScaffoldingDir(): string
