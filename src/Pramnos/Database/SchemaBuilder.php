@@ -503,23 +503,83 @@ class SchemaBuilder
     }
 
     /**
-     * Add a TimescaleDB data-retention policy (automatically drop chunks older than $dropAfter).
-     * Silent no-op on non-TimescaleDB backends.
+     * Add a data-retention policy.
+     *
+     * On TimescaleDB: registers a native chunk-drop policy via add_retention_policy().
+     * On MySQL/plain PostgreSQL: registers a software-emulated `retention` policy in
+     * `pramnos.framework_policies`, executed by the PolicyEngine daemon.
      *
      * @param  string $table
-     * @param  string $dropAfter  e.g. '90 days'
+     * @param  string $dropAfter   Interval string, e.g. '90 days'.
+     * @param  string $timeColumn  Column used for age comparison (default: created_at).
      * @return bool
      */
-    public function addRetentionPolicy(string $table, string $dropAfter): bool
+    public function addRetentionPolicy(string $table, string $dropAfter, string $timeColumn = 'created_at'): bool
     {
-        if (!$this->capabilities->hasTimescaleDB()) {
-            return false;
+        if ($this->capabilities->hasTimescaleDB()) {
+            $resolved = $this->resolveTable($table);
+            return (bool)$this->db->query(
+                "SELECT add_retention_policy('{$resolved}', INTERVAL '{$dropAfter}')"
+            );
         }
 
-        $resolved = $this->resolveTable($table);
-        return (bool)$this->db->query(
-            "SELECT add_retention_policy('{$resolved}', INTERVAL '{$dropAfter}')"
-        );
+        $policyTable = $this->resolveTable('pramnos.framework_policies');
+        $qb          = $this->db->queryBuilder();
+        $qb->table($policyTable)->insert([
+            'policy_type' => 'retention',
+            'target'      => $table,
+            'config'      => json_encode(['interval' => $dropAfter, 'time_column' => $timeColumn]),
+            'enabled'     => 1,
+            'created_at'  => $qb->raw('NOW()'),
+        ]);
+
+        return (int) $this->db->getInsertId() > 0;
+    }
+
+    /**
+     * Add a continuous-aggregate refresh policy.
+     *
+     * On TimescaleDB: registers a native policy via add_continuous_aggregate_policy().
+     * On MySQL/plain PostgreSQL: registers a software-emulated `aggregate_refresh` policy
+     * in `pramnos.framework_policies`, executed by the PolicyEngine daemon.
+     *
+     * @param  string $view              The aggregate / materialized-view name.
+     * @param  string $startOffset       How far back to refresh, e.g. '2 hours'.
+     * @param  string $endOffset         How close to now to refresh, e.g. '1 hour'.
+     * @param  string $scheduleInterval  How often to run, e.g. '1 hour'.
+     * @return bool
+     */
+    public function addContinuousAggregatePolicy(
+        string $view,
+        string $startOffset,
+        string $endOffset,
+        string $scheduleInterval
+    ): bool {
+        if ($this->capabilities->hasTimescaleDB()) {
+            $resolved = $this->resolveTable($view);
+            return (bool)$this->db->query(
+                "SELECT add_continuous_aggregate_policy('{$resolved}'," .
+                " start_offset => INTERVAL '{$startOffset}'," .
+                " end_offset => INTERVAL '{$endOffset}'," .
+                " schedule_interval => INTERVAL '{$scheduleInterval}')"
+            );
+        }
+
+        $policyTable = $this->resolveTable('pramnos.framework_policies');
+        $qb          = $this->db->queryBuilder();
+        $qb->table($policyTable)->insert([
+            'policy_type' => 'aggregate_refresh',
+            'target'      => $view,
+            'config'      => json_encode([
+                'start_offset'      => $startOffset,
+                'end_offset'        => $endOffset,
+                'schedule_interval' => $scheduleInterval,
+            ]),
+            'enabled'     => 1,
+            'created_at'  => $qb->raw('NOW()'),
+        ]);
+
+        return (int) $this->db->getInsertId() > 0;
     }
 
     /**

@@ -43,9 +43,16 @@ class PolicyEngine
 {
     private Database $db;
 
+    /** Logical name — resolved per-backend via SchemaBuilder::resolveTableName(). */
+    private const POLICY_TABLE_LOGICAL = 'pramnos.framework_policies';
+
+    /** Resolved physical table name (e.g. pramnos_framework_policies on MySQL). */
+    private string $policyTableName;
+
     public function __construct(private readonly Application $app)
     {
-        $this->db = $app->database;
+        $this->db             = $app->database;
+        $this->policyTableName = $this->db->schema()->resolveTableName(self::POLICY_TABLE_LOGICAL);
     }
 
     // =========================================================================
@@ -98,31 +105,16 @@ class PolicyEngine
      */
     public function register(string $type, string $target, array $config = []): int
     {
-        $configJson = json_encode($config);
-        $now        = date('Y-m-d H:i:s');
+        $qb = $this->db->queryBuilder();
+        $qb->table($this->policyTableName)->insert([
+            'policy_type' => $type,
+            'target'      => $target,
+            'config'      => json_encode($config),
+            'enabled'     => 1,
+            'created_at'  => $qb->raw('NOW()'),
+        ]);
 
-        $table = $this->policyTable();
-
-        if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
-            $result = $this->db->query(
-                "INSERT INTO {$table} (policy_type, target, config, enabled, created_at)
-                 VALUES ($1, $2, $3, TRUE, NOW())
-                 RETURNING policyid",
-                [$type, $target, $configJson]
-            );
-            if ($result && $result->fetch()) {
-                return (int) $result->fields['policyid'];
-            }
-        } else {
-            $this->db->query(
-                "INSERT INTO {$table} (policy_type, target, config, enabled, created_at)
-                 VALUES (?, ?, ?, 1, ?)",
-                [$type, $target, $configJson, $now]
-            );
-            return (int) $this->db->query('SELECT LAST_INSERT_ID() AS id')->fields['id'];
-        }
-
-        return 0;
+        return (int) $this->db->getInsertId();
     }
 
     /**
@@ -130,21 +122,10 @@ class PolicyEngine
      */
     public function setEnabled(int $policyId, bool $enabled): void
     {
-        $value = $enabled ? 1 : 0;
-
-        $table = $this->policyTable();
-
-        if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
-            $this->db->query(
-                "UPDATE {$table} SET enabled = $1 WHERE policyid = $2",
-                [$enabled ? 'TRUE' : 'FALSE', $policyId]
-            );
-        } else {
-            $this->db->query(
-                "UPDATE {$table} SET `enabled` = ? WHERE `policyid` = ?",
-                [$value, $policyId]
-            );
-        }
+        $this->db->queryBuilder()
+            ->table($this->policyTableName)
+            ->where('policyid', $policyId)
+            ->update(['enabled' => $enabled ? 1 : 0]);
     }
 
     /**
@@ -152,13 +133,10 @@ class PolicyEngine
      */
     public function remove(int $policyId): void
     {
-        $table = $this->policyTable();
-
-        if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
-            $this->db->query("DELETE FROM {$table} WHERE policyid = $1", [$policyId]);
-        } else {
-            $this->db->query("DELETE FROM {$table} WHERE `policyid` = ?", [$policyId]);
-        }
+        $this->db->queryBuilder()
+            ->table($this->policyTableName)
+            ->where('policyid', $policyId)
+            ->delete();
     }
 
     // =========================================================================
@@ -178,20 +156,17 @@ class PolicyEngine
      */
     private function loadPolicies(bool $onlyDue): array
     {
-        $now = date('Y-m-d H:i:s');
+        $qb = $this->db->queryBuilder()
+            ->table($this->policyTableName)
+            ->whereRaw('enabled = TRUE')
+            ->orderBy('policyid');
 
-        $table = $this->policyTable();
-
-        if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
-            $whereNextRun = $onlyDue ? 'AND (next_run IS NULL OR next_run <= NOW())' : '';
-            $sql    = "SELECT * FROM {$table} WHERE enabled = TRUE {$whereNextRun} ORDER BY policyid ASC";
-            $result = $this->db->query($sql);
-        } else {
-            $whereNextRun = $onlyDue ? 'AND (next_run IS NULL OR next_run <= ?)' : '';
-            $params = $onlyDue ? [$now] : [];
-            $sql    = "SELECT * FROM {$table} WHERE `enabled` = 1 {$whereNextRun} ORDER BY `policyid` ASC";
-            $result = $this->db->query($sql, $params);
+        if ($onlyDue) {
+            // Policies with no next_run scheduled yet, or whose next_run is past due.
+            $qb->whereRaw('(next_run IS NULL OR next_run <= NOW())');
         }
+
+        $result = $qb->get();
 
         if (!$result) {
             return [];
@@ -297,28 +272,16 @@ class PolicyEngine
 
     private function updateHistory(PolicyRecord $policy, array $result): void
     {
-        $now    = date('Y-m-d H:i:s');
         $status = $result['status'] === 'ok' ? 'ok' : null;
-        $error  = $result['error'];
-        $id     = $policy->policyid;
-
-        $table = $this->policyTable();
-
-        if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
-            $this->db->query(
-                "UPDATE {$table}
-                 SET last_run = NOW(), next_run = NULL, last_result = $1, last_error = $2
-                 WHERE policyid = $3",
-                [$status, $error, $id]
-            );
-        } else {
-            $this->db->query(
-                "UPDATE {$table}
-                 SET `last_run` = ?, `next_run` = NULL, `last_result` = ?, `last_error` = ?
-                 WHERE `policyid` = ?",
-                [$now, $status, $error, $id]
-            );
-        }
+        $qb     = $this->db->queryBuilder();
+        $qb->table($this->policyTableName)
+            ->where('policyid', $policy->policyid)
+            ->update([
+                'last_run'    => $qb->raw('NOW()'),
+                'next_run'    => null,
+                'last_result' => $status,
+                'last_error'  => $result['error'],
+            ]);
     }
 
     // =========================================================================
@@ -328,15 +291,6 @@ class PolicyEngine
     private function isTimescaleDb(): bool
     {
         return $this->db->type === 'timescaledb';
-    }
-
-    /**
-     * Returns a properly-quoted table reference for framework_policies.
-     * Delegates to SchemaBuilder so the schema→prefix translation is centralised.
-     */
-    private function policyTable(): string
-    {
-        return $this->db->schema()->quoteTable('pramnos.framework_policies');
     }
 
     private function quoteIdentifier(string $name): string
