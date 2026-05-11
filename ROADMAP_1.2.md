@@ -507,11 +507,11 @@
 
 ### General Coverage (υπάρχον codebase → >80%)
 - [x] **Coverage Baseline:** Μέτρηση τρέχοντος coverage του `src/Pramnos/` με Xdebug report — ορισμός αφετηρίας. **Current (2026-05-08):** Statements 36.0% (8153/22658), Methods 44.1% (801/1815), 157 classes; Clover XML at `coverage/clover.xml`.
-- [ ] **Coverage Reports:** Αυτόματη παραγωγή HTML coverage report στο CI (dockertest) με ορατό summary ανά class.
+- [x] **Coverage Reports:** Αυτόματη παραγωγή HTML coverage report στο CI (dockertest) με ορατό summary ανά class. *(`./dockertest --coverage` generates HTML + Clover XML in same pass; `--coverage-clover` added to `dockertest` script to ensure clover.xml is always refreshed)*
 - [x] **Auth & Security Coverage:** PHPUnit tests για login flows, JWT issuance, CSRF validation και permission checks — **× 3 databases** για τα query paths. *(Login flows: Auth/OAuth2 integration tests; JWT: JWTCharacterizationTest; CSRF: CsrfTest 20 tests; Permission checks: RBAC function behavioral tests — `check_permission_with_inheritance`, `get_user_effective_permissions`, `apply_role_template`, `log_audit_event`, `check_user_deya_membership` trigger — 10 PostgreSQL characterization tests in `RbacFunctionsCharacterizationTest`)*
-- [ ] **Theme / View Layer Coverage:** Tests για asset enqueuing, widget rendering και variable passing από controllers στα views.
-- [ ] **Email & Media Coverage:** Βασικά unit tests για SMTP email building και Media/image processing pipeline.
-- [ ] **HTTP Layer Coverage:** Tests για Request parsing, Session fingerprinting, cookie management, CSRF token lifecycle.
+- [x] **Theme / View Layer Coverage:** Tests για asset enqueuing, widget rendering και variable passing από controllers στα views. *(Asset enqueuing: DocumentTest 4 tests — registerStyle/Script + enqueueStyle/Script + dependency resolution + idempotence; Widget management: ThemeCharacterizationTest — addWidget happy path, non-existent area, missing widgetId, getWidgets all / filtered by area, debug mode; 6 new widget tests)*
+- [x] **Email & Media Coverage:** Βασικά unit tests για SMTP email building και Media/image processing pipeline. *(SMTP building: EmailCharacterizationTest 13 tests — fluent setters/getters, error state; Image pipeline: ResizeToolsCharacterizationTest — default properties, maxsize guard, zero-dimensions guard + 3 GD pipeline tests skipped when gd absent; ThumbnailCharacterizationTest 2 tests)*
+- [x] **HTTP Layer Coverage:** Tests για Request parsing, Session fingerprinting, cookie management, CSRF token lifecycle. *(69 tests: CsrfTest 20 — token generation/verification/regeneration/entropy/field+header variants; SessionSecurityTest — HMAC-SHA256 fingerprint, IP variants; RequestTest — GET/POST/PUT/DELETE/JSON, cookies, URL, params, validation; SessionTest — session lifecycle)*
 
 ---
 
@@ -610,7 +610,7 @@
 - [x] **`Model::_getList()` payload filtering with `useGetData` + `queryFields`:** Σε συγκεκριμένα query field selections, το post-filtering μπορεί να αφαιρεί όλα τα scalar keys και να επιστρέφει κενά arrays ανά row. Να διορθωθεί η αντιστοίχιση selected fields → returned keys.
 - [x] **`Model::_getApiList()` paginated error envelope on field-selection paths:** Για ορισμένους συνδυασμούς `fields`/pagination, ο paginated κλάδος επιστρέφει `error` + `pagination = null` αντί κανονικού pagination block. Να σταθεροποιηθεί ο paginated query path.
 - [x] **`Api\\Apikey::getList()` result iteration contract:** Η μέθοδος κάνει `foreach ($result as $app)` και προσπελαύνει `$app->fields`, αλλά σε legacy paths το iterated item δεν εγγυάται object με `fields`, προκαλώντας warnings/σπασμένο hydration. Να ενοποιηθεί στο `while ($result->fetch())` pattern.
-- [ ] **Coverage artifact inconsistency (`dockertest --coverage`):** Το HTML report ανανεώνεται (`coverage/index.html`, `coverage/dashboard.html`) αλλά το `coverage/clover.xml` μένει stale (παλιό mtime), με αποτέλεσμα λανθασμένη XML-based ανάλυση. Να ευθυγραμμιστεί η παραγωγή artifacts ώστε το Clover XML να ανανεώνεται στον ίδιο κύκλο.
+- [x] **Coverage artifact inconsistency (`dockertest --coverage`):** Το HTML report ανανεώνεται (`coverage/index.html`, `coverage/dashboard.html`) αλλά το `coverage/clover.xml` μένει stale (παλιό mtime), με αποτέλεσμα λανθασμένη XML-based ανάλυση. Να ευθυγραμμιστεί η παραγωγή artifacts ώστε το Clover XML να ανανεώνεται στον ίδιο κύκλο. *Fixed: `--coverage-clover coverage/clover.xml` added to `./dockertest --coverage` command so HTML + XML are always regenerated in the same PHPUnit pass.*
 
 ---
 
