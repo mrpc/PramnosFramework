@@ -1,8 +1,16 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-11 (session 56)
+## 📅 Last Updated: 2026-05-11 (session 57)
 
 ## 🚀 Completed Milestones
+
+### JWT client_credentials + system user deduplication fix (2026-05-11, session 57)
+
+- [x] **Backport UW-461 regression fix** (c7230fe): JWT `client_credentials` grant (RFC 7523 `private_key_jwt`) now reuses the existing `applications.systemuser` instead of creating a new `sys_*` user on every token request. Fix: SELECT `systemuser` from applications AFTER JWT validation, INSERT new User only when NULL.
+- [x] **Migration 000043** (`AddSystemuserToApplications`): `ALTER TABLE applications ADD systemuser BIGINT NULL`. Priority 57, feature 'authserver'.
+- [x] **`Application.php`** — `systemuser` property added.
+- [x] **`Oauth.php`** — `token()` intercepts `client_credentials + client_assertion` (JWT path) before League; `handleJwtClientCredentials()` validates assertion, manages system user, issues RS256 JWT, stores in usertokens; `validateJwtClientAssertion()` verifies signature + sub + exp.
+- [x] **Tests**: 3 unit tests (valid key / wrong key / expired) in `OauthControllerTest`; 2 regression integration tests (column existence + reuse semantics) in `OAuth2GrantFlowMySQLTest`. Suite: 1881 tests, 5195 assertions, 0 failures.
 
 ### OAuth2MySQL test isolation fix (2026-05-11, session 56)
 
