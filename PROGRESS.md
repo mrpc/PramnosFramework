@@ -1,8 +1,18 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-11 (session 57)
+## 📅 Last Updated: 2026-05-11 (session 58)
 
 ## 🚀 Completed Milestones
+
+### QB refactoring — full OAuth2 auth server ecosystem (2026-05-11, session 58)
+
+- [x] **`OAuth2Middleware.php`** — `revokeToken()` and `loadTokenFromDatabase()` (with LEFT JOIN + lastused update) converted to QueryBuilder; expires check moved to PHP post-fetch.
+- [x] **`AccessTokenRepository.php`** — `persistNewAccessToken()` (INSERT), `revokeAccessToken()` (UPDATE), `isAccessTokenRevoked()` (SELECT), `resolveAppId()` (SELECT) all converted to QB.
+- [x] **`AuthCodeRepository.php`** — `persistNewAuthCode()`, `revokeAuthCode()`, `isAuthCodeRevoked()`, `resolveAppId()` all converted to QB.
+- [x] **`RefreshTokenRepository.php`** — `persistNewRefreshToken()`, `revokeRefreshToken()`, `isRefreshTokenRevoked()`, `resolveAccessTokenId()`, `loadAccessTokenRow()` all converted to QB.
+- [x] **`Scopes::areApplicationScopesGranted()`** — one raw SELECT on `applications` replaced with QB.
+- [x] **`Oauth.php` + `Application.php`** — refactored in previous session (a0d5a22); recorded here for completeness.
+- [x] Zero raw `prepareQuery()`/`query()` calls remain in the entire `src/Pramnos/Auth/OAuth2/` subtree and `Auth/Scopes.php`.
 
 ### JWT client_credentials + system user deduplication fix (2026-05-11, session 57)
 
