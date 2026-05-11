@@ -1096,12 +1096,12 @@ class FrameworkMigrationsMySQLTest extends TestCase
      */
     public function testAuthserverRolesTableRespectsOrganizationColumnOverrideOnMySQL(): void
     {
-        // Arrange — set override before migration runs
-        \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid', false);
-
-        $m = $this->loadMigration('authserver', 'CreateAuthserverRolesTable');
-
         try {
+            // Arrange — set override before migration runs
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid', false);
+
+            $m = $this->loadMigration('authserver', 'CreateAuthserverRolesTable');
+
             // Act
             $m->up();
 
@@ -1124,7 +1124,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $m->down();
             $this->assertFalse($this->tableExists('authserver_roles'));
         } finally {
-            \Pramnos\Application\Settings::setSetting('authserver_organization_column', null, false);
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'organization_id', false);
         }
     }
 
@@ -1187,18 +1187,18 @@ class FrameworkMigrationsMySQLTest extends TestCase
      */
     public function testAuthserverUserOrganizationsRespectsFullOverrideOnMySQL(): void
     {
-        // Arrange — override Settings before running the migration
-        \Pramnos\Application\Settings::setSetting('authserver_organization_table',  'user_deyas', false);
-        \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid',     false);
-
-        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
-        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
-        $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
-        // NOTE: CreateOrganizationsTable intentionally NOT loaded — override path skips FK
-
-        $m = $this->loadMigration('authserver', 'CreateAuthserverUserOrganizationsTable');
-
         try {
+            // Arrange — override Settings before running the migration
+            \Pramnos\Application\Settings::setSetting('authserver_organization_table',  'user_deyas', false);
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'deyaid',     false);
+
+            $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+            $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+            $this->loadMigration('authserver', 'CreateAuthserverUserRolesTable')->up();
+            // NOTE: CreateOrganizationsTable intentionally NOT loaded — override path skips FK
+
+            $m = $this->loadMigration('authserver', 'CreateAuthserverUserOrganizationsTable');
+
             // Act
             $m->up();
 
@@ -1229,8 +1229,8 @@ class FrameworkMigrationsMySQLTest extends TestCase
                 'authserver_user_deyas must be dropped by down()'
             );
         } finally {
-            \Pramnos\Application\Settings::setSetting('authserver_organization_table',  null, false);
-            \Pramnos\Application\Settings::setSetting('authserver_organization_column', null, false);
+            \Pramnos\Application\Settings::setSetting('authserver_organization_table',  'user_organizations', false);
+            \Pramnos\Application\Settings::setSetting('authserver_organization_column', 'organization_id',    false);
         }
     }
 
