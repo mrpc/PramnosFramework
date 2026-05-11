@@ -117,6 +117,18 @@ class Oauth extends Controller
         header('Cache-Control: no-store');
         header('Pragma: no-cache');
 
+        // JWT client assertion (RFC 7523) for client_credentials is handled manually
+        // because League oauth2-server does not natively support private_key_jwt
+        // client authentication.  The bypass also manages the per-application system
+        // user so introspect() / revoke() continue to work on the issued tokens.
+        if (($_POST['grant_type'] ?? '') === 'client_credentials'
+            && isset($_POST['client_assertion'])
+            && ($_POST['client_assertion_type'] ?? '') === 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+        ) {
+            echo $this->handleJwtClientCredentials();
+            exit;
+        }
+
         try {
             $psrFactory  = new Psr17Factory();
             $psrRequest  = $this->buildPsrServerRequest($psrFactory);
@@ -805,6 +817,198 @@ class Oauth extends Controller
         }
 
         return null;
+    }
+
+    // ── JWT client_credentials bypass ────────────────────────────────────────
+
+    /**
+     * Handle client_credentials grant authenticated via JWT client assertion
+     * (RFC 7523 §2.2, private_key_jwt).
+     *
+     * League oauth2-server does not natively support private_key_jwt, so this
+     * path validates the assertion manually, manages a per-application system
+     * user, issues a signed JWT access token, and stores it in usertokens so
+     * that introspect() and revoke() work unchanged.
+     *
+     * The system user for each application is created exactly once and reused on
+     * all subsequent calls.  The regression this fixes (UW-461 equivalent) was
+     * the absence of a SELECT before the INSERT that caused a new sys_* user to
+     * be created on every repeated token request for the same client.
+     */
+    private function handleJwtClientCredentials(): string
+    {
+        $clientId  = $_POST['client_id'] ?? null;
+        $assertion = $_POST['client_assertion'];
+        $scope     = $_POST['scope'] ?? '';
+
+        // Accept client_id from Basic auth header when absent in POST body
+        if (!$clientId) {
+            $basic = $this->extractClientCredentials();
+            if ($basic) {
+                $clientId = $basic['client_id'];
+            }
+        }
+
+        if (!$clientId) {
+            http_response_code(400);
+            return (string) json_encode([
+                'error'             => 'invalid_request',
+                'error_description' => 'Missing client_id',
+            ]);
+        }
+
+        $db = \Pramnos\Framework\Factory::getDatabase();
+
+        // Validate assertion and resolve the application's primary key
+        $appId = $this->validateJwtClientAssertion($assertion, $clientId);
+        if ($appId === null) {
+            http_response_code(401);
+            return (string) json_encode([
+                'error'             => 'invalid_client',
+                'error_description' => 'JWT client assertion validation failed',
+            ]);
+        }
+
+        // Fetch the application row to read the existing system user.
+        // This SELECT must happen BEFORE any INSERT so the same sys_* user is
+        // reused across repeated token requests (regression fix — UW-461).
+        $appSql = $db->prepareQuery(
+            "SELECT systemuser FROM applications WHERE appid = %d AND status = 1",
+            $appId
+        );
+        $appResult = $db->query($appSql);
+        if (!$appResult || $appResult->numRows == 0) {
+            http_response_code(401);
+            return (string) json_encode([
+                'error'             => 'invalid_client',
+                'error_description' => 'Application not found',
+            ]);
+        }
+        $systemUserId = $appResult->fields['systemuser']
+            ? (int) $appResult->fields['systemuser']
+            : null;
+
+        // Create a system user only when this application has none yet
+        if (!$systemUserId) {
+            $user             = new \Pramnos\User\User();
+            $user->usertype   = 1; // system user
+            $user->username   = 'sys_' . bin2hex(random_bytes(8));
+            $user->email      = $user->username . '@system.local';
+            $user->active     = 1;
+            $user->validated  = 1;
+            $user->regdate    = time();
+            $user->save();
+            $systemUserId = (int) $user->userid;
+
+            $updateSql = $db->prepareQuery(
+                "UPDATE applications SET systemuser = %d WHERE appid = %d",
+                $systemUserId,
+                $appId
+            );
+            if (!$db->query($updateSql)) {
+                http_response_code(500);
+                return (string) json_encode([
+                    'error'             => 'server_error',
+                    'error_description' => 'Failed to assign system user to application',
+                ]);
+            }
+        }
+
+        // Issue a signed JWT access token
+        $now     = time();
+        $jti     = bin2hex(random_bytes(16));
+        $issuer  = defined('sURL') ? rtrim((string) sURL, '/') : 'https://localhost';
+        $payload = [
+            'iss'        => $issuer,
+            'sub'        => (string) $systemUserId,
+            'aud'        => $clientId,
+            'iat'        => $now,
+            'exp'        => $now + 3600,
+            'jti'        => $jti,
+            'scope'      => $scope,
+            'token_type' => 'access_token',
+        ];
+
+        $privateKeyPath = ROOT . \DS . 'app' . \DS . 'keys' . \DS . 'private.key';
+        if (file_exists($privateKeyPath)) {
+            $privateKey = (string) file_get_contents($privateKeyPath);
+            $token = \Pramnos\Auth\JWT::encode($payload, $privateKey, 'RS256');
+        } else {
+            // Fallback to symmetric signing when RSA keys are unavailable
+            $token = \Pramnos\Auth\JWT::encode($payload, $clientId);
+        }
+
+        // Persist the token so introspect() / revoke() can find it
+        $insertSql = $db->prepareQuery(
+            "INSERT INTO usertokens
+                (userid, tokentype, token, created, status, applicationid, scope, expires, deviceinfo)
+             VALUES (%d, 'access_token', %s, %d, 1, %d, %s, %d, %s)",
+            $systemUserId,
+            $token,
+            $now,
+            $appId,
+            $scope,
+            $now + 3600,
+            'jwt_bearer'
+        );
+        $db->query($insertSql);
+
+        return (string) json_encode([
+            'access_token'       => $token,
+            'token_type'         => 'Bearer',
+            'expires_in'         => 3600,
+            'scope'              => $scope,
+            'client_auth_method' => 'jwt_bearer',
+        ]);
+    }
+
+    /**
+     * Validate a JWT client assertion (RFC 7523 §2.2).
+     *
+     * Verifies the assertion's RS256/RS384/RS512 signature against the
+     * application's registered public key and checks the mandatory claims
+     * (sub = client_id, exp in the future).
+     *
+     * @param string $assertion Raw JWT string from the request
+     * @param string $clientId  The client_id claim to verify
+     * @return int|null         Application's appid on success, null on failure
+     */
+    private function validateJwtClientAssertion(string $assertion, string $clientId): ?int
+    {
+        $db  = \Pramnos\Framework\Factory::getDatabase();
+        $sql = $db->prepareQuery(
+            "SELECT appid, public_key, accesstype FROM applications WHERE apikey = %s AND status = 1",
+            $clientId
+        );
+        $result = $db->query($sql);
+
+        if (!$result || $result->numRows == 0) {
+            return null;
+        }
+
+        $row       = (array) $result->fields;
+        $publicKey = $row['public_key'] ?? null;
+        if (empty($publicKey)) {
+            return null;
+        }
+
+        try {
+            $payload = \Pramnos\Auth\JWT::decode($assertion, $publicKey, ['RS256', 'RS384', 'RS512']);
+        } catch (\Exception $e) {
+            return null;
+        }
+
+        // sub claim must equal the client_id being authenticated
+        if (!isset($payload->sub) || $payload->sub !== $clientId) {
+            return null;
+        }
+
+        // exp must be in the future (JWT::decode also checks this, but be explicit)
+        if (!isset($payload->exp) || (int) $payload->exp < time()) {
+            return null;
+        }
+
+        return (int) $row['appid'];
     }
 
     // ── Device-code helpers ───────────────────────────────────────────────────
