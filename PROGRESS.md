@@ -4,6 +4,16 @@
 
 ## 🚀 Completed Milestones
 
+### QB refactoring — User class + integration tests (2026-05-11, session 59)
+
+- [x] **`User.php`** — all DML raw SQL (`prepareQuery`/`query`) replaced with QueryBuilder across 24 methods: `deleteuser`, `activate`, `deactivate`, `load`, `getUsers`, `getbyparam`, `getuserid`, `makefriends`, `removefriends`, `arefriends`, `getfriends`, `_save` (DELETE for NULL otherinfo), `addToken`, `deleteToken`, `clearTokens`, `getToken`, `getAllTokens`, `deactivateToken`, `expireToken`, `cleanupAuthTokens`, `cleanupAllAuthTokens`, `loadByToken`, `getDataUsageStats`, `getGroups`. `setupDb()` (DDL) and `getFeed`/`addFeed` (legacy CMS dep) intentionally left as-is.
+- [x] **Bug fixed**: `getDataUsageStats()` was missing the table prefix (`usertokens` instead of `#PREFIX#usertokens`) — QB fixes this automatically.
+- [x] **SQL injection fixed**: `makefriends`, `removefriends`, `arefriends`, `getfriends` all used raw string interpolation — now use QB parameterized queries.
+- [x] **`UserCharacterizationTest`** — 6 new integration tests: `testDeleteUserRemovesFromDatabase`, `testActivateDeactivateTogglesActiveFlag`, `testGetUsersReturnsAll`, `testGetUseridByUsernameAndEmail`, `testGetbyparam`, `testGetDataUsageStats`.
+- [x] **`UserTokenManagementCharacterizationTest`** — 3 new integration tests: `testDeleteTokenSetsStatusToRemoved`, `testCleanupAllAuthTokensMarksOldTokens`, `testLoadByToken`.
+- [x] **`UserSocialFeaturesCharacterizationTest`** (new class) — 4 tests covering MySQL social features with inline table creation: `testMakeFriends`, `testRemoveFriends`, `testAreFriends`, `testGetFriends`.
+- [x] Suite: 1894 tests, 5242 assertions, 0 failures.
+
 ### ROADMAP audit — sync completed items (2026-05-11, session 59)
 
 - [x] **`Pramnos\Logs\*` QB migration** marked `[x]` — Logger is file-based (zero DB queries); confirmed by characterization tests. Nothing to migrate.
