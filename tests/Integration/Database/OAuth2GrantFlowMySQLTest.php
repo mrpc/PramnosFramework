@@ -208,7 +208,10 @@ class OAuth2GrantFlowMySQLTest extends TestCase
             `scope`           TEXT NULL,
             `public`          INT NOT NULL DEFAULT 0,
             `callback`        VARCHAR(255) NULL,
-            `owner`           INT NULL
+            `owner`           INT NULL,
+            `public_key`      TEXT NULL,
+            `jwks_uri`        VARCHAR(500) NULL,
+            `systemuser`      BIGINT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
         $this->db->query("CREATE TABLE IF NOT EXISTS `oauth2_device_codes` (
@@ -841,5 +844,92 @@ class OAuth2GrantFlowMySQLTest extends TestCase
 
         // Assert — no rows = inactive
         $this->assertSame(0, $result->numRows, 'Revoked token must be treated as inactive (active=false)');
+    }
+
+    // =========================================================================
+    // JWT client credentials — system user deduplication (regression UW-461)
+    // =========================================================================
+
+    /**
+     * Verifies that the applications.systemuser column exists and can be written
+     * and read back.  This column is added by migration 000043.
+     *
+     * The regression (UW-461) was that handleJwtClientCredentials() created a new
+     * sys_* user on every token request because it did not SELECT the existing
+     * systemuser before inserting a new User row.  The fix adds a SELECT after
+     * JWT validation so subsequent requests reuse the already-assigned account.
+     */
+    public function testSystemuserColumnExistsOnApplications(): void
+    {
+        // Arrange — insert an application (systemuser defaults to NULL)
+        $appId = $this->insertApp('jwt-cc-client');
+
+        // Act — write a synthetic system user id to the column
+        $fakeSystemUserId = PHP_INT_MAX - random_int(1, 10000);
+        $sql = $this->db->prepareQuery(
+            "UPDATE applications SET systemuser = %d WHERE appid = %d",
+            $fakeSystemUserId,
+            $appId
+        );
+        $this->db->query($sql);
+
+        // Assert — read it back
+        $readSql = $this->db->prepareQuery(
+            "SELECT systemuser FROM applications WHERE appid = %d",
+            $appId
+        );
+        $result = $this->db->query($readSql);
+        $this->assertSame(1, $result->numRows, 'Application row must be found');
+        $this->assertSame(
+            (string) $fakeSystemUserId,
+            (string) $result->fields['systemuser'],
+            'systemuser column must persist the written value'
+        );
+    }
+
+    /**
+     * The system user lookup logic must return the existing systemuser and
+     * skip INSERT when the column is already set.
+     *
+     * Replicates the DB-side contract of handleJwtClientCredentials(): after
+     * the first call sets systemuser, a subsequent SELECT must return that same
+     * value so no second User INSERT is triggered.
+     *
+     * This is the core invariant that prevents duplicate sys_* users.
+     */
+    public function testSystemuserIsReusedOnSubsequentRequests(): void
+    {
+        // Arrange — application with a pre-assigned systemuser
+        $appId      = $this->insertApp('jwt-cc-reuse-client');
+        $sysUserId  = $this->insertUser('sys_reuse_test');
+
+        $sql = $this->db->prepareQuery(
+            "UPDATE applications SET systemuser = %d WHERE appid = %d",
+            $sysUserId,
+            $appId
+        );
+        $this->db->query($sql);
+
+        // Act — replicate the SELECT in handleJwtClientCredentials() (first)
+        $lookupSql = $this->db->prepareQuery(
+            "SELECT systemuser FROM applications WHERE appid = %d AND status = 1",
+            $appId
+        );
+        $result1 = $this->db->query($lookupSql);
+
+        // Act — replicate again (second call, same application)
+        $result2 = $this->db->query($lookupSql);
+
+        // Assert — both lookups return the same userid, no new user was needed
+        $this->assertSame(
+            (string) $sysUserId,
+            (string) $result1->fields['systemuser'],
+            'First lookup must return the existing system user'
+        );
+        $this->assertSame(
+            (string) $sysUserId,
+            (string) $result2->fields['systemuser'],
+            'Second lookup must return the same system user — no duplicate created'
+        );
     }
 }

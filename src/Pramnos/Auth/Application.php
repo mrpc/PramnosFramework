@@ -72,6 +72,9 @@ class Application extends \Pramnos\Application\Model
     /** @var string|null URL to JWKS endpoint for dynamic public-key rotation */
     public ?string $jwks_uri = null;
 
+    /** @var int|null FK to users.userid — dedicated system account for client_credentials JWT grant */
+    public ?int $systemuser = null;
+
     protected string $_primaryKey = 'appid';
     protected string $_dbtable    = '#PREFIX#applications';
 
