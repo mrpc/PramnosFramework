@@ -377,6 +377,98 @@ class OauthControllerTest extends TestCase
         return $m[1];
     }
 
+    // ── JWT client assertion validation (unit — no DB) ────────────────────────
+
+    /**
+     * A well-formed JWT signed with the matching RSA private key must pass
+     * assertion validation (positive path for validateJwtClientAssertion logic).
+     *
+     * Replicates the core claim-check rules without hitting the database:
+     * sub must equal client_id, exp must be in the future, signature must verify.
+     */
+    public function testValidJwtAssertionPassesSignatureAndClaimChecks(): void
+    {
+        // Arrange — generate an ephemeral key pair
+        $keyResource = openssl_pkey_new([
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ]);
+        $this->assertNotFalse($keyResource, 'openssl_pkey_new must succeed');
+
+        openssl_pkey_export($keyResource, $privateKeyPem);
+        $publicKeyDetails = openssl_pkey_get_details($keyResource);
+        $publicKeyPem     = (string) ($publicKeyDetails['key'] ?? '');
+
+        $clientId = 'test-client-' . bin2hex(random_bytes(4));
+        $payload  = [
+            'iss' => 'https://client.example',
+            'sub' => $clientId,
+            'aud' => 'https://server.example',
+            'iat' => time(),
+            'exp' => time() + 300,
+            'jti' => bin2hex(random_bytes(8)),
+        ];
+
+        // Act — encode and then verify with the framework JWT class
+        $jwt    = \Pramnos\Auth\JWT::encode($payload, $privateKeyPem, 'RS256');
+        $result = \Pramnos\Auth\JWT::decode($jwt, $publicKeyPem, ['RS256']);
+
+        // Assert — payload round-trips cleanly and sub matches
+        $this->assertSame($clientId, $result->sub);
+        $this->assertGreaterThan(time(), $result->exp);
+    }
+
+    /**
+     * An assertion signed with a different private key must NOT pass verification.
+     *
+     * This is the core security guarantee: a stolen client_id cannot be used to
+     * impersonate a client unless the attacker also controls its private key.
+     */
+    public function testJwtAssertionWithWrongKeyFailsVerification(): void
+    {
+        // Arrange — two independent key pairs
+        $legitKey = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        $wrongKey = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        $this->assertNotFalse($legitKey);
+        $this->assertNotFalse($wrongKey);
+
+        openssl_pkey_export($wrongKey, $wrongPrivatePem);
+        $legitPublicDetails = openssl_pkey_get_details($legitKey);
+        $legitPublicPem     = (string) ($legitPublicDetails['key'] ?? '');
+
+        // Act — sign with wrong key, verify with legitimate public key
+        $jwt = \Pramnos\Auth\JWT::encode(['sub' => 'x', 'exp' => time() + 300], $wrongPrivatePem, 'RS256');
+
+        // Assert — verification must throw
+        $this->expectException(\Exception::class);
+        \Pramnos\Auth\JWT::decode($jwt, $legitPublicPem, ['RS256']);
+    }
+
+    /**
+     * An expired assertion (exp < now) must be rejected.
+     *
+     * The validateJwtClientAssertion() method checks exp after JWT::decode()
+     * already verifies it; this test ensures the round-trip check works.
+     */
+    public function testExpiredJwtAssertionIsRejected(): void
+    {
+        $keyResource = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkey_export($keyResource, $privateKeyPem);
+        $publicDetails = openssl_pkey_get_details($keyResource);
+        $publicKeyPem  = (string) ($publicDetails['key'] ?? '');
+
+        // Build assertion that expired 10 seconds ago
+        $jwt = \Pramnos\Auth\JWT::encode([
+            'sub' => 'test-client',
+            'exp' => time() - 10,
+            'iat' => time() - 310,
+        ], $privateKeyPem, 'RS256');
+
+        // Assert — JWT::decode throws on expired tokens
+        $this->expectException(\Exception::class);
+        \Pramnos\Auth\JWT::decode($jwt, $publicKeyPem, ['RS256']);
+    }
+
     /**
      * Replicate Oauth::validateAuthorizeParams() without instantiating the controller.
      *
