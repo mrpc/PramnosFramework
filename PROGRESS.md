@@ -1,8 +1,15 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-11 (session 58)
+## 📅 Last Updated: 2026-05-11 (session 59)
 
 ## 🚀 Completed Milestones
+
+### ROADMAP audit — sync completed items (2026-05-11, session 59)
+
+- [x] **`Pramnos\Logs\*` QB migration** marked `[x]` — Logger is file-based (zero DB queries); confirmed by characterization tests. Nothing to migrate.
+- [x] **JWT `private_key_jwt` + migration 000043** added to OAuth Server ROADMAP section — was implemented (sessions 57-58) but missing from ROADMAP.
+- [x] **QB refactoring** of OAuth2 Repositories + Middleware added to ROADMAP OAuth Server section.
+- [x] **2FA/GDPR items** updated to clarify: controllers are done, only view templates remain missing.
 
 ### QB refactoring — full OAuth2 auth server ecosystem (2026-05-11, session 58)
 
