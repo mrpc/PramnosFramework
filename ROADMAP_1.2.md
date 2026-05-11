@@ -227,7 +227,7 @@
 - [x] **`Pramnos\Html\DataTable`** — Τα dynamic query building, filtering, sorting και pagination calls αντικαθίστανται από QueryBuilder expressions (μέσω του `Datasource` refactor).
 - [ ] **`Pramnos\Database\Migration`** — Το DDL execution εσωτερικά χρησιμοποιεί τον Schema Builder.
 - [x] **`Pramnos\Database\Adjacencylist`** — Τα hierarchical queries (parent/children traversal) ξαναγράφονται με CTEs ή recursive QueryBuilder expressions.
-- [ ] **`Pramnos\Auth\Auth`** — Τα queries για credential lookup, session persistence, και permission resolution περνούν από QueryBuilder.
+- [x] **`Pramnos\Auth\Auth`** — Zero direct DB queries: η `Auth` class delegates τα πάντα σε addons (`onAuth`, `onAuthCheck`, `onLogout`). Επιβεβαιώνεται από `AuthCharacterizationTest`. *(Migration N/A — zero DB queries)*
 - [ ] **`Pramnos\User\*`** — Όλες οι user management queries (lookup, create, update, role assignment) ξαναγράφονται.
 - [x] **`Pramnos\Logs\*`** — Logger subsystem is **file-based** (zero DB queries) — επιβεβαιώνεται από `LoggerAndMigratorCharacterizationTest` / `LogManagerViewerCharacterizationTest`. Δεν υπάρχουν raw SQL calls προς αντικατάσταση. *(Migration N/A — file-based Logger, zero DB queries)*
 
