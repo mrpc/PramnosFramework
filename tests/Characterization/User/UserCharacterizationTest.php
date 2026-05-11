@@ -162,4 +162,215 @@ class UserCharacterizationTest extends TestCase
         $deleted = new User($userId);
         $this->assertFalse($deleted->load($userId));
     }
+
+    /**
+     * deleteuser() must physically remove the row from the database.
+     * After calling deleteuser() the user can no longer be loaded by ID.
+     * This proves the QB-based DELETE in deleteuser() correctly targets the row.
+     */
+    public function testDeleteUserRemovesFromDatabase(): void
+    {
+        // Arrange — create a user and persist it
+        $username = 'del_user_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->setPassword('pass');
+        $user->save();
+        $userId = (int) $user->userid;
+        $this->assertGreaterThan(1, $userId, 'User must be saved before deletion test');
+
+        // Act
+        $user->deleteuser();
+
+        // Assert — loading the same id must fail after deletion
+        $reloaded = new User($userId);
+        // This proves the DELETE reached the database (load returns false for missing users)
+        $this->assertFalse($reloaded->load($userId));
+    }
+
+    /**
+     * activate() and deactivate() must toggle the active flag in the database.
+     * This tests the QB-based UPDATE paths in both methods against the real schema.
+     */
+    public function testActivateDeactivateTogglesActiveFlag(): void
+    {
+        // Arrange — create an active user
+        $username = 'toggle_user_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->setPassword('pass');
+        $user->save();
+        $userId = (int) $user->userid;
+
+        // Act — deactivate
+        $user->deactivate();
+
+        // Assert — reload and verify the flag was written to the DB
+        $afterDeactivate = new User($userId);
+        // This proves deactivate() issued a real UPDATE (not just an in-memory assignment)
+        $this->assertFalse((bool) $afterDeactivate->active);
+
+        // Act — re-activate
+        $afterDeactivate->activate();
+
+        // Assert
+        $afterActivate = new User($userId);
+        $this->assertTrue((bool) $afterActivate->active);
+
+        // Cleanup
+        $afterActivate->deleteuser();
+    }
+
+    /**
+     * getUsers() must return all saved users as User objects.
+     * This tests the QB-based SELECT in getUsers() with no $where filter.
+     */
+    public function testGetUsersReturnsAll(): void
+    {
+        // Arrange — create two distinct users
+        $suffix = bin2hex(random_bytes(3));
+        $userA  = new User();
+        $userA->username = 'get_users_a_' . $suffix;
+        $userA->email    = 'get_users_a_' . $suffix . '@example.com';
+        $userA->setPassword('pass');
+        $userA->save();
+        $idA = (int) $userA->userid;
+
+        $userB  = new User();
+        $userB->username = 'get_users_b_' . $suffix;
+        $userB->email    = 'get_users_b_' . $suffix . '@example.com';
+        $userB->setPassword('pass');
+        $userB->save();
+        $idB = (int) $userB->userid;
+
+        // Act
+        $all = User::getUsers();
+
+        // Assert — both created users must appear in the returned map
+        // This proves the SELECT returned rows from the real table (not just an empty result)
+        $this->assertArrayHasKey($idA, $all);
+        $this->assertArrayHasKey($idB, $all);
+        $this->assertInstanceOf(User::class, $all[$idA]);
+        $this->assertInstanceOf(User::class, $all[$idB]);
+
+        // Cleanup
+        $userA->deleteuser();
+        $userB->deleteuser();
+    }
+
+    /**
+     * getuserid() must resolve the numeric userid by username and by email.
+     * This tests the QB-based SELECT in getuserid() against both column branches.
+     */
+    public function testGetUseridByUsernameAndEmail(): void
+    {
+        // Arrange
+        $username = 'getuserid_' . bin2hex(random_bytes(4));
+        $email    = $username . '@example.com';
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $email;
+        $user->setPassword('pass');
+        $user->save();
+        $userId = (int) $user->userid;
+
+        // Act — look up by username
+        $foundById = User::getuserid($username, 'username');
+
+        // Assert — proves the WHERE username = ? path works
+        $this->assertSame($userId, (int) $foundById);
+
+        // Act — look up by email
+        $foundByEmail = User::getuserid($email, 'email');
+
+        // Assert — proves the WHERE email = ? path works
+        $this->assertSame($userId, (int) $foundByEmail);
+
+        // Assert — unknown column guard still returns false
+        $this->assertFalse(User::getuserid($username, 'badcolumn'));
+
+        // Cleanup
+        $user->deleteuser();
+    }
+
+    /**
+     * getbyparam() must return userids for rows in userdetails matching
+     * a given fieldname+value pair.
+     * This tests the QB-based SELECT in getbyparam().
+     */
+    public function testGetbyparam(): void
+    {
+        // Arrange — create a user with a custom otherinfo field
+        $username  = 'getbyparam_' . bin2hex(random_bytes(4));
+        $fieldName = 'custom_field_' . bin2hex(random_bytes(2));
+        $fieldVal  = 'value_' . bin2hex(random_bytes(2));
+
+        $user = new User();
+        $user->username       = $username;
+        $user->email          = $username . '@example.com';
+        $user->setPassword('pass');
+        $user->otherinfo[$fieldName] = $fieldVal;
+        $user->save();
+        $userId = (int) $user->userid;
+
+        // Act
+        $result = User::getbyparam($fieldName, $fieldVal);
+
+        // Assert — the returned array must contain the userid of our test user
+        // This proves the JOIN-free SELECT against userdetails works via QB
+        $this->assertContains((string) $userId, array_map('strval', $result));
+
+        // Cleanup
+        $user->deleteuser();
+    }
+
+    /**
+     * getDataUsageStats() must return correct token and unique-app counts
+     * from the real usertokens table via QB.
+     * Also proves the missing-prefix bug from the old raw SQL is fixed (QB
+     * automatically prepends the database prefix).
+     */
+    public function testGetDataUsageStats(): void
+    {
+        // Arrange — create a user and add two tokens with distinct applicationids
+        $username = 'stats_user_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->setPassword('pass');
+        $user->save();
+        $userId = (int) $user->userid;
+
+        $tok1 = 'tok_' . bin2hex(random_bytes(6));
+        $tok2 = 'tok_' . bin2hex(random_bytes(6));
+        $user->addToken('auth', $tok1, 'stats test 1');
+        $user->addToken('auth', $tok2, 'stats test 2');
+
+        // Set distinct applicationids directly in the DB so we can test unique-app count
+        $this->db->queryBuilder()
+            ->table('usertokens')
+            ->where('userid', $userId)
+            ->where('token', $tok1)
+            ->update(['applicationid' => 101]);
+        $this->db->queryBuilder()
+            ->table('usertokens')
+            ->where('userid', $userId)
+            ->where('token', $tok2)
+            ->update(['applicationid' => 102]);
+
+        // Act
+        $stats = $user->getDataUsageStats();
+
+        // Assert
+        $this->assertIsArray($stats);
+        // This proves the QB count() returns the right total (old code missed prefix)
+        $this->assertSame(2, (int) $stats['total_tokens']);
+        // This proves the unique-app pluck+dedupe logic works
+        $this->assertSame(2, (int) $stats['unique_apps']);
+
+        // Cleanup
+        $user->deleteuser();
+    }
 }

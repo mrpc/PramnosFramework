@@ -109,11 +109,10 @@ class User extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         if ($this->_isnew == false) {
-            $sql = $database->prepareQuery(
-                "delete from `#PREFIX#users` "
-                . "where `userid` = %d ", $this->userid
-            );
-            $database->query($sql);
+            $database->queryBuilder()
+                ->table('users')
+                ->where('userid', $this->userid)
+                ->delete();
             $this->_isnew = 1;
             $database->cacheflush('userlist');
             if (is_array(self::$_usercache) && isset(self::$_usercache[$this->userid])) {
@@ -134,14 +133,10 @@ class User extends \Pramnos\Framework\Base
         if ($this->_isnew == false) {
             $this->active = true;
             $database = \Pramnos\Framework\Factory::getDatabase();
-            $sql = $database->prepareQuery(
-                "update `#PREFIX#users`"
-                . " set `active` = %d where `userid` = %d",
-                1,
-                $this->userid
-            );
-            
-            $database->query($sql);
+            $database->queryBuilder()
+                ->table('users')
+                ->where('userid', $this->userid)
+                ->update(['active' => 1]);
             $database->cacheflush('userlist');
             if (is_array(self::$_usercache) && isset(self::$_usercache[$this->userid])) {
                 unset(self::$_usercache[$this->userid]);
@@ -160,13 +155,10 @@ class User extends \Pramnos\Framework\Base
         if ($this->_isnew == false) {
             $this->active = 0;
             $database = \Pramnos\Framework\Factory::getDatabase();
-            $sql = $database->prepareQuery(
-                "update `#PREFIX#users` "
-                . "set `active` = %d where `userid` = %d",
-                0,
-                $this->userid
-            );
-            $database->query($sql);
+            $database->queryBuilder()
+                ->table('users')
+                ->where('userid', $this->userid)
+                ->update(['active' => 0]);
             $database->cacheflush('userlist');
             if (is_array(self::$_usercache) && isset(self::$_usercache[$this->userid])) {
                 unset(self::$_usercache[$this->userid]);
@@ -220,11 +212,13 @@ class User extends \Pramnos\Framework\Base
     static function getUsers($where = '')
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery("select `userid` from `#PREFIX#users`");
+        $qb = $database->queryBuilder()->table('users')->select('userid');
         if ($where != '') {
-            $sql .= ' where ' . $database->prepareInput($where);
+            // Backward-compatible raw where string: sanitised via prepareInput
+            // before being passed to whereRaw to preserve legacy call sites.
+            $qb->whereRaw($database->prepareInput($where));
         }
-        $users = $database->query($sql, 1, 10, 'userlist');
+        $users = $qb->get(true, 10, 'userlist');
         $return = array();
         while ($users->fetch()) {
             $theuser = new User($users->fields['userid']);
@@ -326,7 +320,7 @@ class User extends \Pramnos\Framework\Base
 
     /**
      * Returns an array with all groups the user is subscribed to
-     * @return \stdClass    
+     * @return \stdClass
      */
     public function getGroups()
     {
@@ -334,13 +328,13 @@ class User extends \Pramnos\Framework\Base
             return array();
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "select * from `"
-            . DB_USERGROUPSUBSCRIPTIONS
-            . "` where `userid` = %d", $this->userid
-        );
+        // DB_USERGROUPSUBSCRIPTIONS is a fully-qualified table name supplied by
+        // the application. Use a raw FROM so the QB does not double-prefix it.
         try {
-            $result = $database->query($sql, true, 60);
+            $result = $database->queryBuilder()
+                ->from(DB_USERGROUPSUBSCRIPTIONS)
+                ->where('userid', $this->userid)
+                ->get(true, 60);
         }
         catch (\Exception $exc) {
             \Pramnos\Logs\Logger::log($exc->getMessage());
@@ -350,7 +344,7 @@ class User extends \Pramnos\Framework\Base
         $maingroup = new \stdClass();
         $maingroup->group_id = $this->maingroup;
         $return[$this->maingroup] = $maingroup;
-        
+
         while ($result->fetch()) {
             $groupId = isset($result->fields['groupid']) ? $result->fields['groupid'] : (isset($result->fields['group_id']) ? $result->fields['group_id'] : null);
             if ($groupId !== null && !isset($return[$groupId])) {
@@ -566,13 +560,12 @@ class User extends \Pramnos\Framework\Base
         foreach (array_keys($this->otherinfo) as $fieldname) {
             $fixname = substr($fieldname, 3);
             if ($this->$fieldname === NULL) {
-                $sql = $database->prepareQuery(
-                    "DELETE FROM `#PREFIX#userdetails` "
-                    . "where `userid` = %d and `fieldname` = %s ", 
-                    $this->userid, $fieldname
-                );
                 try {
-                    $database->query($sql);
+                    $database->queryBuilder()
+                        ->table('userdetails')
+                        ->where('userid', $this->userid)
+                        ->where('fieldname', $fieldname)
+                        ->delete();
                 } catch (\Exception $ex) {
                     \Pramnos\Logs\Logger::log($ex->getMessage());
                 }
@@ -642,10 +635,10 @@ class User extends \Pramnos\Framework\Base
             return $this;
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "SELECT * FROM #PREFIX#users WHERE `userid` = %d", $uid
-        );
-        $result = $database->query($sql, 1, 10, 'userlist');
+        $result = $database->queryBuilder()
+            ->table('users')
+            ->where('userid', $uid)
+            ->get(true, 10, 'userlist');
         if ($result->numRows == 0) {
             return false;
         }
@@ -655,10 +648,10 @@ class User extends \Pramnos\Framework\Base
         }
 
 
-        $sql = $database->prepareQuery(
-            "SELECT * FROM #PREFIX#userdetails WHERE `userid` = %d", $uid
-        );
-        $result = $database->query($sql);
+        $result = $database->queryBuilder()
+            ->table('userdetails')
+            ->where('userid', $uid)
+            ->get();
         while ($result->fetch()) { //This should load all special settings
             $fixname = substr($result->fields['fieldname'], 3);
             if ($fixname != 'originalOtherinfo'
@@ -691,11 +684,12 @@ class User extends \Pramnos\Framework\Base
     static function getbyparam($param, $value)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "select `userid` from `#PREFIX#userdetails` "
-            . "where `fieldname` = %s and `value` = %s", $param, $value
-        );
-        $result = $database->query($sql);
+        $result = $database->queryBuilder()
+            ->table('userdetails')
+            ->select('userid')
+            ->where('fieldname', $param)
+            ->where('value', $value)
+            ->get();
         $return = array();
         while ($result->fetch()) {
             $return[] = $result->fields['userid'];
@@ -713,12 +707,12 @@ class User extends \Pramnos\Framework\Base
         if ($by != 'username' && $by != 'email') {
             return false;
         }
-        $sql = $database->prepareQuery(
-            "SELECT `userid` FROM `#PREFIX#users` "
-            . " WHERE `$by` = %s limit 1",
-            $username
-        );
-        $result = $database->query($sql);
+        $result = $database->queryBuilder()
+            ->table('users')
+            ->select('userid')
+            ->where($by, $username)
+            ->limit(1)
+            ->get();
         if ($result->numRows == 1) {
             return $result->fields['userid'];
         } else {
@@ -736,15 +730,13 @@ class User extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         self::removefriends($usera, $userb);
-        $sql = "INSERT INTO `"
-            . $database->prefix
-            . "userfriends` (`from_userid`, `to_userid`, `confirm`) values "
-            . "( '"
-            . (int) $usera
-            . "', '"
-            . (int) $userb
-            . "', '1')";
-        $database->query($sql);
+        $database->queryBuilder()
+            ->table('userfriends')
+            ->insert([
+                'from_userid' => (int) $usera,
+                'to_userid'   => (int) $userb,
+                'confirm'     => 1,
+            ]);
     }
 
     /**
@@ -756,10 +748,20 @@ class User extends \Pramnos\Framework\Base
     function removefriends($usera, $userb)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = "delete from `" . $database->prefix . "userfriends` "
-                . "where (`from_userid` = '$usera' and `to_userid`='$userb') "
-                . "or (`from_userid` = '$userb' and `to_userid`='$usera')";
-        $database->query($sql);
+        $usera = (int) $usera;
+        $userb = (int) $userb;
+        $database->queryBuilder()
+            ->table('userfriends')
+            ->where(function ($q) use ($usera, $userb) {
+                $q->where(function ($q2) use ($usera, $userb) {
+                    $q2->where('from_userid', $usera)
+                       ->where('to_userid', $userb);
+                })->orWhere(function ($q2) use ($usera, $userb) {
+                    $q2->where('from_userid', $userb)
+                       ->where('to_userid', $usera);
+                });
+            })
+            ->delete();
     }
 
     /**
@@ -772,17 +774,22 @@ class User extends \Pramnos\Framework\Base
     function arefriends($usera, $userb)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = "select * from `" . $database->prefix . "userfriends` "
-                . "where `confirm` = 1 "
-                . "and ((`from_userid` = '$usera' and `to_userid`='$userb') "
-                . "or (`from_userid` = '$userb' and `to_userid`='$usera'))";
-        $result = $database->query($sql);
-        if ($result->numRows == 1) {
-            return true;
-        }
-        else {
-            return false;
-        }
+        $usera = (int) $usera;
+        $userb = (int) $userb;
+        $result = $database->queryBuilder()
+            ->table('userfriends')
+            ->where('confirm', 1)
+            ->where(function ($q) use ($usera, $userb) {
+                $q->where(function ($q2) use ($usera, $userb) {
+                    $q2->where('from_userid', $usera)
+                       ->where('to_userid', $userb);
+                })->orWhere(function ($q2) use ($usera, $userb) {
+                    $q2->where('from_userid', $userb)
+                       ->where('to_userid', $usera);
+                });
+            })
+            ->get();
+        return $result->numRows == 1;
     }
 
     /**
@@ -794,19 +801,22 @@ class User extends \Pramnos\Framework\Base
     public static function getfriends($userid)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
+        $userid = (int) $userid;
         $return = array();
-        $sql = "select * from `#PREFIX#userfriends` "
-                . "where `confirm` = 1 "
-                . "and (`from_userid` = '$userid' or `to_userid`='$userid')";
-        $result = $database->query($sql);
+        $result = $database->queryBuilder()
+            ->table('userfriends')
+            ->where('confirm', 1)
+            ->where(function ($q) use ($userid) {
+                $q->where('from_userid', $userid)
+                  ->orWhere('to_userid', $userid);
+            })
+            ->get();
         while ($result->fetch()) {
-
             if ($result->fields['from_userid'] == $userid) {
                 $return[] = $result->fields['to_userid'];
             } else {
                 $return[] = $result->fields['from_userid'];
             }
-
         }
         return $return;
     }
@@ -943,33 +953,49 @@ class User extends \Pramnos\Framework\Base
         $parentToken = null)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
+        $now = time();
         if ($database->type == 'postgresql') {
-            
-            $table = '#PREFIX#usertokens';
-            
-            $sql = $database->prepareQuery(
-                "insert into " . $table
-                . " (`userid`, `tokentype`, `token`, `created`, `notes`, `status`,"
-                . " `lastused`, `actions`, `removedate`, `deviceinfo`, `scope`)"
-                . " values"
-                . " (%d, %s, %s, %d, %s, 1, %d, 0, 0, '', '') ON CONFLICT (userid, tokentype, token) DO UPDATE SET "
-                . " `lastused` = %d, `status` = 1",
-                $this->userid, $tokentype, $token, time(), $notes, time(),
-                time()
-            );
+            $database->queryBuilder()
+                ->table('usertokens')
+                ->upsert(
+                    [
+                        'userid'      => $this->userid,
+                        'tokentype'   => $tokentype,
+                        'token'       => $token,
+                        'created'     => $now,
+                        'notes'       => $notes,
+                        'status'      => 1,
+                        'lastused'    => $now,
+                        'actions'     => 0,
+                        'removedate'  => 0,
+                        'deviceinfo'  => '',
+                        'scope'       => '',
+                    ],
+                    ['userid', 'tokentype', 'token'],
+                    ['lastused', 'status']
+                );
         } else {
-            $sql = $database->prepareQuery(
-                "insert into `#PREFIX#usertokens` "
-                . " (`userid`, `tokentype`, `token`, `created`, `notes`, `status`,"
-                . " `parentToken`)"
-                . " values"
-                . " (%d, %s, %s, %d, %s, 1, %d) on duplicate key update"
-                . " `lastused` = %d, `status` = 1, `parentToken` = %d",
-                $this->userid, $tokentype, $token, time(), $notes, $parentToken,
-                time(), $parentToken
-            );
+            $database->queryBuilder()
+                ->table('usertokens')
+                ->upsert(
+                    [
+                        'userid'      => $this->userid,
+                        'tokentype'   => $tokentype,
+                        'token'       => $token,
+                        'created'     => $now,
+                        'notes'       => $notes,
+                        'status'      => 1,
+                        'lastused'    => $now,
+                        'actions'     => 0,
+                        'removedate'  => 0,
+                        'deviceinfo'  => '',
+                        'scope'       => '',
+                        'parentToken' => $parentToken,
+                    ],
+                    ['userid', 'tokentype', 'token'],
+                    ['lastused', 'status', 'parentToken']
+                );
         }
-        $database->query($sql);
         return $this;
     }
 
@@ -982,23 +1008,25 @@ class User extends \Pramnos\Framework\Base
     public function deleteToken($tokenid)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
+        $now = time();
         if ($database->type == 'postgresql') {
-            $sql = $database->prepareQuery(
-                "update `#PREFIX#usertokens` set `status` = 2, `removedate` = %d "
-                . "where (`tokenid` = %d)"
-                . "  and `userid` = %d",
-                time(), $tokenid, $this->userid
-            );
+            // PostgreSQL: no parentToken cascade — update only the exact token
+            $database->queryBuilder()
+                ->table('usertokens')
+                ->where('tokenid', $tokenid)
+                ->where('userid', $this->userid)
+                ->update(['status' => 2, 'removedate' => $now]);
         } else {
-            $sql = $database->prepareQuery(
-                "update `#PREFIX#usertokens` set `status` = 2, `removedate` = %d "
-                . "where (`tokenid` = %d or `parentToken` = %d)"
-                . "  and `userid` = %d",
-                time(), $tokenid, $tokenid, $this->userid
-            );
+            // MySQL: also mark child tokens that reference this token via parentToken
+            $database->queryBuilder()
+                ->table('usertokens')
+                ->where('userid', $this->userid)
+                ->where(function ($q) use ($tokenid) {
+                    $q->where('tokenid', $tokenid)
+                      ->orWhere('parentToken', $tokenid);
+                })
+                ->update(['status' => 2, 'removedate' => $now]);
         }
-        
-        $database->query($sql);
         return $this;
     }
 
@@ -1009,12 +1037,10 @@ class User extends \Pramnos\Framework\Base
     public function clearTokens()
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "update `#PREFIX#usertokens` set `status` = 2, `removedate` = %d "
-            . "where `userid` = %d ",
-            time(), $this->userid
-        );
-        $database->query($sql);
+        $database->queryBuilder()
+            ->table('usertokens')
+            ->where('userid', $this->userid)
+            ->update(['status' => 2, 'removedate' => time()]);
         return $this;
     }
 
@@ -1025,10 +1051,12 @@ class User extends \Pramnos\Framework\Base
     public function getToken()
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "SELECT * FROM #PREFIX#usertokens WHERE `tokentype` in ('auth', 'access_token') and `status` = 1 and `userid` = %d LIMIT 1", $this->userid
-        );
-        $result = $database->query($sql, true);
+        $result = $database->queryBuilder()
+            ->table('usertokens')
+            ->whereIn('tokentype', ['auth', 'access_token'])
+            ->where('status', 1)
+            ->where('userid', $this->userid)
+            ->first();
         if ($result->numRows == 0) {
             return false;
         }
@@ -1042,11 +1070,11 @@ class User extends \Pramnos\Framework\Base
     public function getAllTokens()
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "SELECT * FROM #PREFIX#usertokens WHERE `userid` = %d ORDER BY created DESC", 
-            $this->userid
-        );
-        $result = $database->query($sql);
+        $result = $database->queryBuilder()
+            ->table('usertokens')
+            ->where('userid', $this->userid)
+            ->orderBy('created', 'desc')
+            ->get();
         
         $tokens = [];
         while ($result->fetch()) {
@@ -1073,12 +1101,11 @@ class User extends \Pramnos\Framework\Base
     public function deactivateToken($tokenId)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "UPDATE #PREFIX#usertokens SET `status` = 0 WHERE `tokenid` = %d AND `userid` = %d",
-            $tokenId, $this->userid
-        );
-        $database->query($sql);
-        
+        $database->queryBuilder()
+            ->table('usertokens')
+            ->where('tokenid', $tokenId)
+            ->where('userid', $this->userid)
+            ->update(['status' => 0]);
         return true;
     }
 
@@ -1090,12 +1117,11 @@ class User extends \Pramnos\Framework\Base
     public function expireToken($tokenId)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "UPDATE #PREFIX#usertokens SET `expires` = %d, `status` = 0 WHERE `tokenid` = %d AND `userid` = %d",
-            time(), $tokenId, $this->userid
-        );
-        $database->query($sql);
-        
+        $database->queryBuilder()
+            ->table('usertokens')
+            ->where('tokenid', $tokenId)
+            ->where('userid', $this->userid)
+            ->update(['expires' => time(), 'status' => 0]);
         return true;
     }
     
@@ -1111,16 +1137,15 @@ class User extends \Pramnos\Framework\Base
      */
     public function cleanupAuthTokens(int $days = 30)
     {
-        $oneMonthAgo = time() - ($days * 24 * 60 * 60); // 30 days in seconds
+        $oneMonthAgo = time() - ($days * 24 * 60 * 60);
         $database = \Pramnos\Framework\Factory::getDatabase();
-        
-        // Delete the auth tokens only
-        $sql = $database->prepareQuery(
-            "UPDATE #PREFIX#usertokens SET `status` = 2 WHERE `userid` = %d AND `created` < %d AND `lastused` < %d AND `tokentype` in ('auth', 'access_token') ",
-            $this->userid, $oneMonthAgo, $oneMonthAgo
-        );
-        $database->query($sql);
-        
+        $database->queryBuilder()
+            ->table('usertokens')
+            ->where('userid', $this->userid)
+            ->where('created', '<', $oneMonthAgo)
+            ->where('lastused', '<', $oneMonthAgo)
+            ->whereIn('tokentype', ['auth', 'access_token'])
+            ->update(['status' => 2]);
         return true;
     }
     
@@ -1131,16 +1156,14 @@ class User extends \Pramnos\Framework\Base
      */
     public static function cleanupAllAuthTokens(int $days = 30)
     {
-        $oneMonthAgo = time() - ($days * 24 * 60 * 60); // 30 days in seconds
+        $oneMonthAgo = time() - ($days * 24 * 60 * 60);
         $database = \Pramnos\Framework\Factory::getDatabase();
-        
-        // Delete the auth tokens only
-        $sql = $database->prepareQuery(
-            "UPDATE #PREFIX#usertokens SET `status` = 2 WHERE `created` < %d AND `lastused` < %d AND `tokentype` in ('auth', 'access_token') ",
-            $oneMonthAgo, $oneMonthAgo
-        );
-        $database->query($sql);
-        
+        $database->queryBuilder()
+            ->table('usertokens')
+            ->where('created', '<', $oneMonthAgo)
+            ->where('lastused', '<', $oneMonthAgo)
+            ->whereIn('tokentype', ['auth', 'access_token'])
+            ->update(['status' => 2]);
         return true;
     }
 
@@ -1154,34 +1177,30 @@ class User extends \Pramnos\Framework\Base
     public function loadByToken($token, $tokentype='auth', $setSessionApi=true)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
+        $now = time();
+        $qb = $database->queryBuilder()
+            ->table('usertokens')
+            ->where('token', $token)
+            ->where('status', 1)
+            ->where(function ($q) use ($now) {
+                $q->where('expires', 0)
+                  ->orWhere('expires', '>', $now)
+                  ->orWhereNull('expires');
+            });
         if ($tokentype == 'auth') {
-            $sql = $database->prepareQuery(
-                "select * from `#PREFIX#usertokens`"
-                . " where `token` = %s and `tokentype` in ('auth', 'access_token') "
-                . " and `status` = 1 and (`expires` = 0 or `expires` > %d or `expires` is null) limit 1",
-                $token, time()
-            );
+            $qb->whereIn('tokentype', ['auth', 'access_token']);
         } else {
-            $sql = $database->prepareQuery(
-                "select * from `#PREFIX#usertokens`"
-                . " where `token` = %s and `tokentype` = %s "
-                . " and `status` = 1 and (`expires` = 0 or `expires` > %d or `expires` is null) limit 1",
-                $token, $tokentype, time()
-            );
+            $qb->where('tokentype', $tokentype);
         }
-        
-        $result = $database->query($sql);
+        $result = $qb->first();
         if ($result->numRows > 0) {
             $this->load($result->fields['userid']);
             if ($setSessionApi) {
                 $tokenObj = new Token($result->fields);
                 $_SESSION['usertoken'] = $tokenObj;
             }
-
             return $this;
         }
-
-
     }
 
 
@@ -1218,7 +1237,7 @@ class User extends \Pramnos\Framework\Base
 
     /**
      * Get data usage statistics
-     * 
+     *
      * @return array
      */
     public function getDataUsageStats(): array
@@ -1233,28 +1252,24 @@ class User extends \Pramnos\Framework\Base
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
 
-        // Get token count
-        $sql = $database->prepareQuery("
-            SELECT COUNT(*) as token_count
-            FROM usertokens
-            WHERE userid = %d
-        ", $this->userid);
-        $tokenResult = $database->query($sql);
-        $tokenCount = $tokenResult->fields['token_count'] ?? 0;
+        // Count all tokens for this user via QB (prefix handled automatically)
+        $tokenCount = $database->queryBuilder()
+            ->table('usertokens')
+            ->where('userid', $this->userid)
+            ->count();
 
-        // Get app count
-        $sql = $database->prepareQuery("
-            SELECT COUNT(DISTINCT applicationid) as app_count
-            FROM usertokens
-            WHERE userid = %d
-        ", $this->userid);
+        // COUNT(DISTINCT applicationid) is not directly available via QB count(),
+        // so pluck all applicationid values and count unique non-null entries.
         try {
-            $appResult = $database->query($sql);
-            $appCount = $appResult->fields['app_count'] ?? 0;
+            $appIds = $database->queryBuilder()
+                ->table('usertokens')
+                ->select('applicationid')
+                ->where('userid', $this->userid)
+                ->pluck('applicationid');
+            $appCount = count(array_unique(array_filter($appIds, fn($v) => $v !== null && $v !== '')));
         } catch (\Exception $e) {
             $appCount = 0;
         }
-        
 
         return [
             'total_tokens' => $tokenCount,

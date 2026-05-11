@@ -288,4 +288,100 @@ class UserTokenManagementCharacterizationTest extends TestCase
         // Assert
         $this->assertTrue($result);
     }
+
+    /**
+     * deleteToken() must set the token's status to 2 (removed) in the database.
+     * This tests the QB-based UPDATE path that was previously raw SQL.
+     */
+    public function testDeleteTokenSetsStatusToRemoved(): void
+    {
+        // Arrange — create a user and an auth token
+        $user = $this->createTestUser();
+        $tokenValue = 'tok_' . bin2hex(random_bytes(8));
+        $user->addToken('auth', $tokenValue, 'delete test');
+
+        $tokens = $user->getAllTokens();
+        $this->assertCount(1, $tokens, 'Precondition: exactly one token exists');
+        $tokenId = (int) $tokens[0]['tokenid'];
+
+        // Act
+        $user->deleteToken($tokenId);
+
+        // Assert — getToken() must return false because status is now 2, not 1
+        // This proves the UPDATE reached the database and changed the status column
+        $this->assertFalse($user->getToken());
+
+        // Verify status=2 directly in DB to distinguish from status=0 (deactivated)
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $row = $db->queryBuilder()
+            ->table('usertokens')
+            ->where('tokenid', $tokenId)
+            ->first();
+        $this->assertSame('2', (string) $row->fields['status'],
+            'deleteToken() must set status=2, not just deactivate (status=0)');
+    }
+
+    /**
+     * cleanupAllAuthTokens() (static) must mark all old auth tokens across all
+     * users as status=2.  We back-date the token by 10 seconds in the DB, then
+     * call cleanupAllAuthTokens() with a cutoff of "now - 5 seconds", which makes
+     * the token eligible and verifies the UPDATE reached the database.
+     */
+    public function testCleanupAllAuthTokensMarksOldTokens(): void
+    {
+        // Arrange — create a user and persist one auth token
+        $user  = $this->createTestUser();
+        $token = 'tok_' . bin2hex(random_bytes(8));
+        $user->addToken('auth', $token, 'all cleanup test');
+
+        $tokens = $user->getAllTokens();
+        $this->assertCount(1, $tokens, 'Precondition: exactly one token exists');
+        $tokenId = (int) $tokens[0]['tokenid'];
+
+        // Back-date created and lastused by 10 seconds so they fall before any
+        // reasonable cutoff we pass in the next step.
+        $tenSecondsAgo = time() - 10;
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->where('tokenid', $tokenId)
+            ->update(['created' => $tenSecondsAgo, 'lastused' => $tenSecondsAgo]);
+
+        // Act — cutoff = time() - (0 days) = time(); since created is 10s ago,
+        // the token satisfies created < cutoff and lastused < cutoff.
+        $result = User::cleanupAllAuthTokens(0);
+
+        // Assert — method must report success
+        $this->assertTrue($result);
+
+        // Assert — the token's status must have been updated to 2 in the DB
+        $row = $db->queryBuilder()
+            ->table('usertokens')
+            ->where('tokenid', $tokenId)
+            ->first();
+        $this->assertSame('2', (string) $row->fields['status'],
+            'cleanupAllAuthTokens() must set status=2 on old auth tokens');
+    }
+
+    /**
+     * loadByToken() must load the User that owns a given active token.
+     * This tests the QB-based SELECT with the expires/status conditions.
+     */
+    public function testLoadByToken(): void
+    {
+        // Arrange — create a user and add a token
+        $user       = $this->createTestUser();
+        $uid        = (int) $user->userid;
+        $tokenValue = 'tok_' . bin2hex(random_bytes(8));
+        $user->addToken('auth', $tokenValue, 'loadbytoken test');
+
+        // Act — load a fresh User object by the token value
+        $loaded = new \Pramnos\User\User();
+        $loaded->loadByToken($tokenValue, 'auth', false);
+
+        // Assert — the loaded user must have the same userid
+        // This proves the SELECT with tokentype/status/expires conditions works
+        $this->assertSame($uid, (int) $loaded->userid,
+            'loadByToken() must resolve the userid from the usertokens table');
+    }
 }
