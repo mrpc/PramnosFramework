@@ -1,8 +1,12 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-11 (session 55 cont.)
+## 📅 Last Updated: 2026-05-11 (session 56)
 
 ## 🚀 Completed Milestones
+
+### OAuth2MySQL test isolation fix (2026-05-11, session 56)
+
+- [x] **`OAuth2GrantFlowMySQLTest` isolation fixes** (247bf36): (1) Full `users` schema in `ensureSharedTables()` — matches `User::setupDb()` so `User::save()` doesn't fail if this test creates the table first, preventing `userid` from staying at default `1`. (2) Full `applications` schema in `createOwnedTables()` — matches `ApikeyCharacterizationTest::ensureApplicationsTableExists()` so the table is always in the compatible state when dropped+recreated. Suite: 1876 tests, 5184 assertions, **0 failures**.
 
 ### OAuth2 Integration Tests × 3 DB (2026-05-11, session 55 cont.)
 
