@@ -228,7 +228,7 @@
 - [ ] **`Pramnos\Database\Migration`** — Το DDL execution εσωτερικά χρησιμοποιεί τον Schema Builder.
 - [x] **`Pramnos\Database\Adjacencylist`** — Τα hierarchical queries (parent/children traversal) ξαναγράφονται με CTEs ή recursive QueryBuilder expressions.
 - [x] **`Pramnos\Auth\Auth`** — Zero direct DB queries: η `Auth` class delegates τα πάντα σε addons (`onAuth`, `onAuthCheck`, `onLogout`). Επιβεβαιώνεται από `AuthCharacterizationTest`. *(Migration N/A — zero DB queries)*
-- [ ] **`Pramnos\User\*`** — Όλες οι user management queries (lookup, create, update, role assignment) ξαναγράφονται.
+- [x] **`Pramnos\User\*`** — Όλες οι user management queries (lookup, create, update, role assignment) ξαναγράφονται. Καλύπτει: deleteuser, activate, deactivate, load, getUsers, getuserid, getbyparam, makefriends/removefriends/arefriends/getfriends (+ SQL injection fix), addToken (upsert), deleteToken, clearTokens, getToken, getAllTokens, deactivateToken, expireToken, cleanupAuthTokens, cleanupAllAuthTokens, loadByToken, getDataUsageStats. 13 νέα integration tests. `setupDb()` (DDL) και `getFeed`/`addFeed` (legacy, χρησιμοποιούν non-framework class) αφέθηκαν.
 - [x] **`Pramnos\Logs\*`** — Logger subsystem is **file-based** (zero DB queries) — επιβεβαιώνεται από `LoggerAndMigratorCharacterizationTest` / `LogManagerViewerCharacterizationTest`. Δεν υπάρχουν raw SQL calls προς αντικατάσταση. *(Migration N/A — file-based Logger, zero DB queries)*
 
 ## 📦 Φάση 2: Urbanwater Features Port
