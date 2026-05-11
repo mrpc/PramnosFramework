@@ -14,6 +14,13 @@
 - [x] **`UserSocialFeaturesCharacterizationTest`** (new class) — 4 tests covering MySQL social features with inline table creation: `testMakeFriends`, `testRemoveFriends`, `testAreFriends`, `testGetFriends`.
 - [x] Suite: 1894 tests, 5242 assertions, 0 failures.
 
+### 2FA view templates + Internal Migration section complete (2026-05-11, session 59)
+
+- [x] **2FA view templates** — 9 files (3 views × 3 themes) in `scaffolding/themes/{bootstrap,tailwind,plain-css}/views/twofactor/`: `twofactor.html.php` (overview, enable/disable status, disable modal), `setup.html.php` (3-step flow: QR scan, backup codes, verify code form), `backup.html.php` (remaining codes, regenerate form). All views use only `htmlspecialchars()` — XSS-safe.
+- [x] **`Pramnos\Database\Migration` QB item** marked [x] — executeQueries() runs SchemaBuilder-generated SQL; no hand-written raw SQL in base class. Migration N/A.
+- [x] **`Pramnos\Auth\Auth` QB item** marked [x] — zero DB calls, delegates to addons.
+- [x] Internal Migration section of ROADMAP is now **100% [x]**.
+
 ### ROADMAP audit — sync completed items (2026-05-11, session 59)
 
 - [x] **`Pramnos\Logs\*` QB migration** marked `[x]` — Logger is file-based (zero DB queries); confirmed by characterization tests. Nothing to migrate.
