@@ -1152,6 +1152,137 @@ class ValidatorTest extends TestCase
     }
 
     /**
+     * resolveRequired() skips RuleInterface entries in the parsedRules array without crashing.
+     *
+     * When a rules array mixes string rules (like required_if) with inline RuleInterface
+     * objects, resolveRequired() must iterate safely past the objects. This covers the
+     * `continue` guard at the top of the resolveRequired() loop (line 197).
+     */
+    public function testResolveRequiredSkipsRuleInterfaceObjects(): void
+    {
+        // Arrange: a RuleInterface object combined with a conditional required rule
+        $alwaysPass = new class implements RuleInterface {
+            public function passes(string $attribute, mixed $value): bool { return true; }
+            public function message(): string { return 'fail'; }
+        };
+
+        $rules = [
+            'status' => 'required',
+            // 'note' is required_if:status,active AND has an inline rule object
+            'note'   => ['required_if:status,active', $alwaysPass],
+        ];
+
+        // Assert: resolveRequired() correctly resolves required_if without choking on the object
+        try {
+            // status=active, note absent → required_if fires
+            Validator::validate(['status' => 'active'], $rules);
+            $this->fail('Expected ValidationException: note required when status=active');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('note', $e->errors());
+        }
+
+        // Assert: status=inactive → note not required, RuleInterface object runs on present value
+        $validated = Validator::validate(['status' => 'inactive', 'note' => 'ok'], $rules);
+        $this->assertSame('ok', $validated['note']);
+    }
+
+    /**
+     * When a field is absent and its rules array contains both an implicit rule (csrf) and
+     * a RuleInterface object, the implicit-rule scan must skip the RuleInterface safely.
+     *
+     * This covers the `continue` guard inside the mustRun loop (line 113).
+     */
+    public function testMissingFieldWithImplicitRuleAndInlineRuleObject(): void
+    {
+        // Arrange: CSRF (implicit) + a RuleInterface object for a missing field
+        $session = Session::getInstance();
+        $token   = $session->getToken();
+
+        $alwaysPass = new class implements RuleInterface {
+            public function passes(string $attribute, mixed $value): bool { return true; }
+            public function message(): string { return 'fail'; }
+        };
+
+        $rules = [$token => ['csrf', $alwaysPass]];
+
+        // Act + Assert: must fail on CSRF (implicit rule runs), not crash on the inline object
+        try {
+            Validator::validate([], $rules);
+            $this->fail('Expected ValidationException for missing CSRF token');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey($token, $e->errors());
+        }
+    }
+
+    /**
+     * validateSize() returns false when the parameter is missing or non-numeric.
+     *
+     * This defensive path prevents 'size' from silently accepting arbitrary values
+     * when misconfigured (e.g. 'size:' with no value, or 'size:abc').
+     */
+    public function testSizeRuleWithInvalidParameter(): void
+    {
+        // 'size' with no parameter value after the colon → parameters[0] = ''
+        try {
+            Validator::validate(['v' => 'abc'], ['v' => 'size:']);
+            $this->fail('Expected ValidationException for size with empty parameter');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('v', $e->errors());
+        }
+    }
+
+    /**
+     * validateSize() returns false for values that are not string, array, or numeric.
+     *
+     * Objects, resources, and booleans are not measurable by 'size' — the rule
+     * fails rather than throwing, keeping validation composable.
+     */
+    public function testSizeRuleWithUnsupportedType(): void
+    {
+        // Arrange: an object is not a string, array, or numeric value
+        try {
+            Validator::validate(['v' => new \stdClass()], ['v' => 'size:1']);
+            $this->fail('Expected ValidationException for object value with size rule');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('v', $e->errors());
+        }
+    }
+
+    /**
+     * compareDates() returns false when the threshold parameter is missing entirely.
+     *
+     * If someone writes 'before' with no date argument (e.g. a misconfigured rule),
+     * the validator must fail gracefully rather than crashing.
+     */
+    public function testBeforeRuleWithNoThresholdParameter(): void
+    {
+        // Arrange: 'before' with no parameter → $parameters[0] is unset → null threshold
+        try {
+            Validator::validate(['date' => '2025-01-01'], ['date' => 'before']);
+            $this->fail('Expected ValidationException for before with no threshold');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('date', $e->errors());
+        }
+    }
+
+    /**
+     * compareDates() returns false when strtotime cannot parse the value.
+     *
+     * An unparseable value must produce a validation error, not a PHP warning
+     * or an incorrect comparison result.
+     */
+    public function testBeforeRuleWithUnparseableDateValue(): void
+    {
+        // Arrange: 'before:2025-01-01' but the value is not a valid date
+        try {
+            Validator::validate(['date' => 'not-a-date'], ['date' => 'before:2025-01-01']);
+            $this->fail('Expected ValidationException for unparseable date value');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('date', $e->errors());
+        }
+    }
+
+    /**
      * RuleInterface objects may be passed inline in the rules array (no registration needed).
      *
      * This avoids polluting the global rule registry for one-off validations,
