@@ -405,4 +405,94 @@ class TriggerSequencePostgreSQLTest extends TestCase
             'Calling createSequence() twice must not create duplicates'
         );
     }
+
+    // -------------------------------------------------------------------------
+    // nextVal()
+    // -------------------------------------------------------------------------
+
+    /**
+     * nextVal() must return the next integer from the sequence, starting at 1
+     * by default, and increment by 1 on each call.
+     *
+     * This verifies that nextVal() executes the real PostgreSQL nextval()
+     * function and returns the correct PHP int — not a string, not 0.
+     */
+    public function testNextValReturnsSequentialIntegers(): void
+    {
+        // Arrange
+        $this->schema->createSequence('test_seq');
+
+        // Act + Assert — three consecutive calls must return 1, 2, 3
+        $this->assertSame(1, $this->schema->nextVal('test_seq'), 'First nextVal() must return 1');
+        $this->assertSame(2, $this->schema->nextVal('test_seq'), 'Second nextVal() must return 2');
+        $this->assertSame(3, $this->schema->nextVal('test_seq'), 'Third nextVal() must return 3');
+    }
+
+    /**
+     * nextVal() must honour the INCREMENT BY value configured at create time.
+     *
+     * A sequence created with increment=10 must advance by 10 on each call,
+     * which is the correct behaviour for coarse-grained ID reservation (e.g.
+     * allocating blocks of IDs for a sharded insert batch).
+     */
+    public function testNextValRespectsCustomIncrement(): void
+    {
+        // Arrange — sequence increments by 10
+        $this->schema->createSequence('test_seq', start: 100, increment: 10);
+
+        // Act
+        $first  = $this->schema->nextVal('test_seq');
+        $second = $this->schema->nextVal('test_seq');
+
+        // Assert
+        $this->assertSame(100, $first,  'First nextVal() must return start value 100');
+        $this->assertSame(110, $second, 'Second nextVal() must return 110 (100 + increment 10)');
+    }
+
+    // -------------------------------------------------------------------------
+    // setVal()
+    // -------------------------------------------------------------------------
+
+    /**
+     * setVal() must reposition the sequence so the next nextVal() call returns
+     * value + increment (the default isCalled=true behaviour).
+     *
+     * This is the canonical pattern for resetting a sequence after a bulk
+     * INSERT with explicit IDs, so that auto-generated IDs do not collide.
+     */
+    public function testSetValPositionsNextNextValCorrectly(): void
+    {
+        // Arrange
+        $this->schema->createSequence('test_seq');
+
+        // Act — set the sequence to 500 (isCalled=true means next nextval → 501)
+        $returned = $this->schema->setVal('test_seq', 500);
+
+        // Assert setVal returns the value it was given
+        $this->assertSame(500, $returned, 'setVal() must return the value it was set to');
+
+        // Assert next nextVal() returns 501 (value + increment)
+        $next = $this->schema->nextVal('test_seq');
+        $this->assertSame(501, $next, 'After setVal(500, isCalled=true) nextVal() must return 501');
+    }
+
+    /**
+     * setVal() with isCalled=false means the value IS the next value returned
+     * by nextVal() — the sequence has not yet been "called" for that value.
+     *
+     * This is used after INSERT … ON CONFLICT to reset the sequence to the
+     * exact next safe value without burning one number.
+     */
+    public function testSetValWithIsCalledFalseReturnsValueOnNextNextVal(): void
+    {
+        // Arrange
+        $this->schema->createSequence('test_seq');
+
+        // Act — set value=200 with isCalled=false
+        $this->schema->setVal('test_seq', 200, false);
+
+        // Assert — nextVal() must now return 200 itself (not 201)
+        $next = $this->schema->nextVal('test_seq');
+        $this->assertSame(200, $next, 'After setVal(200, isCalled=false) nextVal() must return 200');
+    }
 }

@@ -289,4 +289,33 @@ class MySQLSchemaGrammar extends SchemaGrammar
     {
         return $this->compileDropView($name, $ifExists);
     }
+
+    // Sequences — MySQL has no native sequences; all methods return '' (no-op)
+    // =========================================================================
+
+    public function compileCreateSequence(
+        string $name,
+        int $start = 1,
+        int $increment = 1,
+        ?int $minValue = null,
+        ?int $maxValue = null,
+        bool $cycle = false
+    ): string {
+        return ''; // no-op on MySQL
+    }
+
+    public function compileDropSequence(string $name, bool $ifExists = true): string
+    {
+        return ''; // no-op on MySQL
+    }
+
+    public function compileNextVal(string $name): string
+    {
+        return ''; // no-op on MySQL
+    }
+
+    public function compileSetVal(string $name, int $value, bool $isCalled = true): string
+    {
+        return ''; // no-op on MySQL
+    }
 }
