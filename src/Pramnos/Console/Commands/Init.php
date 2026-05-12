@@ -757,10 +757,11 @@ PHP;
         $docRoot  = '/var/www/html/www';
 
         $dockerfile  = "FROM php:8.4-apache\n";
-        $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev libonig-dev libzip-dev libxml2-dev git unzip\n";
+        $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev libonig-dev libzip-dev libxml2-dev libpng-dev libjpeg-dev libwebp-dev libfreetype6-dev git unzip\n";
         $dockerfile .= "COPY --from=composer:latest /usr/bin/composer /usr/bin/composer\n";
         $dockerfile .= "RUN docker-php-ext-configure intl\n";
-        $dockerfile .= "RUN docker-php-ext-install pdo $phpExts intl mbstring zip bcmath\n";
+        $dockerfile .= "RUN docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype\n";
+        $dockerfile .= "RUN docker-php-ext-install pdo $phpExts intl mbstring zip bcmath gd\n";
         $dockerfile .= "RUN pecl install xdebug && docker-php-ext-enable xdebug\n";
         $dockerfile .= "RUN echo \"xdebug.mode=coverage\" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini\n";
         $dockerfile .= "RUN a2enmod rewrite\n";
