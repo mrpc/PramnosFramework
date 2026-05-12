@@ -1,5 +1,9 @@
 <?php
 namespace Pramnos\Application;
+
+use Pramnos\Application\Template\TemplateCompiler;
+use Pramnos\Application\Template\TemplateCache;
+
 /**
  * @package     PramnosFramework
  * @subpackage  Application
@@ -60,6 +64,38 @@ class View extends \Pramnos\Framework\Base
      * @var array
      */
     public $errors = array();
+
+    // =========================================================================
+    // Template engine state
+    // =========================================================================
+
+    /**
+     * Layout template to wrap this view (set by $this->layout() inside a template).
+     * Null means no layout — the template output is used as-is.
+     * @var string|null
+     */
+    protected ?string $_layout = null;
+
+    /**
+     * Captured section content, keyed by section name.
+     * Populated by section() / endsection() pairs; read by yield() in layouts.
+     * @var array<string, string>
+     */
+    protected array $sections = [];
+
+    /**
+     * Stack of currently-open section names.
+     * Supports nested sections (though uncommon in practice).
+     * @var string[]
+     */
+    protected array $sectionStack = [];
+
+    /**
+     * Override directory for the compiled template cache.
+     * Empty string means TemplateCache will use its own default (ROOT/var/viewcache).
+     * @var string
+     */
+    protected static string $templateCacheDir = '';
 
     /**
      * Render and return the view contents
@@ -175,6 +211,216 @@ class View extends \Pramnos\Framework\Base
 
 
 
+    // =========================================================================
+    // Template engine — public API (usable in .html.php and .tpl.php)
+    // =========================================================================
+
+    /**
+     * Declare that this template should be wrapped by a layout.
+     *
+     * Call at the top of a child template. The layout file is rendered after
+     * the child finishes, with all sections already populated.
+     *
+     * Usage in .html.php:
+     *   <?php $this->layout('layouts/main'); ?>
+     *
+     * Usage in .tpl.php (via @extends directive):
+     *   @extends('layouts/main')
+     *
+     * @param string $layoutName Path relative to the view path or ROOT/views/,
+     *                           without extension (e.g. 'layouts/main').
+     */
+    public function layout(string $layoutName): void
+    {
+        $this->_layout = $layoutName;
+    }
+
+    /**
+     * Start capturing output for a named section.
+     *
+     * Everything echoed until the matching endsection() is captured and stored
+     * under $name. The layout template retrieves it via yield($name).
+     *
+     * Usage in .html.php:
+     *   <?php $this->section('content'); ?>
+     *     <h1>Hello</h1>
+     *   <?php $this->endsection(); ?>
+     *
+     * @param string $name Section identifier (e.g. 'content', 'sidebar').
+     */
+    public function section(string $name): void
+    {
+        $this->sectionStack[] = $name;
+        ob_start();
+    }
+
+    /**
+     * End the most-recently-opened section and store its captured output.
+     *
+     * Usage in .html.php:
+     *   <?php $this->endsection(); ?>
+     */
+    public function endsection(): void
+    {
+        if (empty($this->sectionStack)) {
+            return;
+        }
+        $name = array_pop($this->sectionStack);
+        $this->sections[$name] = (string) ob_get_clean();
+    }
+
+    /**
+     * Output a named section (used inside layout templates).
+     *
+     * Returns $default when the section was not defined by the child template.
+     *
+     * Usage in layout .html.php:
+     *   <?php echo $this->yield('content'); ?>
+     *   <?php echo $this->yield('sidebar', '<aside>Default sidebar</aside>'); ?>
+     *
+     * @param string $name    Section identifier.
+     * @param string $default Fallback HTML when the section is absent.
+     * @return string         Captured section HTML, or $default.
+     */
+    public function yield(string $name, string $default = ''): string
+    {
+        return $this->sections[$name] ?? $default;
+    }
+
+    /**
+     * Include a sub-template (partial) directly into the current output buffer.
+     *
+     * The partial receives the same $this (View object) plus any extra $data
+     * extracted into local scope. Partials should NOT call layout() — they are
+     * always rendered inline.
+     *
+     * Usage in .html.php:
+     *   <?php $this->insert('partials/card', ['item' => $item]); ?>
+     *
+     * Usage in .tpl.php (via @include directive):
+     *   @include('partials/card', ['item' => $item])
+     *
+     * @param string               $template Template name (without extension).
+     * @param array<string, mixed> $data     Extra variables merged into the partial's scope.
+     */
+    public function insert(string $template, array $data = []): void
+    {
+        $file = $this->resolveTemplatePath($template);
+        if ($file === null) {
+            \Pramnos\Logs\Logger::log("Template partial not found: {$template}");
+            return;
+        }
+        $includeFile = $this->getIncludePath($file);
+
+        $model = $this->model;
+        $lang  = \Pramnos\Framework\Factory::getLanguage();
+        if (!empty($data)) {
+            extract($data, EXTR_SKIP);
+        }
+        include $includeFile;
+    }
+
+    // =========================================================================
+    // Template engine — cache configuration (static, app-level)
+    // =========================================================================
+
+    /**
+     * Override the compiled template cache directory.
+     *
+     * Call once during application bootstrap. Leave unset to use the default
+     * (ROOT/var/viewcache).
+     *
+     * @param string $dir Absolute path to a writable directory.
+     */
+    public static function setTemplateCacheDir(string $dir): void
+    {
+        static::$templateCacheDir = $dir;
+    }
+
+    /** Return the configured cache directory (empty = use default). */
+    public static function getTemplateCacheDir(): string
+    {
+        return static::$templateCacheDir;
+    }
+
+    // =========================================================================
+    // Template engine — internal helpers
+    // =========================================================================
+
+    /**
+     * Return the includable path for $filePath:
+     * - .tpl.php files are compiled and the cached compiled path is returned.
+     * - All other files are returned as-is.
+     */
+    private function getIncludePath(string $filePath): string
+    {
+        if (!str_ends_with($filePath, '.tpl.php')) {
+            return $filePath;
+        }
+        $compiler = new TemplateCompiler();
+        $cache    = new TemplateCache(static::$templateCacheDir);
+        return $cache->resolve($filePath, fn(string $src) => $compiler->compile($src));
+    }
+
+    /**
+     * Resolve a template name to an absolute file path.
+     *
+     * Search order (first match wins):
+     *   1. Absolute path given and exists.
+     *   2. Relative to the current view's path — tries .html.php then .tpl.php.
+     *   3. Relative to ROOT/views/ — tries .html.php then .tpl.php.
+     *   4. Theme override (theme/views/{name}.html.php or .tpl.php).
+     *
+     * @param string $name Template name without extension (e.g. 'layouts/main').
+     * @return string|null Absolute path, or null if not found.
+     */
+    private function resolveTemplatePath(string $name): ?string
+    {
+        // 1. Absolute path
+        if (file_exists($name)) {
+            return $name;
+        }
+
+        $extensions = ['.html.php', '.tpl.php'];
+        $bases      = array_filter([
+            $this->path,
+            defined('ROOT') ? ROOT . DIRECTORY_SEPARATOR . 'views' : null,
+        ]);
+
+        // 2 & 3. Relative to view path and ROOT/views/
+        foreach ($bases as $base) {
+            foreach ($extensions as $ext) {
+                $path = rtrim($base, '/\\') . DIRECTORY_SEPARATOR . $name . $ext;
+                if (file_exists($path)) {
+                    return $path;
+                }
+            }
+        }
+
+        // 4. Theme override
+        try {
+            $doc = \Pramnos\Framework\Factory::getDocument();
+            if (is_object($doc)
+                && isset($doc->themeObject)
+                && is_object($doc->themeObject)
+                && $doc->themeObject->allowsViewOverrides()
+            ) {
+                foreach ($extensions as $ext) {
+                    $path = $doc->themeObject->fullpath
+                        . DIRECTORY_SEPARATOR . 'views'
+                        . DIRECTORY_SEPARATOR . $name . $ext;
+                    if (file_exists($path)) {
+                        return $path;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Factory may be unavailable in tests — silently skip
+        }
+
+        return null;
+    }
+
     /**
      * Gets a tpl file for the current view. Tpl file can be placed in
      * current theme's directory to overide the normal tpl file
@@ -209,11 +455,19 @@ class View extends \Pramnos\Framework\Base
         }
 
         if (file_exists($tplfile)) {
+            // Reset template-engine state for this render cycle so that
+            // consecutive getTpl() calls don't bleed sections into each other.
+            $this->_layout      = null;
+            $this->sections     = [];
+            $this->sectionStack = [];
+
             ob_start();
             try {
-                $lang = \Pramnos\Framework\Factory::getLanguage();
-                include $tplfile;
+                $lang  = \Pramnos\Framework\Factory::getLanguage();
+                $model = $this->model;
+                include $this->getIncludePath($tplfile);
             } catch (\Exception $ex) {
+                ob_end_clean();
                 \Pramnos\Logs\Logger::log(
                     'Error in view: ' . $this->name . ' and template file: '
                     . $tplfile . '. ' . $ex->getMessage()
@@ -226,6 +480,33 @@ class View extends \Pramnos\Framework\Base
                     . ' at line ' . $ex->getLine()
                 );
             }
+            $childOutput = (string) ob_get_clean();
+
+            // Layout resolution: if the template called $this->layout(...),
+            // render the layout file with the sections populated.
+            if ($this->_layout !== null) {
+                $layoutFile = $this->resolveTemplatePath($this->_layout);
+                if ($layoutFile !== null) {
+                    ob_start();
+                    try {
+                        $lang  = \Pramnos\Framework\Factory::getLanguage();
+                        $model = $this->model;
+                        include $this->getIncludePath($layoutFile);
+                    } catch (\Exception $ex) {
+                        ob_end_clean();
+                        \Pramnos\Logs\Logger::log(
+                            'Error in layout: ' . $this->_layout . '. '
+                            . $ex->getMessage() . ' at line ' . $ex->getLine()
+                        );
+                        throw new \Exception(
+                            'Error rendering layout: ' . $this->_layout . '. '
+                            . $ex->getMessage() . ' at line ' . $ex->getLine()
+                        );
+                    }
+                    $childOutput = (string) ob_get_clean();
+                }
+            }
+
             $tplInformation = '';
             if ($this->type == 'html') {
                 $tplInformation = "\n<!-- \n"
@@ -236,9 +517,9 @@ class View extends \Pramnos\Framework\Base
                     . "\n-->";
             }
             if ($render == true){
-                return ob_get_clean() . $tplInformation;
+                return $childOutput . $tplInformation;
             }
-            $this->output .= ob_get_clean() . $tplInformation;
+            $this->output .= $childOutput . $tplInformation;
             return true;
         } else {
             if (\Pramnos\Http\Request::staticGet(
