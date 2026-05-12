@@ -189,6 +189,52 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
     }
 
     // =========================================================================
+    // MODIFY COLUMN (PostgreSQL: separate ALTER COLUMN statements)
+    // =========================================================================
+
+    /**
+     * PostgreSQL requires separate ALTER TABLE … ALTER COLUMN clauses for each
+     * aspect of a column change (type, nullability, default). A single MySQL-style
+     * MODIFY COLUMN does not exist.
+     *
+     * Emits up to three statements:
+     *   1. ALTER COLUMN col TYPE new_type [USING col::new_type]   — always
+     *   2. ALTER COLUMN col SET/DROP NOT NULL                      — when nullable is set
+     *   3. ALTER COLUMN col SET DEFAULT value / DROP DEFAULT       — when default is set
+     *
+     * @return list<string>
+     */
+    protected function compileModifyColumn(string $table, ColumnDefinition $col): array
+    {
+        $qt  = $this->quoteTable($table);
+        $qc  = $this->quoteColumn($col->name);
+        $prefix = 'ALTER TABLE ' . $qt . ' ALTER COLUMN ' . $qc;
+
+        $stmts = [];
+
+        // 1. TYPE change — always emitted
+        $typeSql = $this->compileColumnType($col);
+        $stmts[] = $prefix . ' TYPE ' . $typeSql . ' USING ' . $qc . '::' . $typeSql;
+
+        // 2. Nullability — only when the nullable attribute was explicitly provided
+        if ($col->has('nullable')) {
+            $stmts[] = $col->get('nullable')
+                ? $prefix . ' DROP NOT NULL'
+                : $prefix . ' SET NOT NULL';
+        }
+
+        // 3. Default — only when explicitly provided
+        if ($col->get('hasDefault')) {
+            $stmts[] = $prefix . ' SET DEFAULT ' . $this->compileDefaultValue($col->get('default'));
+        } elseif ($col->has('hasDefault')) {
+            // hasDefault was explicitly set to false → drop the default
+            $stmts[] = $prefix . ' DROP DEFAULT';
+        }
+
+        return $stmts;
+    }
+
+    // =========================================================================
     // Index DDL (PostgreSQL: DROP INDEX is standalone, not per-table)
     // =========================================================================
 

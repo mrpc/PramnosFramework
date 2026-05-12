@@ -268,6 +268,13 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
                 . ' ADD COLUMN ' . $colSql;
         }
 
+        // MODIFY COLUMN
+        foreach ($blueprint->getModifiedColumns() as $col) {
+            foreach ($this->compileModifyColumn($table, $col) as $stmt) {
+                $statements[] = $stmt;
+            }
+        }
+
         // DROP COLUMN
         foreach ($blueprint->getDroppedColumns() as $col) {
             $statements[] = 'ALTER TABLE ' . $this->quoteTable($table)
@@ -312,6 +319,25 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
         return 'ALTER TABLE ' . $this->quoteTable($table)
             . ' RENAME COLUMN ' . $this->quoteColumn($from)
             . ' TO ' . $this->quoteColumn($to);
+    }
+
+    /**
+     * Compile one MODIFY COLUMN operation into one or more SQL statements.
+     *
+     * Returns an array because some dialects (PostgreSQL) need separate
+     * ALTER TABLE … ALTER COLUMN statements for type, nullability, and default.
+     *
+     * The base implementation emits a single MODIFY COLUMN statement (MySQL).
+     * PostgreSQL overrides this method.
+     *
+     * @return list<string>
+     */
+    protected function compileModifyColumn(string $table, ColumnDefinition $col): array
+    {
+        return [
+            'ALTER TABLE ' . $this->quoteTable($table)
+                . ' MODIFY COLUMN ' . $this->compileColumn($col),
+        ];
     }
 
     protected function compileDropForeignKey(string $table, string $name): string
