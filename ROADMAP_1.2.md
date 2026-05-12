@@ -627,10 +627,12 @@
 - [x] **PSR-16 Simple Cache:** `SimpleCache` (`src/Pramnos/Cache/SimpleCache.php`) — wraps existing `Cache` class; key validation (reserved chars `{}()/\@:`); TTL normalisation (null/int/DateInterval); `SimpleCacheInvalidArgumentException`; 12 characterization tests.
 - [x] **PSR-7/15 HTTP Stack:** `ServerRequestCreator` (`src/Pramnos/Http/Psr/ServerRequestCreator.php`) — `fromGlobals()` + `fromServerParams()`; `Pipeline` (`src/Pramnos/Http/Psr/Pipeline.php`) — FIFO immutable middleware pipeline implementing `MiddlewareInterface`; 11 characterization tests.
 
-### 🛣️ Φάση 7: Modern Routing Engine
-- [ ] **Attribute-based Routing:** Υποστήριξη `#[Route]` attributes πάνω από τις μεθόδους των controllers.
-- [ ] **Route Discovery:** Αυτόματο scanning φακέλων για ανακάλυψη routes.
-- [ ] **Named Routes & URL Generation:** Βελτίωση της παραγωγής URLs βάσει ονόματος route.
+### 🛣️ Φάση 7: Modern Routing Engine ✅
+*Υλοποιήθηκε πάνω στα υπάρχοντα `Route` / `Router` — 100% BC-safe (νέα additive API).*
+
+- [x] **Attribute-based Routing:** `#[Route]` PHP 8 attribute (`src/Pramnos/Routing/Attributes/Route.php`) — `IS_REPEATABLE`, parameters: `uri`, `methods` (string|array), `name`, `permissions`, `middleware`.
+- [x] **Route Discovery:** `RouteDiscovery::discover(string $dir, string $namespace)` (`src/Pramnos/Routing/RouteDiscovery.php`) — recursive `RecursiveIteratorIterator` scan; maps file path → FQCN; reads `#[Route]` via Reflection; registers with Router. `Router::loadFromDirectory()` convenience wrapper.
+- [x] **Named Routes & URL Generation:** `Route::name(string $n): static` + `Router::getByName(string $n): ?Route` + `Router::route(string $name, array $params = []): string` — replaces `{param}` / `{param?}` placeholders; rawurlencode values; strips unresolved optional segments. Callback-based registration (no circular dependency). 26 characterization tests.
 
 ### 🛡️ Φάση 8: Security & Templating
 - [x] **View Auto-escaping:** Σύστημα προστασίας XSS με αυτόματο escaping των μεταβλητών στα templates (με δυνατότητα `raw` bypass). *`View::escape(mixed $value): string` + `View::e()` alias — delegates to global `e()` helper. Templates use `<?= $this->e($var) ?>`.*
