@@ -216,7 +216,7 @@
   - Σε TimescaleDB-enabled περιβάλλον: native policies ενεργοποιούνται — ο Policy Engine δεν αναλαμβάνει αυτές τις εργασίες
   - Εκτίθεται ως CLI command: `service:policy-engine` (extends `CommandBase`, τρέχει ως daemon ή cron job)
 
-- [ ] ~~**Full ORM Layer**~~ → *Μεταφέρθηκε στη Φάση 9 (βλ. τέλος).*
+- [x] ~~**Full ORM Layer**~~ → *Υλοποιήθηκε στη Φάση 9 ως `OrmModel` (βλ. τέλος).*
 
 ### 🔁 Internal Framework Migration to QueryBuilder
 *Εσωτερική αναδιαγραφή των framework classes που περιέχουν raw SQL, χρησιμοποιώντας το νέο QueryBuilder ως κινητήρα. Το εξωτερικό API κάθε κλάσης παραμένει **πανομοιότυπο**.*
