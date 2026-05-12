@@ -652,3 +652,14 @@
 - [x] **Timestamps:** `created_at` / `updated_at` — `HasTimestamps` trait; `withoutTimestamps()` opt-out.
 - [x] **Mass Assignment Protection:** `$fillable` / `$guarded` + `fill()` / `isFillable()` / `isGuarded()` — `HasAttributes` trait.
 - [x] **Collections:** `Orm\Collection` — `filter`, `map`, `pluck`, `groupBy`, `sortBy`, `first`, `last`, `count`, `each`, `contains`, `toArray`, `isEmpty`; implements `Countable`, `IteratorAggregate`, `JsonSerializable`.
+
+### 💾 Φάση 10: File Storage Abstraction ✅
+*Υλοποιήθηκε ως `Pramnos\Storage\` namespace — 100% BC-safe (Filesystem unchanged).*
+
+- [x] **StorageInterface:** Ενιαίο συμβόλαιο 20 μεθόδων (`src/Pramnos/Storage/StorageInterface.php`) — `get`, `put`, `readStream`, `append`, `prepend`, `exists`, `missing`, `size`, `lastModified`, `mimeType`, `delete`, `move`, `copy`, `files`, `allFiles`, `directories`, `makeDirectory`, `deleteDirectory`, `url`, `temporaryUrl`.
+- [x] **LocalDriver:** `src/Pramnos/Storage/Drivers/LocalDriver.php` — χρησιμοποιεί `Filesystem` για directory ops (`destroyDirectory`, `listDirectoryFiles`, `recurseCopy`), PHP `file_get_contents`/`file_put_contents`/`copy` για αρχεία. Υποστηρίζει `url` prefix configuration. BC: `Pramnos\Filesystem\Filesystem` αμετάβλητο.
+- [x] **S3Driver:** `src/Pramnos/Storage/Drivers/S3Driver.php` — προαιρετική εξάρτηση από AWS SDK (runtime guard); lazy client init; presigned URLs (temporaryUrl); paginator για allFiles; PresignedUrl generation.
+- [x] **FtpDriver:** `src/Pramnos/Storage/Drivers/FtpDriver.php` — ext-ftp guard; lazy connection; passive mode; MIME type από extension map; `__destruct()` κλείνει σύνδεση.
+- [x] **StorageManager:** `src/Pramnos/Storage/StorageManager.php` — factory + registry; lazy disk creation; `extend()` για mock/custom drivers; proxies όλες τις StorageInterface μεθόδους στο default disk.
+- [x] **Storage facade:** `src/Pramnos/Storage/Storage.php` — static façade; `Storage::init($config)` bootstrap; `Storage::disk('name')` για named disk; `Storage::setManager()` για testing.
+- [x] **37 characterization tests:** `tests/Characterization/Storage/StorageCharacterizationTest.php` — LocalDriver (all 20 methods), S3/FTP optional-dependency guards, StorageManager (lazy creation, extend, default disk), Storage façade, Filesystem delegation verification.
