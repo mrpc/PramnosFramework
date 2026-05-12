@@ -1,6 +1,21 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-12 (session 67)
+## 📅 Last Updated: 2026-05-12 (session 68)
+
+## 🏁 Session 68 — Template Engine (TemplateCompiler + TemplateCache + View) (2026-05-12)
+
+### Ολοκληρώθηκε
+- **`TemplateCompiler`** (`src/Pramnos/Application/Template/TemplateCompiler.php`) — pure string transformer, Blade-inspired directives: `{{ }}`, `{!! !!}`, `{{-- --}}`, `@extends`, `@section`, `@endsection/@stop`, `@yield`, `@include`, `@if/@elseif/@else/@endif`, `@foreach/@endforeach`, `@for/@endfor`, `@while/@endwhile`, `@isset/@endisset`, `@empty/@endempty`, `@php/@endphp`
+- **`TemplateCache`** (`src/Pramnos/Application/Template/TemplateCache.php`) — file-based cache with mtime invalidation, default dir `ROOT/var/viewcache`, configurable, flush()
+- **`View`** (`src/Pramnos/Application/View.php`) — added `layout()`, `section()`, `endsection()`, `yield()`, `insert()`, `setTemplateCacheDir()`, `getTemplateCacheDir()`, `resolveTemplatePath()`, `getIncludePath()`; modified `getTpl()` for layout resolution
+- **Tests**: `TemplateCompilerTest` (35 tests), `TemplateCacheTest` (16 tests, 1 skipped), `ViewTemplateTest` (14 tests) — 65 tests total
+- **Docs**: section 53 in `docs/1.2-new-features.md`
+- Πλήρης backward compatibility — υπάρχοντα `.html.php` templates δεν θίγονται
+
+### Commits
+- (pending)
+
+---
 
 ## 🏁 Session 67 — DbSeed tests + modifyColumn (2026-05-12)
 
