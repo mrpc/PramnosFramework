@@ -1,6 +1,24 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-12 (session 64)
+## 📅 Last Updated: 2026-05-12 (session 65)
+
+## 🏁 Phase 10: File Storage Abstraction — COMPLETE (2026-05-12, session 65)
+
+Nuova astrazione `Pramnos\Storage\` con 3 driver + static facade. 37 nuovi characterization tests (tutti passano). `Pramnos\Filesystem\Filesystem` invariato — 100% BC.
+
+### Architettura
+- **`StorageInterface`** — 20 metodi (read/write/meta/dir/URL) in `src/Pramnos/Storage/StorageInterface.php`
+- **`LocalDriver`** — delega a `Filesystem` per dir ops (`destroyDirectory`, `listDirectoryFiles`, `recurseCopy`); PHP `copy()`/`file_get_contents` per file singoli
+- **`S3Driver`** — optional AWS SDK guard; lazy `$client`; presigned URLs via `createPresignedRequest`; paginator per `allFiles`
+- **`FtpDriver`** — `ext-ftp` guard; lazy connection; passive mode; MIME map; `__destruct()` chiude la connessione
+- **`StorageManager`** — factory + registry lazy; `extend()` per mock/driver custom; proxies al default disk
+- **`Storage`** — static façade; `Storage::init($config)` bootstrap; `Storage::disk('name')` named disk; `Storage::setManager()` per testing
+
+### Test results
+- StorageCharacterizationTest: **37/37** ✓
+- Full suite: **2094/2094** ✓ (pre-existing PostgreSQL integration test failures non correlate)
+
+---
 
 ## 🏁 Phase 7: Modern Routing Engine — COMPLETE (2026-05-12, session 64)
 
