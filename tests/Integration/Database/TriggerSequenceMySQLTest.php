@@ -282,4 +282,35 @@ class TriggerSequenceMySQLTest extends TestCase
             'dropSequence() must be a silent no-op on MySQL without throwing'
         );
     }
+
+    /**
+     * nextVal() must return 0 on MySQL (sequences are not supported).
+     *
+     * Cross-database code that calls nextVal() must be able to detect
+     * the MySQL case by checking for a 0 return value and fall back to
+     * AUTO_INCREMENT or another strategy.
+     */
+    public function testNextValReturnsZeroOnMySQL(): void
+    {
+        // Act
+        $value = $this->schema->nextVal('any_sequence');
+
+        // Assert — 0 is the documented sentinel for "not supported"
+        $this->assertSame(0, $value, 'nextVal() must return 0 on MySQL');
+    }
+
+    /**
+     * setVal() must return 0 on MySQL (sequences are not supported).
+     *
+     * Like nextVal(), the 0 return allows callers to detect the no-op
+     * without needing a separate capability check.
+     */
+    public function testSetValReturnsZeroOnMySQL(): void
+    {
+        // Act
+        $value = $this->schema->setVal('any_sequence', 999);
+
+        // Assert
+        $this->assertSame(0, $value, 'setVal() must return 0 on MySQL');
+    }
 }

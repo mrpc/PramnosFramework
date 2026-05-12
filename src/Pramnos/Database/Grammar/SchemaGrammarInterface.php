@@ -134,6 +134,24 @@ interface SchemaGrammarInterface
      */
     public function compileDropSequence(string $name, bool $ifExists = true): string;
 
+    /**
+     * Returns a SELECT nextval() statement (PostgreSQL) or empty string (MySQL).
+     *
+     * @param  string $name  Sequence name (schema-qualified if needed, e.g. "public.order_seq")
+     * @return string
+     */
+    public function compileNextVal(string $name): string;
+
+    /**
+     * Returns a SELECT setval() statement (PostgreSQL) or empty string (MySQL).
+     *
+     * @param  string $name      Sequence name
+     * @param  int    $value     New value
+     * @param  bool   $isCalled  true → next nextval() returns value+increment; false → returns value
+     * @return string
+     */
+    public function compileSetVal(string $name, int $value, bool $isCalled = true): string;
+
     // -------------------------------------------------------------------------
     // Column type compilation
     // -------------------------------------------------------------------------

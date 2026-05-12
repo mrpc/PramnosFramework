@@ -169,7 +169,7 @@
   - [x] **Views:** `createView()`, `createOrReplaceView()`, `dropView()`
   - [x] **Materialized Views (PostgreSQL/TimescaleDB):** `createMaterializedView()`, `refreshMaterializedView()`, `dropMaterializedView()`
   - [x] **Triggers (MySQL + PostgreSQL):** `createTrigger()`, `dropTrigger()` — MySQL: `CREATE TRIGGER … FOR EACH ROW`; PG: `CREATE OR REPLACE TRIGGER … EXECUTE FUNCTION fn()`
-  - [x] Sequences (PostgreSQL): `createSequence()`, `dropSequence()` — MySQL: silent no-op; `nextVal()` / `setVal()` pending
+  - [x] Sequences (PostgreSQL): `createSequence()`, `dropSequence()`, `nextVal()`, `setVal()` — MySQL: silent no-op (returns 0)
 
 - [x] **TimescaleDB Extension Builder:** Native support για τα hypertable και time-series χαρακτηριστικά:
   - [x] `createHypertable($table, $timeColumn)` — στο TimescaleDB εκτελεί `SELECT create_hypertable()`; σε άλλα backends: silent no-op
