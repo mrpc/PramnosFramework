@@ -1,6 +1,24 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-12 (session 65)
+## 📅 Last Updated: 2026-05-12 (session 66)
+
+## 🏁 Session 66 — Faker/Factory/Seeder + Docs (2026-05-12)
+
+### Completato
+- **`Pramnos\Support\Faker`** — zero-dep faker, `el_GR` default, `FakerBaseProvider`, `FakerGrProvider`, `FakerUniqueProxy`
+- **`Pramnos\Database\Factory`** — fluent data factory (`count`, `state`, `sequence`, `make`, `create`)
+- **`Pramnos\Database\Seeder`** — aggiornato con `factory()` e `call()` per tight integration
+- **Test suite completa**: `FactoryTest` (22 test), `SeederTest` (8 test), `FakerTest` (85 test) — 100% coverage
+- **Rimossa dipendenza** `fakerphp/faker` da `composer.json`
+- **Sostituiti tutti `<?=`** con `<?php echo ...; ?>` in sorgenti e docs
+- **Documentazione sezioni 49–52** in `docs/1.2-new-features.md`
+
+### Commits
+- `ca6f53a` — feat(support): add Faker, FakerBaseProvider, FakerGrProvider, FakerUniqueProxy
+- `b9d86c4` — style: replace all `<?=` short echo tags
+- `2dc1869` — docs(features): add sections 49–52
+
+---
 
 ## 🏁 Phase 10: File Storage Abstraction — COMPLETE (2026-05-12, session 65)
 
