@@ -163,7 +163,7 @@
 - [x] **DDL / Schema Builder:** Fluent interface για ορισμό και τροποποίηση schema:
   - [x] `createTable()`, `alterTable()`, `dropTable()`, `renameTable()`
   - [x] Column types με αυτόματη μετατροπή ανά dialect (`TEXT`, `JSONB`, `TIMESTAMPTZ`, `BIGSERIAL`, κλπ.)
-  - [x] `dropColumn()`, `renameColumn()` (modifyColumn not yet)
+  - [x] `dropColumn()`, `renameColumn()`, `modifyColumn()` — MySQL: MODIFY COLUMN; PostgreSQL: separate ALTER COLUMN TYPE / SET NOT NULL / SET DEFAULT
   - [x] Primary keys, foreign keys, unique constraints, check constraints
   - [x] Indexes: `createIndex()`, `createUniqueIndex()`, `dropIndex()`
   - [x] **Views:** `createView()`, `createOrReplaceView()`, `dropView()`
