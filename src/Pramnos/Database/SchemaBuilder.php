@@ -957,6 +957,60 @@ class SchemaBuilder
         }
     }
 
+    /**
+     * Advance a sequence and return its new value (PostgreSQL only).
+     *
+     * Equivalent to PostgreSQL's `SELECT nextval('name')`.
+     * On MySQL returns 0 — sequences are not supported.
+     *
+     * Use this when you need a unique ID from a shared sequence that is
+     * independent of any particular table (e.g. for sharded PKs, event IDs,
+     * or document numbers that must be globally unique across tables).
+     *
+     * @param  string $name  Sequence name (schema-qualify if needed, e.g. "public.order_seq")
+     * @return int           Next value, or 0 on MySQL
+     */
+    public function nextVal(string $name): int
+    {
+        $sql = $this->getGrammar()->compileNextVal($name);
+        if ($sql === '') {
+            return 0;
+        }
+        $result = $this->db->query($sql);
+        if (!$result || $result->numRows === 0) {
+            return 0;
+        }
+        return (int) array_values((array) $result->fields)[0];
+    }
+
+    /**
+     * Set a sequence's current value (PostgreSQL only).
+     *
+     * Equivalent to PostgreSQL's `SELECT setval('name', value, is_called)`.
+     * On MySQL returns 0 — sequences are not supported.
+     *
+     * Useful after bulk-inserting rows with explicit IDs to reset the sequence
+     * so the next `nextval()` / serial column does not collide with existing rows.
+     *
+     * @param  string $name      Sequence name
+     * @param  int    $value     Value to set
+     * @param  bool   $isCalled  true (default): next nextval() returns value + increment.
+     *                           false: next nextval() returns value itself (useful after INSERT … ON CONFLICT).
+     * @return int               The value that was set, or 0 on MySQL
+     */
+    public function setVal(string $name, int $value, bool $isCalled = true): int
+    {
+        $sql = $this->getGrammar()->compileSetVal($name, $value, $isCalled);
+        if ($sql === '') {
+            return 0;
+        }
+        $result = $this->db->query($sql);
+        if (!$result || $result->numRows === 0) {
+            return 0;
+        }
+        return (int) array_values((array) $result->fields)[0];
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================
