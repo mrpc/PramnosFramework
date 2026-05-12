@@ -1,6 +1,21 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-12 (session 66)
+## 📅 Last Updated: 2026-05-12 (session 67)
+
+## 🏁 Session 67 — DbSeed tests + modifyColumn (2026-05-12)
+
+### Completato
+- **`db:seed` unit tests** (`DbSeedTest.php`, 10 test) — missing/empty dir, run-all alphabetical, named seeder, not-found, non-Seeder rejection, fail-slow, non-.php ignore, all-failed summary
+- **`modifyColumn()`** στο Blueprint + SchemaGrammar + MySQLSchemaGrammar + PostgreSQLSchemaGrammar
+- **`ColumnDefinition::has()`** — distingue "non impostato" da "impostato a false"
+- **12 unit test** + **9 integration test** (MySQL, PostgreSQL, TimescaleDB)
+- Aggiornato ROADMAP_1.2.md
+
+### Commits
+- `277bc6a` — test(console): add unit tests for DbSeed command
+- `faa2c21` — feat(schema): implement modifyColumn() for MySQL and PostgreSQL
+
+---
 
 ## 🏁 Session 66 — Faker/Factory/Seeder + Docs (2026-05-12)
 
