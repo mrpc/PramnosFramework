@@ -1,6 +1,22 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-12 (session 69)
+## 📅 Last Updated: 2026-05-13 (session 69 cont.)
+
+## 🏁 Session 69 cont. — ScaffoldingHelper + Controller Fallback + scaffold:views command (2026-05-13)
+
+### Ολοκληρώθηκε
+- **`ScaffoldingHelper`** (`src/Pramnos/Application/ScaffoldingHelper.php`) — new static utility class: `resolveScaffoldingDir()`, `getThemeDir()`, `getScaffoldTheme()`, `getAvailableThemeDirs()`, `listViewGroups()`; consolidates all scaffolding path logic
+- **`Controller::getView()`** — scaffolding fallback: if no view found in app paths, searches bundled theme views. Respects `scaffold_theme` config key; falls back to all themes for legacy projects. New private `_getScaffoldingFallbackDirs(): string[]`
+- **`Init`** command — `scaffoldAppConfig()` now writes `scaffold_theme` to `app/app.php`; `resolveScaffoldingDir()` delegates to `ScaffoldingHelper`
+- **`scaffold:views`** command (`src/Pramnos/Console/Commands/ScaffoldViews.php`) — publishes bundled view groups into an existing project. Options: `--all`, `--group=a,b`, `--theme`, `--dest`, `--force`, `--list`
+- **Registered** `ScaffoldViews` in `src/Pramnos/Console/Application.php`
+- **Tests**: `ScaffoldingHelperTest` (16 tests), `ControllerScaffoldingFallbackTest` (5 tests), `ScaffoldViewsTest` (10 tests) — 31 tests, 157 assertions
+- **Docs**: sections 58–60 in `docs/1.2-new-features.md`
+
+### Commits
+- (pending)
+
+---
 
 ## 🏁 Session 69 — Urbanwater Backports: OAuthPolicyHelper, Scopes, Helpers, Scaffolding Views (2026-05-12)
 
@@ -12,7 +28,7 @@
 - **Docs**: sections 54–57 in `docs/1.2-new-features.md`
 
 ### Commits
-- (pending)
+- `18a3dd9` — feat(auth): backport OAuthPolicyHelper registries, Scopes.addDefaultScopesToToken, Helpers validators; add 51 scaffold views
 
 ---
 

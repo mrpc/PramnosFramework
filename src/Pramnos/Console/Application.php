@@ -67,6 +67,8 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\CleanupQueue());
         // Database seeding
         $this->add(new \Pramnos\Console\Commands\DbSeed());
+        // Scaffolding utilities
+        $this->add(new \Pramnos\Console\Commands\ScaffoldViews());
         // DaemonOrchestrator is abstract — apps register their own concrete subclass
     }
 
