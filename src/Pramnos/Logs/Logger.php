@@ -443,4 +443,23 @@ class Logger
     {
         return self::getDefaultLogPath() . \DS . $file . '.' . $ext;
     }
+
+    /**
+     * Create a PSR-3 compliant logger instance bound to a named channel.
+     *
+     * The returned `PsrLogger` delegates back to this static class so
+     * all writes go through the same structured-log pipeline.
+     *
+     * ```php
+     * $log = Logger::channel('payments');
+     * $log->error('Charge failed for order {id}', ['id' => $orderId]);
+     * ```
+     *
+     * @param  string $file  Log file name (channel) — defaults to 'pramnosframework'.
+     * @return PsrLogger
+     */
+    public static function channel(string $file = 'pramnosframework'): PsrLogger
+    {
+        return new PsrLogger($file);
+    }
 }
