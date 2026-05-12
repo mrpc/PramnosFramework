@@ -180,7 +180,7 @@ class Init extends Command
         $cliName = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $namespace));
 
         $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true);
-        $this->scaffoldAppConfig('app/app.php', $appName, $namespace, $enabledFeatures);
+        $this->scaffoldAppConfig('app/app.php', $appName, $namespace, $enabledFeatures, $uiSystem);
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
         $this->writeFile('www/index.php', $this->getIndexTemplate());
         $this->writeFile('www/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?url=$1 [QSA,L]\n");
@@ -415,13 +415,22 @@ class Init extends Command
         };
     }
 
-    private function scaffoldAppConfig(string $path, string $appName, string $namespace, array $features): void
-    {
+    private function scaffoldAppConfig(
+        string $path,
+        string $appName,
+        string $namespace,
+        array  $features,
+        string $scaffoldTheme = ''
+    ): void {
         $featuresPhp = empty($features)
             ? "    'features' => [],\n"
             : "    'features' => ['" . implode("', '", $features) . "'],\n";
 
-        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n$featuresPhp    'csp' => [\n        'script-src' => [],\n        'style-src'  => []\n    ]\n];\n";
+        $scaffoldLine = $scaffoldTheme !== ''
+            ? "    'scaffold_theme' => '$scaffoldTheme',\n"
+            : '';
+
+        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}    'csp' => [\n        'script-src' => [],\n        'style-src'  => []\n    ]\n];\n";
         $this->writeFile($path, $content);
     }
 
@@ -1329,22 +1338,7 @@ PHP;
 
     private function resolveScaffoldingDir(): string
     {
-        $candidates = [
-            dirname(__DIR__, 4) . '/scaffolding',                     // dependency install
-            dirname(__DIR__, 2) . '/../../scaffolding',               // dev symlink
-            dirname(__FILE__, 5) . '/scaffolding',                    // absolute from Commands/
-        ];
-        // Walk up from this file to find the framework root
-        $dir = __DIR__;
-        for ($i = 0; $i < 6; $i++) {
-            $candidate = $dir . '/scaffolding';
-            if (is_dir($candidate . '/templates')) {
-                return $candidate;
-            }
-            $dir = dirname($dir);
-        }
-        // Last resort: use well-known package path relative to ROOT
-        return (defined('ROOT') ? ROOT : getcwd()) . '/vendor/mrpc/pramnosframework/scaffolding';
+        return \Pramnos\Application\ScaffoldingHelper::resolveScaffoldingDir();
     }
 
     private function generateRandomPassword(int $length = 16): string
