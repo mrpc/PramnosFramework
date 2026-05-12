@@ -31,7 +31,7 @@ use Pramnos\Http\Session;
  *   // <input type="hidden" name="_csrf_token" value="…" />
  *
  * Usage — AJAX (read the token):
- *   <meta name="csrf-token" content="<?= CsrfMiddleware::token() ?>">
+ *   <meta name="csrf-token" content="<?php echo CsrfMiddleware::token(); ?>">
  *   // then send it as the X-CSRF-Token header
  *
  * When the token is missing or invalid, throws an Exception with code 419.

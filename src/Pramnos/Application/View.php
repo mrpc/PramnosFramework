@@ -152,8 +152,8 @@ class View extends \Pramnos\Framework\Base
      * $this->escape($value) or the shorter e($value) form.
      *
      * Usage in .html.php templates:
-     *   <?= $this->escape($model->title) ?>
-     *   <?= $this->e($user->bio) ?>
+     *   <?php echo $this->escape($model->title); ?>
+     *   <?php echo $this->e($user->bio); ?>
      *
      * @param  mixed  $value    Any scalar, null, or stringable.
      * @param  string $encoding Character encoding (default UTF-8).
