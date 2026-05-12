@@ -336,4 +336,15 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
         $guard = $ifExists ? 'IF EXISTS ' : '';
         return "DROP SEQUENCE {$guard}{$name}";
     }
+
+    public function compileNextVal(string $name): string
+    {
+        return "SELECT nextval('" . addslashes($name) . "')";
+    }
+
+    public function compileSetVal(string $name, int $value, bool $isCalled = true): string
+    {
+        $called = $isCalled ? 'true' : 'false';
+        return "SELECT setval('" . addslashes($name) . "', {$value}, {$called})";
+    }
 }
