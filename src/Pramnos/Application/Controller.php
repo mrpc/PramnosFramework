@@ -571,6 +571,17 @@ class Controller extends \Pramnos\Framework\Base
                 return $view;
             }
         }
+
+        // Framework scaffolding fallback — try bundled theme views so auth
+        // flows work out of the box without requiring a scaffold step.
+        $fallbackDirs = $this->_getScaffoldingFallbackDirs();
+        foreach ($fallbackDirs as $fallbackDir) {
+            $view = $this->_getView($fallbackDir, $name, $type);
+            if ($view) {
+                return $view;
+            }
+        }
+
         if ($type == '') {
             $doc = \Pramnos\Framework\Factory::getDocument();
             $type = $doc->type;
@@ -585,6 +596,28 @@ class Controller extends \Pramnos\Framework\Base
             . $name
             . ' (type: ' . $type . ', class: ' . $name . ')'
         );
+    }
+
+    /**
+     * Return the list of scaffolding theme directories to use as a final
+     * view-lookup fallback.
+     *
+     * If the application config contains a `scaffold_theme` key (set by
+     * `pramnos init`), only that theme's directory is returned.
+     * Otherwise every bundled theme directory is returned so projects
+     * that pre-date scaffold_theme tracking still benefit from the fallback.
+     *
+     * @return string[]
+     */
+    private function _getScaffoldingFallbackDirs(): array
+    {
+        $info         = $this->application->applicationInfo ?? [];
+        $scaffoldTheme = \Pramnos\Application\ScaffoldingHelper::getScaffoldTheme($info);
+        if ($scaffoldTheme !== null) {
+            $dir = \Pramnos\Application\ScaffoldingHelper::getThemeDir($scaffoldTheme);
+            return is_dir($dir) ? [$dir] : [];
+        }
+        return \Pramnos\Application\ScaffoldingHelper::getAvailableThemeDirs();
     }
 
 
