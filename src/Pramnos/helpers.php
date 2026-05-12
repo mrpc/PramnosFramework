@@ -162,11 +162,11 @@ if (!function_exists('e')) {
      * replacement character rather than causing an empty return.
      *
      * Usage in .html.php templates:
-     *   <?= e($user->name) ?>
-     *   <input value="<?= e($request->get('q')) ?>">
+     *   <?php echo e($user->name); ?>
+     *   <input value="<?php echo e($request->get('q')); ?>">
      *
      * Intentionally NOT escaped (use raw output):
-     *   <?= $view->trustedHtml ?>  // generated HTML, not user input
+     *   <?php echo $view->trustedHtml; ?>  // generated HTML, not user input
      *
      * @param  mixed  $value    Any scalar, null, or stringable.
      * @param  string $encoding Character encoding (default UTF-8).
