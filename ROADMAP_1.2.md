@@ -620,12 +620,12 @@
 
 ## 🚀 Νέες Φάσεις Εκσυγχρονισμού (v1.2+)
 
-### 🏗️ Φάση 6: Dependency Injection & PSR Compliance
-- [ ] **PSR-11 Service Container:** Υλοποίηση IoC Container για διαχείριση dependencies.
-- [ ] **Constructor Injection:** Υποστήριξη αυτόματης επίλυσης εξαρτήσεων στους controllers.
-- [ ] **PSR-3 Logger Implementation:** Συμβατότητα του `Logger` με το PSR-3 interface.
-- [ ] **PSR-16 Simple Cache:** Wrapper για το υπάρχον caching system.
-- [ ] **PSR-7/15 HTTP Stack:** Υποστήριξη PSR compliant requests/responses και middleware pipeline.
+### 🏗️ Φάση 6: Dependency Injection & PSR Compliance ✅
+- [x] **PSR-11 Service Container:** `Container` (`src/Pramnos/Application/Container.php`) — bind/singleton/instance/make + ReflectionClass autowiring; `NotFoundException` + `ContainerException` exception classes; 10 characterization tests.
+- [x] **Constructor Injection:** `Container::make()` resolves constructor type-hints recursively via reflection; named/positional parameter overrides supported.
+- [x] **PSR-3 Logger Implementation:** `PsrLogger` (`src/Pramnos/Logs/PsrLogger.php`) — extends `AbstractLogger`; `{placeholder}` interpolation; level validation; `Logger::channel()` factory; 8 characterization tests.
+- [x] **PSR-16 Simple Cache:** `SimpleCache` (`src/Pramnos/Cache/SimpleCache.php`) — wraps existing `Cache` class; key validation (reserved chars `{}()/\@:`); TTL normalisation (null/int/DateInterval); `SimpleCacheInvalidArgumentException`; 12 characterization tests.
+- [x] **PSR-7/15 HTTP Stack:** `ServerRequestCreator` (`src/Pramnos/Http/Psr/ServerRequestCreator.php`) — `fromGlobals()` + `fromServerParams()`; `Pipeline` (`src/Pramnos/Http/Psr/Pipeline.php`) — FIFO immutable middleware pipeline implementing `MiddlewareInterface`; 11 characterization tests.
 
 ### 🛣️ Φάση 7: Modern Routing Engine
 - [ ] **Attribute-based Routing:** Υποστήριξη `#[Route]` attributes πάνω από τις μεθόδους των controllers.

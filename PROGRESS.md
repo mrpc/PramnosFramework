@@ -1073,8 +1073,45 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 
 ---
 
+## 📌 Session 63 (2026-05-12) — Phase 6: PSR Compliance Layer
+
+### What was done
+- **PSR-3 `PsrLogger`** (`src/Pramnos/Logs/PsrLogger.php`):
+  - Extends `Psr\Log\AbstractLogger`; validates 8 PSR-3 levels; interpolates `{placeholder}` tokens; delegates to `Logger::log()`
+  - `Logger::channel(string $file): PsrLogger` static factory added to `src/Pramnos/Logs/Logger.php`
+- **PSR-11 `Container`** (`src/Pramnos/Application/Container.php`):
+  - `bind()` / `singleton()` / `instance()` / `make()` / `get()` / `has()`
+  - ReflectionClass-based constructor autowiring with recursive resolution, default fallback, nullable fallback
+  - `NotFoundException` + `ContainerException` exception classes
+- **PSR-16 `SimpleCache`** (`src/Pramnos/Cache/SimpleCache.php`):
+  - Full `CacheInterface` implementation wrapping existing `Cache` class
+  - Key validation (reserved chars `{}()/\@:`); TTL normalisation (null/int/DateInterval)
+  - `SimpleCacheInvalidArgumentException`
+- **PSR-7 `ServerRequestCreator`** (`src/Pramnos/Http/Psr/ServerRequestCreator.php`):
+  - `fromGlobals()` via nyholm/psr7-server; `fromServerParams()` for tests
+- **PSR-15 `Pipeline`** (`src/Pramnos/Http/Psr/Pipeline.php`):
+  - FIFO immutable middleware pipeline; implements `MiddlewareInterface` (nestable)
+- **Characterization tests:**
+  - `PsrLoggerCharacterizationTest`: 8 tests
+  - `ContainerCharacterizationTest`: 12 tests
+  - `SimpleCacheCharacterizationTest`: 12 tests
+  - `PsrHttpCharacterizationTest`: 11 tests (ServerRequestCreator + Pipeline)
+
+### ROADMAP items closed
+- `[x] Phase 6: PSR-11 Service Container`
+- `[x] Phase 6: Constructor Injection (autowiring)`
+- `[x] Phase 6: PSR-3 Logger Implementation`
+- `[x] Phase 6: PSR-16 Simple Cache`
+- `[x] Phase 6: PSR-7/15 HTTP Stack`
+
+### Test results
+- Phase 6 tests: **46/46** ✓ (0 failures)
+- Full suite: **1953/1953** ✓ (up from 1910 — 43 new tests)
+
+---
+
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 1027/1027 pass (0 failures, 0 errors, 0 skipped) — includes unit, integration, and characterization suites.
+- **Framework Test Pass Rate:** 1953/1953 pass (0 failures, 0 errors, 0 skipped) — includes unit, integration, and characterization suites.
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.
