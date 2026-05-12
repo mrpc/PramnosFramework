@@ -1111,7 +1111,51 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 ---
 
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 1953/1953 pass (0 failures, 0 errors, 0 skipped) — includes unit, integration, and characterization suites.
+---
+
+## 📌 Session 63 cont. (2026-05-12) — Phase 9: Full ORM Layer
+
+### What was done
+- **`OrmModel`** (`src/Pramnos/Application/OrmModel.php`): abstract base extending `Model` with full ORM feature set
+  - `__get()` / `__set()` / `__isset()` override: casts + accessors/mutators + relationship lazy-loading
+  - `_save()` override: timestamps + model events (creating/created, updating/updated)
+  - `_delete()` override: soft deletes + model events (deleting/deleted)
+  - `_load()` override: soft-delete filtering on load
+  - `_getList()` override: soft-delete + global scopes + pending local scopes + eager loading
+  - `getCollection()`: returns `Collection` from `_getList()`
+  - `setIsNew()`: public setter for relation classes
+  - `toArray()`: casts + accessors + loaded relations
+- **Traits** (`src/Pramnos/Application/Orm/Concerns/`):
+  - `HasAttributes`: `$fillable`/`$guarded`/`$casts`, `fill()`, `castAttribute()`, `decastAttribute()`, accessor/mutator convention
+  - `HasTimestamps`: auto `created_at`/`updated_at`, `withoutTimestamps()`
+  - `HasSoftDeletes`: `softDelete()`, `restore()`, `trashed()`, `withTrashed()`, `onlyTrashed()`, filter helpers
+  - `HasEvents`: `on()`, `observe()`, `fireEvent()`, `flushEventListeners()`
+  - `HasScopes`: `addGlobalScope()`, `applyGlobalScopes()`, `applyScope()`, `appendCondition()`
+  - `HasRelationships`: `hasOne()`, `hasMany()`, `belongsTo()`, `belongsToMany()`, `with()`, `eagerLoadRelations()`
+- **Relation classes** (`src/Pramnos/Application/Orm/Relations/`):
+  - `Relation` (abstract), `HasOne`, `HasMany`, `BelongsTo`, `BelongsToMany`
+- **`Collection`** (`src/Pramnos/Application/Orm/Collection.php`): filter, map, pluck, groupBy, sortBy, first, last, count, each, contains, toArray; Countable + IteratorAggregate + JsonSerializable
+
+### ROADMAP items closed
+- `[x] Phase 9: Relationships` (hasOne, hasMany, belongsTo, belongsToMany)
+- `[x] Phase 9: Eager Loading` (with())
+- `[x] Phase 9: Scopes` (local + global)
+- `[x] Phase 9: Model Events`
+- `[x] Phase 9: Casting`
+- `[x] Phase 9: Accessors/Mutators`
+- `[x] Phase 9: Soft Deletes`
+- `[x] Phase 9: Timestamps`
+- `[x] Phase 9: Mass Assignment Protection`
+- `[x] Phase 9: Collections`
+
+### Test results
+- OrmModelCharacterizationTest: **43/43** ✓
+- Full suite: **1996/1996** ✓ (up from 1953 — 43 new tests)
+
+---
+
+## 📈 Quality Metrics
+- **Framework Test Pass Rate:** 1996/1996 pass (0 failures, 0 errors, 0 skipped) — includes unit, integration, and characterization suites.
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.
