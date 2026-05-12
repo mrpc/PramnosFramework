@@ -5,6 +5,7 @@ namespace Pramnos\Tests\Unit\Validation;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Validation\Validator;
 use Pramnos\Validation\ValidationException;
+use Pramnos\Validation\RuleInterface;
 use Pramnos\Http\Session;
 
 #[\PHPUnit\Framework\Attributes\CoversClass(Validator::class)]
@@ -447,17 +448,746 @@ class ValidatorTest extends TestCase
     {
         $session = Session::getInstance();
         $token = $session->getToken();
-        
+
         // Field is missing, but has both an implicit rule (csrf) and a non-implicit one (string)
         $rules = [$token => 'csrf|string'];
         $data = [];
-        
+
         try {
             Validator::validate($data, $rules);
             $this->fail('Expected ValidationException was not thrown');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey($token, $e->errors());
             // It should fail on CSRF, and skip the 'string' rule inside the loop
+        }
+    }
+
+    // =========================================================================
+    // New common rules
+    // =========================================================================
+
+    /**
+     * 'alpha' accepts only Unicode letters; rejects digits, spaces, and symbols.
+     *
+     * This validates that the regex uses the \pL\pM Unicode categories, not just
+     * the ASCII [a-z] range — so accented characters are allowed.
+     */
+    public function testAlphaRule(): void
+    {
+        // Arrange
+        $rules = ['name' => 'alpha'];
+
+        // Assert: plain ASCII letters pass
+        $this->assertSame(['name' => 'John'], Validator::validate(['name' => 'John'], $rules));
+
+        // Assert: accented letter passes (Unicode \pL)
+        $this->assertSame(['name' => 'Ελένη'], Validator::validate(['name' => 'Ελένη'], $rules));
+
+        // Assert: digit causes failure
+        try {
+            Validator::validate(['name' => 'John2'], $rules);
+            $this->fail('Expected ValidationException for digit in alpha field');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('name', $e->errors());
+        }
+
+        // Assert: space causes failure
+        try {
+            Validator::validate(['name' => 'John Doe'], $rules);
+            $this->fail('Expected ValidationException for space in alpha field');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('name', $e->errors());
+        }
+    }
+
+    /**
+     * 'alpha_num' accepts letters and digits; rejects spaces and symbols.
+     *
+     * Cross-database slugs and usernames often need exactly this combination.
+     */
+    public function testAlphaNumRule(): void
+    {
+        // Arrange
+        $rules = ['slug' => 'alpha_num'];
+
+        // Assert: letters + digits pass
+        $this->assertSame(['slug' => 'abc123'], Validator::validate(['slug' => 'abc123'], $rules));
+
+        // Assert: hyphen causes failure
+        try {
+            Validator::validate(['slug' => 'abc-123'], $rules);
+            $this->fail('Expected ValidationException for hyphen in alpha_num field');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('slug', $e->errors());
+        }
+    }
+
+    /**
+     * 'digits:n' requires exactly n digit characters; rejects letters, floats, and wrong lengths.
+     *
+     * Used for OTP codes, PIN numbers, and fixed-length numeric identifiers.
+     */
+    public function testDigitsRule(): void
+    {
+        // Arrange
+        $rules = ['code' => 'digits:6'];
+
+        // Assert: exactly 6 digits pass
+        $this->assertSame(['code' => '123456'], Validator::validate(['code' => '123456'], $rules));
+
+        // Assert: 5 digits fail (wrong length)
+        try {
+            Validator::validate(['code' => '12345'], $rules);
+            $this->fail('Expected ValidationException for wrong digit count');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('code', $e->errors());
+        }
+
+        // Assert: contains letter fails
+        try {
+            Validator::validate(['code' => '12345a'], $rules);
+            $this->fail('Expected ValidationException for non-digit character');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('code', $e->errors());
+        }
+    }
+
+    /**
+     * 'regex' validates against a PCRE pattern supplied as a parameter.
+     *
+     * Useful for custom formats (e.g. Greek postal codes, product codes)
+     * that do not map to a built-in rule.
+     */
+    public function testRegexRule(): void
+    {
+        // Arrange: Greek postal code — 5 digits
+        $rules = ['postcode' => 'regex:/^\d{5}$/'];
+
+        // Assert: valid 5-digit code passes
+        $this->assertSame(
+            ['postcode' => '10431'],
+            Validator::validate(['postcode' => '10431'], $rules)
+        );
+
+        // Assert: 4 digits fail
+        try {
+            Validator::validate(['postcode' => '1043'], $rules);
+            $this->fail('Expected ValidationException for short postcode');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('postcode', $e->errors());
+        }
+    }
+
+    /**
+     * 'ip' accepts valid IPv4 and IPv6 addresses; rejects hostnames and malformed strings.
+     */
+    public function testIpRule(): void
+    {
+        // Arrange
+        $rules = ['addr' => 'ip'];
+
+        // Act + Assert: IPv4 passes
+        $this->assertSame(
+            ['addr' => '192.168.1.1'],
+            Validator::validate(['addr' => '192.168.1.1'], $rules)
+        );
+
+        // Act + Assert: IPv6 passes
+        $this->assertSame(
+            ['addr' => '::1'],
+            Validator::validate(['addr' => '::1'], $rules)
+        );
+
+        // Assert: hostname fails
+        try {
+            Validator::validate(['addr' => 'localhost'], $rules);
+            $this->fail('Expected ValidationException for hostname');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('addr', $e->errors());
+        }
+    }
+
+    /**
+     * 'uuid' accepts standard UUID v4 format (case-insensitive); rejects non-UUID strings.
+     *
+     * UUIDs are commonly used as primary keys in distributed systems.
+     */
+    public function testUuidRule(): void
+    {
+        // Arrange
+        $rules = ['id' => 'uuid'];
+        $valid = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+
+        // Assert: lowercase passes
+        $this->assertSame(['id' => $valid], Validator::validate(['id' => $valid], $rules));
+
+        // Assert: uppercase also passes (case-insensitive)
+        $upper = strtoupper($valid);
+        $this->assertSame(['id' => $upper], Validator::validate(['id' => $upper], $rules));
+
+        // Assert: plain integer fails
+        try {
+            Validator::validate(['id' => '12345'], $rules);
+            $this->fail('Expected ValidationException for non-UUID value');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('id', $e->errors());
+        }
+    }
+
+    /**
+     * 'not_in' rejects values that appear in the supplied list.
+     *
+     * This is the complement of 'in' — useful for blocklists (reserved words,
+     * banned usernames, forbidden status transitions).
+     */
+    public function testNotInRule(): void
+    {
+        // Arrange
+        $rules = ['role' => 'not_in:admin,superuser'];
+
+        // Assert: unlisted value passes
+        $this->assertSame(
+            ['role' => 'editor'],
+            Validator::validate(['role' => 'editor'], $rules)
+        );
+
+        // Assert: listed value fails
+        try {
+            Validator::validate(['role' => 'admin'], $rules);
+            $this->fail('Expected ValidationException for blocked value');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('role', $e->errors());
+        }
+    }
+
+    /**
+     * 'starts_with' and 'ends_with' validate string prefixes and suffixes.
+     *
+     * Used for protocol prefixes (https://), file extensions, namespace prefixes.
+     */
+    public function testStartsWithAndEndsWithRules(): void
+    {
+        // Arrange
+        $startRules = ['url' => 'starts_with:https://'];
+        $endRules   = ['file' => 'ends_with:.pdf'];
+
+        // Assert: correct prefix passes
+        $this->assertSame(
+            ['url' => 'https://example.com'],
+            Validator::validate(['url' => 'https://example.com'], $startRules)
+        );
+
+        // Assert: wrong prefix fails
+        try {
+            Validator::validate(['url' => 'http://example.com'], $startRules);
+            $this->fail('Expected ValidationException for wrong prefix');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('url', $e->errors());
+        }
+
+        // Assert: correct suffix passes
+        $this->assertSame(
+            ['file' => 'report.pdf'],
+            Validator::validate(['file' => 'report.pdf'], $endRules)
+        );
+
+        // Assert: wrong suffix fails
+        try {
+            Validator::validate(['file' => 'report.docx'], $endRules);
+            $this->fail('Expected ValidationException for wrong suffix');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('file', $e->errors());
+        }
+    }
+
+    /**
+     * 'array' verifies the value is a PHP array.
+     *
+     * Essential before iterating over user input that is expected to be
+     * an array (e.g. multi-select form fields).
+     */
+    public function testArrayRule(): void
+    {
+        // Arrange
+        $rules = ['tags' => 'array'];
+
+        // Assert: array passes
+        $this->assertSame(
+            ['tags' => ['php', 'mysql']],
+            Validator::validate(['tags' => ['php', 'mysql']], $rules)
+        );
+
+        // Assert: string fails
+        try {
+            Validator::validate(['tags' => 'php,mysql'], $rules);
+            $this->fail('Expected ValidationException for non-array value');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('tags', $e->errors());
+        }
+    }
+
+    /**
+     * 'size' requires an exact length for strings, exact count for arrays,
+     * and exact numeric equality for numbers.
+     *
+     * Used for fixed-format codes (e.g. country code = 2 chars, PIN = 4 digits).
+     */
+    public function testSizeRule(): void
+    {
+        // Assert: 2-char country code passes
+        $this->assertSame(
+            ['country' => 'GR'],
+            Validator::validate(['country' => 'GR'], ['country' => 'size:2'])
+        );
+
+        // Assert: 3-char string fails
+        try {
+            Validator::validate(['country' => 'GRC'], ['country' => 'size:2']);
+            $this->fail('Expected ValidationException for wrong string size');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('country', $e->errors());
+        }
+
+        // Assert: array of exactly 3 items passes
+        $this->assertSame(
+            ['items' => [1, 2, 3]],
+            Validator::validate(['items' => [1, 2, 3]], ['items' => 'size:3'])
+        );
+
+        // Assert: numeric exact match passes
+        $this->assertSame(
+            ['score' => 100],
+            Validator::validate(['score' => 100], ['score' => 'size:100'])
+        );
+    }
+
+    /**
+     * 'confirmed' requires a matching <field>_confirmation key in the same data.
+     *
+     * The canonical use case is password confirmation fields; verifying that
+     * both values match before hashing and storing the password.
+     */
+    public function testConfirmedRule(): void
+    {
+        // Arrange: both fields present and matching
+        $data  = ['password' => 'secret', 'password_confirmation' => 'secret'];
+        $rules = ['password' => 'confirmed'];
+
+        // Assert: matching confirmation passes
+        $this->assertSame('secret', Validator::validate($data, $rules)['password']);
+
+        // Assert: mismatched confirmation fails
+        try {
+            Validator::validate(
+                ['password' => 'secret', 'password_confirmation' => 'wrong'],
+                $rules
+            );
+            $this->fail('Expected ValidationException for mismatched confirmation');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('password', $e->errors());
+        }
+
+        // Assert: missing confirmation field fails
+        try {
+            Validator::validate(['password' => 'secret'], $rules);
+            $this->fail('Expected ValidationException for missing confirmation field');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('password', $e->errors());
+        }
+    }
+
+    // =========================================================================
+    // Date rules
+    // =========================================================================
+
+    /**
+     * 'date' accepts any string that PHP's strtotime() can parse.
+     *
+     * Dates arrive as strings from HTTP requests; this rule confirms they are
+     * a recognisable date before further processing.
+     */
+    public function testDateRule(): void
+    {
+        // Arrange
+        $rules = ['dob' => 'date'];
+
+        // Assert: ISO date passes
+        $this->assertSame(
+            ['dob' => '1990-05-20'],
+            Validator::validate(['dob' => '1990-05-20'], $rules)
+        );
+
+        // Assert: natural language date passes (strtotime understands it)
+        $this->assertSame(
+            ['dob' => 'next Monday'],
+            Validator::validate(['dob' => 'next Monday'], $rules)
+        );
+
+        // Assert: random string fails
+        try {
+            Validator::validate(['dob' => 'not-a-date'], $rules);
+            $this->fail('Expected ValidationException for non-date string');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('dob', $e->errors());
+        }
+    }
+
+    /**
+     * 'date_format' requires the value to match exactly the given PHP date format.
+     *
+     * More strict than 'date': '2025-5-1' passes 'date' but fails 'date_format:Y-m-d'
+     * because the day and month are not zero-padded.
+     */
+    public function testDateFormatRule(): void
+    {
+        // Arrange
+        $rules = ['ts' => 'date_format:Y-m-d'];
+
+        // Assert: zero-padded ISO date passes
+        $this->assertSame(
+            ['ts' => '2025-05-01'],
+            Validator::validate(['ts' => '2025-05-01'], $rules)
+        );
+
+        // Assert: non-padded date fails the strict format check
+        try {
+            Validator::validate(['ts' => '2025-5-1'], $rules);
+            $this->fail('Expected ValidationException for non-zero-padded date');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('ts', $e->errors());
+        }
+    }
+
+    /**
+     * 'before' and 'after' compare the value date against a threshold date.
+     *
+     * 'before_or_equal' and 'after_or_equal' are the inclusive variants.
+     * These are used for booking windows, expiry dates, and age checks.
+     */
+    public function testBeforeAndAfterRules(): void
+    {
+        // 'before': value must be before 2025-01-01
+        $this->assertSame(
+            ['date' => '2024-12-31'],
+            Validator::validate(['date' => '2024-12-31'], ['date' => 'before:2025-01-01'])
+        );
+
+        try {
+            Validator::validate(['date' => '2025-01-01'], ['date' => 'before:2025-01-01']);
+            $this->fail('Expected ValidationException: equal date must fail strict before');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('date', $e->errors());
+        }
+
+        // 'before_or_equal': equal date must pass
+        $this->assertSame(
+            ['date' => '2025-01-01'],
+            Validator::validate(['date' => '2025-01-01'], ['date' => 'before_or_equal:2025-01-01'])
+        );
+
+        // 'after': value must be after 2024-01-01
+        $this->assertSame(
+            ['date' => '2024-06-15'],
+            Validator::validate(['date' => '2024-06-15'], ['date' => 'after:2024-01-01'])
+        );
+
+        try {
+            Validator::validate(['date' => '2024-01-01'], ['date' => 'after:2024-01-01']);
+            $this->fail('Expected ValidationException: equal date must fail strict after');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('date', $e->errors());
+        }
+
+        // 'after_or_equal': equal date must pass
+        $this->assertSame(
+            ['date' => '2024-01-01'],
+            Validator::validate(['date' => '2024-01-01'], ['date' => 'after_or_equal:2024-01-01'])
+        );
+    }
+
+    // =========================================================================
+    // Conditional rules
+    // =========================================================================
+
+    /**
+     * 'sometimes' skips all rules (including 'required') when the field is absent.
+     *
+     * Useful for PATCH endpoints where only submitted fields should be validated;
+     * 'sometimes|required' means "if present, must be non-empty".
+     */
+    public function testSometimesRule(): void
+    {
+        // Arrange: field is absent
+        $rules = ['phone' => 'sometimes|required|string'];
+
+        // Assert: absent field passes (not validated at all)
+        $validated = Validator::validate([], $rules);
+        $this->assertArrayNotHasKey('phone', $validated);
+
+        // Assert: present + valid passes
+        $validated = Validator::validate(['phone' => '6901234567'], $rules);
+        $this->assertSame('6901234567', $validated['phone']);
+
+        // Assert: present + empty fails required
+        try {
+            Validator::validate(['phone' => ''], $rules);
+            $this->fail('Expected ValidationException: present empty field must fail required');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('phone', $e->errors());
+        }
+    }
+
+    /**
+     * 'required_if:other,value' makes the field required only when another field
+     * equals a specific value.
+     *
+     * Example: billing address is required only when payment_method = 'invoice'.
+     */
+    public function testRequiredIfRule(): void
+    {
+        // Arrange
+        $rules = [
+            'payment_method'  => 'required',
+            'billing_address' => 'required_if:payment_method,invoice',
+        ];
+
+        // Assert: billing_address is absent but payment_method = 'card' → passes
+        $validated = Validator::validate(
+            ['payment_method' => 'card'],
+            $rules
+        );
+        $this->assertArrayNotHasKey('billing_address', $validated);
+
+        // Assert: billing_address is absent and payment_method = 'invoice' → fails
+        try {
+            Validator::validate(['payment_method' => 'invoice'], $rules);
+            $this->fail('Expected ValidationException: billing_address required when payment=invoice');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('billing_address', $e->errors());
+        }
+
+        // Assert: billing_address present + payment=invoice → passes
+        $validated = Validator::validate(
+            ['payment_method' => 'invoice', 'billing_address' => 'Main St 1'],
+            $rules
+        );
+        $this->assertSame('Main St 1', $validated['billing_address']);
+    }
+
+    /**
+     * 'required_unless:other,value' makes the field required unless another field
+     * equals a specific value.
+     *
+     * Example: tax_id is required unless the user chose 'individual' account type.
+     */
+    public function testRequiredUnlessRule(): void
+    {
+        // Arrange
+        $rules = [
+            'account_type' => 'required',
+            'tax_id'       => 'required_unless:account_type,individual',
+        ];
+
+        // Assert: account_type = 'individual', tax_id absent → passes
+        $validated = Validator::validate(['account_type' => 'individual'], $rules);
+        $this->assertArrayNotHasKey('tax_id', $validated);
+
+        // Assert: account_type = 'company', tax_id absent → fails
+        try {
+            Validator::validate(['account_type' => 'company'], $rules);
+            $this->fail('Expected ValidationException: tax_id required for company accounts');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('tax_id', $e->errors());
+        }
+
+        // Assert: account_type = 'company', tax_id present → passes
+        $validated = Validator::validate(
+            ['account_type' => 'company', 'tax_id' => 'EL123456789'],
+            $rules
+        );
+        $this->assertSame('EL123456789', $validated['tax_id']);
+    }
+
+    /**
+     * 'required_with:field1,field2' makes the field required if ANY of the listed
+     * fields are present and non-empty.
+     *
+     * Example: if a user supplies a street address, the city must also be supplied.
+     */
+    public function testRequiredWithRule(): void
+    {
+        // Arrange
+        $rules = [
+            'street' => 'sometimes|string',
+            'city'   => 'required_with:street',
+        ];
+
+        // Assert: neither field present → passes
+        $validated = Validator::validate([], $rules);
+        $this->assertArrayNotHasKey('city', $validated);
+
+        // Assert: street present, city absent → fails
+        try {
+            Validator::validate(['street' => 'Main St 1'], $rules);
+            $this->fail('Expected ValidationException: city required when street is provided');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('city', $e->errors());
+        }
+
+        // Assert: both present → passes
+        $validated = Validator::validate(
+            ['street' => 'Main St 1', 'city' => 'Athens'],
+            $rules
+        );
+        $this->assertSame('Athens', $validated['city']);
+    }
+
+    /**
+     * 'required_without:field1,field2' makes the field required if ANY of the
+     * listed fields are absent or empty.
+     *
+     * Example: either email or phone must be supplied — if email is absent, phone
+     * becomes required.
+     */
+    public function testRequiredWithoutRule(): void
+    {
+        // Arrange
+        $rules = [
+            'email' => 'sometimes|email',
+            'phone' => 'required_without:email',
+        ];
+
+        // Assert: email absent, phone absent → phone fails
+        try {
+            Validator::validate([], $rules);
+            $this->fail('Expected ValidationException: phone required when email is absent');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('phone', $e->errors());
+        }
+
+        // Assert: email present → phone not required
+        $validated = Validator::validate(['email' => 'user@example.com'], $rules);
+        $this->assertArrayNotHasKey('phone', $validated);
+
+        // Assert: email absent, phone present → passes
+        $validated = Validator::validate(['phone' => '6901234567'], $rules);
+        $this->assertSame('6901234567', $validated['phone']);
+    }
+
+    // =========================================================================
+    // Custom rules
+    // =========================================================================
+
+    /**
+     * Validator::extend() registers a callable that receives (attribute, value, parameters).
+     *
+     * Custom callables allow one-off rules to be defined inline without creating
+     * a full RuleInterface class — useful in tests and application bootstrapping.
+     */
+    public function testExtendWithCallable(): void
+    {
+        // Arrange: register a rule that rejects values starting with an underscore
+        Validator::extend('no_underscore', function (string $attr, mixed $val, array $params): bool {
+            return !str_starts_with((string) $val, '_');
+        });
+
+        // Assert: valid value passes
+        $this->assertSame(
+            ['username' => 'johndoe'],
+            Validator::validate(['username' => 'johndoe'], ['username' => 'no_underscore'])
+        );
+
+        // Assert: underscore-prefixed value fails
+        try {
+            Validator::validate(['username' => '_admin'], ['username' => 'no_underscore']);
+            $this->fail('Expected ValidationException for underscore-prefixed username');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('username', $e->errors());
+        }
+    }
+
+    /**
+     * Validator::extend() also accepts a RuleInterface object, which controls both
+     * the passes() logic and the error message.
+     *
+     * This is the preferred pattern for reusable domain-specific rules.
+     */
+    public function testExtendWithRuleInterface(): void
+    {
+        // Arrange: anonymous RuleInterface that rejects negative numbers
+        $positiveRule = new class implements RuleInterface {
+            public function passes(string $attribute, mixed $value): bool
+            {
+                return is_numeric($value) && (float) $value > 0;
+            }
+            public function message(): string
+            {
+                return 'The :attribute must be a positive number.';
+            }
+        };
+
+        Validator::extend('positive', $positiveRule);
+
+        // Assert: positive value passes
+        $this->assertSame(
+            ['amount' => 42],
+            Validator::validate(['amount' => 42], ['amount' => 'positive'])
+        );
+
+        // Assert: zero fails
+        try {
+            Validator::validate(['amount' => 0], ['amount' => 'positive']);
+            $this->fail('Expected ValidationException for zero');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('amount', $e->errors());
+        }
+
+        // Assert: negative fails
+        try {
+            Validator::validate(['amount' => -5], ['amount' => 'positive']);
+            $this->fail('Expected ValidationException for negative number');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('amount', $e->errors());
+        }
+    }
+
+    /**
+     * RuleInterface objects may be passed inline in the rules array (no registration needed).
+     *
+     * This avoids polluting the global rule registry for one-off validations,
+     * such as in a specific controller action.
+     */
+    public function testInlineRuleInterfaceObject(): void
+    {
+        // Arrange: rule that rejects reserved usernames
+        $reserved = new class implements RuleInterface {
+            private array $reserved = ['admin', 'root', 'system'];
+            public function passes(string $attribute, mixed $value): bool
+            {
+                return !in_array(strtolower((string) $value), $this->reserved, true);
+            }
+            public function message(): string
+            {
+                return 'The :attribute is a reserved name.';
+            }
+        };
+
+        $rules = ['username' => ['required', 'string', $reserved]];
+
+        // Assert: non-reserved name passes
+        $this->assertSame(
+            ['username' => 'johndoe'],
+            Validator::validate(['username' => 'johndoe'], $rules)
+        );
+
+        // Assert: reserved name fails
+        try {
+            Validator::validate(['username' => 'admin'], $rules);
+            $this->fail('Expected ValidationException for reserved username');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('username', $e->errors());
+            // The message comes from the RuleInterface, not the default messages map
+            $this->assertStringContainsString('reserved', $e->errors()['username'][0]);
         }
     }
 }
