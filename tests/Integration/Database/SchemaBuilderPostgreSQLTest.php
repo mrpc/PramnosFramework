@@ -543,6 +543,76 @@ class SchemaBuilderPostgreSQLTest extends TestCase
         $this->assertFalse($this->schema->hasColumn('sb_alter', 'to_remove'));
     }
 
+    /**
+     * alterTable() with modifyColumn changes the column type in place.
+     *
+     * PostgreSQL emits ALTER TABLE … ALTER COLUMN … TYPE; the udt_name in
+     * information_schema reflects the underlying PostgreSQL type after the change.
+     */
+    public function testAlterTableModifyColumnType(): void
+    {
+        // Arrange — VARCHAR(50) column
+        $this->schema->createTable('sb_alter', function ($t) {
+            $t->increments('id');
+            $t->string('bio', 50);
+        });
+        $before = $this->columnInfo('sb_alter', 'bio');
+        $this->assertSame('varchar', $before['udt_name']);
+
+        // Act — change to TEXT
+        $this->schema->alterTable('sb_alter', fn($t) => $t->modifyColumn('bio', 'text'));
+
+        // Assert — type changed to text
+        $after = $this->columnInfo('sb_alter', 'bio');
+        $this->assertSame('text', $after['udt_name']);
+    }
+
+    /**
+     * modifyColumn() with ->nullable(false) makes a nullable column NOT NULL.
+     *
+     * PostgreSQL emits a separate ALTER COLUMN … SET NOT NULL statement.
+     */
+    public function testAlterTableModifyColumnNullability(): void
+    {
+        // Arrange — nullable VARCHAR column
+        $this->schema->createTable('sb_alter', function ($t) {
+            $t->increments('id');
+            $t->string('status')->nullable();
+        });
+        $this->assertSame('YES', $this->columnInfo('sb_alter', 'status')['is_nullable']);
+
+        // Act — make NOT NULL (provide a default first so existing NULLs don't block)
+        $this->schema->alterTable('sb_alter', function ($t) {
+            $t->modifyColumn('status', 'string', ['length' => 255])->nullable(false)->default('active');
+        });
+
+        // Assert
+        $this->assertSame('NO', $this->columnInfo('sb_alter', 'status')['is_nullable']);
+    }
+
+    /**
+     * modifyColumn() with ->default() adds a column default.
+     *
+     * PostgreSQL stores the default in column_default in information_schema.
+     */
+    public function testAlterTableModifyColumnDefault(): void
+    {
+        // Arrange — nullable integer column with no default
+        $this->schema->createTable('sb_alter', function ($t) {
+            $t->increments('id');
+            $t->integer('score')->nullable();
+        });
+        $this->assertNull($this->columnInfo('sb_alter', 'score')['column_default']);
+
+        // Act — add a default of 0
+        $this->schema->alterTable('sb_alter', function ($t) {
+            $t->modifyColumn('score', 'integer')->nullable()->default(0);
+        });
+
+        // Assert — column_default is now '0'
+        $this->assertSame('0', $this->columnInfo('sb_alter', 'score')['column_default']);
+    }
+
     // -------------------------------------------------------------------------
     // renameTable
     // -------------------------------------------------------------------------

@@ -181,4 +181,10 @@ class ColumnDefinition
     {
         return $this->attributes[$attribute] ?? $default;
     }
+
+    /** True when the attribute was explicitly set (even if set to false/null). */
+    public function has(string $attribute): bool
+    {
+        return array_key_exists($attribute, $this->attributes);
+    }
 }

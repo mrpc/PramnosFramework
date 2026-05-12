@@ -31,6 +31,9 @@ class Blueprint
     /** @var array<array{from:string,to:string}> */
     protected array $renamedColumns = [];
 
+    /** @var ColumnDefinition[] Columns whose type/attributes are being changed in ALTER TABLE. */
+    protected array $modifiedColumns = [];
+
     /** @var string[] Primary key columns (Blueprint-level, not per-column) */
     protected array $primaryKey = [];
 
@@ -385,6 +388,23 @@ class Blueprint
         $this->renamedColumns[] = ['from' => $from, 'to' => $to];
     }
 
+    /**
+     * Modify an existing column's type and/or attributes.
+     *
+     * Returns a ColumnDefinition so modifiers can be chained:
+     *   $table->modifyColumn('email', 'string', ['length' => 320])->nullable();
+     *
+     * @param string               $name   Column to change.
+     * @param string               $type   New column type (same names as the creation helpers).
+     * @param array<string, mixed> $attrs  Additional attributes (length, total, places, …).
+     */
+    public function modifyColumn(string $name, string $type, array $attrs = []): ColumnDefinition
+    {
+        $col = new ColumnDefinition($name, $type, $attrs);
+        $this->modifiedColumns[] = $col;
+        return $col;
+    }
+
     public function dropIndex(string $name): void
     {
         $this->droppedIndexes[] = $name;
@@ -429,8 +449,9 @@ class Blueprint
     public function isTemporary(): bool     { return $this->temporary; }
     public function getComment(): ?string   { return $this->tableComment; }
     public function getColumns(): array     { return $this->columns; }
-    public function getDroppedColumns(): array  { return $this->droppedColumns; }
-    public function getRenamedColumns(): array  { return $this->renamedColumns; }
+    public function getDroppedColumns(): array   { return $this->droppedColumns; }
+    public function getRenamedColumns(): array   { return $this->renamedColumns; }
+    public function getModifiedColumns(): array  { return $this->modifiedColumns; }
     public function getPrimaryKey(): array  { return $this->primaryKey; }
     public function getUniqueConstraints(): array { return $this->uniqueConstraints; }
     public function getIndexes(): array     { return $this->indexes; }

@@ -572,6 +572,78 @@ class SchemaBuilderMySQLTest extends TestCase
         $this->assertFalse($this->schema->hasColumn('sb_alter', 'to_remove'));
     }
 
+    /**
+     * alterTable() with modifyColumn changes the column type in place.
+     *
+     * VARCHAR(50) → TEXT: the DATA_TYPE in information_schema must change to
+     * 'text', confirming that MODIFY COLUMN was executed.
+     */
+    public function testAlterTableModifyColumnType(): void
+    {
+        // Arrange — create a table with a VARCHAR(50) column
+        $this->schema->createTable('sb_alter', function ($t) {
+            $t->increments('id');
+            $t->string('bio', 50);
+        });
+        $before = $this->columnInfo('sb_alter', 'bio');
+        $this->assertSame('varchar', $before['DATA_TYPE']);
+
+        // Act — change bio to TEXT
+        $this->schema->alterTable('sb_alter', fn($t) => $t->modifyColumn('bio', 'text'));
+
+        // Assert — column type changed to TEXT
+        $after = $this->columnInfo('sb_alter', 'bio');
+        $this->assertSame('text', $after['DATA_TYPE']);
+    }
+
+    /**
+     * modifyColumn() with ->nullable(false) makes a nullable column NOT NULL.
+     *
+     * Verifies that the nullability attribute is respected when rewriting the
+     * column definition via MODIFY COLUMN.
+     */
+    public function testAlterTableModifyColumnNullability(): void
+    {
+        // Arrange — column starts as nullable VARCHAR
+        $this->schema->createTable('sb_alter', function ($t) {
+            $t->increments('id');
+            $t->string('status')->nullable();
+        });
+        $this->assertSame('YES', $this->columnInfo('sb_alter', 'status')['IS_NULLABLE']);
+
+        // Act — make it NOT NULL with a default value
+        $this->schema->alterTable('sb_alter', function ($t) {
+            $t->modifyColumn('status', 'string', ['length' => 255])->nullable(false)->default('active');
+        });
+
+        // Assert — column is now NOT NULL
+        $after = $this->columnInfo('sb_alter', 'status');
+        $this->assertSame('NO', $after['IS_NULLABLE']);
+    }
+
+    /**
+     * modifyColumn() with ->default() sets a column default in place.
+     *
+     * MySQL stores the default in COLUMN_DEFAULT in information_schema.
+     */
+    public function testAlterTableModifyColumnDefault(): void
+    {
+        // Arrange — integer column without a default
+        $this->schema->createTable('sb_alter', function ($t) {
+            $t->increments('id');
+            $t->integer('score')->nullable();
+        });
+        $this->assertNull($this->columnInfo('sb_alter', 'score')['COLUMN_DEFAULT']);
+
+        // Act — add a default of 0
+        $this->schema->alterTable('sb_alter', function ($t) {
+            $t->modifyColumn('score', 'integer')->nullable()->default(0);
+        });
+
+        // Assert — default is now 0
+        $this->assertSame('0', $this->columnInfo('sb_alter', 'score')['COLUMN_DEFAULT']);
+    }
+
     // -------------------------------------------------------------------------
     // renameTable
     // -------------------------------------------------------------------------
