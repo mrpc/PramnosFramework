@@ -590,7 +590,7 @@ class Validator
             case '>':  return $ts > $tsLimit;
             case '>=': return $ts >= $tsLimit;
         }
-        return false;
+        return false; // @codeCoverageIgnore
     }
 
     // =========================================================================
