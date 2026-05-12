@@ -1060,9 +1060,63 @@ class Helpers
         if ($padding > 0) {
             $input .= str_repeat('=', 4 - $padding);
         }
-        
+
         // Replace URL-safe characters with standard base64 characters
         return strtr($input, '-_', '+/');
+    }
+
+    /**
+     * Check whether a latitude/longitude pair represents a valid geographic coordinate.
+     *
+     * Returns false when either value is not numeric, when both are exactly zero
+     * (the null island sentinel), when latitude is outside -90..90, or when
+     * longitude is outside -180..180.
+     *
+     * @param float|int|string $latitude  Latitude to validate
+     * @param float|int|string $longitude Longitude to validate
+     * @return bool
+     */
+    public static function isValidCoordinate($latitude, $longitude): bool
+    {
+        if (!is_numeric($latitude) || !is_numeric($longitude)) {
+            return false;
+        }
+        $lat = (float) $latitude;
+        $lon = (float) $longitude;
+        if ($lat === 0.0 && $lon === 0.0) {
+            return false;
+        }
+        return $lat >= -90 && $lat <= 90 && $lon >= -180 && $lon <= 180;
+    }
+
+    /**
+     * Validate a single IP address or a CIDR notation range.
+     *
+     * Accepts IPv4 addresses (e.g. `192.168.1.1`), IPv6 addresses, IPv4 CIDR
+     * ranges with a subnet mask of 0–32 (e.g. `10.0.0.0/8`), and IPv6 CIDR
+     * ranges with a prefix length of 0–128.
+     *
+     * @param string $ip IP address or CIDR string to validate
+     * @return bool
+     */
+    public static function validateIpOrCidr(string $ip): bool
+    {
+        $ip = trim($ip);
+        if ($ip === '') {
+            return false;
+        }
+        if (strpos($ip, '/') !== false) {
+            [$addr, $prefix] = explode('/', $ip, 2);
+            if (!filter_var($addr, FILTER_VALIDATE_IP)) {
+                return false;
+            }
+            $prefix = (int) $prefix;
+            if (filter_var($addr, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                return $prefix >= 0 && $prefix <= 32;
+            }
+            return $prefix >= 0 && $prefix <= 128;
+        }
+        return filter_var($ip, FILTER_VALIDATE_IP) !== false;
     }
 
 }
