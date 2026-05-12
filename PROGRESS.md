@@ -13,7 +13,7 @@
 - Πλήρης backward compatibility — υπάρχοντα `.html.php` templates δεν θίγονται
 
 ### Commits
-- (pending)
+- `42684d7` — feat(view): add Blade-inspired template engine (TemplateCompiler + TemplateCache)
 
 ---
 
