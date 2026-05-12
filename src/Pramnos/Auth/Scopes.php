@@ -140,6 +140,27 @@ class Scopes
     }
 
     /**
+     * Merge a token's existing scopes with all default scopes.
+     *
+     * Accepts the raw scope string that may optionally be wrapped in square
+     * brackets (e.g. `[profile email]`), strips those brackets, splits on
+     * whitespace, merges with the result of {@see getDefaultScopes()}, and
+     * returns a single space-delimited string of unique scopes.
+     *
+     * @param string $tokenScopesString Current token scopes, optionally bracket-wrapped
+     * @return string Space-delimited string of all scopes including defaults
+     */
+    public static function addDefaultScopesToToken(string $tokenScopesString): string
+    {
+        if (preg_match('/^\[(.*)\]$/', $tokenScopesString, $matches)) {
+            $tokenScopesString = $matches[1];
+        }
+        $tokenScopes   = array_filter(preg_split('/\s+/', trim($tokenScopesString)));
+        $defaultScopes = static::getDefaultScopes();
+        return implode(' ', array_unique(array_merge($tokenScopes, $defaultScopes)));
+    }
+
+    /**
      * Check whether a scope string contains any undefined scope identifiers.
      *
      * @param string $scopeString Space-delimited scope string (e.g. "profile email openid")

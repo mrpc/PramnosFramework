@@ -1,6 +1,20 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-12 (session 68)
+## 📅 Last Updated: 2026-05-12 (session 69)
+
+## 🏁 Session 69 — Urbanwater Backports: OAuthPolicyHelper, Scopes, Helpers, Scaffolding Views (2026-05-12)
+
+### Ολοκληρώθηκε
+- **`OAuthPolicyHelper`** (`src/Pramnos/Auth/OAuthPolicyHelper.php`) — added `getAuthenticationMethods()`, `getGrantTypes()`, `getWebhookTypes()` descriptive registries backported from Urbanwater `PermissionHelper`
+- **`Scopes`** (`src/Pramnos/Auth/Scopes.php`) — added `addDefaultScopesToToken(string)` to merge a token's scopes with server defaults (handles optional `[…]` bracket wrapping)
+- **`Helpers`** (`src/Pramnos/General/Helpers.php`) — added `isValidCoordinate($lat, $lon)` and `validateIpOrCidr(string $ip)` general-purpose validators
+- **Scaffolding views** — 51 new templates across all 3 themes (`plain-css`, `bootstrap`, `tailwind`): `login/login`, `login/login_2fa`, `login/forgotpassword`, `login/newpassword`, `login/message`, `OAuth2/OAuth2`, `OAuth2/authorize`, `OAuth2/errormessage`, `device/device`, `device/confirmation`, `device/deny`, `device/success`, `device/errormessage`, `register/register`, `profile/profile`, `sso/sso`, `home/home`
+- **Docs**: sections 54–57 in `docs/1.2-new-features.md`
+
+### Commits
+- (pending)
+
+---
 
 ## 🏁 Session 68 — Template Engine (TemplateCompiler + TemplateCache + View) (2026-05-12)
 
