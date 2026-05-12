@@ -513,6 +513,204 @@ class SchemaBuilderUnitTest extends TestCase
     }
 
     // =========================================================================
+    // modifyColumn — MySQL grammar
+    // =========================================================================
+
+    /**
+     * MySQL uses a single MODIFY COLUMN statement that rewrites the full column
+     * definition. The output must include the column name, new type, and any
+     * modifiers provided.
+     */
+    public function testMySQLModifyColumnEmitsSingleStatement(): void
+    {
+        // Arrange
+        $g  = new MySQLSchemaGrammar();
+        $bp = new Blueprint('users', 'alter');
+        $bp->modifyColumn('bio', 'text')->nullable();
+
+        // Act
+        $stmts = $g->compileAlter($bp, 'users');
+
+        // Assert — exactly one statement, MODIFY COLUMN syntax
+        $this->assertCount(1, $stmts);
+        $this->assertStringContainsString('ALTER TABLE `users`', $stmts[0]);
+        $this->assertStringContainsString('MODIFY COLUMN', $stmts[0]);
+        $this->assertStringContainsString('`bio`', $stmts[0]);
+        $this->assertStringContainsString('TEXT', $stmts[0]);
+    }
+
+    /**
+     * MySQL MODIFY COLUMN respects the nullable modifier on the column
+     * definition — NOT NULL must appear when nullable is false.
+     */
+    public function testMySQLModifyColumnNotNull(): void
+    {
+        // Arrange
+        $g  = new MySQLSchemaGrammar();
+        $bp = new Blueprint('users', 'alter');
+        $bp->modifyColumn('status', 'string', ['length' => 255])->nullable(false)->default('active');
+
+        // Act
+        $sql = $g->compileAlter($bp, 'users')[0];
+
+        // Assert — NOT NULL + DEFAULT in the statement
+        $this->assertStringContainsString('NOT NULL', $sql);
+        $this->assertStringContainsString("DEFAULT 'active'", $sql);
+    }
+
+    /**
+     * Blueprint::modifyColumn() returns the ColumnDefinition it creates,
+     * allowing fluent chaining of modifiers without a separate variable.
+     */
+    public function testModifyColumnReturnsFluent(): void
+    {
+        // Arrange
+        $bp  = new Blueprint('users', 'alter');
+
+        // Act — chain modifiers directly on the return value
+        $col = $bp->modifyColumn('email', 'string', ['length' => 320])
+                  ->nullable(false)
+                  ->default('');
+
+        // Assert — the returned object is a ColumnDefinition
+        $this->assertInstanceOf(\Pramnos\Database\ColumnDefinition::class, $col);
+        $this->assertSame('email', $col->name);
+        $this->assertSame('string', $col->type);
+        $this->assertFalse($col->get('nullable'));
+    }
+
+    /**
+     * Blueprint::getModifiedColumns() returns all columns registered via
+     * modifyColumn() — the grammar reads this list during compileAlter().
+     */
+    public function testGetModifiedColumnsReturnsAllRegistered(): void
+    {
+        // Arrange
+        $bp = new Blueprint('users', 'alter');
+        $bp->modifyColumn('email', 'string');
+        $bp->modifyColumn('bio', 'text');
+
+        // Act
+        $cols = $bp->getModifiedColumns();
+
+        // Assert — two entries in order
+        $this->assertCount(2, $cols);
+        $this->assertSame('email', $cols[0]->name);
+        $this->assertSame('bio',   $cols[1]->name);
+    }
+
+    // =========================================================================
+    // modifyColumn — PostgreSQL grammar
+    // =========================================================================
+
+    /**
+     * PostgreSQL modifyColumn emits a TYPE sub-statement (ALTER COLUMN … TYPE).
+     * Unlike MySQL it does NOT emit a single MODIFY COLUMN — that syntax does
+     * not exist in PostgreSQL.
+     */
+    public function testPGModifyColumnEmitsTypeStatement(): void
+    {
+        // Arrange
+        $g  = new PostgreSQLSchemaGrammar();
+        $bp = new Blueprint('users', 'alter');
+        $bp->modifyColumn('bio', 'text');
+
+        // Act
+        $stmts = $g->compileAlter($bp, 'users');
+
+        // Assert — at least one statement, TYPE syntax, no MODIFY COLUMN
+        $this->assertGreaterThan(0, count($stmts));
+        $typeStmt = $stmts[0];
+        $this->assertStringContainsString('ALTER TABLE "users"', $typeStmt);
+        $this->assertStringContainsString('ALTER COLUMN "bio" TYPE', $typeStmt);
+        $this->assertStringNotContainsString('MODIFY COLUMN', $typeStmt);
+    }
+
+    /**
+     * PostgreSQL emits separate ALTER COLUMN statements for nullability and
+     * default when those attributes are explicitly set.
+     */
+    public function testPGModifyColumnEmitsSeparateNullabilityAndDefault(): void
+    {
+        // Arrange
+        $g  = new PostgreSQLSchemaGrammar();
+        $bp = new Blueprint('users', 'alter');
+        $bp->modifyColumn('score', 'integer')->nullable(false)->default(0);
+
+        // Act
+        $stmts = $g->compileAlter($bp, 'users');
+
+        // Assert — three statements: TYPE, SET NOT NULL, SET DEFAULT
+        $this->assertCount(3, $stmts);
+        $this->assertStringContainsString('TYPE', $stmts[0]);
+        $this->assertStringContainsString('SET NOT NULL', $stmts[1]);
+        $this->assertStringContainsString('SET DEFAULT', $stmts[2]);
+    }
+
+    /**
+     * When only the type is changed (no nullable/default attributes set),
+     * PostgreSQL emits exactly one statement — no spurious nullability or
+     * default clauses are generated.
+     */
+    public function testPGModifyColumnTypeOnlyEmitsOneStatement(): void
+    {
+        // Arrange — no nullable, no default set
+        $g  = new PostgreSQLSchemaGrammar();
+        $bp = new Blueprint('users', 'alter');
+        $bp->modifyColumn('bio', 'text'); // no chained modifiers
+
+        // Act
+        $stmts = $g->compileAlter($bp, 'users');
+
+        // Assert — exactly one TYPE statement
+        $this->assertCount(1, $stmts);
+        $this->assertStringContainsString('ALTER COLUMN "bio" TYPE', $stmts[0]);
+    }
+
+    /**
+     * PostgreSQL nullable(true) emits DROP NOT NULL, not SET NOT NULL.
+     */
+    public function testPGModifyColumnNullableTrueEmitsDropNotNull(): void
+    {
+        // Arrange
+        $g  = new PostgreSQLSchemaGrammar();
+        $bp = new Blueprint('users', 'alter');
+        $bp->modifyColumn('email', 'string', ['length' => 255])->nullable(true);
+
+        // Act
+        $stmts = $g->compileAlter($bp, 'users');
+
+        // Assert — second statement is DROP NOT NULL
+        $this->assertCount(2, $stmts);
+        $this->assertStringContainsString('DROP NOT NULL', $stmts[1]);
+    }
+
+    // =========================================================================
+    // ColumnDefinition::has()
+    // =========================================================================
+
+    /**
+     * has() returns true only when the attribute was explicitly set, regardless
+     * of its value. This is necessary to distinguish "nullable not set" from
+     * "nullable explicitly set to false" in the PostgreSQL grammar.
+     */
+    public function testColumnDefinitionHasDistinguishesSetFromUnset(): void
+    {
+        // Arrange
+        $col = new \Pramnos\Database\ColumnDefinition('x', 'integer');
+
+        // Assert — unset attribute returns false
+        $this->assertFalse($col->has('nullable'));
+
+        // Act — set to false
+        $col->nullable(false);
+
+        // Assert — now has() returns true even though value is false
+        $this->assertTrue($col->has('nullable'));
+        $this->assertFalse($col->get('nullable'));
+    }
+
+    // =========================================================================
     // DROP / RENAME table
     // =========================================================================
 
