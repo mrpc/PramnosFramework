@@ -16,7 +16,7 @@ Nuova astrazione `Pramnos\Storage\` con 3 driver + static facade. 37 nuovi chara
 
 ### Test results
 - StorageCharacterizationTest: **37/37** ✓
-- Full suite: **2094/2094** ✓ (pre-existing PostgreSQL integration test failures non correlate)
+- Full suite: **2094/2094** ✓ (0 errori, 0 failures, 3 skipped per ext-gd mancante)
 
 ---
 
@@ -1182,7 +1182,7 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 ---
 
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 1996/1996 pass (0 failures, 0 errors, 0 skipped) — includes unit, integration, and characterization suites.
+- **Framework Test Pass Rate:** 2094/2094 pass (0 failures, 0 errors, 3 skipped per ext-gd) — includes unit, integration, and characterization suites.
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.
