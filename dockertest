@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 
+# Prevent concurrent test runs: they share the same MySQL/PostgreSQL Docker
+# databases, so two overlapping runs will stomp each other's tables and produce
+# spurious failures. The lock is a file descriptor held by flock — it is
+# automatically released when this process exits (clean or crash).
+LOCK_FILE="/tmp/dockertest-pramnos.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    echo "Another ./dockertest run is already in progress." >&2
+    echo "Wait for it to finish, or remove $LOCK_FILE if you are sure it is stale." >&2
+    exit 1
+fi
+
 nobrowser=false
 coverage=false
 testdox=false
