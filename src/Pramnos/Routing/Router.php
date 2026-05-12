@@ -49,6 +49,12 @@ class Router extends Base implements RouterInterface
      */
     private array $globalMiddlewares = [];
 
+    /**
+     * Named-route index — keyed by route name.
+     * @var array<string, \Pramnos\Routing\Route>
+     */
+    private array $namedRoutes = [];
+
     private $_invalidScope = null;
 
     /**
@@ -271,6 +277,11 @@ class Router extends Base implements RouterInterface
         }
         $route = new Route($uri, $method, $action);
 
+        // Inject callback so that Route::name() auto-registers in $namedRoutes.
+        $route->setNameRegistrationCallback(function(string $name, Route $r): void {
+            $this->namedRoutes[$name] = $r;
+        });
+
         // Set permissions if provided
         if ($permissions !== null) {
             $route->requirePermissions($permissions);
@@ -359,6 +370,19 @@ class Router extends Base implements RouterInterface
     public function options($uri, $action, $permissions = null): Route
     {
         return $this->addSingleRoute($uri, 'OPTIONS', $action, $permissions);
+    }
+
+    /**
+     * Register a new HEAD route and return it for optional middleware chaining.
+     *
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
+     */
+    public function head($uri, $action, $permissions = null): Route
+    {
+        return $this->addSingleRoute($uri, 'HEAD', $action, $permissions);
     }
 
     /**
@@ -596,6 +620,101 @@ class Router extends Base implements RouterInterface
         // Allow any alphanumeric characters with common separators
         // Supports: user_read, users:read, user.read, user-read, admin_all, etc.
         return preg_match('/^[a-zA-Z*][a-zA-Z0-9_:.*-]*$/', $scope);
+    }
+
+    // -------------------------------------------------------------------------
+    // Named routes & URL generation
+    // -------------------------------------------------------------------------
+
+    /**
+     * Look up a route by its logical name.
+     *
+     * @param  string  $name  The name assigned via Route::name() or #[Route(name: '…')].
+     * @return \Pramnos\Routing\Route|null
+     */
+    public function getByName(string $name): ?Route
+    {
+        return $this->namedRoutes[$name] ?? null;
+    }
+
+    /**
+     * Generate a URL for a named route, substituting URI parameters.
+     *
+     * Replaces `{param}` and `{param?}` placeholders with the values from
+     * `$params`. Any remaining optional segments are stripped. Required
+     * parameters that are not supplied remain as-is in the returned string.
+     *
+     * ```php
+     * $router->get('/users/{id}', fn() => ...)->name('users.show');
+     * echo $router->route('users.show', ['id' => 42]); // '/users/42'
+     *
+     * $router->get('/posts/{year}/{slug?}', fn() => ...)->name('posts.show');
+     * echo $router->route('posts.show', ['year' => 2026]); // '/posts/2026'
+     * ```
+     *
+     * @param  string               $name    The route name.
+     * @param  array<string, mixed> $params  URI parameter values keyed by name.
+     * @return string  The generated URI.
+     * @throws \InvalidArgumentException  When the name does not match any registered route.
+     */
+    public function route(string $name, array $params = []): string
+    {
+        $route = $this->getByName($name);
+        if ($route === null) {
+            throw new \InvalidArgumentException("Route [{$name}] not defined.");
+        }
+        return $this->buildUrl($route->uri, $params);
+    }
+
+    /**
+     * Substitute URI placeholders with concrete values and strip leftover optionals.
+     *
+     * @param  string               $uri
+     * @param  array<string, mixed> $params
+     * @return string
+     */
+    private function buildUrl(string $uri, array $params): string
+    {
+        foreach ($params as $key => $value) {
+            $encoded = rawurlencode((string) $value);
+            $uri = str_replace(
+                ['{' . $key . '}', '{' . $key . '?}'],
+                $encoded,
+                $uri
+            );
+        }
+        // Remove remaining optional segments (with their leading slash if present)
+        $uri = preg_replace('#/?\{[^}]+\?\}#', '', $uri);
+        return $uri;
+    }
+
+    // -------------------------------------------------------------------------
+    // Attribute-based Route Discovery
+    // -------------------------------------------------------------------------
+
+    /**
+     * Scan a directory for controller classes decorated with #[Route] attributes
+     * and register all discovered routes with this router.
+     *
+     * Each PHP file under `$path` is required and its corresponding class
+     * (derived by replacing directory separators with namespace separators) is
+     * inspected via Reflection. Public methods carrying one or more
+     * `#[\Pramnos\Routing\Attributes\Route]` attributes are registered
+     * automatically.
+     *
+     * ```php
+     * $router->loadFromDirectory(
+     *     __DIR__ . '/Controllers',
+     *     'App\\Controllers'
+     * );
+     * ```
+     *
+     * @param  string $path       Absolute path to the controller directory.
+     * @param  string $namespace  Root namespace that maps to `$path`.
+     */
+    public function loadFromDirectory(string $path, string $namespace): void
+    {
+        (new RouteDiscovery($this))->discover($path, $namespace);
     }
 
     /**

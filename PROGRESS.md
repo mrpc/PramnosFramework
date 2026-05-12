@@ -1,6 +1,15 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-12 (session 62)
+## 📅 Last Updated: 2026-05-12 (session 64)
+
+## 🏁 Phase 7: Modern Routing Engine — COMPLETE (2026-05-12, session 64)
+
+All 3 ROADMAP Phase 7 items implemented — 26 new characterization tests, 2057/2057 total.
+
+- **`#[Route]` Attribute** — `src/Pramnos/Routing/Attributes/Route.php`: PHP 8 `IS_REPEATABLE` method attribute; parameters `uri`, `methods` (string|array), `name`, `permissions`, `middleware`.
+- **Named Routes & URL Generation** — `Route::name(): static`, `Router::getByName()`, `Router::route()`: callback-based auto-registration (no circular dependency); `rawurlencode` params; optional segment stripping.
+- **Route Discovery** — `RouteDiscovery::discover(dir, namespace)` + `Router::loadFromDirectory()`: recursive `RecursiveIteratorIterator` scan; Reflection reads `#[Route]`; maps path → FQCN. Added `Router::head()` shortcut.
+- Fixture controllers: `tests/Characterization/Routing/Fixtures/UserController.php` + `Fixtures/Sub/PostController.php`.
 
 ## 🏁 Phase 5 QA Coverage — COMPLETE (2026-05-12, session 62)
 
