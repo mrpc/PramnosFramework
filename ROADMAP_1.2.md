@@ -637,16 +637,16 @@
 - [x] **CSRF Protection:** Native middleware για αυτόματο έλεγχο CSRF tokens σε POST requests. *`CsrfMiddleware` (`src/Pramnos/Http/Middleware/CsrfMiddleware.php`) implements `MiddlewareInterface`; protects POST/PUT/PATCH/DELETE; supports field token + `X-CSRF-Token` header; `CsrfMiddleware::tokenField()` helper for forms; 20 characterization tests.*
 - [x] **Secure Headers:** Εύκολος ορισμός CSP (Content Security Policy) και άλλων security headers. *`Application::sendCspHeader()` + `getCspDomains()`: builds `Content-Security-Policy` from `$applicationInfo['csp']` config array; per-request nonce injected automatically; default-src 'none' base + script/style/img/font/connect/frame directives; `upgrade-insecure-requests` included.*
 
-### 🗃️ Φάση 9: Full ORM Layer
-*Προϋπόθεση: Event system (Φάση 2) + Characterization tests × 3 databases (Φάση 5) ολοκληρωμένα.*
+### 🗃️ Φάση 9: Full ORM Layer ✅
+*Υλοποιήθηκε ως `OrmModel extends Model` με trait-based αρχιτεκτονική — 100% BC-safe.*
 
-- [ ] **Relationships:** `hasOne()`, `hasMany()`, `belongsTo()`, `belongsToMany()`, `hasManyThrough()`
-- [ ] **Eager Loading:** `with('relation')` για αποφυγή N+1 queries
-- [ ] **Scopes:** Local scopes (`scopeActive()`) και Global scopes που εφαρμόζονται αυτόματα
-- [ ] **Model Events:** `creating`, `created`, `updating`, `updated`, `deleting`, `deleted` — ενσωμάτωση με το Event system (Φάση 2)
-- [ ] **Casting:** Αυτόματη μετατροπή τιμών (`int`, `bool`, `json`, `datetime`, `array`)
-- [ ] **Accessors / Mutators:** `getXAttribute()` / `setXAttribute()` για virtual fields
-- [ ] **Soft Deletes:** `deleted_at` timestamp pattern με αυτόματο φιλτράρισμα
-- [ ] **Timestamps:** Αυτόματη διαχείριση `created_at` / `updated_at`
-- [ ] **Mass Assignment Protection:** `$fillable` / `$guarded` properties
-- [ ] **Collections:** Επιστροφή αποτελεσμάτων ως typed collection με helper methods (`filter`, `map`, `pluck`, `groupBy`)
+- [x] **Relationships:** `hasOne()`, `hasMany()`, `belongsTo()`, `belongsToMany()` — lazy-loaded via `__get()` + `HasRelationships` trait; relation classes in `src/Pramnos/Application/Orm/Relations/`.
+- [x] **Eager Loading:** `with('relation')` — batch query per relation, N+1 prevention via `eagerLoadRelations()`.
+- [x] **Scopes:** Local (`scopeXxx()` + `applyScope()`) + Global (`addGlobalScope()` / `withoutGlobalScope()`) — `HasScopes` trait.
+- [x] **Model Events:** `creating`, `created`, `updating`, `updated`, `deleting`, `deleted` — `HasEvents` trait; observer pattern via `observe()` + `on()`; cancellation by returning false.
+- [x] **Casting:** `int`, `float`, `bool`, `string`, `array`/`json`, `datetime`, `timestamp` — `HasAttributes` trait; `$casts` map; applied on `__get()` / reversed on `__set()`.
+- [x] **Accessors / Mutators:** `getXxxAttribute()` / `setXxxAttribute()` convention — auto-detected in `__get()`/`__set()` via `studly()` name derivation.
+- [x] **Soft Deletes:** `deleted_at` — `HasSoftDeletes` trait; `softDelete()` / `restore()` / `forceDelete()` / `trashed()` / `withTrashed()` / `onlyTrashed()`.
+- [x] **Timestamps:** `created_at` / `updated_at` — `HasTimestamps` trait; `withoutTimestamps()` opt-out.
+- [x] **Mass Assignment Protection:** `$fillable` / `$guarded` + `fill()` / `isFillable()` / `isGuarded()` — `HasAttributes` trait.
+- [x] **Collections:** `Orm\Collection` — `filter`, `map`, `pluck`, `groupBy`, `sortBy`, `first`, `last`, `count`, `each`, `contains`, `toArray`, `isEmpty`; implements `Countable`, `IteratorAggregate`, `JsonSerializable`.
