@@ -57,6 +57,19 @@ class Route
     private array $middlewares = [];
 
     /**
+     * Logical name for this route (used by Router::route() for URL generation).
+     * @var string|null
+     */
+    public ?string $routeName = null;
+
+    /**
+     * Optional callback invoked by name() to register the name with the Router.
+     * Set by Router::addSingleRoute() via setNameRegistrationCallback().
+     * @var \Closure|null
+     */
+    private ?\Closure $nameRegistrationCallback = null;
+
+    /**
      * class constructor
      * @param string $uri
      * @param string $method
@@ -227,6 +240,48 @@ class Route
     public function hasMiddleware(): bool
     {
         return !empty($this->middlewares);
+    }
+
+    /**
+     * Assign a logical name to this route.
+     *
+     * Names are used by Router::route() to generate URLs without hard-coding
+     * URI patterns in application code:
+     *
+     *   $router->get('/users/{id}', fn($id) => ...)->name('users.show');
+     *   $url = $router->route('users.show', ['id' => 42]); // '/users/42'
+     *
+     * If a name-registration callback was injected by the Router
+     * (via setNameRegistrationCallback), it is called immediately so the
+     * Router's named-route index is updated at definition time.
+     *
+     * @param  string $name  Dot-notation name, e.g. 'users.index', 'api.v1.posts.store'.
+     * @return static
+     */
+    public function name(string $name): static
+    {
+        $this->routeName = $name;
+        if ($this->nameRegistrationCallback !== null) {
+            ($this->nameRegistrationCallback)($name, $this);
+        }
+        return $this;
+    }
+
+    /**
+     * Return the logical name of this route, or null if unnamed.
+     */
+    public function getName(): ?string
+    {
+        return $this->routeName;
+    }
+
+    /**
+     * Inject the callback that registers a name with the owning Router.
+     * Called by Router::addSingleRoute() immediately after creating the route.
+     */
+    public function setNameRegistrationCallback(\Closure $callback): void
+    {
+        $this->nameRegistrationCallback = $callback;
     }
 
     /**
