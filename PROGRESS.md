@@ -12,7 +12,7 @@
 - **Suite:** 2700 tests (+32 από session 70), coverage 39.08% statements / 46.84% methods.
 
 ### Commits
-- (pending)
+- `5f415e0` fix(helpers): fix 3 production bugs in Helpers.php + update tests
 
 ## 🏁 Session 70 — Unit test coverage expansion (2026-05-13)
 
