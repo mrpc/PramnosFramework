@@ -966,6 +966,132 @@ public function getUsersJson() {
 > **BC:** `_getJsonList()` και όλα τα custom `getJsonList()` overrides στο Urbanwater συνεχίζουν να λειτουργούν αναλλοίωτα. Η μετάβαση γίνεται model-by-model, view-by-view.
 > **Εξάρτηση:** Φάση 17 εξαρτάται από Φάση 16 (CSRF header για session-authenticated AJAX) και Φάση 15 (API route group).
 
+### 📖 Φάση 18: OpenAPI 3.0 Documentation Generator
+*Στο Urbanwater η τεκμηρίωση του API παράγεται από ένα σύνθετο Node.js script (`scripts/apidoc-to-openapi.js`, ~1400 γραμμές) που διαβάζει `@api*` PHPDoc annotations και παράγει OpenAPI 3.0 JSON + RapiDoc HTML viewer. Αυτή η φάση μεταφέρει ολόκληρη τη διαδικασία μέσα στο framework ως PHP-native CLI command, συγχρονισμένο με τα `#[Route]` PHP 8 attributes που ήδη υπάρχουν στο routing.*
+
+#### Πρόβλημα σήμερα (Urbanwater)
+
+```
+dev runs: ./src/Api/doc.sh
+  → npm run apidoc:generate     # Node.js + apidoc package, scans @api* PHPDoc
+  → npm run openapi:generate    # apidoc-to-openapi.js: converts to OpenAPI 3.0
+  → www/api/openapi.json        # output
+  → www/api/docs/index.html     # RapiDoc HTML viewer
+```
+
+Απαιτεί Node.js, npm, `apidoc` package. Ο framework ήδη έχει `#[Route(method: 'GET', path: '/users', group: 'Users')]` — η πληροφορία για path/method/group **ήδη υπάρχει** στα attributes, δεν χρειάζεται να ξαναγραφτεί σε PHPDoc.
+
+#### Λύση: PHP-native generator, attributes-first
+
+**Νέα PHP 8 attributes** (`src/Pramnos/Routing/Attributes/`):
+
+```php
+#[Route(method: 'GET', path: '/1.0/users', group: 'Users', middleware: ['ApiAuth'])]
+#[ApiDoc(
+    summary: 'List all users',
+    description: 'Returns paginated list of users with optional field selection.',
+    since: '1.0',
+    deprecated: false
+)]
+#[ApiParam('page', type: 'integer', description: 'Page number', required: false, default: 1)]
+#[ApiParam('search', type: 'string', description: 'Search term', required: false)]
+#[ApiBody('name', type: 'string', description: 'User name', required: true)]
+#[ApiResponse(status: 200, schema: 'UserList')]
+#[ApiResponse(status: 401, ref: 'ErrorResponse')]
+public function getUsers(): void { ... }
+```
+
+`#[Route]` συνεχίζει να δουλεύει **αυτούσιο** — τα `ApiDoc`/`ApiParam`/`ApiBody`/`ApiResponse` attributes είναι προαιρετικά. Ένα route χωρίς επιπλέον attributes εμφανίζεται στο OpenAPI με minimal documentation.
+
+**`Pramnos\ApiDoc\` namespace:**
+
+- [ ] **`ApiDoc` attribute:** `summary`, `description`, `since` (version), `deprecated`, `deprecatedMessage`
+- [ ] **`ApiParam` attribute:** query param — `name`, `type`, `description`, `required`, `default`; repeatable
+- [ ] **`ApiBody` attribute:** request body field — `name`, `type`, `description`, `required`; repeatable
+- [ ] **`ApiResponse` attribute:** `status`, `description`, `schema` (named schema ref); repeatable
+- [ ] **`ApiTag` attribute:** class-level — overrides `#[Route]` group για ολόκληρο τον controller
+- [ ] **`OpenApiGenerator`:** PHP-native generator
+  - Scans controller directories μέσω PHP `ReflectionClass`/`ReflectionMethod`
+  - Διαβάζει `#[Route]` → method, path, group, middleware
+  - Διαβάζει `#[ApiDoc]`, `#[ApiParam]`, `#[ApiBody]`, `#[ApiResponse]` → OpenAPI spec
+  - Fallback: αν δεν υπάρχουν `Api*` attributes, διαβάζει legacy `@api*` PHPDoc annotations (Urbanwater migration path)
+  - Multi-version support: `:path` → `{param}` conversion, `@apiSince` / `since` parameter
+  - Παράγει `openapi.json` + per-version `openapi-v1.0.json`, `openapi-v1.1.json`
+  - Built-in schemas: `Pagination`, `ErrorResponse`, `SuccessResponse`
+  - `openapi-overrides.json` support (custom schemas, override fields)
+  - Code samples: JS/Python/C# (port από το Urbanwater script)
+  - RapiDoc HTML viewer με version selector (port από το Urbanwater script)
+- [ ] **`pramnos api:docs` CLI command:** `src/Pramnos/Console/Commands/ApiDocs.php`
+  - `--source` (controller dir), `--output` (output dir), `--config` (api-doc.json)
+  - `--validate` flag: εκτελεί OpenAPI validation (native PHP, χωρίς swagger-cli)
+  - `--format json|html|both` (default: both)
+- [ ] **`ApiDocServiceProvider`:** registers `api:docs` command
+- [ ] **Scaffolding (`pramnos init`):** παράγει `api-doc.json` config + `openapi-overrides.json` + `.gitignore` entry για `www/api/openapi*.json`
+- [ ] **Tests:** `OpenApiGenerator` output format validation; multi-version endpoint inclusion logic; legacy `@api*` fallback parser; attribute reading via Reflection
+
+> **BC:** Τα υπάρχοντα `@api*` PHPDoc annotations του Urbanwater συνεχίζουν να δουλεύουν αυτούσια. Η `pramnos api:docs` αντικαθιστά το `doc.sh` + Node.js pipeline χωρίς να απαιτεί αλλαγές στα controllers.
+> **Εξάρτηση:** Φάση 18 εξαρτάται από Φάση 7 (Routing Engine — `#[Route]` attributes).
+
+---
+
+### 🔗 Φάση 19: Git Webhook Handler
+*Στο Urbanwater υπάρχουν δύο bare PHP scripts (`githook.php`, `githook-dev.php`) που εκτελούν `git pull` όταν το GitHub/Bitbucket στέλνει push event. Έχουν κρίσιμο security gap: **δεν επαληθεύουν HMAC signature** — ο server εκτελεί `shell_exec` σε οποιονδήποτε στέλνει POST request. Αυτή η φάση φτιάχνει ασφαλή, configurable webhook infrastructure ως framework component.*
+
+#### Πρόβλημα σήμερα (Urbanwater)
+
+```php
+// githook.php — κανένας έλεγχος πηγής:
+$payload = json_decode(file_get_contents('php://input'));
+// ... branch detection ...
+$content = shell_exec('cd /home/urbanwater/public_html && git pull origin master');
+```
+
+- Δεν υπάρχει επαλήθευση `X-Hub-Signature-256` (GitHub HMAC-SHA256)
+- Hardcoded paths (`/home/urbanwater/public_html/`)
+- Logs με `file_put_contents` αντί για framework `Logs`
+- Δύο ξεχωριστά αρχεία για production + dev αντί για config-driven behavior
+- Δεν υποστηρίζει πολλαπλές ενέργειες (μόνο `git pull`, δεν μπορεί να εκτελέσει composer, migrations κλπ)
+
+#### Λύση: `Pramnos\Webhook\` namespace
+
+- [ ] **`WebhookHandler`:** core class (`src/Pramnos/Webhook/WebhookHandler.php`)
+  - **HMAC verification:** `X-Hub-Signature-256` (GitHub SHA-256), `X-Hub-Signature` (Bitbucket/GitHub SHA-1 legacy) — απορρίπτει requests χωρίς valid signature
+  - **Provider detection:** GitHub (`x-github-event`) vs Bitbucket — auto-detect από headers
+  - **Branch-to-actions mapping:** config-driven:
+    ```php
+    $handler->onBranch('main', [
+        'git fetch --all',
+        'git reset --hard origin/main',
+        'composer install --no-dev --optimize-autoloader',
+        'php pramnos migrate:run',
+    ]);
+    $handler->onBranch('develop', [...]);
+    ```
+  - **Event filtering:** `push`, `release` (published), `workflow_run` (GitHub Actions completed) — αγνοεί irrelevant events
+  - **Structured logging:** χρησιμοποιεί `Pramnos\Logs` — κάθε deploy καταγράφεται με payload summary, executed commands, output, duration
+  - **Secret από `.env`:** `WEBHOOK_SECRET=...` — δεν hardcoded
+  - **Response:** `200 OK` με JSON `{status, branch, commands_run}` / `403 Forbidden` για invalid signature / `204 No Content` για ignored events
+- [ ] **`WebhookServiceProvider`:** registers config + optionally mounts route
+- [ ] **`pramnos make:webhook` command** (ή μέσω `pramnos init`): παράγει `www/webhook.php` με config placeholders:
+    ```php
+    // www/webhook.php
+    $handler = new \Pramnos\Webhook\WebhookHandler(
+        secret: $_ENV['WEBHOOK_SECRET'],
+        repoDir: ROOT,
+        logChannel: 'webhook'
+    );
+    $handler->onBranch('main', ['git fetch --all', 'git reset --hard origin/main']);
+    $handler->onBranch('develop', ['git fetch --all', 'git reset --hard origin/develop']);
+    $handler->handle();
+    ```
+- [ ] **Scaffolding:** `pramnos init` wizard — "Configure Git webhook? [y/N]" → παράγει `www/webhook.php` + προσθέτει `WEBHOOK_SECRET=` στο `.env.example`
+- [ ] **Tests:** HMAC verification (valid/invalid/missing signature); provider detection (GitHub/Bitbucket headers); branch mapping execution; event filtering; logging output
+
+> **BC:** Τα υπάρχοντα `githook.php` / `githook-dev.php` αντικαθίστανται εθελοντικά. Το `WebhookHandler` μπορεί να χρησιμοποιηθεί ως standalone script ή ως `#[Route]` endpoint μέσα στο framework app (Φάση 15).
+> **Security:** Το `WEBHOOK_SECRET` **πρέπει** να οριστεί στο GitHub repo settings → Webhooks → Secret. Χωρίς secret, ο handler αρνείται να ξεκινήσει (exception στο constructor).
+
+---
+
 ### 💾 Φάση 10: File Storage Abstraction ✅
 *Υλοποιήθηκε ως `Pramnos\Storage\` namespace — 100% BC-safe (Filesystem unchanged).*
 
