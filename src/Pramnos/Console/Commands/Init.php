@@ -821,6 +821,31 @@ PHP;
         return <<<BASH
 #!/usr/bin/env bash
 
+# Prevent concurrent test runs against the shared Docker databases.
+# flock on a file descriptor is released automatically when the process
+# exits (even SIGKILL). If the recorded PID is gone, the lock is stale
+# and is cleared so the new run can proceed without manual intervention.
+LOCK_FILE="/tmp/dockertest-{$nsLower}.lock"
+
+_acquire_lock() {
+    exec 9>"\$LOCK_FILE"
+    flock -n 9
+}
+
+if ! _acquire_lock; then
+    existing_pid=\$(cat "\$LOCK_FILE" 2>/dev/null)
+    if [[ -n "\$existing_pid" ]] && ! kill -0 "\$existing_pid" 2>/dev/null; then
+        echo "Stale lock detected (PID \$existing_pid is gone). Clearing and proceeding." >&2
+        rm -f "\$LOCK_FILE"
+        _acquire_lock || { echo "Could not acquire lock after clearing stale entry." >&2; exit 1; }
+    else
+        echo "Another ./dockertest run is already in progress (PID: \${existing_pid:-unknown})." >&2
+        [[ -n "\$existing_pid" ]] && echo "  To kill it:  kill \$existing_pid" >&2
+        exit 1
+    fi
+fi
+echo \$\$ >"\$LOCK_FILE"
+
 nobrowser=false
 coverage=false
 testdox=false
