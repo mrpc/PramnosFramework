@@ -659,4 +659,515 @@ class HelpersExtendedTest extends TestCase
         // Assert
         $this->assertSame($expected, $result);
     }
+
+    // =========================================================================
+    // secondsToTime
+    // =========================================================================
+
+    /**
+     * secondsToTime() formats durations using DateTime::diff().
+     * Four branches based on magnitude: <60s, 60-3600s, 3600-86400s, >86400s.
+     */
+    public function testSecondsToTimeUnderOneMinute(): void
+    {
+        // Arrange / Act
+        $result = Helpers::secondsToTime(45);
+
+        // Assert — only seconds component
+        $this->assertStringContainsString('45 seconds', $result);
+    }
+
+    public function testSecondsToTimeBetweenOneMinuteAndOneHour(): void
+    {
+        // Arrange / Act — 125 seconds = 2 min 5 sec
+        $result = Helpers::secondsToTime(125);
+
+        // Assert — contains minutes and seconds
+        $this->assertStringContainsString('minutes', $result);
+        $this->assertStringContainsString('seconds', $result);
+    }
+
+    public function testSecondsToTimeBetweenOneHourAndOneDay(): void
+    {
+        // Arrange / Act — 7384 seconds = 2h 3m 4s
+        $result = Helpers::secondsToTime(7384);
+
+        // Assert — contains hours, minutes, seconds
+        $this->assertStringContainsString('hours', $result);
+        $this->assertStringContainsString('minutes', $result);
+    }
+
+    public function testSecondsToTimeOverOneDay(): void
+    {
+        // Arrange / Act — 90000 seconds = 1 day + some hours
+        $result = Helpers::secondsToTime(90000);
+
+        // Assert — contains "days"
+        $this->assertStringContainsString('days', $result);
+    }
+
+    // =========================================================================
+    // percent
+    // =========================================================================
+
+    /**
+     * percent() returns null when total is zero (avoids division by zero).
+     */
+    public function testPercentReturnsNullWhenTotalIsZero(): void
+    {
+        // Arrange / Act
+        $result = Helpers::percent(10, 0);
+
+        // Assert
+        $this->assertNull($result);
+    }
+
+    /**
+     * percent() returns 0 when the amount is zero (regardless of total).
+     */
+    public function testPercentReturnsZeroWhenAmountIsZero(): void
+    {
+        // Arrange / Act
+        $result = Helpers::percent(0, 100);
+
+        // Assert
+        $this->assertSame(0, $result);
+    }
+
+    /**
+     * percent() calculates and formats the percentage correctly.
+     */
+    public function testPercentCalculatesCorrectly(): void
+    {
+        // Arrange / Act — 25 of 200 = 12.5% → formatted as 13 (number_format rounds)
+        $result = Helpers::percent(25, 200);
+
+        // Assert — formatted string representation
+        $this->assertSame('13', $result);
+    }
+
+    // =========================================================================
+    // subtractPercent
+    // =========================================================================
+
+    /**
+     * subtractPercent() returns the amount unchanged when percent is 0.
+     */
+    public function testSubtractPercentWithZeroPercentReturnsAmountUnchanged(): void
+    {
+        // Arrange / Act
+        $result = Helpers::subtractPercent(100.0, 0);
+
+        // Assert
+        $this->assertSame(100.0, $result);
+    }
+
+    /**
+     * subtractPercent() returns the amount unchanged when amount is 0.
+     */
+    public function testSubtractPercentWithZeroAmountReturnsZero(): void
+    {
+        // Arrange / Act
+        $result = Helpers::subtractPercent(0.0, 20);
+
+        // Assert
+        $this->assertSame(0.0, $result);
+    }
+
+    /**
+     * subtractPercent() computes: result + (result * percent/100) = original.
+     * I.e. it finds the base price before a percentage markup was added.
+     */
+    public function testSubtractPercentComputesCorrectBaseValue(): void
+    {
+        // Arrange — 120 with 20% markup applied means base is 100
+        $result = Helpers::subtractPercent(120.0, 20);
+
+        // Assert — base value is 100 (within float precision)
+        $this->assertEqualsWithDelta(100.0, $result, 0.01);
+    }
+
+    // =========================================================================
+    // checkUnserialize
+    // =========================================================================
+
+    /**
+     * checkUnserialize() returns true for a valid serialized string.
+     */
+    public function testCheckUnserializeReturnsTrueForValidSerializedString(): void
+    {
+        // Arrange
+        $serialized = serialize(['key' => 'value', 'num' => 42]);
+
+        // Act
+        $result = Helpers::checkUnserialize($serialized);
+
+        // Assert
+        $this->assertTrue($result);
+    }
+
+    /**
+     * checkUnserialize() returns true for the special serialized false value
+     * 'b:0;' — this case must be handled explicitly because unserialize('b:0;')
+     * returns false, which would otherwise be misidentified as an error.
+     */
+    public function testCheckUnserializeReturnsTrueForSerializedFalse(): void
+    {
+        // Arrange
+        $serialized = 'b:0;';
+
+        // Act
+        $result = Helpers::checkUnserialize($serialized);
+
+        // Assert — the special 'b:0;' case is treated as valid serialized data
+        $this->assertTrue($result);
+    }
+
+    /**
+     * checkUnserialize() returns false for a plain string that is not serialized.
+     */
+    public function testCheckUnserializeReturnsFalseForPlainString(): void
+    {
+        // Arrange
+        $plain = 'just a plain string, not serialized';
+
+        // Act
+        $result = Helpers::checkUnserialize($plain);
+
+        // Assert
+        $this->assertFalse($result);
+    }
+
+    // =========================================================================
+    // isEven
+    // =========================================================================
+
+    /**
+     * isEven() returns true for even numbers and false for odd numbers.
+     */
+    public function testIsEvenReturnsTrueForEvenNumbers(): void
+    {
+        $this->assertTrue(Helpers::isEven(0));
+        $this->assertTrue(Helpers::isEven(2));
+        $this->assertTrue(Helpers::isEven(100));
+    }
+
+    public function testIsEvenReturnsFalseForOddNumbers(): void
+    {
+        $this->assertFalse(Helpers::isEven(1));
+        $this->assertFalse(Helpers::isEven(7));
+        $this->assertFalse(Helpers::isEven(99));
+    }
+
+    // =========================================================================
+    // shortenText
+    // =========================================================================
+
+    /**
+     * shortenText() returns the text unchanged when it is shorter than the limit.
+     */
+    public function testShortenTextReturnsFullTextWhenUnderLimit(): void
+    {
+        // Arrange / Act
+        $result = Helpers::shortenText('Short text', 100);
+
+        // Assert
+        $this->assertSame('Short text', $result);
+    }
+
+    /**
+     * shortenText() truncates to the last word boundary and appends the moreText.
+     */
+    public function testShortenTextTruncatesAtWordBoundary(): void
+    {
+        // Arrange
+        $text = 'The quick brown fox jumps over the lazy dog';
+
+        // Act — limit to 20 chars
+        $result = Helpers::shortenText($text, 20);
+
+        // Assert — result is shorter than original and ends with the default ellipsis
+        $this->assertLessThan(mb_strlen($text), mb_strlen($result));
+        // Default $moreText is '&hellip;' (HTML entity), not the UTF-8 character.
+        $this->assertStringContainsString('&hellip;', $result);
+    }
+
+    /**
+     * shortenText() strips HTML tags before measuring length.
+     */
+    public function testShortenTextStripsHtmlTags(): void
+    {
+        // Arrange
+        $html = '<p>Hello <strong>world</strong> this is a long paragraph</p>';
+
+        // Act
+        $result = Helpers::shortenText($html, 10);
+
+        // Assert — no HTML tags in the output
+        $this->assertStringNotContainsString('<p>', $result);
+        $this->assertStringNotContainsString('<strong>', $result);
+    }
+
+    /**
+     * shortenText() throws an Exception when the length argument is not numeric.
+     */
+    public function testShortenTextThrowsExceptionForNonNumericLength(): void
+    {
+        // Assert
+        $this->expectException(\Exception::class);
+
+        // Act
+        Helpers::shortenText('some text', 'not-a-number');
+    }
+
+    // =========================================================================
+    // getClosestArrayVal
+    // =========================================================================
+
+    /**
+     * getClosestArrayVal() returns the value in the array closest to the needle.
+     */
+    public function testGetClosestArrayValReturnsClosestValue(): void
+    {
+        // Arrange
+        $haystack = [10, 20, 30, 40, 50];
+
+        // Act — 23 is closest to 20
+        $result = Helpers::getClosestArrayVal(23, $haystack);
+
+        // Assert
+        $this->assertSame(20, $result);
+    }
+
+    /**
+     * getClosestArrayVal() returns the exact value when needle is in the array.
+     */
+    public function testGetClosestArrayValReturnsExactMatchWhenPresent(): void
+    {
+        // Arrange
+        $haystack = [5, 10, 15, 20];
+
+        // Act
+        $result = Helpers::getClosestArrayVal(15, $haystack);
+
+        // Assert
+        $this->assertSame(15, $result);
+    }
+
+    /**
+     * getClosestArrayVal() with a single-element array returns that element.
+     */
+    public function testGetClosestArrayValWithSingleElementReturnsThatElement(): void
+    {
+        // Arrange / Act
+        $result = Helpers::getClosestArrayVal(999, [42]);
+
+        // Assert
+        $this->assertSame(42, $result);
+    }
+
+    // =========================================================================
+    // varDumpToString
+    // =========================================================================
+
+    /**
+     * varDumpToString() for a scalar value returns a non-empty string without
+     * HTML wrapping (format=false by default).
+     */
+    public function testVarDumpToStringScalarNoFormat(): void
+    {
+        // Arrange / Act
+        $result = Helpers::varDumpToString(42);
+
+        // Assert — contains the value, no <pre> tag
+        $this->assertStringContainsString('42', $result);
+        $this->assertStringNotContainsString('<pre>', $result);
+    }
+
+    /**
+     * varDumpToString() with format=true wraps the output in <pre> tags and
+     * HTML-encodes the content.
+     */
+    public function testVarDumpToStringWithFormatTrue(): void
+    {
+        // Arrange / Act
+        $result = Helpers::varDumpToString('<b>test</b>', true);
+
+        // Assert — wrapped in <pre>, special chars encoded
+        $this->assertStringStartsWith('<pre>', $result);
+        $this->assertStringEndsWith('</pre>', $result);
+        // HTML-encoded angle bracket
+        $this->assertStringContainsString('&lt;', $result);
+    }
+
+    /**
+     * varDumpToString() for an array triggers the safePrintR path and produces
+     * an array representation containing the keys and values.
+     */
+    public function testVarDumpToStringArray(): void
+    {
+        // Arrange
+        $arr = ['foo' => 'bar', 'num' => 7];
+
+        // Act
+        $result = Helpers::varDumpToString($arr);
+
+        // Assert — keys appear in the output
+        $this->assertStringContainsString('foo', $result);
+        $this->assertStringContainsString('bar', $result);
+        $this->assertStringContainsString('num', $result);
+    }
+
+    /**
+     * varDumpToString() for an object uses safePrintR (object branch) and
+     * includes the class name and property names in the output.
+     */
+    public function testVarDumpToStringObject(): void
+    {
+        // Arrange
+        $obj       = new \stdClass();
+        $obj->prop = 'value';
+
+        // Act
+        $result = Helpers::varDumpToString($obj);
+
+        // Assert — class name and property appear
+        $this->assertStringContainsString('stdClass', $result);
+        $this->assertStringContainsString('prop', $result);
+    }
+
+    /**
+     * varDumpToString() with maxDepth=1 triggers the "max depth reached" guard
+     * for nested arrays, keeping output bounded.
+     */
+    public function testVarDumpToStringRespectsMaxDepth(): void
+    {
+        // Arrange — nested 2 levels deep
+        $nested = ['level1' => ['level2' => ['level3' => 'deep']]];
+
+        // Act — depth limit of 1 prevents recursion past level1
+        $result = Helpers::varDumpToString($nested, false, 1);
+
+        // Assert — depth-limit message is present
+        $this->assertStringContainsString('max depth reached', $result);
+    }
+
+    /**
+     * varDumpToString() with maxElements=2 truncates arrays beyond the limit
+     * and notes how many elements were omitted.
+     */
+    public function testVarDumpToStringRespectsMaxElements(): void
+    {
+        // Arrange — 5 elements, limit to 2
+        $arr = [1, 2, 3, 4, 5];
+
+        // Act
+        $result = Helpers::varDumpToString($arr, false, 3, 2);
+
+        // Assert — "more elements" message present
+        $this->assertStringContainsString('more elements', $result);
+    }
+
+    // =========================================================================
+    // pretty_var_dump
+    // =========================================================================
+
+    /**
+     * pretty_var_dump() echoes its output wrapped in <pre> tags.
+     * Output buffering captures it for assertion.
+     */
+    public function testPrettyVarDumpEchosPreWrappedOutput(): void
+    {
+        // Arrange
+        ob_start();
+
+        // Act
+        Helpers::pretty_var_dump(['key' => 'val']);
+
+        // Assert
+        $output = ob_get_clean();
+        $this->assertStringContainsString('<pre>', $output);
+        $this->assertStringContainsString('</pre>', $output);
+    }
+
+    // =========================================================================
+    // base64ToUrlSafe / urlSafeToBase64
+    // =========================================================================
+
+    /**
+     * base64ToUrlSafe() replaces + with -, / with _, and removes = padding.
+     */
+    public function testBase64ToUrlSafeConvertsSpecialChars(): void
+    {
+        // Arrange — standard base64 that contains + and / and trailing =
+        $standard = base64_encode("\xfb\xff\xfe");  // produces +//+  or similar non-url chars
+
+        // Act
+        $urlSafe = Helpers::base64ToUrlSafe($standard);
+
+        // Assert — no + or / or = characters remain
+        $this->assertStringNotContainsString('+', $urlSafe);
+        $this->assertStringNotContainsString('/', $urlSafe);
+        $this->assertStringNotContainsString('=', $urlSafe);
+    }
+
+    /**
+     * A roundtrip base64ToUrlSafe → urlSafeToBase64 → base64_decode reproduces
+     * the original binary string.
+     */
+    public function testBase64RoundtripPreservesOriginalData(): void
+    {
+        // Arrange — binary payload that generates + and / in base64
+        $original = "Hello+World/Test=Value";
+
+        // Act
+        $urlSafe  = Helpers::base64ToUrlSafe(base64_encode($original));
+        $restored = base64_decode(Helpers::urlSafeToBase64($urlSafe));
+
+        // Assert
+        $this->assertSame($original, $restored);
+    }
+
+    /**
+     * urlSafeToBase64() adds the correct amount of = padding.
+     */
+    public function testUrlSafeToBase64AddsPaddingCorrectly(): void
+    {
+        // Arrange — URL-safe string with known padding need (length % 4 == 3)
+        $urlSafe = 'YQ';  // base64 of 'a', needs 2 padding chars
+
+        // Act
+        $standard = Helpers::urlSafeToBase64($urlSafe);
+
+        // Assert — padding added and decodes correctly
+        $this->assertSame('a', base64_decode($standard));
+    }
+
+    // =========================================================================
+    // formatBytes
+    // =========================================================================
+
+    /**
+     * formatBytes() converts byte counts to human-readable strings.
+     */
+    public function testFormatBytesConvertsUnitsCorrectly(): void
+    {
+        $this->assertStringContainsString('B',  Helpers::formatBytes(0));
+        $this->assertStringContainsString('B',  Helpers::formatBytes(500));
+        $this->assertStringContainsString('KB', Helpers::formatBytes(1024));
+        $this->assertStringContainsString('MB', Helpers::formatBytes(1024 * 1024));
+        $this->assertStringContainsString('GB', Helpers::formatBytes(1024 * 1024 * 1024));
+    }
+
+    /**
+     * formatBytes() respects the precision parameter.
+     */
+    public function testFormatBytesRespectsPrecision(): void
+    {
+        // Arrange / Act — 1536 bytes = 1.5 KB; precision=1
+        $result = Helpers::formatBytes(1536, 1);
+
+        // Assert
+        $this->assertSame('1.5 KB', $result);
+    }
 }
