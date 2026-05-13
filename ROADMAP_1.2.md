@@ -653,18 +653,17 @@
 - [x] **Mass Assignment Protection:** `$fillable` / `$guarded` + `fill()` / `isFillable()` / `isGuarded()` — `HasAttributes` trait.
 - [x] **Collections:** `Orm\Collection` — `filter`, `map`, `pluck`, `groupBy`, `sortBy`, `first`, `last`, `count`, `each`, `contains`, `toArray`, `isEmpty`; implements `Countable`, `IteratorAggregate`, `JsonSerializable`.
 
-### 🗄️ Φάση 11: Cache Abstraction Layer
-*Ενιαίο cache API πάνω από πολλαπλά backends — Redis (ήδη στο Docker), APCu, file-based, array (testing). Το Redis container τρέχει ήδη στο Docker Compose.*
+### 🗄️ Φάση 11: Cache — Ολοκλήρωση & Ενοποίηση
+*Το core cache είναι ήδη υλοποιημένο (`Pramnos\Cache\Cache`, PSR-16 `SimpleCache`, adapters: Redis/Memcache/Memcached/File, 14 characterization tests). Αυτό που λείπει είναι η ενοποίηση με τη σύγχρονη υποδομή του framework.*
 
-- [ ] **CacheInterface:** 10-μέθοδος συμβόλαιο — `get`, `put`, `remember`, `forget`, `flush`, `has`, `increment`, `decrement`, `forever`, `many`/`putMany`.
-- [ ] **RedisDriver:** ext-redis / predis adapter; configurable prefix + TTL; connection pooling.
-- [ ] **FileDriver:** file-based driver για environments χωρίς Redis (CI, local dev χωρίς Docker).
-- [ ] **ArrayDriver:** in-memory για unit tests (αντικαθιστά `new ArrayObject()` hacks).
-- [ ] **CacheManager:** factory + registry; `Cache::store('redis')` / `Cache::store('file')`; `Cache::remember($key, $ttl, $callback)`.
-- [ ] **Cache facade:** `src/Pramnos/Cache/Cache.php` — static façade; `Cache::init($config)` bootstrap.
-- [ ] **ServiceProvider + Feature Registry integration:** opt-in ενεργοποίηση μέσω `app.php`.
-- [ ] **Rate limiting middleware:** `RateLimitMiddleware` χρησιμοποιεί Cache για sliding window counters.
-- [ ] **Tests:** characterization tests × 3 backends (Redis, File, Array) + unit tests για Manager/facade.
+- [x] **`Cache` class:** file/memcache/memcached/redis adapters, prefix/category/timeout, `load()`/`save()`/`delete()`/`clear()`.
+- [x] **`SimpleCache` (PSR-16):** `Psr\SimpleCache\CacheInterface` adapter — `get`, `set`, `delete`, `clear`, `getMultiple`, `setMultiple`, `deleteMultiple`, `has`; TTL ως `int|null|DateInterval`.
+- [x] **`AdapterInterface` + adapters:** `FileAdapter`, `MemcacheAdapter`, `MemcachedAdapter`, `RedisAdapter`.
+- [x] **Characterization tests:** 14 tests για SimpleCache στο `tests/Characterization/Cache/`.
+- [ ] **`ArrayAdapter`:** in-memory adapter για unit tests — αντικαθιστά τα hacks με `$_cacheData` arrays στα tests.
+- [ ] **`Cache::remember($key, $ttl, $callback)`:** lazy-fetch pattern — αν δεν υπάρχει το key, καλεί το callback και το αποθηκεύει.
+- [ ] **ServiceProvider integration:** `CacheServiceProvider` που διαβάζει `app.php` και αρχικοποιεί τον default adapter.
+- [ ] **Rate limiting middleware:** `RateLimitMiddleware` με sliding window μέσω Cache.
 
 ### 📡 Φάση 12: Broadcasting / WebSockets
 *Real-time events από server σε browser — αρχιτεκτονικά χωρισμένη από τα model events της Φάσης 9.*
