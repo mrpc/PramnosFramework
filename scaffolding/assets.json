@@ -110,6 +110,16 @@
             ],
             "local_path": "assets/vendor/flowbite/2.3.0"
         },
+        "gridjs": {
+            "version": "6.2.0",
+            "css": [
+                "https://cdn.jsdelivr.net/npm/gridjs@6.2.0/dist/theme/mermaid.min.css"
+            ],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/gridjs@6.2.0/dist/gridjs.umd.js"
+            ],
+            "local_path": "assets/vendor/gridjs/6.2.0"
+        },
         "bootstrap": {
             "version": "5.3.3",
             "requires_ui": ["bootstrap"],
