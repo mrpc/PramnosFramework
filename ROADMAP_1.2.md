@@ -698,11 +698,22 @@
 - [ ] **`McpServiceProvider`:** opt-in εγγραφή μέσω `app.php`; lazy boot (τρέχει μόνο όταν κληθεί `mcp:serve`).
 - [ ] **Tests:** unit tests για McpServer protocol handling + tool dispatch; integration test που εκκινεί server και επαληθεύει `tools/list` output.
 
-#### Debug Infrastructure (Xdebug)
-- [ ] **Docker Compose template:** `php.ini` / `xdebug.ini` με `xdebug.mode=debug`, `xdebug.start_with_request=yes`, port 9003 — ενσωματωμένο στο scaffolding Docker setup.
-- [ ] **VS Code launch.json stub:** `scaffolding/templates/.vscode/launch.json.stub` — scaffolded αυτόματα από `init` με σωστό pathMapping `/var/www/html → project root`.
-- [ ] **PhpStorm `.idea/` hints:** documentation + CLI trigger στο CLAUDE.md (ήδη στο template).
-- [ ] **`pramnos debug:status`** command: εκτυπώνει αν το Xdebug είναι φορτωμένο, mode, host, port.
+#### Debug Toolbar (Laravel Debugbar αντίστοιχο)
+HTML toolbar που εγχέεται αυτόματα στο κάτω μέρος κάθε HTML response όταν `APP_DEBUG=true`. Zero-dependency, pure PHP+CSS+JS — κανένα npm build step.
+
+- [ ] **`Pramnos\Debug\DebugBar`:** κεντρική κλάση — συλλέγει δεδομένα από collectors, αποδίδει HTML widget.
+- [ ] **Collectors:**
+  - `QueryCollector` — υποκλέπτει ερωτήματα από `Database`; εμφανίζει SQL, bindings, χρόνο, stack trace για slow queries.
+  - `TimeCollector` — wall-clock χρόνος request (start→end) + custom timers μέσω `DebugBar::startTimer('name')` / `stopTimer('name')`.
+  - `MemoryCollector` — peak memory usage (`memory_get_peak_usage`).
+  - `RouteCollector` — matched route, controller, action, middleware stack.
+  - `LogCollector` — τελευταία N log entries της τρέχουσας request.
+  - `SessionCollector` — session keys/values (masked για sensitive keys).
+- [ ] **HTML renderer:** self-contained `<div id="pramnos-debugbar">` με inlined CSS/JS — δεν εξαρτάται από assets pipeline. Collapsible tabs, syntax highlighting για SQL.
+- [ ] **Middleware integration:** `DebugBarMiddleware` ανιχνεύει HTML response (`Content-Type: text/html`) και εισάγει το widget πριν το `</body>`.
+- [ ] **`DebugBarServiceProvider`:** ενεργοποιείται μόνο αν `APP_DEBUG=true`; εγγράφει middleware αυτόματα.
+- [ ] **`pramnos debug:status`** command: εκτυπώνει config (debug on/off, Xdebug loaded, port 9003).
+- [ ] **Tests:** unit tests για κάθε collector + renderer output; integration test που επαληθεύει εγχύση στο HTML response.
 
 > **Εξάρτηση:** Φάση 13 είναι ανεξάρτητη — μπορεί να υλοποιηθεί παράλληλα με Φάση 11/12.
 
