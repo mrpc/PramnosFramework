@@ -60,7 +60,7 @@ class ScopeRepository implements ScopeRepositoryInterface
      * league/oauth2-server calls this for each scope in the request to
      * decide whether it is recognized by the server.
      */
-    public function getScopeEntityByIdentifier(string $identifier): ?ScopeEntityInterface
+    public function getScopeEntityByIdentifier($identifier): ?ScopeEntityInterface
     {
         if (!array_key_exists($identifier, $this->scopes)) {
             return null;
@@ -83,9 +83,9 @@ class ScopeRepository implements ScopeRepositoryInterface
      */
     public function finalizeScopes(
         array $scopes,
-        string $grantType,
+        $grantType,
         ClientEntityInterface $clientEntity,
-        ?string $userIdentifier = null
+        $userIdentifier = null
     ): array {
         return $scopes;
     }

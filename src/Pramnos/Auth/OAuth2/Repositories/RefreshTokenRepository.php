@@ -70,7 +70,7 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
     /**
      * Revoke a refresh token by setting status=0.
      */
-    public function revokeRefreshToken(string $tokenId): void
+    public function revokeRefreshToken($tokenId): void
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->queryBuilder()
@@ -83,7 +83,7 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
     /**
      * Return true when the refresh token does not exist or has been revoked.
      */
-    public function isRefreshTokenRevoked(string $tokenId): bool
+    public function isRefreshTokenRevoked($tokenId): bool
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
