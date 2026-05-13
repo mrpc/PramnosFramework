@@ -24,13 +24,9 @@ class HelpersExtendedTest extends TestCase
     // =========================================================================
 
     /**
-     * generatePassword() always returns a non-empty string.
-     *
-     * NOTE: The function has a known length bug — the final
-     * `substr($initialPass, $injectpos)` takes the md5 tail without
-     * constraining it to $length, so the result is always 33 characters
-     * regardless of the $length argument.  The tests below document this
-     * actual behaviour rather than the intended one.
+     * generatePassword() always returns a non-empty string of exactly $length
+     * characters: ($injectpos chars from md5) + (1 special char) +
+     * ($length - 1 - $injectpos chars from md5 tail).
      */
     public function testGeneratePasswordReturnsNonEmptyString(): void
     {
@@ -43,16 +39,15 @@ class HelpersExtendedTest extends TestCase
     }
 
     /**
-     * Due to the length bug, generatePassword() always produces exactly 33
-     * characters: $injectpos (prefix) + 1 (special) + (32 - $injectpos) (tail).
-     * The $length argument only controls where in the prefix the symbol lands.
+     * generatePassword() returns exactly $length characters.
+     * Formula: $injectpos chars + 1 special + ($length - 1 - $injectpos) chars = $length.
      */
-    public function testGeneratePasswordAlwaysProduces33Chars(): void
+    public function testGeneratePasswordReturnsExactLength(): void
     {
-        // Arrange / Act / Assert – bug: length argument is ignored for total length
-        $this->assertSame(33, strlen(Helpers::generatePassword(8)));
-        $this->assertSame(33, strlen(Helpers::generatePassword(12)));
-        $this->assertSame(33, strlen(Helpers::generatePassword(16)));
+        // Arrange / Act / Assert – length argument now controls total output length
+        $this->assertSame(8,  strlen(Helpers::generatePassword(8)));
+        $this->assertSame(12, strlen(Helpers::generatePassword(12)));
+        $this->assertSame(16, strlen(Helpers::generatePassword(16)));
     }
 
     /**
@@ -214,24 +209,43 @@ class HelpersExtendedTest extends TestCase
     // =========================================================================
 
     /**
-     * clearhtml() is known to be broken on PHP 8+ because one of its regex
-     * patterns uses the '/e' (eval) modifier that was removed in PHP 7.
-     * preg_replace() returns null for the whole call when any pattern is
-     * invalid, so all three tests below assert the null-return behaviour.
-     *
-     * The function needs a rewrite (see ROADMAP Phase 3 / DX improvements).
+     * clearhtml() strips HTML tags and returns plain text.
+     * The old implementation used the '/e' modifier (removed in PHP 7), which
+     * made preg_replace() return null on PHP 8+.  The fix replaces the last
+     * pattern with preg_replace_callback() + mb_chr() for numeric HTML entities.
      */
-    public function testClearhtmlReturnNullDueToLegacyEvalModifier(): void
+    public function testClearhtmlStripsHtmlTags(): void
     {
         // Arrange
         $html = '<p>Hello <strong>World</strong></p>';
 
-        // Act — suppress the expected PHP warning about the unknown 'e' modifier
-        $result = @Helpers::clearhtml($html);
+        // Act
+        $result = Helpers::clearhtml($html);
 
-        // Assert — function returns null because of the broken '/e' pattern
-        // This is a known bug: Helpers::clearhtml() must be rewritten for PHP 8+
-        $this->assertNull($result);
+        // Assert — HTML tags removed, text preserved
+        $this->assertIsString($result);
+        $this->assertStringContainsString('Hello', $result);
+        $this->assertStringContainsString('World', $result);
+        $this->assertStringNotContainsString('<p>', $result);
+        $this->assertStringNotContainsString('<strong>', $result);
+    }
+
+    /**
+     * clearhtml() converts numeric HTML entities (&#NNN;) to their UTF-8
+     * characters using mb_chr(), not the removed PHP 7+ /e modifier.
+     * Uses &#9733; (★ U+2605) which is not in the named-entity list,
+     * so it reaches the preg_replace_callback path.
+     */
+    public function testClearhtmlConvertsNumericEntities(): void
+    {
+        // Arrange — &#9733; is the BLACK STAR character ★ (U+2605)
+        $html = '&#9733;';
+
+        // Act
+        $result = Helpers::clearhtml($html);
+
+        // Assert — numeric entity decoded to actual UTF-8 character
+        $this->assertSame('★', $result);
     }
 
     // =========================================================================
@@ -606,33 +620,33 @@ class HelpersExtendedTest extends TestCase
     /** @return array<string,array{int,int,string}> */
     public static function greekdateProvider(): array
     {
-        // NOTE: greekdate() uses str_replace() with integer month numbers as
-        // needles in a string subject.  For months 1-9 this works correctly.
-        // For months 10, 11, 12 the function is broken: the digit '1' in '12'
-        // is replaced first (producing "Ιανουάριος2") and then '2' is replaced
-        // again, yielding garbage output.  Months 10-12 are intentionally
-        // excluded here; fixing the function is tracked in the DX backlog.
         return [
-            'January active'   => [1, 0, 'Ιανουάριος'],
-            'February active'  => [2, 0, 'Φεβρουάριος'],
-            'March active'     => [3, 0, 'Μάρτιος'],
-            'April active'     => [4, 0, 'Απρίλιος'],
-            'September active' => [9, 0, 'Σεπτέμβρης'],
-            'January passive'  => [1, 1, 'Ιανουαρίου'],
-            'May passive'      => [5, 1, 'Μαΐου'],
-            'September passive'=> [9, 1, 'Σεπτεμβρίου'],
+            'January active'    => [1,  0, 'Ιανουάριος'],
+            'February active'   => [2,  0, 'Φεβρουάριος'],
+            'March active'      => [3,  0, 'Μάρτιος'],
+            'April active'      => [4,  0, 'Απρίλιος'],
+            'September active'  => [9,  0, 'Σεπτέμβρης'],
+            'October active'    => [10, 0, 'Οκτώβρης'],
+            'November active'   => [11, 0, 'Νοέμβρης'],
+            'December active'   => [12, 0, 'Δεκέμβρης'],
+            'January passive'   => [1,  1, 'Ιανουαρίου'],
+            'May passive'       => [5,  1, 'Μαΐου'],
+            'September passive' => [9,  1, 'Σεπτεμβρίου'],
+            'October passive'   => [10, 1, 'Οκτωβρίου'],
+            'November passive'  => [11, 1, 'Νοεμβρίου'],
+            'December passive'  => [12, 1, 'Δεκεμβρίου'],
         ];
     }
 
     /**
      * greekdate() returns the Greek month name in active (form=0) or
-     * passive (form=1) grammatical form.
+     * passive (form=1) grammatical form for all 12 months.
      *
-     * Only months 1-9 are tested here. Months 10-12 expose a known bug
-     * (str_replace replaces the constituent digits before the two-digit
-     * number is matched) and are excluded until the function is fixed.
+     * The old str_replace() implementation was broken for months 10-12 because
+     * integer needles were cast to strings, causing '1' to match inside '10','11','12'.
+     * Now fixed with direct array lookup: $monthnames[(int)$month - 1].
      *
-     * @param int    $month    Month number (1-9)
+     * @param int    $month    Month number (1-12)
      * @param int    $form     0 = active, 1 = passive
      * @param string $expected Expected Greek month name
      */
