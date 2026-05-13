@@ -34,7 +34,7 @@ class ClientRepository implements ClientRepositoryInterface
      * validating the secret or grant type. The entity must be returned even
      * for unverified clients — secret validation is done in validateClient().
      */
-    public function getClientEntity(string $clientIdentifier): ?ClientEntityInterface
+    public function getClientEntity($clientIdentifier): ?ClientEntityInterface
     {
         $application = new Application($this->controller, 'Application', 0);
         if (!$application->loadByApiKey($clientIdentifier)) {
@@ -58,9 +58,9 @@ class ClientRepository implements ClientRepositoryInterface
      * accepted only when the application is configured as non-confidential.
      */
     public function validateClient(
-        string $clientIdentifier,
-        ?string $clientSecret,
-        ?string $grantType
+        $clientIdentifier,
+        $clientSecret,
+        $grantType
     ): bool {
         $application = new Application($this->controller, 'Application', 0);
         return $application->validateCredentials($clientIdentifier, $clientSecret);
