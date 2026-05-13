@@ -837,45 +837,68 @@ class UsersApiController
 
 > **UrbanWater migration:** βλ. `UrbanWater-Cleanup-Guide.md` Phase 7 (προστίθεται όταν αρχίσει η υλοποίηση).
 
-### 🔑 Φάση 16: Session-backed Tokens & Unified Audit Trail
-*Σήμερα το web login δεν δημιουργεί εγγραφή στο `usertokens` — ο web χρήστης δεν έχει token history, δεν μπορεί να κάνει κλήση στο REST API, και η "γέφυρα" web→API χρησιμοποιεί το password hash ως auth header (`$_SESSION['auth'] == $_SERVER['HTTP_USERAUTH']`). Αυτή η φάση εφαρμόζει το Laravel Sanctum pattern: κάθε web session υποστηρίζεται από ένα πραγματικό token record.*
+### 🔑 Φάση 16: SPA-style Auth — Session Cookie ως API Credential
+*Εμπνευσμένο από το Laravel Sanctum (cookie-based SPA auth). Σκοπός: ο web χρήστης να καλεί API endpoints απευθείας από JS χωρίς ξεχωριστό login, χωρίς duplicate controller methods, και με πλήρη audit trail.*
 
 #### Πρόβλημα σήμερα
+
+Όταν ένας developer χρειάζεται AJAX data στο web app, αναγκάζεται να γράψει duplicate μέθοδο στο web controller:
+
+```php
+// Web controller — duplicate, μόνο για AJAX
+public function getUsersJson(): string {
+    Factory::getDocument('json');
+    return json_encode(User::getList());   // ίδιο με Api\Users@index
+}
+```
+
+Ενώ το API endpoint `GET /api/1.0/users` ήδη υπάρχει. Ο λόγος που δεν το χρησιμοποιεί: ο web χρήστης δεν έχει Bearer token — έχει μόνο session cookie. Το υπάρχον workaround στέλνει το **password hash** ως auth header (`$_SESSION['auth'] == $_SERVER['HTTP_USERAUTH']`) — insecure και fragile.
 
 | | Web session | API token |
 |---|---|---|
 | Εγγραφή στο `usertokens` | ✗ | ✓ |
 | `tokenactions` audit log | ✗ | ✓ |
-| Revocation | session destroy | token invalidation |
-| Web → API κλήση | password hash ως header (!) | Bearer token |
-| Per-device tracking | ✗ | ✓ |
+| AJAX → API endpoint | password hash header (!) | Bearer token |
+| Revocation | session destroy μόνο | real-time token invalidation |
 
-#### Λύση: Session-backed Tokens
+#### Λύση: Cookie-based SPA Auth (Sanctum pattern)
 
-Κατά τον web login, δημιουργείται εγγραφή `usertokens` με `tokentype = 'web_session'`. Η διάρκεια ζωής του token συνδέεται με τη διάρκεια ζωής της session. Αποτέλεσμα: web και API χρήστες έχουν ακριβώς τον ίδιο audit trail.
+Το session cookie **γίνεται** αποδεκτό ως credential από τα API endpoints — ακριβώς όπως το κάνει το Laravel Sanctum. Το JS δεν χρειάζεται Bearer token: στέλνει το session cookie (αυτόματα, same-origin) + `X-CSRF-Token` header:
+
+```js
+// JS στο web app — καλεί ΑΠΕΥΘΕΙΑΣ το API endpoint
+fetch('/api/1.0/users', {
+    headers: { 'X-CSRF-Token': document.querySelector('meta[name=csrf]').content }
+}).then(r => r.json()).then(data => /* ... */);
+// Κανένα Bearer token, κανένο duplicate controller
+```
+
+Ταυτόχρονα, κάθε web login δημιουργεί εγγραφή στο `usertokens` (`tokentype = 'web_session'`) — έτσι αποκτά ενιαίο audit trail με τους API clients.
 
 ```
-Web login → usertokens (tokentype='web_session') → $_SESSION['usertoken'] = Token
-API login → usertokens (tokentype='mobile'/'api') → Bearer header
+Web login  → usertokens (web_session) + session cookie  → same-origin AJAX ή web page
+API client → usertokens (api/mobile)  + Bearer token    → cross-origin AJAX ή native app
 ```
+
+#### Τι ΔΕΝ είναι αυτό
+Δεν είναι OAuth2. Το OAuth2 server (authserver feature, Φάση 2) εξυπηρετεί **τρίτους clients** που χρειάζονται delegated access. Η cookie-based SPA auth εξυπηρετεί **first-party clients** (ο ίδιος browser, ο ίδιος χρήστης). Οι δύο συνυπάρχουν.
 
 #### Υλοποίηση
 
-- [ ] **`tokentype` constants στο `Token`:** `Token::TYPE_WEB_SESSION = 'web_session'`, `Token::TYPE_API = 'api'`, `Token::TYPE_MOBILE = 'mobile'` — αντικαθιστούν τα arbitrary strings.
-- [ ] **Web login → token creation:** Στο `User::login()` (ή `UserDatabase` addon): δημιουργία `Token` με `tokentype = TYPE_WEB_SESSION`, αποθήκευση `tokenid` + token value στη session (`$_SESSION['usertoken']`). Το `$_SESSION['auth']` παραμένει για BC αλλά **δεν χρησιμοποιείται πλέον ως auth header**.
-- [ ] **Web logout → token invalidation:** `User::logout()` αδρανοποιεί το web_session token στη βάση + destroy session. Revocation είναι real-time.
-- [ ] **`Application::exec()` → `addAction()`:** Αν `$_SESSION['usertoken']` υπάρχει, καλεί `addAction()` σε κάθε request — ακριβώς όπως το `Api::exec()`. Web requests καταγράφονται στο `tokenactions`.
-- [ ] **`UnifiedAuthMiddleware`:** Αποδέχεται και τους δύο τρόπους authentication:
-  1. `Authorization: Bearer <value>` → φορτώνει token από `usertokens`
-  2. Session cookie + CSRF token → χρησιμοποιεί `$_SESSION['usertoken']`
-  - Και οι δύο οδοί παράγουν ένα `Token` object — ο υπόλοιπος κώδικας δεν διακρίνει.
-- [ ] **Token value exposed to JS (safely):** Αντί για `$_SESSION['auth']` (= password hash), το JS λαμβάνει την **token value** από το `usertokens` record — μπορεί να χρησιμοποιηθεί ως `Authorization: Bearer` για AJAX API calls χωρίς ξεχωριστό login.
-- [ ] **Token scoping για web_session:** Τα web_session tokens έχουν αυτόματα scope = `*` (full access για τον ίδιο χρήστη) — διαφορετικά από API tokens που έχουν explicit scopes. Configurable στο `app.php`.
-- [ ] **Migration:** Νέα column `tokentype` στο `usertokens` migration (ήδη υπάρχει ως `varchar`) — μόνο constants + documentation, δεν σπάει BC.
-- [ ] **Deprecation:** `HTTP_USERAUTH` + password-hash-as-auth pattern marked `@deprecated` στο `Api::exec()` — αφαιρείται σε v1.3.
-- [ ] **Tests:** Unit test για web login → token creation; integration test που επαληθεύει `tokenactions` entry από web request; `UnifiedAuthMiddleware` test × session + Bearer paths.
+- [ ] **`UnifiedAuthMiddleware`:** Εφαρμόζεται στο API route group (Φάση 15). Ελέγχει με σειρά:
+  1. `Authorization: Bearer <value>` → φορτώνει από `usertokens` (υπάρχουσα λογική)
+  2. Session cookie + `X-CSRF-Token` header → αναγνωρίζει `$_SESSION['usertoken']` ως Token object
+  - Και οι δύο οδοί παράγουν το ίδιο `$app->currentToken` — ο controller δεν διακρίνει.
+- [ ] **`tokentype` constants στο `Token`:** `Token::TYPE_WEB_SESSION`, `TYPE_API`, `TYPE_MOBILE` — αντικαθιστούν τα arbitrary strings.
+- [ ] **Web login → token creation:** `User::login()` δημιουργεί `Token` (`TYPE_WEB_SESSION`), αποθηκεύει στη session. `$_SESSION['auth']` παραμένει για BC αλλά παύει να χρησιμοποιείται ως auth header.
+- [ ] **Web logout → token invalidation:** `User::logout()` αδρανοποιεί το token στη βάση + destroy session.
+- [ ] **`Application::exec()` → `addAction()`:** Αν `$_SESSION['usertoken']` υπάρχει, καλεί `addAction()` — web requests καταγράφονται στο `tokenactions` ακριβώς όπως API requests.
+- [ ] **CSRF meta tag helper:** `View` helper `csrf_meta()` → `<meta name="csrf" content="...">` — τυπικό Sanctum/Rails pattern για JS.
+- [ ] **Token scoping:** `web_session` tokens: scope `*` (full access, same user). Configurable.
+- [ ] **Deprecation:** `HTTP_USERAUTH` + password-hash bridge marked `@deprecated` στο `Api::exec()`.
+- [ ] **Tests:** `UnifiedAuthMiddleware` × session path + Bearer path; web login → `tokenactions` entry; AJAX call με session cookie → ίδιο αποτέλεσμα με Bearer.
 
-> **Εξάρτηση:** Φάση 16 εξαρτάται από Φάση 15 (route groups) για την `UnifiedAuthMiddleware` ενσωμάτωση, και από Φάση 2 (Auth backport) για το πλήρες `usertokens` schema.
+> **Εξάρτηση:** Φάση 16 εξαρτάται από Φάση 15 (`UnifiedAuthMiddleware` ενσωματώνεται στο API route group). Η cookie SPA auth **δεν απαιτεί** OAuth — συνυπάρχει με τον authserver (Φάση 2).
 
 ### 💾 Φάση 10: File Storage Abstraction ✅
 *Υλοποιήθηκε ως `Pramnos\Storage\` namespace — 100% BC-safe (Filesystem unchanged).*
