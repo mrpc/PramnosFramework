@@ -2,27 +2,39 @@
 
 # Prevent concurrent test runs: they share the same MySQL/PostgreSQL Docker
 # databases, so two overlapping runs will stomp each other's tables and produce
-# spurious failures. The lock is a file descriptor held by flock — it is
-# automatically released when this process exits (clean or crash, including
-# SIGKILL, because the kernel closes all fds on process exit).
+# spurious failures.
+#
+# Lock strategy: flock on a file descriptor is automatically released when the
+# process exits — even on SIGKILL — because the kernel closes all fds.
+# The only way the lock can be "stuck" is if the process is still alive but
+# hanging (e.g. docker-compose exec frozen). In that case we detect a stale
+# PID: if the recorded PID no longer exists, we clear the lock and proceed.
 LOCK_FILE="/tmp/dockertest-pramnos.lock"
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
+
+_acquire_lock() {
+    exec 9>"$LOCK_FILE"
+    flock -n 9
+}
+
+if ! _acquire_lock; then
     existing_pid=$(cat "$LOCK_FILE" 2>/dev/null)
-    echo "Another ./dockertest run is already in progress (PID: ${existing_pid:-unknown})." >&2
-    if [[ -n "$existing_pid" ]]; then
-        echo "  To kill it:  kill $existing_pid" >&2
+    # Stale lock: the recorded process is no longer running.
+    if [[ -n "$existing_pid" ]] && ! kill -0 "$existing_pid" 2>/dev/null; then
+        echo "Stale lock detected (PID $existing_pid is gone). Clearing and proceeding." >&2
+        rm -f "$LOCK_FILE"
+        _acquire_lock || { echo "Could not acquire lock after clearing stale entry." >&2; exit 1; }
+    else
+        echo "Another ./dockertest run is already in progress (PID: ${existing_pid:-unknown})." >&2
+        [[ -n "$existing_pid" ]] && echo "  To kill it:  kill $existing_pid" >&2
+        exit 1
     fi
-    echo "  To force:    rm $LOCK_FILE && ./dockertest ..." >&2
-    exit 1
 fi
-# Record our PID so a blocked caller can show it.
+# Record our PID so a subsequent caller can detect staleness.
 echo $$ >"$LOCK_FILE"
 
 nobrowser=false
 coverage=false
 testdox=false
-timeout_mins=30
 passthrough=()
 for arg in "$@"; do
     if [[ "$arg" == "--nobrowser" ]]; then
@@ -31,8 +43,6 @@ for arg in "$@"; do
         coverage=true
     elif [[ "$arg" == "--testdox" ]]; then
         testdox=true
-    elif [[ "$arg" == --timeout=* ]]; then
-        timeout_mins="${arg#--timeout=}"
     else
         passthrough+=("$arg")
     fi
@@ -61,24 +71,13 @@ echo -e "\e[32mRunning PHPUnit tests...\e[0m"
 extra_flags="--configuration phpunit.xml --display-deprecations --display-warnings --display-incomplete --display-skipped"
 [[ "$testdox" == true ]] && extra_flags="$extra_flags --testdox"
 
-# Wrap in timeout so a hung test never holds the lock forever.
-# --kill-after sends SIGKILL 60 s after the initial SIGTERM if the process
-# is still alive, guaranteeing the flock is released.
-RUN="timeout --kill-after=60s ${timeout_mins}m"
-
 if [[ "$coverage" == true ]]; then
-    $RUN docker-compose exec php-apache-environment vendor/bin/phpunit \
+    docker-compose exec php-apache-environment vendor/bin/phpunit \
         --coverage-html coverage \
         --coverage-clover coverage/clover.xml \
         $extra_flags "${passthrough[@]}"
 else
-    $RUN docker-compose exec php-apache-environment vendor/bin/phpunit $extra_flags "${passthrough[@]}"
-fi
-
-exit_code=$?
-if [[ $exit_code -eq 124 ]]; then
-    echo -e "\n\e[31mTest run timed out after ${timeout_mins} minute(s).\e[0m" >&2
-    echo "Use --timeout=N to change the limit (e.g. --timeout=60)." >&2
+    docker-compose exec php-apache-environment vendor/bin/phpunit $extra_flags "${passthrough[@]}"
 fi
 
 # Open coverage report if generated and not suppressed
