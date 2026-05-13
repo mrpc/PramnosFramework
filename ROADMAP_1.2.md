@@ -886,17 +886,23 @@ API client → usertokens (api/mobile)  + Bearer token    → cross-origin AJAX 
 #### Υλοποίηση
 
 - [ ] **`UnifiedAuthMiddleware`:** Εφαρμόζεται στο API route group (Φάση 15). Ελέγχει με σειρά:
-  1. `Authorization: Bearer <value>` → φορτώνει από `usertokens` (υπάρχουσα λογική)
-  2. Session cookie + `X-CSRF-Token` header → αναγνωρίζει `$_SESSION['usertoken']` ως Token object
-  - Και οι δύο οδοί παράγουν το ίδιο `$app->currentToken` — ο controller δεν διακρίνει.
+  1. `Authorization: Bearer <value>` → φορτώνει token από `usertokens`, χρησιμοποιεί τα explicit scopes του token
+  2. Session cookie + `X-CSRF-Token` header → αναγνωρίζει `$_SESSION['usertoken']`, περνάει `['*']` ως `$userPermissions`
+  - Ο `Router::hasScope()` ήδη υποστηρίζει `'*'` wildcard (→ `return true` για οποιοδήποτε scope check). Καμία αλλαγή στον Router δεν χρειάζεται.
+  - `['*']` ≠ bypass application auth. Ο controller εξακολουθεί να ελέγχει `$user->usertype`, RBAC κλπ. Η διαφορά:
+
+  | Layer | Bearer token | Session cookie |
+  |---|---|---|
+  | Scope check (`Router`) | explicit scopes του token | `*` → πάντα true |
+  | App auth (controller) | `$user->usertype`, policy | ← αμετάβλητο |
+
 - [ ] **`tokentype` constants στο `Token`:** `Token::TYPE_WEB_SESSION`, `TYPE_API`, `TYPE_MOBILE` — αντικαθιστούν τα arbitrary strings.
 - [ ] **Web login → token creation:** `User::login()` δημιουργεί `Token` (`TYPE_WEB_SESSION`), αποθηκεύει στη session. `$_SESSION['auth']` παραμένει για BC αλλά παύει να χρησιμοποιείται ως auth header.
 - [ ] **Web logout → token invalidation:** `User::logout()` αδρανοποιεί το token στη βάση + destroy session.
 - [ ] **`Application::exec()` → `addAction()`:** Αν `$_SESSION['usertoken']` υπάρχει, καλεί `addAction()` — web requests καταγράφονται στο `tokenactions` ακριβώς όπως API requests.
 - [ ] **CSRF meta tag helper:** `View` helper `csrf_meta()` → `<meta name="csrf" content="...">` — τυπικό Sanctum/Rails pattern για JS.
-- [ ] **Token scoping:** `web_session` tokens: scope `*` (full access, same user). Configurable.
 - [ ] **Deprecation:** `HTTP_USERAUTH` + password-hash bridge marked `@deprecated` στο `Api::exec()`.
-- [ ] **Tests:** `UnifiedAuthMiddleware` × session path + Bearer path; web login → `tokenactions` entry; AJAX call με session cookie → ίδιο αποτέλεσμα με Bearer.
+- [ ] **Tests:** `UnifiedAuthMiddleware` × session path (scope `*`) + Bearer path (explicit scopes); web login → `tokenactions` entry; AJAX call με session cookie → ίδιο αποτέλεσμα με Bearer call.
 
 > **Εξάρτηση:** Φάση 16 εξαρτάται από Φάση 15 (`UnifiedAuthMiddleware` ενσωματώνεται στο API route group). Η cookie SPA auth **δεν απαιτεί** OAuth — συνυπάρχει με τον authserver (Φάση 2).
 
