@@ -440,13 +440,28 @@ echo $gitInfo->renderFooterWidget(); // branch + hash, click → modal
 ```bash
 # Πριν (Node.js required):
 ./src/Api/doc.sh
+# → npm run apidoc:generate  (Node.js + apidoc package)
+# → npm run openapi:generate  (apidoc-to-openapi.js ~1400 γραμμές)
 
 # Μετά (PHP-native):
 php pramnos api:docs --source src/Api/Controllers --output www/api --config src/Api/api-doc.json
 ```
 
+**Output (ίδιο με σήμερα):**
+- `www/api/openapi.json` — latest version OpenAPI 3.0 spec
+- `www/api/openapi-v1.0.json`, `www/api/openapi-v1.1.json` — per-version specs
+- `www/api/docs/index.html` — **Interactive viewer (RapiDoc):**
+  - Dark theme με configurable primary color (σήμερα: `#4CAF50`)
+  - Version selector dropdown — εναλλαγή μεταξύ v1.0/v1.1 live χωρίς reload
+  - Multi-server switcher (Production / Staging / Local) με persistence
+  - Auth persistence (apiKey + accessToken αποθηκεύονται σε localStorage)
+  - Live API testing από τον browser (`allow-try`)
+  - Curl command preview πριν κάθε request
+  - Code samples JS/Python/C# ανά endpoint
+  - Download OpenAPI JSON button
+
 **Τι παραμένει στο UW:**
-- `src/Api/api-doc.json` (rename από `apidoc.json`, νέο format) — project-specific config
+- `src/Api/api-doc.json` (rename από `apidoc.json`, νέο format) — app name, servers, primary-color, auth scheme names
 - `src/Api/openapi-overrides.json` — custom schemas (αν χρειάζονται)
 - `.gitignore` entries για `www/api/openapi*.json`, `www/api/docs/`
 

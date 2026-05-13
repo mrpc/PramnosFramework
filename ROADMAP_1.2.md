@@ -1015,19 +1015,30 @@ public function getUsers(): void { ... }
   - Διαβάζει `#[Route]` → method, path, group, middleware
   - Διαβάζει `#[ApiDoc]`, `#[ApiParam]`, `#[ApiBody]`, `#[ApiResponse]` → OpenAPI spec
   - Fallback: αν δεν υπάρχουν `Api*` attributes, διαβάζει legacy `@api*` PHPDoc annotations (Urbanwater migration path)
-  - Multi-version support: `:path` → `{param}` conversion, `@apiSince` / `since` parameter
-  - Παράγει `openapi.json` + per-version `openapi-v1.0.json`, `openapi-v1.1.json`
+  - Multi-version support: `:path` → `{param}` conversion, `@apiSince` / `since` parameter, version inheritance (νεότερα endpoints κληρονομούνται από παλιότερες εκδόσεις)
+  - Παράγει `openapi.json` (latest) + per-version `openapi-v1.0.json`, `openapi-v1.1.json`
   - Built-in schemas: `Pagination`, `ErrorResponse`, `SuccessResponse`
-  - `openapi-overrides.json` support (custom schemas, override fields)
-  - Code samples: JS/Python/C# (port από το Urbanwater script)
-  - RapiDoc HTML viewer με version selector (port από το Urbanwater script)
+  - `openapi-overrides.json` support (custom schemas, override fields, custom tags)
+  - Code samples auto-generated ανά endpoint: JavaScript (fetch), Python (requests), C# (HttpClient) — με required body params, auth headers
+- [ ] **`RapiDocRenderer`:** standalone class που παράγει το interactive HTML viewer
+  - **Interactive testing:** `allow-try="true"` — live API calls από τον browser, με `show-curl-before-try` (εμφανίζει curl command πριν εκτελέσει)
+  - **Multi-server switcher:** Production / Staging / Local — configurable από `api-doc.json`; o server επιλέγεται live χωρίς reload
+  - **Version selector:** dropdown top-right που αλλάζει live το OpenAPI spec που φορτώνει το RapiDoc (χωρίς page reload)
+  - **Auth persistence:** custom JS που αποθηκεύει `apiKey` + `accessToken` σε `localStorage` και τα επαναφέρει μετά από reload — διαβάζει shadow DOM του RapiDoc για να γεμίσει τα πεδία
+  - **Server selection persistence:** αποθηκεύει τον επιλεγμένο server σε `localStorage` και τον επαναφέρει μέσω `rapidoc.setApiServer()`
+  - **Dark/light theme:** configurable (`theme`, `bg-color`, `primary-color`) — default: dark `#1a1a1a` + primary `#4CAF50`
+  - **Download link:** άμεσο download του openapi.json για το επιλεγμένο version
+  - **`fill-request-fields-with-example="true"`** — auto-fills request fields από τα `@apiSuccessExample` / `#[ApiResponse]` examples
+  - **Getting Started slot:** custom intro content από `api-doc.json` (app name, auth guide)
+  - Configurable `primary-color` για branding ανά project (Urbanwater: `#4CAF50`, άλλα projects: custom)
 - [ ] **`pramnos api:docs` CLI command:** `src/Pramnos/Console/Commands/ApiDocs.php`
   - `--source` (controller dir), `--output` (output dir), `--config` (api-doc.json)
   - `--validate` flag: εκτελεί OpenAPI validation (native PHP, χωρίς swagger-cli)
   - `--format json|html|both` (default: both)
+  - `--watch` flag: file watcher mode — ανιχνεύει αλλαγές στα controllers και regenerates αυτόματα (dev workflow)
 - [ ] **`ApiDocServiceProvider`:** registers `api:docs` command
-- [ ] **Scaffolding (`pramnos init`):** παράγει `api-doc.json` config + `openapi-overrides.json` + `.gitignore` entry για `www/api/openapi*.json`
-- [ ] **Tests:** `OpenApiGenerator` output format validation; multi-version endpoint inclusion logic; legacy `@api*` fallback parser; attribute reading via Reflection
+- [ ] **Scaffolding (`pramnos init`):** παράγει `api-doc.json` config (app name, servers list, primary-color, auth scheme names) + `openapi-overrides.json` + `.gitignore` entry για `www/api/openapi*.json` και `www/api/docs/`
+- [ ] **Tests:** `OpenApiGenerator` output format validation; multi-version endpoint inclusion/exclusion logic; legacy `@api*` fallback parser; attribute reading via Reflection; `RapiDocRenderer` HTML output structure
 
 > **BC:** Τα υπάρχοντα `@api*` PHPDoc annotations του Urbanwater συνεχίζουν να δουλεύουν αυτούσια. Η `pramnos api:docs` αντικαθιστά το `doc.sh` + Node.js pipeline χωρίς να απαιτεί αλλαγές στα controllers.
 > **Εξάρτηση:** Φάση 18 εξαρτάται από Φάση 7 (Routing Engine — `#[Route]` attributes).
