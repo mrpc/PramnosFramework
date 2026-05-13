@@ -1704,7 +1704,7 @@ class Database extends \Pramnos\Framework\Base
 
         $restoredData = [];
         foreach ($data as $key => $value) {
-            if (is_array($value) && isset($value['v']) && isset($value['t'])) {
+            if (is_array($value) && array_key_exists('v', $value) && isset($value['t'])) {
                 // This is a typed field value, restore it
                 $originalValue = $value['v'];
                 $restoredValue = $this->castToType($originalValue, $value['t']);
@@ -1754,39 +1754,43 @@ class Database extends \Pramnos\Framework\Base
      */
     private function castToType($value, $type)
     {
-        // CRITICAL: Always check for null first, regardless of type
-        if ($value === null || $value === 'null' || $value === '') {
+        // Only treat PHP null and the string 'null' as null — NOT empty string.
+        // Empty string is a valid value for string columns and must survive the round-trip.
+        if ($value === null || $value === 'null') {
             return null;
         }
-        
+
         switch ($type) {
-            case 'n': 
+            case 'n':
                 return null;
-            case 'b': 
-                // Handle boolean conversion more carefully
+            case 'b':
                 if ($value === 'true' || $value === '1' || $value === 1 || $value === true) {
                     return true;
                 } elseif ($value === 'false' || $value === '0' || $value === 0 || $value === false) {
                     return false;
-                } else {
-                    // If it's not a clear boolean value, return null
+                }
+                return null;
+            case 'i':
+                // Empty string is not a valid integer; treat as null.
+                if ($value === '') {
                     return null;
                 }
-            case 'i': 
-                // Only convert to int if it's actually a numeric value
                 if (is_numeric($value)) {
                     return (int) $value;
                 }
                 return null;
-            case 'f': 
-                // Only convert to float if it's actually a numeric value
+            case 'f':
+                // Empty string is not a valid float; treat as null.
+                if ($value === '') {
+                    return null;
+                }
                 if (is_numeric($value)) {
                     return (float) $value;
                 }
                 return null;
             case 's':
             default:
-                // For strings, empty string should stay empty string, not become null
+                // Empty string is a valid string value — preserve it.
                 return (string) $value;
         }
     }
