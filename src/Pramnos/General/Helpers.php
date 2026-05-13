@@ -170,8 +170,7 @@ class Helpers
             "'&(cent|#162);'i",
             "'&(pound|#163);'i",
             "'&(copy|#169);'i",
-            "'&#(\d+);'e"
-        );                    // evaluate as php
+        );
 
         $replace = array("",
             "",
@@ -185,9 +184,17 @@ class Helpers
             chr(162),
             chr(163),
             chr(169),
-            "chr(\\1)");
+        );
 
-        return preg_replace($search, $replace, $html);
+        $result = preg_replace($search, $replace, $html);
+
+        // Convert numeric HTML entities (&#NNN;) to their UTF-8 characters.
+        // Previously used the /e modifier (removed in PHP 7); now uses a callback.
+        return preg_replace_callback(
+            "/'?&#(\d+);'?/",
+            static fn($m) => mb_chr((int) $m[1], 'UTF-8') ?: '',
+            $result ?? ''
+        );
     }
 
     /**
@@ -375,7 +382,7 @@ class Helpers
                 0, $injectpos
             )
             . $symbol
-            . substr($initialPass, $injectpos);
+            . substr($initialPass, $injectpos, $length - 1 - $injectpos);
         return $password;
 
     }
@@ -471,7 +478,7 @@ class Helpers
                 "Σεπτεμβρίου", "Οκτωβρίου",
                 "Νοεμβρίου", "Δεκεμβρίου");
         }
-        $monthname = str_replace($months, $monthnames, $month);
+        $monthname = $monthnames[(int)$month - 1];
         return $monthname;
     }
 

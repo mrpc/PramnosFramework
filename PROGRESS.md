@@ -1,6 +1,18 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-13 (session 70)
+## 📅 Last Updated: 2026-05-13 (session 71)
+
+## 🏁 Session 71 — Fix 3 production bugs in Helpers.php (2026-05-13)
+
+### Ολοκληρώθηκε
+- **`Helpers::clearhtml()`** — Αφαιρέθηκε το `/e` modifier (απενεργοποιήθηκε στην PHP 7). Τώρα χρησιμοποιεί `preg_replace_callback()` + `mb_chr()` για numeric HTML entities.
+- **`Helpers::greekdate()`** — Αντικαταστάθηκε το `str_replace($months, $monthnames, $month)` (έσπαγε τους μήνες 10-12 λόγω cast ακεραίων σε strings) με άμεσο `$monthnames[(int)$month - 1]`.
+- **`Helpers::generatePassword()`** — Διορθώθηκε το `substr($initialPass, $injectpos)` που έπαιρνε ολόκληρη την ουρά md5 (πάντα 33 χαρακτήρες). Τώρα: `substr($initialPass, $injectpos, $length - 1 - $injectpos)`.
+- **HelpersExtendedTest** ενημερώθηκε: greekdate provider +6 μήνες (10-12), generatePassword test ελέγχει σωστό μήκος, clearhtml tests επαληθεύουν την ορθή λειτουργία.
+- **Suite:** 2700 tests (+32 από session 70), coverage 39.08% statements / 46.84% methods.
+
+### Commits
+- (pending)
 
 ## 🏁 Session 70 — Unit test coverage expansion (2026-05-13)
 
