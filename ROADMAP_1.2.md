@@ -717,6 +717,55 @@ HTML toolbar που εγχέεται αυτόματα στο κάτω μέρος
 
 > **Εξάρτηση:** Φάση 13 είναι ανεξάρτητη — μπορεί να υλοποιηθεί παράλληλα με Φάση 11/12.
 
+### 🖥️ Φάση 14: DevPanel — Developer / Admin Dashboard
+*Web-accessible admin panel ενσωματωμένο στο framework. Εμπνευσμένο από το dashboard του UrbanWater (`src/Controllers/Home.php` + `src/Controllers/Users.php`). Μετά την υλοποίηση το UrbanWater θα αντικαταστήσει τον κώδικα Home/Users με thin wrappers (βλ. UrbanWater-Cleanup-Guide.md).*
+
+Ενεργοποιείται opt-in μέσω feature registry. Mount point ρυθμιζόμενο στο `app.php` (default: `/devpanel`). Προστατεύεται από admin policy — εξ ορισμού απαιτεί `usertype >= 90` ή configurable policy callback.
+
+#### Overview & System Info
+- [ ] **`Pramnos\DevPanel\DevPanelController`:** base controller — εγγράφει routes, enforces auth policy.
+- [ ] **Overview panel:** DB type/version (MySQL/PostgreSQL/TimescaleDB), PHP version, framework version, uptime, last deploy (από git HEAD).
+- [ ] **System info:** CPU load + %, RAM total/used/free — διαβάζει `/proc/meminfo` + `/proc/loadavg` (Linux) χωρίς shell_exec.
+- [ ] **Migration status:** pending/applied count, last applied migration + date.
+- [ ] **Queue stats:** pending / running / failed jobs.
+
+#### Database Panel
+- [ ] **Database stats (cross-DB):** size, connections, active connections, transactions, cache hit ratio — MySQL και PostgreSQL/TimescaleDB ξεχωριστά query paths.
+- [ ] **TimescaleDB sub-panel:** εμφανίζεται μόνο αν `timescaledb` extension βρεθεί — hypertables (schema, name, chunks, compression), continuous aggregates + job schedules.
+
+#### Cache Browser
+- [ ] **Cache stats:** adapter type, connection status, item count per namespace/category.
+- [ ] **Item browser:** paginated λίστα με key, namespace, size, TTL, created — φιλτράρισμα per namespace.
+- [ ] **Item inspector (AJAX):** εμφάνιση serialized περιεχομένου cache item (truncated στα 50 KB).
+- [ ] **Clear all (AJAX):** flush ολόκληρου του cache με confirmation.
+
+#### User Activity & Security
+- [ ] **Active sessions:** λίστα logged-in users + tokens (userid, username, last seen, IP, application).
+- [ ] **Token detail page:** paginated action history (endpoint, method, execution_time_ms, timestamp) — compatible με `tokenactions` table από Auth backport.
+- [ ] **User log (per-user):** `itemlog` / `userlog` εγγραφές για συγκεκριμένο user.
+- [ ] **Login security monitor:** active lockouts per user / identifier / IP, policy display, manual unlock action.
+
+#### Performance Report
+- [ ] **Slowest endpoints:** URL + method, call count, avg/max/p95 ms — time range selector (1h / 6h / 24h / 7d / 30d).
+- [ ] **Slowest users/applications:** userid, username, app name, call count, avg/max/p95 ms.
+- [ ] **Pluggable panels:** `DevPanel::registerPanel(string $slug, callable $renderer)` — apps προσθέτουν custom tabs.
+
+#### Git Info Widget
+*Παρόμοιο με το footer git modal του UrbanWater. Διαβάζει `.git/HEAD` / `.git/objects/` απευθείας — zero `exec()`.*
+- [ ] **`Pramnos\DevPanel\GitInfo`:** `getBranch()`, `getHash()`, `getShortHash()`, `getSubject()`, `getAuthor()`, `getDate()`, `getLocalBranches()`, `getRemotes()` — pure PHP, χωρίς shell.
+- [ ] **DevPanel footer / header widget:** branch + short hash, κλικ → modal με πλήρη πληροφορία.
+- [ ] **`Pramnos\Framework\GitInfo` helper:** standalone class — apps μπορούν να τη χρησιμοποιούν και εκτός DevPanel (π.χ. στο δικό τους footer).
+
+#### PHP Info
+- [ ] **`/devpanel/phpinfo`:** wrapper γύρω από `phpinfo()` — εμφανίζεται μόνο σε admin.
+
+#### DevPanel ServiceProvider & Routing
+- [ ] **`DevPanelServiceProvider`:** εγγράφει routes (`GET /devpanel`, `/devpanel/cache`, `/devpanel/users`, κλπ.), assets, policy.
+- [ ] **Assets:** self-contained CSS + minimal JS inline — δεν εξαρτάται από app theme.
+- [ ] **Tests:** controller unit tests (mock DB/Cache), integration test για cache flush + git info parsing.
+
+> **Εξάρτηση:** DevPanel χρησιμοποιεί Cache (Φάση 11) και Auth (Φάση 2/4). Μπορεί να υλοποιηθεί σταδιακά — κάθε panel ανεξάρτητα.
+
 ### 💾 Φάση 10: File Storage Abstraction ✅
 *Υλοποιήθηκε ως `Pramnos\Storage\` namespace — 100% BC-safe (Filesystem unchanged).*
 

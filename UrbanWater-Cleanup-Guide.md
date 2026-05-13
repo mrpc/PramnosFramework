@@ -311,7 +311,97 @@ migration_cutoff = '2026-01-01 00:00:00'   ← οποιαδήποτε ημερο
 
 ---
 
-## Phase 6: Tests
+## Phase 6: DevPanel (Dashboard, Cache Browser, User Activity, Git Info)
+
+*Αφορά τον κώδικα που θα αντικατασταθεί από την υλοποίηση της Φάσης 14 (DevPanel) στο framework.*
+
+---
+
+### 6.1 `src/Controllers/Home.php` — διαγραφή, αντικατάσταση με routes στο DevPanel
+
+Όλες οι παρακάτω μέθοδοι γίνονται **thin routes** που απλώς ανακατευθύνουν στο framework DevPanel. Αφού η Φάση 14 ολοκληρωθεί:
+
+| Μέθοδος | Τι κάνει | Αντικατάσταση |
+|---|---|---|
+| `display()` | Overview + DB stats + system info + cache stats + queue stats | `/devpanel` |
+| `timescale()` | TimescaleDB hypertables, continuous aggregates, job schedules | `/devpanel/timescale` |
+| `phpinfo()` | Wrapper phpinfo() | `/devpanel/phpinfo` |
+| `activeUsers()` | Logged-in users + tokens | `/devpanel/sessions` |
+| `cache()` | Cache item browser | `/devpanel/cache` |
+| `cacheitem()` | AJAX: inspect cache item | `/devpanel/cache/item` |
+| `clearcache()` | AJAX: flush cache | `/devpanel/cache/clear` |
+| `performance()` | Slowest endpoints + users | `/devpanel/performance` |
+| `kafka()`, `kafkaPostMessage()`, `kafkaGetMessages()` | Kafka-specific — **παραμένουν στο UW** | — |
+| `formatBytes()`, `getServerMemoryInfo()`, `getCpuUsagePercentage()` | Helpers — μεταφέρονται στο framework | `Pramnos\DevPanel\SystemInfo` |
+
+**Μετά την αντικατάσταση:** το `Home` controller διατηρείται μόνο για Kafka-specific actions. Το `app/routes.php` ανακατευθύνει:
+```php
+// Redirect legacy UW dashboard routes → framework DevPanel
+$router->get('/home',            fn() => redirect(sURL . 'devpanel'));
+$router->get('/home/timescale',  fn() => redirect(sURL . 'devpanel/timescale'));
+$router->get('/home/cache',      fn() => redirect(sURL . 'devpanel/cache'));
+$router->get('/home/phpinfo',    fn() => redirect(sURL . 'devpanel/phpinfo'));
+$router->get('/home/activeUsers',fn() => redirect(sURL . 'devpanel/sessions'));
+$router->get('/home/performance',fn() => redirect(sURL . 'devpanel/performance'));
+```
+
+---
+
+### 6.2 `src/Controllers/Users.php` — μερική αντικατάσταση
+
+| Μέθοδος | Τι κάνει | Αντικατάσταση |
+|---|---|---|
+| `logs($userid)` | User action log (itemlog) | `/devpanel/users/{id}/logs` |
+| `tokenDetail()` | Token + paginated action history | `/devpanel/sessions/token/{id}` |
+| `security()` | Login lockout monitor (active lockouts, policy) | `/devpanel/security` |
+| `unlockLogin()` | Manual unlock of locked user/IP | `/devpanel/security/unlock` |
+| `getUsers()` | JSON endpoint — λίστα users | παραμένει στο UW (app-specific) |
+| `display()`, `view()`, `save()`, `delete()`, `edit()` | User CRUD | παραμένουν στο UW |
+| `sendnotification()`, `notify()` | Notifications | παραμένουν στο UW |
+| `deleteToken()`, `deactivateToken()`, `expireToken()` | Token management | `/devpanel/sessions/token/{id}/action` |
+| `saveUserSetting()`, `deleteUserSetting()` | User settings | παραμένουν στο UW |
+| `getUserActionsData()`, `getTokensData()` | AJAX endpoints | αντικαθίστανται από DevPanel AJAX routes |
+| `findByToken()` | Token lookup | αντικαθίσταται από DevPanel |
+
+---
+
+### 6.3 `app/themes/main/footer.php` — Git Info widget
+
+Ο κώδικας στο footer που διαβάζει `.git/HEAD` και εμφανίζει branch + commit + modal:
+
+```php
+// ΣΗΜΕΡΑ (inline στο footer.php):
+$headFile = ROOT . '/.git/HEAD';
+$ref = trim(file_get_contents($headFile));
+// ... 120 γραμμές PHP/HTML για το modal
+```
+
+**Μετά τη Φάση 14:**
+```php
+// footer.php (AFTER framework backport)
+$gitInfo = \Pramnos\Framework\GitInfo::read(ROOT);
+echo $gitInfo->renderFooterWidget(); // branch + hash, click → modal
+```
+
+Το modal HTML παράγεται από το framework. Το UW footer.php κρατάει μόνο τη δική του markup.
+
+---
+
+### 6.4 `src/Views/home/` — Views
+
+Οι παρακάτω views αντικαθίστανται από τα framework DevPanel views (τα οποία μπορεί να override-αριστούν με UW-specific views αν χρειαστεί):
+
+- `home.html.php` → `devpanel/overview.html.php` (framework)
+- `timescale.html.php` → `devpanel/timescale.html.php` (framework)
+- `cache.html.php` → `devpanel/cache.html.php` (framework)
+- `phpinfo.html.php` → `devpanel/phpinfo.html.php` (framework)
+- `activeUsers.html.php` → `devpanel/sessions.html.php` (framework)
+- `performance.html.php` → `devpanel/performance.html.php` (framework)
+- `kafka.html.php` → **παραμένει στο UW** (Kafka-specific)
+
+---
+
+## Phase 7: Tests
 
 ### 6.1 Tests που πρέπει να ενημερωθούν
 
