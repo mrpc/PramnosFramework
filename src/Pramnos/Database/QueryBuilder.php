@@ -1026,7 +1026,8 @@ class QueryBuilder
         $bindings = $this->getBindings();
 
         if ($cache) {
-            $cacheKey = $sql . serialize($bindings);
+            // FIX UW-389: Include bindings in cache key to prevent collision
+            $cacheKey = md5($sql . serialize($bindings));
             $cacheData = $this->db->cacheRead($cacheKey, $category);
             
             if ($cacheData !== false) {
@@ -1065,7 +1066,8 @@ class QueryBuilder
             }
 
             if ($this->db->shouldCacheResult($data)) {
-                $cacheKey = $sql . serialize($bindings);
+                // FIX UW-389: Include bindings in cache key to prevent collision
+                $cacheKey = md5($sql . serialize($bindings));
                 $this->db->cacheStore($cacheKey, $data, $category, $cachetime);
             }
         }
