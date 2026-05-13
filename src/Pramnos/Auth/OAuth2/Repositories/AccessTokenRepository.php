@@ -37,7 +37,7 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
     public function getNewToken(
         ClientEntityInterface $clientEntity,
         array $scopes,
-        mixed $userIdentifier = null
+        $userIdentifier = null
     ): AccessTokenEntityInterface {
         $token = new AccessTokenEntity();
         $token->setClient($clientEntity);
@@ -83,7 +83,7 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
     /**
      * Revoke an access token by setting status=0.
      */
-    public function revokeAccessToken(string $tokenId): void
+    public function revokeAccessToken($tokenId): void
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->queryBuilder()
@@ -96,7 +96,7 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
     /**
      * Return true when the access token does not exist or has been revoked.
      */
-    public function isAccessTokenRevoked(string $tokenId): bool
+    public function isAccessTokenRevoked($tokenId): bool
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()

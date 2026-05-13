@@ -31,9 +31,9 @@ class UserRepository implements UserRepositoryInterface
      * causing league/oauth2-server to return an invalid_grant error response.
      */
     public function getUserEntityByUserCredentials(
-        string $username,
-        string $password,
-        string $grantType,
+        $username,
+        $password,
+        $grantType,
         ClientEntityInterface $clientEntity
     ): ?UserEntityInterface {
         $credentials = \Pramnos\User\User::validateUserCredentials($username, $password);

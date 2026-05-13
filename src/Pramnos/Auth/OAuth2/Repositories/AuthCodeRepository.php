@@ -71,7 +71,7 @@ class AuthCodeRepository implements AuthCodeRepositoryInterface
     /**
      * Revoke an authorization code by setting status=0.
      */
-    public function revokeAuthCode(string $codeId): void
+    public function revokeAuthCode($codeId): void
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->queryBuilder()
@@ -84,7 +84,7 @@ class AuthCodeRepository implements AuthCodeRepositoryInterface
     /**
      * Return true when the authorization code does not exist or has been consumed/revoked.
      */
-    public function isAuthCodeRevoked(string $codeId): bool
+    public function isAuthCodeRevoked($codeId): bool
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
