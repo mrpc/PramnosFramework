@@ -637,6 +637,7 @@
 - [x] **Attribute-based Routing:** `#[Route]` PHP 8 attribute (`src/Pramnos/Routing/Attributes/Route.php`) — `IS_REPEATABLE`, parameters: `uri`, `methods` (string|array), `name`, `permissions`, `middleware`.
 - [x] **Route Discovery:** `RouteDiscovery::discover(string $dir, string $namespace)` (`src/Pramnos/Routing/RouteDiscovery.php`) — recursive `RecursiveIteratorIterator` scan; maps file path → FQCN; reads `#[Route]` via Reflection; registers with Router. `Router::loadFromDirectory()` convenience wrapper.
 - [x] **Named Routes & URL Generation:** `Route::name(string $n): static` + `Router::getByName(string $n): ?Route` + `Router::route(string $name, array $params = []): string` — replaces `{param}` / `{param?}` placeholders; rawurlencode values; strips unresolved optional segments. Callback-based registration (no circular dependency). 26 characterization tests.
+- [ ] **`Router::group()` + `#[RouteGroup]`** — βλ. Φάση 15.
 
 ### 🛡️ Φάση 8: Security & Templating
 - [x] **View Auto-escaping:** Σύστημα προστασίας XSS με αυτόματο escaping των μεταβλητών στα templates (με δυνατότητα `raw` bypass). *`View::escape(mixed $value): string` + `View::e()` alias — delegates to global `e()` helper. Templates use `<?= $this->e($var) ?>`.*
@@ -769,6 +770,72 @@ HTML toolbar που εγχέεται αυτόματα στο κάτω μέρος
 - [ ] **Tests:** controller unit tests (mock DB/Cache), integration test για cache flush + git info parsing.
 
 > **Εξάρτηση:** DevPanel χρησιμοποιεί Cache (Φάση 11) και Auth (Φάση 2/4). Μπορεί να υλοποιηθεί σταδιακά — κάθε panel ανεξάρτητα.
+
+### 🔀 Φάση 15: Unified Application — Route Groups & API/Web Convergence
+*Σήμερα κάθε Pramnos project στήνει δύο ξεχωριστές εφαρμογές: `Application` (MVC/web) και `Api extends Application` (REST). Αυτή η φάση τις ενώνει σε μία, με route groups που φέρουν τα δικά τους middleware — ακριβώς όπως το Laravel (`routes/web.php` + `routes/api.php`) και το Symfony (firewall per route prefix). BC: ο υπάρχων `Api` class παραμένει ως pre-configured sugar wrapper.*
+
+#### Πρόβλημα σήμερα
+Ένα project σαν το UrbanWater έχει:
+- `www/index.php` → `new Application()` → `app/app.php` → controllers σε `Urbanwater\Controllers\`
+- `www/api/index.php` → `new Api('api')` → `app/api.php` → controllers σε `Urbanwater\Api\Controllers\`
+
+Δύο ξεχωριστά bootstrap, δύο configs, δύο namespaces — ενώ μοιράζονται DB, models, service providers, settings.
+
+#### Λύση: Route Groups
+Ένα `Application`, ένα `app/app.php`, ένα entry point. Η διαφορά web vs API ορίζεται στο routing layer:
+
+```php
+// app/routes.php
+$router->group([
+    'prefix'     => '/api/1.0',
+    'middleware' => [CorsMiddleware::class, ApiAuthMiddleware::class, JsonResponseMiddleware::class],
+    'namespace'  => 'Urbanwater\\Api\\Controllers',
+], function ($r) {
+    $r->get('/users',       'Users@index');
+    $r->post('/users',      'Users@store');
+    $r->get('/users/{id}',  'Users@show');
+});
+
+$router->group([
+    'middleware' => [WebAuthMiddleware::class, CsrfMiddleware::class],
+    'namespace'  => 'Urbanwater\\Controllers',
+], function ($r) {
+    $r->get('/users',       'Users@index');
+});
+```
+
+Ή ισοδύναμα με annotations — οι δύο τρόποι παράγουν τα ίδια Route objects:
+
+```php
+// Μία φορά στο class, κληρονομείται από όλα τα methods
+#[RouteGroup(prefix: '/api/1.0', middleware: [CorsMiddleware::class, ApiAuthMiddleware::class])]
+class UsersApiController
+{
+    #[Route('/users',      methods: 'GET')]
+    public function index() {}
+
+    #[Route('/users/{id}', methods: 'GET')]
+    public function show(int $id) {}
+}
+```
+
+#### Υλοποίηση
+
+- [ ] **`Router::group(array $attrs, callable $cb)`:** stack-based context (prefix, middleware, namespace) που κληρονομείται από routes εντός του callback. Nested groups συσσωρεύουν prefix + middleware.
+- [ ] **`#[RouteGroup]` PHP attribute (`TARGET_CLASS`):** `prefix`, `middleware`, `namespace` — επεξεργάζεται από `RouteDiscovery` και εφαρμόζεται σε όλα τα method-level `#[Route]` του class. Συμβατό με υπάρχον method-level `middleware` (merge, όχι override).
+- [ ] **Route-level middleware εκτέλεση στο `Application::exec()`:** μετά το dispatch, αλλά πριν τον controller, τρέχουν τα middleware του matched route (περ. `MiddlewarePipeline`). Σήμερα το pipeline εφαρμόζεται globally — χρειάζεται per-route layer.
+- [ ] **Built-in middleware για API groups:**
+  - `CorsMiddleware` — `Access-Control-Allow-Origin` + preflight `OPTIONS` handling.
+  - `JsonResponseMiddleware` — θέτει `$app->accept = 'json'`· μεταφέρει την inline CORS/format λογική από `Api::exec()`.
+  - `ApiAuthMiddleware` — API key / Bearer token validation (αντικαθιστά inline κώδικα στο `Api::exec()`).
+- [ ] **`Api` class refactor (BC-safe):** το `Api::exec()` γίνεται thin wrapper που ορίζει ένα default group με `CorsMiddleware + ApiAuthMiddleware + JsonResponseMiddleware` και καλεί `parent::exec()`. Συμπεριφορά αμετάβλητη, κώδικας καθαρότερος.
+- [ ] **Single config:** `app/app.php` αποκτά ένα `'api'` section — δεν χρειάζεται ξεχωριστό `app/api.php`. Το ξεχωριστό config παραμένει supported για BC.
+- [ ] **Scaffolding update:** `pramnos init` ρωτάει «θέλεις REST API;» — αν ναι, δημιουργεί το API group στο `routes.php` και τους αντίστοιχους φακέλους controllers, **χωρίς** ξεχωριστό entry point.
+- [ ] **Tests:** unit tests για `Router::group()` (prefix inheritance, nested groups, middleware accumulation) + `RouteDiscovery` με `#[RouteGroup]`· integration test που επαληθεύει ότι API routes επιστρέφουν JSON και web routes επιστρέφουν HTML από το ίδιο `Application` instance.
+
+> **BC:** `Pramnos\Application\Api`, `www/api/index.php` με `new Api(...)`, και ξεχωριστό `app/api.php` συνεχίζουν να λειτουργούν αναλλοίωτα. Δεν υπάρχει deprecation — η νέα προσέγγιση είναι additive.
+
+> **UrbanWater migration:** βλ. `UrbanWater-Cleanup-Guide.md` Phase 7 (προστίθεται όταν αρχίσει η υλοποίηση).
 
 ### 💾 Φάση 10: File Storage Abstraction ✅
 *Υλοποιήθηκε ως `Pramnos\Storage\` namespace — 100% BC-safe (Filesystem unchanged).*
