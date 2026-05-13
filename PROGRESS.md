@@ -1,6 +1,34 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-13 (session 69 cont.)
+## 📅 Last Updated: 2026-05-13 (session 70)
+
+## 🏁 Session 70 — Unit test coverage expansion (2026-05-13)
+
+### Ολοκληρώθηκε
+- **16 new test files** covering 14 previously-uncovered source classes:
+  - `Auth/JWTTest` — encode/decode/sign round-trips, expired token, wrong secret, algorithm check
+  - `Application/Orm/CollectionTest` — filter, map, pluck, groupBy, sortBy, each, JSON, immutability
+  - `Application/UnknownFeatureExceptionTest` — exception message, getFeatureKey(), known-key list
+  - `Database/ExpressionTest` — getValue(), __toString(), integer arg, string interpolation
+  - `Document/RssItemTest` — Item render, CDATA wrapping, guid from link, XML validity
+  - `Document/RssTest` — Feed render, addItem, removeItem, duplicate-link dedup, XML validity
+  - `General/HelpersExtendedTest` — getUserBrowser, fixFilesArray, greeklishUrlFriendly, formatMemory, greekStrToUpper, optimizeTime, sortArrayOfObjects, objectDiff, isValidCoordinate, validateIpOrCidr, greekdate (documented bugs)
+  - `General/LegacyValidatorTest` — deprecation trigger + ValidationException on fail
+  - `General/StringHelperTest` — pluralize, singularize, isPlural, camelCase, snake, kebab, pascal, getProperClassName, getModelTableName, getFullTableName, containsGreekCharacters
+  - `Html/BreadcrumbTest` — render, JSON-LD, aria-current, span vs link
+  - `Html/DateHtmlTest` — getHtmlDate() parse + constructor defaults
+  - `Messaging/MessageConstantsTest` — Message::TYPE_*, MassMessage::TYPE_*/STATUS_*, MassMessageRecipient::STATUS_* constants pinned
+  - `Routing/RouteAttributeTest` — readonly props, IS_REPEATABLE, TARGET_METHOD, defaults
+  - `Scheduling/CronExpressionTest` — isDue() for *, exact, range, step, comma, day-of-week
+  - `Scheduling/ScheduledTaskTest` — fluent timing methods, isDue, run, getSummary, getCronExpression
+  - `Storage/StorageManagerTest` — extend(), disk(), defaultDisk(), override, error paths
+- **Suite grew** from 2474 → 2693 tests (+219 tests, +295 assertions)
+- **3 production bugs documented** in test comments: `Helpers::clearhtml()` (PHP 7 `/e` modifier removed), `Helpers::greekdate()` (str_replace integer keys break months 10-12), `Helpers::generatePassword()` (last substr takes full md5 tail, always 33 chars)
+
+### Commits
+- `d8f5366` test(coverage): add unit tests for 14 previously-uncovered classes
+
+---
 
 ## 🏁 Session 69 cont. — ScaffoldingHelper + Controller Fallback + scaffold:views command (2026-05-13)
 
