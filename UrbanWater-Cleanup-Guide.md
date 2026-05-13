@@ -465,11 +465,11 @@ php pramnos api:docs --source src/Api/Controllers --output www/api --config src/
 - `src/Api/openapi-overrides.json` — custom schemas (αν χρειάζονται)
 - `.gitignore` entries για `www/api/openapi*.json`, `www/api/docs/`
 
-**Τι φεύγει από το UW:**
-- `src/Api/doc.sh` → αντικαθίσταται από `pramnos api:docs`
-- `scripts/apidoc-to-openapi.js` → φεύγει εντελώς
-- `package.json` scripts: `apidoc:generate`, `openapi:generate`, `docs:build`, `docs:all`
-- `package.json` devDependencies: `apidoc`, `swagger-cli`
+**Τι αλλάζει στο UW:**
+- `scripts/apidoc-to-openapi.js` → αντικαθίσταται από τη βελτιωμένη έκδοση του scaffolding (ίδια λογική, χωρίς hardcoded τιμές)
+- `src/Api/apidoc.json` → γίνεται `src/Api/api-doc.json` με εμπλουτισμένο format (theme, primaryColor, prefsKey, additionalServers)
+- `package.json` scripts → `docs:generate` + `docs:validate` (αντί για τα 4 επιμέρους scripts)
+- Controllers: **καμία αλλαγή** — τα `@api*` PHPDoc annotations παραμένουν αυτούσια
 
 **Migration path:**
 Τα `@api*` PHPDoc annotations στα controllers συνεχίζουν να δουλεύουν αυτούσια — ο `OpenApiGenerator` τα διαβάζει ως fallback. Σταδιακά αντικαθίστανται από `#[ApiDoc]` / `#[ApiParam]` / `#[ApiBody]` / `#[ApiResponse]` attributes.

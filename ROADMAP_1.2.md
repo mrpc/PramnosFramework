@@ -966,82 +966,44 @@ public function getUsersJson() {
 > **BC:** `_getJsonList()` και όλα τα custom `getJsonList()` overrides στο Urbanwater συνεχίζουν να λειτουργούν αναλλοίωτα. Η μετάβαση γίνεται model-by-model, view-by-view.
 > **Εξάρτηση:** Φάση 17 εξαρτάται από Φάση 16 (CSRF header για session-authenticated AJAX) και Φάση 15 (API route group).
 
-### 📖 Φάση 18: OpenAPI 3.0 Documentation Generator
-*Στο Urbanwater η τεκμηρίωση του API παράγεται από ένα σύνθετο Node.js script (`scripts/apidoc-to-openapi.js`, ~1400 γραμμές) που διαβάζει `@api*` PHPDoc annotations και παράγει OpenAPI 3.0 JSON + RapiDoc HTML viewer. Αυτή η φάση μεταφέρει ολόκληρη τη διαδικασία μέσα στο framework ως PHP-native CLI command, συγχρονισμένο με τα `#[Route]` PHP 8 attributes που ήδη υπάρχουν στο routing.*
+### 📖 Φάση 18: API Documentation — Scaffolding & Βελτίωση Script
+*Στο Urbanwater υπάρχει ήδη λειτουργικό documentation pipeline: το `scripts/apidoc-to-openapi.js` (~1400 γραμμές) διαβάζει `@api*` PHPDoc annotations και παράγει OpenAPI 3.0 JSON + interactive RapiDoc viewer. Δεν υπάρχει λόγος να ξαναγραφεί σε PHP — Node.js ως dev dependency είναι απολύτως αποδεκτό. Αυτή η φάση το καθαρίζει, το γενικεύει, και το εντάσσει στο scaffolding ώστε κάθε νέο project να ξεκινάει με έτοιμη documentation υποδομή.*
 
-#### Πρόβλημα σήμερα (Urbanwater)
+#### Τι γίνεται
 
-```
-dev runs: ./src/Api/doc.sh
-  → npm run apidoc:generate     # Node.js + apidoc package, scans @api* PHPDoc
-  → npm run openapi:generate    # apidoc-to-openapi.js: converts to OpenAPI 3.0
-  → www/api/openapi.json        # output
-  → www/api/docs/index.html     # RapiDoc HTML viewer
-```
+- [ ] **Αφαίρεση hardcoded τιμών** από το `apidoc-to-openapi.js`: όλα τα Urbanwater-specific στοιχεία (`hydrigital.com`, `Hydrigital REST API`, `#4CAF50`, server URLs) μπαίνουν στο `api-doc.json` config
+- [ ] **Εμπλουτισμός `api-doc.json`** με τα νέα πεδία:
+  ```json
+  {
+    "name": "My App REST API",
+    "title": "My App REST API",
+    "description": "...",
+    "url": "https://api.myapp.com/api",
+    "sampleUrl": "https://api.myapp.com/api",
+    "theme": "dark",
+    "primaryColor": "#4CAF50",
+    "authSchemes": ["apiKey", "accessToken"],
+    "prefsKey": "myapp-api-prefs",
+    "additionalServers": [
+      { "url": "https://dev.myapp.com/api", "description": "Staging" },
+      { "url": "http://localhost:81/myapp/www/api", "description": "Local" }
+    ]
+  }
+  ```
+- [ ] **`scaffolding/scripts/apidoc-to-openapi.js`:** το βελτιωμένο script μπαίνει στο framework scaffolding
+- [ ] **`scaffolding/templates/api-doc.json.stub`:** template config με placeholders (`{{APP_NAME}}`, `{{API_URL}}`, `{{PRIMARY_COLOR}}`)
+- [ ] **`scaffolding/templates/openapi-overrides.json.stub`:** κενό override file με οδηγίες σε comments
+- [ ] **`scaffolding/templates/doc.sh.stub`:** shell script wrapper (αντίστοιχο του `src/Api/doc.sh`)
+- [ ] **`pramnos init` wizard:** νέο βήμα "Configure API documentation? [y/N]" — αν yes:
+  - Παράγει `src/Api/api-doc.json` από stub (με APP_NAME, API_URL κλπ από τα προηγούμενα βήματα)
+  - Παράγει `src/Api/openapi-overrides.json`
+  - Παράγει `scripts/apidoc-to-openapi.js`
+  - Προσθέτει scripts στο `package.json` (`docs:generate`, `docs:validate`)
+  - Προσθέτει `www/api/openapi*.json` και `www/api/docs/` στο `.gitignore`
+- [ ] **Urbanwater migration:** αντικατάσταση `src/Api/apidoc.json` + `scripts/apidoc-to-openapi.js` με τις νέες εκδόσεις — output identικό, χωρίς αλλαγές στα controllers
 
-Απαιτεί Node.js, npm, `apidoc` package. Ο framework ήδη έχει `#[Route(method: 'GET', path: '/users', group: 'Users')]` — η πληροφορία για path/method/group **ήδη υπάρχει** στα attributes, δεν χρειάζεται να ξαναγραφτεί σε PHPDoc.
-
-#### Λύση: PHP-native generator, attributes-first
-
-**Νέα PHP 8 attributes** (`src/Pramnos/Routing/Attributes/`):
-
-```php
-#[Route(method: 'GET', path: '/1.0/users', group: 'Users', middleware: ['ApiAuth'])]
-#[ApiDoc(
-    summary: 'List all users',
-    description: 'Returns paginated list of users with optional field selection.',
-    since: '1.0',
-    deprecated: false
-)]
-#[ApiParam('page', type: 'integer', description: 'Page number', required: false, default: 1)]
-#[ApiParam('search', type: 'string', description: 'Search term', required: false)]
-#[ApiBody('name', type: 'string', description: 'User name', required: true)]
-#[ApiResponse(status: 200, schema: 'UserList')]
-#[ApiResponse(status: 401, ref: 'ErrorResponse')]
-public function getUsers(): void { ... }
-```
-
-`#[Route]` συνεχίζει να δουλεύει **αυτούσιο** — τα `ApiDoc`/`ApiParam`/`ApiBody`/`ApiResponse` attributes είναι προαιρετικά. Ένα route χωρίς επιπλέον attributes εμφανίζεται στο OpenAPI με minimal documentation.
-
-**`Pramnos\ApiDoc\` namespace:**
-
-- [ ] **`ApiDoc` attribute:** `summary`, `description`, `since` (version), `deprecated`, `deprecatedMessage`
-- [ ] **`ApiParam` attribute:** query param — `name`, `type`, `description`, `required`, `default`; repeatable
-- [ ] **`ApiBody` attribute:** request body field — `name`, `type`, `description`, `required`; repeatable
-- [ ] **`ApiResponse` attribute:** `status`, `description`, `schema` (named schema ref); repeatable
-- [ ] **`ApiTag` attribute:** class-level — overrides `#[Route]` group για ολόκληρο τον controller
-- [ ] **`OpenApiGenerator`:** PHP-native generator
-  - Scans controller directories μέσω PHP `ReflectionClass`/`ReflectionMethod`
-  - Διαβάζει `#[Route]` → method, path, group, middleware
-  - Διαβάζει `#[ApiDoc]`, `#[ApiParam]`, `#[ApiBody]`, `#[ApiResponse]` → OpenAPI spec
-  - Fallback: αν δεν υπάρχουν `Api*` attributes, διαβάζει legacy `@api*` PHPDoc annotations (Urbanwater migration path)
-  - Multi-version support: `:path` → `{param}` conversion, `@apiSince` / `since` parameter, version inheritance (νεότερα endpoints κληρονομούνται από παλιότερες εκδόσεις)
-  - Παράγει `openapi.json` (latest) + per-version `openapi-v1.0.json`, `openapi-v1.1.json`
-  - Built-in schemas: `Pagination`, `ErrorResponse`, `SuccessResponse`
-  - `openapi-overrides.json` support (custom schemas, override fields, custom tags)
-  - Code samples auto-generated ανά endpoint: JavaScript (fetch), Python (requests), C# (HttpClient) — με required body params, auth headers
-- [ ] **`RapiDocRenderer`:** standalone class που παράγει το interactive HTML viewer
-  - **Interactive testing:** `allow-try="true"` — live API calls από τον browser, με `show-curl-before-try` (εμφανίζει curl command πριν εκτελέσει)
-  - **Multi-server switcher:** Production / Staging / Local — configurable από `api-doc.json`; o server επιλέγεται live χωρίς reload
-  - **Version selector:** dropdown top-right που αλλάζει live το OpenAPI spec που φορτώνει το RapiDoc (χωρίς page reload)
-  - **Auth persistence:** custom JS που αποθηκεύει `apiKey` + `accessToken` σε `localStorage` και τα επαναφέρει μετά από reload — διαβάζει shadow DOM του RapiDoc για να γεμίσει τα πεδία
-  - **Server selection persistence:** αποθηκεύει τον επιλεγμένο server σε `localStorage` και τον επαναφέρει μέσω `rapidoc.setApiServer()`
-  - **Dark/light theme:** configurable (`theme`, `bg-color`, `primary-color`) — default: dark `#1a1a1a` + primary `#4CAF50`
-  - **Download link:** άμεσο download του openapi.json για το επιλεγμένο version
-  - **`fill-request-fields-with-example="true"`** — auto-fills request fields από τα `@apiSuccessExample` / `#[ApiResponse]` examples
-  - **Getting Started slot:** custom intro content από `api-doc.json` (app name, auth guide)
-  - Configurable `primary-color` για branding ανά project (Urbanwater: `#4CAF50`, άλλα projects: custom)
-- [ ] **`pramnos api:docs` CLI command:** `src/Pramnos/Console/Commands/ApiDocs.php`
-  - `--source` (controller dir), `--output` (output dir), `--config` (api-doc.json)
-  - `--validate` flag: εκτελεί OpenAPI validation (native PHP, χωρίς swagger-cli)
-  - `--format json|html|both` (default: both)
-  - `--watch` flag: file watcher mode — ανιχνεύει αλλαγές στα controllers και regenerates αυτόματα (dev workflow)
-- [ ] **`ApiDocServiceProvider`:** registers `api:docs` command
-- [ ] **Scaffolding (`pramnos init`):** παράγει `api-doc.json` config (app name, servers list, primary-color, auth scheme names) + `openapi-overrides.json` + `.gitignore` entry για `www/api/openapi*.json` και `www/api/docs/`
-- [ ] **Tests:** `OpenApiGenerator` output format validation; multi-version endpoint inclusion/exclusion logic; legacy `@api*` fallback parser; attribute reading via Reflection; `RapiDocRenderer` HTML output structure
-
-> **BC:** Τα υπάρχοντα `@api*` PHPDoc annotations του Urbanwater συνεχίζουν να δουλεύουν αυτούσια. Η `pramnos api:docs` αντικαθιστά το `doc.sh` + Node.js pipeline χωρίς να απαιτεί αλλαγές στα controllers.
-> **Εξάρτηση:** Φάση 18 εξαρτάται από Φάση 7 (Routing Engine — `#[Route]` attributes).
+> **Δεν γίνεται:** PHP-native generator, νέα PHP attributes (`#[ApiDoc]` κλπ), `pramnos api:docs` CLI command. Το Node.js pipeline είναι η σωστή εργαλειοθήκη για αυτή τη δουλειά.
+> **Εξάρτηση:** Καμία framework dependency — standalone Node.js script, τρέχει ανεξάρτητα.
 
 ---
 
