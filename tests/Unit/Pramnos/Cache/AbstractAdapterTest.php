@@ -1,0 +1,446 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Unit\Pramnos\Cache;
+
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\TestCase;
+use Pramnos\Cache\Adapter\AbstractAdapter;
+
+/**
+ * Unit tests for Pramnos\Cache\Adapter\AbstractAdapter.
+ *
+ * AbstractAdapter provides shared infrastructure for all cache adapters:
+ *   - Prefix management (setPrefix/getPrefix)
+ *   - Caching on/off toggle (setCaching/isCachingEnabled)
+ *   - Key generation (generateKey) with optional prefix and category
+ *   - Category hashing (categoryHash) — whitespace/special-char sanitization
+ *   - Safe default implementations for getStats, getCategories, getAllItems,
+ *     connect, clear
+ *   - Short-circuit in load() when caching is disabled
+ *
+ * The class is abstract. Tests use a minimal anonymous concrete subclass that
+ * also exposes the protected sanitizeName() helper.
+ */
+#[CoversClass(AbstractAdapter::class)]
+class AbstractAdapterTest extends TestCase
+{
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    /**
+     * Minimal concrete subclass — AbstractAdapter provides all interface
+     * method bodies (throwing BadMethodCallException for unimplemented ones),
+     * so no additional methods need to be added.
+     * exposeSanitizeName() exposes the protected sanitizeName() for testing.
+     */
+    private function makeAdapter(string $prefix = ''): AbstractAdapter
+    {
+        return new class($prefix) extends AbstractAdapter {
+            public function exposeSanitizeName(string $name): string
+            {
+                return $this->sanitizeName($name);
+            }
+        };
+    }
+
+    // =========================================================================
+    // Constructor / getPrefix()
+    // =========================================================================
+
+    /**
+     * Constructor sets the supplied prefix string.
+     */
+    public function testConstructorSetsPrefix(): void
+    {
+        // Arrange / Act
+        $adapter = $this->makeAdapter('myapp');
+
+        // Assert
+        $this->assertSame('myapp', $adapter->getPrefix());
+    }
+
+    /**
+     * Constructor with no argument leaves prefix as an empty string.
+     */
+    public function testConstructorDefaultPrefixIsEmpty(): void
+    {
+        // Arrange / Act
+        $adapter = $this->makeAdapter();
+
+        // Assert
+        $this->assertSame('', $adapter->getPrefix());
+    }
+
+    // =========================================================================
+    // setPrefix() / getPrefix()
+    // =========================================================================
+
+    /**
+     * setPrefix() updates the prefix and returns $this for fluent chaining.
+     */
+    public function testSetPrefixUpdatesAndReturnsSelf(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Act
+        $result = $adapter->setPrefix('new_prefix');
+
+        // Assert — fluent return and value updated
+        $this->assertSame($adapter, $result);
+        $this->assertSame('new_prefix', $adapter->getPrefix());
+    }
+
+    // =========================================================================
+    // setCaching() / isCachingEnabled()
+    // =========================================================================
+
+    /**
+     * Caching is enabled by default (all adapters start in usable state).
+     */
+    public function testCachingIsEnabledByDefault(): void
+    {
+        // Arrange / Act
+        $adapter = $this->makeAdapter();
+
+        // Assert
+        $this->assertTrue($adapter->isCachingEnabled());
+    }
+
+    /**
+     * setCaching(false) disables caching and returns $this.
+     */
+    public function testSetCachingFalseDisablesCaching(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Act
+        $result = $adapter->setCaching(false);
+
+        // Assert — fluent return and caching off
+        $this->assertSame($adapter, $result);
+        $this->assertFalse($adapter->isCachingEnabled());
+    }
+
+    /**
+     * setCaching() casts the argument to bool (0 disables, 1 enables).
+     */
+    public function testSetCachingCastsToBool(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Act — integer 0 is falsy
+        $adapter->setCaching(0);
+
+        // Assert
+        $this->assertFalse($adapter->isCachingEnabled());
+    }
+
+    /**
+     * setCaching(true) re-enables caching after it was disabled.
+     */
+    public function testSetCachingCanReenableCaching(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+        $adapter->setCaching(false);
+
+        // Act
+        $adapter->setCaching(true);
+
+        // Assert
+        $this->assertTrue($adapter->isCachingEnabled());
+    }
+
+    // =========================================================================
+    // sanitizeName() — accessed via expose helper
+    // =========================================================================
+
+    /**
+     * sanitizeName() replaces spaces with underscores.
+     */
+    public function testSanitizeNameReplacesSpacesWithUnderscore(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert — single space becomes underscore
+        $this->assertSame('my_file', $adapter->exposeSanitizeName('my file'));
+    }
+
+    /**
+     * sanitizeName() removes characters outside [\w_.-].
+     */
+    public function testSanitizeNameRemovesSpecialChars(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert — @ and ! are stripped; alphanumeric chars kept
+        $this->assertSame('myfile', $adapter->exposeSanitizeName('my@file!'));
+    }
+
+    /**
+     * sanitizeName() collapses consecutive dots to a single dot.
+     */
+    public function testSanitizeNameCollapsesMultipleDots(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert — '..' normalized to '.'
+        $this->assertSame('a.b', $adapter->exposeSanitizeName('a..b'));
+    }
+
+    // =========================================================================
+    // generateKey()
+    // =========================================================================
+
+    /**
+     * Without a prefix or category, generateKey() produces "{id}.{extension}".
+     */
+    public function testGenerateKeyWithoutPrefixOrCategory(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Act
+        $key = $adapter->generateKey('my-id', '', 'cache');
+
+        // Assert
+        $this->assertSame('my-id.cache', $key);
+    }
+
+    /**
+     * With a prefix set, the key starts with "{sanitized_prefix}_".
+     */
+    public function testGenerateKeyWithPrefix(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter('app');
+
+        // Act
+        $key = $adapter->generateKey('item1', '', 'cache');
+
+        // Assert
+        $this->assertStringStartsWith('app_', $key);
+        $this->assertStringEndsWith('item1.cache', $key);
+    }
+
+    /**
+     * With a non-empty category, generateKey() inserts the category hash
+     * between the prefix and the id.
+     */
+    public function testGenerateKeyWithCategory(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Act
+        $key = $adapter->generateKey('item1', 'products', 'cache');
+
+        // Assert — category name appears in the key (unhashed in default impl)
+        $this->assertStringContainsString('products', $key);
+        $this->assertStringEndsWith('item1.cache', $key);
+    }
+
+    /**
+     * With both prefix and category the key has the form:
+     * "{prefix}_{category_hash}_{id}.{ext}".
+     */
+    public function testGenerateKeyWithPrefixAndCategory(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter('store');
+
+        // Act
+        $key = $adapter->generateKey('id42', 'orders', 'json');
+
+        // Assert — all three components present
+        $this->assertStringStartsWith('store_', $key);
+        $this->assertStringContainsString('orders', $key);
+        $this->assertStringEndsWith('id42.json', $key);
+    }
+
+    // =========================================================================
+    // categoryHash()
+    // =========================================================================
+
+    /**
+     * categoryHash('') returns '' — empty category has no hash.
+     */
+    public function testCategoryHashReturnsEmptyStringForEmptyInput(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert
+        $this->assertSame('', $adapter->categoryHash(''));
+    }
+
+    /**
+     * categoryHash() replaces whitespace sequences with underscores.
+     */
+    public function testCategoryHashReplacesSpaces(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert
+        $this->assertSame('my_category', $adapter->categoryHash('my category'));
+    }
+
+    /**
+     * categoryHash() strips characters outside [\w-] (e.g. @, !).
+     */
+    public function testCategoryHashRemovesSpecialChars(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert — @ is stripped; hyphens and word chars kept
+        $this->assertSame('catname', $adapter->categoryHash('cat@name'));
+    }
+
+    /**
+     * categoryHash() preserves hyphens, which are valid in category names.
+     */
+    public function testCategoryHashPreservesHyphens(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert
+        $this->assertSame('my-category', $adapter->categoryHash('my-category'));
+    }
+
+    // =========================================================================
+    // Default safe implementations
+    // =========================================================================
+
+    /**
+     * connect() returns true by default — concrete adapters override this.
+     */
+    public function testConnectReturnsTrueByDefault(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert — default is "connected" so base tests succeed
+        $this->assertTrue($adapter->connect());
+    }
+
+    /**
+     * clear() returns false by default — no backend to clear without override.
+     */
+    public function testClearReturnsFalseByDefault(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert
+        $this->assertFalse($adapter->clear());
+    }
+
+    /**
+     * getCategories() returns [] by default.
+     */
+    public function testGetCategoriesReturnsEmptyArrayByDefault(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert
+        $this->assertSame([], $adapter->getCategories());
+    }
+
+    /**
+     * getAllItems() returns [] by default.
+     */
+    public function testGetAllItemsReturnsEmptyArrayByDefault(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert
+        $this->assertSame([], $adapter->getAllItems());
+    }
+
+    /**
+     * getStats() returns a minimal array with 'method', 'categories', 'items'
+     * keys, even when no backend is connected.
+     */
+    public function testGetStatsReturnsMinimalStructure(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Act
+        $stats = $adapter->getStats();
+
+        // Assert — all three required keys are present
+        $this->assertArrayHasKey('method',     $stats);
+        $this->assertArrayHasKey('categories', $stats);
+        $this->assertArrayHasKey('items',      $stats);
+        $this->assertSame(0, $stats['categories']);
+        $this->assertSame(0, $stats['items']);
+    }
+
+    // =========================================================================
+    // load() — short-circuit and throw paths
+    // =========================================================================
+
+    /**
+     * load() returns null immediately when caching is disabled, without
+     * attempting to reach the (unimplemented) backend.
+     */
+    public function testLoadReturnsNullWhenCachingDisabled(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+        $adapter->setCaching(false);
+
+        // Act
+        $result = $adapter->load('any-key');
+
+        // Assert — short-circuit path, no exception
+        $this->assertNull($result);
+    }
+
+    /**
+     * load() throws BadMethodCallException when caching is enabled and the
+     * concrete class has not overridden it.
+     */
+    public function testLoadThrowsBadMethodCallExceptionWhenNotOverridden(): void
+    {
+        // Arrange — caching enabled (default), no concrete load() override
+        $adapter = $this->makeAdapter();
+
+        // Act / Assert — default load() is a deliberate "not implemented" guard
+        $this->expectException(\BadMethodCallException::class);
+        $adapter->load('some-key');
+    }
+
+    // =========================================================================
+    // test() — short-circuit path
+    // =========================================================================
+
+    /**
+     * test() returns false immediately when caching is disabled, without
+     * invoking save() or load().
+     */
+    public function testTestReturnsFalseWhenCachingDisabled(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+        $adapter->setCaching(false);
+
+        // Assert
+        $this->assertFalse($adapter->test());
+    }
+}
