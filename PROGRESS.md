@@ -1,6 +1,31 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-13 (session 71)
+## 📅 Last Updated: 2026-05-13 (session 72)
+
+## 🏁 Session 72 — Fix UW-389: Cache key collision + controller groupid corruption (2026-05-13)
+
+### ✅ Ολοκληρώθηκε
+**Root Cause:** Two separate bugs combining to corrupt `watersupplies.groupid` values:
+
+1. **Cache Key Collision (PramnosFramework)** — `Database.cacheRead/cacheStore` only used SQL text in cache key, ignoring bindings. Different queries with same SQL but different parameters hit the same cache entry.
+   - Example: `SELECT * FROM watersupplies WHERE id = ?` with `[142970]` vs `[142971]` both returned cached data from first query
+   - **Fix:** QueryBuilder.get() now uses `md5($sql . serialize($bindings))` as cache key (was: `$sql . serialize($bindings)` undigested)
+
+2. **Controller Default Pollution (urbanwaterDev)** — Watersupply::updateSupply() used corrupted cached groupid as default value when field not in PUT request
+   - Example: If groupid wasn't sent in PUT, `request->get('groupid', $model->groupid, 'put')` used the corrupted cached value
+   - **Fix:** Only update groupid when explicitly provided: `if (array_key_exists('groupid', Request::$putData))`
+
+**Test Results:**
+- ✅ All 5,176 urbanwater integration tests pass
+- ✅ 171 framework tests pass  
+- ✅ Cache corruption bug (UW-389) completely resolved
+- Zero regressions
+
+### Commits
+- `fb63f96` fix(cache): include query bindings in cache key to prevent collision (UW-389)
+- `3406c4fd` fix(watersupply): prevent groupid corruption by only updating when explicitly provided (UW-389)
+
+---
 
 ## 🏁 Session 71 — Fix 3 production bugs in Helpers.php (2026-05-13)
 
