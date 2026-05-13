@@ -906,6 +906,68 @@ API client → usertokens (api/mobile)  + Bearer token    → cross-origin AJAX 
 
 > **Εξάρτηση:** Φάση 16 εξαρτάται από Φάση 15 (`UnifiedAuthMiddleware` ενσωματώνεται στο API route group). Η cookie SPA auth **δεν απαιτεί** OAuth — συνυπάρχει με τον authserver (Φάση 2).
 
+### 📊 Φάση 17: Universal List API & Widget-agnostic Data Grid
+*Σήμερα `_getJsonList()` επιστρέφει DataTables 1.9 legacy format (`aaData`/`sEcho`) hardcoded — μόνο για jQuery DataTables, μόνο για MySQL (`SHOW COLUMNS`). Η `_getApiList()` επιστρέφει clean REST format αλλά το DataTables widget δεν το διαβάζει. Αυτή η φάση ενώνει τα δύο και κάνει τον server widget-agnostic: οποιοδήποτε grid widget (DataTables, AG Grid, Tabulator, TanStack Table, Grid.js) μπορεί να καταναλώσει το ίδιο API endpoint μέσω thin adapter.*
+
+#### Πρόβλημα σήμερα
+
+```
+DataTables widget → web controller method → _getJsonList() → aaData/sEcho (DT 1.9, MySQL-only)
+AG Grid / Tabulator / TanStack → ✗ δεν υποστηρίζονται
+JS AJAX → API controller → _getApiList() → {items, pagination} (clean REST)
+```
+
+Δύο ξεχωριστά code paths για το ίδιο πράγμα — paginated/filtered/searchable list. Κάθε model που θέλει DataTables support γράφει custom `getJsonList()`.
+
+#### Λύση: Ενιαίο server endpoint, widget adapters στο client
+
+```
+Οποιοδήποτε widget → thin JS adapter → GET /api/1.0/model?page=1&search=...&fields=...
+                                         ↓
+                                    _getApiList() → {items, pagination, fields, total}
+                                         ↓
+                      thin JS adapter ← response (widget-specific format mapping)
+```
+
+Ο server δεν ξέρει ποιο widget μιλάει μαζί του. Η μετάφραση γίνεται εξ ολοκλήρου στο client.
+
+#### Υλοποίηση — Server side
+
+- [ ] **`_getApiList(format: 'datatables')`:** νέο optional parameter — wraps την `{items, pagination}` απόκριση στο DataTables 2.x format (`{draw, data, recordsTotal, recordsFiltered}`). Εσωτερική λεπτομέρεια, χωρίς αλλαγή στη δημόσια API.
+- [ ] **`_getJsonList()` → delegate:** `_getJsonList()` καλεί εσωτερικά `_getApiList(format: 'datatables')` και αποδίδει το ίδιο αποτέλεσμα. Κανένα υπάρχον `getJsonList()` override στο Urbanwater δεν σπάει — BC αποδεδειγμένα διατηρείται.
+- [ ] **Αφαίρεση `SHOW COLUMNS`:** `_getJsonList()` σταματά να χρησιμοποιεί `SHOW COLUMNS` (MySQL-only). Τα fields προέρχονται από `_getAllTableFields()` που ήδη λειτουργεί cross-database.
+- [ ] **`_getJsonList()` marked `@deprecated`** στο docblock — δεν αφαιρείται, αλλά η τεκμηρίωση κατευθύνει τους νέους developers στο `_getApiList()`.
+
+#### Υλοποίηση — Client side (JS adapters)
+
+Κάθε adapter είναι ένα μικρό JS module (`www/assets/vendor/pramnos/`) που μεταφράζει το widget protocol → API format:
+
+- [ ] **`PramnosDataTable` adapter:** DataTables 2.x serverSide mode — μεταφράζει `{draw, start, length, search, order, columns}` → `?page=N&search=...&order=...&fields=...`. Αντικαθιστά το legacy `_getJsonList()` pattern. Config: `data-api="/api/1.0/users"`.
+- [ ] **`PramnosTabulatorAdapter`:** Tabulator `ajaxRequestFunc` — μεταφράζει Tabulator pagination/sort/filter params → API format.
+- [ ] **`PramnosAgGridAdapter`:** AG Grid `IServerSideDatasource` — μεταφράζει `IServerSideGetRowsRequest` → API format.
+- [ ] **`PramnosGenericAdapter`:** Minimal helper για custom widgets / fetch calls — `PramnosGrid.fetch('/api/1.0/users', {page, search, fields})` επιστρέφει `{items, total, pages}`.
+- [ ] **CSRF header injection:** Όλοι οι adapters προσθέτουν αυτόματα `X-CSRF-Token` από το `<meta name="csrf">` (Φάση 16) — λειτουργούν χωρίς Bearer token όταν ο χρήστης είναι session-authenticated.
+
+#### Αποτέλεσμα για τον developer
+
+```php
+// Πριν: ξεχωριστή μέθοδος στον controller για κάθε datatable
+public function getUsersJson() {
+    return (new User)->getJsonList();   // MySQL-only, DT 1.9
+}
+
+// Μετά: το DataTables widget καλεί απευθείας το API
+// <table data-api="/api/1.0/users" data-widget="datatables">
+// Κανένας server-side κώδικας δεν χρειάζεται
+```
+
+- [ ] **Scaffolding:** `create:model` παράγει `getApiList()` override αντί για `getJsonList()`. Η view template για list pages χρησιμοποιεί τον adapter αντί για inline DataTables config.
+- [ ] **Tests:** server-side: `_getApiList(format: 'datatables')` output format validation; `_getJsonList()` delegate equivalence test. Client-side: adapter unit tests (mock fetch).
+- [ ] **UrbanWater migration:** βλ. `UrbanWater-Cleanup-Guide.md` Phase 8 — custom `getJsonList()` overrides μεταφέρονται σταδιακά.
+
+> **BC:** `_getJsonList()` και όλα τα custom `getJsonList()` overrides στο Urbanwater συνεχίζουν να λειτουργούν αναλλοίωτα. Η μετάβαση γίνεται model-by-model, view-by-view.
+> **Εξάρτηση:** Φάση 17 εξαρτάται από Φάση 16 (CSRF header για session-authenticated AJAX) και Φάση 15 (API route group).
+
 ### 💾 Φάση 10: File Storage Abstraction ✅
 *Υλοποιήθηκε ως `Pramnos\Storage\` namespace — 100% BC-safe (Filesystem unchanged).*
 
