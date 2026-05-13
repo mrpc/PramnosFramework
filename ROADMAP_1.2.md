@@ -907,13 +907,13 @@ API client → usertokens (api/mobile)  + Bearer token    → cross-origin AJAX 
 > **Εξάρτηση:** Φάση 16 εξαρτάται από Φάση 15 (`UnifiedAuthMiddleware` ενσωματώνεται στο API route group). Η cookie SPA auth **δεν απαιτεί** OAuth — συνυπάρχει με τον authserver (Φάση 2).
 
 ### 📊 Φάση 17: Universal List API & Widget-agnostic Data Grid
-*Σήμερα `_getJsonList()` επιστρέφει DataTables 1.9 legacy format (`aaData`/`sEcho`) hardcoded — μόνο για jQuery DataTables, μόνο για MySQL (`SHOW COLUMNS`). Η `_getApiList()` επιστρέφει clean REST format αλλά το DataTables widget δεν το διαβάζει. Αυτή η φάση ενώνει τα δύο και κάνει τον server widget-agnostic: οποιοδήποτε grid widget (DataTables, AG Grid, Tabulator, TanStack Table, Grid.js) μπορεί να καταναλώσει το ίδιο API endpoint μέσω thin adapter.*
+*Σήμερα `_getJsonList()` επιστρέφει DataTables 1.9 legacy format (`aaData`/`sEcho`) hardcoded — μόνο για jQuery DataTables, μόνο για MySQL (`SHOW COLUMNS`). Η `_getApiList()` επιστρέφει clean REST format αλλά το DataTables widget δεν το διαβάζει. Αυτή η φάση ενώνει τα δύο και κάνει τον server widget-agnostic: DataTables και Grid.js καταναλώνουν το ίδιο API endpoint μέσω thin adapters (πρώτη φάση).*
 
 #### Πρόβλημα σήμερα
 
 ```
 DataTables widget → web controller method → _getJsonList() → aaData/sEcho (DT 1.9, MySQL-only)
-AG Grid / Tabulator / TanStack → ✗ δεν υποστηρίζονται
+Grid.js → ✗ δεν υποστηρίζεται
 JS AJAX → API controller → _getApiList() → {items, pagination} (clean REST)
 ```
 
@@ -943,10 +943,8 @@ JS AJAX → API controller → _getApiList() → {items, pagination} (clean REST
 Κάθε adapter είναι ένα μικρό JS module (`www/assets/vendor/pramnos/`) που μεταφράζει το widget protocol → API format:
 
 - [ ] **`PramnosDataTable` adapter:** DataTables 2.x serverSide mode — μεταφράζει `{draw, start, length, search, order, columns}` → `?page=N&search=...&order=...&fields=...`. Αντικαθιστά το legacy `_getJsonList()` pattern. Config: `data-api="/api/1.0/users"`.
-- [ ] **`PramnosTabulatorAdapter`:** Tabulator `ajaxRequestFunc` — μεταφράζει Tabulator pagination/sort/filter params → API format.
-- [ ] **`PramnosAgGridAdapter`:** AG Grid `IServerSideDatasource` — μεταφράζει `IServerSideGetRowsRequest` → API format.
-- [ ] **`PramnosGenericAdapter`:** Minimal helper για custom widgets / fetch calls — `PramnosGrid.fetch('/api/1.0/users', {page, search, fields})` επιστρέφει `{items, total, pages}`.
-- [ ] **CSRF header injection:** Όλοι οι adapters προσθέτουν αυτόματα `X-CSRF-Token` από το `<meta name="csrf">` (Φάση 16) — λειτουργούν χωρίς Bearer token όταν ο χρήστης είναι session-authenticated.
+- [ ] **`PramnosGridJS` adapter:** Grid.js `server` config — μεταφράζει Grid.js pagination/search params → API format, αντιστοιχεί `{items, total}` → `{data, total}`. Vanilla JS, χωρίς jQuery εξάρτηση.
+- [ ] **CSRF header injection:** Και οι δύο adapters προσθέτουν αυτόματα `X-CSRF-Token` από το `<meta name="csrf">` (Φάση 16) — λειτουργούν χωρίς Bearer token όταν ο χρήστης είναι session-authenticated.
 
 #### Αποτέλεσμα για τον developer
 
