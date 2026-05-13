@@ -20,10 +20,16 @@ class ClientEntity implements ClientEntityInterface
 {
     use EntityTrait, ClientTrait;
 
-    private string $name = '';
-    /** @var string|string[] */
-    private string|array $redirectUri = '';
-    private bool $isConfidential = true;
+    // PHP 8.4: properties declared by ClientTrait ($name, $redirectUri,
+    // $isConfidential) must not be redeclared with a different visibility or
+    // type — the trait uses untyped protected properties.  Defaults are set
+    // via the constructor instead so the trait's property declarations win.
+    public function __construct()
+    {
+        $this->name           = '';
+        $this->redirectUri    = '';
+        $this->isConfidential = true;
+    }
 
     public function setName(string $name): void
     {
@@ -32,7 +38,7 @@ class ClientEntity implements ClientEntityInterface
 
     public function getName(): string
     {
-        return $this->name;
+        return (string) $this->name;
     }
 
     /** @param string|string[] $uri */
@@ -54,6 +60,6 @@ class ClientEntity implements ClientEntityInterface
 
     public function isConfidential(): bool
     {
-        return $this->isConfidential;
+        return (bool) $this->isConfidential;
     }
 }
