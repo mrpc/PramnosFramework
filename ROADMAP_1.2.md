@@ -653,6 +653,60 @@
 - [x] **Mass Assignment Protection:** `$fillable` / `$guarded` + `fill()` / `isFillable()` / `isGuarded()` — `HasAttributes` trait.
 - [x] **Collections:** `Orm\Collection` — `filter`, `map`, `pluck`, `groupBy`, `sortBy`, `first`, `last`, `count`, `each`, `contains`, `toArray`, `isEmpty`; implements `Countable`, `IteratorAggregate`, `JsonSerializable`.
 
+### 🗄️ Φάση 11: Cache Abstraction Layer
+*Ενιαίο cache API πάνω από πολλαπλά backends — Redis (ήδη στο Docker), APCu, file-based, array (testing). Το Redis container τρέχει ήδη στο Docker Compose.*
+
+- [ ] **CacheInterface:** 10-μέθοδος συμβόλαιο — `get`, `put`, `remember`, `forget`, `flush`, `has`, `increment`, `decrement`, `forever`, `many`/`putMany`.
+- [ ] **RedisDriver:** ext-redis / predis adapter; configurable prefix + TTL; connection pooling.
+- [ ] **FileDriver:** file-based driver για environments χωρίς Redis (CI, local dev χωρίς Docker).
+- [ ] **ArrayDriver:** in-memory για unit tests (αντικαθιστά `new ArrayObject()` hacks).
+- [ ] **CacheManager:** factory + registry; `Cache::store('redis')` / `Cache::store('file')`; `Cache::remember($key, $ttl, $callback)`.
+- [ ] **Cache facade:** `src/Pramnos/Cache/Cache.php` — static façade; `Cache::init($config)` bootstrap.
+- [ ] **ServiceProvider + Feature Registry integration:** opt-in ενεργοποίηση μέσω `app.php`.
+- [ ] **Rate limiting middleware:** `RateLimitMiddleware` χρησιμοποιεί Cache για sliding window counters.
+- [ ] **Tests:** characterization tests × 3 backends (Redis, File, Array) + unit tests για Manager/facade.
+
+### 📡 Φάση 12: Broadcasting / WebSockets
+*Real-time events από server σε browser — αρχιτεκτονικά χωρισμένη από τα model events της Φάσης 9.*
+
+- [ ] **BroadcastingInterface:** `broadcast(string $channel, string $event, array $payload)`.
+- [ ] **PusherDriver / ReverbDriver:** προαιρετική εξάρτηση — runtime guard αν δεν είναι εγκατεστημένο.
+- [ ] **LogDriver:** για testing — γράφει events σε log file αντί για WebSocket.
+- [ ] **`Broadcastable` trait:** `OrmModel` events fire αυτόματα broadcasting όταν configured.
+- [ ] **`pramnos broadcast:serve`** command: ελαφρύ WebSocket server για local dev (Ratchet/ReactPHP).
+- [ ] **Client-side helper:** `www/assets/vendor/pramnos-echo/` — minimal JS που κάνει subscribe σε channels.
+- [ ] **Tests:** unit tests για BroadcastingManager + LogDriver; integration smoke test.
+
+> **Εξάρτηση:** Φάση 12 εξαρτάται από Φάση 11 (Cache για channel presence/heartbeat tracking).
+
+### 🤖 Φάση 13: AI Developer Tooling (MCP Server + Debug Infrastructure)
+*Πρώτης τάξεως υποστήριξη για AI assistants και debuggers — παρόμοια με τo `laravel-mcp-server` και το Laravel Sail Xdebug integration.*
+
+#### MCP Server (Model Context Protocol)
+Ένα stdio-based MCP server που εκθέτει την εφαρμογή στον AI assistant (Claude, Copilot κ.λπ.) μέσω εργαλείων και πόρων. Ο AI μπορεί να εξερευνήσει το σχήμα, να τρέξει queries, να ελέγξει migrations — χωρίς να χρειάζεται ξεχωριστό DB MCP server.
+
+- [ ] **`Pramnos\Mcp\McpServer`:** JSON-RPC 2.0 over stdio — υλοποιεί το MCP protocol (`initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`).
+- [ ] **`McpTool` interface:** `name()`, `description()`, `inputSchema(): array`, `execute(array $input): mixed` — apps εγγράφουν custom tools.
+- [ ] **Built-in tools:**
+  - `list-tables` — λίστα πινάκων + row counts από live DB.
+  - `query-schema` — πλήρες schema ενός πίνακα (columns, types, indexes, FK).
+  - `migration-status` — pending / applied migrations (επιστρέφει ό,τι δείχνει `migrate:status`).
+  - `model-inspect` — fillable, casts, relations ενός OrmModel class.
+  - `route-list` — λίστα registered routes.
+- [ ] **`McpResource`:** expose αρχεία ως `file://` resources (CLAUDE.md, config, views).
+- [ ] **`pramnos mcp:serve`** CLI command: εκκινεί τον MCP server σε stdio mode· κατάλληλο για `.mcp.json` `"command"` entry.
+- [ ] **`.mcp.json` upgrade:** αντί για εξωτερικό `@modelcontextprotocol/server-mysql`, χρησιμοποιεί `./{{CLI_NAME}} mcp:serve` — zero npm dependency.
+- [ ] **`McpServiceProvider`:** opt-in εγγραφή μέσω `app.php`; lazy boot (τρέχει μόνο όταν κληθεί `mcp:serve`).
+- [ ] **Tests:** unit tests για McpServer protocol handling + tool dispatch; integration test που εκκινεί server και επαληθεύει `tools/list` output.
+
+#### Debug Infrastructure (Xdebug)
+- [ ] **Docker Compose template:** `php.ini` / `xdebug.ini` με `xdebug.mode=debug`, `xdebug.start_with_request=yes`, port 9003 — ενσωματωμένο στο scaffolding Docker setup.
+- [ ] **VS Code launch.json stub:** `scaffolding/templates/.vscode/launch.json.stub` — scaffolded αυτόματα από `init` με σωστό pathMapping `/var/www/html → project root`.
+- [ ] **PhpStorm `.idea/` hints:** documentation + CLI trigger στο CLAUDE.md (ήδη στο template).
+- [ ] **`pramnos debug:status`** command: εκτυπώνει αν το Xdebug είναι φορτωμένο, mode, host, port.
+
+> **Εξάρτηση:** Φάση 13 είναι ανεξάρτητη — μπορεί να υλοποιηθεί παράλληλα με Φάση 11/12.
+
 ### 💾 Φάση 10: File Storage Abstraction ✅
 *Υλοποιήθηκε ως `Pramnos\Storage\` namespace — 100% BC-safe (Filesystem unchanged).*
 

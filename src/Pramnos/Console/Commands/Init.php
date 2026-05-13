@@ -213,6 +213,7 @@ class Init extends Command
 
         $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker);
         $this->scaffoldGitignore($enabledFeatures);
+        $this->scaffoldAiGuidelines($appName, $namespace, $dbType, $dbName, $dbUser, $dbPass, $dockerPort, $cliName, $enabledFeatures);
 
         if (in_array('authserver', $enabledFeatures, true)) {
             $this->generateOAuth2KeyPair($output);
@@ -1303,6 +1304,75 @@ PHP;
             file_put_contents($path, $existing);
         } else {
             file_put_contents($path, $content);
+        }
+    }
+
+    /**
+     * Generate CLAUDE.md (AI assistant guidelines) and .mcp.json (MCP server
+     * configuration for database access) in the project root.
+     *
+     * CLAUDE.md uses the stub from scaffolding/templates/CLAUDE.md.stub.
+     * .mcp.json is added to .gitignore because it contains DB credentials.
+     */
+    private function scaffoldAiGuidelines(
+        string $appName,
+        string $namespace,
+        string $dbType,
+        string $dbName,
+        string $dbUser,
+        string $dbPass,
+        int    $dockerPort,
+        string $cliName,
+        array  $features
+    ): void {
+        // ── CLAUDE.md ─────────────────────────────────────────────────────────
+        $featuresText = empty($features)
+            ? '_(none selected)_'
+            : implode("\n", array_map(fn($f) => "- `$f`", $features));
+
+        $dbTypeLabel = match ($dbType) {
+            'postgresql'  => 'PostgreSQL',
+            'timescaledb' => 'TimescaleDB',
+            default       => 'MySQL',
+        };
+
+        $claudeStubFile = $this->scaffoldingDir . '/templates/CLAUDE.md.stub';
+        $stub = file_exists($claudeStubFile) ? file_get_contents($claudeStubFile) : '';
+        $claude = str_replace(
+            ['{{APP_NAME}}', '{{NAMESPACE}}', '{{CLI_NAME}}', '{{DB_TYPE}}', '{{DB_TYPE_LABEL}}', '{{FEATURES_LIST}}'],
+            [$appName,       $namespace,       $cliName,       $dbType,       $dbTypeLabel,          $featuresText],
+            $stub
+        );
+        $this->writeFile('CLAUDE.md', $claude);
+
+        // ── .mcp.json ─────────────────────────────────────────────────────────
+        $isPostgres = in_array($dbType, ['postgresql', 'timescaledb'], true);
+        if ($isPostgres) {
+            $dsn        = "postgresql://{$dbUser}:{$dbPass}@localhost:5432/{$dbName}";
+            $mcpPackage = '@modelcontextprotocol/server-postgres';
+            $mcpName    = 'postgres';
+        } else {
+            $dsn        = "mysql://{$dbUser}:{$dbPass}@localhost:3306/{$dbName}";
+            $mcpPackage = '@modelcontextprotocol/server-mysql';
+            $mcpName    = 'mysql';
+        }
+
+        $mcpStubFile = $this->scaffoldingDir . '/templates/mcp.json.stub';
+        $mcpStub = file_exists($mcpStubFile) ? file_get_contents($mcpStubFile) : "{\n  \"mcpServers\": {}\n}\n";
+        $mcp = str_replace(
+            ['{{DB_MCP_NAME}}', '{{DB_MCP_PACKAGE}}', '{{DB_MCP_DSN}}'],
+            [$mcpName,          $mcpPackage,           $dsn],
+            $mcpStub
+        );
+        $this->writeFile('.mcp.json', $mcp);
+
+        // .mcp.json contains credentials — exclude from git
+        $gitignorePath = $this->targetBaseDir . '/.gitignore';
+        if (file_exists($gitignorePath)) {
+            $gi = file_get_contents($gitignorePath);
+            if (strpos($gi, '.mcp.json') === false) {
+                file_put_contents($gitignorePath, $gi . ".mcp.json\n");
+            }
         }
     }
 

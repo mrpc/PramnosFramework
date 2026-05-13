@@ -1,0 +1,271 @@
+# {{APP_NAME}} — AI Assistant Guidelines
+
+This file gives AI coding assistants (Claude, Copilot, etc.) the context needed
+to work effectively in this project without asking repetitive orientation questions.
+
+## Project overview
+
+- **Framework:** [PramnosFramework](https://github.com/mrpc/PramnosFramework) v1.2
+- **Stack:** PHP 8.4, {{DB_TYPE}}, Docker
+- **Namespace:** `{{NAMESPACE}}`
+- **CLI entry point:** `./{{CLI_NAME}}` (wraps `bin/{{CLI_NAME}}.php`)
+
+## Running tests
+
+**Always use `./dockertest`, never `vendor/bin/phpunit` directly.**
+
+```bash
+./dockertest                         # full suite
+./dockertest --filter ClassName      # single test or class
+./dockertest --coverage              # HTML coverage report → coverage/
+./dockertest --testdox               # human-readable output
+```
+
+The script ensures Docker is running, dependencies are installed, and the correct
+PHP 8.4 environment is used. Two concurrent `./dockertest` runs will corrupt the
+shared test databases — the script enforces a lock and will tell you the PID to
+kill if it gets stuck.
+
+## Project structure
+
+```
+app/            Application config (app.php, settings.php, keys/)
+src/            Application source code
+  Controllers/  HTTP controllers (extend Pramnos\Application\Controller)
+  Models/       Data models (extend Pramnos\Application\Model or OrmModel)
+  Views/        View directories — each view is a folder with view.html.php
+  Migrations/   Application migrations (extend Pramnos\Database\Migration)
+database/
+  migrations/   Migration files (run with ./{{CLI_NAME}} migrate)
+  seeds/        Database seeders (run with ./{{CLI_NAME}} db:seed)
+tests/
+  Unit/         Unit tests (no DB, no network)
+  Integration/  Integration tests (real DB via Docker)
+www/            Public webroot
+bin/            CLI entry point
+```
+
+## Key conventions
+
+### Controllers
+
+```php
+// Extend Controller — getView() resolves views automatically
+class Home extends \Pramnos\Application\Controller
+{
+    public array $actions = ['display'];
+
+    public function display(array $args = []): void
+    {
+        $view = $this->getView('Home', 'html');
+        $view->assign('title', 'Hello');
+        $view->display();
+    }
+}
+```
+
+Views fall back to the framework's bundled scaffold views if no app view exists —
+useful during early development.
+
+### Models
+
+```php
+// Basic Model — legacy-compatible
+class Post extends \Pramnos\Application\Model
+{
+    public string $table = 'posts';
+    public string $primaryKey = 'postid';
+}
+
+// OrmModel — modern, with relations/events/casts
+class Post extends \Pramnos\Application\OrmModel
+{
+    public string $table = 'posts';
+    protected array $fillable = ['title', 'body', 'author_id'];
+    protected array $casts    = ['published_at' => 'datetime'];
+
+    public function author(): \Pramnos\Application\Orm\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'author_id', 'userid');
+    }
+}
+```
+
+### QueryBuilder
+
+```php
+$db = \Pramnos\Database\Database::getInstance();
+
+$rows = $db->table('posts')
+    ->where('status', 'published')
+    ->orderBy('created_at', 'desc')
+    ->limit(10)
+    ->get();
+```
+
+### Migrations
+
+```php
+class CreatePostsTable extends \Pramnos\Database\Migration
+{
+    public string $feature = 'app';      // groups migrations
+    public int    $priority = 100;       // execution order
+    public array  $dependencies = [];    // other migration class names
+
+    public function up(): void
+    {
+        $schema = $this->application->database->schema();
+        if ($schema->hasTable('posts')) return;
+
+        $schema->createTable('posts', function ($table) {
+            $table->increments('postid');
+            $table->string('title', 255);
+            $table->text('body')->nullable();
+            $table->integer('created_at');
+        });
+    }
+
+    public function down(): void
+    {
+        $this->application->database->schema()->dropTableIfExists('posts');
+    }
+}
+```
+
+Run migrations: `./{{CLI_NAME}} migrate`
+Check status: `./{{CLI_NAME}} migrate:status`
+
+### Routing
+
+Routes are defined in `app/routes.php` (or registered via a ServiceProvider):
+
+```php
+$router = \Pramnos\Http\Router::getInstance();
+$router->get('/posts',       'Posts@index');
+$router->post('/posts',      'Posts@store');
+$router->get('/posts/{id}',  'Posts@show');
+```
+
+### Events
+
+```php
+// Fire an event
+\Pramnos\Framework\Event::fire('post.created', ['post' => $post]);
+
+// Listen
+\Pramnos\Framework\Event::listen('post.created', function (array $payload) {
+    // ...
+});
+```
+
+### Queue
+
+```php
+use Pramnos\Queue\QueueManager;
+
+$queue = new QueueManager($db);
+$queue->addTask('SendWelcomeEmail', ['user_id' => 42], priority: 5);
+```
+
+Process queue: `./{{CLI_NAME}} queue:process`
+
+## Testing conventions
+
+Every test method must have:
+- A **doc-block** explaining what is being tested and why (the invariant or edge case).
+- **Inline section comments** (`// Arrange`, `// Act`, `// Assert`) to mark the three phases.
+
+```php
+/**
+ * A published post must appear in the public listing.
+ * An unpublished post must not — even if it was just created.
+ */
+public function testPublishedPostAppearsInListing(): void
+{
+    // Arrange
+    $post = Post::create(['title' => 'Hello', 'status' => 'published']);
+
+    // Act
+    $listing = Post::where('status', 'published')->get();
+
+    // Assert
+    $this->assertGreaterThan(0, $listing->numRows);
+}
+```
+
+Integration tests that touch the DB must run against the real Docker databases —
+never mock the database layer.
+
+## Available CLI commands
+
+```bash
+./{{CLI_NAME}} migrate                 # Run pending migrations
+./{{CLI_NAME}} migrate:rollback        # Rollback last batch
+./{{CLI_NAME}} migrate:status          # Show migration status table
+./{{CLI_NAME}} migrate:reset           # Roll back all migrations
+./{{CLI_NAME}} db:seed                 # Run database seeders
+./{{CLI_NAME}} scaffold:views          # Publish bundled view templates
+./{{CLI_NAME}} create:controller Name  # Scaffold a controller
+./{{CLI_NAME}} create:model Name       # Scaffold a model
+./{{CLI_NAME}} create:migration Name   # Scaffold a migration
+./{{CLI_NAME}} queue:process           # Start queue worker
+./{{CLI_NAME}} health:check            # Check system health
+```
+
+## Features enabled in this project
+
+{{FEATURES_LIST}}
+
+## Debugger (Xdebug)
+
+Xdebug 3 is pre-installed in the PHP container. To use step-debugging:
+
+**VS Code** — install the [PHP Debug](https://marketplace.visualstudio.com/items?itemName=xdebug.php-debug)
+extension, then add to `.vscode/launch.json`:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Listen for Xdebug",
+      "type": "php",
+      "request": "launch",
+      "port": 9003,
+      "pathMappings": { "/var/www/html": "${workspaceFolder}" }
+    }
+  ]
+}
+```
+
+**PhpStorm** — go to Settings → PHP → Debug, set port 9003, enable "Start listening
+for PHP Debug Connections", add a server with path mapping `/var/www/html` → project root.
+
+Trigger debugging:
+- Web requests: set `XDEBUG_SESSION=1` cookie or append `?XDEBUG_SESSION_START=1`.
+- CLI inside container: `XDEBUG_MODE=debug XDEBUG_SESSION=1 php bin/{{CLI_NAME}}.php …`
+
+## MCP Server (database access for AI assistants)
+
+Claude Code can query the project database directly via an MCP server.
+A `.mcp.json` is included at the project root — run `! npx -y @anthropic-ai/claude-code mcp add` or
+simply start Claude Code: it picks up `.mcp.json` automatically.
+
+The included configuration connects to the **{{DB_TYPE_LABEL}}** Docker container using
+the development credentials. The MCP server gives Claude Code read-only access
+to inspect the live schema and data during development.
+
+> **Security:** `.mcp.json` is in `.gitignore`. Never commit database credentials.
+> The Docker database is local-only and not exposed beyond `localhost`.
+
+Useful things to ask Claude once the MCP server is connected:
+- "Show me all tables and their row counts"
+- "What indexes exist on the users table?"
+- "Are there any pending migrations?"
+
+## Commit conventions
+
+`type(scope): short description` — e.g.:
+- `feat(posts): add pagination to listing`
+- `fix(auth): handle expired token on API requests`
+- `test(posts): add integration test for draft visibility`
