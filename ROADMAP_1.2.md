@@ -336,6 +336,7 @@
 - [x] **Middleware Scaffolding:** `php bin/pramnos create middleware <Name>` — `src/Middleware/<Name>.php` + `tests/Unit/<Name>MiddlewareTest.php`.
 - [x] **Event/Listener Scaffolding:** `create:event` και `create:listener` — εξαρτάται από το Event System (Φάση 2).
 - [x] **`docs/1.2-new-features.md`:** Section 24 added.
+- [ ] **Stub syntax unification:** Υπάρχουν δύο ασύμβατα syntax στα scaffolding stubs — `{{ key }}` (με spaces, στο `renderStub()`) και `{{TOKEN}}` (χωρίς spaces, στο `CLAUDE.md.stub`/`mcp.json.stub`). Επίσης το `MailTemplate` χρησιμοποιεί `{placeholder}` (single braces). Εργασία: (α) ενοποίηση όλων των scaffolding stubs στο `{{ key }}` syntax, (β) χρήση του `renderStub()` και για `CLAUDE.md.stub`/`mcp.json.stub`, (γ) τεκμηρίωση του `{placeholder}` ως το σωστό pattern για mail/notification templates (διαφορετικός σκοπός, διαφορετικό context, αποδεκτή διαφορά).
 
 ## 🔒 Φάση 4: Framework-Level Infrastructure & Security
 *Ενίσχυση της ασφάλειας και της εσωτερικής αρχιτεκτονικής.*
@@ -491,6 +492,9 @@
 - [x] **Characterization Tests — `Logs`:** `LoggerAndMigratorCharacterizationTest`, `LogManagerViewerCharacterizationTest` — file-based Logger, zero DB queries. DB-agnostic coverage είναι πλήρης.
 
 > **Σημείωση για `[~]` (μερική κάλυψη):** Τα tests αυτά υπάρχουν στο Urbanwater integration suite και τρέχουν κατά τη διάρκεια ανάπτυξης ενάντια σε PostgreSQL + TimescaleDB. **Δεν** είναι επίσημα framework characterization tests × 3 databases — δεν τρέχουν σε MySQL και δεν βρίσκονται σε `tests/Characterization/`. Κατά συνέπεια, η Φάση 1 Internal Migration ολοκληρώθηκε χωρίς τη formal προϋπόθεση. Χρειάζεται επίσημη ολοκλήρωση πριν οποιοδήποτε επιπλέον refactoring.
+
+### Code Quality
+- [ ] **Extract `ExpiredException` από `JWT.php`:** Η κλάση `ExpiredException` είναι ορισμένη inline μέσα στο `src/Pramnos/Auth/JWT.php` — το μοναδικό σημείο στο framework όπου μια exception class ζει μέσα σε άλλο αρχείο. Μεταφορά σε `src/Pramnos/Auth/ExpiredException.php`, προσθήκη `class_alias` για BC.
 
 ### New Feature Tests (>90% coverage, στόχος 100%)
 *Κάθε νέο feature που παραδίδεται στη v1.2 πρέπει να συνοδεύεται από tests που καλύπτουν τουλάχιστον το 90% του κώδικά του. Database-related features εκτελούνται × 3.*
