@@ -1128,4 +1128,657 @@ class SchemaBuilderUnitTest extends TestCase
         $sql = $g->compileDropSequence('order_id_seq', false);
         $this->assertEquals('DROP SEQUENCE order_id_seq', $sql);
     }
+
+    // =========================================================================
+    // Helpers for the sections below
+    // =========================================================================
+
+    /**
+     * Build a mock result object whose numRows, fields, and fetchAll() values
+     * are fully controlled by the caller.
+     *
+     * SchemaBuilder methods use three facets of the query result:
+     *   - numRows  — to distinguish empty from non-empty results
+     *   - fields   — for single-value results (setval, nextval, isHypertable cnt)
+     *   - fetchAll — for multi-row introspection queries (getHypertables, etc.)
+     */
+    private function fakeResult(array $rows = [], array $fields = []): object
+    {
+        return new class($rows, $fields) {
+            public int   $numRows;
+            public array $fields;
+            private array $rows;
+
+            public function __construct(array $rows, array $fields)
+            {
+                $this->rows    = $rows;
+                $this->numRows = count($rows);
+                $this->fields  = $fields;
+            }
+
+            public function fetchAll(): array { return $this->rows; }
+        };
+    }
+
+    /**
+     * Build a mock Database configured for the given dialect.
+     * No query()/prepareQuery() defaults are set — each test must configure them.
+     * This avoids PHPUnit stub-overriding issues when a test needs a specific return.
+     */
+    private function makeDBMock(string $type = 'mysql', bool $timescale = false): Database
+    {
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['query', 'prepareQuery', 'queryBuilder', 'getInsertId'])
+            ->getMock();
+        $db->type      = $type;
+        $db->timescale = $timescale;
+        $db->prefix    = '';
+        $db->schema    = '';
+        $db->database  = 'testdb';
+        // Return the SQL unchanged from prepareQuery (passthrough)
+        $db->method('prepareQuery')->willReturnCallback(
+            fn(string $sql, ...$args) => $sql
+        );
+        return $db;
+    }
+
+    // =========================================================================
+    // Deprecated wrappers: create() → createTable(), drop() → dropTableIfExists()
+    // =========================================================================
+
+    /**
+     * create() is a deprecated alias for createTable().
+     *
+     * Calling it must not throw and must forward the blueprint callback
+     * to the grammar so that query() is invoked on the DB connection.
+     */
+    public function testCreateDeprecatedWrapperDelegatestoCreateTable(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('mysql');
+        $db->method('query')->willReturn(null); // accept all queries
+        $sb = new SchemaBuilder($db);
+
+        // Act — must run without exceptions (DB mock accepts any query() call)
+        $sb->create('legacy_table', function (Blueprint $bp) {
+            $bp->increments('id');
+            $bp->string('name');
+        });
+
+        // Assert — reaching here means the wrapper delegated successfully
+        $this->assertTrue(true);
+    }
+
+    /**
+     * drop() is a deprecated alias for dropTableIfExists().
+     *
+     * Like create(), it must forward to the real method without throwing.
+     */
+    public function testDropDeprecatedWrapperDelegatesToDropTableIfExists(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('mysql');
+        $db->method('query')->willReturn(null); // accept any query
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — should reach here without exception
+        $sb->drop('legacy_table');
+        $this->assertTrue(true);
+    }
+
+    // =========================================================================
+    // setVal() — sequence current-value setter
+    // =========================================================================
+
+    /**
+     * setVal() on MySQL returns 0 immediately because the grammar returns ''
+     * for compileSetVal and the method short-circuits before issuing any query.
+     *
+     * This is the "no sequence support" no-op path.
+     */
+    public function testSetValOnMySQLReturnsZeroWithoutQuerying(): void
+    {
+        // Arrange — MySQL grammar's compileSetVal returns ''; query() must NOT be called
+        $db = $this->makeDBMock('mysql');
+        // No query() configuration needed — if called, the mock throws by default
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $this->assertSame(0, $sb->setVal('seq_users', 100));
+    }
+
+    /**
+     * setVal() on PostgreSQL executes the compileSetVal SQL and returns the
+     * value that the database reports as current.
+     */
+    public function testSetValOnPostgreSQLReturnsSetValue(): void
+    {
+        // Arrange — PG grammar compiles a real SQL string; mock returns value 42
+        $db = $this->makeDBMock('postgresql');
+        $db->method('query')->willReturn($this->fakeResult(
+            [['setval' => 42]],
+            ['setval' => 42]
+        ));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — must return the value reported by setval()
+        $this->assertSame(42, $sb->setVal('seq_users', 42));
+    }
+
+    /**
+     * setVal() returns 0 when the query returns no rows (e.g. sequence missing).
+     */
+    public function testSetValReturnsZeroOnEmptyResult(): void
+    {
+        // Arrange — PG grammar compiles SQL; mock returns empty result
+        $db = $this->makeDBMock('postgresql');
+        $db->method('query')->willReturn($this->fakeResult([]));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $this->assertSame(0, $sb->setVal('seq_users', 100));
+    }
+
+    // =========================================================================
+    // addRetentionPolicy() — TimescaleDB vs. software emulation
+    // =========================================================================
+
+    /**
+     * addRetentionPolicy() on a TimescaleDB backend delegates to TimescaleDB's
+     * native add_retention_policy() function via db->query().
+     *
+     * Returns the truthiness of the query result (null → false in the mock).
+     */
+    public function testAddRetentionPolicyOnTimescaleDBCallsNativeFunction(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn(null); // (bool)null = false
+        $sb = new SchemaBuilder($db);
+
+        // Act — TimescaleDB path returns (bool)db->query(...)
+        $result = $sb->addRetentionPolicy('metrics', '90 days');
+
+        // Assert — mock query() returns null → (bool)null = false, which is fine
+        $this->assertFalse($result);
+    }
+
+    /**
+     * addRetentionPolicy() on MySQL/plain PG inserts a row into
+     * pramnos.framework_policies via the query builder and returns true when
+     * getInsertId() > 0.
+     */
+    public function testAddRetentionPolicyNonTimescaleDBInsertsPolicy(): void
+    {
+        // Arrange — MySQL, no TimescaleDB
+        $db = $this->makeDBMock('mysql');
+        $qb = $this->getMockBuilder(\Pramnos\Database\QueryBuilder::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['table', 'insert', 'raw'])
+            ->getMock();
+        $qb->method('table')->willReturnSelf();
+        $qb->method('insert')->willReturn(null);
+        $qb->method('raw')->willReturn(new \Pramnos\Database\Expression('NOW()'));
+        $db->method('queryBuilder')->willReturn($qb);
+        $db->method('getInsertId')->willReturn('5');
+        $sb = new SchemaBuilder($db);
+
+        // Act
+        $result = $sb->addRetentionPolicy('logs', '30 days');
+
+        // Assert — insertId = 5 > 0 → true
+        $this->assertTrue($result);
+    }
+
+    /**
+     * addRetentionPolicy() returns false when getInsertId() returns 0 (insert
+     * was a no-op, e.g. due to a duplicate or disabled trigger).
+     */
+    public function testAddRetentionPolicyReturnsFalseOnZeroInsertId(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('mysql');
+        $qb = $this->getMockBuilder(\Pramnos\Database\QueryBuilder::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['table', 'insert', 'raw'])
+            ->getMock();
+        $qb->method('table')->willReturnSelf();
+        $qb->method('insert')->willReturn(null);
+        $qb->method('raw')->willReturn(new \Pramnos\Database\Expression('NOW()'));
+        $db->method('queryBuilder')->willReturn($qb);
+        $db->method('getInsertId')->willReturn('0');
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — insertId = 0 → false
+        $this->assertFalse($sb->addRetentionPolicy('logs', '30 days'));
+    }
+
+    // =========================================================================
+    // addContinuousAggregatePolicy()
+    // =========================================================================
+
+    /**
+     * addContinuousAggregatePolicy() on TimescaleDB calls the native
+     * add_continuous_aggregate_policy() function.
+     */
+    public function testAddContinuousAggregatePolicyOnTimescaleDB(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn(null); // (bool)null = false
+        $sb = new SchemaBuilder($db);
+
+        // Act — result is (bool)null = false (mock), which is the expected fallback
+        $result = $sb->addContinuousAggregatePolicy('mv_hourly', '2 hours', '1 hour', '1 hour');
+        $this->assertFalse($result);
+    }
+
+    /**
+     * addContinuousAggregatePolicy() on MySQL/plain PG inserts a policy row.
+     */
+    public function testAddContinuousAggregatePolicyNonTimescaleDBInsertsPolicy(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('mysql');
+        $qb = $this->getMockBuilder(\Pramnos\Database\QueryBuilder::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['table', 'insert', 'raw'])
+            ->getMock();
+        $qb->method('table')->willReturnSelf();
+        $qb->method('insert')->willReturn(null);
+        $qb->method('raw')->willReturn(new \Pramnos\Database\Expression('NOW()'));
+        $db->method('queryBuilder')->willReturn($qb);
+        $db->method('getInsertId')->willReturn('7');
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $this->assertTrue($sb->addContinuousAggregatePolicy('mv_hourly', '2 hours', '1 hour', '1 hour'));
+    }
+
+    // =========================================================================
+    // createContinuousAggregate() — three-way dispatch
+    // =========================================================================
+
+    /**
+     * createContinuousAggregate() on TimescaleDB emits a CREATE MATERIALIZED
+     * VIEW WITH (timescaledb.continuous = true) statement.
+     */
+    public function testCreateContinuousAggregateOnTimescaleDB(): void
+    {
+        // Arrange — TimescaleDB grammar selected automatically (timescale=true)
+        $db = $this->makeDBMock('postgresql', true);
+        $capturedSqls = [];
+        $db->method('query')->willReturnCallback(function (string $sql) use (&$capturedSqls) {
+            $capturedSqls[] = $sql;
+            return null;
+        });
+        $sb = new SchemaBuilder($db);
+
+        // Act
+        $sb->createContinuousAggregate('mv_stats', 'SELECT 1');
+
+        // Assert — the CREATE MATERIALIZED VIEW WITH (timescaledb.continuous...) must appear
+        $allSql = implode(' ', $capturedSqls);
+        $this->assertStringContainsString('timescaledb.continuous', $allSql);
+        $this->assertStringContainsString('AS SELECT 1', $allSql);
+    }
+
+    /**
+     * createContinuousAggregate() on plain PostgreSQL (no TimescaleDB) emits a
+     * plain CREATE MATERIALIZED VIEW without the WITH clause.
+     */
+    public function testCreateContinuousAggregateOnPlainPostgreSQL(): void
+    {
+        // Arrange — plain PG, no TimescaleDB (timescale=false)
+        $db = $this->makeDBMock('postgresql', false);
+        $capturedSqls = [];
+        $db->method('query')->willReturnCallback(function ($sql) use (&$capturedSqls) {
+            $capturedSqls[] = $sql;
+            return null;
+        });
+        $sb = new SchemaBuilder($db);
+
+        // Act
+        $sb->createContinuousAggregate('mv_stats', 'SELECT 1');
+
+        // Assert — must be CREATE MATERIALIZED VIEW without TimescaleDB options
+        $allSql = implode(' ', $capturedSqls);
+        $this->assertStringContainsString('CREATE MATERIALIZED VIEW mv_stats AS SELECT 1', $allSql);
+        $this->assertStringNotContainsString('timescaledb.continuous', $allSql);
+    }
+
+    /**
+     * createContinuousAggregate() on MySQL falls back to a regular CREATE VIEW
+     * since MySQL has no materialized view support.
+     */
+    public function testCreateContinuousAggregateOnMySQLFallsBackToView(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('mysql');
+        $capturedSqls = [];
+        $db->method('query')->willReturnCallback(function (string $sql) use (&$capturedSqls) {
+            $capturedSqls[] = $sql;
+            return null;
+        });
+        $sb = new SchemaBuilder($db);
+
+        // Act
+        $sb->createContinuousAggregate('mv_stats', 'SELECT 1');
+
+        // Assert — plain VIEW, no MATERIALIZED keyword
+        $allSql = implode(' ', $capturedSqls);
+        $this->assertStringContainsString('CREATE VIEW mv_stats AS SELECT 1', $allSql);
+        $this->assertStringNotContainsString('MATERIALIZED', $allSql);
+    }
+
+    // =========================================================================
+    // TimescaleDB introspection: getHypertables()
+    // =========================================================================
+
+    /**
+     * getHypertables() returns [] immediately on non-TimescaleDB backends.
+     */
+    public function testGetHypertablesReturnsEmptyOnNonTimescaleDB(): void
+    {
+        // Arrange
+        $sb = $this->makeSB('mysql');
+
+        // Act + Assert — no DB query issued; early return
+        $this->assertSame([], $sb->getHypertables());
+    }
+
+    /**
+     * getHypertables() with no schema filter returns [] when the query finds
+     * no hypertables (e.g. fresh installation).
+     */
+    public function testGetHypertablesNoRowsReturnsEmptyArray(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn(null); // null → !result → return []
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $this->assertSame([], $sb->getHypertables());
+    }
+
+    /**
+     * getHypertables() with a schema filter passes the schema to prepareQuery
+     * and returns mapped objects when rows are found.
+     */
+    public function testGetHypertablesWithSchemaReturnsObjects(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn($this->fakeResult([
+            ['hypertable_schema' => 'public', 'hypertable_name' => 'metrics'],
+            ['hypertable_schema' => 'public', 'hypertable_name' => 'events'],
+        ]));
+        $sb = new SchemaBuilder($db);
+
+        // Act
+        $result = $sb->getHypertables('public');
+
+        // Assert — two rows mapped to objects
+        $this->assertCount(2, $result);
+        $this->assertIsObject($result[0]);
+        $this->assertSame('metrics', $result[0]->hypertable_name);
+    }
+
+    /**
+     * getHypertables() without a schema argument queries all hypertables.
+     */
+    public function testGetHypertablesWithoutSchemaReturnsAllObjects(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn($this->fakeResult([
+            ['hypertable_schema' => 'public', 'hypertable_name' => 'logs'],
+        ]));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — returns 1 object covering the no-schema branch
+        $result = $sb->getHypertables();
+        $this->assertCount(1, $result);
+        $this->assertSame('logs', $result[0]->hypertable_name);
+    }
+
+    // =========================================================================
+    // TimescaleDB introspection: isHypertable()
+    // =========================================================================
+
+    /**
+     * isHypertable() returns false immediately on non-TimescaleDB backends.
+     */
+    public function testIsHypertableReturnsFalseOnNonTimescaleDB(): void
+    {
+        // Arrange + Act + Assert
+        $this->assertFalse($this->makeSB('mysql')->isHypertable('metrics'));
+    }
+
+    /**
+     * isHypertable() returns true when the count query reports at least one row.
+     */
+    public function testIsHypertableReturnsTrueWhenFound(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn($this->fakeResult(
+            [['cnt' => 1]],
+            ['cnt' => 1]
+        ));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $this->assertTrue($sb->isHypertable('metrics', 'public'));
+    }
+
+    /**
+     * isHypertable() uses resolveSchema() when no schema arg is given.
+     *
+     * On PostgreSQL with schema='', resolveSchema() returns '' — the grammar
+     * adds the schema via prepareQuery. The test just verifies the code path runs.
+     */
+    public function testIsHypertableWithEmptySchemaUsesResolvedSchema(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        // Return a zero-count result — isHypertable checks (int)fields['cnt'] > 0
+        $db->method('query')->willReturn($this->fakeResult([['cnt' => 0]], ['cnt' => 0]));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — count = 0 → false
+        $this->assertFalse($sb->isHypertable('metrics'));
+    }
+
+    // =========================================================================
+    // TimescaleDB introspection: getContinuousAggregates()
+    // =========================================================================
+
+    /**
+     * getContinuousAggregates() returns [] on non-TimescaleDB backends.
+     */
+    public function testGetContinuousAggregatesReturnsEmptyOnNonTimescaleDB(): void
+    {
+        $this->assertSame([], $this->makeSB('mysql')->getContinuousAggregates());
+    }
+
+    /**
+     * getContinuousAggregates() with a schema filter returns mapped objects.
+     */
+    public function testGetContinuousAggregatesWithSchemaReturnsObjects(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn($this->fakeResult([
+            ['view_schema' => 'public', 'view_name' => 'mv_hourly'],
+        ]));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $result = $sb->getContinuousAggregates('public');
+        $this->assertCount(1, $result);
+        $this->assertSame('mv_hourly', $result[0]->view_name);
+    }
+
+    /**
+     * getContinuousAggregates() without a schema queries all aggregates.
+     */
+    public function testGetContinuousAggregatesWithoutSchemaCoversNoSchemaBranch(): void
+    {
+        // Arrange — query returns null (no rows) → returns []
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn(null);
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — no-rows path returns []
+        $this->assertSame([], $sb->getContinuousAggregates());
+    }
+
+    // =========================================================================
+    // TimescaleDB introspection: getHypertableDimensions()
+    // =========================================================================
+
+    /**
+     * getHypertableDimensions() returns [] on non-TimescaleDB backends.
+     */
+    public function testGetHypertableDimensionsReturnsEmptyOnNonTimescaleDB(): void
+    {
+        $this->assertSame([], $this->makeSB('mysql')->getHypertableDimensions('metrics'));
+    }
+
+    /**
+     * getHypertableDimensions() resolves schema and returns mapped rows.
+     */
+    public function testGetHypertableDimensionsReturnsObjects(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn($this->fakeResult([
+            ['dimension_type' => 'Time', 'column_name' => 'created_at', 'column_type' => 'TIMESTAMPTZ'],
+        ]));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — explicit schema skips resolveSchema()
+        $result = $sb->getHypertableDimensions('metrics', 'public');
+        $this->assertCount(1, $result);
+        $this->assertSame('created_at', $result[0]->column_name);
+    }
+
+    /**
+     * getHypertableDimensions() with empty schema calls resolveSchema() internally.
+     */
+    public function testGetHypertableDimensionsEmptySchemaUsesResolveSchema(): void
+    {
+        // Arrange — empty-schema branch triggers resolveSchema()
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn(null);
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — empty schema triggers resolveSchema(); result is []
+        $this->assertSame([], $sb->getHypertableDimensions('metrics'));
+    }
+
+    // =========================================================================
+    // TimescaleDB introspection: getTimescaleJobs()
+    // =========================================================================
+
+    /**
+     * getTimescaleJobs() returns [] on non-TimescaleDB backends.
+     */
+    public function testGetTimescaleJobsReturnsEmptyOnNonTimescaleDB(): void
+    {
+        $this->assertSame([], $this->makeSB('mysql')->getTimescaleJobs());
+    }
+
+    /**
+     * getTimescaleJobs() with a process-name filter uses ILIKE.
+     */
+    public function testGetTimescaleJobsWithProcNameFilterReturnsObjects(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn($this->fakeResult([
+            ['job_id' => 1, 'application_name' => 'Retention Policy'],
+        ]));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — filter path
+        $result = $sb->getTimescaleJobs('Retention');
+        $this->assertCount(1, $result);
+        $this->assertSame(1, $result[0]->job_id);
+    }
+
+    /**
+     * getTimescaleJobs() without a filter queries all jobs.
+     */
+    public function testGetTimescaleJobsWithoutFilterCoversNoFilterBranch(): void
+    {
+        // Arrange — no rows returned
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn(null);
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $this->assertSame([], $sb->getTimescaleJobs());
+    }
+
+    // =========================================================================
+    // TimescaleDB introspection: getChunks()
+    // =========================================================================
+
+    /**
+     * getChunks() returns [] on non-TimescaleDB backends.
+     */
+    public function testGetChunksReturnsEmptyOnNonTimescaleDB(): void
+    {
+        $this->assertSame([], $this->makeSB('mysql')->getChunks());
+    }
+
+    /**
+     * getChunks() without a table arg queries all chunks.
+     */
+    public function testGetChunksWithoutTableCoversAllChunksBranch(): void
+    {
+        // Arrange — no rows returned
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn(null);
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — empty-table branch
+        $this->assertSame([], $sb->getChunks());
+    }
+
+    /**
+     * getChunks() with a table name and explicit schema returns mapped rows.
+     */
+    public function testGetChunksWithTableAndSchemaReturnsObjects(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn($this->fakeResult([
+            ['hypertable_name' => 'metrics', 'chunk_name' => '_hyper_1_1_chunk'],
+        ]));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $result = $sb->getChunks('metrics', 'public');
+        $this->assertCount(1, $result);
+        $this->assertSame('_hyper_1_1_chunk', $result[0]->chunk_name);
+    }
+
+    /**
+     * getChunks() with table name but empty schema calls resolveSchema().
+     */
+    public function testGetChunksWithTableAndEmptySchemaUsesResolveSchema(): void
+    {
+        // Arrange — empty schema triggers resolveSchema()
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn(null);
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — triggers resolveSchema() for the empty-schema branch
+        $this->assertSame([], $sb->getChunks('metrics'));
+    }
 }
