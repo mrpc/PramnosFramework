@@ -40,6 +40,10 @@ use Pramnos\Database\Grammar\PostgreSQLSchemaGrammar;
 #[CoversClass(SchemaGrammar::class)]
 #[CoversClass(MySQLSchemaGrammar::class)]
 #[CoversClass(PostgreSQLSchemaGrammar::class)]
+#[CoversClass(Blueprint::class)]
+#[CoversClass(ColumnDefinition::class)]
+#[CoversClass(ForeignKeyDefinition::class)]
+#[CoversClass(Expression::class)]
 class SchemaGrammarTest extends TestCase
 {
     // =========================================================================
@@ -2067,5 +2071,529 @@ class SchemaGrammarTest extends TestCase
 
         // Assert — both columns appear in the PRIMARY KEY clause
         $this->assertStringContainsString('PRIMARY KEY (`order_id`, `product_id`)', $sql);
+    }
+
+    // =========================================================================
+    // Blueprint — uncovered column type helpers
+    // =========================================================================
+
+    /**
+     * Blueprint::double() registers a 'double' column with optional total/places.
+     *
+     * This covers Blueprint.php line 169.  Using double() as the Blueprint method
+     * and reading the resulting ColumnDefinition confirms both that the column is
+     * added and that the precision attributes are forwarded correctly.
+     */
+    public function testBlueprintDoubleRegistersColumn(): void
+    {
+        // Arrange
+        $bp = new Blueprint('metrics');
+
+        // Act
+        $col = $bp->double('ratio', 10, 4);
+
+        // Assert — type is 'double' with precision attributes
+        $this->assertSame('double', $col->type);
+        $this->assertSame(10, $col->attributes['total']);
+        $this->assertSame(4, $col->attributes['places']);
+        $this->assertCount(1, $bp->getColumns());
+    }
+
+    /**
+     * Blueprint::time() registers a 'time' column with a precision attribute.
+     *
+     * This covers Blueprint.php line 197 (time column helper).  The precision
+     * argument must be forwarded to the ColumnDefinition's attributes bag.
+     */
+    public function testBlueprintTimeRegistersColumn(): void
+    {
+        // Arrange
+        $bp = new Blueprint('events');
+
+        // Act
+        $col = $bp->time('start_time', 3);
+
+        // Assert — type and precision stored
+        $this->assertSame('time', $col->type);
+        $this->assertSame(3, $col->attributes['precision']);
+    }
+
+    /**
+     * Blueprint::year() registers a 'year' column (MySQL YEAR type).
+     *
+     * This covers Blueprint.php line 218.  Primarily a MySQL-specific type;
+     * PostgreSQL grammars map it to INTEGER.
+     */
+    public function testBlueprintYearRegistersColumn(): void
+    {
+        // Arrange
+        $bp = new Blueprint('employees');
+
+        // Act
+        $col = $bp->year('birth_year');
+
+        // Assert — type and name stored
+        $this->assertSame('year', $col->type);
+        $this->assertSame('birth_year', $col->name);
+    }
+
+    /**
+     * Blueprint::timestampsTz() adds nullable created_at and updated_at TIMESTAMPTZ columns.
+     *
+     * This covers Blueprint.php lines 233-237.  The two columns must be nullable
+     * (Rails/Laravel convention: soft timestamps are nullable by default).
+     */
+    public function testBlueprintTimestampsTzAddsTwoColumns(): void
+    {
+        // Arrange
+        $bp = new Blueprint('posts');
+
+        // Act
+        $bp->timestampsTz();
+
+        // Assert — exactly two columns: created_at and updated_at, both timestampTz and nullable
+        $cols = $bp->getColumns();
+        $this->assertCount(2, $cols);
+        $this->assertSame('created_at', $cols[0]->name);
+        $this->assertSame('timestampTz', $cols[0]->type);
+        $this->assertSame('updated_at', $cols[1]->name);
+        $this->assertSame('timestampTz', $cols[1]->type);
+        $this->assertTrue($cols[0]->attributes['nullable']);
+        $this->assertTrue($cols[1]->attributes['nullable']);
+    }
+
+    /**
+     * Blueprint::softDeletesTz() adds a nullable deleted_at TIMESTAMPTZ column.
+     *
+     * This covers Blueprint.php lines 245-248.  Used for soft-delete patterns
+     * in timezone-aware applications.
+     */
+    public function testBlueprintSoftDeletesTzAddsDeletedAtColumn(): void
+    {
+        // Arrange
+        $bp = new Blueprint('orders');
+
+        // Act
+        $bp->softDeletesTz();
+
+        // Assert — one column: deleted_at with timestampTz type, nullable
+        $cols = $bp->getColumns();
+        $this->assertCount(1, $cols);
+        $this->assertSame('deleted_at', $cols[0]->name);
+        $this->assertSame('timestampTz', $cols[0]->type);
+        $this->assertTrue($cols[0]->attributes['nullable']);
+    }
+
+    /**
+     * Blueprint::binary() registers a 'binary' column for BLOB/BYTEA data.
+     *
+     * This covers Blueprint.php line 256.  No extra attributes are stored for
+     * binary columns — only the type matters.
+     */
+    public function testBlueprintBinaryRegistersColumn(): void
+    {
+        // Arrange
+        $bp = new Blueprint('files');
+
+        // Act
+        $col = $bp->binary('content');
+
+        // Assert — type and name stored
+        $this->assertSame('binary', $col->type);
+        $this->assertSame('content', $col->name);
+    }
+
+    /**
+     * Blueprint::point() registers a 'point' spatial column.
+     *
+     * This covers Blueprint.php line 310.  Spatial types are passed through to
+     * the grammar which renders POINT for both MySQL and PostgreSQL.
+     */
+    public function testBlueprintPointRegistersColumn(): void
+    {
+        // Arrange
+        $bp = new Blueprint('locations');
+
+        // Act
+        $col = $bp->point('coordinates');
+
+        // Assert — type and name stored
+        $this->assertSame('point', $col->type);
+        $this->assertSame('coordinates', $col->name);
+    }
+
+    // =========================================================================
+    // Blueprint — ALTER TABLE drop helpers
+    // =========================================================================
+
+    /**
+     * Blueprint::dropIndex() registers the index name in the droppedIndexes list.
+     *
+     * This covers Blueprint.php line 410.  The grammar reads getDroppedIndexes()
+     * to emit DROP INDEX statements during ALTER TABLE compilation.
+     */
+    public function testBlueprintDropIndexRegistersName(): void
+    {
+        // Arrange
+        $bp = new Blueprint('users', 'alter');
+
+        // Act
+        $bp->dropIndex('idx_users_email');
+
+        // Assert — name present in the dropped-indexes list
+        $this->assertContains('idx_users_email', $bp->getDroppedIndexes());
+    }
+
+    /**
+     * Blueprint::dropUnique() also registers the unique index name for dropping.
+     *
+     * dropUnique() funnels through the same droppedIndexes list as dropIndex()
+     * because the grammar drops unique indexes and plain indexes the same way.
+     * This covers Blueprint.php line 415.
+     */
+    public function testBlueprintDropUniqueRegistersName(): void
+    {
+        // Arrange
+        $bp = new Blueprint('users', 'alter');
+
+        // Act
+        $bp->dropUnique('users_email_unique');
+
+        // Assert — same list as dropIndex
+        $this->assertContains('users_email_unique', $bp->getDroppedIndexes());
+    }
+
+    /**
+     * Blueprint::dropPrimary() with no argument defaults to 'PRIMARY'.
+     *
+     * MySQL PRIMARY KEY constraint is always named 'PRIMARY'; omitting the name
+     * must default to that constant so the grammar can emit DROP PRIMARY KEY.
+     * This covers Blueprint.php lines 423-426 (null-branch).
+     */
+    public function testBlueprintDropPrimaryDefaultsToNamedPrimary(): void
+    {
+        // Arrange
+        $bp = new Blueprint('users', 'alter');
+
+        // Act — omit the optional name
+        $bp->dropPrimary();
+
+        // Assert — 'PRIMARY' sentinel registered
+        $this->assertContains('PRIMARY', $bp->getDroppedIndexes());
+    }
+
+    /**
+     * Blueprint::dropPrimary() with an explicit name registers that name exactly.
+     *
+     * PostgreSQL names PK constraints after the table (e.g. orders_pkey) rather
+     * than the MySQL constant 'PRIMARY'.  Passing an explicit name must override
+     * the default.  This covers Blueprint.php line 426 (explicit name branch).
+     */
+    public function testBlueprintDropPrimaryWithExplicitNameRegistersItExactly(): void
+    {
+        // Arrange
+        $bp = new Blueprint('orders', 'alter');
+
+        // Act — supply a PostgreSQL-style PK name
+        $bp->dropPrimary('orders_pkey');
+
+        // Assert — explicit name stored, not the 'PRIMARY' default
+        $this->assertContains('orders_pkey', $bp->getDroppedIndexes());
+        $this->assertNotContains('PRIMARY', $bp->getDroppedIndexes());
+    }
+
+    // =========================================================================
+    // Blueprint — table options (temporary)
+    // =========================================================================
+
+    /**
+     * Blueprint::temporary() sets the temporary flag used by CREATE TEMPORARY TABLE.
+     *
+     * This covers Blueprint.php line 434.  The grammar reads isTemporary() to decide
+     * whether to emit CREATE TEMPORARY TABLE or CREATE TABLE.
+     */
+    public function testBlueprintTemporaryFlagIsSet(): void
+    {
+        // Arrange
+        $bp = new Blueprint('tmp_staging');
+
+        // Act — default is false; calling temporary() must flip it
+        $this->assertFalse($bp->isTemporary());
+        $bp->temporary();
+
+        // Assert — temporary flag set
+        $this->assertTrue($bp->isTemporary());
+    }
+
+    // =========================================================================
+    // Blueprint — generateIndexName() auto-naming
+    // =========================================================================
+
+    /**
+     * Blueprint::unique() without an explicit name auto-generates using
+     * the pattern: {table}_{column}_unique.
+     *
+     * This covers Blueprint::generateIndexName() (lines 473-477).  The auto-name
+     * must match the convention so that migration squashing and index drops
+     * can locate the constraint by name.
+     */
+    public function testBlueprintUniqueAutoGeneratesIndexName(): void
+    {
+        // Arrange
+        $bp = new Blueprint('password_resets');
+
+        // Act — no explicit name supplied
+        $bp->unique('token');
+
+        // Assert — auto-name follows the table_column_unique pattern
+        $constraints = $bp->getUniqueConstraints();
+        $this->assertCount(1, $constraints);
+        $this->assertSame('password_resets_token_unique', $constraints[0]['name']);
+    }
+
+    /**
+     * Blueprint::index() without an explicit name auto-generates using the 'index' suffix.
+     *
+     * This covers generateIndexName() for composite indexes (multiple columns are
+     * joined with underscores).
+     */
+    public function testBlueprintIndexAutoGeneratesIndexName(): void
+    {
+        // Arrange
+        $bp = new Blueprint('audit_logs');
+
+        // Act — composite index without explicit name
+        $bp->index(['user_id', 'created_at']);
+
+        // Assert — generated name joins all column names
+        $indexes = $bp->getIndexes();
+        $this->assertCount(1, $indexes);
+        $this->assertSame('audit_logs_user_id_created_at_index', $indexes[0]['name']);
+    }
+
+    // =========================================================================
+    // ColumnDefinition — uncovered modifier methods
+    // =========================================================================
+
+    /**
+     * ColumnDefinition::useCurrent() sets the column default to CURRENT_TIMESTAMP.
+     *
+     * The method wraps the raw SQL token in an Expression so the grammar renders
+     * it verbatim (not as a quoted string literal).  Covers ColumnDefinition.php
+     * lines 64-67.
+     */
+    public function testColumnDefinitionUseCurrent(): void
+    {
+        // Arrange
+        $col = new ColumnDefinition('created_at', 'timestamp');
+
+        // Act
+        $col->useCurrent();
+
+        // Assert — default is an Expression wrapping CURRENT_TIMESTAMP
+        $this->assertTrue($col->has('default'));
+        $this->assertInstanceOf(Expression::class, $col->get('default'));
+        $this->assertSame('CURRENT_TIMESTAMP', (string)$col->get('default'));
+    }
+
+    /**
+     * ColumnDefinition::charset() stores the charset attribute for MySQL.
+     *
+     * Covers ColumnDefinition.php line 159.  The grammar reads this attribute
+     * to emit CHARACTER SET utf8mb4 in the column definition.
+     */
+    public function testColumnDefinitionCharset(): void
+    {
+        // Arrange
+        $col = new ColumnDefinition('name', 'string');
+
+        // Act
+        $result = $col->charset('utf8mb4');
+
+        // Assert — fluent return + attribute stored
+        $this->assertSame($col, $result);
+        $this->assertSame('utf8mb4', $col->get('charset'));
+    }
+
+    /**
+     * ColumnDefinition::collation() stores the collation attribute for MySQL.
+     *
+     * Covers ColumnDefinition.php line 165.  The grammar reads this attribute
+     * to emit COLLATE utf8mb4_unicode_ci in the column definition.
+     */
+    public function testColumnDefinitionCollation(): void
+    {
+        // Arrange
+        $col = new ColumnDefinition('name', 'string');
+
+        // Act
+        $result = $col->collation('utf8mb4_unicode_ci');
+
+        // Assert — fluent return + attribute stored
+        $this->assertSame($col, $result);
+        $this->assertSame('utf8mb4_unicode_ci', $col->get('collation'));
+    }
+
+    /**
+     * ColumnDefinition::get() returns the supplied default when the attribute is absent.
+     *
+     * Covers ColumnDefinition.php line 181.  Grammars rely on this to avoid
+     * isset() checks: get('nullable', false) must return false when never set.
+     */
+    public function testColumnDefinitionGetReturnsDefaultWhenAttributeAbsent(): void
+    {
+        // Arrange
+        $col = new ColumnDefinition('x', 'integer');
+
+        // Act + Assert — absent key with custom default
+        $this->assertSame('fallback', $col->get('nonExistentAttr', 'fallback'));
+        // Absent key with no default returns null
+        $this->assertNull($col->get('nonExistentAttr'));
+    }
+
+    /**
+     * ColumnDefinition::has() distinguishes "explicitly set to false" from "absent".
+     *
+     * Covers ColumnDefinition.php line 188.  Grammars use has('nullable') to detect
+     * explicitly-set false (= SET NOT NULL) vs never-set (= omit the clause entirely).
+     */
+    public function testColumnDefinitionHasDistinguishesSetFromAbsent(): void
+    {
+        // Arrange
+        $col = new ColumnDefinition('active', 'boolean');
+
+        // Act — attribute not yet set
+        $this->assertFalse($col->has('nullable'));
+
+        // Act — set to false explicitly (nullable=false means NOT NULL)
+        $col->nullable(false);
+
+        // Assert — has() returns true even though the stored value is false
+        $this->assertTrue($col->has('nullable'));
+        $this->assertFalse($col->get('nullable'));
+    }
+
+    // =========================================================================
+    // ForeignKeyDefinition — uncovered fluent methods
+    // =========================================================================
+
+    /**
+     * ForeignKeyDefinition::onUpdate() stores the action in uppercase.
+     *
+     * Covers ForeignKeyDefinition.php line 58.  The grammar reads onUpdate to
+     * render the ON UPDATE clause; the value must be uppercase regardless of input.
+     */
+    public function testForeignKeyDefinitionOnUpdate(): void
+    {
+        // Arrange
+        $fk = new ForeignKeyDefinition('user_id');
+
+        // Act — lowercase input should be uppercased
+        $result = $fk->onUpdate('cascade');
+
+        // Assert — fluent return + stored uppercase
+        $this->assertSame($fk, $result);
+        $this->assertSame('CASCADE', $fk->onUpdate);
+    }
+
+    /**
+     * ForeignKeyDefinition::constraintName() overrides the auto-generated constraint name.
+     *
+     * Covers ForeignKeyDefinition.php line 72.  The grammar uses constraintName when
+     * not null; otherwise it auto-generates one from the table and column names.
+     */
+    public function testForeignKeyDefinitionConstraintName(): void
+    {
+        // Arrange
+        $fk = new ForeignKeyDefinition('order_id');
+
+        // Act
+        $result = $fk->constraintName('fk_custom_name');
+
+        // Assert — fluent return + custom name stored
+        $this->assertSame($fk, $result);
+        $this->assertSame('fk_custom_name', $fk->constraintName);
+    }
+
+    /**
+     * ForeignKeyDefinition::cascadeOnUpdate() is a shortcut for onUpdate('CASCADE').
+     *
+     * Covers ForeignKeyDefinition.php line 85.  Equivalent to ->onUpdate('CASCADE')
+     * but more readable in migration files.
+     */
+    public function testForeignKeyDefinitionCascadeOnUpdate(): void
+    {
+        // Arrange
+        $fk = new ForeignKeyDefinition('category_id');
+
+        // Act
+        $result = $fk->cascadeOnUpdate();
+
+        // Assert — shortcut sets CASCADE correctly
+        $this->assertSame($fk, $result);
+        $this->assertSame('CASCADE', $fk->onUpdate);
+    }
+
+    /**
+     * ForeignKeyDefinition::nullOnDelete() sets ON DELETE SET NULL.
+     *
+     * Covers ForeignKeyDefinition.php line 90.  Used for optional FK relations
+     * where the child row should not be deleted when the parent is deleted.
+     */
+    public function testForeignKeyDefinitionNullOnDelete(): void
+    {
+        // Arrange
+        $fk = new ForeignKeyDefinition('parent_id');
+
+        // Act
+        $result = $fk->nullOnDelete();
+
+        // Assert
+        $this->assertSame($fk, $result);
+        $this->assertSame('SET NULL', $fk->onDelete);
+    }
+
+    /**
+     * ForeignKeyDefinition::noActionOnDelete() sets ON DELETE NO ACTION.
+     *
+     * Covers ForeignKeyDefinition.php line 95.  Defers the constraint check
+     * (semantically equivalent to RESTRICT in most databases).
+     */
+    public function testForeignKeyDefinitionNoActionOnDelete(): void
+    {
+        // Arrange
+        $fk = new ForeignKeyDefinition('group_id');
+
+        // Act
+        $result = $fk->noActionOnDelete();
+
+        // Assert
+        $this->assertSame($fk, $result);
+        $this->assertSame('NO ACTION', $fk->onDelete);
+    }
+
+    // =========================================================================
+    // Expression — __toString
+    // =========================================================================
+
+    /**
+     * Expression::__toString() renders the raw SQL fragment via getValue().
+     *
+     * Covers Expression.php line 26-28.  Grammar code sometimes interpolates
+     * Expression objects into SQL strings — the cast must return the raw value
+     * verbatim, not a quoted or escaped form.
+     */
+    public function testExpressionToStringReturnsSqlFragment(): void
+    {
+        // Arrange
+        $expr = new Expression('CURRENT_TIMESTAMP');
+
+        // Act — implicit string cast
+        $result = (string)$expr;
+
+        // Assert — raw SQL fragment preserved
+        $this->assertSame('CURRENT_TIMESTAMP', $result);
+        // getValue() must also return the raw value
+        $this->assertSame('CURRENT_TIMESTAMP', $expr->getValue());
     }
 }

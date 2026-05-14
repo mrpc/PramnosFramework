@@ -1,22 +1,34 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-14 (session 74)
+## 📅 Last Updated: 2026-05-14 (session 75)
 
-## 🏁 Session 74 — SchemaGrammar unit tests (2026-05-14)
+## 🏁 Session 75 — Coverage expansion: Blueprint/ColumnDefinition/FKDef/Expression + StringHelper (2026-05-14)
 
 ### ✅ Ολοκληρώθηκε
 
-**Νέο test file:**
-- `tests/Unit/Database/SchemaGrammarTest.php` — 138 tests, 244 assertions
-  - `#[CoversClass]` για SchemaGrammar, MySQLSchemaGrammar, PostgreSQLSchemaGrammar
-  - Καλύπτει: compileDefaultValue (όλοι τύποι), compileColumn (modifiers), compileColumnType (MySQL+PG), compileCreate/compileAlter, DDL για VIEW/MATERIALIZED VIEW/TRIGGER/SEQUENCE/INDEX, compileHasTable/compileHasColumn
+**SchemaGrammarTest.php ενημέρωση (6d5d8fe → τωρινή):**
+- Προσθήκη `#[CoversClass]` για Blueprint, ColumnDefinition, ForeignKeyDefinition, Expression
+- 25 νέα test methods: Blueprint column helpers (double, time, year, timestampsTz, softDeletesTz, binary, point), drop helpers (dropIndex, dropUnique, dropPrimary, temporary), generateIndexName, ColumnDefinition (useCurrent, charset, collation, get, has), ForeignKeyDefinition (onUpdate, constraintName, cascadeOnUpdate, nullOnDelete, noActionOnDelete), Expression (__toString)
+- 163 tests total (ήταν 138)
 
-**Coverage αποτελέσματα (SchemaGrammarTest only):**
-- MySQLSchemaGrammar.php: **100%** (110/110)
-- PostgreSQLSchemaGrammar.php: **100%** (154/154)
-- SchemaGrammar.php: **87.3%** (137/157) — οι 20 uncovered γραμμές είναι abstract/overridden base methods αναπόφευκτα unreachable μέσω MySQL+PG subclasses
+**StringHelperTest.php ενημέρωση:**
+- 4 νέα entries στο pluralizeProvider: axis→axes (line 84), stimulus→stimuli/alumnus→alumni (lines 88-93), shelf→shelves (lines 100-105)
+- Αυτές οι γραμμές δεν καλύπτονταν γιατί τα existing tests χρησιμοποιούν λέξεις που βρίσκονται στα $irregularPlurals (παρακάμπτουν τους ειδικούς κλάδους)
+
+**Coverage αποτελέσματα (full suite, 3615 tests):**
+- Blueprint.php: **97.6%** (81/83) — ήταν 49.4%
+- ColumnDefinition.php: **100%** (35/35) — ήταν 40%
+- Expression.php: **100%** (3/3) — ήταν 0%
+- ForeignKeyDefinition.php: **100%** (15/15) — ήταν 73.3%
+- Συνολική: **42.41%** (11319/26690)
+
+**Σημαντική ανακάλυψη — PHPUnit 11 CoversClass attribution:**
+- Το `#[CoversClass]` περιορίζει την attribution coverage ΜΟΝΟ στις declared classes
+- Tests χωρίς CoversClass δίνουν coverage σε ΟΛΑ τα εκτελούμενα αρχεία
+- Αυτό εξηγεί γιατί το SchemaBuilderUnitTest (no CoversClass) ήδη κάλυπτε Blueprint/CD/FKD μερικώς
 
 ### Commits
+- `6d5d8fe` test(coverage): add unit tests for SchemaGrammar (138 tests, MySQL+PG 100%)
 - (pending)
 
 ---
