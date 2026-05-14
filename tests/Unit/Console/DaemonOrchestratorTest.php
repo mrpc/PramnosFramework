@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Unit\Console;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Console\DaemonOrchestrator;
 
@@ -23,6 +24,7 @@ use Pramnos\Console\DaemonOrchestrator;
  * shell_exec, posix_kill, sleep — those belong in integration or
  * functional tests.
  */
+#[CoversClass(DaemonOrchestrator::class)]
 class DaemonOrchestratorTest extends TestCase
 {
     private DaemonOrchestrator $orch;
