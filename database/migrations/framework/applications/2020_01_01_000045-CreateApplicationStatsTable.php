@@ -23,7 +23,7 @@ class CreateApplicationStatsTable extends Migration
      *
      * @return void
      */
-    public function up()
+    public function up(): void
     {
         $this->schema('applications')
             ->create('application_stats', function ($table) {
@@ -100,7 +100,7 @@ class CreateApplicationStatsTable extends Migration
      *
      * @return void
      */
-    public function down()
+    public function down(): void
     {
         // Drop compression policies if using TimescaleDB
         if ($this->DB()->capabilities()->supports(DatabaseCapabilities::TIMESCALEDB)) {

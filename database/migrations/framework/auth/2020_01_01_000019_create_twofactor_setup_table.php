@@ -21,7 +21,7 @@ class CreateTwofactorSetupTable extends Migration
     public array   $dependencies = ['create_authserver_schema'];
     public $description  = 'Creates the authserver.twofactor_setup temporary setup session table';
 
-    public function up(): void
+    public function up(): void: void
     {
         $schema = $this->application->database->schema();
 
@@ -50,7 +50,7 @@ class CreateTwofactorSetupTable extends Migration
         });
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $this->application->database->schema()->dropTableIfExists('authserver.twofactor_setup');
     }

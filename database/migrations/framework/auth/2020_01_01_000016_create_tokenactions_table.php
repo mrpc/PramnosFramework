@@ -32,7 +32,7 @@ class CreateTokenactionsTable extends Migration
     public array   $dependencies = ['create_usertokens_table', 'create_urls_table'];
     public $description  = 'Creates the tokenactions API call log table (hypertable on TimescaleDB)';
 
-    public function up(): void
+    public function up(): void: void
     {
         $schema = $this->application->database->schema();
 
@@ -112,7 +112,7 @@ class CreateTokenactionsTable extends Migration
         });
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $caps = $this->application->database->schema()->getCapabilities();
 

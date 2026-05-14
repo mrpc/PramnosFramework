@@ -27,7 +27,7 @@ class CreateAuthserverRoleTemplatesTable extends Migration
     public array   $dependencies = ['create_authserver_permission_templates_table'];
     public $description  = 'Creates the authserver.role_templates role blueprint table';
 
-    public function up(): void
+    public function up(): void: void
     {
         $schema = $this->application->database->schema();
 
@@ -62,7 +62,7 @@ class CreateAuthserverRoleTemplatesTable extends Migration
         });
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $this->application->database->schema()->dropTableIfExists('authserver.role_templates');
     }

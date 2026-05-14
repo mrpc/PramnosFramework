@@ -32,7 +32,7 @@ class CreateAuthserverEffectivePermissionsView extends Migration
     public array   $dependencies = ['create_authserver_permission_inheritance_table'];
     public $description  = 'Creates the authserver.effective_permissions deny-takes-priority view';
 
-    public function up(): void
+    public function up(): void: void
     {
         $db     = $this->application->database;
         $schema = $db->schema();
@@ -88,7 +88,7 @@ class CreateAuthserverEffectivePermissionsView extends Migration
         }
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $this->application->database->schema()->dropView('authserver.effective_permissions');
     }

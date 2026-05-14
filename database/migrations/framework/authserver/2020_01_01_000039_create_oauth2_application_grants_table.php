@@ -46,7 +46,7 @@ class CreateOauth2ApplicationGrantsTable extends Migration
     ];
     public $description = 'Creates applications.oauth2_application_grants, oauth2_application_permissions/active_tokens views, and cleanup function';
 
-    public function up(): void
+    public function up(): void: void
     {
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();
@@ -233,7 +233,7 @@ END;
     // down                                                                 //
     // ------------------------------------------------------------------ //
 
-    public function down(): void
+    public function down(): void: void
     {
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();

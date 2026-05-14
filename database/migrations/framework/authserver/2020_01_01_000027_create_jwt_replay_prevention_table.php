@@ -25,7 +25,7 @@ class CreateJwtReplayPreventionTable extends Migration
     public array  $dependencies = ['create_authserver_schema'];
     public $description  = 'Creates the jwt_replay_prevention table to block token replay attacks';
 
-    public function up(): void
+    public function up(): void: void
     {
         $db     = $this->application->database;
         $schema = $db->schema();
@@ -53,7 +53,7 @@ class CreateJwtReplayPreventionTable extends Migration
         }
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();

@@ -22,7 +22,7 @@ class CreateUserTwofactorTable extends Migration
     public array   $dependencies = ['create_authserver_schema'];
     public $description  = 'Creates the authserver.user_twofactor 2FA state table';
 
-    public function up(): void
+    public function up(): void: void
     {
         $schema = $this->application->database->schema();
 
@@ -54,7 +54,7 @@ class CreateUserTwofactorTable extends Migration
         });
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $this->application->database->schema()->dropTableIfExists('authserver.user_twofactor');
     }

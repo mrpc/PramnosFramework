@@ -21,7 +21,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
      *
      * @return void
      */
-    public function up()
+    public function up(): void: void
     {
         $db = $this->DB();
 
@@ -172,7 +172,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
      *
      * @return void
      */
-    public function down()
+    public function down(): void: void
     {
         $db = $this->DB();
 

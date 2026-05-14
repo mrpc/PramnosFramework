@@ -26,7 +26,7 @@ class CreateOauth2UserConsentsTable extends Migration
     public array  $dependencies = ['create_applications_table', 'create_users_table'];
     public $description  = 'Creates the oauth2_user_consents table (persisted user authorization decisions)';
 
-    public function up(): void
+    public function up(): void: void
     {
         $schema = $this->application->database->schema();
 
@@ -56,7 +56,7 @@ class CreateOauth2UserConsentsTable extends Migration
         });
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $this->application->database->schema()->dropTableIfExists('oauth2_user_consents');
     }

@@ -30,7 +30,7 @@ class CreateDailyActivitySummaryView extends Migration
     public array   $dependencies = ['create_user_activity_log_table'];
     public $description  = 'Creates the authserver.daily_activity_summary continuous aggregate / materialized view';
 
-    public function up(): void
+    public function up(): void: void
     {
         $schema = $this->application->database->schema();
 
@@ -73,7 +73,7 @@ class CreateDailyActivitySummaryView extends Migration
         );
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $schema = $this->application->database->schema();
 
