@@ -22,10 +22,10 @@
    Νέες μέθοδοι, νέες κλάσεις, νέα interfaces προστίθενται δίπλα στα υπάρχοντα. Το υπάρχον σύστημα εξακολουθεί να τρέχει ανεξάρτητα.
 
 4. **Deprecated ≠ Removed.**
-   Μέθοδοι που αντικαθίστανται από νεότερες χαρακτηρίζονται `@deprecated` και παράγουν `E_USER_DEPRECATED` notice, αλλά **δεν αφαιρούνται** σε αυτό το release cycle.
+   Μέθοδοι που αντικαθιστάνται από νεότερες χαρακτηρίζονται `@deprecated` και παράγουν `E_USER_DEPRECATED` notice, αλλά **δεν αφαιρούνται** σε αυτό το release cycle.
 
 5. **Behavior-level BC: ίδια είσοδος → ίδια έξοδος.**
-   Αν υπάρχουσα λογική εσωτερικά αναδομηθεί (refactor), το παρατηρήσιμο αποτέλεσμα πρέπει να παραμείνει πανομοιότυπο.
+   Αν υπάρχουσα λογική εσωτερικά αναδομηθεί (refactor), το παρατηρήσιμο αποτέλεσμα πρέπει να παραμένει πανομοιότυπο.
 
 ### Γνωστή Εξαίρεση
 
@@ -126,7 +126,7 @@
 - **Execution shortcuts & aggregates** *(standard ORM API — παράλληλο pattern με το `count()`)*:
   - [x] `get()` — εκτελεί και επιστρέφει `Result`
   - [x] `first()` — `LIMIT 1`, επιστρέφει `Result`
-  - [x] `count(): int` — `SELECT COUNT(*) AS aggregate`, strips ORDER BY/LIMIT, δεν μεταλλάσσει τον builder
+  - [x] `count(): int` — `SELECT COUNT(*) AS aggregate`, strips ORDER BY/LIMIT, δεν μεταλλάσσει το builder
   - [x] `sum(string $col): float` — `SELECT SUM(col) AS aggregate`
   - [x] `avg(string $col): float` — `SELECT AVG(col) AS aggregate`
   - [x] `min(string $col): mixed` — `SELECT MIN(col) AS aggregate`
@@ -336,7 +336,61 @@
 - [x] **Middleware Scaffolding:** `php bin/pramnos create middleware <Name>` — `src/Middleware/<Name>.php` + `tests/Unit/<Name>MiddlewareTest.php`.
 - [x] **Event/Listener Scaffolding:** `create:event` και `create:listener` — εξαρτάται από το Event System (Φάση 2).
 - [x] **`docs/1.2-new-features.md`:** Section 24 added.
-- [ ] **Stub syntax unification:** Υπάρχουν δύο ασύμβατα syntax στα scaffolding stubs — `{{ key }}` (με spaces, στο `renderStub()`) και `{{TOKEN}}` (χωρίς spaces, στο `CLAUDE.md.stub`/`mcp.json.stub`). Επίσης το `MailTemplate` χρησιμοποιεί `{placeholder}` (single braces). Εργασία: (α) ενοποίηση όλων των scaffolding stubs στο `{{ key }}` syntax, (β) χρήση του `renderStub()` και για `CLAUDE.md.stub`/`mcp.json.stub`, (γ) τεκμηρίωση του `{placeholder}` ως το σωστό pattern για mail/notification templates (διαφορετικός σκοπός, διαφορετικό context, αποδεκτή διαφορά).
+- [ ] **Stub syntax unification:** Υπάρχουν δύο ασύμβατα syntax στα scaffolding stubs — `{{ key }}` (με spaces, στο `renderStub()`) και `{{TOKEN}}` (χωρίς spaces, στο `CLAUDE.md.stub`/`mcp.json.stub`). Εργασία: (α) ενοποίηση όλων των scaffolding stubs στο `{{ key }}` syntax, (β) χρήση του `renderStub()` και για `CLAUDE.md.stub`/`mcp.json.stub`, (γ) τεκμηρίωση του `{placeholder}` ως το σωστό pattern για mail/notification templates (διαφορετικός σκοπός, διαφορετικό context, αποδεκτή διαφορά).
+
+### 🔧 Enhanced Scaffolding & Developer Experience (v1.2.1+)
+*Ανάβαθμη της ποιότητας του scaffolded κώδικα και της εμπειρίας προγραμματιστή.*
+
+- [ ] **PHP 8.5 Default Version:** Ανύψωση της default PHP version από 8.4 σε 8.5 — επηρεάζει:
+  - Το `Dockerfile` του framework (base image αναβάθμιση)
+  - Τα scaffolded Dockerfiles κάθε νέας εφαρμογής (`pramnos init`)
+  - Τη `composer.json` requirement (`php: ^8.5`)
+  - Τη δοκιμαστική μήνυμα κατά το bootstrap αν ο τοπικός PHP είναι πιο παλιός
+
+- [ ] **Symfony-Compatible Console Commands:** Αναδιαμόρφωση της ονοματολογίας CLI commands σε symfony format — π.χ. `create migration` → `create:migration`, `create model` → `create:model`, `create controller` → `create:controller`, `service queue` → `service:queue`, κλπ. Επηρεάζει:
+  - Όλα τα `Console/Commands/*.php` αρχεία (όνομα κλάσης ή `getCommand()` return)
+  - Την τεκμηρίωση (`docs/1.2-new-features.md` — πίνακας διαθέσιμων commands)
+  - Τη backward compatibility: κρατήστε alias για τις παλιές εντολές (π.χ. `create migration` → εσωτερικά καλεί το `create:migration` command)
+
+- [ ] **Full Unit Tests in `create` Commands:** Τα scaffolded unit tests δεν θα είναι πια placeholders. Όταν δημιουργείται ένα model/controller/middleware, τα auto-generated tests πρέπει να:
+  - Περιλαμβάνουν πλήρεις test methods για κάθε public method του scaffolded class
+  - Ορίζουν fixtures (mocks, test data) ανάλογα με τα fields/relations του model
+  - Χρησιμοποιούν σωστές assertions (π.χ. μη-empty strings, valid dates, type checks)
+  - Καλύπτουν edge cases (null values, boundary conditions) για κάθε method
+  - Περιλαμβάνουν docblocks που εξηγούν τι δοκιμάζει κάθε test
+
+- [ ] **Advanced Primary Key Naming:** Τα `create:migration` commands θα παράγουν primary keys με naming convention `{databasename}id` (π.χ. `userid`, `customerid`, `deviceid`) αντί του generic `id`. Ενδιαφέρει:
+  - Τη `migration.stub` — το auto-generated schema πρέπει να χρησιμοποιεί `$table->bigIncrements('{pluralSnake}id')` και όχι `id`
+  - Την αναλογία στα `Model` scaffolds (ώστε το `_dbtable` και το `_primarykey` να συμφωνούν με τη DB)
+  - Τα integration tests × 2 databases (ότι το primary key έχει δημιουργηθεί με σωστό όνομα)
+
+- [ ] **Full CRUD Controllers & Views:** Τα scaffolded controllers και views δεν είναι πια placeholders — παράγουν **100% λειτουργικό CRUD** με την επιλεγμένη UI system (plain-css, bootstrap, ή tailwind). Ενδιαφέρει:
+  - **Controllers:** 7 methods (list, create, store, edit, update, show, destroy) με πλήρη validation, model queries και error handling
+  - **Views:** List/create/edit/show templates σύμφωνα με το UI system — data binding, form rendering, validation error display, success messages
+  - **Routes:** Αυτόματη δημιουργία RESTful routes (GET /items, GET /items/create, POST /items, GET /items/{id}/edit, PUT /items/{id}, GET /items/{id}, DELETE /items/{id}) στο routing config
+  - **UI Integration:** Τα created views να φορτώνουν σωστά τα UI components (buttons, forms, tables) από το επιλεγμένο theme
+  - **Validation:** Σωστά πεδία validation σύμφωνα με τα scaffolded model properties
+
+- [ ] **Remove Scaffolding Output Folder:** Κατά το `pramnos init`, δεν θα δημιουργείται πλέον ο κενός φάκελος `scaffolding/` στη ρίζα του project. Αυτός ο φάκελος:
+  - Θα παραμείνει μόνο μέσα στο framework (`src/Pramnos/Console/Resources/scaffolding/`)
+  - Αν η εφαρμογή θέλει να override κάποιο stub ή theme, θα δημιουργήσει τη δικιά της `scaffolding/` δομή (προαιρετικό, όχι υποχρεωτικό)
+
+- [ ] **Full Docblocks for Scaffolded Code:** Ό,τι παράγεται από τα commands (`create:model`, `create:controller`, κλπ.) πρέπει να έχει **πλήρη docblocks**:
+  - Class-level docblocks: περιγραφή του σκοπού της κλάσης, `@package` annotation
+  - Method-level docblocks: περιγραφή του τι κάνει η μέθοδος, `@param` για όλα τα arguments, `@return` με τύπο, `@throws` αν πετάει exception
+  - Property-level docblocks: περιγραφή του σκοπού της ιδιότητας και ο τύπος της (`@var`)
+  - Inline comments μόνο για non-obvious λογική (π.χ. γιατί χρειάζεται special handling)
+
+- [ ] **API Controller Scaffolding & Auto-Route Generation:** Η εφαρμογή θα μπορεί να δημιουργεί αυτόματα **ολοκληρωμένα API endpoints** για CRUD resources μέσω του `create:api-controller` command. Τα scaffolded API controllers θα περιλαμβάνουν:
+  - **Full CRUD Methods:** `index()` (list with pagination/filtering), `store()` (create), `show()` (retrieve), `update()` (edit), `destroy()` (delete), με proper HTTP status codes (200, 201, 404, 422, 500)
+  - **Request Validation:** Αυτόματη ενσωμάτωση της `Pramnos\Validation` system με validators ανάλογα με τα model fields
+  - **JSON Response Serialization:** Χρήση `Model::toArray()` ή custom serializers για consistent JSON output format με metadata (pagination, errors, timestamps)
+  - **Error Handling:** Proper exception handling με JSON error envelopes — `{"error": "...", "code": "...", "status": 400/404/500}`
+  - **Model Relationships:** Auto-detection of foreign keys και generation των include-related methods (π.χ. `index?include=author,comments`)
+  - **Auto-Route Registration:** Αυτόματη δημιουργία RESTful API routes στο routing config (`api/v1/resources`)
+  - **API Documentation Stubs:** Αυτογενή phpDoc comments με apiDoc-style annotations (`@apiRoute`, `@apiParam`, `@apiResponse`) για κάθε endpoint
+  - **Rate Limiting Integration:** Προσθήκη rate-limiting middleware annotations στο scaffolded controller (εν δυνάμει, ανάλογα με το config)
+  - **Integration with Framework API Controllers:** Reuse patterns από existing framework API controllers (Auth, Dashboard, OAuth, κλπ.) — standard response envelopes, error formats, pagination cursor format
 
 ## 🔒 Φάση 4: Framework-Level Infrastructure & Security
 *Ενίσχυση της ασφάλειας και της εσωτερικής αρχιτεκτονικής.*
@@ -578,7 +632,7 @@
          ⚠️ Τα υπάρχοντα Urbanwater tests μετρούν ως μερική
          κάλυψη PostgreSQL μόνο — δεν αρκούν
          ↓
-[Φάση 1] Internal Migration (υπόλοιπα: Migration, Adjacencylist,
+[Φάση 1] Internal Migration (υπολοιπά: Migration, Adjacencylist,
          Auth, User, Logs) χρησιμοποιώντας QueryBuilder
          ↓
 [Φάση 5] Επανεκτέλεση characterization tests → πρέπει να
@@ -600,9 +654,27 @@
             → Αν αποτύχει, το release δεν προχωρά
 ```
 
-> **Παρατήρηση για την τρέχουσα κατάσταση:** Η Φάση 1 Internal Migration ολοκληρώθηκε (Model, DataTable) **χωρίς** προηγούμενα επίσημα characterization tests × 3 databases. Τα Urbanwater tests χρησίμευσαν ως de facto characterization suite αλλά καλύπτουν μόνο PostgreSQL + TimescaleDB. Προτού αγγιχτεί οποιοδήποτε άλλο class (Auth, User, Logs, Adjacencylist), τα επίσημα tests πρέπει να γραφούν.
+> **Παρατήρηση για την τρέχουσα κατάσταση:** Η Φάση 1 Internal Migration ολοκληρώθηκε (Model, DataTable) **χωρίς** προηγούμενα επίσημα characterization tests × 3 databases. Τα Urbanwater tests χρησιμοποιούν ως de facto characterization suite αλλά καλύπτουν μόνο PostgreSQL + TimescaleDB. Προτού αγγιχτεί οποιοδήποτε άλλο class (Auth, User, Logs, Adjacencylist), τα επίσημα tests πρέπει να γραφούν.
 
-### 🔎 Backlog Διορθώσεων από Characterization Findings
+
+### 🆕 Backlog: UrbanWater Schema Backport & Open Jira Issues
+
+> **Νέα tasks για v1.2+ (προσθήκη 2026-05-14):**
+
+#### UrbanWater Schema Backport
+- Backport advanced application/authserver schema:
+  - `applications.application_settings` (CORS, rate limiting, pagination, ip lock, κλπ)
+  - `applications.application_stats` (hypertable, metrics, retention/compression policies)
+  - `authserver.user_app_authorizations` (OAuth consent tracking)
+  - `authserver.loginlockouts` (brute-force protection)
+  - Όλα τα triggers, indexes, comments, retention/compression policies, views/aggregates που λείπουν
+- Συγχρονισμός indexes, triggers, comments, policies με UrbanWater
+- Ενημέρωση migrations και τεκμηρίωσης
+
+#### Open Jira Issues προς ενσωμάτωση
+- **PF-9:** Native caching σε views (όχι μόνο manual)
+- **PF-40:** Υποστήριξη group by επιλογής στο datatable UI (όχι μόνο backend)
+- **PF-43:** Database-driven CORS policy enforcement (όχι wildcard, να διαβάζει από application_settings)
 
 > Τα παρακάτω είναι **υποχρεωτικά follow-ups** που εντοπίστηκαν από τα νέα framework-native characterization tests. Παραμένουν εδώ ως ενεργό backlog και κλείνουν σταδιακά με ξεχωριστά commits.
 
@@ -618,7 +690,7 @@
 
 ---
 
-*Σημείωση: Οποιεσδήποτε υπάρχουσες μέθοδοι αντικαθίστανται από νεότερες, θα χαρακτηρίζονται ως `@deprecated` στα σχόλια, αλλά θα συνεχίσουν να υποστηρίζονται κανονικά σε αυτό το release circle.*
+*Σημείωση: Οποιεσδήποτε υπάρχοντες μέθοδοι αντικαθίστανται από νεότερες, θα χαρακτηρίζονται ως `@deprecated` στα σχόλια, αλλά θα συνεχίζουν να υποστηρίζονται κανονικά σε αυτό το release circle.*
 
 ---
 
@@ -723,7 +795,7 @@ HTML toolbar που εγχέεται αυτόματα στο κάτω μέρος
 > **Εξάρτηση:** Φάση 13 είναι ανεξάρτητη — μπορεί να υλοποιηθεί παράλληλα με Φάση 11/12.
 
 ### 🖥️ Φάση 14: DevPanel — Developer / Admin Dashboard
-*Web-accessible admin panel ενσωματωμένο στο framework. Εμπνευσμένο από το dashboard του UrbanWater (`src/Controllers/Home.php` + `src/Controllers/Users.php`). Μετά την υλοποίηση το UrbanWater θα αντικαταστήσει τον κώδικα Home/Users με thin wrappers (βλ. UrbanWater-Cleanup-Guide.md).*
+*Web-accessible admin panel ενσωματωμένο στο framework. Εμπνευσμένο από το dashboard του UrbanWater (`src/Controllers/Home.php` + `src/Controllers/Users.php`). Μετά την υλοποίηση το UrbanWater θα αντικαθιστήσει τον κώδικα Home/Users με thin wrappers (βλ. UrbanWater-Cleanup-Guide.md).*
 
 Ενεργοποιείται opt-in μέσω feature registry. Mount point ρυθμιζόμενο στο `app.php` (default: `/devpanel`). Προστατεύεται από admin policy — εξ ορισμού απαιτεί `usertype >= 90` ή configurable policy callback.
 
@@ -870,7 +942,7 @@ public function getUsersJson(): string {
 fetch('/api/1.0/users', {
     headers: { 'X-CSRF-Token': document.querySelector('meta[name=csrf]').content }
 }).then(r => r.json()).then(data => /* ... */);
-// Κανένα Bearer token, κανένο duplicate controller
+// Κανένας Bearer token, κανένο duplicate controller
 ```
 
 Ταυτόχρονα, κάθε web login δημιουργεί εγγραφή στο `usertokens` (`tokentype = 'web_session'`) — έτσι αποκτά ενιαίο audit trail με τους API clients.
@@ -881,15 +953,15 @@ API client → usertokens (api/mobile)  + Bearer token    → cross-origin AJAX 
 ```
 
 #### Τι ΔΕΝ είναι αυτό
-Δεν είναι OAuth2. Το OAuth2 server (authserver feature, Φάση 2) εξυπηρετεί **τρίτους clients** που χρειάζονται delegated access. Η cookie-based SPA auth εξυπηρετεί **first-party clients** (ο ίδιος browser, ο ίδιος χρήστης). Οι δύο συνυπάρχουν.
+Δεν είναι OAuth2. Το OAuth2 server (authserver feature, Φάση 2) εξυπηρετεί **τρίτους clients** που χρησιμοποιείται delegated access. Η cookie-based SPA auth εξυπηρετεί **first-party clients** (ο ίδιος browser, ο ίδιος χρήστης). Οι δύο συνυπάρχουν.
 
 #### Υλοποίηση
 
 - [ ] **`UnifiedAuthMiddleware`:** Εφαρμόζεται στο API route group (Φάση 15). Ελέγχει με σειρά:
   1. `Authorization: Bearer <value>` → φορτώνει token από `usertokens`, χρησιμοποιεί τα explicit scopes του token
   2. Session cookie + `X-CSRF-Token` header → αναγνωρίζει `$_SESSION['usertoken']`, περνάει `['*']` ως `$userPermissions`
-  - Ο `Router::hasScope()` ήδη υποστηρίζει `'*'` wildcard (→ `return true` για οποιοδήποτε scope check). Καμία αλλαγή στον Router δεν χρειάζεται.
-  - `['*']` ≠ bypass application auth. Ο controller εξακολουθεί να ελέγχει `$user->usertype`, RBAC κλπ. Η διαφορά:
+  - Ο `Router::hasScope()` ήδη υποστηρίζει `'*'` wildcard (→ `return true` για οποιοδήποτε scope check). Καμία αλλαγή στο Router δεν χρειάζεται.
+  - `['*']` ≠ bypass application auth. Ο controller εξακολουθεί να ελέγχει `$user->usertype`, policy κλπ. Η διαφορά:
 
   | Layer | Bearer token | Session cookie |
   |---|---|---|
@@ -904,7 +976,7 @@ API client → usertokens (api/mobile)  + Bearer token    → cross-origin AJAX 
 - [ ] **Deprecation:** `HTTP_USERAUTH` + password-hash bridge marked `@deprecated` στο `Api::exec()`.
 - [ ] **Tests:** `UnifiedAuthMiddleware` × session path (scope `*`) + Bearer path (explicit scopes); web login → `tokenactions` entry; AJAX call με session cookie → ίδιο αποτέλεσμα με Bearer call.
 
-> **Εξάρτηση:** Φάση 16 εξαρτάται από Φάση 15 (`UnifiedAuthMiddleware` ενσωματώνεται στο API route group). Η cookie SPA auth **δεν απαιτεί** OAuth — συνυπάρχει με τον authserver (Φάση 2).
+> **Εξάρτηση:** Φάση 16 εξαρτάται από Φάση 15 (`UnifiedAuthMiddleware` ενσωματώνεται στο API route group). Η cookie SPA auth **δεν απαιτεί** OAuth — συνυπάρχει με το authserver (Φάση 2).
 
 ### 📊 Φάση 17: Universal List API & Widget-agnostic Data Grid
 *Σήμερα `_getJsonList()` επιστρέφει DataTables 1.9 legacy format (`aaData`/`sEcho`) hardcoded — μόνο για jQuery DataTables, μόνο για MySQL (`SHOW COLUMNS`). Η `_getApiList()` επιστρέφει clean REST format αλλά το DataTables widget δεν το διαβάζει. Αυτή η φάση ενώνει τα δύο και κάνει τον server widget-agnostic: DataTables και Grid.js καταναλώνουν το ίδιο API endpoint μέσω thin adapters (πρώτη φάση).*
@@ -959,7 +1031,7 @@ public function getUsersJson() {
 // Κανένας server-side κώδικας δεν χρειάζεται
 ```
 
-- [ ] **Scaffolding:** `create:model` παράγει `getApiList()` override αντί για `getJsonList()`. Η view template για list pages χρησιμοποιεί τον adapter αντί για inline DataTables config.
+- [ ] **Scaffolding:** `create:model` παράγει `getApiList()` override αντί για `getJsonList()`. Η view template για list pages χρησιμοποιεί το adapter αντί για inline DataTables config.
 - [ ] **Tests:** server-side: `_getApiList(format: 'datatables')` output format validation; `_getJsonList()` delegate equivalence test. Client-side: adapter unit tests (mock fetch).
 - [ ] **UrbanWater migration:** βλ. `UrbanWater-Cleanup-Guide.md` Phase 8 — custom `getJsonList()` overrides μεταφέρονται σταδιακά.
 
@@ -1000,7 +1072,7 @@ public function getUsersJson() {
   - Παράγει `scripts/apidoc-to-openapi.js`
   - Προσθέτει scripts στο `package.json` (`docs:generate`, `docs:validate`)
   - Προσθέτει `www/api/openapi*.json` και `www/api/docs/` στο `.gitignore`
-- [ ] **Urbanwater migration:** αντικατάσταση `src/Api/apidoc.json` + `scripts/apidoc-to-openapi.js` με τις νέες εκδόσεις — output identικό, χωρίς αλλαγές στα controllers
+- [ ] **Urbanwater migration:** αντικαθιστήσει `src/Api/apidoc.json` + `scripts/apidoc-to-openapi.js` με τις νέες εκδόσεις — output identικό, χωρίς αλλαγές στα controllers
 
 > **Δεν γίνεται:** PHP-native generator, νέα PHP attributes (`#[ApiDoc]` κλπ), `pramnos api:docs` CLI command. Το Node.js pipeline είναι η σωστή εργαλειοθήκη για αυτή τη δουλειά.
 > **Εξάρτηση:** Καμία framework dependency — standalone Node.js script, τρέχει ανεξάρτητα.
@@ -1008,7 +1080,7 @@ public function getUsersJson() {
 ---
 
 ### 🔗 Φάση 19: Git Webhook Handler
-*Στο Urbanwater υπάρχουν δύο bare PHP scripts (`githook.php`, `githook-dev.php`) που εκτελούν `git pull` όταν το GitHub/Bitbucket στέλνει push event. Έχουν κρίσιμο security gap: **δεν επαληθεύουν HMAC signature** — ο server εκτελεί `shell_exec` σε οποιονδήποτε στέλνει POST request. Αυτή η φάση φτιάχνει ασφαλή, configurable webhook infrastructure ως framework component.*
+*Στο Urbanwater υπάρχουν δύο bare PHP scripts (`githook.php`, `githook-dev.php`) που εκτελούν `git pull` όταν το GitHub/Bitbucket στέλνει push event. Έχουν κρίσιμο security gap: **δεν επαληθεύουν HMAC signature** — ο server εκτελεί `shell_exec` σε οποιοδήποτε στέλνει POST request. Αυτή η φάση φτιάχνει ασφαλή, configurable webhook infrastructure ως framework component.*
 
 #### Πρόβλημα σήμερα (Urbanwater)
 
@@ -1075,3 +1147,32 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 - [x] **StorageManager:** `src/Pramnos/Storage/StorageManager.php` — factory + registry; lazy disk creation; `extend()` για mock/custom drivers; proxies όλες τις StorageInterface μεθόδους στο default disk.
 - [x] **Storage facade:** `src/Pramnos/Storage/Storage.php` — static façade; `Storage::init($config)` bootstrap; `Storage::disk('name')` για named disk; `Storage::setManager()` για testing.
 - [x] **37 characterization tests:** `tests/Characterization/Storage/StorageCharacterizationTest.php` — LocalDriver (all 20 methods), S3/FTP optional-dependency guards, StorageManager (lazy creation, extend, default disk), Storage façade, Filesystem delegation verification.
+
+## UrbanWater Schema Backport Tasks
+
+### AuthServer Schema
+- [ ] Create `authserver` schema namespace (PostgreSQL only).
+- [ ] Create `authserver.permissions` table for fine-grained RBAC permission grants.
+- [ ] Create `authserver.roles` table for RBAC role definitions.
+- [ ] Create `authserver.audit_log` table for permission change history.
+- [ ] Create `authserver.permission_templates` table for reusable permission blueprints.
+- [ ] Create `authserver.role_templates` table for role blueprints.
+- [ ] Create `authserver.permission_inheritance` table for hierarchical relationships.
+- [ ] Create `authserver.user_organizations` table for user membership in organizations.
+- [ ] Create `authserver.jwt_replay_prevention` table to block token replay attacks.
+- [ ] Create `authserver.device_authorizations` table for RFC 8628 Device Authorization Grant.
+- [ ] Create `authserver.effective_permissions` view for deny-takes-priority logic.
+- [ ] Create `authserver.slow_api_calls` view for performance monitoring.
+- [ ] Create `authserver.rbac_functions` (PostgreSQL-specific).
+
+### Applications Schema
+- [ ] Create `applications` schema namespace (PostgreSQL only).
+- [ ] Create `applications.oauth2_client_auth_methods` table for client authentication methods.
+- [ ] Create `applications.oauth2_webhook_endpoints` table for registered webhook URLs.
+- [ ] Create `applications.oauth2_webhook_events` table for delivery queue/audit log.
+- [ ] Create `applications.oauth2_user_consents` table for persisted user authorization decisions.
+- [ ] Create `applications.oauth2_device_codes` table for RFC 8628 Device Authorization Grant.
+- [ ] Create `applications.oauth2_helper_functions` (PostgreSQL-specific).
+
+### Public Schema
+- [ ] Create `public.organizations` table for generic organization registry.
