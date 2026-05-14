@@ -27,7 +27,7 @@ class CreateFrameworkPoliciesTable extends Migration
     public array   $dependencies = ['create_pramnos_schema'];
     public $description  = 'Creates the pramnos.framework_policies table';
 
-    public function up(): void
+    public function up(): void: void
     {
         // TimescaleDB manages its own native policies.
         $db   = $this->application->database;
@@ -72,7 +72,7 @@ class CreateFrameworkPoliciesTable extends Migration
         });
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $db = $this->application->database;
 

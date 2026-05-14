@@ -26,7 +26,7 @@ class CreateSlowApiCallsView extends Migration
     public array  $dependencies = ['create_tokenactions_table', 'create_applications_table'];
     public $description  = 'Creates authserver.slow_api_calls performance monitoring view';
 
-    public function up(): void
+    public function up(): void: void
     {
         $db     = $this->application->database;
         $caps   = $db->schema()->getCapabilities();
@@ -62,7 +62,7 @@ class CreateSlowApiCallsView extends Migration
         }
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $schema = $this->application->database->schema();
         $schema->dropView('authserver.slow_api_calls');

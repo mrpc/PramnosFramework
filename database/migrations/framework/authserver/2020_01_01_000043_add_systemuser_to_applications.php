@@ -22,7 +22,7 @@ class AddSystemuserToApplications extends Migration
     public array  $dependencies = ['create_applications_table'];
     public $description  = 'Adds systemuser column to applications for JWT client_credentials system account';
 
-    public function up(): void
+    public function up(): void: void
     {
         $schema = $this->application->database->schema();
 
@@ -36,7 +36,7 @@ class AddSystemuserToApplications extends Migration
         });
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $schema = $this->application->database->schema();
 

@@ -27,7 +27,7 @@ class CreateApplicationsTable extends Migration
     public array  $dependencies = ['create_authserver_schema', 'create_users_table'];
     public $description  = 'Creates the applications (OAuth2 client) table';
 
-    public function up(): void
+    public function up(): void: void
     {
         $schema = $this->application->database->schema();
 
@@ -83,7 +83,7 @@ class CreateApplicationsTable extends Migration
         });
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $this->application->database->schema()->dropTableIfExists('applications');
     }
