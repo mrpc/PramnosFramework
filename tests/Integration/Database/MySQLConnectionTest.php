@@ -439,4 +439,34 @@ class MySQLConnectionTest extends TestCase
         $logFile = LOG_PATH . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'slowQueries.log';
         $this->assertFileExists($logFile, 'logSlowQueries() must create slowQueries.log');
     }
+
+    // =========================================================================
+    // query() with $skipDataFix=true (MySQL)
+    // =========================================================================
+
+    /**
+     * query() with $skipDataFix=true bypasses the numeric-type conversion
+     * in runMysqlQuery() and returns raw string values from the driver.
+     * This exercises the else-branch of the skipDataFix condition.
+     */
+    public function testQueryWithSkipDataFixReturnsMySQLRawStrings(): void
+    {
+        // Arrange — insert a row with integer and decimal columns
+        self::$db->query(
+            'INSERT INTO `' . self::$table . '` (qty, amount, code) '
+            . "VALUES (42, 9.99, 'SKIPDATAFIX-1')"
+        );
+
+        // Act — query with skipDataFix=true (6th argument)
+        $result = self::$db->query(
+            'SELECT qty FROM `' . self::$table . "` WHERE code = 'SKIPDATAFIX-1'",
+            false, 86400, null, false, true  // skipDataFix = true
+        );
+
+        // Assert — result is returned as raw driver string, not cast to int
+        $this->assertEquals(1, $result->numRows);
+        // With skipDataFix, the value may be a string '42' rather than int 42
+        $this->assertEquals(42, $result->fields['qty'],
+            'skipDataFix mode must still return the correct value');
+    }
 }
