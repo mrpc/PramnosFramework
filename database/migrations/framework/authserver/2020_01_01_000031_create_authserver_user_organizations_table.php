@@ -39,7 +39,7 @@ class CreateAuthserverUserOrganizationsTable extends Migration
     ];
     public $description  = 'Creates the authserver user_organizations organisation membership table';
 
-    public function up(): void
+    public function up(): void: void
     {
         $schema = $this->application->database->schema();
         $db     = $this->application->database;
@@ -100,7 +100,7 @@ class CreateAuthserverUserOrganizationsTable extends Migration
         }
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $orgTable = Settings::getSetting('authserver_organization_table', 'user_organizations');
         $this->application->database->schema()->dropTableIfExists('authserver.' . $orgTable);

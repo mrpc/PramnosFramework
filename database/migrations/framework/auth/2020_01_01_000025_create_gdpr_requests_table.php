@@ -26,7 +26,7 @@ class CreateGdprRequestsTable extends Migration
     public array   $dependencies = ['create_authserver_schema'];
     public $description  = 'Creates the authserver.gdpr_requests GDPR rights request table (TimescaleDB hypertable when available)';
 
-    public function up(): void
+    public function up(): void: void
     {
         $schema = $this->application->database->schema();
 
@@ -69,7 +69,7 @@ class CreateGdprRequestsTable extends Migration
         );
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $this->application->database->schema()->dropTableIfExists('authserver.gdpr_requests');
     }

@@ -2857,4 +2857,153 @@ class SchemaGrammarTest extends TestCase
         $this->assertStringContainsString("table_name = 'users'", $sql);
         $this->assertStringContainsString("column_name = 'email'", $sql);
     }
+
+    // =========================================================================
+    // SchemaGrammar base-class compileAlter() — DROP INDEX branch (line 291)
+    // =========================================================================
+
+    /**
+     * compileAlter() with a dropped index executes the DROP INDEX loop (line 291).
+     *
+     * The existing tests exercise ADD/DROP COLUMN, RENAME, and DROP FOREIGN KEY
+     * but never call compileAlter() with a dropped index via Blueprint::dropIndex().
+     * Using the base grammar stub ensures compileDropIndex() falls through to the
+     * base implementation ("DROP INDEX name") rather than a dialect override.
+     */
+    public function testBaseCompileAlterDropIndexCoversLine291(): void
+    {
+        // Arrange — stub grammar with inline dropIndex in an ALTER blueprint
+        $grammar = $this->baseGrammar();
+        $bp      = new Blueprint('users', 'alter');
+        $bp->dropIndex('idx_users_email');
+
+        // Act
+        $statements = $grammar->compileAlter($bp, 'users');
+
+        // Assert — DROP INDEX must appear in the output
+        $this->assertCount(1, $statements);
+        $this->assertSame('DROP INDEX idx_users_email', $statements[0]);
+    }
+
+    // =========================================================================
+    // SchemaGrammar base-class compileRenameColumn() (lines 319-321)
+    // =========================================================================
+
+    /**
+     * Base compileRenameColumn() emits RENAME COLUMN from TO.
+     *
+     * MySQL overrides this (uses the same RENAME COLUMN syntax but with backtick
+     * quoting); PostgreSQL does NOT override it and falls through to this base
+     * method. The base grammar stub exercises the implementation directly.
+     */
+    public function testBaseCompileRenameColumnEmitsRenameColumnSql(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+        $ref     = new \ReflectionMethod($grammar, 'compileRenameColumn');
+        $ref->setAccessible(true);
+
+        // Act
+        $sql = $ref->invoke($grammar, 'users', 'fname', 'first_name');
+
+        // Assert — standard RENAME COLUMN syntax
+        $this->assertSame(
+            'ALTER TABLE `users` RENAME COLUMN `fname` TO `first_name`',
+            $sql
+        );
+    }
+
+    /**
+     * compileAlter() with a renamed column reaches the RENAME COLUMN loop and
+     * calls compileRenameColumn() on the base grammar stub, covering lines 319-321.
+     */
+    public function testBaseCompileAlterRenameColumnUsesBaseRenameColumn(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+        $bp      = new Blueprint('accounts', 'alter');
+        $bp->renameColumn('phone', 'phone_number');
+
+        // Act
+        $statements = $grammar->compileAlter($bp, 'accounts');
+
+        // Assert — base RENAME COLUMN syntax
+        $this->assertCount(1, $statements);
+        $this->assertStringContainsString('RENAME COLUMN', $statements[0]);
+        $this->assertStringContainsString('`phone`', $statements[0]);
+        $this->assertStringContainsString('`phone_number`', $statements[0]);
+    }
+
+    // =========================================================================
+    // SchemaGrammar base-class compileDropForeignKey() (lines 345-346)
+    // =========================================================================
+
+    /**
+     * Base compileDropForeignKey() emits ALTER TABLE DROP FOREIGN KEY.
+     *
+     * Both MySQL and PostgreSQL override this. The base implementation is the
+     * generic fallback used by dialects that follow the standard SQL syntax.
+     * Tested directly via reflection on the base grammar stub.
+     */
+    public function testBaseCompileDropForeignKeyEmitsAlterTableDropFk(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+        $ref     = new \ReflectionMethod($grammar, 'compileDropForeignKey');
+        $ref->setAccessible(true);
+
+        // Act
+        $sql = $ref->invoke($grammar, 'orders', 'fk_orders_user_id');
+
+        // Assert — standard DROP FOREIGN KEY syntax
+        $this->assertSame(
+            'ALTER TABLE `orders` DROP FOREIGN KEY fk_orders_user_id',
+            $sql
+        );
+    }
+
+    /**
+     * compileAlter() with a dropped FK reaches the DROP FOREIGN KEY loop and
+     * covers the compileDropForeignKey() call in the base grammar stub.
+     */
+    public function testBaseCompileAlterDropForeignKeyUsesBaseMethod(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+        $bp      = new Blueprint('orders', 'alter');
+        $bp->dropForeign('fk_orders_user_id');
+
+        // Act
+        $statements = $grammar->compileAlter($bp, 'orders');
+
+        // Assert — base DROP FOREIGN KEY syntax
+        $this->assertCount(1, $statements);
+        $this->assertStringContainsString('DROP FOREIGN KEY fk_orders_user_id', $statements[0]);
+    }
+
+    // =========================================================================
+    // SchemaGrammar base-class compileModifyColumn() (lines 337-340)
+    // =========================================================================
+
+    /**
+     * Base compileModifyColumn() emits a MODIFY COLUMN statement.
+     *
+     * MySQL does NOT override this (uses the base); PostgreSQL overrides it to
+     * emit separate ALTER COLUMN clauses. Using the base grammar stub verifies
+     * the default single-statement MODIFY COLUMN behaviour.
+     */
+    public function testBaseCompileModifyColumnEmitsModifyColumnSql(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+        $bp      = new Blueprint('users', 'alter');
+        $bp->modifyColumn('email', 'string', ['length' => 320]);
+
+        // Act
+        $statements = $grammar->compileAlter($bp, 'users');
+
+        // Assert — single MODIFY COLUMN statement
+        $this->assertCount(1, $statements);
+        $this->assertStringContainsString('MODIFY COLUMN', $statements[0]);
+    }
 }

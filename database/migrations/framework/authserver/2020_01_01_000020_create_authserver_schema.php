@@ -22,7 +22,7 @@ class CreateAuthserverSchema extends Migration
     public int     $priority     = 10;
     public $description  = 'Creates the authserver schema namespace (PostgreSQL only)';
 
-    public function up(): void
+    public function up(): void: void
     {
         $caps = $this->application->database->schema()->getCapabilities();
 
@@ -33,7 +33,7 @@ class CreateAuthserverSchema extends Migration
         }
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $caps = $this->application->database->schema()->getCapabilities();
 

@@ -25,7 +25,7 @@ class CreateOauth2ClientAuthMethodsTable extends Migration
     public array  $dependencies = ['create_applications_schema', 'create_applications_table'];
     public $description  = 'Creates the applications.oauth2_client_auth_methods table';
 
-    public function up(): void
+    public function up(): void: void
     {
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();
@@ -64,7 +64,7 @@ class CreateOauth2ClientAuthMethodsTable extends Migration
         }
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $this->application->database->schema()->dropTableIfExists('applications.oauth2_client_auth_methods');
     }

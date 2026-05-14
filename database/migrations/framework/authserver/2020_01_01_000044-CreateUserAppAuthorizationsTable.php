@@ -20,7 +20,7 @@ class CreateUserAppAuthorizationsTable extends Migration
      *
      * @return void
      */
-    public function up()
+    public function up(): void
     {
         $this->schema('authserver')
             ->create('user_app_authorizations', function ($table) {
@@ -97,7 +97,7 @@ class CreateUserAppAuthorizationsTable extends Migration
      *
      * @return void
      */
-    public function down()
+    public function down(): void
     {
         $this->schema('authserver')
             ->dropIfExists('user_app_authorizations');
