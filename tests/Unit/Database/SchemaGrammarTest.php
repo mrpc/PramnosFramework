@@ -61,6 +61,29 @@ class SchemaGrammarTest extends TestCase
     }
 
     /**
+     * Minimal concrete grammar that exercises every non-abstract method in the
+     * base SchemaGrammar without any dialect-specific override.
+     *
+     * Both MySQLSchemaGrammar and PostgreSQLSchemaGrammar override methods such
+     * as compileAutoIncrement, compileDefaultValue, inlineForeignKeys, etc.
+     * This stub lets us test the base-class fallback logic directly.
+     */
+    private function baseGrammar(): SchemaGrammar
+    {
+        return new class extends SchemaGrammar {
+            public function quoteTable(string $table): string   { return "`{$table}`"; }
+            public function quoteColumn(string $column): string { return "`{$column}`"; }
+            public function compileColumnType(ColumnDefinition $col): string
+            {
+                return strtoupper($col->type);
+            }
+            // Interface requires these; stub returns empty to keep tests simple
+            public function compileNextVal(string $name): string { return ''; }
+            public function compileSetVal(string $name, int $value, bool $isCalled = true): string { return ''; }
+        };
+    }
+
+    /**
      * Build a minimal Blueprint with a single string column.
      */
     private function simpleBlueprint(string $table = 'users'): Blueprint
@@ -2595,5 +2618,243 @@ class SchemaGrammarTest extends TestCase
         $this->assertSame('CURRENT_TIMESTAMP', $result);
         // getValue() must also return the raw value
         $this->assertSame('CURRENT_TIMESTAMP', $expr->getValue());
+    }
+
+    // =========================================================================
+    // SchemaGrammar base-class methods (not overridden by MySQL or PostgreSQL)
+    //
+    // Both MySQLSchemaGrammar and PostgreSQLSchemaGrammar override most hooks,
+    // so the base implementations are never reached by dialect-specific tests.
+    // The baseGrammar() stub is the only way to exercise these fallbacks.
+    // =========================================================================
+
+    /**
+     * Base compileAutoIncrement() returns ' AUTO_INCREMENT' when the column has
+     * autoIncrement=true, and '' otherwise.
+     *
+     * This base behaviour is shadowed by both MySQL and PostgreSQL overrides;
+     * the stub grammar is needed to reach it.
+     */
+    public function testBaseCompileAutoIncrementTrueAndFalse(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+        $ref     = new \ReflectionMethod($grammar, 'compileAutoIncrement');
+        $ref->setAccessible(true);
+
+        // Act — column with autoIncrement flag set
+        $colWithAI  = new ColumnDefinition('id', 'integer', ['autoIncrement' => true]);
+        $colWithout = new ColumnDefinition('name', 'string');
+
+        // Assert — truthy returns the keyword; falsy returns empty string
+        $this->assertSame(' AUTO_INCREMENT', $ref->invoke($grammar, $colWithAI));
+        $this->assertSame('',               $ref->invoke($grammar, $colWithout));
+    }
+
+    /**
+     * Base compileDefaultValue() maps PHP true → '1' and false → '0'.
+     *
+     * MySQLSchemaGrammar intercepts booleans before calling parent, and
+     * PostgreSQLSchemaGrammar maps them to TRUE/FALSE, so the base bool branch
+     * is only reachable via the stub grammar.
+     */
+    public function testBaseCompileDefaultValueBoolUsesOneAndZero(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+        $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
+        $ref->setAccessible(true);
+
+        // Act + Assert — base grammar uses integer literals for booleans
+        $this->assertSame('1', $ref->invoke($grammar, true));
+        $this->assertSame('0', $ref->invoke($grammar, false));
+    }
+
+    /**
+     * Base inlineForeignKeys() returns false — foreign keys must be added via
+     * post-CREATE ALTER TABLE statements in dialects that do not override this.
+     *
+     * MySQL overrides to return true; PostgreSQL also overrides. The stub grammar
+     * falls through to this base implementation.
+     */
+    public function testBaseInlineForeignKeysReturnsFalse(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+        $ref     = new \ReflectionMethod($grammar, 'inlineForeignKeys');
+        $ref->setAccessible(true);
+
+        // Act + Assert — base dialect does not inline FKs
+        $this->assertFalse($ref->invoke($grammar));
+    }
+
+    /**
+     * Base compileInlineIndex() formats a KEY clause as "KEY name (cols)".
+     *
+     * MySQL overrides this to add backtick quoting; the base implementation uses
+     * the plain KEY syntax and is only reachable via a grammar that has
+     * inlineIndexes() = true but does not override compileInlineIndex().
+     */
+    public function testBaseCompileInlineIndexFormat(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+        $ref     = new \ReflectionMethod($grammar, 'compileInlineIndex');
+        $ref->setAccessible(true);
+
+        // Act — two quoted columns already passed in
+        $result = $ref->invoke($grammar, 'idx_test', ['`col_a`', '`col_b`']);
+
+        // Assert — plain KEY clause without any extra quoting
+        $this->assertSame('KEY idx_test (`col_a`, `col_b`)', $result);
+    }
+
+    /**
+     * Base compileDropIndex() emits "DROP INDEX name" without a table reference.
+     *
+     * MySQL overrides to emit "ALTER TABLE `t` DROP INDEX `name`"; PostgreSQL
+     * overrides to emit "DROP INDEX CONCURRENTLY name". The plain base form is
+     * only reachable via the stub grammar.
+     */
+    public function testBaseCompileDropIndexEmitsDropIndex(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+
+        // Act
+        $sql = $grammar->compileDropIndex('users', 'idx_users_email');
+
+        // Assert — no table qualifier in the base implementation
+        $this->assertSame('DROP INDEX idx_users_email', $sql);
+    }
+
+    /**
+     * Base compileCreateMaterializedView() falls back to a regular CREATE VIEW.
+     *
+     * Dialects that do not support materialized views should silently degrade
+     * to a plain view; the stub grammar exercises this path because neither
+     * MySQL nor PostgreSQL leaves this method unoverridden.
+     */
+    public function testBaseCompileCreateMaterializedViewFallsBackToView(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+
+        // Act
+        $sql = $grammar->compileCreateMaterializedView('mv_stats', 'SELECT 1');
+
+        // Assert — base delegates to compileCreateView without OR REPLACE
+        $this->assertStringContainsString('CREATE VIEW mv_stats AS SELECT 1', $sql);
+        $this->assertStringNotContainsString('MATERIALIZED', $sql);
+    }
+
+    /**
+     * Base compileRefreshMaterializedView() returns '' (no-op).
+     *
+     * Dialects that lack REFRESH MATERIALIZED VIEW syntax must silently emit
+     * nothing rather than throwing. Both concurrently=true and false must return ''.
+     */
+    public function testBaseCompileRefreshMaterializedViewReturnsEmpty(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+
+        // Act + Assert — both concurrency modes produce empty string
+        $this->assertSame('', $grammar->compileRefreshMaterializedView('mv_stats', false));
+        $this->assertSame('', $grammar->compileRefreshMaterializedView('mv_stats', true));
+    }
+
+    /**
+     * Base compileDropMaterializedView() falls back to DROP VIEW [IF EXISTS].
+     *
+     * The ifExists flag must be respected so callers get safe idempotent SQL
+     * even on dialects that have no materialized view support.
+     */
+    public function testBaseCompileDropMaterializedViewFallsBackToDropView(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+
+        // Act
+        $withGuard    = $grammar->compileDropMaterializedView('mv_stats', true);
+        $withoutGuard = $grammar->compileDropMaterializedView('mv_stats', false);
+
+        // Assert — falls through to DROP VIEW with correct IF EXISTS handling
+        $this->assertSame('DROP VIEW IF EXISTS mv_stats', $withGuard);
+        $this->assertSame('DROP VIEW mv_stats',           $withoutGuard);
+    }
+
+    /**
+     * Base compileCreateSequence() returns '' (MySQL-style no-op).
+     *
+     * Dialects without native sequence support must return an empty string so
+     * callers can filter out empty statements without extra conditional logic.
+     */
+    public function testBaseCompileCreateSequenceReturnsEmpty(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+
+        // Act + Assert — no SQL generated for unsupported dialect
+        $this->assertSame('', $grammar->compileCreateSequence('seq_users'));
+        $this->assertSame('', $grammar->compileCreateSequence('seq_events', 100, 5, 1, 9999, true));
+    }
+
+    /**
+     * Base compileDropSequence() returns '' (MySQL-style no-op).
+     *
+     * Both ifExists=true and ifExists=false must yield empty string since there
+     * is no sequence to drop on dialects without sequence support.
+     */
+    public function testBaseCompileDropSequenceReturnsEmpty(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+
+        // Act + Assert
+        $this->assertSame('', $grammar->compileDropSequence('seq_users', true));
+        $this->assertSame('', $grammar->compileDropSequence('seq_users', false));
+    }
+
+    /**
+     * Base compileHasTable() queries information_schema.tables with a plain
+     * table_name filter.
+     *
+     * Both MySQL and PostgreSQL override this to add schema-qualification. The
+     * base form is a portable fallback for dialects that support the standard
+     * information_schema view.
+     */
+    public function testBaseCompileHasTableUsesInformationSchemaTables(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+
+        // Act
+        $sql = $grammar->compileHasTable('orders', 'myschema');
+
+        // Assert — must query the standard information_schema view
+        $this->assertStringContainsString('information_schema.tables', $sql);
+        $this->assertStringContainsString("table_name = 'orders'", $sql);
+    }
+
+    /**
+     * Base compileHasColumn() queries information_schema.columns with both
+     * table_name and column_name filters.
+     *
+     * The schema parameter is accepted but the base implementation does not use
+     * it — subclasses add schema filtering in their overrides.
+     */
+    public function testBaseCompileHasColumnUsesInformationSchemaColumns(): void
+    {
+        // Arrange
+        $grammar = $this->baseGrammar();
+
+        // Act
+        $sql = $grammar->compileHasColumn('users', 'email', 'myschema');
+
+        // Assert — must query columns view with both table and column filters
+        $this->assertStringContainsString('information_schema.columns', $sql);
+        $this->assertStringContainsString("table_name = 'users'", $sql);
+        $this->assertStringContainsString("column_name = 'email'", $sql);
     }
 }
