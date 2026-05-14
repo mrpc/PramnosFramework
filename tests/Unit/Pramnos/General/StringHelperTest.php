@@ -36,16 +36,23 @@ class StringHelperTest extends TestCase
             // -y after consonant → -ies
             'category→categories' => ['category',  'categories'],
             'city→cities'         => ['city',       'cities'],
-            // -is → -es
+            // -is → -es (non-irregular: hits the dedicated -is branch, not $irregularPlurals)
+            'axis→axes'           => ['axis',      'axes'],
+            // Latin -us → -i for words NOT in $irregularPlurals but in $latinWords
+            // Note: cactus/focus/fungus are in $irregularPlurals and skip this branch;
+            // 'stimulus' and 'alumnus' are NOT in $irregularPlurals so they reach lines 88-93.
+            'stimulus→stimuli'    => ['stimulus',  'stimuli'],
+            'alumnus→alumni'      => ['alumnus',   'alumni'],
+            // Words in $irregularPlurals that also happen to end in -us/-is (go through irregular path)
             'analysis→analyses'   => ['analysis',  'analyses'],
-            // Latin -us → -i
             'cactus→cacti'        => ['cactus',    'cacti'],
-            'focus→foci'          => ['focus',     'foci'],
-            'fungus→fungi'        => ['fungus',    'fungi'],
             // -ch/-sh/-ss/-x/-z → -es
             'church→churches'     => ['church',    'churches'],
             'box→boxes'           => ['box',       'boxes'],
-            // -f/-fe → -ves
+            // -f → -ves for 'shelf' which is in $fWords but NOT in $irregularPlurals
+            // (leaf/knife/wife are in $irregularPlurals and skip this branch)
+            'shelf→shelves'       => ['shelf',     'shelves'],
+            // Irregular -f/-fe words (go through $irregularPlurals, not the -f branch)
             'leaf→leaves'         => ['leaf',      'leaves'],
             'knife→knives'        => ['knife',     'knives'],
             // default: add -s
