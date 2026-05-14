@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Unit\Console;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Console\Commands\Init;
 use Symfony\Component\Console\Application;
@@ -17,6 +18,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  * docker-compose / composer / migrate:framework shell commands are never
  * executed in this test context.
  */
+#[CoversClass(Init::class)]
 class InitCommandUnitTest extends TestCase
 {
     private string $tmpDir;
