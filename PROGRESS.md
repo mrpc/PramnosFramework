@@ -1,6 +1,22 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-14 (session 75)
+## 📅 Last Updated: 2026-05-14 (session 76)
+
+## 🏁 Session 76 — Coverage expansion: CronExpression edge cases (2026-05-14)
+
+### ✅ Ολοκληρώθηκε
+
+**CronExpressionTest.php ενημέρωση:**
+- 3 νέα tests για τις 5 uncovered γραμμές (138, 144-145, 147-148) στο CronExpression::matchesField()
+- `testIsDueWithZeroStepReturnsFalse`: covers line 138 — `*/0` (step < 1 → return false, guard against infinite loop / division by zero)
+- `testIsDueWithRangeAndStep`: covers lines 144-145 — `1-9/2` (range-with-step path: parseRange() called on left side of `/`)
+- `testIsDueWithNumberAndStep`: covers lines 147-148 — `5/10` (number-with-step: `$start = (int) $rangeStr; $end = $max`)
+- 24 tests total (ήταν 21)
+
+### Commits
+- (pending)
+
+---
 
 ## 🏁 Session 75 — Coverage expansion: Blueprint/ColumnDefinition/FKDef/Expression + StringHelper (2026-05-14)
 
@@ -29,7 +45,8 @@
 
 ### Commits
 - `6d5d8fe` test(coverage): add unit tests for SchemaGrammar (138 tests, MySQL+PG 100%)
-- (pending)
+- `ba89ec7` test(coverage): add Blueprint/ColumnDef/FKDef/Expression tests + StringHelper edge cases
+- `22c2689` test(coverage): add Create.php unit tests (68 tests for pure methods)
 
 ---
 
