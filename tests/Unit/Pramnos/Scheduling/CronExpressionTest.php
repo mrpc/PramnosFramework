@@ -389,4 +389,65 @@ class CronExpressionTest extends TestCase
         $this->assertTrue($cron->isDue($first));
         $this->assertFalse($cron->isDue($second));
     }
+
+    // =========================================================================
+    // Step edge-cases (covers lines 138, 144-148 of CronExpression::matchesField)
+    // =========================================================================
+
+    /**
+     * A step value of 0 (`*\/0`) is invalid and must never match.
+     *
+     * The implementation checks `$step < 1` and returns false immediately
+     * (line 138).  Without this guard an infinite loop or division-by-zero
+     * would occur, so covering this branch is safety-critical.
+     */
+    public function testIsDueWithZeroStepReturnsFalse(): void
+    {
+        // Arrange — `*\/0` in the minute field: step is 0 (invalid)
+        $cron = new CronExpression('*/0 * * * *');
+        $time = new \DateTimeImmutable('2024-06-15 10:00:00');
+
+        // Act / Assert — must not match any minute value
+        $this->assertFalse($cron->isDue($time));
+    }
+
+    /**
+     * A range-with-step field like `1-9\/2` means "every 2nd value starting
+     * from 1 up to 9": i.e. minutes 1, 3, 5, 7, 9.
+     *
+     * This exercises lines 144-145 (parseRange($rangeStr) path inside the
+     * step branch), which are only reached when the left side of `/` contains
+     * a `-`.
+     */
+    public function testIsDueWithRangeAndStep(): void
+    {
+        // Arrange — minutes 1, 3, 5, 7, 9
+        $cron   = new CronExpression('1-9/2 * * * *');
+        $due    = new \DateTimeImmutable('2024-06-15 10:01:00');
+        $notDue = new \DateTimeImmutable('2024-06-15 10:02:00');
+
+        // Act / Assert
+        $this->assertTrue($cron->isDue($due));
+        $this->assertFalse($cron->isDue($notDue));
+    }
+
+    /**
+     * A number-with-step field like `5\/10` means "every 10th value starting
+     * from 5 up to the field maximum (59 for minutes)": i.e. 5, 15, 25, 35, 45, 55.
+     *
+     * This exercises lines 147-148 ($start = (int) $rangeStr; $end = $max),
+     * which are only reached when the left side of `/` is a bare integer
+     * (no range separator `-`).
+     */
+    public function testIsDueWithNumberAndStep(): void
+    {
+        // Arrange — minutes 5, 15, 25, 35, 45, 55
+        $cron   = new CronExpression('5/10 * * * *');
+        $due    = new \DateTimeImmutable('2024-06-15 10:05:00');
+        $notDue = new \DateTimeImmutable('2024-06-15 10:06:00');
+
+        // Act / Assert
+        $this->assertTrue($cron->isDue($due));
+        $this->assertFalse($cron->isDue($notDue));
+    }
 }
