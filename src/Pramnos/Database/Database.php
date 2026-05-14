@@ -828,6 +828,7 @@ class Database extends \Pramnos\Framework\Base
             $time = -microtime(true);
             
             $retry = true;
+            $deadlockRetries = 3;
             while (true) {
                 if ($this->type == 'postgresql') {
                     $this->queryResult = @\pg_query($connection, $query);
@@ -837,7 +838,16 @@ class Database extends \Pramnos\Framework\Base
                         continue;
                     }
                     if ($this->queryResult === false) {
-                        \Pramnos\Logs\Logger::logError('Postgres error: ' . \pg_last_error($connection) . ' for query: ' . $query, null);
+                        $pgError = \pg_last_error($connection);
+                        // Transient deadlocks (SQLSTATE 40P01) arise in TimescaleDB
+                        // when background workers hold advisory locks during DDL.
+                        // Retry with exponential back-off before surfacing the error.
+                        if ($deadlockRetries > 0 && stripos($pgError, 'deadlock') !== false) {
+                            $deadlockRetries--;
+                            usleep(100000 * (4 - $deadlockRetries)); // 100ms → 200ms → 300ms
+                            continue;
+                        }
+                        \Pramnos\Logs\Logger::logError('Postgres error: ' . $pgError . ' for query: ' . $query, null);
                     }
                 } else {
                     $this->queryResult = @\mysqli_query($connection, $query);
@@ -1099,6 +1109,7 @@ class Database extends \Pramnos\Framework\Base
         }
 
         $retry = true;
+        $deadlockRetries = 3;
         // For MySQL DML (UPDATE/INSERT/DELETE) via prepared statements, affected_rows
         // must be captured BEFORE $statement->close() — after close the value is lost.
         $capturedMysqlAffectedRows = null;
@@ -1122,9 +1133,17 @@ class Database extends \Pramnos\Framework\Base
                         continue;
                     }
                     if (!$dbResource) {
+                        $pgError = @pg_last_error($connection);
+                        // Transient deadlocks (SQLSTATE 40P01) from TimescaleDB
+                        // background workers: retry with exponential back-off.
+                        if ($deadlockRetries > 0 && stripos($pgError, 'deadlock') !== false) {
+                            $deadlockRetries--;
+                            usleep(100000 * (4 - $deadlockRetries)); // 100ms → 200ms → 300ms
+                            continue;
+                        }
                         $this->setError(
                             '0',
-                            @pg_last_error($connection),
+                            $pgError,
                             false
                         );
                     }
