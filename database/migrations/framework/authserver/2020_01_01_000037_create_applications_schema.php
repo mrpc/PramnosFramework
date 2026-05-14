@@ -27,7 +27,7 @@ class CreateApplicationsSchema extends Migration
     public int    $priority     = 11;
     public $description  = 'Creates the applications schema namespace (PostgreSQL only)';
 
-    public function up(): void
+    public function up(): void: void
     {
         $caps = $this->application->database->schema()->getCapabilities();
 
@@ -38,7 +38,7 @@ class CreateApplicationsSchema extends Migration
         }
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $caps = $this->application->database->schema()->getCapabilities();
 

@@ -19,7 +19,7 @@ class CreateApplicationSettingsTable extends Migration
      *
      * @return void
      */
-    public function up()
+    public function up(): void
     {
         $this->schema('applications')
             ->create('application_settings', function ($table) {
@@ -117,7 +117,7 @@ class CreateApplicationSettingsTable extends Migration
      *
      * @return void
      */
-    public function down()
+    public function down(): void
     {
         // Drop trigger (PostgreSQL)
         if ($this->DB()->getDriverName() === 'pgsql') {

@@ -26,7 +26,7 @@ class CreateAuthserverPermissionsTable extends Migration
     public array   $dependencies = ['create_authserver_roles_table'];
     public $description  = 'Creates the authserver.permissions RBAC permissions table';
 
-    public function up(): void
+    public function up(): void: void
     {
         $schema = $this->application->database->schema();
 
@@ -77,7 +77,7 @@ class CreateAuthserverPermissionsTable extends Migration
         });
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $this->application->database->schema()->dropTableIfExists('authserver.permissions');
     }

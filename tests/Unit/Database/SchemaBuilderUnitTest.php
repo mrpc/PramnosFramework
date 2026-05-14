@@ -1781,4 +1781,234 @@ class SchemaBuilderUnitTest extends TestCase
         // Act + Assert — triggers resolveSchema() for the empty-schema branch
         $this->assertSame([], $sb->getChunks('metrics'));
     }
+
+    // =========================================================================
+    // getCapabilities() — accessor
+    // =========================================================================
+
+    /**
+     * getCapabilities() returns the DatabaseCapabilities instance created during
+     * construction. Callers use this to check which features are available.
+     */
+    public function testGetCapabilitiesReturnsDatabaseCapabilitiesInstance(): void
+    {
+        // Arrange
+        $sb = $this->makeSB('mysql');
+
+        // Act + Assert — must return a DatabaseCapabilities object
+        $this->assertInstanceOf(DatabaseCapabilities::class, $sb->getCapabilities());
+    }
+
+    // =========================================================================
+    // dropTable() — error-if-not-exists variant
+    // =========================================================================
+
+    /**
+     * dropTable() emits DROP TABLE (no IF EXISTS guard) via db->query().
+     *
+     * Unlike dropTableIfExists(), this method does NOT wrap with FK checks —
+     * callers are expected to know the table exists.
+     */
+    public function testDropTableEmitsDropTableWithoutIfExists(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('mysql');
+        $capturedSqls = [];
+        $db->method('query')->willReturnCallback(function (string $sql) use (&$capturedSqls) {
+            $capturedSqls[] = $sql;
+            return null;
+        });
+        $sb = new SchemaBuilder($db);
+
+        // Act
+        $sb->dropTable('users');
+
+        // Assert — must NOT contain IF EXISTS (that's dropTableIfExists())
+        $allSql = implode(' ', $capturedSqls);
+        $this->assertStringContainsString('DROP TABLE', $allSql);
+        $this->assertStringNotContainsString('IF EXISTS', $allSql);
+    }
+
+    // =========================================================================
+    // createHypertable() — TimescaleDB with options
+    // =========================================================================
+
+    /**
+     * createHypertable() on non-TimescaleDB returns false without querying.
+     */
+    public function testCreateHypertableReturnsfalseOnNonTimescaleDB(): void
+    {
+        // Arrange + Act + Assert — no TimescaleDB → immediate false
+        $this->assertFalse($this->makeSB('mysql')->createHypertable('metrics', 'time'));
+    }
+
+    /**
+     * createHypertable() on TimescaleDB with bool and string options exercises
+     * all three branches inside the foreach loop.
+     *
+     * The bool branch converts true/false to 'true'/'false'.
+     * The interval-string branch wraps the value in INTERVAL '...'.
+     * The non-interval string branch wraps the value in single quotes.
+     */
+    public function testCreateHypertableWithMixedOptionsCoversAllOptionBranches(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $capturedSqls = [];
+        $db->method('query')->willReturnCallback(function (string $sql) use (&$capturedSqls) {
+            $capturedSqls[] = $sql;
+            return null;
+        });
+        $sb = new SchemaBuilder($db);
+
+        // Act — exercise all three option-encoding branches
+        $result = $sb->createHypertable('metrics', 'time', [
+            'if_not_exists'       => true,                  // bool → 'true'
+            'chunk_time_interval' => '7 days',              // interval-string → INTERVAL '7 days'
+            'associated_schema'   => 'public',              // plain-string → 'public'
+        ]);
+
+        // Assert — all options should appear in the captured SQL
+        $allSql = implode(' ', $capturedSqls);
+        $this->assertStringContainsString("if_not_exists => true", $allSql);
+        $this->assertStringContainsString("chunk_time_interval => INTERVAL '7 days'", $allSql);
+        $this->assertStringContainsString("associated_schema => 'public'", $allSql);
+    }
+
+    // =========================================================================
+    // addSpaceDimension() — TimescaleDB
+    // =========================================================================
+
+    /**
+     * addSpaceDimension() returns false on non-TimescaleDB backends.
+     */
+    public function testAddSpaceDimensionReturnsFalseOnNonTimescaleDB(): void
+    {
+        $this->assertFalse($this->makeSB('mysql')->addSpaceDimension('metrics', 'device_id'));
+    }
+
+    /**
+     * addSpaceDimension() on TimescaleDB queries add_dimension().
+     */
+    public function testAddSpaceDimensionOnTimescaleDBCallsAddDimension(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn(null); // (bool)null = false
+        $sb = new SchemaBuilder($db);
+
+        // Act — result is (bool)null = false
+        $result = $sb->addSpaceDimension('metrics', 'device_id', 8);
+        $this->assertFalse($result);
+    }
+
+    // =========================================================================
+    // enableCompression() — TimescaleDB
+    // =========================================================================
+
+    /**
+     * enableCompression() returns false on non-TimescaleDB backends.
+     */
+    public function testEnableCompressionReturnsFalseOnNonTimescaleDB(): void
+    {
+        $this->assertFalse($this->makeSB('mysql')->enableCompression('metrics'));
+    }
+
+    /**
+     * enableCompression() on TimescaleDB with compression options exercises
+     * the foreach loop that builds compress_* clauses.
+     */
+    public function testEnableCompressionOnTimescaleDBWithOptions(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $capturedSqls = [];
+        $db->method('query')->willReturnCallback(function (string $sql) use (&$capturedSqls) {
+            $capturedSqls[] = $sql;
+            return null;
+        });
+        $sb = new SchemaBuilder($db);
+
+        // Act — options build timescaledb.compress_segmentby etc.
+        $result = $sb->enableCompression('metrics', ['segmentby' => 'device_id', 'orderby' => 'time DESC']);
+
+        // Assert — compress clause and options must appear
+        $allSql = implode(' ', $capturedSqls);
+        $this->assertStringContainsString('timescaledb.compress', $allSql);
+        $this->assertStringContainsString('timescaledb.compress_segmentby', $allSql);
+    }
+
+    // =========================================================================
+    // addCompressionPolicy() — TimescaleDB
+    // =========================================================================
+
+    /**
+     * addCompressionPolicy() returns false on non-TimescaleDB backends.
+     */
+    public function testAddCompressionPolicyReturnsFalseOnNonTimescaleDB(): void
+    {
+        $this->assertFalse($this->makeSB('mysql')->addCompressionPolicy('metrics', '7 days'));
+    }
+
+    /**
+     * addCompressionPolicy() on TimescaleDB queries add_compression_policy().
+     */
+    public function testAddCompressionPolicyOnTimescaleDB(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql', true);
+        $db->method('query')->willReturn(null);
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — (bool)null = false
+        $this->assertFalse($sb->addCompressionPolicy('metrics', '7 days'));
+    }
+
+    // =========================================================================
+    // nextVal() — sequence next value
+    // =========================================================================
+
+    /**
+     * nextVal() on MySQL returns 0 because the grammar returns '' for compileNextVal.
+     */
+    public function testNextValOnMySQLReturnsZero(): void
+    {
+        // Arrange — MySQL grammar compileNextVal returns ''
+        $db = $this->makeDBMock('mysql');
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert — must return 0 without querying
+        $this->assertSame(0, $sb->nextVal('seq_users'));
+    }
+
+    /**
+     * nextVal() on PostgreSQL returns the sequence value from the result's first field.
+     */
+    public function testNextValOnPostgreSQLReturnsNextValue(): void
+    {
+        // Arrange — PG grammar compileNextVal returns real SQL; mock returns a value
+        $db = $this->makeDBMock('postgresql');
+        $db->method('query')->willReturn($this->fakeResult(
+            [['nextval' => 7]],
+            ['nextval' => 7]
+        ));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $this->assertSame(7, $sb->nextVal('seq_users'));
+    }
+
+    /**
+     * nextVal() returns 0 when the query returns no rows (sequence does not exist).
+     */
+    public function testNextValReturnsZeroOnEmptyResult(): void
+    {
+        // Arrange — PG grammar; mock returns empty result
+        $db = $this->makeDBMock('postgresql');
+        $db->method('query')->willReturn($this->fakeResult([]));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $this->assertSame(0, $sb->nextVal('seq_missing'));
+    }
 }

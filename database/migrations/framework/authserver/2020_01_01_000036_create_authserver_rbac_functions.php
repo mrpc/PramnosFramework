@@ -43,7 +43,7 @@ class CreateAuthserverRbacFunctions extends Migration
     ];
     public $description  = 'Creates 7 PL/pgSQL RBAC helper functions and 2 triggers (PostgreSQL only)';
 
-    public function up(): void
+    public function up(): void: void
     {
         $caps = $this->application->database->schema()->getCapabilities();
 
@@ -372,7 +372,7 @@ class CreateAuthserverRbacFunctions extends Migration
         );
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $caps = $this->application->database->schema()->getCapabilities();
 

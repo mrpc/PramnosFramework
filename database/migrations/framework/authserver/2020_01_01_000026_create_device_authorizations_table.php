@@ -25,7 +25,7 @@ class CreateDeviceAuthorizationsTable extends Migration
     public array  $dependencies = ['create_authserver_schema', 'create_applications_table'];
     public $description  = 'Creates the device_authorizations table (RFC 8628 Device Grant)';
 
-    public function up(): void
+    public function up(): void: void
     {
         $db     = $this->application->database;
         $schema = $db->schema();
@@ -75,7 +75,7 @@ class CreateDeviceAuthorizationsTable extends Migration
         }
     }
 
-    public function down(): void
+    public function down(): void: void
     {
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();
