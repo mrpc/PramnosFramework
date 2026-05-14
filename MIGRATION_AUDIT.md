@@ -133,9 +133,27 @@
 
 ## Missing Views (UrbanWater Schema)
 
-- ✅ 000030: authserver.slow_api_calls (exists)
-- ❌ applications.webhook_delivery_status (aggregates webhook event stats per endpoint)
-- ❌ applications.rate_limit_status (current rate limiting state per app)
+### Applications Schema Views (Priority: HIGH)
+- ❌ api_performance_summary (response times, success rates, method analysis)
+- ❌ application_health (overall health indicators per app)
+- ❌ application_stats_daily (materialized view aggregating hourly stats)
+- ❌ application_stats_hourly (materialized view hourly aggregates)
+- ❌ rate_limit_status (current rate limiting state per app)
+- ❌ slow_api_calls (calls exceeding 5 second threshold)
+- ❌ ip_violations (IPs violating IP lock settings)
+- ❌ oauth2_active_tokens (active OAuth tokens by status)
+- ❌ usage_statistics (materialized view of aggregate usage)
+- ❌ top_applications (apps by usage volume)
+
+### AuthServer Schema Views (Priority: HIGH)
+- ❌ alert_high_failure_rate (authentication failures spike detection)
+- ❌ alert_suspicious_ips (suspicious IP activity)
+- ❌ daily_2fa_stats (materialized view: 2FA usage aggregates)
+- ❌ failed_twofactor_summary (2FA failures in last hour, 3+ attempts)
+- ❌ gdpr_compliance_report (user data processing and consent summary)
+- ❌ geographic_analysis (login locations and geographic patterns)
+- ❌ oauth2_active_tokens (active OAuth tokens - also in applications)
+- ❌ recent_twofactor_attempts (2FA activity last 24h)
 
 ---
 
@@ -149,13 +167,26 @@
 
 ---
 
+## Schema Corrections Required
+
+### Moving/Repositioning
+1. **jwt_replay_prevention table**: Currently in public schema (correct), but migrations had it in authserver
+   - Should stay in public schema (matches UrbanWater)
+   
+2. **slow_api_calls view**: Currently in authserver in framework
+   - Should be in applications schema (matches UrbanWater)
+   - Both authserver.oauth2_active_tokens and applications.oauth2_active_tokens exist as separate views
+
+---
+
 ## Summary of Required Work
 
 | Category | Count | Priority |
 |----------|-------|----------|
 | Missing tables | 3 | HIGH |
+| Missing views in applications | 10 | HIGH |
+| Missing views in authserver | 8 | HIGH |
 | Missing FKs in existing tables | 8+ | HIGH |
-| Missing views | 2 | MEDIUM |
-| Missing triggers/functions | 2 | MEDIUM |
-| Missing indexes | 5+ | MEDIUM |
+| Missing functions/triggers | 2 | MEDIUM |
+| Total views to create | 18 | HIGH |
 
