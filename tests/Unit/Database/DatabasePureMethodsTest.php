@@ -846,4 +846,300 @@ class DatabasePureMethodsTest extends TestCase
         $this->db->cacheflush('');
         $this->addToAssertionCount(1);
     }
+
+    // =========================================================================
+    // isConnectionAlive — null/false connection guard
+    // =========================================================================
+
+    /**
+     * isConnectionAlive() returns false immediately when the connection handle
+     * is null or false.  This is the early-return guard before the driver-specific
+     * checks, exercising the `if (!$connection) { return false; }` branch.
+     */
+    public function testIsConnectionAliveReturnsFalseForNullConnection(): void
+    {
+        // Arrange / Act / Assert — both null and false must return false
+        $this->assertFalse($this->db->isConnectionAlive(null),
+            'null connection must be reported as not alive');
+        $this->assertFalse($this->db->isConnectionAlive(false),
+            'false connection must be reported as not alive');
+    }
+
+    // =========================================================================
+    // prepareQuery — null and array-arg branches
+    // =========================================================================
+
+    /**
+     * prepareQuery(null) must return immediately (void) — the early-return
+     * guard prevents null from being processed as a SQL template.
+     */
+    public function testPrepareQueryNullReturnsVoid(): void
+    {
+        // Arrange / Act
+        $result = $this->db->prepareQuery(null);
+
+        // Assert — null input produces null (void return)
+        $this->assertNull($result, 'prepareQuery(null) must return null');
+    }
+
+    /**
+     * prepareQuery() with an array as the first argument after the SQL template
+     * unwraps the array into positional arguments.  This exercises the
+     * `$args = $args[0]` branch (line ~1352).
+     */
+    public function testPrepareQueryWithArrayArgUnwrapsToFlatArgs(): void
+    {
+        // Arrange — subclass overrides prepareInput() so no live connection is needed
+        $db = new class extends Database {
+            public function prepareInput($string) { return addslashes($string ?? ''); }
+        };
+        $db->type = 'mysql';
+
+        // Act — array as first arg is flattened to positional args
+        $result = $db->prepareQuery('SELECT %s AS x', ['hello']);
+
+        // Assert — placeholder was replaced with the value
+        $this->assertStringContainsString('hello', (string)$result,
+            'Array arg must be unwrapped and substituted into the query');
+    }
+
+    // =========================================================================
+    // getInsertId — not-connected branch
+    // =========================================================================
+
+    /**
+     * getInsertId() returns false when there is no live connection and the
+     * database type is MySQL.  Neither driver branch fires → falls through to
+     * the final `return false`.
+     */
+    public function testGetInsertIdReturnsFalseWhenNotConnected(): void
+    {
+        // Arrange — MySQL type, no connection (_dbConnection is null by default)
+        $this->db->type = 'mysql';
+
+        // Act
+        $result = $this->db->getInsertId();
+
+        // Assert
+        $this->assertFalse($result, 'getInsertId() must return false when not connected');
+    }
+
+    // =========================================================================
+    // prepareDataForCache / restoreDataFromCache / restoreTypes (private)
+    // =========================================================================
+
+    /**
+     * prepareDataForCache() with a non-array argument returns the value as-is.
+     * The early return at the top of the method guards against non-array input.
+     */
+    public function testPrepareDataForCacheNonArrayPassthrough(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->db, 'prepareDataForCache');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($this->db, 'plain string');
+
+        // Assert — non-array is returned unchanged
+        $this->assertSame('plain string', $result);
+    }
+
+    /**
+     * restoreDataFromCache() with data that is NOT the type-preserved format
+     * (no '_t' key) returns it as-is.  This covers the final `return $cachedData`
+     * path when the data is not typed.
+     */
+    public function testRestoreDataFromCacheNonTypedPassthrough(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->db, 'restoreDataFromCache');
+        $ref->setAccessible(true);
+
+        // Act
+        $plain = ['row1' => 'value'];
+        $result = $ref->invoke($this->db, $plain);
+
+        // Assert — non-typed data is returned unchanged
+        $this->assertSame($plain, $result);
+    }
+
+    /**
+     * restoreTypes() with a non-array input returns the value as-is.
+     * The early guard at the top of the method handles this case.
+     */
+    public function testRestoreTypesNonArrayPassthrough(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->db, 'restoreTypes');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($this->db, 'just a string');
+
+        // Assert
+        $this->assertSame('just a string', $result);
+    }
+
+    /**
+     * restoreTypes() with an array containing a plain (non-typed) value keeps
+     * it as-is via the final else branch.  This verifies that ordinary values
+     * mixed with typed values are not corrupted.
+     */
+    public function testRestoreTypesPlainValueKeptAsIs(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->db, 'restoreTypes');
+        $ref->setAccessible(true);
+
+        // Act — a plain scalar value (not a typed ['v'=>...,'t'=>...] structure)
+        $result = $ref->invoke($this->db, ['key' => 'plain_value']);
+
+        // Assert — plain value is passed through unchanged
+        $this->assertSame(['key' => 'plain_value'], $result);
+    }
+
+    // =========================================================================
+    // estimateResultSetMemory — empty-set branch
+    // =========================================================================
+
+    /**
+     * estimateResultSetMemory() returns 0 for an empty array without performing
+     * any serialization.  This is the fast-path guard for empty result sets.
+     */
+    public function testEstimateResultSetMemoryEmptyReturnsZero(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->db, 'estimateResultSetMemory');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($this->db, []);
+
+        // Assert
+        $this->assertSame(0, $result);
+    }
+
+    // =========================================================================
+    // getAvailableMemoryMB — unlimited memory branch
+    // =========================================================================
+
+    /**
+     * getAvailableMemoryMB() returns null when PHP memory_limit is '-1'
+     * (unlimited).  null signals to the caller that no memory constraint
+     * should be applied.
+     */
+    public function testGetAvailableMemoryMBReturnsNullForUnlimitedMemory(): void
+    {
+        // Arrange — temporarily set unlimited memory
+        $original = ini_get('memory_limit');
+        ini_set('memory_limit', '-1');
+
+        $ref = new \ReflectionMethod($this->db, 'getAvailableMemoryMB');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($this->db);
+
+        // Restore
+        ini_set('memory_limit', $original);
+
+        // Assert
+        $this->assertNull($result, 'getAvailableMemoryMB() must return null for unlimited memory');
+    }
+
+    // =========================================================================
+    // parseMemoryLimit — 'm', 'k', and default branches
+    // =========================================================================
+
+    /**
+     * parseMemoryLimit() converts megabyte notation (e.g. '128M') to bytes.
+     * This is the most common PHP memory limit format.
+     */
+    public function testParseMemoryLimitMegabytes(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->db, 'parseMemoryLimit');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($this->db, '128M');
+
+        // Assert
+        $this->assertSame(128 * 1024 * 1024, $result);
+    }
+
+    /**
+     * parseMemoryLimit() converts kilobyte notation (e.g. '512K') to bytes.
+     */
+    public function testParseMemoryLimitKilobytes(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->db, 'parseMemoryLimit');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($this->db, '512K');
+
+        // Assert
+        $this->assertSame(512 * 1024, $result);
+    }
+
+    /**
+     * parseMemoryLimit() returns the integer value when no unit suffix is
+     * present.  This is the default/fallback case in the switch statement.
+     */
+    public function testParseMemoryLimitNoSuffixReturnsInteger(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->db, 'parseMemoryLimit');
+        $ref->setAccessible(true);
+
+        // Act — plain integer string with no unit
+        $result = $ref->invoke($this->db, '1048576');
+
+        // Assert
+        $this->assertSame(1048576, $result);
+    }
+
+    // =========================================================================
+    // tryReconnect / refresh — reconnect path
+    // =========================================================================
+
+    /**
+     * tryReconnect() delegates to refresh(false).  With no server configured,
+     * the connection attempt fails and false is returned without throwing.
+     * This exercises tryReconnect() and refresh() without a real DB server.
+     */
+    public function testTryReconnectReturnsFalseWithoutServer(): void
+    {
+        // Arrange — no server configured on the default instance
+        $this->db->type = 'mysql';
+
+        // Act — tryReconnect calls refresh(false) → close() + connect(false)
+        $result = $this->db->tryReconnect();
+
+        // Assert — connection failed; false returned without exception
+        $this->assertFalse($result, 'tryReconnect() must return false when no server is reachable');
+    }
+
+    // =========================================================================
+    // connect — throw-on-failure branch (throwOnFailure=true, bad server)
+    // =========================================================================
+
+    /**
+     * connect(true) throws a RuntimeException when the connection cannot be
+     * established.  This covers the throw path in the else-block of connect()
+     * (the branch where $ok is false and $throwOnFailure is true).
+     */
+    public function testConnectThrowsRuntimeExceptionWhenConnectionFails(): void
+    {
+        // Arrange — no server configured, throwOnFailure=true (the default)
+        $db = new Database();
+        $db->type = 'mysql';
+
+        // Act / Assert
+        $this->expectException(\RuntimeException::class);
+        $db->connect(true);
+    }
 }

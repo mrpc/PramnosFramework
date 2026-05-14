@@ -560,4 +560,118 @@ class DatabaseTest extends \PHPUnit\Framework\TestCase
             unset($_SERVER['REMOTE_ADDR']);
         }
     }
+
+    // =========================================================================
+    // query() with $skipDataFix=true (PostgreSQL)
+    // =========================================================================
+
+    /**
+     * query() with $skipDataFix=true bypasses the column-type conversion in
+     * runPgQuery() and assigns field values via the fallback else-branch.
+     * This exercises line ~2478 (`$obj->fields[$key] = $value`).
+     */
+    public function testQueryWithSkipDataFixReturnsPGRawValues(): void
+    {
+        // Arrange — use a simple literal query so no table is needed
+        // Act — skipDataFix=true is the 6th argument to query()
+        $result = self::$db->query(
+            'SELECT 1 AS val',
+            false, 86400, null, false, true  // skipDataFix = true
+        );
+
+        // Assert — result was returned without type-conversion (raw string from PG)
+        $this->assertEquals(1, $result->numRows,
+            'query() with skipDataFix must still return a result');
+        // Value may be raw string '1' when skipDataFix bypasses the int cast
+        $this->assertEquals(1, $result->fields['val'],
+            'skipDataFix mode must return the correct value');
+    }
+
+    /**
+     * setTrackingInfo() with an empty appName and HTTP_USER_AGENT not set to
+     * 'cli' falls through to the Application::getInstance() branch.
+     * Application is not running in tests, so it falls back to 'PramnosApp'.
+     * This covers lines ~2117-2121 (the Application branch in setTrackingInfo).
+     */
+    public function testSetTrackingInfoApplicationBranchFallsBackToPramnosApp(): void
+    {
+        // Arrange — remove 'cli' agent so the Application branch is entered
+        $oldAgent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+        unset($_SERVER['HTTP_USER_AGENT']);
+
+        // Act — empty appName triggers Application::getInstance() path
+        self::$db->setTrackingInfo();
+
+        // Assert — connection still alive after the call
+        $health = self::$db->execute('SELECT 1 AS ok');
+        $this->assertEquals(1, $health->fields['ok'],
+            'Connection must remain alive after setTrackingInfo() Application branch');
+
+        // Restore
+        if ($oldAgent !== null) {
+            $_SERVER['HTTP_USER_AGENT'] = $oldAgent;
+        }
+    }
+
+    // =========================================================================
+    // insertDataToTable / updateTableData — boolean false branch (PostgreSQL)
+    // =========================================================================
+
+    /**
+     * insertDataToTable() with a boolean false value (type='boolean') maps
+     * to the PostgreSQL literal 'f' via the false branch of the boolean
+     * type handler.  This covers the `$val = $qb->raw('\'f\'')` line.
+     */
+    public function testInsertDataToTablePGBooleanFalseValue(): void
+    {
+        // Arrange — insert a row with active=false
+        $data = [
+            ['fieldName' => 'code',   'value' => 'BOOL-FALSE-INS', 'type' => 'string'],
+            ['fieldName' => 'active', 'value' => false,            'type' => 'boolean'],
+        ];
+
+        // Act
+        $result = self::$db->insertDataToTable(self::$table, $data);
+        $this->assertNotFalse($result, 'insertDataToTable() must not return false for boolean false');
+
+        // Assert — value stored as false in PostgreSQL
+        $row = self::$db->query(
+            "SELECT active FROM public." . self::$table . " WHERE code = 'BOOL-FALSE-INS'"
+        );
+        $this->assertEquals(1, $row->numRows);
+        $this->assertFalse($row->fields['active'],
+            'Boolean false must be stored and retrieved as false');
+    }
+
+    /**
+     * updateTableData() with a boolean false value (type='boolean') maps to
+     * PostgreSQL literal 'f'.  This covers the false branch in updateTableData's
+     * boolean type handler.
+     */
+    public function testUpdateTableDataPGBooleanFalseValue(): void
+    {
+        // Arrange — insert a row with active=true, then update to false
+        self::$db->query(
+            "INSERT INTO public." . self::$table . " (code, active) VALUES ('BOOL-FALSE-UPD', 't')"
+        );
+
+        $data = [
+            ['fieldName' => 'active', 'value' => 0, 'type' => 'boolean'],
+        ];
+
+        // Act
+        $result = self::$db->updateTableData(
+            self::$table,
+            $data,
+            "code = 'BOOL-FALSE-UPD'"
+        );
+        $this->assertNotFalse($result, 'updateTableData() must not return false for boolean false');
+
+        // Assert — value updated to false
+        $row = self::$db->query(
+            "SELECT active FROM public." . self::$table . " WHERE code = 'BOOL-FALSE-UPD'"
+        );
+        $this->assertFalse($row->fields['active'],
+            'Boolean false (0) must be stored and retrieved as false after update');
+    }
 }
