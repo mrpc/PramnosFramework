@@ -1,6 +1,48 @@
 
 # Project Progress - Pramnos Framework v1.2
 
+## 📅 Last Updated: 2026-05-15 (session 78)
+
+## 🏁 Session 78 — Database Module Coverage >90% (2026-05-15)
+
+### ✅ Ολοκληρώθηκε
+
+**Coverage target achieved: Database module 90.1% (from 89.2%)**
+
+Added 22 new test methods targeting specific uncovered branches in Database.php:
+
+**Unit tests (DatabasePureMethodsTest.php):**
+- `isConnectionAlive()` null/false guard (line 298)
+- `prepareQuery(null)` early return (line 1315)
+- `prepareQuery()` with array arg unwrapping (line 1352)
+- `getInsertId()` false fallback when not connected (line 1614)
+- `prepareDataForCache()` / `restoreDataFromCache()` / `restoreTypes()` non-array paths
+- `estimateResultSetMemory()` empty-set short-circuit (line 2030)
+- `getAvailableMemoryMB()` unlimited-memory path (line 2059)
+- `parseMemoryLimit()` 'm', 'k', and default unit cases (lines 2083–2088)
+- `tryReconnect()` → `refresh()` delegation (lines 637, 2099–2100)
+- `connect()` throw-on-failure branch (lines 622–623)
+
+**Integration tests (MySQLConnectionTest.php):**
+- `query()` with `$skipDataFix=true` exercises raw-value fallback
+
+**Integration tests (DatabaseTest.php / PostgreSQL):**
+- `query()` with `$skipDataFix=true` exercises PG fallback branch (line 2478)
+- `setTrackingInfo()` Application::getInstance() branch (lines 2117–2121)
+- `insertDataToTable()` boolean false → PG 'f' literal (line 1450)
+- `updateTableData()` boolean false → PG 'f' literal (line 1520)
+
+**Coverage numbers (2026-05-15):**
+- Database.php: 1043/1354 = 77.0%
+- Database module total: 3156/3504 = **90.1%** ✅ (was 89.2%)
+- Framework overall: 11417/26693 = 42.8%
+
+### Commits
+- `f879e05` test(coverage): expand Database class coverage toward >90% module target
+- `0954b62` test(coverage): add targeted tests to bring Database module to ≥90%
+
+---
+
 ## 📅 Last Updated: 2026-05-14 (session 77)
 
 ## 🏁 Session 77 — UrbanWater Schema Backport: Complete Migration Audit & Implementation (2026-05-14)
