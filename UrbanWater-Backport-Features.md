@@ -1259,7 +1259,28 @@ _(See full DDL in Section 7.1)_
 
 Αυτή η ενότητα δείχνει **τι υπάρχει στο UrbanWater** και **τι αντίστοιχο πρέπει να δημιουργηθεί/ενημερωθεί στο framework**.
 
-### 11.1 New classes — δεν υπάρχουν στο framework
+
+---
+
+## 12. UrbanWater Schema Backport & Open Jira Issues (2026-05-14)
+
+### Νέα features προς backport:
+- **applications.application_settings**: Πίνακας με CORS policy (cors_enabled, cors_origins), rate limiting, pagination, ip lock, κλπ.
+- **applications.application_stats**: Hypertable (TimescaleDB) για metrics ανά app (requests, response times, status codes, κλπ).
+- **authserver.user_app_authorizations**: Πίνακας για OAuth consent tracking ανά χρήστη/εφαρμογή (status, scope, revoked_at, κλπ).
+- **authserver.loginlockouts**: Πίνακας για lockout state (userid, locktype, lookupvalue, lockoutuntil, failedattempts, κλπ).
+- **Hypertables, views, aggregates, triggers, indexes, comments, retention/compression policies** που λείπουν από το PramnosFramework.
+- **CORS policy**: Να διαβάζεται και να εφαρμόζεται από application_settings (όχι wildcard).
+
+### Tasks
+- Backport όλων των παραπάνω objects (πίνακες, hypertables, views, aggregates, triggers, comments) από UrbanWater.
+- Συγχρονισμός indexes, triggers, comments, policies με UrbanWater.
+- Ενημέρωση migrations και τεκμηρίωσης.
+
+### Open Jira Issues προς ενσωμάτωση
+- **PF-9:** Native caching σε views (όχι μόνο manual)
+- **PF-40:** Υποστήριξη group by επιλογής στο datatable UI (όχι μόνο backend)
+- **PF-43:** Database-driven CORS policy enforcement (όχι wildcard, να διαβάζει από application_settings)
 
 | UrbanWater class | Framework target | Status | Notes |
 |---|---|---|---|

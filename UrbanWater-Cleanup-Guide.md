@@ -419,7 +419,28 @@ echo $gitInfo->renderFooterWidget(); // branch + hash, click → modal
 
 ---
 
-## Phase 8: API Documentation (→ Φάση 18)
+
+---
+
+## Phase 9: UrbanWater Schema Cleanup & Migration (2026-05-14)
+
+### Νέα schema elements προς cleanup/migration:
+- **applications.application_settings**: CORS policy, rate limiting, pagination, ip lock, κλπ.
+- **applications.application_stats**: Hypertable για metrics ανά app.
+- **authserver.user_app_authorizations**: OAuth consent tracking.
+- **authserver.loginlockouts**: Brute-force/lockout state.
+- **Hypertables, views, aggregates, triggers, indexes, comments, retention/compression policies** (όπως στο UrbanWater).
+
+### Cleanup steps
+- Μετατροπή όλων των παραπάνω UW tables σε thin wrappers προς PramnosFramework.
+- Ενημέρωση DevPanel integration για monitoring/consent/CORS.
+- Ενημέρωση migration_cutoff logic ώστε να καλύπτει τα νέα tables/hypertables.
+- Ενημέρωση tests για πλήρη BC.
+
+### Jira issues προς παρακολούθηση
+- **PF-9:** Native caching σε views
+- **PF-40:** Group by επιλογή στο datatable UI
+- **PF-43:** Database-driven CORS policy enforcement
 
 ### Τι έχει το Urbanwater σήμερα
 
