@@ -1,6 +1,26 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-13 (session 72 cont.)
+## 📅 Last Updated: 2026-05-14 (session 73)
+
+## 🏁 Session 73 — Grammar unit tests (2026-05-14)
+
+### ✅ Ολοκληρώθηκε
+
+**Νέο test file:**
+- `tests/Unit/Database/GrammarTest.php` — 89 tests, 129 assertions
+  - `#[CoversClass]` για Grammar, MySQLGrammar, PostgreSQLGrammar, TimescaleDBGrammar
+  - Καλύπτει: getPlaceholder (όλοι τύποι), compileInsert/Update/Delete/Truncate, compileSelect (DISTINCT, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET, UNION, CTE, locking), compileWheres (Basic, In, NotIn, Null, NotNull, Between, NotBetween, Nested, Raw, Exists, NotExists, DatePart), compileWindowOver, compileTimeBucket (MySQL/PG/TimescaleDB), RETURNING clause
+
+**Coverage αποτελέσματα (GrammarTest only):**
+- Grammar.php: 99% (199/201)
+- MySQLGrammar.php: 100% (25/25)
+- PostgreSQLGrammar.php: 98% (53/54)
+- TimescaleDBGrammar.php: 100% (1/1)
+
+### Commits
+- (αυτή η session)
+
+---
 
 ## 🏁 Session 72 cont. — Fix cache type preservation + empty-string bug (2026-05-13)
 
