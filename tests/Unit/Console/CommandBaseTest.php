@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Unit\Console;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Console\CommandBase;
 
@@ -20,6 +21,7 @@ use Pramnos\Console\CommandBase;
  * Terminal-control and signal-handling methods emit escape codes — those are
  * tested only at the smoke level (no exception thrown, correct output type).
  */
+#[CoversClass(CommandBase::class)]
 class CommandBaseTest extends TestCase
 {
     private CommandBase $cmd;
@@ -101,6 +103,84 @@ class CommandBaseTest extends TestCase
             protected function configure(): void
             {
                 $this->setName('test:command');
+            }
+
+            // ── OS probe method exposures ─────────────────────────────────
+            public function publicCurrentTimestamp(): int
+            {
+                return $this->currentTimestamp();
+            }
+            public function publicNow(): int
+            {
+                return $this->now();
+            }
+            public function publicNowFloat(): float
+            {
+                return $this->nowFloat();
+            }
+            public function publicSupportsSysGetLoadAvg(): bool
+            {
+                return $this->supportsSysGetLoadAvg();
+            }
+            public function publicGetLoadAvg(): array
+            {
+                return $this->getLoadAvg();
+            }
+            public function publicSupportsPosixKill(): bool
+            {
+                return $this->supportsPosixKill();
+            }
+            public function publicCanSignalProcess(int $pid): bool
+            {
+                return $this->canSignalProcess($pid);
+            }
+            public function publicHasProcDirectory(int $pid): bool
+            {
+                return $this->hasProcDirectory($pid);
+            }
+            public function publicExecuteShell(string $cmd): string
+            {
+                return $this->executeShell($cmd);
+            }
+            public function publicIsWindows(): bool
+            {
+                return $this->isWindows();
+            }
+            public function publicSupportsMbStrSplit(): bool
+            {
+                return $this->supportsMbStrSplit();
+            }
+            public function publicMbStrSplit(string $text): array
+            {
+                return $this->mbStrSplit($text);
+            }
+            public function publicSupportsMbStrlen(): bool
+            {
+                return $this->supportsMbStrlen();
+            }
+            public function publicMbStringLength(string $text): int
+            {
+                return $this->mbStringLength($text);
+            }
+            public function publicSupportsPcntl(): bool
+            {
+                return $this->supportsPcntl();
+            }
+            public function publicSupportsShellExec(): bool
+            {
+                return $this->supportsShellExec();
+            }
+            public function publicSupportsPosixGetParentPid(): bool
+            {
+                return $this->supportsPosixGetParentPid();
+            }
+            public function publicGetOrchestratorCommandName(): string
+            {
+                return $this->getOrchestratorCommandName();
+            }
+            public function publicGetLockStaleSeconds(): int
+            {
+                return $this->getLockStaleSeconds();
             }
         };
     }
@@ -505,5 +585,261 @@ class CommandBaseTest extends TestCase
             is_dir($path) ? $this->rmdirRecursive($path) : unlink($path);
         }
         rmdir($dir);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // OS probe methods
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * currentTimestamp() returns a Unix timestamp (positive integer).
+     * This delegates to time(), so the result must be close to the real clock.
+     */
+    public function testCurrentTimestampReturnsPositiveInt(): void
+    {
+        // Act
+        $ts = $this->cmd->publicCurrentTimestamp();
+
+        // Assert — must be a recent Unix timestamp (after 2020-01-01)
+        $this->assertGreaterThan(1577836800, $ts);
+    }
+
+    /**
+     * now() is an alias for currentTimestamp() — both must return the same value
+     * within a single-second window.
+     */
+    public function testNowDelegatesToCurrentTimestamp(): void
+    {
+        // Act
+        $a = $this->cmd->publicCurrentTimestamp();
+        $b = $this->cmd->publicNow();
+
+        // Assert — should match or be off by at most 1 second
+        $this->assertLessThanOrEqual(1, abs($b - $a));
+    }
+
+    /**
+     * nowFloat() returns a float representing the current microtime.
+     * Must be greater than the integer timestamp (since it includes microseconds).
+     */
+    public function testNowFloatReturnsMicrotimeFloat(): void
+    {
+        // Act
+        $f = $this->cmd->publicNowFloat();
+
+        // Assert — must be a positive float larger than a 2020 epoch
+        $this->assertIsFloat($f);
+        $this->assertGreaterThan(1577836800.0, $f);
+    }
+
+    /**
+     * supportsSysGetLoadAvg() reflects whether sys_getloadavg() is available.
+     * In a Docker/Linux environment this function is always present.
+     */
+    public function testSupportsSysGetLoadAvgMatchesFunctionExists(): void
+    {
+        // Act
+        $result = $this->cmd->publicSupportsSysGetLoadAvg();
+
+        // Assert — must match what PHP reports directly
+        $this->assertSame(function_exists('sys_getloadavg'), $result);
+    }
+
+    /**
+     * getLoadAvg() returns an array of 3 load-average floats when the function
+     * is available (as it is on all Linux systems used by this project).
+     */
+    public function testGetLoadAvgReturnsThreeElementArray(): void
+    {
+        // Arrange — skip on systems without sys_getloadavg
+        if (!function_exists('sys_getloadavg')) {
+            $this->markTestSkipped('sys_getloadavg not available');
+        }
+
+        // Act
+        $avg = $this->cmd->publicGetLoadAvg();
+
+        // Assert — must be a 3-element array of non-negative floats
+        $this->assertCount(3, $avg);
+        $this->assertGreaterThanOrEqual(0.0, $avg[0]);
+    }
+
+    /**
+     * supportsPosixKill() returns true/false depending on whether the posix
+     * extension is loaded.  Just verify the result type is boolean.
+     */
+    public function testSupportsPosixKillReturnsBool(): void
+    {
+        // Act / Assert — type is sufficient; the value is environment-dependent
+        $this->assertIsBool($this->cmd->publicSupportsPosixKill());
+    }
+
+    /**
+     * canSignalProcess() on the current process (getmypid()) must return true
+     * when posix_kill is available — sending signal 0 to ourself succeeds.
+     */
+    public function testCanSignalProcessReturnsTrueForSelf(): void
+    {
+        // Arrange
+        if (!function_exists('posix_kill')) {
+            $this->markTestSkipped('posix extension not available');
+        }
+
+        // Act / Assert — signal 0 to self is always allowed
+        $this->assertTrue($this->cmd->publicCanSignalProcess(getmypid()));
+    }
+
+    /**
+     * hasProcDirectory() returns true for the current process's /proc entry
+     * and false for a PID that cannot exist (INT_MAX).
+     */
+    public function testHasProcDirectoryTrueForCurrentPid(): void
+    {
+        // Arrange — skip on non-Linux where /proc is absent
+        if (!is_dir('/proc')) {
+            $this->markTestSkipped('/proc not available on this platform');
+        }
+
+        // Act / Assert
+        $this->assertTrue($this->cmd->publicHasProcDirectory(getmypid()));
+        $this->assertFalse($this->cmd->publicHasProcDirectory(PHP_INT_MAX));
+    }
+
+    /**
+     * executeShell() runs an arbitrary shell command and returns its output
+     * as a string.  'echo hello' must return 'hello' (with trailing newline).
+     */
+    public function testExecuteShellRunsCommand(): void
+    {
+        // Arrange — skip if shell_exec disabled
+        if (!function_exists('shell_exec')) {
+            $this->markTestSkipped('shell_exec not available');
+        }
+
+        // Act
+        $output = $this->cmd->publicExecuteShell('echo hello');
+
+        // Assert — shell output contains 'hello'
+        $this->assertStringContainsString('hello', $output);
+    }
+
+    /**
+     * isWindows() must return false inside the Docker/Linux container used
+     * by this project's test suite.
+     */
+    public function testIsWindowsReturnsFalseOnLinux(): void
+    {
+        // Assert — PHP_OS_FAMILY on this container is always 'Linux'
+        $this->assertFalse($this->cmd->publicIsWindows());
+    }
+
+    /**
+     * supportsMbStrSplit() returns true when mb_str_split() is available
+     * (PHP 7.4+; this project requires PHP 8.4).
+     */
+    public function testSupportsMbStrSplitReturnsTrueOnPhp84(): void
+    {
+        // Assert — mb_str_split is always present in PHP 8.4
+        $this->assertTrue($this->cmd->publicSupportsMbStrSplit());
+    }
+
+    /**
+     * mbStrSplit() splits a multibyte string into individual characters.
+     * 'abc' → ['a', 'b', 'c'].
+     */
+    public function testMbStrSplitSplitsAsciiString(): void
+    {
+        // Act
+        $chars = $this->cmd->publicMbStrSplit('abc');
+
+        // Assert
+        $this->assertSame(['a', 'b', 'c'], $chars);
+    }
+
+    /**
+     * mbStrSplit() handles multibyte (Greek) characters correctly — each
+     * entry is a single logical character, not a byte fragment.
+     */
+    public function testMbStrSplitHandlesMultibyteCharacters(): void
+    {
+        // Act — Greek word 'αβγ' (3 characters, 6 UTF-8 bytes)
+        $chars = $this->cmd->publicMbStrSplit('αβγ');
+
+        // Assert — 3 grapheme elements
+        $this->assertCount(3, $chars);
+        $this->assertSame('α', $chars[0]);
+    }
+
+    /**
+     * supportsMbStrlen() returns true when mb_strlen() is available
+     * (PHP 8.4 always ships with mbstring).
+     */
+    public function testSupportsMbStrlenReturnsTrueOnPhp84(): void
+    {
+        // Assert
+        $this->assertTrue($this->cmd->publicSupportsMbStrlen());
+    }
+
+    /**
+     * mbStringLength() returns the character count in UTF-8, not the byte count.
+     * The 3-character Greek word 'αβγ' is 6 bytes but 3 characters.
+     */
+    public function testMbStringLengthCountsCharactersNotBytes(): void
+    {
+        // Act
+        $len = $this->cmd->publicMbStringLength('αβγ');
+
+        // Assert — 3 characters, not 6 bytes
+        $this->assertSame(3, $len);
+    }
+
+    /**
+     * supportsPcntl() returns a boolean reflecting whether the pcntl extension
+     * is loaded.  Just check the return type.
+     */
+    public function testSupportsPcntlReturnsBool(): void
+    {
+        // Act / Assert — type check only; value is environment-dependent
+        $this->assertIsBool($this->cmd->publicSupportsPcntl());
+    }
+
+    /**
+     * supportsShellExec() returns true on this Linux environment since
+     * shell_exec is not disabled in the Docker PHP configuration.
+     */
+    public function testSupportsShellExecReturnsBool(): void
+    {
+        // Act / Assert — environment-dependent; verify it's a bool
+        $this->assertIsBool($this->cmd->publicSupportsShellExec());
+    }
+
+    /**
+     * supportsPosixGetParentPid() returns true when posix_getppid() is available.
+     * On this Linux/Docker environment the posix extension is loaded.
+     */
+    public function testSupportsPosixGetParentPidReturnsBool(): void
+    {
+        // Act / Assert — type check sufficient
+        $this->assertIsBool($this->cmd->publicSupportsPosixGetParentPid());
+    }
+
+    /**
+     * getOrchestratorCommandName() returns the default orchestrator command
+     * name 'daemons:start' — used for parent-process detection.
+     */
+    public function testGetOrchestratorCommandNameReturnsDefault(): void
+    {
+        // Act / Assert
+        $this->assertSame('daemons:start', $this->cmd->publicGetOrchestratorCommandName());
+    }
+
+    /**
+     * getLockStaleSeconds() returns 7200 (2 hours) — lock files older than
+     * this are considered stale and removed automatically.
+     */
+    public function testGetLockStaleSecondsReturnsTwoHours(): void
+    {
+        // Act / Assert — 2 hours = 3600 * 2 = 7200
+        $this->assertSame(7200, $this->cmd->publicGetLockStaleSeconds());
     }
 }
