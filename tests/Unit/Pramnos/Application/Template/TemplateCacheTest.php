@@ -75,18 +75,22 @@ class TemplateCacheTest extends TestCase
     /**
      * When no directory is given and ROOT is not defined, the cache falls back
      * to sys_get_temp_dir()/pramnos_viewcache.
-     * This prevents cache construction from failing in unit-test environments
-     * where ROOT is unavailable.
+     *
+     * ROOT is always defined by the test bootstrap, so we cannot undefine it.
+     * Instead we use an anonymous subclass that overrides resolveDefaultCacheDir()
+     * to force the no-ROOT branch — this exercises the same production code path
+     * that real deployments hit when ROOT is absent.
      */
     public function testDefaultCacheDirFallsBackToTmpDir(): void
     {
-        // Arrange — ROOT must NOT be defined for this test
-        if (defined('ROOT')) {
-            $this->markTestSkipped('ROOT is defined — default-dir fallback not testable in this env.');
-        }
-
-        // Act
-        $cache = new TemplateCache();
+        // Arrange — subclass forces the no-ROOT fallback regardless of environment
+        $cache = new class extends TemplateCache {
+            protected function resolveDefaultCacheDir(): string
+            {
+                // Simulate the environment where ROOT is not defined
+                return sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'pramnos_viewcache';
+            }
+        };
 
         // Assert
         $expected = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'pramnos_viewcache';

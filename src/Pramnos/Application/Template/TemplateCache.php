@@ -28,13 +28,20 @@ class TemplateCache
 
     public function __construct(string $cacheDir = '')
     {
-        if ($cacheDir !== '') {
-            $this->cacheDir = $cacheDir;
-        } elseif (defined('ROOT')) {
-            $this->cacheDir = ROOT . DIRECTORY_SEPARATOR . 'var' . DIRECTORY_SEPARATOR . 'viewcache';
-        } else {
-            $this->cacheDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'pramnos_viewcache';
+        $this->cacheDir = $cacheDir !== '' ? $cacheDir : $this->resolveDefaultCacheDir();
+    }
+
+    /**
+     * Returns the default cache directory when no explicit path is given.
+     * Extracted as a protected method so tests can override it without
+     * depending on the ROOT constant being defined or undefined.
+     */
+    protected function resolveDefaultCacheDir(): string
+    {
+        if (defined('ROOT')) {
+            return ROOT . DIRECTORY_SEPARATOR . 'var' . DIRECTORY_SEPARATOR . 'viewcache';
         }
+        return sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'pramnos_viewcache';
     }
 
     // =========================================================================

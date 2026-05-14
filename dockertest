@@ -72,7 +72,7 @@ extra_flags="--configuration phpunit.xml --display-deprecations --display-warnin
 [[ "$testdox" == true ]] && extra_flags="$extra_flags --testdox"
 
 if [[ "$coverage" == true ]]; then
-    docker-compose exec php-apache-environment php -d memory_limit=512M vendor/bin/phpunit \
+    docker-compose exec php-apache-environment php -d memory_limit=1G vendor/bin/phpunit \
         --coverage-html coverage \
         --coverage-clover coverage/clover.xml \
         $extra_flags "${passthrough[@]}"
