@@ -1,6 +1,25 @@
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-14 (session 73)
+## 📅 Last Updated: 2026-05-14 (session 74)
+
+## 🏁 Session 74 — SchemaGrammar unit tests (2026-05-14)
+
+### ✅ Ολοκληρώθηκε
+
+**Νέο test file:**
+- `tests/Unit/Database/SchemaGrammarTest.php` — 138 tests, 244 assertions
+  - `#[CoversClass]` για SchemaGrammar, MySQLSchemaGrammar, PostgreSQLSchemaGrammar
+  - Καλύπτει: compileDefaultValue (όλοι τύποι), compileColumn (modifiers), compileColumnType (MySQL+PG), compileCreate/compileAlter, DDL για VIEW/MATERIALIZED VIEW/TRIGGER/SEQUENCE/INDEX, compileHasTable/compileHasColumn
+
+**Coverage αποτελέσματα (SchemaGrammarTest only):**
+- MySQLSchemaGrammar.php: **100%** (110/110)
+- PostgreSQLSchemaGrammar.php: **100%** (154/154)
+- SchemaGrammar.php: **87.3%** (137/157) — οι 20 uncovered γραμμές είναι abstract/overridden base methods αναπόφευκτα unreachable μέσω MySQL+PG subclasses
+
+### Commits
+- (pending)
+
+---
 
 ## 🏁 Session 73 — Grammar unit tests (2026-05-14)
 
@@ -18,7 +37,7 @@
 - TimescaleDBGrammar.php: 100% (1/1)
 
 ### Commits
-- (αυτή η session)
+- `c67b9d9` test(grammar): add unit tests for Grammar, MySQLGrammar, PostgreSQLGrammar, TimescaleDBGrammar
 
 ---
 
