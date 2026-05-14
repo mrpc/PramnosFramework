@@ -2584,7 +2584,8 @@ class Database extends \Pramnos\Framework\Base
                 "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '" . $table . "')"
             );
             $result = $this->query($exists);
-            if ($result->numRows > 0) {
+            // SELECT EXISTS(...) always returns 1 row; check the boolean value, not numRows
+            if ($result->numRows > 0 && $result->fields['exists'] === true) {
                 return true;
             }
         } else {
