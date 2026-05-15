@@ -27,7 +27,7 @@ class CreateAuthserverPermissionTemplatesTable extends Migration
     public array   $dependencies = ['create_authserver_audit_log_table'];
     public $description  = 'Creates the authserver.permission_templates reusable permission blueprint table';
 
-    public function up(): void: void
+    public function up(): void
     {
         $schema = $this->application->database->schema();
 
@@ -68,7 +68,7 @@ class CreateAuthserverPermissionTemplatesTable extends Migration
         });
     }
 
-    public function down(): void: void
+    public function down(): void
     {
         $this->application->database->schema()->dropTableIfExists('authserver.permission_templates');
     }

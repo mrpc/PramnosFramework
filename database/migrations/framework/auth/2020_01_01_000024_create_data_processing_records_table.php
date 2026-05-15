@@ -26,7 +26,7 @@ class CreateDataProcessingRecordsTable extends Migration
     public array   $dependencies = ['create_authserver_schema'];
     public $description  = 'Creates the authserver.data_processing_records GDPR Art.30 log (TimescaleDB hypertable when available)';
 
-    public function up(): void: void
+    public function up(): void
     {
         $schema = $this->application->database->schema();
 
@@ -69,7 +69,7 @@ class CreateDataProcessingRecordsTable extends Migration
         );
     }
 
-    public function down(): void: void
+    public function down(): void
     {
         $this->application->database->schema()->dropTableIfExists('authserver.data_processing_records');
     }

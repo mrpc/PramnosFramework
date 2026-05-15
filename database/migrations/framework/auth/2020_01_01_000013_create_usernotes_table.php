@@ -20,7 +20,7 @@ class CreateUsernotesTable extends Migration
     public array   $dependencies = ['create_users_table'];
     public $description  = 'Creates the usernotes admin notes table';
 
-    public function up(): void: void
+    public function up(): void
     {
         $schema = $this->application->database->schema();
 
@@ -45,7 +45,7 @@ class CreateUsernotesTable extends Migration
         });
     }
 
-    public function down(): void: void
+    public function down(): void
     {
         $this->application->database->schema()->dropTableIfExists('usernotes');
     }

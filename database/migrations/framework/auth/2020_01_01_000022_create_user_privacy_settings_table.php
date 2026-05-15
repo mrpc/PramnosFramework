@@ -20,7 +20,7 @@ class CreateUserPrivacySettingsTable extends Migration
     public array   $dependencies = ['create_authserver_schema'];
     public $description  = 'Creates the authserver.user_privacy_settings GDPR preference table';
 
-    public function up(): void: void
+    public function up(): void
     {
         $schema = $this->application->database->schema();
 
@@ -46,7 +46,7 @@ class CreateUserPrivacySettingsTable extends Migration
         });
     }
 
-    public function down(): void: void
+    public function down(): void
     {
         $this->application->database->schema()->dropTableIfExists('authserver.user_privacy_settings');
     }

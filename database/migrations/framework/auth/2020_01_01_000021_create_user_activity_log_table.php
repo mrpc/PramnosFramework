@@ -28,7 +28,7 @@ class CreateUserActivityLogTable extends Migration
     public array   $dependencies = ['create_authserver_schema'];
     public $description  = 'Creates the authserver.user_activity_log GDPR audit table (TimescaleDB hypertable when available)';
 
-    public function up(): void: void
+    public function up(): void
     {
         $schema = $this->application->database->schema();
 
@@ -69,7 +69,7 @@ class CreateUserActivityLogTable extends Migration
         );
     }
 
-    public function down(): void: void
+    public function down(): void
     {
         $this->application->database->schema()->dropTableIfExists('authserver.user_activity_log');
     }

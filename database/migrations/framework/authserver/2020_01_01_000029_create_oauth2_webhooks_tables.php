@@ -35,7 +35,7 @@ class CreateOauth2WebhooksTables extends Migration
     public array  $dependencies = ['create_applications_schema', 'create_applications_table'];
     public $description  = 'Creates applications.oauth2_webhook_endpoints/events tables and create_webhook_event() function';
 
-    public function up(): void: void
+    public function up(): void
     {
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();
@@ -165,7 +165,7 @@ class CreateOauth2WebhooksTables extends Migration
         }
     }
 
-    public function down(): void: void
+    public function down(): void
     {
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();

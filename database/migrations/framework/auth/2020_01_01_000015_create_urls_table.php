@@ -21,7 +21,7 @@ class CreateUrlsTable extends Migration
     public int     $priority     = 60;
     public $description  = 'Creates the urls URL deduplication table';
 
-    public function up(): void: void
+    public function up(): void
     {
         $schema = $this->application->database->schema();
 
@@ -43,7 +43,7 @@ class CreateUrlsTable extends Migration
         });
     }
 
-    public function down(): void: void
+    public function down(): void
     {
         $this->application->database->schema()->dropTableIfExists('urls');
     }
