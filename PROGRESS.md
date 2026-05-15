@@ -1,7 +1,35 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-15 (session 81)
+## 📅 Last Updated: 2026-05-16 (session 82)
+
+## 🏁 Session 82 — Full suite bugfixes: void:void migrations + state pollution (2026-05-16)
+
+### ✅ Ολοκληρώθηκε
+
+**Bugfix 1: `void: void` syntax error σε 51 migration files** (commit `d1c951c`):
+- Όλα τα migration files στα `framework/{auth,authserver,core,messaging}` + queue είχαν `): void: void`
+- Αδύνατη ανάλυση → migration δεν φόρτωνε → tables δεν δημιουργούνταν
+- Mass fix: `sed -i 's/): void: void/): void/g'` — 51 αρχεία
+
+**Bugfix 2: Suite state pollution → exit() mid-run** (commit `35c2c2b`):
+- `ConsoleApplicationCoverageTest` δημιουργεί `new ConsoleApplication()` → triggers `Application::getInstance()` → δημιουργεί real Pramnos Application instance
+- Αυτό το Application παρέμενε στο `Application::$appInstances['default']` μετά τα unit tests
+- Όταν integration test έκανε DB error → `Database::displayError()` → `$app->showError()` → `close()` → `exit($html)` — σκοτώνοντας τη PHP διεργασία
+- **Fix A:** `ConsoleApplicationCoverageTest::tearDown()` καθαρίζει Application singleton + Database::getInstance() static cache
+- **Fix B:** `UrbanWaterBackportMigrationsCharacterizationTest`: `connect(true)` → `connect(false)` με try-catch ώστε failed connection = skip (όχι RuntimeException)
+- Διαγράφηκαν 6 leftover temp test files: `tests/Unit/Zzztestcovseed*.php` + `tests/fixtures/app/seeders/Zzztestcovseed*.php`
+
+**Root cause analysis:**
+- `Application::displayError()` calls `close()` → `exit($html_string)` → exit code 0 (string argument!)
+- Αυτό έδειχνε EXIT:0 αλλά δεν έτρεχαν τα tests μετά τη θέση 2873/4004 (71%)
+- Η PHP διεργασία τερματιζόταν χωρίς PHPUnit summary
+
+### Commits
+- `d1c951c` fix(migrations): correct void:void return-type syntax error in all 51 framework migration files
+- `35c2c2b` fix(tests): resolve suite-level state pollution causing exit() mid-run
+
+---
 
 ## 🏁 Session 81 — Backport Test Coverage: QueueManager, Worker, Health Checks (2026-05-15)
 
