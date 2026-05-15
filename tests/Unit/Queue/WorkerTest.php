@@ -270,6 +270,147 @@ class WorkerTest extends TestCase
         $this->assertTrue($markedFail);
     }
 
+    // ── processNextTask() — handleFailure() also throws ──────────────────────
+
+    /**
+     * processNextTask() must still mark the task as failed even when both
+     * execute() AND handleFailure() throw — the inner catch (lines 156-160 in
+     * Worker.php) handles the nested exception and sets shouldRetry=false.
+     */
+    public function testProcessNextTaskFailsWhenHandleFailureAlsoThrows(): void
+    {
+        // Arrange — handler whose execute() and handleFailure() both throw
+        $task       = $this->buildQueueItem('double_throw_task');
+        $markedFail = false;
+
+        $handler = new class($this->controller) extends AbstractTask {
+            public function validate(QueueItem $q): bool  { return true; }
+            public function execute(QueueItem $q): mixed  { throw new \RuntimeException('exec error'); }
+            public function handleFailure(QueueItem $q, \Throwable $e): bool
+            {
+                throw new \RuntimeException('handleFailure also broke');
+            }
+            public function getDescription(QueueItem $q): string { return 'test'; }
+        };
+
+        $worker = $this->buildWorkerWithManager(
+            fn() => $task,
+            handler: $handler,
+            onFail: function () use (&$markedFail) { $markedFail = true; }
+        );
+        $worker->registerTaskHandler('double_throw_task', get_class($handler));
+
+        // Act — must not propagate either exception
+        $result = $worker->processNextTask();
+
+        // Assert — task is still marked failed despite the double exception
+        $this->assertSame('failed', $result['status']);
+        $this->assertTrue($markedFail, 'markTaskAsFailed() must be called even when handleFailure() throws');
+    }
+
+    /**
+     * processNextTask() must expose $handler->lastMessage when execute() returns
+     * true — the Worker reads it after success to pass a descriptive message to
+     * markTaskAsCompleted().
+     */
+    public function testProcessNextTaskUsesHandlerLastMessageOnSuccess(): void
+    {
+        // Arrange — handler that sets $lastMessage and returns true
+        $task = $this->buildQueueItem('msg_task');
+
+        $handler = new class($this->controller) extends AbstractTask {
+            public function validate(QueueItem $q): bool  { return true; }
+            public function execute(QueueItem $q): mixed
+            {
+                $this->lastMessage = 'Processed 99 records';
+                return true;
+            }
+            public function getDescription(QueueItem $q): string { return 'test'; }
+        };
+
+        $worker = $this->buildWorkerWithManager(fn() => $task, handler: $handler);
+        $worker->registerTaskHandler('msg_task', get_class($handler));
+
+        // Act
+        $result = $worker->processNextTask();
+
+        // Assert — lastMessage surfaces in taskInfo['message']
+        $this->assertSame('completed', $result['status']);
+        $this->assertSame('Processed 99 records', $result['message']);
+    }
+
+    // ── run() ─────────────────────────────────────────────────────────────────
+
+    /**
+     * run() must stop after processing maxTasks tasks, even when more tasks are
+     * available. This prevents a single worker from monopolising the queue.
+     */
+    public function testRunStopsAfterMaxTasksReached(): void
+    {
+        // Arrange — queue returns 3 tasks in sequence; we cap at 2
+        $taskQueue = [
+            $this->buildQueueItem('run_task'),
+            $this->buildQueueItem('run_task'),
+            $this->buildQueueItem('run_task'),
+        ];
+        $idx = 0;
+
+        $handler = new class($this->controller) extends AbstractTask {
+            public function validate(QueueItem $q): bool  { return true; }
+            public function execute(QueueItem $q): mixed  { return true; }
+            public function getDescription(QueueItem $q): string { return 'test'; }
+        };
+
+        $worker = $this->buildWorkerWithManager(
+            function () use (&$taskQueue, &$idx) {
+                return $taskQueue[$idx++] ?? false;
+            },
+            handler: $handler
+        );
+        $worker->registerTaskHandler('run_task', get_class($handler));
+
+        // Act — maxRuntime=60s gives plenty of wall time; maxTasks=2 is the real stopper
+        $count = $worker->run(maxRuntime: 60, maxTasks: 2, sleepTime: 0);
+
+        // Assert — exactly 2 tasks processed, not 3
+        $this->assertSame(2, $count);
+    }
+
+    /**
+     * run() must return 0 when the queue is empty and maxTasks=1 with
+     * sleepTime=0 (sleep(0) is a no-op), breaking on maxTasks when tasks DO
+     * arrive.  This variant tests the empty-queue branch with a task appearing
+     * on the second poll.
+     */
+    public function testRunReturnsCountWhenOneTaskEventuallyAppears(): void
+    {
+        // Arrange — first poll empty, second poll has a task; maxTasks=1 stops then
+        $calls  = 0;
+        $task   = $this->buildQueueItem('deferred_task');
+
+        $handler = new class($this->controller) extends AbstractTask {
+            public function validate(QueueItem $q): bool  { return true; }
+            public function execute(QueueItem $q): mixed  { return true; }
+            public function getDescription(QueueItem $q): string { return 'test'; }
+        };
+
+        $worker = $this->buildWorkerWithManager(
+            function () use (&$calls, $task) {
+                $calls++;
+                // First call returns false (empty queue), second returns the task
+                return $calls >= 2 ? $task : false;
+            },
+            handler: $handler
+        );
+        $worker->registerTaskHandler('deferred_task', get_class($handler));
+
+        // Act — sleepTime=0 so sleep(0) is harmless
+        $count = $worker->run(maxRuntime: 60, maxTasks: 1, sleepTime: 0);
+
+        // Assert — 1 task processed after 1 empty-queue poll
+        $this->assertSame(1, $count);
+    }
+
     // ── registerTaskHandler() ─────────────────────────────────────────────────
 
     /**

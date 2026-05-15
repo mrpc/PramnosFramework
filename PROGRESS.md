@@ -1,7 +1,58 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-15 (session 80)
+## 📅 Last Updated: 2026-05-15 (session 81)
+
+## 🏁 Session 81 — Backport Test Coverage: QueueManager, Worker, Health Checks (2026-05-15)
+
+### ✅ Ολοκληρώθηκε
+
+**`tests/Unit/Health/HealthCheckUnitTest.php`** (extended — +5 tests):
+- Προσθήκη `DatabaseConnectivityCheck` unit tests με PHPUnit createMock():
+  - query succeeds → OK result (με `latency_ms` και `driver` details)
+  - query returns false → Down ("no result")
+  - query throws → Down (exception message στο result)
+  - query returns null → Down
+  - getName() → 'database'
+- **DatabaseConnectivityCheck coverage: 0% → 100%** ✓
+- **HealthCheckResult, HealthRegistry, HealthStatus: 100%** ✓
+
+**`tests/Unit/Queue/QueueManagerTest.php`** (extended — +10 tests):
+- `addTask()` non-unique: returns int ID
+- `addTask()` unique=true, duplicate: returns null
+- `addTask()` unique=true, no duplicate: creates and returns ID
+- `retryTask()` success: returns true for failed task
+- `markTaskAsProcessing()`: status='processing', startedat set
+- `getPendingTasks()`: returns list, type filter passes WHERE clause
+- `purgeOldTasks()`: returns affected rows count
+- `purgeOldTasks()` with LIMIT: SQL contains LIMIT clause
+- `getTaskTypes()` directory scan: detects class with `$name` property
+- **QueueManager coverage: 48% → 70.9%**
+
+**`tests/Unit/Queue/WorkerTest.php`** (extended — +4 tests):
+- handleFailure() throws inside catch → still marks failed
+- execute() returns true with `$lastMessage` → message surfaces in result
+- `run()` stops after maxTasks reached (processes 2 of 3)
+- `run()` handles empty queue then task (deferred appearance)
+- **Worker coverage: 79.5% → 95.2%** ✓
+
+### Coverage per file (δεδομένα session 81, 2026-05-15)
+- Queue/Worker.php: **95.2%** ✓ (was 79.5%)
+- Health/DatabaseConnectivityCheck.php: **100%** ✓ (was 0%)
+- Health/HealthCheckResult.php: **100%** ✓
+- Health/HealthRegistry.php: **100%** ✓
+- Health/HealthStatus.php: **100%** ✓
+- Health/DiskSpaceCheck.php: **83.3%** (was ~80%)
+- Queue/QueueManager.php: **70.9%** (was 48%)
+- Queue/AbstractTask.php: 64.3% (unchanged)
+- Health/MemoryLimitCheck.php: **64.0%**
+- Commands/ProcessQueue.php: 52.7% (unchanged)
+- Console/DaemonOrchestrator.php: 31.1% (unchanged)
+
+### Commits
+- (pending)
+
+---
 
 ## 🏁 Session 80 — Backport Test Coverage: ProcessQueue, DaemonOrchestrator, AbstractTask (2026-05-15)
 

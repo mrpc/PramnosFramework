@@ -7,17 +7,25 @@ use Pramnos\Health\HealthCheck;
 use Pramnos\Health\HealthCheckResult;
 use Pramnos\Health\HealthRegistry;
 use Pramnos\Health\HealthStatus;
+use Pramnos\Database\Database;
+use Pramnos\Health\Checks\DatabaseConnectivityCheck;
 use Pramnos\Health\Checks\DiskSpaceCheck;
 use Pramnos\Health\Checks\MemoryLimitCheck;
+use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Unit tests for the Health Check subsystem.
  *
- * These tests cover HealthStatus, HealthCheckResult, HealthRegistry, and the
- * built-in checks that do not require a database connection (DiskSpaceCheck,
- * MemoryLimitCheck).  DatabaseConnectivityCheck is covered by integration
- * tests (requires a live DB).
+ * These tests cover HealthStatus, HealthCheckResult, HealthRegistry, and all
+ * built-in checks: DiskSpaceCheck, MemoryLimitCheck, and DatabaseConnectivityCheck
+ * (tested with a fake Database double — no live DB required for these unit tests).
  */
+#[CoversClass(DatabaseConnectivityCheck::class)]
+#[CoversClass(DiskSpaceCheck::class)]
+#[CoversClass(MemoryLimitCheck::class)]
+#[CoversClass(HealthCheckResult::class)]
+#[CoversClass(HealthRegistry::class)]
+#[CoversClass(HealthStatus::class)]
 class HealthCheckUnitTest extends TestCase
 {
     protected function setUp(): void
@@ -405,6 +413,110 @@ class HealthCheckUnitTest extends TestCase
 
         // Assert
         $this->assertNotSame(HealthStatus::Down, $result->status);
+    }
+
+    // =========================================================================
+    // DatabaseConnectivityCheck (tested with fake DB double)
+    // =========================================================================
+
+    /**
+     * DatabaseConnectivityCheck::run() must return an OK result when the database
+     * query succeeds. This is the happy path that confirms the DB is reachable.
+     */
+    public function testDatabaseConnectivityCheckReturnsOkWhenQuerySucceeds(): void
+    {
+        // Arrange — mock DB whose query() returns a truthy result object
+        $db = $this->createMock(Database::class);
+        $db->type = 'mysql';
+        $db->method('query')->willReturn(new \stdClass());
+
+        $check = new DatabaseConnectivityCheck($db);
+
+        // Act
+        $result = $check->run();
+
+        // Assert — healthy DB connection reports OK
+        $this->assertSame(HealthStatus::Ok, $result->status);
+        $this->assertSame('database', $result->name);
+        $this->assertArrayHasKey('latency_ms', $result->details);
+        $this->assertArrayHasKey('driver', $result->details);
+        $this->assertSame('mysql', $result->details['driver']);
+    }
+
+    /**
+     * DatabaseConnectivityCheck::run() must return a Down result when the
+     * query() call returns false. This indicates the DB is reachable but the
+     * query failed — a misconfigured or read-restricted connection.
+     */
+    public function testDatabaseConnectivityCheckReturnsDownWhenQueryReturnsFalse(): void
+    {
+        // Arrange — mock DB whose query() returns false
+        $db = $this->createMock(Database::class);
+        $db->method('query')->willReturn(false);
+
+        $check = new DatabaseConnectivityCheck($db);
+
+        // Act
+        $result = $check->run();
+
+        // Assert — query failure → down
+        $this->assertSame(HealthStatus::Down, $result->status);
+        $this->assertSame('database', $result->name);
+        $this->assertStringContainsString('no result', strtolower($result->message));
+    }
+
+    /**
+     * DatabaseConnectivityCheck::run() must return a Down result and include the
+     * exception message when query() throws. This covers network timeouts, auth
+     * failures, and other hard DB errors.
+     */
+    public function testDatabaseConnectivityCheckReturnsDownWhenQueryThrows(): void
+    {
+        // Arrange — mock DB whose query() throws a RuntimeException
+        $db = $this->createMock(Database::class);
+        $db->method('query')->willThrowException(new \RuntimeException('Connection refused'));
+
+        $check = new DatabaseConnectivityCheck($db);
+
+        // Act
+        $result = $check->run();
+
+        // Assert — exception path → down with error details in message
+        $this->assertSame(HealthStatus::Down, $result->status);
+        $this->assertStringContainsString('Connection refused', $result->message);
+    }
+
+    /**
+     * DatabaseConnectivityCheck::run() must return a Down result when query()
+     * returns null (some DB drivers return null instead of false on failure).
+     */
+    public function testDatabaseConnectivityCheckReturnsDownWhenQueryReturnsNull(): void
+    {
+        // Arrange — mock DB whose query() returns null
+        $db = $this->createMock(Database::class);
+        $db->method('query')->willReturn(null);
+
+        $check = new DatabaseConnectivityCheck($db);
+
+        // Act
+        $result = $check->run();
+
+        // Assert — null result is falsy and treated the same as false → down
+        $this->assertSame(HealthStatus::Down, $result->status);
+    }
+
+    /**
+     * DatabaseConnectivityCheck::getName() must return 'database' — the fixed
+     * identifier used by HealthRegistry to index the check.
+     */
+    public function testDatabaseConnectivityCheckName(): void
+    {
+        // Arrange — getName() never calls query(), so any mock will do
+        $db    = $this->createMock(Database::class);
+        $check = new DatabaseConnectivityCheck($db);
+
+        // Act & Assert
+        $this->assertSame('database', $check->getName());
     }
 
     // =========================================================================
