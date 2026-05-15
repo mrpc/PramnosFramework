@@ -70,6 +70,26 @@ class QueueManagerTest extends TestCase
         };
     }
 
+    // ── constructor workerId ──────────────────────────────────────────────────
+
+    /**
+     * When $workerId is provided, workerId must be set to "hostname:workerId".
+     * The default path (null) uses getmypid() — but passing a non-null value
+     * exercises the ternary's true branch which is otherwise unreached.
+     */
+    public function testConstructorWithExplicitWorkerIdFormatsCorrectly(): void
+    {
+        // Arrange — extend to expose the protected workerId property
+        $manager = new class($this->controller, 'unit-test-worker') extends QueueManager {
+            public function getWorkerId(): string { return $this->workerId; }
+        };
+
+        // Act & Assert — hostname is prepended with a colon separator
+        $workerId = $manager->getWorkerId();
+        $this->assertStringContainsString(':unit-test-worker', $workerId,
+            'Explicit workerId must be appended as "hostname:workerId"');
+    }
+
     // ── generateTaskHash ──────────────────────────────────────────────────────
 
     /**
@@ -110,6 +130,46 @@ class QueueManagerTest extends TestCase
 
         // Assert — key order must not affect the hash
         $this->assertSame($hash1, $hash2, 'Key order must not change the hash');
+    }
+
+    /**
+     * generateTaskHash() must handle an object payload by JSON-encoding it —
+     * objects are supported alongside arrays and scalars so callers can pass
+     * domain objects directly without pre-converting them.
+     */
+    public function testGenerateTaskHashWorksWithObjectPayload(): void
+    {
+        // Arrange
+        $data       = new \stdClass();
+        $data->user = 'alice';
+        $data->id   = 7;
+
+        // Act
+        $hash = $this->manager->publicGenerateTaskHash('notify', $data);
+
+        // Assert — valid SHA-256 hex digest
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $hash);
+    }
+
+    /**
+     * generateTaskHash() must handle a scalar (string) payload — the scalar is
+     * cast to string directly rather than JSON-encoded.
+     */
+    public function testGenerateTaskHashWorksWithScalarPayload(): void
+    {
+        // Arrange
+        $scalar = 'plain-string-payload';
+
+        // Act
+        $hash = $this->manager->publicGenerateTaskHash('cleanup', $scalar);
+
+        // Assert — valid SHA-256, deterministic
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $hash);
+        $this->assertSame(
+            $hash,
+            $this->manager->publicGenerateTaskHash('cleanup', $scalar),
+            'Scalar hash must be deterministic'
+        );
     }
 
     /**
@@ -256,6 +316,26 @@ class QueueManagerTest extends TestCase
     }
 
     // ── markTaskAsCompleted() ─────────────────────────────────────────────────
+
+    /**
+     * When no $executionTime is passed and $task->startedat is empty,
+     * calculateExecutionTime() must return null — markTaskAsCompleted() must
+     * then store null in execution_time rather than crashing.
+     */
+    public function testMarkTaskAsCompletedSetsNullExecutionTimeWhenNoStartedat(): void
+    {
+        // Arrange — task with no startedat (e.g. claimed externally before markProcessing)
+        $task = $this->buildSavableQueueItem();
+        $task->startedat = null;
+
+        // Act — pass no executionTime so the private calculateExecutionTime() is used
+        $this->manager->markTaskAsCompleted($task, 'done');
+
+        // Assert — null propagated correctly (no division by zero, no crash)
+        $this->assertNull($task->execution_time,
+            'execution_time must be null when startedat is not set');
+        $this->assertSame('completed', $task->status);
+    }
 
     /**
      * markTaskAsCompleted() must set status='completed', record completedat,
@@ -733,6 +813,58 @@ class QueueManagerTest extends TestCase
 
         // Assert — the task's $name property is returned as a task type
         $this->assertContains('scan_test_task', $types);
+    }
+
+    /**
+     * getTaskTypes() must fall back to using ReflectionClass::getShortName() when
+     * a task class does NOT have a $name property — it still registers under the
+     * class short-name rather than being silently skipped.
+     */
+    public function testGetTaskTypesUsesClassShortNameWhenNoNameProperty(): void
+    {
+        // Arrange — write an AbstractTask subclass without a $name property
+        $tmpDir    = sys_get_temp_dir() . '/pf_queue_manager_reftest_' . uniqid();
+        mkdir($tmpDir);
+
+        $className = 'TmpNoNameTask' . str_replace('.', '_', uniqid('', true));
+        $namespace = 'Pramnos\Tests\Unit\Queue\TmpRef';
+
+        $code = '<?php' . "\n"
+            . 'namespace ' . $namespace . ";\n"
+            . 'use Pramnos\Queue\AbstractTask;' . "\n"
+            . 'use Pramnos\Queue\QueueItem;' . "\n"
+            . 'class ' . $className . ' extends AbstractTask {' . "\n"
+            . '    public function execute(QueueItem $q): bool { return true; }' . "\n"
+            . '    public function getDescription(QueueItem $q): string { return \'\'; }' . "\n"
+            . '}' . "\n";
+        file_put_contents($tmpDir . '/' . $className . '.php', $code);
+        require $tmpDir . '/' . $className . '.php';
+
+        $namespace .= '\\';
+
+        $manager = new class($this->controller, $tmpDir, $namespace) extends QueueManager {
+            private string $dir;
+            private string $ns;
+            public function __construct($c, string $dir, string $ns)
+            {
+                parent::__construct($c);
+                $this->dir = $dir;
+                $this->ns  = $ns;
+            }
+            protected function getTasksDirectory(): string { return $this->dir; }
+            protected function getTasksNamespace(): string { return $this->ns; }
+        };
+
+        // Act
+        $types = $manager->getTaskTypes();
+
+        // Cleanup
+        unlink($tmpDir . '/' . $className . '.php');
+        rmdir($tmpDir);
+
+        // Assert — short class name used as the task type (without namespace)
+        $this->assertContains($className, $types,
+            'Task without $name property must be registered under its class short-name');
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
