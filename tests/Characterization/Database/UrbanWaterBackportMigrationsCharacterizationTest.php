@@ -383,8 +383,12 @@ class UrbanWaterBackportMigrationsCharacterizationTest extends TestCase
         $db->password = $password;
         $db->database = $database;
 
-        if (!$db->connect(true)) {
-            $this->markTestSkipped("Database not reachable ({$server}:{$port})");
+        try {
+            if (!$db->connect(false)) {
+                $this->markTestSkipped("Database not reachable ({$server}:{$port})");
+            }
+        } catch (\RuntimeException $e) {
+            $this->markTestSkipped("Database not reachable ({$server}:{$port}): " . $e->getMessage());
         }
 
         return $db;
