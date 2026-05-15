@@ -397,7 +397,11 @@ class Database extends \Pramnos\Framework\Base
         }
         if ($settingsObject instanceof \Pramnos\Application\Settings) {
             $dbSettings = $settingsObject->database;
-            
+
+            if (!$dbSettings) {
+                return;
+            }
+
             // Handle Read/Write replica configuration
             if (isset($dbSettings->read) || isset($dbSettings->write)) {
                 $this->readConfig = isset($dbSettings->read) ? (array)$dbSettings->read : [];
