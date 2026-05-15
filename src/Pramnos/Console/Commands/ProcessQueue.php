@@ -381,7 +381,7 @@ class ProcessQueue extends CommandBase
                     'startFrom'    => $startFrom,
                     'reverseOrder' => $reverseOrder,
                 ]);
-                sleep(2);
+                $this->sleepSeconds(2);
             }
 
             $output->writeln("<info>Queue processing completed. Processed {$taskCount} tasks.</info>");

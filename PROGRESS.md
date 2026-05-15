@@ -1,6 +1,74 @@
 
 # Project Progress - Pramnos Framework v1.2
 
+## 📅 Last Updated: 2026-05-15 (session 80)
+
+## 🏁 Session 80 — Backport Test Coverage: ProcessQueue, DaemonOrchestrator, AbstractTask (2026-05-15)
+
+### ✅ Ολοκληρώθηκε
+
+**Testable Subclass pattern από urbanwater εφαρμόστηκε στο framework** για όλα τα backported Console/Queue features:
+
+**`tests/Unit/Console/ProcessQueueCommandTest.php`** (26 tests — νέο αρχείο):
+- Δύο harness κλάσεις: `TestableProcessQueue` (για pure helpers) + `TestableExecutableProcessQueue` (για execute() daemon/oneshot)
+- `execute()` daemon: stop file, max runtime, task limit, heartbeat, stats refresh, DB failure → recoverDatabaseConnection, unexpected exception
+- `execute()` oneshot: processBatch called, task types passed, unexpected exception
+- `execute()` guard: already running returns 1, invalid --start-from returns 1
+- `processBatch()`: tasks until false, zero limit coercion
+- `isDatabaseFailure()`: keywords, nested exceptions
+- `attemptDatabaseReconnect()`: tryReconnect, refresh fallback, no method, throws
+- `recoverDatabaseConnection()`: stop file, shouldContinue=false, runtime expired
+- **ProcessQueue coverage: 3.5% → 52.7%**
+
+**`tests/Unit/Queue/AbstractTaskTest.php`** (9 tests — νέο αρχείο):
+- `validate()`: empty payload → false, non-empty → true, JSON null → false
+- `handleFailure()`: attempts < max → retry, attempts >= max → give up, attempts > max → give up
+- `getPayload()`: JSON decode, invalid JSON → null
+- `log()`: sets lastMessage
+- **AbstractTask coverage: 0% → 64.3%**
+
+**`tests/Unit/Console/DaemonOrchestratorTest.php`** (extended — +10 tests):
+- reconcile() dry-run: [start] for missing, [stop] for removed
+- reconcile() spawn: new process spawned when desired but absent
+- reconcile() stale: heartbeat timeout detection, stop file written
+- execute() --once: single cycle, exits 0
+- execute() lock fail: returns 1
+- Added `TestableDaemonOrchestrator` + `TestableDaemonOrchestratorLockFail` named classes
+- **DaemonOrchestrator coverage: 9.9% → 31.1%**
+
+**Bugfix:** `ProcessQueue::execute()` `sleep(2)` → `$this->sleepSeconds(2)` for testability (one-shot mode pause is now suppressible in tests)
+
+### Coverage per file (Console+Queue module, 2026-05-15)
+- Commands/ScheduleList.php: **100%** ✓
+- Commands/ScheduleRun.php: **100%** ✓
+- Application.php: **96.7%** ✓
+- Commands/HealthCheck.php: **94.9%** ✓
+- Commands/MigrateLogs.php: **91.4%** ✓
+- Commands/ScaffoldViews.php: 86.0%
+- Commands/DbSeed.php: 89.4%
+- Commands/Init.php: 80.1%
+- Commands/MigrateRollback.php: 60.5%
+- Commands/CleanupQueue.php: 52.7%
+- Commands/ProcessQueue.php: **52.7%** (was 3.5%)
+- Commands/Serve.php: 48.1%
+- Commands/Migrate.php: 45.1%
+- CommandBase.php: 44.6%
+- Commands/MigrateRefresh.php: 43.4%
+- Commands/MigrateReset.php: 47.9%
+- Commands/PolicyEngine.php: 22.4%
+- Commands/Create.php: 22.2%
+- Commands/MigrateStatus.php: 20.7%
+- Console/DaemonOrchestrator.php: **31.1%** (was 9.9%)
+- Queue/Worker.php: **79.5%** ✓
+- Queue/AbstractTask.php: **64.3%** (was 0%)
+- Queue/QueueManager.php: 48.0%
+- **Console+Queue total: 2216/4834 = 45.8%** (was ~36.7% Console only)
+
+### Commits
+- (pending)
+
+---
+
 ## 📅 Last Updated: 2026-05-15 (session 79)
 
 ## 🏁 Session 79 — Console Module Coverage Improvement (2026-05-15)

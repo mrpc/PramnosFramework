@@ -6,6 +6,8 @@ namespace Pramnos\Tests\Unit\Console;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Input\InputOption;
 use Pramnos\Console\DaemonOrchestrator;
 
 /**
@@ -659,5 +661,416 @@ class DaemonOrchestratorTest extends TestCase
             is_dir($path) ? $this->rmdirRecursive($path) : unlink($path);
         }
         rmdir($dir);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // reconcile() — process supervision logic
+    //
+    // reconcile() is tested by building a TestableDaemonOrchestrator whose
+    // isProcessRunning() and startDesiredProcess() return controlled values so
+    // that no actual child processes are spawned and no posix_kill calls are
+    // made. All file I/O stays under the per-test $tmpDir.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Create a TestableDaemonOrchestrator wired to a fresh temp directory.
+     *
+     * @return array{TestableDaemonOrchestrator, string}
+     */
+    private function buildReconcileOrchestrator(): array
+    {
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_rec_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+        return [new TestableDaemonOrchestrator($tmpDir), $tmpDir];
+    }
+
+    /**
+     * In dry-run mode, reconcile() must print "[start] <id>" for every desired
+     * process that is not yet running, without actually spawning anything.
+     */
+    public function testReconcileDryRunOutputsStartForMissingProcesses(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $orch->desiredProcesses = [
+            [
+                'id'       => 'queue-1',
+                'daemon'   => 'queue',
+                'workerId' => 'queue-1',
+                'lockFile' => $tmpDir . '/var/QUEUE_PROCESSOR_queue-1',
+                'tokens'   => ['queue:process', '--daemon'],
+            ],
+        ];
+        $orch->processRunning = [];  // nothing is alive
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', true, $output);
+
+        // Assert
+        $out = $output->fetch();
+        $this->assertStringContainsString('[start]', $out);
+        $this->assertStringContainsString('queue-1', $out);
+        // Dry-run: no process was spawned
+        $this->assertSame(0, $orch->startDesiredProcessCalls);
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * In dry-run mode, reconcile() must print "[stop] <id>" for any process
+     * that exists in state but is no longer in the desired list.
+     */
+    public function testReconcileDryRunOutputsStopForRemovedProcesses(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $orch->desiredProcesses = [];            // nothing desired
+        $orch->processRunning   = [9999 => true]; // known PID alive
+
+        // Pre-populate state so reconcile sees the "orphan" process.
+        $orch->publicSaveState([
+            [
+                'id'       => 'queue-old',
+                'daemon'   => 'queue',
+                'workerId' => 'queue-old',
+                'lockFile' => $tmpDir . '/var/QUEUE_PROCESSOR_old',
+                'pid'      => 9999,
+                'updatedAt' => gmdate('c'),
+            ],
+        ]);
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', true, $output);
+
+        // Assert
+        $this->assertStringContainsString('[stop]', $output->fetch());
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When a desired process is not running and the lock file is absent,
+     * reconcile() must spawn a new process (via startDesiredProcess()) and
+     * print "[started]" or "[started-unverified]".
+     */
+    public function testReconcileSpawnsNewProcessForMissingDaemon(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_PROCESSOR_new';
+
+        $orch->desiredProcesses = [
+            [
+                'id'              => 'queue-new',
+                'daemon'          => 'queue',
+                'workerId'        => 'queue-new',
+                'lockFile'        => $lockFile,
+                'tokens'          => ['queue:process', '--daemon', '--worker-id', 'queue-new'],
+                'requireLockFile' => false, // skip lock-based healthy check
+            ],
+        ];
+        $orch->processRunning      = [];
+        $orch->spawnedPid          = 12345;
+        $orch->confirmStartupResult = true; // simulate successful startup
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert — process was spawned and state was updated
+        $this->assertSame(1, $orch->startDesiredProcessCalls);
+        $out = $output->fetch();
+        $this->assertTrue(
+            str_contains($out, '[started]') || str_contains($out, '[started-unverified]'),
+            "Expected [started] or [started-unverified] in output: $out"
+        );
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When a process has a stale lock file (heartbeat not updated within
+     * HEARTBEAT_STALE_SECONDS), reconcile() must request a graceful stop
+     * and log "[stale]".
+     */
+    public function testReconcileDetectsStaleHeartbeat(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_STALE';
+
+        // Write a lock file with a mtime far in the past.
+        file_put_contents($lockFile, '9999');
+        touch($lockFile, time() - 400); // older than HEARTBEAT_STALE_SECONDS (300)
+
+        $orch->desiredProcesses = [
+            [
+                'id'              => 'queue-stale',
+                'daemon'          => 'queue',
+                'workerId'        => 'queue-stale',
+                'lockFile'        => $lockFile,
+                'tokens'          => [],
+                'requireLockFile' => true,
+            ],
+        ];
+        $orch->processRunning = [9999 => true];
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert
+        $this->assertStringContainsString('[stale]', $output->fetch());
+        // A stop file should have been written.
+        $this->assertFileExists($lockFile . '.stop');
+
+        @unlink($lockFile);
+        @unlink($lockFile . '.stop');
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * execute() with --once must run exactly one reconcile cycle and exit with
+     * code 0, printing the orchestrator-exited message.
+     *
+     * All loop sleep and filesystem side-effects are suppressed in the testable
+     * subclass so the test completes immediately.
+     */
+    public function testExecuteOnceRunsOneCycleAndExitsZero(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_ex_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+
+        $orch = new TestableDaemonOrchestrator($tmpDir);
+        $orch->desiredProcesses = [];
+        $orch->processRunning   = [];
+
+        $app = new \Symfony\Component\Console\Application();
+        $app->add($orch);
+
+        $input  = new ArrayInput(['--once' => true], $orch->getDefinition());
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $exitCode = $orch->publicExecute($input, $output);
+
+        // Assert
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Daemon orchestrator exited', $output->fetch());
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * execute() must return 1 when the orchestrator lock cannot be acquired,
+     * indicating that another orchestrator instance is already running.
+     */
+    public function testExecuteReturnsOneWhenOrchestratorLockFails(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_lockfail_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+
+        $orch = new TestableDaemonOrchestratorLockFail($tmpDir);
+
+        $app = new \Symfony\Component\Console\Application();
+        $app->add($orch);
+
+        $input  = new ArrayInput(['--once' => true], $orch->getDefinition());
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $exitCode = $orch->publicExecute($input, $output);
+
+        // Assert — lock acquisition failure must return 1 immediately
+        $this->assertSame(1, $exitCode);
+
+        $this->rmdirRecursive($tmpDir);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TestableDaemonOrchestrator — overrides all process-management side-effects
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Concrete testable subclass that:
+ *   – Satisfies all abstract methods
+ *   – Redirects every filesystem path to $baseDir
+ *   – Overrides isProcessRunning() and startDesiredProcess() so no real
+ *     processes are spawned and no posix_kill calls are made
+ *   – Exposes reconcile() and execute() as public methods for testing
+ */
+class TestableDaemonOrchestrator extends DaemonOrchestrator
+{
+    public string $baseDir;
+
+    /** Desired-process list returned by buildDesiredProcesses(). */
+    public array $desiredProcesses = [];
+
+    /**
+     * Map of pid → bool for isProcessRunning().
+     * @var array<int, bool>
+     */
+    public array $processRunning = [];
+
+    /** PID returned by the next startDesiredProcess() call. */
+    public int $spawnedPid = 0;
+
+    /** Number of times startDesiredProcess() was called. */
+    public int $startDesiredProcessCalls = 0;
+
+    /** Return value for confirmProcessStartup(). */
+    public bool $confirmStartupResult = false;
+
+    public function __construct(string $baseDir)
+    {
+        parent::__construct();
+        $this->baseDir = $baseDir;
+    }
+
+    // ── Abstract contract ─────────────────────────────────────────────────────
+
+    protected function buildDesiredProcesses(): array
+    {
+        return $this->desiredProcesses;
+    }
+
+    protected function getDashboardTitle(): string
+    {
+        return ' TEST ORCHESTRATOR ';
+    }
+
+    protected function getEntryPoint(): string
+    {
+        return $this->baseDir . '/bin/app';
+    }
+
+    protected function getJobName(): string
+    {
+        return 'test_daemon_orchestrator';
+    }
+
+    // ── Redirect filesystem ───────────────────────────────────────────────────
+
+    protected function getOrchestratorLockFile(): string
+    {
+        return $this->baseDir . '/var/ORCH.lock';
+    }
+
+    protected function getStateFile(): string
+    {
+        return $this->baseDir . '/var/orch_state.json';
+    }
+
+    protected function getProcessLogFile(array $desiredProcess): string
+    {
+        $daemon   = (string) ($desiredProcess['daemon']   ?? 'daemon');
+        $workerId = (string) ($desiredProcess['workerId'] ?? 'worker');
+        return $this->baseDir . '/var/logs/' . $daemon . '-' . $workerId . '.log';
+    }
+
+    // ── Override side-effects ─────────────────────────────────────────────────
+
+    protected function isProcessRunning(int $pid): bool
+    {
+        return $this->processRunning[$pid] ?? false;
+    }
+
+    protected function startDesiredProcess(string $phpBinary, array $desiredProcess): int
+    {
+        $this->startDesiredProcessCalls++;
+        return $this->spawnedPid;
+    }
+
+    protected function confirmProcessStartup(array $desiredProcess, int $pid): bool
+    {
+        return $this->confirmStartupResult;
+    }
+
+    protected function findRunningPidsByWorkerSignature(string $workerId): array
+    {
+        return [];
+    }
+
+    protected function tryAcquireOrchestratorLock(
+        \Symfony\Component\Console\Output\OutputInterface $output
+    ): bool {
+        return true;
+    }
+
+    protected function releaseOrchestratorLock(): void {}
+
+    protected function registerSignalHandlers(
+        \Symfony\Component\Console\Output\OutputInterface $output
+    ): void {}
+
+    protected function cleanupStaleLockFiles(
+        \Symfony\Component\Console\Output\OutputInterface $output
+    ): void {}
+
+    protected function getCurrentGitHash(): string
+    {
+        return '';
+    }
+
+    protected function configure(): void
+    {
+        $this->setName('daemons:start');
+        // Add options expected by execute() (same as parent but via manual override).
+        $this->addOption('once',           null, \Symfony\Component\Console\Input\InputOption::VALUE_NONE)
+             ->addOption('interval',       'i',  \Symfony\Component\Console\Input\InputOption::VALUE_REQUIRED, '', 10)
+             ->addOption('php-binary',     null, \Symfony\Component\Console\Input\InputOption::VALUE_REQUIRED, '', PHP_BINARY)
+             ->addOption('dry-run',        null, \Symfony\Component\Console\Input\InputOption::VALUE_NONE)
+             ->addOption('interactive',    null, \Symfony\Component\Console\Input\InputOption::VALUE_NONE)
+             ->addOption('verbose-health', null, \Symfony\Component\Console\Input\InputOption::VALUE_NONE);
+    }
+
+    // ── Public wrappers ───────────────────────────────────────────────────────
+
+    /**
+     * Run reconcile() for testing without going through execute().
+     */
+    public function publicReconcile(
+        string $phpBinary,
+        bool $dryRun,
+        \Symfony\Component\Console\Output\OutputInterface $output
+    ): void {
+        $this->reconcile($phpBinary, $dryRun, $output);
+    }
+
+    /**
+     * Run execute() for testing.
+     */
+    public function publicExecute(
+        \Symfony\Component\Console\Input\InputInterface $input,
+        \Symfony\Component\Console\Output\OutputInterface $output
+    ): int {
+        return $this->execute($input, $output);
+    }
+
+    public function publicSaveState(array $state): void
+    {
+        $this->saveState($state);
+    }
+}
+
+/**
+ * Variant that makes tryAcquireOrchestratorLock() fail, to test the
+ * "already running" exit-code-1 path in execute().
+ */
+class TestableDaemonOrchestratorLockFail extends TestableDaemonOrchestrator
+{
+    protected function tryAcquireOrchestratorLock(
+        \Symfony\Component\Console\Output\OutputInterface $output
+    ): bool {
+        return false;
     }
 }
