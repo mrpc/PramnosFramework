@@ -49,8 +49,18 @@
 - Commands/ProcessQueue.php: 52.7% (unchanged)
 - Console/DaemonOrchestrator.php: 31.1% (unchanged)
 
+**Bugfixes στα integration tests** (αιτία: τα tests δεν έτρεχαν ποτέ):
+
+1. `database/migrations/framework/queue/2020_01_01_000040_create_queueitems_table.php`: Syntax error `void: void` στις `up()` και `down()` → migration skipped → queueitems table ποτέ δεν δημιουργούνταν
+2. `tests/Integration/Queue/QueueManagerPostgreSQLTest.php`: `$pgDb->schema` δεν ετίθετο → `Model::_save()` έβγαζε `WHERE table_schema = ''` → 0 στήλες → `INSERT INTO queueitems () VALUES ()` → SQL error
+
+**Post-fix coverage (unit + integration tests μαζί):**
+- QueueManager.php: **87.7%** (unit: 70.9% + integration: +17%)
+- Worker.php: 95.2% (integration tests δεν καλύπτουν διαφορετικά paths)
+
 ### Commits
 - `d964f0c` test(queue/health): extend coverage for QueueManager, Worker, DatabaseConnectivityCheck
+- `6781764` fix(integration): correct migration syntax + PostgreSQL schema for integration tests
 
 ---
 
