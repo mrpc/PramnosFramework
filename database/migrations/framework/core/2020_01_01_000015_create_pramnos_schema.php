@@ -24,7 +24,7 @@ class CreatePramnosSchema extends Migration
     public int     $priority     = 25;
     public $description  = 'Creates the pramnos schema namespace (PostgreSQL only)';
 
-    public function up(): void: void
+    public function up(): void
     {
         $caps = $this->application->database->schema()->getCapabilities();
 
@@ -35,7 +35,7 @@ class CreatePramnosSchema extends Migration
         }
     }
 
-    public function down(): void: void
+    public function down(): void
     {
         $caps = $this->application->database->schema()->getCapabilities();
 

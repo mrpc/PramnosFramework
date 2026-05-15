@@ -46,7 +46,7 @@ class CreateOauth2HelperFunctions extends Migration
     ];
     public $description = 'Creates OAuth2 helper PL/pgSQL functions, token-revocation trigger, and webhook status view';
 
-    public function up(): void: void
+    public function up(): void
     {
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();
@@ -274,7 +274,7 @@ END;
             'Webhook delivery statistics per endpoint: total/successful/failed/pending events and last delivery'");
     }
 
-    public function down(): void: void
+    public function down(): void
     {
         $db   = $this->application->database;
         $caps = $db->schema()->getCapabilities();
