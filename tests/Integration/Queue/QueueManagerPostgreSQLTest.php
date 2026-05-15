@@ -53,6 +53,9 @@ class QueueManagerPostgreSQLTest extends QueueManagerMySQLTest
         $pgDb->password = $pgSettings->password;
         $pgDb->database = $pgSettings->database;
         $pgDb->port     = $pgSettings->port ?? 5432;
+        // schema must be set so Model::_save() builds the correct information_schema
+        // WHERE table_schema = 'public' query — without it the column list is empty.
+        $pgDb->schema   = $pgSettings->schema ?? 'public';
 
         try {
             $pgDb->connect(true);
