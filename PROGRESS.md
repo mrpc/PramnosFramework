@@ -1,6 +1,68 @@
 
 # Project Progress - Pramnos Framework v1.2
 
+## 📅 Last Updated: 2026-05-15 (session 79)
+
+## 🏁 Session 79 — Console Module Coverage Improvement (2026-05-15)
+
+### ✅ Ολοκληρώθηκε
+
+**Console module coverage: 36.7% (from 16%) — all easily testable paths covered**
+
+Created two new test files covering previously-zero Console commands:
+
+**`tests/Unit/Console/ConsoleApplicationCoverageTest.php`** (43 tests):
+- `ConsoleApplication` constructor + `registerCommands()` (covers Application.php — 96.7%)
+- `ScheduleList` — empty scheduler + with tasks (100% coverage)
+- `ScheduleRun` — no due tasks / pretend mode / execute + fail paths (100% coverage)
+- `HealthCheck` — JSON mode, table mode, --only flag, unknown check warning (94.9%)
+- `MigrateLogs` — path not found, single file, directory --all, empty directory (91.4%)
+- `Migrate`, `MigrateStatus`, `MigrateReset`, `MigrateRollback`, `MigrateRefresh` — both early-return guards (non-Pramnos App + null DB) for each
+- `ProcessQueue` and `CleanupQueue` — configure() options verified
+- `Serve` — configure() port/host options verified
+- `Create` — all 9 entity exception paths (missing name + unknown entity)
+- `PolicyEngine` — configure() options verified + --list guard
+
+**`tests/Unit/Console/CreateCommandFileTest.php`** (14 tests):
+- `createMiddleware()` — empty className throw, happy path (file created), already-exists throw
+- `createEvent()` — same three paths
+- `createListener()` — same three paths
+- `createSeeder()` — skeleton (no columns), populated (with columns), already-exists throw
+- `execute('migration', name)` — covers the migration switch case via CommandTester
+
+**Coverage per file (all Console unit tests, 2026-05-15):**
+- Commands/ScheduleList.php: **100%** ✓ (was 0%)
+- Commands/ScheduleRun.php: **100%** ✓ (was 0%)
+- Application.php: **96.7%** ✓ (was 0%)
+- Commands/HealthCheck.php: **94.9%** ✓ (was 0%)
+- Commands/MigrateLogs.php: **91.4%** ✓ (was 0%)
+- Commands/ScaffoldViews.php: 86.0% (unchanged, existing tests)
+- Commands/DbSeed.php: 89.4% (unchanged, existing tests)
+- Commands/Init.php: 70.1% (existing InitCommandUnitTest)
+- Commands/MigrateRollback.php: 60.5% (was 0%)
+- Commands/CleanupQueue.php: 52.7% (was 0%)
+- Commands/Serve.php: 48.1% (was 0%)
+- Commands/Migrate.php: 45.1% (was 0%)
+- Commands/MigrateRefresh.php: 43.4% (was 0%)
+- CommandBase.php: 42.8% (existing CommandBaseTest)
+- Commands/MigrateReset.php: 47.9% (was 0%)
+- Commands/PolicyEngine.php: 22.4% (was 0%)
+- Commands/Create.php: 21.7% (was 0%, CreateCommandUnitTest + new tests)
+- Commands/MigrateStatus.php: 20.7% (was 0%)
+- **Console total: 1658/4521 = 36.7%** (was 16.0%)
+
+**Why not >90% like Database:** The Console module has 3 fundamentally hard-to-test files:
+- `DaemonOrchestrator.php` (578 stmts): execute/reconcile loops use `shell_exec`, `posix_kill`, `sleep` — daemon process testing requires process-level infrastructure
+- `ProcessQueue.php` (376 stmts): daemon queue loop requires live database + real queue
+- `Create.php` remaining 1252 stmts: `createModel`/`createController`/`createView`/`createApi`/`createCrud` call `Database::getInstance()` and `tableExists()` — require live schema introspection
+
+These 3 files = 56% of all Console stmts. At unit test level, only the configure() and guard paths are reachable.
+
+### Commits
+- (pending commit)
+
+---
+
 ## 📅 Last Updated: 2026-05-15 (session 78)
 
 ## 🏁 Session 78 — Database Module Coverage >90% (2026-05-15)
