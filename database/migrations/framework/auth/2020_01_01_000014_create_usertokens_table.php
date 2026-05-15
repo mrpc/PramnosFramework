@@ -30,7 +30,7 @@ class CreateUsertokensTable extends Migration
     public array   $dependencies = ['create_users_table'];
     public $description  = 'Creates the usertokens table with PKCE (RFC 7636) support';
 
-    public function up(): void: void
+    public function up(): void
     {
         $db     = $this->application->database;
         $schema = $db->schema();
@@ -127,7 +127,7 @@ class CreateUsertokensTable extends Migration
         }
     }
 
-    public function down(): void: void
+    public function down(): void
     {
         $this->application->database->schema()->dropTableIfExists('usertokens');
     }

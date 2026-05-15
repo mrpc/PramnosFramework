@@ -24,7 +24,7 @@ class CreateOauth2DeviceCodesTable extends Migration
     public array  $dependencies = ['create_applications_table', 'create_users_table'];
     public $description  = 'Creates the oauth2_device_codes table (RFC 8628 Device Authorization Grant)';
 
-    public function up(): void: void
+    public function up(): void
     {
         $schema = $this->application->database->schema();
 
@@ -60,7 +60,7 @@ class CreateOauth2DeviceCodesTable extends Migration
         });
     }
 
-    public function down(): void: void
+    public function down(): void
     {
         $this->application->database->schema()->dropTableIfExists('oauth2_device_codes');
     }
