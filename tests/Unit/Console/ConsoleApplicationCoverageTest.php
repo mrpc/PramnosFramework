@@ -70,6 +70,22 @@ class ConsoleApplicationCoverageTest extends TestCase
         Scheduler::reset();
         HealthRegistry::reset();
         $this->rmdirRecursive($this->tmpDir);
+
+        // Reset the Pramnos Application singleton so that integration tests
+        // running after this class don't inherit a stale Application instance.
+        // Without this, Database::displayError() calls $app->showError() → exit().
+        $ref = new \ReflectionClass(\Pramnos\Application\Application::class);
+        $prop = $ref->getProperty('appInstances');
+        $prop->setAccessible(true);
+        $prop->setValue(null, []);
+        $last = $ref->getProperty('lastUsedApplication');
+        $last->setAccessible(true);
+        $last->setValue(null, null);
+
+        // Reset Database::getInstance() static cache so integration tests get
+        // a fresh connection rather than the broken instance created by HealthCheck.
+        $db = &\Pramnos\Database\Database::getInstance();
+        $db = null;
     }
 
     // =========================================================================
