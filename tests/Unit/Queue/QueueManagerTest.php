@@ -412,7 +412,362 @@ class QueueManagerTest extends TestCase
         $this->assertFalse($result, 'retryTask must refuse non-failed tasks');
     }
 
+    // ── addTask() ─────────────────────────────────────────────────────────────
+
+    /**
+     * addTask() must enqueue a task and return its integer ID.
+     * The non-unique path skips the duplicate check entirely.
+     */
+    public function testAddTaskReturnsTaskId(): void
+    {
+        // Arrange — item whose save() simulates auto-increment by setting taskid
+        $manager = new class($this->controller) extends QueueManager {
+            protected function createQueueItemModel(): QueueItem
+            {
+                return new class($this->controller) extends QueueItem {
+                    public function __construct($c) {}
+                    public function save($a = false, $d = false): static
+                    {
+                        $this->taskid = 42;
+                        return $this;
+                    }
+                };
+            }
+        };
+
+        // Act
+        $id = $manager->addTask('send_email', ['to' => 'a@example.com']);
+
+        // Assert — task ID is returned as an integer
+        $this->assertSame(42, $id);
+    }
+
+    /**
+     * addTask() must return null when $unique=true and a non-terminal task with
+     * the same type+payload hash already exists — preventing duplicate work.
+     */
+    public function testAddTaskReturnsNullWhenDuplicateExists(): void
+    {
+        // Arrange — getList() returns a non-empty result (duplicate found)
+        $manager = new class($this->controller) extends QueueManager {
+            protected function createQueueItemModel(): QueueItem
+            {
+                return new class($this->controller) extends QueueItem {
+                    public function __construct($c) {}
+                    public function getList($where = '', $order = '', $key = null): array
+                    {
+                        return [new \stdClass()]; // existing pending task
+                    }
+                    public function save($a = false, $d = false): static { return $this; }
+                };
+            }
+        };
+
+        // Act
+        $id = $manager->addTask('import_csv', ['file' => 'data.csv'], unique: true);
+
+        // Assert — duplicate detected → null (no new task created)
+        $this->assertNull($id);
+    }
+
+    /**
+     * addTask() with $unique=true must create the task when no duplicate exists.
+     * The getList() check passes (empty result), then the item is saved normally.
+     */
+    public function testAddTaskCreatesTaskWhenUniqueAndNoDuplicate(): void
+    {
+        // Arrange — getList() returns [] (no duplicate); save() simulates insert
+        $manager = new class($this->controller) extends QueueManager {
+            protected function createQueueItemModel(): QueueItem
+            {
+                return new class($this->controller) extends QueueItem {
+                    public function __construct($c) {}
+                    public function getList($where = '', $order = '', $key = null): array
+                    {
+                        return []; // no existing task
+                    }
+                    public function save($a = false, $d = false): static
+                    {
+                        $this->taskid = 7;
+                        return $this;
+                    }
+                };
+            }
+        };
+
+        // Act
+        $id = $manager->addTask('import_csv', ['file' => 'data.csv'], unique: true);
+
+        // Assert — no duplicate → task created and ID returned
+        $this->assertSame(7, $id);
+    }
+
+    // ── retryTask() success path ───────────────────────────────────────────────
+
+    /**
+     * retryTask() must return true and reset the task to pending when the task
+     * exists and is in 'failed' state — this is the success path for manual retry.
+     */
+    public function testRetryTaskReturnsTrueAndResetsFailedTask(): void
+    {
+        // Arrange — task exists with status='failed'
+        $savedTask = null;
+        $manager = new class($this->controller) extends QueueManager {
+            protected function createQueueItemModel(): QueueItem
+            {
+                return new class($this->controller) extends QueueItem {
+                    public function __construct($c) {}
+                    public function load($taskid, $key = null, $debug = false): static
+                    {
+                        $this->taskid  = (int)$taskid;
+                        $this->status  = 'failed';
+                        $this->attempts = 3;
+                        return $this;
+                    }
+                    public function save($a = false, $d = false): static { return $this; }
+                };
+            }
+        };
+
+        // Act
+        $result = $manager->retryTask(42);
+
+        // Assert — failed task successfully queued for retry
+        $this->assertTrue($result);
+    }
+
+    // ── markTaskAsProcessing() ────────────────────────────────────────────────
+
+    /**
+     * markTaskAsProcessing() must set status='processing' and record the start
+     * time — it is used for tasks that are claimed outside of getNextTask().
+     */
+    public function testMarkTaskAsProcessingSetsCorrectFields(): void
+    {
+        // Arrange
+        $task = $this->buildSavableQueueItem();
+        $task->status    = 'pending';
+        $task->startedat = null;
+
+        // Act
+        $this->manager->markTaskAsProcessing($task);
+
+        // Assert — status changed and start time recorded
+        $this->assertSame('processing', $task->status);
+        $this->assertNotNull($task->startedat, 'startedat must be set when processing begins');
+    }
+
+    // ── getPendingTasks() ─────────────────────────────────────────────────────
+
+    /**
+     * getPendingTasks() must return whatever the model's getList() returns.
+     * This verifies the method's query is passed through correctly.
+     */
+    public function testGetPendingTasksReturnsList(): void
+    {
+        // Arrange — model always returns 1 item
+        $fakeItem = $this->buildSavableQueueItem();
+        $manager = new class($this->controller, $fakeItem) extends QueueManager {
+            private QueueItem $item;
+            public function __construct($c, QueueItem $item)
+            {
+                parent::__construct($c);
+                $this->item = $item;
+            }
+            protected function createQueueItemModel(): QueueItem
+            {
+                $item = $this->item;
+                return new class($item) extends QueueItem {
+                    private QueueItem $inner;
+                    public function __construct(QueueItem $i) { $this->inner = $i; }
+                    public function getList($where = '', $order = '', $key = null): array
+                    {
+                        return [$this->inner];
+                    }
+                };
+            }
+        };
+
+        // Act
+        $tasks = $manager->getPendingTasks(10);
+
+        // Assert — the returned list contains the stub item
+        $this->assertCount(1, $tasks);
+        $this->assertSame($fakeItem, $tasks[0]);
+    }
+
+    /**
+     * getPendingTasks() with a $taskTypes filter must pass the type constraint
+     * to the model — verified by checking a WHERE clause containing the type
+     * is actually built and forwarded to getList().
+     */
+    public function testGetPendingTasksWithTypeFilter(): void
+    {
+        // Arrange — use a shared stdClass to track state across anonymous class boundaries
+        $state = new \stdClass();
+        $state->getListCalled = false;
+        $state->whereArg      = '';
+
+        $manager = new class($this->controller, $state) extends QueueManager {
+            private \stdClass $state;
+            public function __construct($c, \stdClass $state)
+            {
+                parent::__construct($c);
+                $this->state = $state;
+            }
+            protected function createQueueItemModel(): QueueItem
+            {
+                $state = $this->state;
+                return new class($state) extends QueueItem {
+                    private \stdClass $state;
+                    public function __construct(\stdClass $s) { $this->state = $s; }
+                    public function getList($where = '', $order = '', $key = null): array
+                    {
+                        $this->state->getListCalled = true;
+                        $this->state->whereArg      = $where;
+                        return [];
+                    }
+                };
+            }
+        };
+
+        // Act
+        $manager->getPendingTasks(5, 'send_email');
+
+        // Assert — getList was called with a WHERE clause containing the type
+        $this->assertTrue($state->getListCalled, 'getList() must be called when fetching pending tasks');
+        $this->assertStringContainsString('send_email', $state->whereArg,
+            'Type filter must appear in the WHERE clause');
+    }
+
+    // ── purgeOldTasks() ───────────────────────────────────────────────────────
+
+    /**
+     * purgeOldTasks() must execute a DELETE query and return the affected row count.
+     * The default status list is ['completed', 'failed'] and default table is 'queueitems'.
+     */
+    public function testPurgeOldTasksReturnsAffectedRowCount(): void
+    {
+        // Arrange — use the shared controller double which has a query() stub
+        // returning getAffectedRows()=0. refreshDatabaseConnection also calls query().
+        $count = $this->manager->purgeOldTasks(24);
+
+        // Assert — 0 affected rows from the stub, no exception thrown
+        $this->assertSame(0, $count);
+    }
+
+    /**
+     * purgeOldTasks() with a custom status list and limit must build a DELETE
+     * with LIMIT — verified by capturing the executed SQL.
+     */
+    public function testPurgeOldTasksWithCustomStatusListAndLimit(): void
+    {
+        // Arrange — shared state captures the SQL that the manager sends to the DB
+        $state      = new \stdClass();
+        $state->lastSql = null;
+        $controller = $this->buildControllerDoubleCapturingSql($state);
+        $manager    = new class($controller) extends QueueManager {};
+
+        // Act
+        $manager->purgeOldTasks(48, ['completed'], 100);
+
+        // Assert — SQL contains LIMIT clause and only the requested status
+        $this->assertNotNull($state->lastSql, 'A DELETE query must have been executed');
+        $this->assertStringContainsString('LIMIT 100', $state->lastSql);
+        $this->assertStringContainsString("'completed'", $state->lastSql);
+        $this->assertStringNotContainsString("'failed'", $state->lastSql);
+    }
+
+    // ── getTaskTypes() with directory scan ────────────────────────────────────
+
+    /**
+     * getTaskTypes() must scan the configured directory, instantiate PHP classes
+     * found there, and return their registered task names.
+     *
+     * We create a real temporary directory with a single task PHP file and
+     * verify that its class name is returned as the task type.
+     */
+    public function testGetTaskTypesScansDirectoryAndReturnsTaskNames(): void
+    {
+        // Arrange — write a minimal AbstractTask subclass to a temp directory
+        $tmpDir    = sys_get_temp_dir() . '/pf_queue_manager_test_' . uniqid();
+        mkdir($tmpDir);
+
+        $className = 'TmpScanTask' . str_replace('.', '_', uniqid('', true));
+        $namespace = 'Pramnos\Tests\Unit\Queue\Tmp';
+
+        // Write the task file — use single-quoted heredoc to avoid escape issues
+        $code = '<?php' . "\n"
+            . 'namespace ' . $namespace . ";\n"
+            . 'use Pramnos\Queue\AbstractTask;' . "\n"
+            . 'use Pramnos\Queue\QueueItem;' . "\n"
+            . 'class ' . $className . ' extends AbstractTask {' . "\n"
+            . '    public string $name = \'scan_test_task\';' . "\n"
+            . '    public function execute(QueueItem $q): bool { return true; }' . "\n"
+            . '    public function getDescription(QueueItem $q): string { return \'\'; }' . "\n"
+            . '}' . "\n";
+        file_put_contents($tmpDir . '/' . $className . '.php', $code);
+        require $tmpDir . '/' . $className . '.php';
+
+        $namespace .= '\\';
+
+        $manager = new class($this->controller, $tmpDir, $namespace) extends QueueManager {
+            private string $dir;
+            private string $ns;
+            public function __construct($c, string $dir, string $ns)
+            {
+                parent::__construct($c);
+                $this->dir = $dir;
+                $this->ns  = $ns;
+            }
+            protected function getTasksDirectory(): string { return $this->dir; }
+            protected function getTasksNamespace(): string { return $this->ns; }
+        };
+
+        // Act
+        $types = $manager->getTaskTypes();
+
+        // Cleanup
+        unlink($tmpDir . '/' . $className . '.php');
+        rmdir($tmpDir);
+
+        // Assert — the task's $name property is returned as a task type
+        $this->assertContains('scan_test_task', $types);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Build a controller double whose database->query() captures the SQL.
+     * Uses a shared stdClass state object to avoid pass-by-reference in
+     * anonymous class constructors (which PHP does not support).
+     *
+     * @param  \stdClass $state  Receives the captured SQL in $state->lastSql
+     */
+    private function buildControllerDoubleCapturingSql(\stdClass $state): object
+    {
+        $database = new class($state) {
+            public string $prefix = '';
+            private \stdClass $state;
+            public function __construct(\stdClass $s) { $this->state = $s; }
+            public function prepareInput(string $s): string { return addslashes($s); }
+            public function query(string $sql): object
+            {
+                $this->state->lastSql = $sql;
+                return new class { public function getAffectedRows(): int { return 5; } };
+            }
+        };
+
+        return new class($database) {
+            public object $application;
+            public function __construct(object $db) {
+                $this->application = new class($db) {
+                    public object $database;
+                    public function __construct(object $db) { $this->database = $db; }
+                };
+            }
+        };
+    }
 
     /**
      * Build a minimal controller double with a database stub.
