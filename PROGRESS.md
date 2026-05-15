@@ -55,12 +55,19 @@
 2. `tests/Integration/Queue/QueueManagerPostgreSQLTest.php`: `$pgDb->schema` δεν ετίθετο → `Model::_save()` έβγαζε `WHERE table_schema = ''` → 0 στήλες → `INSERT INTO queueitems () VALUES ()` → SQL error
 
 **Post-fix coverage (unit + integration tests μαζί):**
-- QueueManager.php: **87.7%** (unit: 70.9% + integration: +17%)
+- QueueManager.php: **92.2%** ✓ (unit: 70.9% + integration: +17% + targeted branch tests: +4.5%)
 - Worker.php: 95.2% (integration tests δεν καλύπτουν διαφορετικά paths)
+
+Targeted tests για branches που έλειπαν:
+- Constructor workerId provided (line 58)
+- `generateTaskHash()` object + scalar paths (lines 515-518)
+- `calculateExecutionTime()` returns null when startedat empty (line 550)
+- `getTaskTypes()` ReflectionClass branch — class χωρίς `$name` property (lines 424-430)
 
 ### Commits
 - `d964f0c` test(queue/health): extend coverage for QueueManager, Worker, DatabaseConnectivityCheck
 - `6781764` fix(integration): correct migration syntax + PostgreSQL schema for integration tests
+- `9fdf52a` test(queue): add targeted unit tests to push QueueManager coverage to 92%
 
 ---
 
