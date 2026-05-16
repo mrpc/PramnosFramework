@@ -1,4 +1,4 @@
-# {{APP_NAME}} — AI Assistant Guidelines
+# {{ APP_NAME }} — AI Assistant Guidelines
 
 This file gives AI coding assistants (Claude, Copilot, etc.) the context needed
 to work effectively in this project without asking repetitive orientation questions.
@@ -6,9 +6,9 @@ to work effectively in this project without asking repetitive orientation questi
 ## Project overview
 
 - **Framework:** [PramnosFramework](https://github.com/mrpc/PramnosFramework) v1.2
-- **Stack:** PHP 8.4, {{DB_TYPE}}, Docker
-- **Namespace:** `{{NAMESPACE}}`
-- **CLI entry point:** `./{{CLI_NAME}}` (wraps `bin/{{CLI_NAME}}.php`)
+- **Stack:** PHP 8.4, {{ DB_TYPE }}, Docker
+- **Namespace:** `{{ NAMESPACE }}`
+- **CLI entry point:** `./{{ CLI_NAME }}` (wraps `bin/{{ CLI_NAME }}.php`)
 
 ## Running tests
 
@@ -36,8 +36,8 @@ src/            Application source code
   Views/        View directories — each view is a folder with view.html.php
   Migrations/   Application migrations (extend Pramnos\Database\Migration)
 database/
-  migrations/   Migration files (run with ./{{CLI_NAME}} migrate)
-  seeds/        Database seeders (run with ./{{CLI_NAME}} db:seed)
+  migrations/   Migration files (run with ./{{ CLI_NAME }} migrate)
+  seeds/        Database seeders (run with ./{{ CLI_NAME }} db:seed)
 tests/
   Unit/         Unit tests (no DB, no network)
   Integration/  Integration tests (real DB via Docker)
@@ -132,8 +132,8 @@ class CreatePostsTable extends \Pramnos\Database\Migration
 }
 ```
 
-Run migrations: `./{{CLI_NAME}} migrate`
-Check status: `./{{CLI_NAME}} migrate:status`
+Run migrations: `./{{ CLI_NAME }} migrate`
+Check status: `./{{ CLI_NAME }} migrate:status`
 
 ### Routing
 
@@ -167,7 +167,7 @@ $queue = new QueueManager($db);
 $queue->addTask('SendWelcomeEmail', ['user_id' => 42], priority: 5);
 ```
 
-Process queue: `./{{CLI_NAME}} queue:process`
+Process queue: `./{{ CLI_NAME }} queue:process`
 
 ## Testing conventions
 
@@ -199,22 +199,22 @@ never mock the database layer.
 ## Available CLI commands
 
 ```bash
-./{{CLI_NAME}} migrate                 # Run pending migrations
-./{{CLI_NAME}} migrate:rollback        # Rollback last batch
-./{{CLI_NAME}} migrate:status          # Show migration status table
-./{{CLI_NAME}} migrate:reset           # Roll back all migrations
-./{{CLI_NAME}} db:seed                 # Run database seeders
-./{{CLI_NAME}} scaffold:views          # Publish bundled view templates
-./{{CLI_NAME}} create:controller Name  # Scaffold a controller
-./{{CLI_NAME}} create:model Name       # Scaffold a model
-./{{CLI_NAME}} create:migration Name   # Scaffold a migration
-./{{CLI_NAME}} queue:process           # Start queue worker
-./{{CLI_NAME}} health:check            # Check system health
+./{{ CLI_NAME }} migrate                 # Run pending migrations
+./{{ CLI_NAME }} migrate:rollback        # Rollback last batch
+./{{ CLI_NAME }} migrate:status          # Show migration status table
+./{{ CLI_NAME }} migrate:reset           # Roll back all migrations
+./{{ CLI_NAME }} db:seed                 # Run database seeders
+./{{ CLI_NAME }} scaffold:views          # Publish bundled view templates
+./{{ CLI_NAME }} create:controller Name  # Scaffold a controller
+./{{ CLI_NAME }} create:model Name       # Scaffold a model
+./{{ CLI_NAME }} create:migration Name   # Scaffold a migration
+./{{ CLI_NAME }} queue:process           # Start queue worker
+./{{ CLI_NAME }} health:check            # Check system health
 ```
 
 ## Features enabled in this project
 
-{{FEATURES_LIST}}
+{{ FEATURES_LIST }}
 
 ## Debugger (Xdebug)
 
@@ -243,7 +243,7 @@ for PHP Debug Connections", add a server with path mapping `/var/www/html` → p
 
 Trigger debugging:
 - Web requests: set `XDEBUG_SESSION=1` cookie or append `?XDEBUG_SESSION_START=1`.
-- CLI inside container: `XDEBUG_MODE=debug XDEBUG_SESSION=1 php bin/{{CLI_NAME}}.php …`
+- CLI inside container: `XDEBUG_MODE=debug XDEBUG_SESSION=1 php bin/{{ CLI_NAME }}.php …`
 
 ## MCP Server (database access for AI assistants)
 
@@ -251,7 +251,7 @@ Claude Code can query the project database directly via an MCP server.
 A `.mcp.json` is included at the project root — run `! npx -y @anthropic-ai/claude-code mcp add` or
 simply start Claude Code: it picks up `.mcp.json` automatically.
 
-The included configuration connects to the **{{DB_TYPE_LABEL}}** Docker container using
+The included configuration connects to the **{{ DB_TYPE_LABEL }}** Docker container using
 the development credentials. The MCP server gives Claude Code read-only access
 to inspect the live schema and data during development.
 

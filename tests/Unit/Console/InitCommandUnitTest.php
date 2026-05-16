@@ -105,6 +105,68 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('class CreateUsersTable', $result);
     }
 
+    /**
+     * renderStub('CLAUDE.md') uses the same {{ key }} syntax as all other stubs —
+     * verifies the unified syntax contract established in Phase 3 stub unification.
+     * APP_NAME, CLI_NAME, NAMESPACE, DB_TYPE, DB_TYPE_LABEL, and FEATURES_LIST
+     * must all be substituted.
+     */
+    public function testClaudeMdStubSubstitutesAllTokens(): void
+    {
+        // Act
+        $result = $this->command->renderStub('CLAUDE.md', [
+            'APP_NAME'      => 'MyApp',
+            'NAMESPACE'     => 'MyApp',
+            'CLI_NAME'      => 'myapp',
+            'DB_TYPE'       => 'postgresql',
+            'DB_TYPE_LABEL' => 'PostgreSQL',
+            'FEATURES_LIST' => '- `auth`',
+        ]);
+
+        // Assert — each token must be substituted; no raw {{ }} placeholders left
+        $this->assertStringContainsString('MyApp', $result,
+            'APP_NAME token must be substituted');
+        $this->assertStringContainsString('myapp', $result,
+            'CLI_NAME token must be substituted');
+        $this->assertStringContainsString('postgresql', $result,
+            'DB_TYPE token must be substituted');
+        $this->assertStringContainsString('- `auth`', $result,
+            'FEATURES_LIST token must be substituted');
+        $this->assertStringNotContainsString('{{ APP_NAME }}', $result,
+            'No unresolved {{ APP_NAME }} placeholders must remain');
+        $this->assertStringNotContainsString('{{ CLI_NAME }}', $result,
+            'No unresolved {{ CLI_NAME }} placeholders must remain');
+    }
+
+    /**
+     * renderStub('mcp.json') substitutes {{ DB_MCP_NAME }}, {{ DB_MCP_PACKAGE }},
+     * and {{ DB_MCP_DSN }} — producing a valid JSON structure with actual values.
+     */
+    public function testMcpJsonStubSubstitutesAllTokens(): void
+    {
+        // Act
+        $result = $this->command->renderStub('mcp.json', [
+            'DB_MCP_NAME'    => 'postgres',
+            'DB_MCP_PACKAGE' => '@modelcontextprotocol/server-postgres',
+            'DB_MCP_DSN'     => 'postgresql://user:pass@localhost:5432/mydb',
+        ]);
+
+        // Assert
+        $decoded = json_decode($result, true);
+        $this->assertIsArray($decoded, 'mcp.json stub must produce valid JSON');
+        $this->assertArrayHasKey('mcpServers', $decoded,
+            'mcp.json must contain mcpServers key');
+        $this->assertArrayHasKey('postgres', $decoded['mcpServers'],
+            'DB_MCP_NAME must be substituted as server key');
+        $this->assertStringContainsString(
+            '@modelcontextprotocol/server-postgres',
+            $result,
+            'DB_MCP_PACKAGE must be substituted'
+        );
+        $this->assertStringNotContainsString('{{ DB_MCP_NAME }}', $result,
+            'No unresolved {{ DB_MCP_NAME }} placeholders must remain');
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Scaffolded file structure (non-interactive mode via options)
     // ─────────────────────────────────────────────────────────────────────────
