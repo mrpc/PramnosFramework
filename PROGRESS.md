@@ -1,7 +1,27 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-17 (session 85)
+## 📅 Last Updated: 2026-05-17 (session 86)
+
+## 🏁 Session 86 — ORM Relations integration tests (2026-05-17)
+
+### ✅ Ολοκληρώθηκε
+
+**ORM Relations integration tests** (commit `b050aec`):
+- `OrmRelationsMySQLTest` (19 tests): HasOne/HasMany/BelongsTo/BelongsToMany `getResults()`, lazy loading via `__get()`, `__isset()` για loaded/null relations, eager loading με `with()+getCollection()`, `toArray()` με loaded relations, `getCollection()` με και χωρίς filter
+- `OrmRelationsPostgreSQLTest` (19 tests): ίδια suite εναντίον TimescaleDB — χρησιμοποιεί `Factory::getDatabase()` singleton-swap pattern (ίδιο με `QueueManagerPostgreSQLTest`), δεν χρειάζεται `#[RunTestsInSeparateProcesses]`
+- `OrmModelCharacterizationTest`: 3 νέα unit tests για `guessForeignKey()`, `guessForeignKeyFor()`, `guessPivotTable()` (pure string logic)
+
+**Bugfix: `Model::getFullTableName()` visibility** (ίδιο commit):
+- Ήταν `protected` → καλούνταν από `HasOne/HasMany/BelongsTo/BelongsToMany::getResults()` σε model instances εκτός class hierarchy → fatal error
+- Αλλαγή σε `public` (additive — δεν σπάει BC)
+
+**Αποτέλεσμα:** 4044 tests, 9447 assertions, **0 errors, 0 failures**
+
+### Commits
+- `b050aec` test(orm): add integration tests for all relation types (MySQL + PostgreSQL)
+
+---
 
 ## 🏁 Session 85 — Close v1.2 pending items (2026-05-17)
 
