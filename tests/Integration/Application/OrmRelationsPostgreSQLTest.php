@@ -139,11 +139,18 @@ class OrmRelationsPostgreSQLTest extends OrmRelationsMySQLTest
                 PRIMARY KEY (post_id, tag_id)
             )"
         );
+        $this->db->query(
+            "CREATE TABLE IF NOT EXISTS orm_test_items (
+                id         SERIAL PRIMARY KEY,
+                title      VARCHAR(255) NOT NULL,
+                deleted_at TIMESTAMP NULL
+            )"
+        );
     }
 
     protected function dropTables(): void
     {
-        foreach (['orm_test_post_tag', 'orm_test_tags', 'orm_test_posts', 'orm_test_profiles', 'orm_test_users'] as $t) {
+        foreach (['orm_test_post_tag', 'orm_test_tags', 'orm_test_posts', 'orm_test_profiles', 'orm_test_users', 'orm_test_items'] as $t) {
             $this->db->query("DROP TABLE IF EXISTS {$t} CASCADE");
         }
     }
@@ -188,5 +195,13 @@ class OrmRelationsPostgreSQLTest extends OrmRelationsMySQLTest
         $this->db->query(
             "INSERT INTO orm_test_post_tag (post_id, tag_id) VALUES ({$postId}, {$tagId})"
         );
+    }
+
+    protected function insertSoftItem(string $title): int
+    {
+        $result = $this->db->query(
+            "INSERT INTO orm_test_items (title) VALUES ('" . $this->db->prepareInput($title) . "') RETURNING id"
+        );
+        return (int) $result->fields['id'];
     }
 }
