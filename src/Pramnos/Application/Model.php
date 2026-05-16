@@ -1323,8 +1323,21 @@ class Model extends \Pramnos\Framework\Base
         $validFields = array();
         foreach ($fields as $field) {
             $field = trim($field);
-            if (!empty($field) && in_array($field, $availableFields)) {
-                $validFields[] = $field;
+            if (!empty($field)) {
+                if (in_array($field, $availableFields)) {
+                    $validFields[] = $field;
+                } else {
+                    // Try to find the field matching ignoring table prefix (alias)
+                    foreach ($availableFields as $avail) {
+                        if (strpos($avail, '.') !== false) {
+                            $unprefixed = substr($avail, strpos($avail, '.') + 1);
+                            if ($unprefixed === $field) {
+                                $validFields[] = $avail;
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
         
