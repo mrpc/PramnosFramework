@@ -22,8 +22,6 @@ use Jose\Component\Signature\Serializer\JWSSerializerManager;
  * @license  MIT
  */
 
-class ExpiredException extends \Exception {}
-
 class JWT
 {
     /**
