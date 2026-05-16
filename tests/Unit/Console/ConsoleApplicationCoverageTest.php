@@ -1024,33 +1024,31 @@ class ConsoleApplicationCoverageTest extends TestCase
     }
 
     /**
-     * PolicyEngine with --list must invoke listPolicies() and output
-     * "No enabled policies registered." when no policies exist.
+     * PolicyEngine with --list when no Pramnos Application instance exists must
+     * exit with FAILURE and print an error message — it must not throw a TypeError
+     * or crash the process.
      *
-     * Application::getInstance() is called inside execute() — in the Docker
-     * test environment it returns an Application; if it returns null the catch
-     * block prevents a fatal error. Either path must not crash.
+     * In this test class tearDown() clears the Application singleton, so
+     * Application::getInstance() returns null. The fixed execute() method detects
+     * this, emits an <error> message, and returns Command::FAILURE. This covers
+     * the null-application guard path added to PolicyEngine::execute().
      */
     public function testPolicyEngineListWithNoPolicies(): void
     {
-        // Arrange
+        // Arrange — tearDown() has cleared the Application singleton, so
+        // getInstance() will return null for this test.
         $app = new \Symfony\Component\Console\Application();
         $cmd = new PolicyEngine();
         $app->add($cmd);
         $tester = new CommandTester($cmd);
 
-        // Act — may warn about null application; must not throw
-        try {
-            $exit = $tester->execute(['--list' => true]);
-        } catch (\Throwable $e) {
-            // If Application::getInstance() throws or is null, that is a
-            // test-environment limitation — mark as inconclusive, not failure.
-            $this->markTestSkipped('Application::getInstance() not available: ' . $e->getMessage());
-            return;
-        }
+        // Act
+        $exit = $tester->execute(['--list' => true]);
 
-        // Assert — exit success, output contains "policy" related message
-        $this->assertIsInt($exit);
+        // Assert — must fail gracefully with FAILURE exit code and an error message.
+        // Command::FAILURE = 1
+        $this->assertSame(\Symfony\Component\Console\Command\Command::FAILURE, $exit);
+        $this->assertStringContainsString('No application instance available', $tester->getDisplay());
     }
 
     // =========================================================================

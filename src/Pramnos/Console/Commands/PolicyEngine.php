@@ -56,7 +56,13 @@ class PolicyEngine extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $app    = Application::getInstance();
+        $app = Application::getInstance();
+
+        if (!$app instanceof Application) {
+            $output->writeln('<error>No application instance available.</error>');
+            return Command::FAILURE;
+        }
+
         $engine = new Engine($app);
 
         if ($input->getOption('list')) {
