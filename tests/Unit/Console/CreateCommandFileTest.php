@@ -66,6 +66,20 @@ class CreateCommandFileTest extends TestCase
                 unlink($path);
             }
         }
+
+        // Glob-based fallback: getProperClassName() may singularize/lowercase the
+        // name (e.g. ZZZTestCovSeedCols → Zzztestcovseedcol), so the pre-computed
+        // path in $filesToCleanup can be wrong-case and file_exists() returns false
+        // on case-sensitive Linux. Scanning by testId catches any casing variant.
+        $root   = defined('ROOT') ? ROOT : getcwd();
+        $unitDir  = $root . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'Unit';
+        $seedDir  = APP_PATH . DIRECTORY_SEPARATOR . 'seeders';
+        foreach ([$unitDir, $seedDir] as $dir) {
+            foreach (glob($dir . DIRECTORY_SEPARATOR . '*' . $this->testId . '*.php') ?: [] as $leftover) {
+                @unlink($leftover);
+            }
+        }
+
         foreach (array_reverse($this->dirsToCleanup) as $dir) {
             if (is_dir($dir) && count(scandir($dir)) === 2) { // only . and ..
                 rmdir($dir);
