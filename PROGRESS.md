@@ -1,7 +1,31 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-16 (session 83)
+## 📅 Last Updated: 2026-05-16 (session 84)
+
+## 🏁 Session 84 — Fix output pollution + non-deterministic seeder test failure (2026-05-16)
+
+### ✅ Ολοκληρώθηκε
+
+**Bugfix 1: Output pollution `Database Error: 0 Database is not connected`** (commit `41c0054`):
+- Αιτία: `DatabaseConnectivityCheck.run()` έκανε `db->query('SELECT 1')` σε μη-συνδεδεμένο instance → `runMysqlQuery()` → `setError('0', 'not connected')` → `displayError()` → `error_log()` πριν throw
+- Εμφανιζόταν 3 φορές στα HealthCheck unit tests ανεξαρτήτως αποτελέσματος
+- **Fix:** `if (!$this->db->connected) { $this->db->connect(); }` πριν το query. Το `connect()` κάνει throw `RuntimeException` χωρίς `setError`/`error_log`, που πιάνεται από το υπάρχον try-catch
+
+**Bugfix 2: Non-deterministic `testCreateSeederCreatesSkeletonFile` failure** (commit `d1271bd`):
+- Αιτία: `isPlural()` επιστρέφει `true` για strings που τελειώνουν σε 'a' (έγκυρος hex char). Στατιστική: ~6.25% πιθανότητα ανά run
+- Όταν `testId` τελείωνε σε 'a', `singularize()` έκανε lowercase το όνομα, `getProperClassName()` → `ucfirst` → διαφορετικό path από αυτό που υπολόγιζε το test
+- **Fix:** Και οι 3 affected seeder tests (skeleton, populated, throws-if-exists) υπολογίζουν πλέον `$className` μέσω `Create::getProperClassName($name, true)`, ακριβώς όπως κάνει η `createSeeder()`
+
+**Root cause cherry-pick από main** (commit `36ba593`, session 83):
+- `Model::_getApiList()` alias matching fix
+- `ModelApiListTest` + tearDown για Database singleton pollution
+
+### Commits
+- `41c0054` fix(health): prevent DB error_log pollution in unit tests
+- `d1271bd` fix(tests): use getProperClassName() for seeder path derivation
+
+---
 
 ## 🏁 Session 83 — Migration API helpers + UrbanWater characterization test fixes (2026-05-16)
 
