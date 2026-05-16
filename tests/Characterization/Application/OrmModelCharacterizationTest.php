@@ -836,6 +836,73 @@ class OrmModelCharacterizationTest extends TestCase
         $this->assertContains('posts', $model->getEagerLoadPublic());
         $this->assertContains('comments', $model->getEagerLoadPublic());
     }
+
+    // =========================================================================
+    // Relationship key helpers (pure string logic — no DB)
+    // =========================================================================
+
+    /**
+     * guessForeignKey() must derive a FK name from the model's own table name
+     * by stripping the trailing "s" and appending "_id".
+     *
+     * This is the Laravel convention: table "posts" → FK "post_id".
+     * OrmFixtureModel uses table "fixture_orm_models", so the expected key is
+     * "fixture_orm_model_id".  Verifying the exact derivation locks the
+     * convention so related models don't silently get the wrong FK column.
+     */
+    public function testGuessForeignKeyDerivedFromTableName(): void
+    {
+        // Arrange — OrmFixtureModel::$_dbtable = 'fixture_orm_models'
+        $model = $this->makeOrm();
+
+        // Act
+        $fk = $model->guessForeignKeyPublic();
+
+        // Assert — trailing "s" stripped, "_id" appended
+        $this->assertSame('fixture_orm_model_id', $fk);
+    }
+
+    /**
+     * guessForeignKeyFor() must extract the short class name from a FQCN,
+     * lowercase it, and append "_id".
+     *
+     * Given a related class "Pramnos\Tests\Characterization\Application\OrmFixtureRelated"
+     * the returned FK must be "ormfixturerelated_id".  This ensures the
+     * BelongsTo/BelongsToMany default FK guessing won't choose the wrong column
+     * when a related class lives in a deep namespace.
+     */
+    public function testGuessForeignKeyForUsesShortClassName(): void
+    {
+        // Arrange
+        $model = $this->makeOrm();
+
+        // Act — pass a FQCN; only the last segment should matter
+        $fk = $model->guessForeignKeyForPublic(OrmFixtureRelated::class);
+
+        // Assert — lowercased short name + "_id"
+        $this->assertSame('ormfixturerelated_id', $fk);
+    }
+
+    /**
+     * guessPivotTable() must sort the two lowercased short class names
+     * alphabetically and join them with "_".
+     *
+     * This matches the Laravel pivot-table naming convention and ensures two
+     * different orderings of the same pair produce the same pivot table name.
+     * OrmFixtureModel ("ormfixturemodel") + OrmFixtureRelated ("ormfixturerelated"):
+     * sorted → [ormfixturemodel, ormfixturerelated] → "ormfixturemodel_ormfixturerelated".
+     */
+    public function testGuessPivotTableSortsNamesAlphabetically(): void
+    {
+        // Arrange
+        $model = $this->makeOrm();
+
+        // Act
+        $pivot = $model->guessPivotTablePublic(OrmFixtureRelated::class);
+
+        // Assert — alphabetical order: "ormfixturemodel" < "ormfixturerelated"
+        $this->assertSame('ormfixturemodel_ormfixturerelated', $pivot);
+    }
 }
 
 // =============================================================================
@@ -888,6 +955,9 @@ class OrmFixtureModel extends OrmModel
     public function applyGlobalScopesPublic(string $filter): string { return $this->applyGlobalScopes($filter); }
     public function getPendingScopesPublic(): array            { return $this->_pendingScopes; }
     public function getEagerLoadPublic(): array              { return $this->eagerLoad; }
+    public function guessForeignKeyPublic(): string          { return $this->guessForeignKey(); }
+    public function guessForeignKeyForPublic(string $c): string { return $this->guessForeignKeyFor($c); }
+    public function guessPivotTablePublic(string $c): string { return $this->guessPivotTable($c); }
 
     // Direct $_data access helpers (bypasses ORM __get/__set, for test inspection)
     public function setRaw(string $key, mixed $value): void { $this->_data[$key] = $value; }

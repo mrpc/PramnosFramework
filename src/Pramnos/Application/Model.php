@@ -1137,7 +1137,7 @@ class Model extends \Pramnos\Framework\Base
      * Get the fully qualified table name with schema if needed
      * @return string
      */
-    protected function getFullTableName($tableName = null)
+    public function getFullTableName($tableName = null)
     {
         $database = \Pramnos\Database\Database::getInstance();
         if ($tableName === null) {
