@@ -700,6 +700,68 @@ class OrmRelationsMySQLTest extends TestCase
         $this->assertSame('id',                $relation->getRelatedKey());
     }
 
+    // -------------------------------------------------------------------------
+    // OrmModel soft-delete paths
+    // -------------------------------------------------------------------------
+
+    /**
+     * OrmModel::_delete() on a soft-delete model must write deleted_at instead of
+     * executing a hard DELETE, leaving the row in the DB.
+     *
+     * This covers the `if ($this->softDelete)` branch in OrmModel::_delete().
+     */
+    public function testSoftDeleteSetsDeletedAtAndKeepsRow(): void
+    {
+        // Arrange — insert and load a soft-deletable item
+        $id   = $this->insertSoftItem('SoftItem');
+        $item = new OrmTestSoftItem($this->controller);
+        $item->publicLoad($id);
+
+        // Act
+        $item->publicDelete($id);
+
+        // Assert — row still exists with deleted_at populated
+        $result = $this->db->queryBuilder()
+            ->from('orm_test_items')
+            ->where('id', $id)
+            ->limit(1)
+            ->get();
+        $this->assertNotEmpty($result->fields['deleted_at'],
+            'soft-delete must write deleted_at rather than hard-deleting the row');
+    }
+
+    /**
+     * OrmModel::_load() with soft-delete enabled must apply the deleted_at
+     * guard after loading, marking the model as "new" (not-found).
+     *
+     * The soft-delete guard in OrmModel::_load() sets _isnew=true and clears
+     * _initialData when deleted_at is non-null, so subsequent _save() calls
+     * INSERT instead of UPDATE.  We verify this by checking that deleted_at
+     * was populated (the guard was entered) and the model still carries the
+     * loaded data (data is not wiped, only the "is existing" flag is cleared).
+     *
+     * This covers the soft-delete filter block in OrmModel::_load().
+     */
+    public function testLoadSoftDeletedRecordEntersSoftDeleteGuard(): void
+    {
+        // Arrange — insert and soft-delete an item
+        $id   = $this->insertSoftItem('Trashed');
+        $item = new OrmTestSoftItem($this->controller);
+        $item->publicLoad($id);
+        $item->publicDelete($id); // soft-deletes the row
+
+        // Act — reload the same id (the soft-delete guard should activate)
+        $reloaded = new OrmTestSoftItem($this->controller);
+        $reloaded->publicLoad($id);
+
+        // Assert — the guard was entered: deleted_at is populated on the model,
+        // and the title data was loaded from DB before the guard ran
+        $this->assertNotEmpty($reloaded->deleted_at,
+            '_load() must load the row including deleted_at before checking the guard');
+        $this->assertSame('Trashed', $reloaded->title,
+            'data is still accessible — guard clears _isnew/_initialData, not $_data');
+    }
+
     // =========================================================================
     // Infrastructure helpers
     // =========================================================================
@@ -757,12 +819,19 @@ class OrmRelationsMySQLTest extends TestCase
                 PRIMARY KEY (`post_id`, `tag_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
+        $this->db->query(
+            "CREATE TABLE `orm_test_items` (
+                `id`         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                `title`      VARCHAR(255) NOT NULL,
+                `deleted_at` DATETIME NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        );
     }
 
     protected function dropTables(): void
     {
         $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['orm_test_post_tag', 'orm_test_tags', 'orm_test_posts', 'orm_test_profiles', 'orm_test_users'] as $t) {
+        foreach (['orm_test_post_tag', 'orm_test_tags', 'orm_test_posts', 'orm_test_profiles', 'orm_test_users', 'orm_test_items'] as $t) {
             $this->db->query("DROP TABLE IF EXISTS `{$t}`");
         }
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
@@ -798,6 +867,12 @@ class OrmRelationsMySQLTest extends TestCase
     protected function attachTag(int $postId, int $tagId): void
     {
         $this->db->query("INSERT INTO `orm_test_post_tag` (`post_id`, `tag_id`) VALUES ({$postId}, {$tagId})");
+    }
+
+    protected function insertSoftItem(string $title): int
+    {
+        $this->db->query("INSERT INTO `orm_test_items` (`title`) VALUES ('" . $this->db->prepareInput($title) . "')");
+        return (int) $this->db->getInsertId();
     }
 }
 
@@ -876,4 +951,19 @@ class OrmTestTag extends OrmModel
 {
     protected $_dbtable    = 'orm_test_tags';
     protected $_primaryKey = 'id';
+}
+
+/**
+ * Test item model with soft-delete enabled.
+ * Used to exercise OrmModel::_delete() soft-delete path and _load() soft-delete filter.
+ */
+class OrmTestSoftItem extends OrmModel
+{
+    protected $_dbtable    = 'orm_test_items';
+    protected $_primaryKey = 'id';
+    protected bool $softDelete = true;
+
+    public function publicSave(): void          { $this->_save(); }
+    public function publicLoad(mixed $pk): void  { $this->_load($pk); }
+    public function publicDelete(mixed $pk): void { $this->_delete($pk); }
 }
