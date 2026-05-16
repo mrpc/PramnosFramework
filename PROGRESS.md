@@ -24,6 +24,7 @@
 ### Commits
 - `41c0054` fix(health): prevent DB error_log pollution in unit tests
 - `d1271bd` fix(tests): use getProperClassName() for seeder path derivation
+- `3c04353` fix(tests): redirect error_log to /dev/null in PHPUnit bootstrap
 
 ---
 
