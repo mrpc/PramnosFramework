@@ -1104,8 +1104,10 @@ class Model extends \Pramnos\Framework\Base
         }
         
         foreach ($this->_initialData as $field => $initialValue) {
-            // Check if the field exists and has changed
-            if (property_exists($this, $field)) {
+            // Check if the field exists and has changed.
+            // property_exists() only finds declared properties; ORM models store
+            // fields dynamically in $_data via __set/__get — check both.
+            if (property_exists($this, $field) || array_key_exists($field, $this->_data)) {
                 $currentValue = $this->$field;
                 
                 // For numeric values, compare using loose comparison to handle type casting
