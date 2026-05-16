@@ -265,7 +265,7 @@
   - [x] `Pramnos\Auth\OAuth2\OAuth2Middleware` (PSR-7 resource validation) — `src/Pramnos/Auth/OAuth2/OAuth2Middleware.php`
   - [x] `Pramnos\Auth\WebhookService` — `src/Pramnos/Auth/WebhookService.php`; queueEvent (MySQL path), processQueue (exponential back-off, HMAC-SHA256 signing), purgeOldEvents, verifySignature; 9 unit tests
   - [x] `AuthServerServiceProvider` με route registration — `src/Pramnos/Auth/AuthServerServiceProvider.php`
-  - [ ] System migrations: `authserver.device_authorizations` (RFC 8628, 000026), `jwt_replay_prevention` public table (000027), `authserver.oauth2_client_auth_methods` (000028), `oauth2_webhook_endpoints` + `oauth2_webhook_events` (000029), `authserver.slow_api_calls` VIEW (000030)
+  - [x] System migrations: `authserver.device_authorizations` (RFC 8628, 000026), `jwt_replay_prevention` public table (000027), `authserver.oauth2_client_auth_methods` (000028), `oauth2_webhook_endpoints` + `oauth2_webhook_events` (000029), `authserver.slow_api_calls` VIEW (000030) — migrations exist, integration tests in `FrameworkMigrationsMySQLTest` + `FrameworkMigrationsPostgreSQLTest`
   - [x] PKCE columns σε `usertokens` (code_challenge, code_challenge_method + constraints + indexes), `usertokens.token` TEXT (από VARCHAR), 5 PL/pgSQL functions, `oauth2_application_permissions` + `oauth2_active_tokens` views — 000039 (oauth2_application_grants + views + cleanup fn), 000040 (deauthorize_user_from_app, create_gdpr_request, notify_user_profile_changed, token_revocation_webhook trigger + oauth2_webhook_status VIEW)
   - [x] RSA key generation (`openssl_pkey_new`) στο `pramnos init` — `scaffoldGitignore()` + `generateOAuth2KeyPair()` στο `Init.php`; 2048-bit RSA, app/keys/private.key (0600) + public.key (0644); .gitignore εξαίρεση; idempotent; 5 unit tests
   - [x] Auth Controllers: `Discovery.php` (OIDC + JWKS + RFC 8414 + health), `Session.php` (check/heartbeat/info/refresh, dual Bearer+session auth), `TwoFactorAuth.php`, `Gdpr.php` (WebhookService::queueEvent()), `Oauth.php` (authorize/token/revoke/introspect/userinfo/logout/deviceauthorization — League oauth2-server + nyholm/psr7 PSR-7 bridge), `Device.php` (RFC 8628 user-facing verification, dual session/credentials auth, webhook events), `Dashboard.php` (applications/revokeapplication/exportdata/deleteaccount/privacy/security/changepassword — bcrypt + SHA-256 fallback, cascading GDPR delete) — 39 unit tests
@@ -336,7 +336,7 @@
 - [x] **Middleware Scaffolding:** `php bin/pramnos create middleware <Name>` — `src/Middleware/<Name>.php` + `tests/Unit/<Name>MiddlewareTest.php`.
 - [x] **Event/Listener Scaffolding:** `create:event` και `create:listener` — εξαρτάται από το Event System (Φάση 2).
 - [x] **`docs/1.2-new-features.md`:** Section 24 added.
-- [ ] **Stub syntax unification:** Υπάρχουν δύο ασύμβατα syntax στα scaffolding stubs — `{{ key }}` (με spaces, στο `renderStub()`) και `{{TOKEN}}` (χωρίς spaces, στο `CLAUDE.md.stub`/`mcp.json.stub`). Εργασία: (α) ενοποίηση όλων των scaffolding stubs στο `{{ key }}` syntax, (β) χρήση του `renderStub()` και για `CLAUDE.md.stub`/`mcp.json.stub`, (γ) τεκμηρίωση του `{placeholder}` ως το σωστό pattern για mail/notification templates (διαφορετικός σκοπός, διαφορετικό context, αποδεκτή διαφορά).
+- [x] **Stub syntax unification:** Ενοποιήθηκε σε `{{ key }}` syntax — `CLAUDE.md.stub` και `mcp.json.stub` ενημερώθηκαν, `Init.php` χρησιμοποιεί πλέον `renderStub()` και για τα δύο. Το `{placeholder}` στα mail/notification templates είναι διαφορετικός σκοπός (αποδεκτή διαφορά).
 
 ### 🔧 Enhanced Scaffolding & Developer Experience (v1.2.1+)
 *Ανάβαθμη της ποιότητας του scaffolded κώδικα και της εμπειρίας προγραμματιστή.*
@@ -548,7 +548,7 @@
 > **Σημείωση για `[~]` (μερική κάλυψη):** Τα tests αυτά υπάρχουν στο Urbanwater integration suite και τρέχουν κατά τη διάρκεια ανάπτυξης ενάντια σε PostgreSQL + TimescaleDB. **Δεν** είναι επίσημα framework characterization tests × 3 databases — δεν τρέχουν σε MySQL και δεν βρίσκονται σε `tests/Characterization/`. Κατά συνέπεια, η Φάση 1 Internal Migration ολοκληρώθηκε χωρίς τη formal προϋπόθεση. Χρειάζεται επίσημη ολοκλήρωση πριν οποιοδήποτε επιπλέον refactoring.
 
 ### Code Quality
-- [ ] **Extract `ExpiredException` από `JWT.php`:** Η κλάση `ExpiredException` είναι ορισμένη inline μέσα στο `src/Pramnos/Auth/JWT.php` — το μοναδικό σημείο στο framework όπου μια exception class ζει μέσα σε άλλο αρχείο. Μεταφορά σε `src/Pramnos/Auth/ExpiredException.php`, προσθήκη `class_alias` για BC.
+- [x] **Extract `ExpiredException` από `JWT.php`:** Μεταφορά σε `src/Pramnos/Auth/ExpiredException.php`. FQCN αναλλοίωτο (`Pramnos\Auth\ExpiredException`) — δεν χρειάστηκε `class_alias`.
 
 ### New Feature Tests (>90% coverage, στόχος 100%)
 *Κάθε νέο feature που παραδίδεται στη v1.2 πρέπει να συνοδεύεται από tests που καλύπτουν τουλάχιστον το 90% του κώδικά του. Database-related features εκτελούνται × 3.*
