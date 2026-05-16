@@ -34,8 +34,10 @@
         ],
         "psr-4": {
             "Pramnos\\": "src/Pramnos/"
-        }
-
+        },
+        "classmap": [
+            "database/migrations/"
+        ]
     },
     "bin": "bin/pramnos",
     "config": {
