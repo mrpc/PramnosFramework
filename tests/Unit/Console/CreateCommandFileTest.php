@@ -359,7 +359,11 @@ class CreateCommandFileTest extends TestCase
         }
 
         $name      = 'ZZZTestCovSeed' . $this->testId;
-        $className = $name . 'Seeder';
+        // Use the same class-name derivation as createSeeder() so the expected
+        // path matches even when testId ends in a letter that isPlural() considers
+        // plural (e.g. 'a') and singularize() lowercases the whole name.
+        $baseName  = \Pramnos\Console\Commands\Create::getProperClassName($name, true);
+        $className = $baseName . 'Seeder';
         $file      = $seedDir . DIRECTORY_SEPARATOR . $className . '.php';
         $this->filesToCleanup[] = $file;
 
@@ -396,7 +400,10 @@ class CreateCommandFileTest extends TestCase
         }
 
         $name      = 'ZZZTestCovSeedCols' . $this->testId;
-        $className = $name . 'Seeder';
+        // Mirror the path derivation of createSeeder() to avoid case mismatches
+        // when testId ends in a plural-triggering character (e.g. 'a', 's').
+        $baseName  = \Pramnos\Console\Commands\Create::getProperClassName($name, true);
+        $className = $baseName . 'Seeder';
         $file      = $seedDir . DIRECTORY_SEPARATOR . $className . '.php';
         $this->filesToCleanup[] = $file;
 
@@ -436,7 +443,10 @@ class CreateCommandFileTest extends TestCase
         }
 
         $name      = 'ZZZTestExistsSeed' . $this->testId;
-        $className = $name . 'Seeder';
+        // Derive path the same way createSeeder() does so the pre-existing file
+        // sits at the path createSeeder() will compute, not at the raw $name path.
+        $baseName  = \Pramnos\Console\Commands\Create::getProperClassName($name, true);
+        $className = $baseName . 'Seeder';
         $file      = $seedDir . DIRECTORY_SEPARATOR . $className . '.php';
         file_put_contents($file, '<?php // pre-existing');
         $this->filesToCleanup[] = $file;
