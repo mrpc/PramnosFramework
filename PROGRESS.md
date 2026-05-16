@@ -1,7 +1,44 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-16 (session 82)
+## 📅 Last Updated: 2026-05-16 (session 83)
+
+## 🏁 Session 83 — Migration API helpers + UrbanWater characterization test fixes (2026-05-16)
+
+### ✅ Ολοκληρώθηκε
+
+**Migration-support API additions** (commit `106182f`):
+- `Database::statement()`, `selectOne()`, `getDriverName()`, `capabilities()`
+- `Migration::DB()`, `schema(schemaName)`
+- `SchemaBuilder::withSchema()`, `table()` alias, `dropIfExists()` alias
+- `Blueprint::addColumn()` widened to public
+- `ColumnDefinition::notNull()` alias, `ForeignKeyDefinition::name()` alias
+- `DatabaseCapabilities::supports()` alias
+- `PostgreSQLSchemaGrammar`: named `CONSTRAINT "name" UNIQUE(...)` αντί anonymous
+
+**Migration file fixes** (commit `7ec3e69`):
+- `addColumn(name, type)` σωστή σειρά παραμέτρων (ήταν ανεστραμμένη)
+- `CREATE OR REPLACE FUNCTION` για idempotent re-runs
+- `composer.json` classmap autoloading για `database/migrations/`
+
+**Test infrastructure** (commit `6ea5488`):
+- `tests/fixtures/app/app.php` minimal fixture για Application bootstrap
+- `BaseTestCase::setUp()`: null-guard πριν `$this->application->init()`
+
+**UrbanWater characterization tests** (commit `4c57288`):
+- tearDown cascade fix: ρητή αφαίρεση FK constraints πριν DROP TABLE (χωρίς CASCADE)
+- Προσθήκη `public.users` + `public.usertokens` stubs με σωστό case (`"parentToken"`)
+- Env vars: `DB_TYPE`, `DB_PASS` (όχι `DB_DRIVER`/`DB_PASSWORD`) + `?:` αντί `??` για `getenv()`
+
+**Αποτέλεσμα:** 4002 tests, 9316 assertions, **0 errors, 0 failures, 0 skips**
+
+### Commits
+- `106182f` feat(database): add migration-support helpers for Backport migrations
+- `7ec3e69` fix(migrations): fix addColumn() param order and composer classmap autoloading
+- `6ea5488` fix(testing): add app.php fixture and guard null Application before init()
+- `4c57288` test(characterization): fix UrbanWater tearDown cascade and add missing stubs
+
+---
 
 ## 🏁 Session 82 — Full suite bugfixes: void:void migrations + state pollution (2026-05-16)
 
