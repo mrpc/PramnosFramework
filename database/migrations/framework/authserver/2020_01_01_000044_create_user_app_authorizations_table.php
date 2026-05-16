@@ -15,9 +15,13 @@ use Pramnos\Database\Migration;
  */
 class CreateUserAppAuthorizationsTable extends Migration
 {
+    public string $feature      = 'authserver';
+    public string $scope        = 'framework';
+    public int    $priority     = 20;
+    public array  $dependencies = ['create_users_table', 'create_applications_table'];
+    public        $description  = 'Creates user_app_authorizations table for OAuth consent tracking';
+
     /**
-     * Run the migration.
-     *
      * @return void
      */
     public function up(): void
