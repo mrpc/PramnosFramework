@@ -412,6 +412,8 @@ class Init extends Command
             'migration'  => "<?php\nnamespace {{ namespace }}\\Migrations;\n\nfinal class {{ class }} extends \\Pramnos\\Database\\Migration\n{\n    public function up(): void {}\n    public function down(): void {}\n}\n",
             'middleware' => "<?php\nnamespace {{ namespace }}\\Middleware;\n\nuse Pramnos\\Http\\MiddlewareInterface;\nuse Pramnos\\Http\\Request;\n\nclass {{ class }} implements MiddlewareInterface\n{\n    public function handle(Request \$r, callable \$next): mixed { return \$next(\$r); }\n}\n",
             'test'       => "<?php\nnamespace Tests\\Unit;\n\nuse PHPUnit\\Framework\\TestCase;\n\nclass {{ class }}Test extends TestCase\n{\n    public function testItWorks(): void { \$this->assertTrue(true); }\n}\n",
+            'CLAUDE.md'  => "# {{ APP_NAME }}\n\nStack: PHP, {{ DB_TYPE }}, Docker\nNamespace: `{{ NAMESPACE }}`\nCLI: `./{{ CLI_NAME }}`\n\nFeatures: {{ FEATURES_LIST }}\n",
+            'mcp.json'   => "{\n  \"mcpServers\": {}\n}\n",
             default      => '',
         };
     }
@@ -1336,14 +1338,14 @@ PHP;
             default       => 'MySQL',
         };
 
-        $claudeStubFile = $this->scaffoldingDir . '/templates/CLAUDE.md.stub';
-        $stub = file_exists($claudeStubFile) ? file_get_contents($claudeStubFile) : '';
-        $claude = str_replace(
-            ['{{APP_NAME}}', '{{NAMESPACE}}', '{{CLI_NAME}}', '{{DB_TYPE}}', '{{DB_TYPE_LABEL}}', '{{FEATURES_LIST}}'],
-            [$appName,       $namespace,       $cliName,       $dbType,       $dbTypeLabel,          $featuresText],
-            $stub
-        );
-        $this->writeFile('CLAUDE.md', $claude);
+        $this->writeFile('CLAUDE.md', $this->renderStub('CLAUDE.md', [
+            'APP_NAME'     => $appName,
+            'NAMESPACE'    => $namespace,
+            'CLI_NAME'     => $cliName,
+            'DB_TYPE'      => $dbType,
+            'DB_TYPE_LABEL'=> $dbTypeLabel,
+            'FEATURES_LIST'=> $featuresText,
+        ]));
 
         // ── .mcp.json ─────────────────────────────────────────────────────────
         $isPostgres = in_array($dbType, ['postgresql', 'timescaledb'], true);
@@ -1357,14 +1359,11 @@ PHP;
             $mcpName    = 'mysql';
         }
 
-        $mcpStubFile = $this->scaffoldingDir . '/templates/mcp.json.stub';
-        $mcpStub = file_exists($mcpStubFile) ? file_get_contents($mcpStubFile) : "{\n  \"mcpServers\": {}\n}\n";
-        $mcp = str_replace(
-            ['{{DB_MCP_NAME}}', '{{DB_MCP_PACKAGE}}', '{{DB_MCP_DSN}}'],
-            [$mcpName,          $mcpPackage,           $dsn],
-            $mcpStub
-        );
-        $this->writeFile('.mcp.json', $mcp);
+        $this->writeFile('.mcp.json', $this->renderStub('mcp.json', [
+            'DB_MCP_NAME'    => $mcpName,
+            'DB_MCP_PACKAGE' => $mcpPackage,
+            'DB_MCP_DSN'     => $dsn,
+        ]));
 
         // .mcp.json contains credentials — exclude from git
         $gitignorePath = $this->targetBaseDir . '/.gitignore';
