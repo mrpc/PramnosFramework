@@ -56,14 +56,130 @@ class UrbanWaterBackportMigrationsCharacterizationTest extends TestCase
 
         // Create database connection from environment
         $this->db = $this->createDatabaseConnection();
-        $this->driver = $this->db->getDriverName();
+        // Normalize to 'pgsql' for any PostgreSQL variant (postgresql, timescaledb).
+        $rawType = $this->db->type;
+        $this->driver = ($rawType === 'postgresql' || $rawType === 'timescaledb') ? 'pgsql' : $rawType;
         $this->app = $this->makeApp();
+
+        // Ensure the schemas and stub FK-target tables used by these migrations
+        // exist.  In production these are created by prerequisite migrations; in
+        // the isolated characterization test environment we create them here so
+        // that migration up()/down() methods don't fail with "schema/relation
+        // does not exist" errors on FK references.
+        if ($this->driver === 'pgsql') {
+            $this->db->statement('CREATE SCHEMA IF NOT EXISTS applications');
+            $this->db->statement('CREATE SCHEMA IF NOT EXISTS authserver');
+
+            // Minimal stubs — just enough for FK references; not the full schema.
+            $this->db->statement(
+                'CREATE TABLE IF NOT EXISTS public.applications '
+                . '(appid SERIAL PRIMARY KEY, name VARCHAR(255), owner BIGINT)'
+            );
+            // Add owner column if the stub table already existed without it.
+            $this->db->statement(
+                'ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS owner BIGINT'
+            );
+            $this->db->statement(
+                'CREATE TABLE IF NOT EXISTS public.urls '
+                . '(urlid SERIAL PRIMARY KEY, url TEXT)'
+            );
+            $this->db->statement(
+                'CREATE TABLE IF NOT EXISTS public.tokenactions '
+                . '(actionid SERIAL PRIMARY KEY, tokenid INTEGER, urlid INTEGER)'
+            );
+            $this->db->statement(
+                'CREATE TABLE IF NOT EXISTS public.user_privacy_settings '
+                . '(id SERIAL PRIMARY KEY, userid BIGINT)'
+            );
+            $this->db->statement(
+                'CREATE TABLE IF NOT EXISTS public.user_consents '
+                . '(id SERIAL PRIMARY KEY, userid BIGINT)'
+            );
+            $this->db->statement(
+                'CREATE TABLE IF NOT EXISTS public.data_processing_records '
+                . '(id SERIAL PRIMARY KEY, userid BIGINT)'
+            );
+            $this->db->statement(
+                'CREATE TABLE IF NOT EXISTS public.gdpr_requests '
+                . '(id SERIAL PRIMARY KEY, userid BIGINT)'
+            );
+            $this->db->statement(
+                'CREATE TABLE IF NOT EXISTS public.user_activity_log '
+                . '(id SERIAL PRIMARY KEY, userid BIGINT, time TIMESTAMPTZ)'
+            );
+            // Users and usertokens are referenced by several migrations.
+            // Create minimal stubs so FK constraints can be established even when
+            // the integration-test tables do not exist in this environment.
+            $this->db->statement(
+                'CREATE TABLE IF NOT EXISTS public.users '
+                . '(userid BIGSERIAL PRIMARY KEY, username VARCHAR(255))'
+            );
+            // Column "parentToken" must be quoted so PostgreSQL preserves camelCase.
+            $this->db->statement(
+                'CREATE TABLE IF NOT EXISTS public.usertokens '
+                . '(tokenid SERIAL PRIMARY KEY, "parentToken" INTEGER, applicationid INTEGER)'
+            );
+        }
     }
 
     protected function tearDown(): void
     {
-        // Cleanup: migrations run down() in reverse order by framework
-        // These tests rely on framework's automated cleanup
+        if ($this->driver === 'pgsql') {
+            // Step 1 — remove any FK constraints that migration up() methods may have
+            // added to stub tables. down() should already have removed them, but if a
+            // test fails before reaching its inline cleanup call these can linger.
+            // We use ALTER TABLE IF EXISTS … DROP CONSTRAINT IF EXISTS so this is safe
+            // even when the table or constraint no longer exists.
+            // This must happen BEFORE dropping referenced tables; otherwise a plain
+            // DROP TABLE would require CASCADE and risk destroying unrelated tables.
+            $constraintsToRemove = [
+                'usertokens'              => ['fk_usertokens_parenttoken', 'fk_usertokens_applicationid'],
+                'tokenactions'            => ['fk_tokenactions_tokenid', 'fk_tokenactions_urlid'],
+                'applications'            => ['fk_applications_owner'],
+                'user_privacy_settings'   => ['fk_user_privacy_settings_userid'],
+                'user_consents'           => ['fk_user_consents_userid'],
+                'data_processing_records' => ['fk_data_processing_records_userid'],
+                'gdpr_requests'           => ['fk_gdpr_requests_userid'],
+                'user_activity_log'       => ['fk_user_activity_log_userid'],
+            ];
+            foreach ($constraintsToRemove as $table => $constraints) {
+                foreach ($constraints as $constraint) {
+                    $this->db->statement(
+                        "ALTER TABLE IF EXISTS \"public\".\"{$table}\""
+                        . " DROP CONSTRAINT IF EXISTS \"{$constraint}\""
+                    );
+                }
+            }
+
+            // Step 2 — drop tables that migration up() methods CREATE (not pre-existing).
+            // These should be dropped by inline migration->down() calls in each test,
+            // but guard with IF EXISTS in case a test fails before reaching its cleanup.
+            foreach ([
+                '"applications"."application_settings"',
+                '"applications"."application_stats"',
+                '"authserver"."user_app_authorizations"',
+            ] as $table) {
+                $this->db->statement("DROP TABLE IF EXISTS {$table}");
+            }
+
+            // Step 3 — drop all stub tables created in setUp without CASCADE.
+            // All FK constraints that could cause cascade propagation were removed in
+            // step 1, so a plain DROP TABLE is safe and will not touch any other table.
+            foreach ([
+                '"public"."user_activity_log"',
+                '"public"."gdpr_requests"',
+                '"public"."data_processing_records"',
+                '"public"."user_consents"',
+                '"public"."user_privacy_settings"',
+                '"public"."tokenactions"',
+                '"public"."urls"',
+                '"public"."usertokens"',
+                '"public"."users"',
+                '"public"."applications"',
+            ] as $table) {
+                $this->db->statement("DROP TABLE IF EXISTS {$table}");
+            }
+        }
     }
 
     // =========================================================================
@@ -365,15 +481,23 @@ class UrbanWaterBackportMigrationsCharacterizationTest extends TestCase
 
     /**
      * Create a database connection from environment variables.
+     *
+     * Reads the Docker container env vars: DB_TYPE (driver), DB_HOST, DB_PORT,
+     * DB_USER, DB_PASS, DB_NAME. getenv() returns false (not null) when a var is
+     * absent, so we use ?: instead of ?? to fall through to the default.
      */
     protected function createDatabaseConnection(): Database
     {
-        $driver = $_ENV['DB_DRIVER'] ?? getenv('DB_DRIVER') ?? 'mysql';
-        $server = $_ENV['DB_HOST'] ?? getenv('DB_HOST') ?? 'db';
-        $port = (int) ($_ENV['DB_PORT'] ?? getenv('DB_PORT') ?? 3306);
-        $user = $_ENV['DB_USER'] ?? getenv('DB_USER') ?? 'root';
-        $password = $_ENV['DB_PASSWORD'] ?? getenv('DB_PASSWORD') ?? 'secret';
-        $database = $_ENV['DB_NAME'] ?? getenv('DB_NAME') ?? 'pramnos_test';
+        // DB_TYPE is the canonical name in docker-compose (not DB_DRIVER).
+        $driver = $_ENV['DB_TYPE'] ?? (getenv('DB_TYPE') ?: 'mysql');
+        $server = $_ENV['DB_HOST'] ?? (getenv('DB_HOST') ?: 'db');
+        // Default port depends on driver: 5432 for PostgreSQL, 3306 for MySQL.
+        $defaultPort = ($driver === 'postgresql' || $driver === 'pgsql') ? 5432 : 3306;
+        $port = (int) ($_ENV['DB_PORT'] ?? (getenv('DB_PORT') ?: $defaultPort));
+        $user = $_ENV['DB_USER'] ?? (getenv('DB_USER') ?: 'root');
+        // DB_PASS is the canonical name in docker-compose (not DB_PASSWORD).
+        $password = $_ENV['DB_PASS'] ?? (getenv('DB_PASS') ?: 'secret');
+        $database = $_ENV['DB_NAME'] ?? (getenv('DB_NAME') ?: 'pramnos_test');
 
         $db = new Database();
         $db->type = $driver;
@@ -400,7 +524,8 @@ class UrbanWaterBackportMigrationsCharacterizationTest extends TestCase
     protected function makeApp(): Application
     {
         $app = new Application();
-        $app->set('database', $this->db);
+        // Inject the live test connection so migrations use the correct DB instance.
+        $app->database = $this->db;
         return $app;
     }
 
@@ -517,9 +642,22 @@ class UrbanWaterBackportMigrationsCharacterizationTest extends TestCase
 
     /**
      * Drop a foreign key if it exists.
+     *
+     * Silently skips when the table itself does not exist — this prevents
+     * "relation does not exist" errors in tests that run before the dependent
+     * tables are created by earlier migrations.
      */
     protected function dropForeignKeyIfExists(string $table, string $fkName): void
     {
+        // Guard: check the table exists before issuing ALTER TABLE.
+        $tableExists = $this->db->selectOne(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = ? AND table_schema = 'public'",
+            [$table]
+        );
+        if (!$tableExists) {
+            return;
+        }
+
         if ($this->driver === 'pgsql') {
             $this->db->statement(
                 "ALTER TABLE \"{$table}\" DROP CONSTRAINT IF EXISTS \"{$fkName}\""
