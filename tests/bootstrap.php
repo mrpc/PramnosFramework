@@ -3,6 +3,11 @@
 require dirname(__DIR__) . DIRECTORY_SEPARATOR
     . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
 date_default_timezone_set('UTC');
+// Redirect error_log() to /dev/null so Database::displayError() calls (which
+// use error_log when no Application instance is running) do not pollute the
+// PHPUnit progress output.  The code-path is still executed — coverage is
+// unaffected — but the noise is discarded.
+ini_set('error_log', '/dev/null');
 /**
 * The following are REQUIRED by Pramnos Framework
 */
