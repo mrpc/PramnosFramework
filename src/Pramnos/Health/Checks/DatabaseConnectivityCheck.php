@@ -28,6 +28,14 @@ class DatabaseConnectivityCheck implements HealthCheck
     public function run(): HealthCheckResult
     {
         try {
+            // Ensure a live connection exists before issuing a query.
+            // connect() throws RuntimeException on failure, which is caught below.
+            // This prevents query() from reaching runMysqlQuery()'s
+            // setError('0', 'not connected') path, which calls error_log() as a
+            // side effect before throwing — causing output pollution in unit tests.
+            if (!$this->db->connected) {
+                $this->db->connect();
+            }
             $start  = microtime(true);
             $result = $this->db->query('SELECT 1');
             $ms     = round((microtime(true) - $start) * 1000, 2);
