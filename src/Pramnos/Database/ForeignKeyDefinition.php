@@ -73,6 +73,12 @@ class ForeignKeyDefinition
         return $this;
     }
 
+    /** Fluent alias for constraintName() — matches Laravel's ->name() API. */
+    public function name(string $name): static
+    {
+        return $this->constraintName($name);
+    }
+
     // -------------------------------------------------------------------------
     // Cascade shortcuts
     // -------------------------------------------------------------------------

@@ -71,6 +71,12 @@ class DatabaseCapabilities
      * @param  string $feature  One of the ENGINE_* or feature constants.
      * @return bool
      */
+    /** Fluent alias for has() — matches the Laravel Capsule / migration-file API. */
+    public function supports($feature): bool
+    {
+        return $this->has($feature);
+    }
+
     public function has($feature): bool
     {
         $cache = $this->getCache();

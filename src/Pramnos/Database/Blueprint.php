@@ -415,9 +415,17 @@ class Blueprint
         $this->droppedIndexes[] = $name;
     }
 
-    public function dropForeign(string $name): void
+    /**
+     * Mark a foreign key for removal in an ALTER TABLE statement.
+     *
+     * Accepts either a constraint name string or a single-element array containing
+     * the name — matching Laravel's Schema::dropForeign(['name']) API.
+     *
+     * @param string|string[] $name Constraint name or [constraint name].
+     */
+    public function dropForeign(string|array $name): void
     {
-        $this->droppedForeigns[] = $name;
+        $this->droppedForeigns[] = is_array($name) ? reset($name) : $name;
     }
 
     public function dropPrimary(?string $name = null): void
@@ -463,7 +471,15 @@ class Blueprint
     // Internal helpers
     // =========================================================================
 
-    protected function addColumn(string $name, string $type, array $attributes = []): ColumnDefinition
+    /**
+     * Add a raw column with an arbitrary type string (escape hatch for driver-specific types
+     * not covered by the standard Blueprint helpers, e.g. 'inet[]', 'text[]' for PostgreSQL).
+     *
+     * @param string $name       Column name.
+     * @param string $type       SQL type string passed through to the grammar as-is.
+     * @param array  $attributes Additional ColumnDefinition attributes.
+     */
+    public function addColumn(string $name, string $type, array $attributes = []): ColumnDefinition
     {
         $col = new ColumnDefinition($name, $type, $attributes);
         $this->columns[] = $col;

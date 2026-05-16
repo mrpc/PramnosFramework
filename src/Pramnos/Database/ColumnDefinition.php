@@ -46,6 +46,12 @@ class ColumnDefinition
         return $this;
     }
 
+    /** Fluent alias for nullable(false) — marks the column NOT NULL. */
+    public function notNull(): static
+    {
+        return $this->nullable(false);
+    }
+
     // -------------------------------------------------------------------------
     // Default value
     // -------------------------------------------------------------------------
