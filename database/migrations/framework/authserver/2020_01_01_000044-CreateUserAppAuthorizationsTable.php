@@ -32,7 +32,7 @@ class CreateUserAppAuthorizationsTable extends Migration
 
                 // Scope information (JSON array of granted scopes)
                 if ($this->DB()->getDriverName() === 'pgsql') {
-                    $table->addColumn('text[]', 'scope')->nullable();
+                    $table->addColumn('scope', 'text[]')->nullable();
                 } else {
                     $table->json('scope')->nullable();
                 }

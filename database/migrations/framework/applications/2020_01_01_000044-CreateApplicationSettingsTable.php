@@ -47,8 +47,8 @@ class CreateApplicationSettingsTable extends Migration
 
                 // IP lock settings (PostgreSQL-specific: INET[] arrays)
                 if ($this->DB()->getDriverName() === 'pgsql') {
-                    $table->addColumn('inet[]', 'allowed_ips')->nullable();
-                    $table->addColumn('inet[]', 'blocked_ips')->nullable();
+                    $table->addColumn('allowed_ips', 'inet[]')->nullable();
+                    $table->addColumn('blocked_ips', 'inet[]')->nullable();
                 } else {
                     // MySQL: use JSON arrays
                     $table->json('allowed_ips')->nullable();
@@ -62,7 +62,7 @@ class CreateApplicationSettingsTable extends Migration
                 
                 // PostgreSQL: TEXT[] array; MySQL: JSON array
                 if ($this->DB()->getDriverName() === 'pgsql') {
-                    $table->addColumn('text[]', 'cors_origins')->nullable();
+                    $table->addColumn('cors_origins', 'text[]')->nullable();
                 } else {
                     $table->json('cors_origins')->nullable();
                 }
@@ -86,7 +86,7 @@ class CreateApplicationSettingsTable extends Migration
         // Create trigger for updated_at (PostgreSQL only)
         if ($this->DB()->getDriverName() === 'pgsql') {
             $this->DB()->statement("
-                CREATE FUNCTION applications.update_application_settings_timestamp()
+                CREATE OR REPLACE FUNCTION applications.update_application_settings_timestamp()
                 RETURNS TRIGGER AS \$\$
                 BEGIN
                     NEW.updated_at = CURRENT_TIMESTAMP;
