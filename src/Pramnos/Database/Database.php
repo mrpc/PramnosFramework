@@ -2874,4 +2874,92 @@ class Database extends \Pramnos\Framework\Base
         return null;
     }
 
+    // =========================================================================
+    // Convenience query helpers (Laravel-style API used by migration classes)
+    // =========================================================================
+
+    /**
+     * Return a DatabaseCapabilities instance for this connection.
+     *
+     * Allows migration classes to check driver features without importing or
+     * instantiating DatabaseCapabilities directly:
+     *   $this->DB()->capabilities()->supports(DatabaseCapabilities::TIMESCALEDB)
+     */
+    public function capabilities(): \Pramnos\Database\DatabaseCapabilities
+    {
+        return new \Pramnos\Database\DatabaseCapabilities($this);
+    }
+
+    /**
+     * Execute a raw SQL statement (DDL or DML) and return whether it succeeded.
+     *
+     * Intended for statements that produce no rows: CREATE, ALTER, DROP, INSERT,
+     * UPDATE, DELETE, SET, etc.  Wraps the existing query() method with a bool
+     * return so migration and test code doesn't have to inspect the Result object.
+     *
+     * @param string $sql Raw SQL string — no parameter substitution is performed.
+     */
+    public function statement(string $sql): bool
+    {
+        $result = $this->query($sql);
+        return $result !== false && $result !== null;
+    }
+
+    /**
+     * Execute a SELECT and return the first row as an associative array, or null.
+     *
+     * Supports ? positional placeholders: each ? is replaced with a properly
+     * escaped value from $bindings in order.  Only string/int/float values are
+     * supported in $bindings; use raw SQL for other types.
+     *
+     * @param string  $sql      SQL with optional ? placeholders.
+     * @param array   $bindings Values to substitute for each ?.
+     * @return array|null       First row as assoc array, or null when empty.
+     */
+    public function selectOne(string $sql, array $bindings = []): ?array
+    {
+        if (!empty($bindings)) {
+            $parts = explode('?', $sql);
+            $built = '';
+            foreach ($parts as $i => $part) {
+                $built .= $part;
+                if (isset($bindings[$i])) {
+                    $value = $bindings[$i];
+                    if (is_null($value)) {
+                        $built .= 'NULL';
+                    } elseif (is_bool($value)) {
+                        $built .= $value ? 'TRUE' : 'FALSE';
+                    } elseif (is_int($value) || is_float($value)) {
+                        $built .= $value;
+                    } else {
+                        $built .= "'" . $this->prepareInput((string) $value) . "'";
+                    }
+                }
+            }
+            $sql = $built;
+        }
+
+        $result = $this->query($sql);
+        if (!$result || $result->eof) {
+            return null;
+        }
+        return $result->fields ?: null;
+    }
+
+    /**
+     * Return the normalised driver name for this connection.
+     *
+     * Maps the internal $type value to a canonical short name:
+     *   'mysql'       → 'mysql'
+     *   'postgresql'  → 'pgsql'
+     *   'timescaledb' → 'pgsql'
+     */
+    public function getDriverName(): string
+    {
+        return match ($this->type) {
+            'postgresql', 'timescaledb' => 'pgsql',
+            default                     => $this->type,
+        };
+    }
+
 }

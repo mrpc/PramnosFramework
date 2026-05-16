@@ -32,6 +32,13 @@ class SchemaBuilder
     /** @var SchemaGrammarInterface|null */
     protected $grammar = null;
 
+    /**
+     * Schema name override set by withSchema().  When non-null this takes
+     * precedence over $db->schema in resolveSchema() and resolveTable().
+     * @var string|null
+     */
+    protected ?string $overrideSchema = null;
+
     // -------------------------------------------------------------------------
     // Construction
     // -------------------------------------------------------------------------
@@ -40,6 +47,28 @@ class SchemaBuilder
     {
         $this->db           = $db;
         $this->capabilities = new DatabaseCapabilities($db);
+    }
+
+    /**
+     * Return a copy of this builder scoped to a specific schema.
+     *
+     * All DDL methods (create, drop, alter, …) will use the given schema as
+     * the default — tables passed as plain names (no dot) are automatically
+     * prefixed with the schema.  Useful in migration classes:
+     *
+     *   $this->schema('authserver')->create('roles', function ($t) { … });
+     *
+     * On MySQL the schema becomes a table-name prefix (schema_table).
+     * On PostgreSQL the schema is used as the PG schema qualifier.
+     *
+     * @param  string $schema Schema / database name.
+     * @return static         A new SchemaBuilder instance scoped to that schema.
+     */
+    public function withSchema(string $schema): static
+    {
+        $clone = clone $this;
+        $clone->overrideSchema = $schema !== '' ? $schema : null;
+        return $clone;
     }
 
     // -------------------------------------------------------------------------
@@ -113,6 +142,18 @@ class SchemaBuilder
     public function create(string $table, \Closure $callback): void
     {
         $this->createTable($table, $callback);
+    }
+
+    /** Fluent alias for alterTable() — matches Laravel's Schema::table() API. */
+    public function table(string $table, \Closure $callback): void
+    {
+        $this->alterTable($table, $callback);
+    }
+
+    /** Fluent alias for dropTableIfExists() — matches Laravel's Schema::dropIfExists() API. */
+    public function dropIfExists(string $table): void
+    {
+        $this->dropTableIfExists($table);
     }
 
     /**
@@ -1040,10 +1081,22 @@ class SchemaBuilder
             return str_replace('#PREFIX#', $prefix, $table);
         }
 
-        // schema.table on MySQL → {prefix}schema_table.
-        if ($this->capabilities->isMySQL() && strpos($table, '.') !== false) {
-            [$schema, $name] = explode('.', $table, 2);
-            return $prefix . $schema . '_' . $name;
+        // schema.table passed explicitly — handle as-is per driver.
+        if (strpos($table, '.') !== false) {
+            if ($this->capabilities->isMySQL()) {
+                [$schema, $name] = explode('.', $table, 2);
+                return $prefix . $schema . '_' . $name;
+            }
+            return $table;
+        }
+
+        // Apply schema override from withSchema() when the table has no explicit schema.
+        if ($this->overrideSchema !== null) {
+            if ($this->capabilities->isMySQL()) {
+                return $prefix . $this->overrideSchema . '_' . $table;
+            }
+            // PostgreSQL: schema.table — quoteTable() will split and double-quote.
+            return $this->overrideSchema . '.' . $table;
         }
 
         return $table;
@@ -1090,7 +1143,8 @@ class SchemaBuilder
      */
     protected function resolveSchema(): string
     {
-        $schema = $this->db->schema ?? '';
+        // withSchema() override takes precedence over the db's own schema setting.
+        $schema = $this->overrideSchema ?? $this->db->schema ?? '';
         if ($schema === '' && $this->capabilities->isMySQL()) {
             $schema = $this->db->database ?? '';
         }

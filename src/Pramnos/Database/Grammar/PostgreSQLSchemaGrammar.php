@@ -165,6 +165,17 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
     }
 
     // =========================================================================
+    // Named UNIQUE constraints — PostgreSQL supports CONSTRAINT name UNIQUE (...)
+    // which creates a uniquely named index, unlike plain UNIQUE (...) which gets
+    // an auto-generated name that tests cannot reliably assert on.
+    // =========================================================================
+
+    protected function compileInlineUnique(string $name, array $quotedCols): string
+    {
+        return 'CONSTRAINT "' . $name . '" UNIQUE (' . implode(', ', $quotedCols) . ')';
+    }
+
+    // =========================================================================
     // Comments (PostgreSQL: separate COMMENT ON TABLE / COMMENT ON COLUMN)
     // =========================================================================
 
