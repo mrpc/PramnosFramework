@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "{{DB_MCP_NAME}}": {
+    "{{ DB_MCP_NAME }}": {
       "command": "npx",
-      "args": ["-y", "{{DB_MCP_PACKAGE}}", "{{DB_MCP_DSN}}"]
+      "args": ["-y", "{{ DB_MCP_PACKAGE }}", "{{ DB_MCP_DSN }}"]
     }
   }
 }
