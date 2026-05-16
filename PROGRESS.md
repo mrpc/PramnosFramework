@@ -1,7 +1,34 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-16 (session 84)
+## 📅 Last Updated: 2026-05-17 (session 85)
+
+## 🏁 Session 85 — Close v1.2 pending items (2026-05-17)
+
+### ✅ Ολοκληρώθηκε
+
+**Roadmap update: OAuth Server migrations 000026–000030** (commit `10b21c8` — roadmap only):
+- Migrations `device_authorizations`, `jwt_replay_prevention`, `oauth2_client_auth_methods`, `oauth2_webhook_endpoints/events`, `slow_api_calls` VIEW ήταν ήδη υλοποιημένα και tested
+- Roadmap item `[ ]` → `[x]` — απλή συντήρηση
+
+**`ExpiredException` extraction** (commit `10b21c8`):
+- Μεταφορά από inline class στο `JWT.php` σε `src/Pramnos/Auth/ExpiredException.php`
+- FQCN αναλλοίωτο — δεν χρειάστηκε `class_alias`
+- Side-fix: migration `000044` rename από hyphen σε underscore + προσθήκη metadata (`$feature`, `$scope`, `$priority`, `$dependencies`)
+
+**Stub syntax unification** (commit `d645592`):
+- `CLAUDE.md.stub` και `mcp.json.stub`: `{{TOKEN}}` → `{{ TOKEN }}` (ενοποίηση με τα υπόλοιπα stubs)
+- `Init.php`: manual `str_replace` array → `renderStub()` για CLAUDE.md και mcp.json
+- Προσθήκη fallbacks `CLAUDE.md`/`mcp.json` στο `getFallbackStub()`
+- 2 νέα tests: `testClaudeMdStubSubstitutesAllTokens`, `testMcpJsonStubSubstitutesAllTokens`
+
+**Αποτέλεσμα:** 4001 tests, 9317 assertions, **0 errors, 0 failures**
+
+### Commits
+- `10b21c8` refactor(auth): extract ExpiredException to dedicated file
+- `d645592` refactor(scaffolding): unify stub syntax to {{ key }} and use renderStub()
+
+---
 
 ## 🏁 Session 84 — Fix output pollution + non-deterministic seeder test failure (2026-05-16)
 
