@@ -60,8 +60,11 @@ abstract class BaseTestCase extends TestCase
         try {
             if (class_exists('\Pramnos\Application\Application')) {
                 $this->application = \Pramnos\Application\Application::getInstance();
-                // Avoid full init in core unit tests if settings missing
-                if (defined('APP_PATH') && file_exists(APP_PATH . '/app.php')) {
+                // Avoid full init in core unit tests if settings missing or no instance
+                if ($this->application !== null
+                    && defined('APP_PATH')
+                    && file_exists(APP_PATH . '/app.php')
+                ) {
                     $this->application->init();
                 }
             }
