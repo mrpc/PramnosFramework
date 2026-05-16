@@ -121,6 +121,43 @@ abstract class Migration extends \Pramnos\Framework\Base
     }
 
     // =========================================================================
+    // Database helpers
+    // =========================================================================
+
+    /**
+     * Return the live database connection for this migration.
+     *
+     * Shorthand so migration subclasses can write $this->DB()->statement(…)
+     * instead of $this->application->database->statement(…).
+     */
+    protected function DB(): \Pramnos\Database\Database
+    {
+        return $this->application->database;
+    }
+
+    /**
+     * Return a SchemaBuilder scoped to the given schema (or the default schema).
+     *
+     * Usage in migration up()/down():
+     *   $this->schema('authserver')->create('roles', function ($t) { … });
+     *   $this->schema('authserver')->dropIfExists('roles');
+     *
+     * On MySQL the schema name becomes a table prefix (schema_table).
+     * On PostgreSQL it is used as a PG schema qualifier ("schema"."table").
+     * Passing no argument returns an unscoped builder (uses DB default schema).
+     *
+     * @param  string $schemaName Schema / database name.
+     */
+    protected function schema(string $schemaName = ''): \Pramnos\Database\SchemaBuilder
+    {
+        $builder = new \Pramnos\Database\SchemaBuilder($this->DB());
+        if ($schemaName !== '') {
+            $builder = $builder->withSchema($schemaName);
+        }
+        return $builder;
+    }
+
+    // =========================================================================
     // Metadata accessors
     // =========================================================================
 
