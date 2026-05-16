@@ -564,6 +564,142 @@ class OrmRelationsMySQLTest extends TestCase
         $this->assertNotNull($arr['profile']);
     }
 
+    // -------------------------------------------------------------------------
+    // OrmModel::_save(), _load(), _delete()
+    // -------------------------------------------------------------------------
+
+    /**
+     * OrmModel::_save() on a new model must INSERT a row, assign the auto-increment
+     * id back to the model, and fire 'creating'/'created' events.
+     *
+     * This exercises the OrmModel::_save() override (timestamps + events) over
+     * the base Model::_save() DB write path.
+     */
+    public function testSaveInsertsNewRow(): void
+    {
+        // Arrange
+        $user = new OrmTestUser($this->controller);
+        $user->name = 'SaveTest';
+
+        // Act — _save() is protected; call it via an instrumented subclass that exposes it
+        $user->publicSave();
+
+        // Assert — id must be populated (AUTO_INCREMENT assigned by DB)
+        $this->assertGreaterThan(0, (int) $user->id,
+            '_save() must assign the auto-increment id after insert');
+
+        // Assert — row is actually in the DB
+        $result = $this->db->queryBuilder()->from('orm_test_users')->where('id', (int) $user->id)->limit(1)->get();
+        $this->assertSame('SaveTest', $result->fields['name']);
+    }
+
+    /**
+     * OrmModel::_save() on an existing model must UPDATE the row rather than
+     * inserting a new one.
+     */
+    public function testSaveUpdatesExistingRow(): void
+    {
+        // Arrange — seed a row then load it
+        $id   = $this->insertUser('Original');
+        $user = new OrmTestUser($this->controller);
+        $user->publicLoad($id);
+
+        // Act — mutate and save
+        $user->name = 'Updated';
+        $user->publicSave();
+
+        // Assert — DB has the updated value, still the same row count
+        $result = $this->db->queryBuilder()->from('orm_test_users')->where('id', $id)->limit(1)->get();
+        $this->assertSame('Updated', $result->fields['name']);
+
+        $cnt = $this->db->queryBuilder()->from('orm_test_users')->select('COUNT(*) AS c')->get();
+        $this->assertSame(1, (int) $cnt->fields['c'], 'UPDATE must not insert a new row');
+    }
+
+    /**
+     * OrmModel::_load() must hydrate the model from the DB and mark it as
+     * not-new.  The soft-delete filter override path is exercised even when
+     * softDelete = false (the method is still called).
+     */
+    public function testLoadHydratesModelFromDb(): void
+    {
+        // Arrange
+        $id = $this->insertUser('LoadMe');
+
+        $user = new OrmTestUser($this->controller);
+
+        // Act
+        $user->publicLoad($id);
+
+        // Assert — model has the right data
+        $this->assertSame('LoadMe', $user->name);
+        $this->assertSame((string) $id, (string) $user->id,
+            '_load() must populate id from DB');
+    }
+
+    /**
+     * OrmModel::_delete() must hard-delete the row (no softDelete) and fire
+     * 'deleting'/'deleted' events.
+     */
+    public function testDeleteRemovesRow(): void
+    {
+        // Arrange — insert and load
+        $id   = $this->insertUser('DeleteMe');
+        $user = new OrmTestUser($this->controller);
+        $user->publicLoad($id);
+
+        // Act
+        $user->publicDelete($id);
+
+        // Assert — row is gone
+        $result = $this->db->queryBuilder()->from('orm_test_users')->select('COUNT(*) AS c')->where('id', $id)->get();
+        $this->assertSame(0, (int) $result->fields['c'], '_delete() must remove the row');
+    }
+
+    /**
+     * BelongsTo::getResults() must return null when the FK value is set but
+     * the related row no longer exists (was deleted or never inserted).
+     *
+     * This covers the `if ($result->numRows === 0) return null` branch
+     * (line 52 of BelongsTo.php) that is distinct from the null-FK early return.
+     */
+    public function testBelongsToGetResultsReturnsNullWhenRelatedRowMissing(): void
+    {
+        // Arrange — post with user_id pointing to a non-existent user
+        $post = new OrmTestPost($this->controller);
+        $post->user_id = 999999; // no such user
+
+        // Act
+        $author = $post->author()->getResults();
+
+        // Assert — no matching row → null, not an exception
+        $this->assertNull($author);
+    }
+
+    /**
+     * BelongsToMany pivot accessors must return the values passed to __construct.
+     *
+     * These accessors (getPivotTable, getForeignPivotKey, getRelatedPivotKey,
+     * getRelatedKey) are used by loadRelationForModels and exist for inspection.
+     * Covering them avoids false 0% method-coverage gaps in the Clover report.
+     */
+    public function testBelongsToManyAccessorsReturnConstructorValues(): void
+    {
+        // Arrange — post with a known BelongsToMany definition
+        $postId = $this->insertPost(null, 'AccessorTest');
+        $post   = new OrmTestPost($this->controller);
+        $post->id = $postId;
+
+        // Act — call tags() to get the BelongsToMany relation object
+        $relation = $post->tags();
+
+        // Assert — all four accessors return correct values from __construct
+        $this->assertSame('orm_test_post_tag', $relation->getPivotTable());
+        $this->assertSame('post_id',           $relation->getForeignPivotKey());
+        $this->assertSame('tag_id',            $relation->getRelatedPivotKey());
+        $this->assertSame('id',                $relation->getRelatedKey());
+    }
+
     // =========================================================================
     // Infrastructure helpers
     // =========================================================================
@@ -686,6 +822,11 @@ class OrmTestUser extends OrmModel
     {
         return $this->hasMany(OrmTestPost::class, 'user_id', 'id');
     }
+
+    // Expose protected CRUD methods for integration testing
+    public function publicSave(): void         { $this->_save(); }
+    public function publicLoad(mixed $pk): void { $this->_load($pk); }
+    public function publicDelete(mixed $pk): void { $this->_delete($pk); }
 }
 
 /**
