@@ -245,7 +245,7 @@ class WebhookService
      *   X-Webhook-Event-Type  — the event type string (e.g. 'token_revoked')
      *   X-Webhook-Timestamp   — Unix timestamp of the delivery attempt
      */
-    private function deliverEvent(array $event): bool
+    protected function deliverEvent(array $event): bool
     {
         $body      = is_string($event['payload']) ? $event['payload'] : json_encode($event['payload']);
         $secret    = (string) $event['secret_key'];
