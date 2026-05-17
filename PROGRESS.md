@@ -28,9 +28,14 @@
 - `Route.php`: 76/94 → 88/94 statements, 15/17 → 16/17 methods
 - Remaining 6 uncovered stmts (lines 321-326): second regex after parse_url() — only reachable with custom restrictive param patterns; unreachable with standard Symfony routes
 
+**Router.php coverage** (same session):
+- 20 new dispatch/utility tests: dispatch() basic, permission check (pass/fail), global middleware pipeline, dispatchSafe() all paths (not-found, permission-denied, success, exception, middleware), dispatchWithoutPermissions(), addRoute() with array methods, match(), getRoutesWithPermissions(), getRequiredPermissions(), getAllUsedPermissions(), isValidScope(), parseScope() all 5 formats, getEffectivePermissions() wildcard expansion, normalizePermissions() space-separated string, wildcardMatch() global '*', dispatch with extra permissions
+- `Router.php`: 42/195 → 185/195 statements (94.9%), 11/31 → 25/31 methods
+
 ### Commits
 - `4cd02f3` test(policy): PolicyEngine characterization tests (95.1% coverage)
-- pending routing commit
+- `084c203` test(routing): RouteDiscovery 100%, Route.php improved coverage
+- pending Router commit
 
 ---
 
