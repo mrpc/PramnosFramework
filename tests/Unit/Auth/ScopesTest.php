@@ -282,4 +282,107 @@ class ScopesTest extends TestCase
         $this->assertNotContains('unknown_xyz', $resolved,
             'undefined scopes must not appear in the resolved output');
     }
+
+    /**
+     * resolveInheritedScopes() must return [] when passed a non-string, non-array value.
+     *
+     * The method accepts a mixed $scopes parameter. If the value is neither a
+     * string nor an array (e.g. null, int, bool), it must return an empty array
+     * rather than throwing or producing garbage output.
+     *
+     * This covers the defensive `!is_array($scopes)` branch at line 199.
+     */
+    public function testResolveInheritedScopesReturnsEmptyForNonArrayNonString(): void
+    {
+        // Act — pass a value that is neither string nor array
+        $resultNull = Scopes::resolveInheritedScopes(null);
+        $resultInt  = Scopes::resolveInheritedScopes(42);
+
+        // Assert — gracefully returns empty array, no exception
+        $this->assertSame([], $resultNull, 'null input must produce an empty array');
+        $this->assertSame([], $resultInt, 'int input must produce an empty array');
+    }
+
+    // ── addDefaultScopesToToken ───────────────────────────────────────────────
+
+    /**
+     * addDefaultScopesToToken() must merge a plain scope string with the default scopes.
+     *
+     * The method takes a space-delimited token scope string, adds the default scopes,
+     * and returns a space-delimited string of unique scopes. Default scopes that are
+     * already present must not be duplicated.
+     */
+    public function testAddDefaultScopesToTokenMergesWithDefaultScopes(): void
+    {
+        // Arrange
+        $defaults = Scopes::getDefaultScopes();
+        $this->assertNotEmpty($defaults, 'pre-condition: getDefaultScopes must not be empty');
+
+        // Act — call with a single non-default scope
+        $result = Scopes::addDefaultScopesToToken('email');
+
+        // Assert — result contains the original scope and at least one default scope
+        $resultScopes = explode(' ', $result);
+        $this->assertContains('email', $resultScopes,
+            'the original token scope must be preserved in the output');
+        foreach ($defaults as $default) {
+            $this->assertContains($default, $resultScopes,
+                "default scope '{$default}' must be present in the merged output");
+        }
+    }
+
+    /**
+     * addDefaultScopesToToken() must strip bracket-wrapping before processing.
+     *
+     * Some OAuth2 storage implementations persist the token scopes as
+     * "[profile email]" (with square brackets). The method must strip those
+     * brackets before splitting on whitespace.
+     *
+     * This covers the regex-match branch (lines 155–156 of Scopes.php).
+     */
+    public function testAddDefaultScopesToTokenHandlesBracketWrappedInput(): void
+    {
+        // Arrange — bracket-wrapped scope string as stored by some OAuth providers
+        $defaults = Scopes::getDefaultScopes();
+
+        // Act
+        $result = Scopes::addDefaultScopesToToken('[profile email]');
+
+        // Assert — brackets are stripped; profile and email are in the result
+        $resultScopes = explode(' ', $result);
+        $this->assertContains('profile', $resultScopes,
+            "'profile' from bracket-wrapped input must appear in the result");
+        $this->assertContains('email', $resultScopes,
+            "'email' from bracket-wrapped input must appear in the result");
+        // Default scopes are merged in
+        foreach ($defaults as $default) {
+            $this->assertContains($default, $resultScopes,
+                "default scope '{$default}' must still be merged when input is bracket-wrapped");
+        }
+    }
+
+    /**
+     * addDefaultScopesToToken() must deduplicate scopes that appear in both the
+     * token string and the default scopes list.
+     *
+     * If a default scope is already present in the token, it must appear only once
+     * in the output — no duplicates allowed.
+     */
+    public function testAddDefaultScopesToTokenDeduplicatesScopes(): void
+    {
+        // Arrange — build a string that already includes all default scopes
+        $defaults = Scopes::getDefaultScopes();
+        $input    = implode(' ', $defaults);
+
+        // Act
+        $result = Scopes::addDefaultScopesToToken($input);
+
+        // Assert — no duplicates: count of scopes in result equals count of unique scopes
+        $resultScopes = explode(' ', $result);
+        $this->assertSame(
+            count(array_unique($resultScopes)),
+            count($resultScopes),
+            'addDefaultScopesToToken must not produce duplicate scope identifiers'
+        );
+    }
 }
