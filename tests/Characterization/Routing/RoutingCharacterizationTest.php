@@ -1055,4 +1055,557 @@ class RoutingCharacterizationTest extends TestCase
             @rmdir($tmpDir);
         }
     }
+
+    // =========================================================================
+    // Router::dispatch() — execution, permissions, middleware pipeline
+    // =========================================================================
+
+    /**
+     * dispatch() must return null when no route matches the request.
+     *
+     * This covers the `return null` at the end of dispatch() (after `if ($route)`)
+     * and also the null return from getMatchedRoute() when no route is registered
+     * for the request method.
+     */
+    public function testDispatchReturnsNullForUnmatchedRequest(): void
+    {
+        // Arrange
+        $router  = $this->makeRouter();
+        $request = \Pramnos\Http\Request::create('/not/a/route', 'GET');
+
+        // Act
+        $result = $router->dispatch($request);
+
+        // Assert
+        $this->assertNull($result, 'dispatch() must return null when no route matches');
+    }
+
+    /**
+     * dispatch() must execute the matched route's action and return its result
+     * when no permissions are required and no middleware is attached.
+     *
+     * This covers lines 120-141 in Router.php — the happy path through dispatch().
+     */
+    public function testDispatchExecutesMatchedRoute(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+        $router->get('/hello', fn() => 'hello_world');
+        $request = \Pramnos\Http\Request::create('/hello', 'GET');
+
+        // Act
+        $result = $router->dispatch($request);
+
+        // Assert
+        $this->assertSame('hello_world', $result,
+            'dispatch() must return the action result for a matched route');
+    }
+
+    /**
+     * dispatch() must throw an Exception (code 403) when the route requires a
+     * permission that the user does not have.
+     *
+     * This covers lines 123-128 in Router.php — the hasPermissions() false branch
+     * including the _invalidScope tracking path (line 124-125).
+     */
+    public function testDispatchThrowsForInsufficientPermissions(): void
+    {
+        // Arrange — route requires 'write:items', user has none
+        $router = $this->makeRouter();
+        $router->get('/items', fn() => 'items')->requirePermissions(['write:items']);
+        $request = \Pramnos\Http\Request::create('/items', 'GET');
+
+        // Assert
+        $this->expectException(\Exception::class);
+        $this->expectExceptionCode(403);
+
+        // Act
+        $router->dispatch($request, []);
+    }
+
+    /**
+     * dispatch() must execute the action when the user has the required permission.
+     *
+     * This also covers Router::hasPermissions(), normalizePermissions(), and
+     * hasScope() for direct-match (no wildcard) permission checking.
+     */
+    public function testDispatchSucceedsWhenUserHasRequiredPermission(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+        $router->get('/items', fn() => 'items_list')->requirePermissions(['read:items']);
+        $request = \Pramnos\Http\Request::create('/items', 'GET');
+
+        // Act
+        $result = $router->dispatch($request, ['read:items']);
+
+        // Assert
+        $this->assertSame('items_list', $result);
+    }
+
+    /**
+     * dispatch() must run the global middleware pipeline before executing the
+     * route action, and the final handler result must be returned.
+     *
+     * This covers lines 130-138 in Router.php — the middleware pipeline branch
+     * inside dispatch() — and addGlobalMiddleware() (lines 106-107).
+     */
+    public function testDispatchRunsGlobalMiddlewarePipeline(): void
+    {
+        // Arrange — attach a global middleware that appends a marker to the result
+        $router = $this->makeRouter();
+
+        // Inline middleware: prepend 'mw:' to the action result
+        $middleware = new class implements \Pramnos\Http\MiddlewareInterface {
+            public function handle(\Pramnos\Http\Request $request, callable $next): mixed {
+                $result = $next($request);
+                return 'mw:' . $result;
+            }
+        };
+
+        $router->addGlobalMiddleware($middleware);
+        $router->get('/mw-test', fn() => 'action_result');
+        $request = \Pramnos\Http\Request::create('/mw-test', 'GET');
+
+        // Act
+        $result = $router->dispatch($request);
+
+        // Assert — middleware ran and wrapped the action result
+        $this->assertSame('mw:action_result', $result,
+            'Global middleware must wrap the route action result');
+    }
+
+    /**
+     * dispatch() must pass permissions correctly when the user has more scopes
+     * than the route requires; only the matching ones need to be present.
+     *
+     * This also verifies that hasPermissions() iterates correctly and short-circuits
+     * on the first matching scope, without triggering an exception.
+     */
+    public function testDispatchSucceedsWhenUserHasExtraPermissions(): void
+    {
+        // Arrange — route requires only 'read:items', user has many permissions
+        $router = $this->makeRouter();
+        $router->get('/items', fn() => 'ok')->requirePermissions(['read:items']);
+        $request = \Pramnos\Http\Request::create('/items', 'GET');
+
+        // Act — user has the required scope plus extras
+        $result = $router->dispatch($request, ['write:items', 'read:items', 'delete:items']);
+
+        // Assert
+        $this->assertSame('ok', $result);
+    }
+
+    // =========================================================================
+    // Router::dispatchSafe() — safe dispatch returning structured array
+    // =========================================================================
+
+    /**
+     * dispatchSafe() must return a RouteNotFound error array when no route matches.
+     *
+     * This covers lines 156-163 of Router.php — the !$route early return.
+     */
+    public function testDispatchSafeReturnsRouteNotFoundForUnmatchedRequest(): void
+    {
+        // Arrange
+        $router  = $this->makeRouter();
+        $request = \Pramnos\Http\Request::create('/no/such/path', 'GET');
+
+        // Act
+        $result = $router->dispatchSafe($request);
+
+        // Assert — structured error array
+        $this->assertSame('RouteNotFound', $result['error']);
+        $this->assertNull($result['data']);
+    }
+
+    /**
+     * dispatchSafe() must return an InsufficientPermissions error array when the
+     * user lacks the required permission.
+     *
+     * This covers lines 166-173 of Router.php.
+     */
+    public function testDispatchSafeReturnsPermissionErrorForDeniedRequest(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+        $router->get('/admin', fn() => 'admin')->requirePermissions(['admin:access']);
+        $request = \Pramnos\Http\Request::create('/admin', 'GET');
+
+        // Act
+        $result = $router->dispatchSafe($request, []);
+
+        // Assert
+        $this->assertSame('InsufficientPermissions', $result['error']);
+        $this->assertNull($result['data']);
+    }
+
+    /**
+     * dispatchSafe() must return a data array with the action result on success.
+     *
+     * This covers the success path (lines 185-190 of Router.php) — no middleware.
+     */
+    public function testDispatchSafeReturnsDataOnSuccess(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+        $router->get('/ok', fn() => 'success_value');
+        $request = \Pramnos\Http\Request::create('/ok', 'GET');
+
+        // Act
+        $result = $router->dispatchSafe($request);
+
+        // Assert — success array contains data key
+        $this->assertSame('success_value', $result['data']);
+        $this->assertArrayNotHasKey('error', $result);
+    }
+
+    /**
+     * dispatchSafe() must catch any exception thrown by the route action and
+     * return an error array instead of propagating it.
+     *
+     * This covers lines 191-197 of Router.php — the catch(\Exception) block.
+     */
+    public function testDispatchSafeReturnsErrorOnActionException(): void
+    {
+        // Arrange — route action throws
+        $router = $this->makeRouter();
+        $router->get('/boom', fn() => throw new \Exception('action failed'));
+        $request = \Pramnos\Http\Request::create('/boom', 'GET');
+
+        // Act
+        $result = $router->dispatchSafe($request);
+
+        // Assert — exception converted to error array
+        $this->assertSame('Error', $result['error']);
+        $this->assertSame('action failed', $result['message']);
+        $this->assertNull($result['data']);
+    }
+
+    /**
+     * dispatchSafe() must run route-specific middleware before the action and
+     * return the wrapped result.
+     *
+     * This covers lines 177-183 of Router.php — the middleware pipeline inside
+     * dispatchSafe() — including the route->getMiddleware() merging path.
+     */
+    public function testDispatchSafeRunsRouteMiddleware(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+        $middleware = new class implements \Pramnos\Http\MiddlewareInterface {
+            public function handle(\Pramnos\Http\Request $request, callable $next): mixed {
+                return 'safe_mw:' . $next($request);
+            }
+        };
+
+        $router->get('/mw-safe', fn() => 'base')
+               ->middleware($middleware);
+        $request = \Pramnos\Http\Request::create('/mw-safe', 'GET');
+
+        // Act
+        $result = $router->dispatchSafe($request);
+
+        // Assert
+        $this->assertSame('safe_mw:base', $result['data'],
+            'Route middleware must wrap the action result in dispatchSafe()');
+    }
+
+    // =========================================================================
+    // Router::dispatchWithoutPermissions()
+    // =========================================================================
+
+    /**
+     * dispatchWithoutPermissions() must execute the route without checking
+     * permissions, even when the route requires a permission the user lacks.
+     *
+     * This covers lines 209-213 in Router.php.
+     */
+    public function testDispatchWithoutPermissionsSkipsPermissionCheck(): void
+    {
+        // Arrange — route requires permission, but we call the no-check dispatcher
+        $router = $this->makeRouter();
+        $router->get('/locked', fn() => 'unlocked')->requirePermissions(['super:admin']);
+        $request = \Pramnos\Http\Request::create('/locked', 'GET');
+
+        // Act — must NOT throw
+        $result = $router->dispatchWithoutPermissions($request);
+
+        // Assert
+        $this->assertSame('unlocked', $result,
+            'dispatchWithoutPermissions() must skip permission checks entirely');
+    }
+
+    /**
+     * dispatchWithoutPermissions() must return null when no route matches.
+     *
+     * Covers the `return null` at line 213.
+     */
+    public function testDispatchWithoutPermissionsReturnsNullForUnmatchedRequest(): void
+    {
+        // Arrange
+        $router  = $this->makeRouter();
+        $request = \Pramnos\Http\Request::create('/nowhere', 'DELETE');
+
+        // Act
+        $result = $router->dispatchWithoutPermissions($request);
+
+        // Assert
+        $this->assertNull($result);
+    }
+
+    // =========================================================================
+    // Router::addRoute() — array-methods shorthand
+    // =========================================================================
+
+    /**
+     * addRoute() with an array of HTTP methods must register one route per method.
+     *
+     * This covers lines 81-84 of Router.php — the `is_array($methods)` branch
+     * in addRoute().
+     */
+    public function testAddRouteRegistersOneRoutePerMethod(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+        $router->addRoute('/multi', ['GET', 'POST'], fn() => 'multi');
+
+        // Act
+        $getResult  = $router->dispatch(\Pramnos\Http\Request::create('/multi', 'GET'));
+        $postResult = $router->dispatch(\Pramnos\Http\Request::create('/multi', 'POST'));
+
+        // Assert — both methods registered and executable
+        $this->assertSame('multi', $getResult);
+        $this->assertSame('multi', $postResult);
+    }
+
+    // =========================================================================
+    // Router permission helpers — normalizePermissions, hasScope, wildcardMatch
+    // =========================================================================
+
+    /**
+     * dispatch() with a space-separated permission string must normalise it to
+     * an array before checking scopes.
+     *
+     * This covers normalizePermissions() for the space-separated string path
+     * (lines 447-449 of Router.php).
+     */
+    public function testDispatchNormalisesSpaceSeparatedPermissionString(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+        $router->get('/api/items', fn() => 'list')->requirePermissions(['read:items']);
+        $request = \Pramnos\Http\Request::create('/api/items', 'GET');
+
+        // Act — permissions passed as space-separated string (OAuth2 scope format)
+        $result = $router->dispatch($request, 'read:items write:items');
+
+        // Assert
+        $this->assertSame('list', $result);
+    }
+
+    /**
+     * A user with the global wildcard '*' scope must be granted access to any
+     * permission-protected route.
+     *
+     * This covers the `if ($userScope === '*') { return true; }` path in
+     * Router::wildcardMatch() (line 492 of Router.php).
+     */
+    public function testDispatchAcceptsGlobalWildcardScope(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+        $router->get('/anything', fn() => 'ok')->requirePermissions(['very:specific:permission']);
+        $request = \Pramnos\Http\Request::create('/anything', 'GET');
+
+        // Act
+        $result = $router->dispatch($request, ['*']);
+
+        // Assert
+        $this->assertSame('ok', $result, 'Global wildcard * must satisfy any permission');
+    }
+
+    // =========================================================================
+    // Router utility methods
+    // =========================================================================
+
+    /**
+     * match() with a comma-separated string of methods must register a route
+     * for each method (it splits on ',' before delegating to addRoute()).
+     *
+     * This covers lines 399-402 of Router.php — the string→array branch in match().
+     */
+    public function testMatchWithCommaSeparatedMethodsRegistersAllMethods(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+
+        // Act — 'GET,POST' as a string shorthand
+        $router->match('GET,POST', '/api/resource', fn() => 'resource');
+
+        // Assert — both methods registered
+        $this->assertSame('resource',
+            $router->dispatch(\Pramnos\Http\Request::create('/api/resource', 'GET')));
+        $this->assertSame('resource',
+            $router->dispatch(\Pramnos\Http\Request::create('/api/resource', 'POST')));
+    }
+
+    /**
+     * getRoutesWithPermissions() must return a nested array of method → uri → data
+     * entries for all registered routes, including their permission lists.
+     *
+     * This covers lines 513-529 of Router.php.
+     */
+    public function testGetRoutesWithPermissionsReturnsAllRouteData(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+        $router->get('/public', fn() => 'pub');
+        $router->post('/private', fn() => 'priv')->requirePermissions(['write:items']);
+
+        // Act
+        $data = $router->getRoutesWithPermissions();
+
+        // Assert — structure is method → uri → {route, permissions, hasPermissions}
+        $this->assertArrayHasKey('GET', $data);
+        $this->assertArrayHasKey('/public', $data['GET']);
+        $this->assertFalse($data['GET']['/public']['hasPermissions']);
+
+        $this->assertArrayHasKey('POST', $data);
+        $this->assertTrue($data['POST']['/private']['hasPermissions']);
+        $this->assertContains('write:items', $data['POST']['/private']['permissions']);
+    }
+
+    /**
+     * getRequiredPermissions() must return the permission list of the matching
+     * route, or null when no route matches.
+     *
+     * This covers lines 581-590 of Router.php.
+     */
+    public function testGetRequiredPermissionsReturnsPermissionsOrNull(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+        $router->get('/protected', fn() => 'ok')->requirePermissions(['read:data']);
+
+        // Act — matching route
+        $perms = $router->getRequiredPermissions(
+            \Pramnos\Http\Request::create('/protected', 'GET')
+        );
+
+        // Assert — returns permissions from the matched route
+        $this->assertContains('read:data', $perms);
+
+        // Act — unmatched route returns null
+        $null = $router->getRequiredPermissions(
+            \Pramnos\Http\Request::create('/no-such-route', 'GET')
+        );
+        $this->assertNull($null, 'getRequiredPermissions() must return null for no match');
+    }
+
+    /**
+     * getAllUsedPermissions() must collect all unique permissions from all routes
+     * across all HTTP methods.
+     *
+     * This covers lines 597-610 of Router.php.
+     */
+    public function testGetAllUsedPermissionsReturnsUniquePermissions(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+        $router->get('/a', fn() => 'a')->requirePermissions(['read:items']);
+        $router->post('/b', fn() => 'b')->requirePermissions(['write:items', 'read:items']);
+        $router->get('/c', fn() => 'c'); // no permissions
+
+        // Act
+        $all = $router->getAllUsedPermissions();
+
+        // Assert — unique: read:items appears only once despite being in two routes
+        $this->assertContains('read:items', $all);
+        $this->assertContains('write:items', $all);
+        $this->assertCount(2, array_values($all),
+            'getAllUsedPermissions() must deduplicate across routes');
+    }
+
+    /**
+     * isValidScope() must return truthy for valid scope formats and falsy for
+     * invalid ones.
+     *
+     * This covers line 618-623 of Router.php.
+     */
+    public function testIsValidScopeAcceptsValidAndRejectsInvalid(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+
+        // Assert — valid formats accepted
+        $this->assertTrue((bool) $router->isValidScope('read:items'));
+        $this->assertTrue((bool) $router->isValidScope('user_read'));
+        $this->assertTrue((bool) $router->isValidScope('admin'));
+        $this->assertTrue((bool) $router->isValidScope('*'));
+
+        // Assert — invalid format rejected (starts with digit)
+        $this->assertFalse((bool) $router->isValidScope('1invalid'));
+    }
+
+    /**
+     * parseScope() must detect and parse each supported scope format:
+     * colon (action:resource), underscore, dot, dash, and single-word.
+     *
+     * This covers lines 537-577 of Router.php — the parseScope() method body
+     * including all five format-detection branches.
+     */
+    public function testParseScopeDetectsAllFormats(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+
+        // Assert — colon format
+        $colon = $router->parseScope('read:items');
+        $this->assertSame('colon', $colon['format']);
+        $this->assertContains('read', $colon['parts']);
+
+        // Assert — underscore format
+        $under = $router->parseScope('user_read');
+        $this->assertSame('underscore', $under['format']);
+
+        // Assert — dot format
+        $dot = $router->parseScope('user.read');
+        $this->assertSame('dot', $dot['format']);
+
+        // Assert — dash format
+        $dash = $router->parseScope('user-read');
+        $this->assertSame('dash', $dash['format']);
+
+        // Assert — single-word format
+        $single = $router->parseScope('admin');
+        $this->assertSame('single', $single['format']);
+        $this->assertSame('admin', $single['original']);
+    }
+
+    /**
+     * getEffectivePermissions() with a global '*' scope must expand to include
+     * all known permissions from the router's registered routes.
+     *
+     * This covers lines 727-751 of Router.php — the wildcard expansion path
+     * in getEffectivePermissions().
+     */
+    public function testGetEffectivePermissionsExpandsWildcard(): void
+    {
+        // Arrange — register routes with permissions so getAllUsedPermissions() has data
+        $router = $this->makeRouter();
+        $router->get('/x', fn() => 'x')->requirePermissions(['read:items']);
+        $router->get('/y', fn() => 'y')->requirePermissions(['write:items']);
+
+        // Act — user has global '*' scope; effective permissions should include known scopes
+        $effective = $router->getEffectivePermissions(['*']);
+
+        // Assert — '*' scope + expanded known permissions
+        $this->assertContains('*', $effective,
+            'The original * scope must be in effective permissions');
+        $this->assertContains('read:items', $effective,
+            'Known scope read:items must be expanded from wildcard');
+        $this->assertContains('write:items', $effective,
+            'Known scope write:items must be expanded from wildcard');
+    }
 }
