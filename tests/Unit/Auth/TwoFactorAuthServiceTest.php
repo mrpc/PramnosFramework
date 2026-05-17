@@ -353,6 +353,55 @@ class TwoFactorAuthServiceTest extends TestCase
     }
 
     // =========================================================================
+    // verifyCode() — successful TOTP path (not recently used)
+    // =========================================================================
+
+    /**
+     * verifyCode() must return true when the code is a valid TOTP and the
+     * user's last-used window is absent (no user_twofactor row for the
+     * isRecentlyUsed() check).
+     *
+     * This covers the early-return at line 446 of isRecentlyUsed():
+     *   "if ($result->numRows === 0) { return false; }"
+     * which causes isRecentlyUsed() to return false, allowing verifyCode()
+     * to proceed to updateLastUsed() + logAttempt() and return true.
+     *
+     * Sequence of first() calls: isEnabled → getSecret → isRecentlyUsed (empty).
+     */
+    public function testVerifyCodeReturnsTrueForValidCodeNotRecentlyUsed(): void
+    {
+        // Arrange — generate a real current TOTP code so TOTPHelper::verifyCode() returns true
+        $secret = TOTPHelper::generateSecret();
+        $code   = TOTPHelper::generateCode($secret, time());
+
+        $enabledRow = $this->rowResult(['enabled' => 1]);
+        $secretRow  = $this->rowResult(['secret'  => $secret]);
+        $emptyRow   = $this->emptyResult();  // isRecentlyUsed → numRows=0 → return false (line 446)
+
+        $qb = $this->createMock(QueryBuilder::class);
+        foreach (['table', 'select', 'where', 'orWhere', 'orderBy', 'limit', 'offset'] as $m) {
+            $qb->method($m)->willReturn($qb);
+        }
+        $qb->method('first')->willReturnOnConsecutiveCalls(
+            $enabledRow,
+            $secretRow,
+            $emptyRow   // isRecentlyUsed: no row → line 446 covered, returns false
+        );
+        $qb->method('update')->willReturn(null);  // updateLastUsed
+        $qb->method('insert')->willReturn(null);  // logAttempt
+
+        $db      = $this->buildDb($qb);
+        $service = new TwoFactorAuthService($db);
+
+        // Act
+        $result = $service->verifyCode(1, $code);
+
+        // Assert — valid TOTP with no prior usage must be accepted
+        $this->assertTrue($result,
+            'verifyCode must return true for a valid TOTP code when no prior usage record exists');
+    }
+
+    // =========================================================================
     // verifyCode() — backup-code fallback edge cases
     // =========================================================================
 
