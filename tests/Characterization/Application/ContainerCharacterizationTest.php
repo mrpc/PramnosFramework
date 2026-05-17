@@ -161,6 +161,24 @@ class ContainerCharacterizationTest extends TestCase
     }
 
     /**
+     * has() must return true when the same identifier is registered in all
+     * three internal stores (instances, singletons, bindings) simultaneously.
+     *
+     * This covers the triple-isset early return in Container::has() which short-
+     * circuits when the ID exists in all stores at once (unusual but valid).
+     */
+    public function testHasReturnsTrueWhenIdInAllThreeStores(): void
+    {
+        // Arrange — register the same ID in all three internal stores
+        $this->container->instance('triple.id', new \stdClass());
+        $this->container->singleton('triple.id', fn() => new \stdClass());
+        $this->container->bind('triple.id', fn() => new \stdClass());
+
+        // Act / Assert — triple-isset path returns true
+        $this->assertTrue($this->container->has('triple.id'));
+    }
+
+    /**
      * has() must return false for an identifier that is neither bound
      * nor resolvable as a concrete class.
      */
@@ -208,6 +226,182 @@ class ContainerCharacterizationTest extends TestCase
         // Assert
         $this->assertInstanceOf(ContainerFixtureNoArgs::class, $result);
     }
+
+    /**
+     * get() must wrap any non-NotFoundException thrown during resolution in a
+     * ContainerException (PSR-11 §3 ContainerExceptionInterface requirement).
+     *
+     * This covers the `catch (\Throwable $e) { throw new ContainerException ... }`
+     * branch in Container::get().
+     */
+    public function testGetWrapsNonNotFoundExceptionAsContainerException(): void
+    {
+        // Arrange — factory that throws a plain RuntimeException
+        $this->container->bind('bad.service', fn() => throw new \RuntimeException('build failed'));
+
+        // Assert
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessageMatches('/build failed/');
+
+        // Act
+        $this->container->get('bad.service');
+    }
+
+    /**
+     * When bind() is given a class-name string that does not exist, get() must
+     * throw NotFoundException because the resolve→build path catches the
+     * ReflectionException and converts it.
+     *
+     * This covers the ReflectionException catch block in Container::build().
+     */
+    public function testBuildThrowsNotFoundForNonExistentClassBinding(): void
+    {
+        // Arrange
+        $this->container->bind('ghost', 'NoSuch\\Class\\Anywhere');
+
+        // Assert
+        $this->expectException(NotFoundException::class);
+
+        // Act
+        $this->container->get('ghost');
+    }
+
+    /**
+     * Attempting to instantiate an abstract class or interface must throw
+     * NotFoundException because the container cannot call `new` on it.
+     *
+     * This covers the `!$ref->isInstantiable()` check in Container::build().
+     */
+    public function testBuildThrowsNotFoundForAbstractClass(): void
+    {
+        // Arrange — ContainerFixtureAbstract is abstract, defined below
+        // Assert
+        $this->expectException(NotFoundException::class);
+        $this->expectExceptionMessageMatches('/not instantiable/');
+
+        // Act
+        $this->container->make(ContainerFixtureAbstract::class);
+    }
+
+    /**
+     * make() with a positional (integer-keyed) override must pass that value
+     * as the constructor argument at that position, bypassing autowiring.
+     *
+     * This covers the `array_key_exists($i, $overrides)` branch in
+     * Container::resolveParameters().
+     */
+    public function testMakeWithPositionalParameterOverride(): void
+    {
+        // Act — 0 is the position of $name in ContainerFixtureService::__construct
+        $service = $this->container->make(ContainerFixtureService::class, [0 => 'positional']);
+
+        // Assert
+        $this->assertSame('positional', $service->name);
+    }
+
+    /**
+     * When an unresolvable required type-hinted constructor parameter exists,
+     * make() must throw ContainerException (not NotFoundException), because the
+     * class itself exists but cannot be constructed.
+     *
+     * This covers the ContainerException throw in Container::resolveParameters()
+     * for the case where the dependency is an unresolvable type-hint.
+     */
+    public function testMakeThrowsContainerExceptionForUnresolvableRequiredDependency(): void
+    {
+        // Arrange — ContainerFixtureRequiresAbstract requires ContainerFixtureAbstract,
+        //           which is abstract and cannot be instantiated.
+        // Assert
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessageMatches('/Cannot resolve parameter/');
+
+        // Act
+        $this->container->make(ContainerFixtureRequiresAbstract::class);
+    }
+
+    /**
+     * Instantiating a class with no constructor at all (not even an empty one)
+     * must succeed via ReflectionClass::newInstance(), the zero-arg path in build().
+     *
+     * This covers the `if ($constructor === null) { return $ref->newInstance(); }`
+     * branch in Container::build().
+     */
+    public function testMakeInstantiatesClassWithNoExplicitConstructor(): void
+    {
+        // Act — ContainerFixtureNoConstructor has no constructor declaration at all
+        $obj = $this->container->make(ContainerFixtureNoConstructor::class);
+
+        // Assert
+        $this->assertInstanceOf(ContainerFixtureNoConstructor::class, $obj);
+    }
+
+    /**
+     * When make() is called without overrides and a scalar constructor parameter
+     * has a default value, the default must be used automatically.
+     *
+     * This covers the `if ($param->isDefaultValueAvailable())` branch in
+     * Container::resolveParameters() (built-in type, no override supplied).
+     */
+    public function testMakeWithNoOverridesUsesParameterDefaultValue(): void
+    {
+        // Act — ContainerFixtureService has `string $name = 'default'`; no overrides
+        $service = $this->container->make(ContainerFixtureService::class);
+
+        // Assert — default value was used
+        $this->assertSame('default', $service->name);
+    }
+
+    /**
+     * A nullable scalar parameter with no default value must resolve to null
+     * when make() is called without overrides.
+     *
+     * This covers the `if ($param->allowsNull()) { $args[] = null; }` branch
+     * in Container::resolveParameters().
+     */
+    public function testMakeResolvesNullableParameterAsNull(): void
+    {
+        // Act — ContainerFixtureNullableRequired has `?string $name` (nullable, no default)
+        $obj = $this->container->make(ContainerFixtureNullableRequired::class);
+
+        // Assert — nullable parameter with no default receives null
+        $this->assertNull($obj->name);
+    }
+
+    /**
+     * A required scalar parameter with no type-hint default or nullable marker
+     * must cause ContainerException when make() cannot resolve it.
+     *
+     * This covers the final `throw new ContainerException("Cannot resolve required...")` in
+     * Container::resolveParameters() when the parameter is non-optional, non-nullable,
+     * and has no default value.
+     */
+    public function testMakeThrowsContainerExceptionForRequiredScalarWithoutDefault(): void
+    {
+        // Assert
+        $this->expectException(ContainerException::class);
+        $this->expectExceptionMessageMatches('/Cannot resolve required parameter/');
+
+        // Act — ContainerFixtureRequiredScalar has `string $required` with no default
+        $this->container->make(ContainerFixtureRequiredScalar::class);
+    }
+
+    /**
+     * An optional type-hinted parameter (abstract class with `= null` default)
+     * must silently take its default value when the dependency cannot be resolved.
+     *
+     * This covers the `if ($param->isOptional()) { $args[] = $param->getDefaultValue(); }`
+     * branch in Container::resolveParameters() after a NotFoundException.
+     */
+    public function testMakeResolvesOptionalUnresolvableDependencyWithDefault(): void
+    {
+        // Act — ContainerFixtureOptionalAbstractDep has `?ContainerFixtureAbstract $dep = null`
+        //       The container cannot instantiate ContainerFixtureAbstract (abstract),
+        //       so it falls back to the default value (null).
+        $obj = $this->container->make(ContainerFixtureOptionalAbstractDep::class);
+
+        // Assert — default null was used instead of throwing
+        $this->assertNull($obj->dep);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -230,4 +424,40 @@ class ContainerFixtureNoArgs
 class ContainerFixtureDependent
 {
     public function __construct(public readonly ContainerFixtureNoArgs $dep) {}
+}
+
+/** Abstract class — cannot be instantiated; used to test NotFoundException on non-instantiable. */
+abstract class ContainerFixtureAbstract
+{
+    abstract public function doSomething(): void;
+}
+
+/** Requires ContainerFixtureAbstract — cannot be autowired since the dep is abstract. */
+class ContainerFixtureRequiresAbstract
+{
+    public function __construct(public readonly ContainerFixtureAbstract $dep) {}
+}
+
+/** No constructor declaration at all — tests ReflectionClass::newInstance() path. */
+class ContainerFixtureNoConstructor
+{
+    public string $value = 'no-constructor';
+}
+
+/** Nullable required parameter (no default) — tests $param->allowsNull() path. */
+class ContainerFixtureNullableRequired
+{
+    public function __construct(public readonly ?string $name) {}
+}
+
+/** Required scalar parameter with no default — tests final ContainerException path. */
+class ContainerFixtureRequiredScalar
+{
+    public function __construct(public readonly string $required) {}
+}
+
+/** Optional abstract dependency with null default — tests optional type-hint fallback. */
+class ContainerFixtureOptionalAbstractDep
+{
+    public function __construct(public readonly ?ContainerFixtureAbstract $dep = null) {}
 }
