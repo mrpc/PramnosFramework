@@ -371,4 +371,92 @@ PHP;
         $this->assertStringContainsString('2 seeder(s) failed', $output);
         $this->assertStringNotContainsString('ran successfully', $output);
     }
+
+    // =========================================================================
+    // Guard and path-discovery edge cases
+    // =========================================================================
+
+    /**
+     * When execute() is called without a parent Pramnos\Console\Application the
+     * command must report an error and return FAILURE.
+     *
+     * The guard at the top of execute() checks that getApplication() returns a
+     * Pramnos\Console\Application. Running DbSeed inside a bare Symfony Application
+     * triggers the false branch, covering lines 48–49.
+     */
+    public function testNonPramnosApplicationCausesGuardFailure(): void
+    {
+        // Arrange — register the command in a plain Symfony Application (not Pramnos)
+        $symfonyApp = new \Symfony\Component\Console\Application('Test', '0.0');
+        $command    = new DbSeed();
+        $symfonyApp->add($command);
+        $tester = new CommandTester($command);
+
+        // Act
+        $code   = $tester->execute(['--path' => $this->seedsDir]);
+        $output = $tester->getDisplay();
+
+        // Assert — the guard must fire and return FAILURE
+        $this->assertSame(\Symfony\Component\Console\Command\Command::FAILURE, $code,
+            'DbSeed must return FAILURE when run outside a Pramnos Console Application');
+        $this->assertStringContainsString('must run within the Pramnos console application', $output,
+            'The error message must explain why the guard fired');
+    }
+
+    /**
+     * When no --path option is provided the command must compute the default seeds
+     * path via defaultSeedsPath() and proceed normally.
+     *
+     * The default path (ROOT/database/seeds) will not exist in the test environment,
+     * so the command returns SUCCESS after printing a "directory not found" comment.
+     * The important contract is that defaultSeedsPath() is called (covering lines 147–150)
+     * rather than throwing an error for a missing option.
+     */
+    public function testDefaultSeedsPathIsUsedWhenNoPathOption(): void
+    {
+        // Arrange — use the Pramnos application (guard passes) but omit --path
+        $tester = $this->makeTester();
+
+        // Act — no --path argument; command must fall back to defaultSeedsPath()
+        $code   = $tester->execute([]);
+        $output = $tester->getDisplay();
+
+        // Assert — returns SUCCESS (missing directory is not an error) and prints info
+        $this->assertSame(\Symfony\Component\Console\Command\Command::SUCCESS, $code,
+            'DbSeed must return SUCCESS when the default seeds directory does not exist');
+        // The output should mention the directory (either "not found" or "no seeders")
+        $this->assertNotEmpty($output,
+            'DbSeed must produce output when the seeds directory is absent');
+    }
+
+    /**
+     * When a PHP file is found but it does not define the expected class, the
+     * command must record the class as failed and continue with the remaining seeders.
+     *
+     * This covers the class_exists() false branch (lines 78–80).
+     *
+     * Uses a unique class name (with a random suffix) so that a class previously
+     * loaded in the same PHP process by another test cannot shadow this test's
+     * class_exists() check.
+     */
+    public function testClassNotFoundInSeederFileIsRecordedAsFailed(): void
+    {
+        // Arrange — use a unique class name guaranteed not to exist yet
+        $uniqueSeeder = 'DbSeedMissingClass' . bin2hex(random_bytes(4));
+        $wrongFile    = $this->seedsDir . '/' . $uniqueSeeder . '.php';
+        // File defines a DIFFERENT class name — the command will not find $uniqueSeeder
+        file_put_contents($wrongFile, "<?php\nclass {$uniqueSeeder}WrongName {}\n");
+
+        $tester = $this->makeTester();
+
+        // Act
+        $code   = $tester->execute(['--path' => $this->seedsDir]);
+        $output = $tester->getDisplay();
+
+        // Assert — command reports the class as not found, returns failure
+        $this->assertSame(\Symfony\Component\Console\Command\Command::FAILURE, $code,
+            'DbSeed must return FAILURE when a seeder file does not define the expected class');
+        $this->assertStringContainsString('not found', $output,
+            'Output must mention that the class was not found in the file');
+    }
 }
