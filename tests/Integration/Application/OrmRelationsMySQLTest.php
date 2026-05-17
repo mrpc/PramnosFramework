@@ -762,6 +762,77 @@ class OrmRelationsMySQLTest extends TestCase
             'data is still accessible — guard clears _isnew/_initialData, not $_data');
     }
 
+    // -------------------------------------------------------------------------
+    // OrmModel event-cancellation path
+    // -------------------------------------------------------------------------
+
+    /**
+     * OrmModel::_save() must return $this without writing to the DB when a
+     * 'creating' listener returns false.
+     *
+     * This covers the event-cancellation branch in OrmModel::_save():
+     *   `if (!$this->fireEvent($event)) { return $this; }`
+     *
+     * The key invariant is that the veto is purely in-process: the row must
+     * NOT appear in the DB after _save() returns.
+     */
+    public function testSaveAbortsWhenCreatingListenerReturnsFalse(): void
+    {
+        // Arrange — register a 'creating' listener that vetoes the save
+        OrmTestUser::on('creating', fn() => false);
+
+        try {
+            // Act
+            $user = new OrmTestUser($this->controller);
+            $user->name = 'Vetoed';
+            $user->publicSave();
+
+            // Assert — no row was written to DB
+            $result = $this->db->queryBuilder()
+                ->from('orm_test_users')
+                ->where('name', 'Vetoed')
+                ->limit(1)
+                ->get();
+            $this->assertEmpty($result->fields,
+                '_save() must not INSERT when a creating listener returns false');
+        } finally {
+            OrmTestUser::flushEventListeners();
+        }
+    }
+
+    /**
+     * OrmModel::_delete() must return $this without deleting when a
+     * 'deleting' listener returns false.
+     *
+     * This covers the event-cancellation branch in OrmModel::_delete():
+     *   `if (!$this->fireEvent('deleting')) { return $this; }`
+     */
+    public function testDeleteAbortsWhenDeletingListenerReturnsFalse(): void
+    {
+        // Arrange — seed a row and register a veto listener
+        $id   = $this->insertUser('KeepMe');
+        $user = new OrmTestUser($this->controller);
+        $user->publicLoad($id);
+
+        OrmTestUser::on('deleting', fn() => false);
+
+        try {
+            // Act
+            $user->publicDelete($id);
+
+            // Assert — row still exists
+            $result = $this->db->queryBuilder()
+                ->from('orm_test_users')
+                ->where('id', $id)
+                ->limit(1)
+                ->get();
+            $this->assertSame('KeepMe', $result->fields['name'],
+                '_delete() must not remove the row when a deleting listener returns false');
+        } finally {
+            OrmTestUser::flushEventListeners();
+        }
+    }
+
     // =========================================================================
     // Infrastructure helpers
     // =========================================================================
