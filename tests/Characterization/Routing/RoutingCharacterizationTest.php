@@ -540,4 +540,270 @@ class RoutingCharacterizationTest extends TestCase
         $this->assertNotNull($router->getByName('manual.route'));
         $this->assertNotNull($router->getByName('users.index'));
     }
+
+    // =========================================================================
+    // Route Permission API (addPermissions / removePermissions / isValidScope)
+    // =========================================================================
+
+    /**
+     * addPermissions() appends to the existing permission list rather than
+     * replacing it.  It returns $this for fluent chaining.
+     *
+     * This covers Route::addPermissions() and implicitly Route::isValidScope()
+     * (called when validateScopes=true, the default).
+     */
+    public function testAddPermissionsAppendsToExistingList(): void
+    {
+        // Arrange — route already has one permission from requirePermissions()
+        $route = new Route('/resource', 'GET', fn() => 'ok');
+        $route->requirePermissions(['read:resource']);
+
+        // Act — add a second permission
+        $returned = $route->addPermissions(['write:resource']);
+
+        // Assert — both permissions are present, return value is $this
+        $this->assertSame($route, $returned);
+        $permissions = $route->getPermissions();
+        $this->assertContains('read:resource', $permissions);
+        $this->assertContains('write:resource', $permissions);
+    }
+
+    /**
+     * addPermissions() accepts a string shorthand (auto-wraps in array).
+     */
+    public function testAddPermissionsAcceptsStringShorthand(): void
+    {
+        // Arrange
+        $route = new Route('/resource', 'GET', fn() => 'ok');
+
+        // Act
+        $route->addPermissions('delete:resource');
+
+        // Assert
+        $this->assertContains('delete:resource', $route->getPermissions());
+    }
+
+    /**
+     * addPermissions() deduplicates: adding an already-present permission must
+     * not create duplicate entries in the permissions list.
+     */
+    public function testAddPermissionsDeduplicates(): void
+    {
+        // Arrange
+        $route = new Route('/resource', 'GET', fn() => 'ok');
+        $route->requirePermissions(['read:resource']);
+
+        // Act
+        $route->addPermissions(['read:resource']);
+
+        // Assert — still just one entry
+        $this->assertCount(1, $route->getPermissions());
+    }
+
+    /**
+     * removePermissions() removes the given permissions from the list and
+     * returns $this for fluent chaining.
+     *
+     * This covers Route::removePermissions().
+     */
+    public function testRemovePermissionsRemovesSpecifiedEntries(): void
+    {
+        // Arrange
+        $route = new Route('/resource', 'GET', fn() => 'ok');
+        $route->requirePermissions(['read:resource', 'write:resource', 'delete:resource']);
+
+        // Act
+        $returned = $route->removePermissions(['write:resource']);
+
+        // Assert — write:resource gone, read and delete remain; fluent return
+        $this->assertSame($route, $returned);
+        $permissions = $route->getPermissions();
+        $this->assertNotContains('write:resource', $permissions);
+        $this->assertContains('read:resource', $permissions);
+        $this->assertContains('delete:resource', $permissions);
+    }
+
+    /**
+     * removePermissions() accepts a string shorthand (auto-wraps in array).
+     */
+    public function testRemovePermissionsAcceptsStringShorthand(): void
+    {
+        // Arrange
+        $route = new Route('/resource', 'GET', fn() => 'ok');
+        $route->requirePermissions('read:resource');
+
+        // Act
+        $route->removePermissions('read:resource');
+
+        // Assert — permissions list is now empty
+        $this->assertFalse($route->hasPermissions());
+    }
+
+    /**
+     * requirePermissions() with an invalid scope format must throw
+     * InvalidArgumentException.
+     *
+     * This covers the negative branch of Route::isValidScope() — specifically
+     * the wildcard-in-middle-of-segment guard (wildcard embedded in a segment
+     * token rather than being the entire segment).
+     */
+    public function testRequirePermissionsThrowsForInvalidScopeFormat(): void
+    {
+        // Arrange
+        $route = new Route('/resource', 'GET', fn() => 'ok');
+
+        // Assert
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/Invalid scope format/');
+
+        // Act — "wr*ite" has wildcard in the middle of a segment (invalid)
+        $route->requirePermissions(['wr*ite:resource']);
+    }
+
+    /**
+     * addPermissions() must also throw InvalidArgumentException for an invalid
+     * scope, exercising the validation in addPermissions() specifically.
+     *
+     * This covers the `throw new InvalidArgumentException` on line 130 of Route.php
+     * (the addPermissions validation path, distinct from requirePermissions).
+     */
+    public function testAddPermissionsThrowsForInvalidScope(): void
+    {
+        // Arrange
+        $route = new Route('/resource', 'GET', fn() => 'ok');
+
+        // Assert
+        $this->expectException(\InvalidArgumentException::class);
+
+        // Act — scope starting with a digit fails the regex check (line 170)
+        $route->addPermissions(['123invalid:resource']);
+    }
+
+    /**
+     * A simple permission string with no colon (e.g., 'admin') is accepted when
+     * it matches the alphanumeric pattern.
+     *
+     * This covers the `strpos($scope, ':') === false` early return in isValidScope()
+     * (the no-colon path that delegates to a simpler preg_match).
+     */
+    public function testRequirePermissionsAcceptsSimplePermissionWithoutColon(): void
+    {
+        // Arrange
+        $route = new Route('/resource', 'GET', fn() => 'ok');
+
+        // Act — 'admin' is a valid simple permission (no colon, alphanumeric)
+        $route->requirePermissions(['admin']);
+
+        // Assert — set correctly, no exception
+        $this->assertContains('admin', $route->getPermissions());
+    }
+
+    /**
+     * A standalone wildcard '*' as a scope segment is valid (e.g., 'read:*').
+     *
+     * This covers the `if ($part === '*') { continue; }` branch in isValidScope()
+     * — the path that accepts a single asterisk as a complete scope part.
+     */
+    public function testRequirePermissionsAcceptsStandaloneWildcardSegment(): void
+    {
+        // Arrange
+        $route = new Route('/resource', 'GET', fn() => 'ok');
+
+        // Act — 'read:*' means "read anything" — standalone wildcard in resource segment
+        $route->requirePermissions(['read:*']);
+
+        // Assert — no exception; permission stored correctly
+        $this->assertContains('read:*', $route->getPermissions());
+    }
+
+    // =========================================================================
+    // Route::matches() — query-parameter URI path
+    // =========================================================================
+
+    /**
+     * Route::matches() must correctly match a static-URI request that includes
+     * a query string when the route's URI has none.
+     *
+     * The internal logic strips the query part via parse_url(PHP_URL_PATH) before
+     * comparing, handling the simple "exact match after stripping" code path.
+     */
+    public function testMatchesStripsQueryStringFromRequestUri(): void
+    {
+        // Arrange — route registered without query params
+        $route = new Route('/users', 'GET', fn() => 'list');
+
+        // Act — request comes in with a query string
+        $request = \Pramnos\Http\Request::create('/users?page=2&limit=10', 'GET');
+        $matched = $route->matches($request);
+
+        // Assert — must match despite the trailing query params
+        $this->assertTrue($matched,
+            'matches() must strip query string before comparing URIs');
+    }
+
+    /**
+     * Route::matches() must match a parameterised route even when the incoming
+     * request URI includes a query string.
+     *
+     * The compiled Symfony route regex uses `[^/]++` which captures the query string
+     * as part of the last path parameter, so the first regex attempt (with raw URI)
+     * already succeeds.  This confirms that parameterised routes handle query strings
+     * via the regex path, not the parse_url fallback.
+     */
+    public function testMatchesParameterisedRouteWithQueryString(): void
+    {
+        // Arrange — parameterised route (no leading slash, following RouteTest convention)
+        $route = new Route('users/{id}', 'GET', fn($id) => $id);
+
+        // Act — request URI has both a param segment and a query string
+        $request = \Pramnos\Http\Request::create('users/42?page=1', 'GET');
+        $matched = $route->matches($request);
+
+        // Assert — param route matches; query string is absorbed by the last segment
+        $this->assertTrue($matched,
+            'matches() must match a parameterised route even when the URI has a query string');
+    }
+
+    // =========================================================================
+    // Route Middleware API
+    // =========================================================================
+
+    /**
+     * middleware() attaches one or more middleware to the route and returns
+     * $this for fluent chaining.
+     *
+     * This covers Route::middleware(), getMiddleware(), and hasMiddleware().
+     */
+    public function testMiddlewareAttachesAndIsRetrievable(): void
+    {
+        // Arrange
+        $route = new Route('/secured', 'GET', fn() => 'ok');
+        $this->assertFalse($route->hasMiddleware(), 'no middleware by default');
+
+        // Act — attach middleware as FQCN strings (lazy-instantiation path)
+        $returned = $route->middleware('App\\Middleware\\Auth', 'App\\Middleware\\Throttle');
+
+        // Assert — fluent return, both middleware stored, hasMiddleware() true
+        $this->assertSame($route, $returned);
+        $this->assertTrue($route->hasMiddleware());
+        $this->assertCount(2, $route->getMiddleware());
+        $this->assertContains('App\\Middleware\\Auth', $route->getMiddleware());
+        $this->assertContains('App\\Middleware\\Throttle', $route->getMiddleware());
+    }
+
+    /**
+     * Multiple middleware() calls accumulate: each call appends rather than replaces.
+     */
+    public function testMiddlewareCallsAccumulate(): void
+    {
+        // Arrange
+        $route = new Route('/secured', 'GET', fn() => 'ok');
+
+        // Act
+        $route->middleware('App\\Middleware\\Auth');
+        $route->middleware('App\\Middleware\\Log');
+
+        // Assert — both attached
+        $this->assertCount(2, $route->getMiddleware());
+    }
 }
