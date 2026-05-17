@@ -353,6 +353,96 @@ class TwoFactorAuthServiceTest extends TestCase
     }
 
     // =========================================================================
+    // verifyCode() — backup-code fallback edge cases
+    // =========================================================================
+
+    /**
+     * verifyCode() must return false when TOTP fails AND there is no
+     * user_twofactor row for the backup-code lookup.
+     *
+     * This exercises verifyAndConsumeBackupCode() when its DB query returns
+     * numRows === 0, covering the early-return at line 404.
+     *
+     * A deliberately invalid TOTP code ('000000' used 24 hours in the past)
+     * is passed so that TOTPHelper::verifyCode() returns false, sending
+     * execution into the backup-code path.
+     */
+    public function testVerifyCodeReturnsFalseWhenNoBackupCodesRow(): void
+    {
+        // Arrange — valid secret, but wrong code (definitely expired)
+        $secret = TOTPHelper::generateSecret();
+        // Code generated for 24 hours ago is guaranteed invalid now
+        $staleCode = TOTPHelper::generateCode($secret, time() - 86400);
+
+        $enabledRow = $this->rowResult(['enabled' => 1]);
+        $secretRow  = $this->rowResult(['secret'  => $secret]);
+        $emptyRow   = $this->emptyResult();   // backup_codes lookup → no row
+
+        $qb = $this->createMock(QueryBuilder::class);
+        foreach (['table', 'select', 'where', 'orWhere', 'orderBy', 'limit', 'offset'] as $m) {
+            $qb->method($m)->willReturn($qb);
+        }
+        // Calls in order: isEnabled(), getSecret(), verifyAndConsumeBackupCode()
+        $qb->method('first')->willReturnOnConsecutiveCalls(
+            $enabledRow,
+            $secretRow,
+            $emptyRow   // numRows=0 → verifyAndConsumeBackupCode() returns false
+        );
+        $qb->method('insert')->willReturn(null);
+        $qb->method('update')->willReturn(null);
+
+        $db      = $this->buildDb($qb);
+        $service = new TwoFactorAuthService($db);
+
+        // Act
+        $result = $service->verifyCode(1, $staleCode);
+
+        // Assert — both TOTP and backup code paths fail
+        $this->assertFalse($result,
+            'verifyCode must return false when TOTP is invalid and backup-code row is absent');
+    }
+
+    /**
+     * verifyCode() must return false when TOTP fails AND the backup_codes
+     * column contains malformed (non-JSON) data.
+     *
+     * This exercises verifyAndConsumeBackupCode() when json_decode returns
+     * null, covering the "!is_array($codes)" guard at line 409.
+     */
+    public function testVerifyCodeReturnsFalseWhenBackupCodesAreInvalidJson(): void
+    {
+        // Arrange — valid secret, stale code so TOTP fails
+        $secret    = TOTPHelper::generateSecret();
+        $staleCode = TOTPHelper::generateCode($secret, time() - 86400);
+
+        $enabledRow  = $this->rowResult(['enabled' => 1]);
+        $secretRow   = $this->rowResult(['secret'  => $secret]);
+        $corruptRow  = $this->rowResult(['backup_codes' => 'not-valid-json']);
+
+        $qb = $this->createMock(QueryBuilder::class);
+        foreach (['table', 'select', 'where', 'orWhere', 'orderBy', 'limit', 'offset'] as $m) {
+            $qb->method($m)->willReturn($qb);
+        }
+        $qb->method('first')->willReturnOnConsecutiveCalls(
+            $enabledRow,
+            $secretRow,
+            $corruptRow  // backup_codes = 'not-valid-json' → is_array = false
+        );
+        $qb->method('insert')->willReturn(null);
+        $qb->method('update')->willReturn(null);
+
+        $db      = $this->buildDb($qb);
+        $service = new TwoFactorAuthService($db);
+
+        // Act
+        $result = $service->verifyCode(1, $staleCode);
+
+        // Assert — invalid backup codes must not cause success
+        $this->assertFalse($result,
+            'verifyCode must return false when backup_codes contains non-JSON data');
+    }
+
+    // =========================================================================
     // cleanupExpiredSessions()
     // =========================================================================
 
