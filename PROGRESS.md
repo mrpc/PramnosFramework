@@ -1,7 +1,30 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-17 (session 88)
+## 📅 Last Updated: 2026-05-17 (session 89)
+
+## 🏁 Session 89 — PolicyEngine characterization tests: 95.1% coverage (2026-05-17)
+
+### ✅ Ολοκληρώθηκε
+
+**PolicyEngine MySQL characterization tests** (17 tests total):
+- `createSimpleTable()` helper added for aggregate_refresh / cache_rebuild tests
+- `testRunAggregateRefreshCopiesFromSourceToTarget` — covers `executeAggregateRefresh()` MySQL TRUNCATE + INSERT SELECT path
+- `testRunAggregateRefreshWithoutSourceIsNoOp` — covers `if ($source !== null)` false branch
+- `testRunCacheRebuildCopiesFromSourceToTarget` — covers `executeCacheRebuild()` MySQL path
+- `testRunCacheRebuildWithoutSourceIsNoOp` — covers no-source branch in `executeCacheRebuild()`
+- `testRunReturnsErrorForInvalidIdentifier` — covers `quoteIdentifier()` `InvalidArgumentException` guard
+- `testRetentionWithWeekIntervalConvertsTodays` — covers `toMySQLInterval()` WEEK→days conversion
+- `testRetentionWithUnknownIntervalPatternFallsThrough` — covers `toMySQLInterval()` fallback path
+- `testRunReturnsEmptyArrayOnTimescaleDb` — covers `isTimescaleDb()` fast-return branch (line 73)
+- `testQuoteIdentifierReturnsDoubleQuotedForPostgres` — covers `quoteIdentifier()` PostgreSQL double-quote path (line 306)
+- `PolicyEngine.php`: 115/122 → 116/122 statements (95.1%), 12/16 → 13/16 methods
+- Remaining 6 uncovered stmts: PostgreSQL-specific execution paths (lines 172, 227-230, 249) — require PG connection
+
+### Commits
+- pending
+
+---
 
 ## 🏁 Session 88 — Coverage improvements: OrmModel 100%, Container 100%, Route 99% (2026-05-17)
 
