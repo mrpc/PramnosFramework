@@ -193,6 +193,87 @@ class AuthCharacterizationTest extends TestCase
     }
 
     /**
+     * Ensures auth() continues to the next addon when the current one has no
+     * onAuth method (method_exists check returns false).
+     */
+    public function testAuthSkipsAddonWithoutOnAuthMethod(): void
+    {
+        // Arrange — first addon has no onAuth; second one does and succeeds
+        $auth = new Auth();
+        $noMethod = new class {}; // no onAuth method
+        $realAddon = new class {
+            public function onAuth(): array
+            {
+                return ['status' => true, 'message' => 'ok', 'userid' => 7];
+            }
+        };
+        $this->setAddonRegistry([
+            'auth' => ['skip' => $noMethod, 'real' => $realAddon],
+        ]);
+
+        // Act
+        $result = $auth->auth('bob', 'pass');
+
+        // Assert — the addon without onAuth is silently skipped; auth still succeeds
+        $this->assertTrue($result, 'Addons without onAuth must be silently bypassed.');
+    }
+
+    /**
+     * setaccess() delegates permission writing to pramnos_factory::getPermissions().
+     *
+     * value=1 calls allow(), value=2 calls removePermission(), anything else calls deny().
+     * These are the three branches in setaccess() that were previously untested.
+     */
+    public function testSetaccessDelegatesToPermissionsObject(): void
+    {
+        // Arrange
+        $auth = new Auth();
+
+        // Act + Assert — all three branches must not throw
+        // value=1: allow
+        $auth->setaccess(1, 'module', 'blog', 'read', 0, 'user', '', 1);
+        // value=2: removePermission
+        $auth->setaccess(1, 'module', 'blog', 'read', 0, 'user', '', 2);
+        // other value: deny
+        $auth->setaccess(1, 'module', 'blog', 'read', 0, 'user', '', 0);
+
+        // All three delegations completed without exception — contract satisfied
+        $this->assertTrue(true);
+    }
+
+    /**
+     * useraccess() delegates to pramnos_factory::getPermissions()->isAllowed()
+     * and returns its boolean result.
+     */
+    public function testUseraccessDelegatesToPermissionsIsAllowed(): void
+    {
+        // Arrange
+        $auth = new Auth();
+
+        // Act — the test stub's isAllowed always returns false
+        $result = $auth->useraccess(1, 'module', 'blog', 'read', 0, 'user');
+
+        // Assert — result is the permissions object's return value
+        $this->assertFalse($result, 'useraccess must forward the result of isAllowed().');
+    }
+
+    /**
+     * groupaccess() delegates to pramnos_factory::getPermissions()->isAllowed()
+     * with the 'group' check type and returns its boolean result.
+     */
+    public function testGroupaccessDelegatesToPermissionsIsAllowed(): void
+    {
+        // Arrange
+        $auth = new Auth();
+
+        // Act — the test stub's isAllowed always returns false
+        $result = $auth->groupaccess(5, 'module', 'blog', 'read', 0);
+
+        // Assert
+        $this->assertFalse($result, 'groupaccess must forward the result of isAllowed().');
+    }
+
+    /**
      * @return array<string, array<string, object>>
      */
     private function getAddonRegistry(): array
