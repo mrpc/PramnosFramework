@@ -21,8 +21,16 @@
 - `PolicyEngine.php`: 115/122 → 116/122 statements (95.1%), 12/16 → 13/16 methods
 - Remaining 6 uncovered stmts: PostgreSQL-specific execution paths (lines 172, 227-230, 249) — require PG connection
 
+**RouteDiscovery 100% coverage** (same session):
+- `DiscoveryEdgeCasesController.php` fixture added with OPTIONS, PURGE (unknown), and middleware routes
+- 8 new tests: OPTIONS route, unknown method skip (lines 147+151), middleware from attribute (line 159), non-PHP file skip (line 66), wrong-class-name skip (line 74), `Route::matches()` method-mismatch return false (line 298), exact URI match return true (line 301), `Route::execute()` closure invocation (lines 358-369)
+- `RouteDiscovery.php`: 40/46 → 46/46 statements, 3/5 → 5/5 methods = **100%**
+- `Route.php`: 76/94 → 88/94 statements, 15/17 → 16/17 methods
+- Remaining 6 uncovered stmts (lines 321-326): second regex after parse_url() — only reachable with custom restrictive param patterns; unreachable with standard Symfony routes
+
 ### Commits
-- pending
+- `4cd02f3` test(policy): PolicyEngine characterization tests (95.1% coverage)
+- pending routing commit
 
 ---
 
