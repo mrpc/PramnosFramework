@@ -379,6 +379,67 @@ class ScaffoldViewsTest extends TestCase
     }
 
     // =========================================================================
+    // Theme auto-detection paths (no --theme option)
+    // =========================================================================
+
+    /**
+     * When --theme is omitted and no app/app.php config exists in the project
+     * root, the command cannot determine a theme and must return FAILURE with an
+     * informational error message.
+     *
+     * This covers the loadAppConfig() call (lines 90–91) and the "cannot
+     * determine theme" error branch (lines 93–98) in execute(). It also covers
+     * the file-not-found early-return inside loadAppConfig() itself (lines
+     * 194–195 of ScaffoldViews).
+     */
+    public function testFailsWhenNoThemeCanBeDetermined(): void
+    {
+        // Arrange — projectDir has no app/app.php; no --theme passed either
+        // (setUp() already creates a fresh empty temp dir)
+
+        // Act — omit --theme so the command must fall back to app/app.php
+        $exitCode = $this->tester->execute(['--all' => true]);
+        $output   = $this->tester->getDisplay();
+
+        // Assert — failure with a descriptive error
+        $this->assertSame(\Symfony\Component\Console\Command\Command::FAILURE, $exitCode,
+            'Command must fail when theme cannot be determined from config or --theme');
+        $this->assertStringContainsString('Cannot determine scaffold theme', $output,
+            'Error message must explain that theme detection failed');
+    }
+
+    /**
+     * When --theme is omitted but app/app.php exists with a scaffold_theme entry,
+     * the command must read the theme from config and proceed normally.
+     *
+     * This covers the loadAppConfig() "file exists" path (lines 197–199 of
+     * ScaffoldViews) and the $theme = getScaffoldTheme($appConfig) branch (line 91).
+     */
+    public function testReadsThemeFromAppConfigWhenNoThemeOption(): void
+    {
+        // Arrange — pick a real theme and write an app.php into the temp project dir
+        $theme = $this->firstAvailableTheme();
+
+        // Create app/ directory and app.php returning the scaffold_theme key
+        $appDir = $this->projectDir . DIRECTORY_SEPARATOR . 'app';
+        mkdir($appDir, 0777, true);
+        file_put_contents(
+            $appDir . DIRECTORY_SEPARATOR . 'app.php',
+            "<?php\nreturn ['scaffold_theme' => '{$theme}'];\n"
+        );
+
+        // Act — no --theme passed; the command reads it from app/app.php
+        $exitCode = $this->tester->execute(['--list' => true]);
+        $output   = $this->tester->getDisplay();
+
+        // Assert — command succeeds and lists groups for the configured theme
+        $this->assertSame(\Symfony\Component\Console\Command\Command::SUCCESS, $exitCode,
+            'Command must succeed when scaffold_theme is read from app/app.php');
+        $this->assertStringContainsString($theme, $output,
+            'Output must reference the theme that was read from config');
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
