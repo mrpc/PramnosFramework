@@ -1,7 +1,34 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-17 (session 87)
+## 📅 Last Updated: 2026-05-17 (session 88)
+
+## 🏁 Session 88 — Coverage improvements: OrmModel 100%, Container 100%, Route 99% (2026-05-17)
+
+### ✅ Ολοκληρώθηκε
+
+**Container 100% coverage** (commit `9175d6b`):
+- 11 νέα characterization tests: get() ContainerException wrapping, non-existent class binding, abstract class NotFoundException, positional override, no-constructor class, nullable param, required scalar fail, optional abstract dep, default value path, triple-isset has() branch
+- `Container.php`: 49/77 → 77/77 statements, 5/9 → 9/9 methods
+
+**Route.php ~99% coverage** (commit `e7dc541`):
+- 13 νέα characterization tests: `addPermissions()`, `removePermissions()`, `isValidScope()` branches (no-colon, regex fail, standalone `*`), `middleware()` / `getMiddleware()` / `hasMiddleware()`, `matches()` με query string
+- `Route.php`: 60/94 → 93/94 statements (combined με RouteTest)
+
+**OrmModel 100% coverage** (commits `b914475`, `850e7db`, session 87):
+- 29/29 MySQL, 29/29 PostgreSQL integration tests
+- `OrmModel.php`: 78/78 statements, 10/10 methods
+
+**Full suite: 4088 tests, 9520 assertions, 0 failures**
+**Overall coverage: 49.1% stmts (13126/26754), 57.6% methods (1366/2372)**
+
+### Commits
+- `850e7db` test(orm): add soft-delete integration tests
+- `b914475` test(orm): add event-cancellation integration tests for _save() and _delete()
+- `9175d6b` test(container): achieve 100% coverage for Container.php
+- `e7dc541` test(routing): achieve ~99% coverage for Route.php
+
+---
 
 ## 🏁 Session 87 — ORM soft-delete + event-cancellation integration tests (2026-05-17)
 
