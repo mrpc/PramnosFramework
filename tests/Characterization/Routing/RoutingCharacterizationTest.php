@@ -806,4 +806,253 @@ class RoutingCharacterizationTest extends TestCase
         // Assert — both attached
         $this->assertCount(2, $route->getMiddleware());
     }
+
+    // =========================================================================
+    // Route::matches() — method mismatch and exact URI match
+    // =========================================================================
+
+    /**
+     * matches() must return false immediately when the request HTTP method does
+     * not match the route's method.
+     *
+     * This covers the `return false` on line 298 of Route.php — the very first
+     * guard in matches() that short-circuits on method mismatch.
+     */
+    public function testMatchesReturnsFalseForMethodMismatch(): void
+    {
+        // Arrange — GET route, but request uses POST
+        $route   = new Route('/items', 'GET', fn() => 'ok');
+        $request = \Pramnos\Http\Request::create('/items', 'POST');
+
+        // Act
+        $result = $route->matches($request);
+
+        // Assert — method mismatch → false immediately (no regex evaluation)
+        $this->assertFalse($result,
+            'matches() must return false when request method differs from route method');
+    }
+
+    /**
+     * matches() must return true when the request URI equals the route URI
+     * exactly (static route, no regex needed).
+     *
+     * This covers the `return true` on line 301 of Route.php — the second
+     * guard that short-circuits on literal URI equality.
+     */
+    public function testMatchesReturnsTrueForExactUriMatch(): void
+    {
+        // Arrange — static route, request URI matches exactly
+        $route   = new Route('/dashboard', 'GET', fn() => 'ok');
+        $request = \Pramnos\Http\Request::create('/dashboard', 'GET');
+
+        // Act
+        $result = $route->matches($request);
+
+        // Assert — exact match path returns true without regex
+        $this->assertTrue($result,
+            'matches() must return true for exact static URI match');
+    }
+
+    // =========================================================================
+    // Route::execute() — closure invocation
+    // =========================================================================
+
+    /**
+     * execute() must invoke the closure action, resolve named parameters from
+     * the matched parameter bag, and return the action's return value.
+     *
+     * This covers lines 358-369 in Route.php — the is_callable branch,
+     * ReflectionFunction parameter introspection, and call_user_func_array.
+     */
+    public function testExecuteCallsClosureAction(): void
+    {
+        // Arrange — route with a parameterised URI that captures {id}
+        $route   = new Route('items/{id}', 'GET', fn(int $id) => 'item:' . $id);
+        $request = \Pramnos\Http\Request::create('items/7', 'GET');
+
+        // Act — matches() populates $route->parameters, execute() calls the closure
+        $this->assertTrue($route->matches($request));
+        $result = $route->execute(null);
+
+        // Assert — closure returned correct value with parameter resolved
+        $this->assertSame('item:7', $result,
+            'execute() must invoke the closure with extracted route parameters');
+    }
+
+    // =========================================================================
+    // RouteDiscovery — OPTIONS method, unknown method skip, middleware attribute
+    // =========================================================================
+
+    /**
+     * discover() must register a route for the OPTIONS HTTP method when a
+     * controller method is annotated with #[Route(..., methods: 'OPTIONS')].
+     *
+     * This covers line 146 of RouteDiscovery.php:
+     * `'OPTIONS' => $this->router->options($attr->uri, $action)`
+     */
+    public function testDiscoverRegistersOptionsRoute(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+
+        // Act
+        $router->loadFromDirectory(
+            __DIR__ . '/Fixtures',
+            'PramnosTest\\Routing\\Fixtures'
+        );
+
+        // Assert — DiscoveryEdgeCasesController::preflight is registered
+        $route = $router->getByName('edge.options');
+        $this->assertNotNull($route, 'OPTIONS route must be discovered');
+        $this->assertSame('OPTIONS', strtoupper($route->method));
+        $this->assertSame('/api/preflight', $route->uri);
+    }
+
+    /**
+     * When a #[Route] attribute lists an unrecognised HTTP method, that specific
+     * method must be silently skipped (default => null → continue) without
+     * preventing sibling attributes on the same method from being registered.
+     *
+     * This covers lines 147 and 151 of RouteDiscovery.php — the `default => null`
+     * arm of the match statement and the subsequent `if ($route === null) { continue; }`.
+     */
+    public function testDiscoverSkipsUnknownHttpMethod(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+
+        // Act
+        $router->loadFromDirectory(
+            __DIR__ . '/Fixtures',
+            'PramnosTest\\Routing\\Fixtures'
+        );
+
+        // Assert — PURGE route not registered (unknown method → null → skipped)
+        $purgeRequest = \Pramnos\Http\Request::create('/api/edge/purge', 'PURGE');
+        $this->assertNull($router->getMatchedRoute($purgeRequest),
+            'Unknown HTTP method PURGE must not be registered');
+
+        // Assert — GET fallback for same URI was registered (sibling attribute)
+        $getRoute = $router->getByName('edge.purge.get');
+        $this->assertNotNull($getRoute,
+            'GET route registered alongside unknown PURGE must still be discovered');
+    }
+
+    /**
+     * When a #[Route] attribute includes middleware, RouteDiscovery must attach
+     * those middleware to the registered Route object.
+     *
+     * This covers line 159 of RouteDiscovery.php:
+     * `$route->middleware(...$attr->middleware)`
+     */
+    public function testDiscoverAppliesMiddlewareFromAttribute(): void
+    {
+        // Arrange
+        $router = $this->makeRouter();
+
+        // Act
+        $router->loadFromDirectory(
+            __DIR__ . '/Fixtures',
+            'PramnosTest\\Routing\\Fixtures'
+        );
+
+        // Assert — DiscoveryEdgeCasesController::secured has middleware attached
+        $route = $router->getByName('edge.secured');
+        $this->assertNotNull($route);
+        $this->assertTrue($route->hasMiddleware(),
+            'Route discovered with middleware attribute must report hasMiddleware()');
+        $this->assertContains('App\\Middleware\\AuthMiddleware', $route->getMiddleware());
+        $this->assertContains('App\\Middleware\\Throttle', $route->getMiddleware());
+    }
+
+    // =========================================================================
+    // RouteDiscovery — non-PHP file skip and class-not-found skip
+    // =========================================================================
+
+    /**
+     * discover() must silently skip non-PHP files (e.g. .md, .txt) found
+     * during directory traversal without throwing an error.
+     *
+     * This covers the `if ($file->getExtension() !== 'php') { continue; }`
+     * guard on line 65-67 of RouteDiscovery.php.
+     */
+    public function testDiscoverSkipsNonPhpFiles(): void
+    {
+        // Arrange — temp directory with one valid PHP controller and one .md file
+        $tmpDir = sys_get_temp_dir() . '/pf_rd_test_' . uniqid('', true);
+        mkdir($tmpDir, 0777, true);
+
+        $phpFile = $tmpDir . '/SkipNonPhpController.php';
+        $mdFile  = $tmpDir . '/README.md';
+
+        // Unique namespace avoids conflicts with other test runs
+        $ns = 'PramnosRdSkip' . substr(md5(uniqid()), 0, 8);
+        file_put_contents($phpFile, <<<PHP
+        <?php
+        namespace {$ns};
+        use Pramnos\\Routing\\Attributes\\Route;
+        class SkipNonPhpController {
+            #[Route('/skiptest', methods: 'GET', name: 'skip.phpfile')]
+            public function index(): void {}
+        }
+        PHP);
+        file_put_contents($mdFile, '# Not PHP — must be ignored by discovery');
+
+        $router = $this->makeRouter();
+
+        try {
+            // Act — must not throw on the .md file; PHP route must be found
+            (new \Pramnos\Routing\RouteDiscovery($router))->discover($tmpDir, $ns);
+
+            // Assert — PHP controller registered its route
+            $this->assertNotNull($router->getByName('skip.phpfile'),
+                'Route from the PHP file must be registered');
+        } finally {
+            @unlink($phpFile);
+            @unlink($mdFile);
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
+     * discover() must skip PHP files whose path-derived class name does not
+     * correspond to any actually-defined class (e.g. the file defines a class
+     * with a different name or namespace).
+     *
+     * This covers the `if (!class_exists($class, false)) { continue; }` guard
+     * on lines 73-75 of RouteDiscovery.php.
+     */
+    public function testDiscoverSkipsFileWithUnmatchedClassName(): void
+    {
+        // Arrange — temp dir with a PHP file that defines a class whose name does
+        // NOT match what pathToClass() would derive from the file path.
+        $tmpDir = sys_get_temp_dir() . '/pf_rd_mismatch_' . uniqid('', true);
+        mkdir($tmpDir, 0777, true);
+
+        // The file is named MismatchedController.php; pathToClass() will derive
+        // `{$ns}\MismatchedController`, but the file defines `WronglyNamedClass`.
+        $ns = 'PramnosRdMismatch' . substr(md5(uniqid()), 0, 8);
+        $phpFile = $tmpDir . '/MismatchedController.php';
+        file_put_contents($phpFile, <<<PHP
+        <?php
+        namespace {$ns};
+        // Intentionally different class name — pathToClass() derives MismatchedController
+        class WronglyNamedClassXYZ {}
+        PHP);
+
+        $router = $this->makeRouter();
+
+        try {
+            // Act — discover() must not throw; just skip the file
+            (new \Pramnos\Routing\RouteDiscovery($router))->discover($tmpDir, $ns);
+
+            // Assert — no routes registered (mismatched class was skipped)
+            // (We verify indirectly: the router has no routes for this ns)
+            $this->assertNull($router->getByName($ns . '.any'),
+                'No routes must be registered when the class name does not match the file');
+        } finally {
+            @unlink($phpFile);
+            @rmdir($tmpDir);
+        }
+    }
 }
