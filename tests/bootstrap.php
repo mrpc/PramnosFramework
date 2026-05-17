@@ -52,3 +52,15 @@ if (!defined('DB_PERMISSIONSTABLE')) {
 /**
 * EOF REQUIRED DEFINES
 */
+
+/**
+ * Legacy pramnos_factory stub (Pramnos\Auth namespace).
+ *
+ * Auth::setaccess/useraccess/groupaccess call pramnos_factory::getPermissions()
+ * without a leading backslash, so PHP resolves it as Pramnos\Auth\pramnos_factory.
+ * The real class is application-level and absent from this repo. The stub allows
+ * unit tests to exercise those code paths without a real database.
+ */
+if (!class_exists('Pramnos\Auth\pramnos_factory')) {
+    require __DIR__ . '/stubs/pramnos_factory_stub.php';
+}
