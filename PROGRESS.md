@@ -1,7 +1,35 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-17 (session 86)
+## 📅 Last Updated: 2026-05-17 (session 87)
+
+## 🏁 Session 87 — ORM soft-delete + event-cancellation integration tests (2026-05-17)
+
+### ✅ Ολοκληρώθηκε
+
+**Soft-delete integration tests** (commit `850e7db`):
+- `testSoftDeleteSetsDeletedAtAndKeepsRow` — covers `OrmModel::_delete()` soft-delete branch (writes `deleted_at`, no hard DELETE)
+- `testLoadSoftDeletedRecordEntersSoftDeleteGuard` — covers `OrmModel::_load()` soft-delete guard (sets `_isnew=true`, keeps `$_data`)
+- Table `orm_test_items` added to MySQL + PostgreSQL DDL; `OrmTestSoftItem` fixture model added
+- Και τα δύο test suites: 27/27 → 27/27 ✓
+
+**Event-cancellation integration tests** (commit pending):
+- `testSaveAbortsWhenCreatingListenerReturnsFalse` — covers `OrmModel::_save()` line 186 (`return $this` when `fireEvent('creating')` returns false)
+- `testDeleteAbortsWhenDeletingListenerReturnsFalse` — covers `OrmModel::_delete()` line 209 (`return $this` when `fireEvent('deleting')` returns false)
+- Και τα δύο test suites: 27/27 → 29/29 ✓
+
+**Bugfix: `Model::getChanges()` για ORM fields** (commit `a636c3f` session 86):
+- `property_exists()` μόνο → `|| array_key_exists($field, $this->_data)` fallback
+- Χωρίς το fix, `_save()` δεν ανίχνευε changes σε ORM fields → UPDATE δεν εκτελείτο
+
+**Docs + test count update**: `docs/1.2-new-features.md` ενημερώθηκε (46 characterization tests, 29+29 integration tests, bug fixes documented)
+
+**Αποτέλεσμα:** 4060 tests, 9477 assertions (full suite), **0 errors, 0 failures**
+
+### Commits
+- `850e7db` test(orm): add soft-delete integration tests for OrmModel::_delete() and _load()
+
+---
 
 ## 🏁 Session 86 — ORM Relations integration tests (2026-05-17)
 
