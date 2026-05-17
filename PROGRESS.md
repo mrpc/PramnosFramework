@@ -32,10 +32,12 @@
 - 20 new dispatch/utility tests: dispatch() basic, permission check (pass/fail), global middleware pipeline, dispatchSafe() all paths (not-found, permission-denied, success, exception, middleware), dispatchWithoutPermissions(), addRoute() with array methods, match(), getRoutesWithPermissions(), getRequiredPermissions(), getAllUsedPermissions(), isValidScope(), parseScope() all 5 formats, getEffectivePermissions() wildcard expansion, normalizePermissions() space-separated string, wildcardMatch() global '*', dispatch with extra permissions
 - `Router.php`: 42/195 → 185/195 statements (94.9%), 11/31 → 25/31 methods
 
+**Full suite: 4128 tests, 9602 assertions, 0 failures** (+40 tests vs session 88)
+
 ### Commits
 - `4cd02f3` test(policy): PolicyEngine characterization tests (95.1% coverage)
 - `084c203` test(routing): RouteDiscovery 100%, Route.php improved coverage
-- pending Router commit
+- `2046a32` test(routing): Router dispatch/utility/permission tests (94.9% coverage)
 
 ---
 
