@@ -37,6 +37,12 @@ class PolicyEngineCharacterizationTest extends TestCase
     /** Temp table used by retention tests. */
     private const RETENTION_TABLE = 'pe_test_retention_data';
 
+    /** Temp source table used by aggregate_refresh / cache_rebuild tests. */
+    private const AGG_SOURCE = 'pe_agg_source';
+
+    /** Temp target/cache table used by aggregate_refresh / cache_rebuild tests. */
+    private const AGG_TARGET = 'pe_agg_cache';
+
     protected function setUp(): void
     {
         // Arrange — connect directly to MySQL (same credentials as other char tests)
@@ -67,6 +73,8 @@ class PolicyEngineCharacterizationTest extends TestCase
     {
         $this->db->query('DELETE FROM `' . self::TABLE . '`');
         $this->db->query('DROP TABLE IF EXISTS `' . self::RETENTION_TABLE . '`');
+        $this->db->query('DROP TABLE IF EXISTS `' . self::AGG_SOURCE . '`');
+        $this->db->query('DROP TABLE IF EXISTS `' . self::AGG_TARGET . '`');
     }
 
     // =========================================================================
@@ -329,6 +337,296 @@ class PolicyEngineCharacterizationTest extends TestCase
     }
 
     // =========================================================================
+    // run() — aggregate_refresh execution
+    // =========================================================================
+
+    /**
+     * An 'aggregate_refresh' policy on MySQL must TRUNCATE the target table
+     * and reload it from the source table via INSERT INTO … SELECT.
+     *
+     * This covers PolicyEngine::executeAggregateRefresh() MySQL path (lines 252-254)
+     * and the `'aggregate_refresh' => $this->executeAggregateRefresh($policy)` arm
+     * of the match statement in executePolicy().
+     */
+    public function testRunAggregateRefreshCopiesFromSourceToTarget(): void
+    {
+        // Arrange — source table with 2 rows, target table with 1 stale row
+        $this->createSimpleTable(self::AGG_SOURCE);
+        $this->createSimpleTable(self::AGG_TARGET);
+        $this->db->query("INSERT INTO `" . self::AGG_SOURCE . "` (val) VALUES ('alpha'), ('beta')");
+        $this->db->query("INSERT INTO `" . self::AGG_TARGET . "` (val) VALUES ('stale')");
+
+        $this->engine->register('aggregate_refresh', self::AGG_TARGET, [
+            'source' => self::AGG_SOURCE,
+        ]);
+
+        // Act
+        $results = $this->engine->run();
+
+        // Assert — policy executed without error
+        $this->assertCount(1, $results);
+        $this->assertSame('ok', $results[0]['status'], $results[0]['error'] ?? '');
+
+        // Assert — target now matches source (stale row gone, two new rows)
+        $cnt = $this->db->query("SELECT COUNT(*) AS c FROM `" . self::AGG_TARGET . "`");
+        $cnt->fetch();
+        $this->assertSame(2, (int) $cnt->fields['c'],
+            'aggregate_refresh must TRUNCATE then INSERT SELECT from source');
+    }
+
+    /**
+     * An 'aggregate_refresh' policy with no 'source' in config must be a no-op on
+     * MySQL (nothing to reload without a source table).
+     *
+     * This covers the `if ($source !== null)` false branch inside executeAggregateRefresh().
+     */
+    public function testRunAggregateRefreshWithoutSourceIsNoOp(): void
+    {
+        // Arrange — target table with 1 row, no source config
+        $this->createSimpleTable(self::AGG_TARGET);
+        $this->db->query("INSERT INTO `" . self::AGG_TARGET . "` (val) VALUES ('keep')");
+
+        $this->engine->register('aggregate_refresh', self::AGG_TARGET);
+
+        // Act
+        $results = $this->engine->run();
+
+        // Assert — policy runs with 'ok' status (no-op doesn't throw)
+        $this->assertSame('ok', $results[0]['status'], $results[0]['error'] ?? '');
+
+        // Assert — target row untouched
+        $cnt = $this->db->query("SELECT COUNT(*) AS c FROM `" . self::AGG_TARGET . "`");
+        $cnt->fetch();
+        $this->assertSame(1, (int) $cnt->fields['c'],
+            'aggregate_refresh without source must leave target unchanged');
+    }
+
+    // =========================================================================
+    // run() — cache_rebuild execution
+    // =========================================================================
+
+    /**
+     * A 'cache_rebuild' policy must TRUNCATE the target and reload from source.
+     *
+     * This covers PolicyEngine::executeCacheRebuild() with source set (lines 268-269)
+     * and the `'cache_rebuild' => $this->executeCacheRebuild($policy)` arm.
+     */
+    public function testRunCacheRebuildCopiesFromSourceToTarget(): void
+    {
+        // Arrange
+        $this->createSimpleTable(self::AGG_SOURCE);
+        $this->createSimpleTable(self::AGG_TARGET);
+        $this->db->query("INSERT INTO `" . self::AGG_SOURCE . "` (val) VALUES ('x'), ('y'), ('z')");
+        $this->db->query("INSERT INTO `" . self::AGG_TARGET . "` (val) VALUES ('old')");
+
+        $this->engine->register('cache_rebuild', self::AGG_TARGET, [
+            'source' => self::AGG_SOURCE,
+        ]);
+
+        // Act
+        $results = $this->engine->run();
+
+        // Assert — ran without error
+        $this->assertSame('ok', $results[0]['status'], $results[0]['error'] ?? '');
+
+        // Assert — target has 3 rows from source
+        $cnt = $this->db->query("SELECT COUNT(*) AS c FROM `" . self::AGG_TARGET . "`");
+        $cnt->fetch();
+        $this->assertSame(3, (int) $cnt->fields['c'],
+            'cache_rebuild must TRUNCATE then INSERT SELECT from source');
+    }
+
+    /**
+     * A 'cache_rebuild' policy with no source config must be a no-op.
+     *
+     * Covers the `if ($source !== null)` false branch in executeCacheRebuild().
+     */
+    public function testRunCacheRebuildWithoutSourceIsNoOp(): void
+    {
+        // Arrange
+        $this->createSimpleTable(self::AGG_TARGET);
+        $this->db->query("INSERT INTO `" . self::AGG_TARGET . "` (val) VALUES ('keep_me')");
+        $this->engine->register('cache_rebuild', self::AGG_TARGET);
+
+        // Act
+        $results = $this->engine->run();
+
+        // Assert — no error, row untouched
+        $this->assertSame('ok', $results[0]['status'], $results[0]['error'] ?? '');
+        $cnt = $this->db->query("SELECT COUNT(*) AS c FROM `" . self::AGG_TARGET . "`");
+        $cnt->fetch();
+        $this->assertSame(1, (int) $cnt->fields['c']);
+    }
+
+    // =========================================================================
+    // run() — quoteIdentifier invalid name → error result
+    // =========================================================================
+
+    /**
+     * A policy whose target contains an invalid SQL identifier (e.g. a hyphen)
+     * must produce status='error' without crashing run().
+     *
+     * This covers the `throw new InvalidArgumentException` guard in
+     * PolicyEngine::quoteIdentifier() (lines 300-302).
+     */
+    public function testRunReturnsErrorForInvalidIdentifier(): void
+    {
+        // Arrange — register a retention policy with a target containing a hyphen
+        $this->engine->register('retention', 'valid_target');
+        $id = (int) $this->db->getInsertId();
+        // Directly override target with an invalid identifier
+        $this->db->query(
+            "UPDATE `" . self::TABLE . "` SET target = 'my-invalid-table' WHERE policyid = $id"
+        );
+
+        // Act
+        $results = $this->engine->run();
+
+        // Assert — InvalidArgumentException from quoteIdentifier → error result
+        $this->assertSame('error', $results[0]['status']);
+        $this->assertStringContainsString('Invalid SQL identifier', (string) $results[0]['error']);
+    }
+
+    // =========================================================================
+    // quoteIdentifier() — PostgreSQL double-quote path
+    // =========================================================================
+
+    /**
+     * quoteIdentifier() must return a double-quoted identifier when the database
+     * type is 'postgresql', and a back-tick-quoted identifier for MySQL.
+     *
+     * This covers the `return '"' . str_replace('"', '""', $name) . '"'` branch
+     * in quoteIdentifier() (line 306).  We test the private method directly via
+     * ReflectionMethod — no real DB query is issued, it is pure string logic.
+     */
+    public function testQuoteIdentifierReturnsDoubleQuotedForPostgres(): void
+    {
+        // Arrange — switch type flag only (no real PG connection needed)
+        $originalType = $this->db->type;
+        $this->db->type = 'postgresql';
+
+        try {
+            // Act — call private quoteIdentifier() via reflection
+            $ref    = new \ReflectionMethod($this->engine, 'quoteIdentifier');
+            $result = $ref->invoke($this->engine, 'my_schema.my_table');
+
+            // Assert — PostgreSQL uses double-quotes
+            $this->assertSame('"my_schema.my_table"', $result,
+                'quoteIdentifier() must double-quote identifiers for PostgreSQL');
+        } finally {
+            $this->db->type = $originalType;
+        }
+    }
+
+    // =========================================================================
+    // run() — TimescaleDB fast path
+    // =========================================================================
+
+    /**
+     * When the database type is 'timescaledb', run() must return an empty array
+     * immediately without querying the policy table.
+     *
+     * This covers the `if ($this->isTimescaleDb()) { return []; }` guard (line 73)
+     * in PolicyEngine::run().  PolicyEngine stores a reference to the Database
+     * object, so mutating $this->db->type before calling run() is sufficient.
+     */
+    public function testRunReturnsEmptyArrayOnTimescaleDb(): void
+    {
+        // Arrange — switch the shared DB object's type to timescaledb
+        $originalType = $this->db->type;
+        $this->db->type = 'timescaledb';
+
+        try {
+            // Act
+            $results = $this->engine->run();
+
+            // Assert — fast-return with empty array; no policy was executed
+            $this->assertSame([], $results, 'run() must be a no-op on TimescaleDB');
+        } finally {
+            // Restore db type so tearDown() can still clean up
+            $this->db->type = $originalType;
+        }
+    }
+
+    // =========================================================================
+    // run() — toMySQLInterval week conversion
+    // =========================================================================
+
+    /**
+     * A retention policy with interval '2 weeks' must convert to 14 DAY before
+     * being passed to MySQL's DATE_SUB(), so rows older than 14 days are deleted.
+     *
+     * This covers the `if ($unit === 'WEEK') { return ($n * 7) . ' DAY'; }` branch
+     * in PolicyEngine::toMySQLInterval().
+     */
+    public function testRetentionWithWeekIntervalConvertsTodays(): void
+    {
+        // Arrange — create data table with one row from 15 days ago and one from today
+        $this->db->query(
+            "CREATE TABLE IF NOT EXISTS `" . self::RETENTION_TABLE . "`
+             (id INT AUTO_INCREMENT PRIMARY KEY, created_at DATETIME NOT NULL)"
+        );
+        $this->db->query(
+            "INSERT INTO `" . self::RETENTION_TABLE . "` (created_at)
+             VALUES (DATE_SUB(NOW(), INTERVAL 15 DAY))"
+        );
+        $this->db->query(
+            "INSERT INTO `" . self::RETENTION_TABLE . "` (created_at) VALUES (NOW())"
+        );
+
+        // Register a 2-weeks retention policy ('2 weeks' → 14 DAY → 15-day row deleted)
+        $this->engine->register('retention', self::RETENTION_TABLE, [
+            'interval'    => '2 weeks',
+            'time_column' => 'created_at',
+        ]);
+
+        // Act
+        $results = $this->engine->run();
+
+        // Assert — runs without error
+        $this->assertSame('ok', $results[0]['status'], $results[0]['error'] ?? '');
+
+        // Assert — the 15-day-old row was deleted (older than 2 weeks = 14 days)
+        $cnt = $this->db->query("SELECT COUNT(*) AS c FROM `" . self::RETENTION_TABLE . "`");
+        $cnt->fetch();
+        $this->assertSame(1, (int) $cnt->fields['c'],
+            '2 weeks must delete rows older than 14 days (week → 7 days conversion)');
+    }
+
+    /**
+     * A retention policy with an unrecognised interval pattern must pass it
+     * through unchanged to MySQL (fallback path in toMySQLInterval).
+     *
+     * This covers the `return $pgInterval` fallback (line 332).
+     * The test verifies the policy produces an error result because MySQL
+     * rejects the non-standard interval syntax, not that it succeeds.
+     */
+    public function testRetentionWithUnknownIntervalPatternFallsThrough(): void
+    {
+        // Arrange — table with one row
+        $this->db->query(
+            "CREATE TABLE IF NOT EXISTS `" . self::RETENTION_TABLE . "`
+             (id INT AUTO_INCREMENT PRIMARY KEY, created_at DATETIME NOT NULL)"
+        );
+        $this->db->query(
+            "INSERT INTO `" . self::RETENTION_TABLE . "` (created_at) VALUES (NOW())"
+        );
+
+        // Register with a non-parseable interval — toMySQLInterval() passes it through unchanged
+        $this->engine->register('retention', self::RETENTION_TABLE, [
+            'interval'    => 'P30D',   // ISO 8601 duration — not matched by the regex
+            'time_column' => 'created_at',
+        ]);
+
+        // Act — MySQL will reject 'P30D' as an interval unit → DB error → error result
+        $results = $this->engine->run();
+
+        // Assert — error result (invalid SQL) confirms the fallback path was taken
+        $this->assertSame('error', $results[0]['status'],
+            'toMySQLInterval() fallback passes unknown patterns to MySQL which rejects them');
+    }
+
+    // =========================================================================
     // Helper
     // =========================================================================
 
@@ -348,6 +646,20 @@ class PolicyEngineCharacterizationTest extends TestCase
                 last_error  TEXT         DEFAULT NULL,
                 created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+        );
+    }
+
+    /**
+     * Creates a minimal two-column table (id AUTO_INCREMENT + val VARCHAR(50))
+     * used as source or target fixtures for aggregate_refresh / cache_rebuild tests.
+     */
+    private function createSimpleTable(string $name): void
+    {
+        $this->db->query(
+            "CREATE TABLE IF NOT EXISTS `{$name}` (
+                id  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                val VARCHAR(50) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
     }
 }
