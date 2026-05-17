@@ -131,4 +131,135 @@ class OAuthPolicyHelperTest extends TestCase
         $this->assertNotContains('password', $types,
             "'password' grant (deprecated in OAuth 2.1) must not be in the default list");
     }
+
+    // -------------------------------------------------------------------------
+    // getAuthenticationMethods()
+    // -------------------------------------------------------------------------
+
+    /**
+     * getAuthenticationMethods() must return a non-empty array of descriptor maps.
+     *
+     * Each entry must have 'method', 'name', and 'description' string keys — this
+     * is the contract consumed by developer-facing UI renderers.
+     */
+    public function testGetAuthenticationMethodsReturnsDescriptors(): void
+    {
+        // Act
+        $methods = OAuthPolicyHelper::getAuthenticationMethods();
+
+        // Assert — non-empty, each entry has required keys
+        $this->assertNotEmpty($methods);
+        foreach ($methods as $entry) {
+            $this->assertArrayHasKey('method', $entry);
+            $this->assertArrayHasKey('name', $entry);
+            $this->assertArrayHasKey('description', $entry);
+            $this->assertIsString($entry['method']);
+            $this->assertIsString($entry['name']);
+            $this->assertIsString($entry['description']);
+        }
+    }
+
+    /**
+     * getAuthenticationMethods() must include 'none' (public client / PKCE)
+     * as a descriptor entry even though it is excluded from the allowed-by-default list.
+     *
+     * 'none' is a valid auth method that clients can explicitly opt into; it must
+     * appear in the descriptive registry so UIs can present it.
+     */
+    public function testGetAuthenticationMethodsIncludesNoneDescriptor(): void
+    {
+        // Act
+        $methods  = OAuthPolicyHelper::getAuthenticationMethods();
+        $methodIds = array_column($methods, 'method');
+
+        // Assert — 'none' must appear as a descriptor (opt-in, not a default)
+        $this->assertContains('none', $methodIds,
+            "'none' must be in the descriptor registry even though it is not a default auth method");
+    }
+
+    // -------------------------------------------------------------------------
+    // getGrantTypes()
+    // -------------------------------------------------------------------------
+
+    /**
+     * getGrantTypes() must return a non-empty array of descriptor maps.
+     *
+     * Each entry must have 'method', 'name', and 'description' string keys.
+     */
+    public function testGetGrantTypesReturnsDescriptors(): void
+    {
+        // Act
+        $grants = OAuthPolicyHelper::getGrantTypes();
+
+        // Assert
+        $this->assertNotEmpty($grants);
+        foreach ($grants as $entry) {
+            $this->assertArrayHasKey('method', $entry);
+            $this->assertArrayHasKey('name', $entry);
+            $this->assertArrayHasKey('description', $entry);
+            $this->assertIsString($entry['method']);
+        }
+    }
+
+    /**
+     * getGrantTypes() must include the deprecated 'password' grant as a descriptor.
+     *
+     * Even though 'password' is excluded from the allowed-by-default list,
+     * it must appear in the descriptive registry so operators can see it exists
+     * and choose to allow it explicitly.
+     */
+    public function testGetGrantTypesIncludesPasswordGrantDescriptor(): void
+    {
+        // Act
+        $grants   = OAuthPolicyHelper::getGrantTypes();
+        $grantIds = array_column($grants, 'method');
+
+        // Assert — 'password' must be in the descriptor even though not a default
+        $this->assertContains('password', $grantIds,
+            "'password' must be in the descriptor registry even though it is not a default grant");
+    }
+
+    // -------------------------------------------------------------------------
+    // getWebhookTypes()
+    // -------------------------------------------------------------------------
+
+    /**
+     * getWebhookTypes() must return a non-empty array of webhook event descriptors.
+     *
+     * Each entry must have 'type', 'name', and 'description' keys — different from
+     * auth method descriptors which use 'method'. This is the contract for webhook
+     * registration UIs.
+     */
+    public function testGetWebhookTypesReturnsDescriptors(): void
+    {
+        // Act
+        $types = OAuthPolicyHelper::getWebhookTypes();
+
+        // Assert
+        $this->assertNotEmpty($types);
+        foreach ($types as $entry) {
+            $this->assertArrayHasKey('type', $entry);
+            $this->assertArrayHasKey('name', $entry);
+            $this->assertArrayHasKey('description', $entry);
+            $this->assertIsString($entry['type']);
+            $this->assertIsString($entry['name']);
+        }
+    }
+
+    /**
+     * getWebhookTypes() must include the 'token_revoked' event type.
+     *
+     * Token revocation is a core OAuth2 event that all conforming implementations
+     * must support for downstream notification.
+     */
+    public function testGetWebhookTypesIncludesTokenRevokedEvent(): void
+    {
+        // Act
+        $types    = OAuthPolicyHelper::getWebhookTypes();
+        $typeIds  = array_column($types, 'type');
+
+        // Assert
+        $this->assertContains('token_revoked', $typeIds,
+            "'token_revoked' must be a supported webhook event type");
+    }
 }
