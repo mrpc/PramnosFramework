@@ -1170,4 +1170,117 @@ class HelpersExtendedTest extends TestCase
         // Assert
         $this->assertSame('1.5 KB', $result);
     }
+
+    // =========================================================================
+    // bool2string()
+    // =========================================================================
+
+    /**
+     * bool2string() must return 'true' for boolean true and 'false' for any
+     * other value.
+     *
+     * This covers lines 144-151 of Helpers.php — both branches of the
+     * bool2string() method which was previously uncovered.
+     */
+    public function testBool2StringReturnsTrueStringForTrue(): void
+    {
+        // Act & Assert — true branch (line 147)
+        $this->assertSame('true', Helpers::bool2string(true));
+
+        // Act & Assert — false branch (line 149)
+        $this->assertSame('false', Helpers::bool2string(false));
+        $this->assertSame('false', Helpers::bool2string(0));
+        $this->assertSame('false', Helpers::bool2string(''));
+    }
+
+    // =========================================================================
+    // percent() / subtractPercent()
+    // =========================================================================
+
+    /**
+     * percent() must return the percentage of numAmount out of numTotal,
+     * NULL when total is 0, and 0 when amount is 0.
+     *
+     * Covers lines 707-719 of Helpers.php including both early-return branches
+     * (total=0, amount=0) and the calculation path.
+     */
+    public function testPercentReturnsCorrectValue(): void
+    {
+        // Zero total → NULL (line 710)
+        $this->assertNull(Helpers::percent(50, 0));
+
+        // Zero amount → 0 (line 713)
+        $this->assertSame(0, Helpers::percent(0, 100));
+
+        // Normal case: 25/100 = 25%
+        $this->assertEquals(25, (int) Helpers::percent(25, 100));
+
+        // Over 100%
+        $this->assertEquals(150, (int) Helpers::percent(150, 100));
+    }
+
+    /**
+     * subtractPercent() must return the original amount when either argument is 0,
+     * and calculate the correct pre-tax amount otherwise.
+     *
+     * Covers lines 728-733 of Helpers.php including the zero-guard and the
+     * calculation expression.
+     */
+    public function testSubtractPercentHandlesZeroAndNormalCases(): void
+    {
+        // Zero amount → return amount unchanged (line 731)
+        $this->assertEquals(0, Helpers::subtractPercent(0, 10));
+
+        // Zero percent → return amount unchanged (line 731)
+        $this->assertEquals(100, Helpers::subtractPercent(100, 0));
+
+        // Normal: 110 with 10% tax → pre-tax ≈ 100
+        $result = Helpers::subtractPercent(110, 10);
+        $this->assertEqualsWithDelta(100.0, $result, 0.01, 'subtractPercent(110, 10) must return ~100');
+    }
+
+    // =========================================================================
+    // getTime()
+    // =========================================================================
+
+    /**
+     * getTime() with a specific timestamp and positive difference must return
+     * the time advanced by the difference value.
+     *
+     * Covers lines 124-143 of Helpers.php: the getTime() method including the
+     * non-null $time path and the difference-added path.
+     */
+    public function testGetTimeWithTimestampAndDifference(): void
+    {
+        // Arrange — a fixed Unix timestamp
+        $base = mktime(12, 0, 0, 6, 15, 2025);
+
+        // Act — getTime with specific timestamp and zero difference (non-null branch)
+        // When difference=0 and Settings::getSetting('timedifference') returns 0,
+        // result equals base.  Cast to int for comparison.
+        $result = (int) Helpers::getTime($base, 0);
+        $this->assertGreaterThan(0, $result, 'getTime() must return a positive timestamp');
+
+        // Act — with a positive difference in hours (1 hour = 3600 seconds added)
+        $resultWithDiff = (float) Helpers::getTime($base, 1);
+        $this->assertEqualsWithDelta($base + 3600, $resultWithDiff, 1.0,
+            'getTime() with difference=1 must add 3600 seconds');
+    }
+
+    /**
+     * getTime() with null time must use the current time.
+     *
+     * Covers the null-time branch at line 126 of Helpers.php.
+     */
+    public function testGetTimeWithNullUsesCurrentTime(): void
+    {
+        // Act — null time defaults to now
+        $before = time();
+        $result = (int) Helpers::getTime(null, 0);
+        $after  = time() + 3601; // max timedifference offset
+
+        // Assert — result is near the current timestamp
+        $this->assertGreaterThanOrEqual($before, $result);
+        $this->assertLessThanOrEqual($after, $result);
+    }
 }
