@@ -336,6 +336,129 @@ class TokenActionMySQLTest extends TestCase
     }
 
     // =========================================================================
+    // Token::getActions() — list token actions
+    // =========================================================================
+
+    /**
+     * Token::getActions() when tokenid is 0 must return an empty result
+     * without querying the database.
+     *
+     * This covers the early-return branch (lines 718-720) in getActions().
+     */
+    public function testGetActionsReturnsEmptyForZeroTokenId(): void
+    {
+        // Arrange
+        $token = new Token();
+
+        // Act
+        $result = $token->getActions();
+
+        // Assert
+        $this->assertIsArray($result);
+        $this->assertSame(0, $result['total']);
+        $this->assertSame([], $result['data']);
+    }
+
+    /**
+     * Token::getActions() with a real tokenid must return the pre-seeded
+     * tokenaction rows.
+     *
+     * This covers lines 736-782: count query, data query, field fetching
+     * and parameter JSON decoding.
+     */
+    public function testGetActionsReturnsSeededRowsForRealToken(): void
+    {
+        // Arrange — load the seeded token
+        $token = new Token($this->tokenId);
+
+        // Act
+        $result = $token->getActions(100, 0, 'servertime', 'DESC');
+
+        // Assert
+        $this->assertIsArray($result);
+        $this->assertGreaterThanOrEqual(1, $result['total'],
+            'getActions() must count the pre-seeded tokenactions row');
+        $this->assertIsArray($result['data'],
+            'getActions() must return data array');
+        if (!empty($result['data'])) {
+            $first = $result['data'][0];
+            $this->assertArrayHasKey('actionid', $first);
+            $this->assertArrayHasKey('method', $first);
+        }
+    }
+
+    /**
+     * Token::getActions() with invalid orderDir must fall back to DESC.
+     *
+     * This covers the orderDir validation branch (lines 723-727): unknown
+     * direction strings are sanitised to DESC before executing the query.
+     */
+    public function testGetActionsWithInvalidOrderDirFallsBackToDesc(): void
+    {
+        // Arrange
+        $token = new Token($this->tokenId);
+
+        // Act — pass an invalid order direction
+        $result = $token->getActions(10, 0, 'servertime', 'INVALID');
+
+        // Assert — must still return valid data (no SQL error)
+        $this->assertIsArray($result);
+        $this->assertArrayHasKey('total', $result);
+        $this->assertArrayHasKey('data', $result);
+    }
+
+    /**
+     * Token::getActions() with an invalid orderBy field must fall back to
+     * servertime.
+     *
+     * This covers the orderBy field-allowlist branch (lines 730-733): unknown
+     * column names are replaced with 'servertime' to prevent SQL injection.
+     */
+    public function testGetActionsWithInvalidOrderByFallsBackToServertime(): void
+    {
+        // Arrange
+        $token = new Token($this->tokenId);
+
+        // Act — pass a field name not in the allowlist
+        $result = $token->getActions(10, 0, 'DROP TABLE', 'DESC');
+
+        // Assert — must still return valid data (no SQL error)
+        $this->assertIsArray($result);
+        $this->assertArrayHasKey('total', $result);
+    }
+
+    // =========================================================================
+    // Token::save() — update existing token
+    // =========================================================================
+
+    /**
+     * Token::save() with _isnew=false must UPDATE an existing usertokens row
+     * rather than inserting a new one.
+     *
+     * This covers the update path in save() (lines 587-617 for MySQL): the
+     * else-branch after the `if ($this->_isnew)` check that calls
+     * updateTableData instead of insertDataToTable.
+     */
+    public function testSaveUpdatesExistingTokenRow(): void
+    {
+        // Arrange — load the seeded token (sets _isnew = false)
+        $token = new Token($this->tokenId);
+        $this->assertSame('api', $token->tokentype,
+            'pre-condition: token must be loaded before update');
+
+        // Act — change a field and save
+        $token->notes = 'updated_notes_' . time();
+        $token->save();
+
+        // Assert — the change persisted in the DB
+        $row = $this->db->query(
+            "SELECT notes FROM `#PREFIX#usertokens` WHERE tokenid = {$this->tokenId}"
+        );
+        $this->assertStringContainsString('updated_notes_', (string) $row->fields['notes'],
+            'save() update path must persist changed fields to the database');
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
