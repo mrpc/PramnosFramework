@@ -31,6 +31,9 @@ if (!defined('APP_PATH')) {
 if (!defined('DS')) {
     define('DS', DIRECTORY_SEPARATOR);
 }
+if (!defined('LOG_PATH')) {
+    define('LOG_PATH', sys_get_temp_dir());
+}
 if (!defined('SP')) {
     define('SP', 1); //Start point - to avoid running files without one.
 }
