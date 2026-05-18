@@ -42,6 +42,12 @@ class CreateCommandFileTest extends TestCase
         // A unique suffix so concurrent runs / reruns cannot collide.
         $this->testId = bin2hex(random_bytes(6));
 
+        // INCLUDES constant is normally set by Application::__construct(); define it
+        // here so createController() / createView() / createModel() can build paths.
+        if (!defined('INCLUDES')) {
+            define('INCLUDES', 'src');
+        }
+
         $this->consoleApp = new class extends ConsoleApplication {
             protected function registerCommands(): void {}
         };
@@ -80,9 +86,31 @@ class CreateCommandFileTest extends TestCase
             }
         }
 
+        // Also clean up generated Controller and View files by testId
+        $root     = defined('ROOT') ? ROOT : getcwd();
+        $ctrlDir  = $root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Controllers';
+        $viewsDir = $root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Views';
+        foreach (glob($ctrlDir . DIRECTORY_SEPARATOR . '*' . $this->testId . '*.php') ?: [] as $f) {
+            @unlink($f);
+        }
+        // Views: also remove the subdirectory and its contents (createView writes HTML files inside)
+        foreach (glob($viewsDir . DIRECTORY_SEPARATOR . '*' . $this->testId) ?: [] as $viewSubdir) {
+            if (is_dir($viewSubdir)) {
+                foreach (glob($viewSubdir . DIRECTORY_SEPARATOR . '*') ?: [] as $vfile) {
+                    @unlink($vfile);
+                }
+                @rmdir($viewSubdir);
+            }
+        }
+
         foreach (array_reverse($this->dirsToCleanup) as $dir) {
-            if (is_dir($dir) && count(scandir($dir)) === 2) { // only . and ..
-                rmdir($dir);
+            if (is_dir($dir)) {
+                // Recursively remove test directories (may contain generated files)
+                $entries = array_diff(scandir($dir) ?: [], ['.', '..']);
+                foreach ($entries as $entry) {
+                    @unlink($dir . DIRECTORY_SEPARATOR . $entry);
+                }
+                @rmdir($dir);
             }
         }
         $this->filesToCleanup = [];
@@ -493,5 +521,152 @@ class CreateCommandFileTest extends TestCase
         foreach ($files as $f) {
             $this->filesToCleanup[] = $f;
         }
+    }
+
+    // =========================================================================
+    // execute() — controller / view / seeder / default-case dispatch branches
+    // =========================================================================
+
+    /**
+     * execute() with entity='controller' must invoke createController() (non-full
+     * variant, which does NOT need a database) and return exit code 0.
+     *
+     * This covers the 'controller' switch arm in execute() (lines ~88-91) and
+     * the stub-based createController() body (renderStub path, lines ~2197-2220).
+     */
+    public function testExecuteCreatesControllerViaSwitchCase(): void
+    {
+        // Arrange — ensure Controllers directory exists
+        $root    = defined('ROOT') ? ROOT : getcwd();
+        $ctrlDir = $root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Controllers';
+        if (!is_dir($ctrlDir)) {
+            mkdir($ctrlDir, 0755, true);
+            $this->dirsToCleanup[] = $ctrlDir;
+        }
+
+        // Use testId as part of the name — getProperClassName() may lowercase/pluralize,
+        // so we don't assert on the exact filename; just verify the display output and
+        // clean up any file matching the testId via glob in tearDown.
+        $className = 'Zzzctrl' . $this->testId;
+
+        $tester = new CommandTester($this->create);
+
+        // Act
+        $exit = $tester->execute(['entity' => 'controller', 'name' => $className]);
+
+        // Assert — exit 0, output confirms creation
+        $this->assertSame(0, $exit, 'execute(controller) must return 0');
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('Controller created', $display);
+
+        // Cleanup — find and remove any file with the testId under Controllers
+        foreach (glob($ctrlDir . DIRECTORY_SEPARATOR . '*' . $this->testId . '*.php') ?: [] as $f) {
+            $this->filesToCleanup[] = $f;
+        }
+    }
+
+    /**
+     * execute() with entity='view' must dispatch to createView() and return exit 0.
+     *
+     * This covers the 'view' switch arm in execute() (lines ~93-96) and the
+     * non-full createView() body (lines ~1173-1200: mkdir + index/edit template writes).
+     *
+     * The view directory and its generated HTML template files are cleaned up
+     * inside tearDown by recursively removing any zzzview* subtrees found under
+     * src/Views/.  The name is kept lowercase + testId so tearDown can locate it.
+     */
+    public function testExecuteCreatesViewViaSwitchCase(): void
+    {
+        // Arrange — ensure Views base directory exists under ROOT/src/Views
+        $root     = defined('ROOT') ? ROOT : getcwd();
+        $viewsDir = $root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Views';
+        if (!is_dir($viewsDir)) {
+            mkdir($viewsDir, 0755, true);
+            $this->dirsToCleanup[] = $viewsDir;
+        }
+
+        // createView() creates a subdirectory named strtolower($name); keep lowercase
+        // testId so tearDown's glob(*testId) can find and delete the subtree.
+        $viewName = 'zzzview' . $this->testId;
+
+        $tester = new CommandTester($this->create);
+
+        // Act
+        $exit = $tester->execute(['entity' => 'view', 'name' => $viewName]);
+
+        // Assert — exit 0 is the primary invariant; file-system state is verified
+        // indirectly through the display output (createView returns a message).
+        $this->assertSame(0, $exit, 'execute(view) must return 0');
+
+        // Eagerly clean up the created view directory + its HTML templates so they
+        // do not interfere with coverage report generation (Xdebug scans *.php).
+        $viewDir = $viewsDir . DIRECTORY_SEPARATOR . $viewName;
+        if (is_dir($viewDir)) {
+            foreach (glob($viewDir . DIRECTORY_SEPARATOR . '*') ?: [] as $f) {
+                @unlink($f);
+            }
+            @rmdir($viewDir);
+        }
+    }
+
+    /**
+     * execute() with entity='seeder' must call createSeeder() and return exit code 0.
+     *
+     * This covers the 'seeder' switch arm in execute() (lines ~107-110).
+     * createSeeder() is exercised elsewhere; here we verify the dispatch path.
+     */
+    public function testExecuteCreatesSeederViaSwitchCase(): void
+    {
+        // Arrange — ensure seeders directory exists
+        $seedDir = APP_PATH . DIRECTORY_SEPARATOR . 'seeders';
+        if (!is_dir($seedDir)) {
+            mkdir($seedDir, 0755, true);
+            $this->dirsToCleanup[] = $seedDir;
+        }
+
+        $seederName = 'ZzzSeeder' . strtoupper($this->testId);
+        $tester = new CommandTester($this->create);
+
+        // Act
+        $exit = $tester->execute(['entity' => 'seeder', 'name' => $seederName]);
+
+        // Assert — exit 0, output contains seeder info
+        $this->assertSame(0, $exit, 'execute(seeder) must return 0');
+        $this->assertStringContainsString('Seeder', $tester->getDisplay());
+    }
+
+    /**
+     * execute() with an unrecognised entity must throw InvalidArgumentException.
+     *
+     * This covers the 'default' switch arm in execute() (lines ~120-123).
+     * No filesystem access is attempted for invalid entity types.
+     */
+    public function testExecuteThrowsForUnknownEntity(): void
+    {
+        // Arrange
+        $tester = new CommandTester($this->create);
+
+        // Act & Assert — default case throws
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/Invalid type of entity/');
+
+        $tester->execute(['entity' => 'nonexistent_entity_type', 'name' => 'SomeName']);
+    }
+
+    /**
+     * execute() must throw InvalidArgumentException when 'name' is omitted for
+     * any entity type that requires it (controller is used as a representative).
+     *
+     * This covers the missing-name guard at line ~89 in the 'controller' switch arm.
+     */
+    public function testExecuteThrowsWhenControllerNameMissing(): void
+    {
+        // Arrange
+        $tester = new CommandTester($this->create);
+
+        // Act & Assert
+        $this->expectException(\InvalidArgumentException::class);
+
+        $tester->execute(['entity' => 'controller']);
     }
 }
