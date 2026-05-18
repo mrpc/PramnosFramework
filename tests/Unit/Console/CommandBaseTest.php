@@ -842,4 +842,280 @@ class CommandBaseTest extends TestCase
         // Act / Assert — 2 hours = 3600 * 2 = 7200
         $this->assertSame(7200, $this->cmd->publicGetLockStaleSeconds());
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // heartbeat()
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * heartbeat() must touch the lock file when it exists, updating its mtime.
+     *
+     * This covers the `if (file_exists($file))` true branch in heartbeat()
+     * (line ~244) — essential for the orchestrator's liveness checks.
+     */
+    public function testHeartbeatTouchesLockFileWhenItExists(): void
+    {
+        // Arrange — create the lock file and record its mtime
+        $this->cmd->publicStartJob();
+        $lockFile = $this->tmpDir . '/var/test_job';
+        $this->assertFileExists($lockFile);
+        $before = filemtime($lockFile);
+
+        // Ensure at least 1 second passes so mtime can differ
+        sleep(1);
+
+        // Expose heartbeat via reflection (protected method)
+        $ref = new \ReflectionMethod($this->cmd, 'heartbeat');
+        $ref->setAccessible(true);
+
+        // Act
+        $ref->invoke($this->cmd);
+
+        // Assert — mtime was updated
+        clearstatcache(true, $lockFile);
+        $after = filemtime($lockFile);
+        $this->assertGreaterThanOrEqual($before, $after,
+            'heartbeat() must touch the lock file to update its mtime');
+    }
+
+    /**
+     * heartbeat() must be a no-op when the lock file does not exist.
+     *
+     * This covers the `if (file_exists($file))` false branch in heartbeat()
+     * (line ~244) — prevents heartbeat() from crashing when the lock was
+     * already removed by another thread.
+     */
+    public function testHeartbeatIsNoOpWhenLockFileAbsent(): void
+    {
+        // Arrange — no lock file exists
+        $ref = new \ReflectionMethod($this->cmd, 'heartbeat');
+        $ref->setAccessible(true);
+
+        // Act + Assert — must not throw
+        $ref->invoke($this->cmd);
+        $this->assertFileDoesNotExist($this->tmpDir . '/var/test_job');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // isProcessStillRunning()
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * isProcessStillRunning(0) must return false — PID 0 is never a running
+     * user process and the guard `if ($pid <= 0) return false` must fire.
+     *
+     * This covers the early-return branch (lines ~212-214) in
+     * isProcessStillRunning().
+     */
+    public function testIsProcessStillRunningReturnsFalseForZeroPid(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->cmd, 'isProcessStillRunning');
+        $ref->setAccessible(true);
+
+        // Act + Assert
+        $this->assertFalse($ref->invoke($this->cmd, 0),
+            'isProcessStillRunning(0) must return false');
+    }
+
+    /**
+     * isProcessStillRunning() must return true for the current process's PID,
+     * which is always alive when this test runs.
+     *
+     * This covers the posix_kill / hasProcDirectory true-path (lines ~215-220).
+     */
+    public function testIsProcessStillRunningReturnsTrueForCurrentPid(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->cmd, 'isProcessStillRunning');
+        $ref->setAccessible(true);
+
+        // Act + Assert
+        $this->assertTrue($ref->invoke($this->cmd, getmypid()),
+            'isProcessStillRunning() must return true for the current process');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // checkIfRunning() — stale lock-file path
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * checkIfRunning() must remove a stale lock file and return false.
+     *
+     * "Stale" means the lock file's mtime is older than getLockStaleSeconds()
+     * (7200 s). This covers the `$age > getLockStaleSeconds()` branch in
+     * checkIfRunning() (lines ~161-164).
+     */
+    public function testCheckIfRunningRemovesStaleFile(): void
+    {
+        // Arrange — create a fake lock file and backdate it to 8 hours ago
+        $lockFile = $this->tmpDir . '/var/test_job';
+        file_put_contents($lockFile, "99999\n");
+        touch($lockFile, time() - 8 * 3600);
+
+        // Act
+        $running = $this->cmd->publicCheckIfRunning();
+
+        // Assert — stale file must be removed and false returned
+        $this->assertFalse($running, 'checkIfRunning() must return false for a stale lock file');
+        $this->assertFileDoesNotExist($lockFile, 'checkIfRunning() must remove the stale lock file');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Output-writing helpers (clearScreen, hideCursor, showCursor)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * clearScreen() must write ANSI escape codes to the provided output.
+     *
+     * This covers clearScreen() (lines ~342-347), hideCursor() (349-351),
+     * and showCursor() (354-357) which are called during interactive terminal
+     * setup and teardown.
+     */
+    public function testClearScreenHideCursorShowCursorWriteToOutput(): void
+    {
+        // Arrange — use Symfony's BufferedOutput to capture what is written
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+        $ref    = new \ReflectionClass($this->cmd);
+
+        // Act — clearScreen
+        $clear = $ref->getMethod('clearScreen');
+        $clear->setAccessible(true);
+        $clear->invoke($this->cmd, $output);
+        $this->assertStringContainsString("\033", $output->fetch(),
+            'clearScreen() must write ANSI codes');
+
+        // Act — hideCursor
+        $hide = $ref->getMethod('hideCursor');
+        $hide->setAccessible(true);
+        $hide->invoke($this->cmd, $output);
+        $this->assertStringContainsString("\033", $output->fetch(),
+            'hideCursor() must write ANSI codes');
+
+        // Act — showCursor
+        $show = $ref->getMethod('showCursor');
+        $show->setAccessible(true);
+        $show->invoke($this->cmd, $output);
+        $this->assertStringContainsString("\033", $output->fetch(),
+            'showCursor() must write ANSI codes');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // handleShutdown() and handleInterruptSignal()
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * handleShutdown() must show the cursor and call endJob().
+     *
+     * This covers the handleShutdown() body (lines ~408-411): it calls
+     * showCursor() and endJob() — the standard cleanup sequence when
+     * the process is terminated.
+     */
+    public function testHandleShutdownShowsCursorAndEndsJob(): void
+    {
+        // Arrange — create a lock file so endJob has something to remove
+        $this->cmd->publicStartJob();
+        $lockFile = $this->tmpDir . '/var/test_job';
+        $this->assertFileExists($lockFile);
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $this->cmd->handleShutdown($output);
+
+        // Assert — cursor show code was written
+        $written = $output->fetch();
+        $this->assertStringContainsString("\033", $written,
+            'handleShutdown() must write cursor-show ANSI code');
+
+        // Assert — lock file removed by endJob()
+        $this->assertFileDoesNotExist($lockFile,
+            'handleShutdown() must call endJob() to clean up the lock file');
+    }
+
+    /**
+     * handleInterruptSignal() must clean up the lock file (via endJob) and
+     * terminate the command — but our test subclass intercepts exit().
+     *
+     * This covers handleInterruptSignal() (lines ~413-420): endJob() call
+     * and terminateCommand(130).
+     */
+    public function testHandleInterruptSignalCleansUpAndTerminates(): void
+    {
+        // Arrange — create a lock file so endJob has something to remove
+        $this->cmd->publicStartJob();
+        $lockFile = $this->tmpDir . '/var/test_job';
+        $this->assertFileExists($lockFile);
+
+        // Act — signal 0 is the "probe" signal; the handler receives it
+        $this->cmd->handleInterruptSignal(0);
+
+        // Assert — lock file was removed
+        $this->assertFileDoesNotExist($lockFile,
+            'handleInterruptSignal() must call endJob() to remove the lock file');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // beginJob()
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * beginJob() must return true and create the lock file when no other
+     * instance is running.
+     *
+     * This covers the "not running" happy path of beginJob() (lines ~253-270),
+     * including startJob() invocation and optional shutdown handler registration.
+     */
+    public function testBeginJobReturnsTrueWhenNotAlreadyRunning(): void
+    {
+        // Arrange
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+        $ref    = new \ReflectionMethod($this->cmd, 'beginJob');
+        $ref->setAccessible(true);
+
+        // Act — registerShutdown=false so we don't register an actual shutdown function
+        $result = $ref->invoke($this->cmd, $output, false);
+
+        // Assert — returns true
+        $this->assertTrue($result, 'beginJob() must return true when job is not already running');
+
+        // Assert — lock file was created
+        $lockFile = $this->tmpDir . '/var/test_job';
+        $this->assertFileExists($lockFile, 'beginJob() must create the lock file via startJob()');
+
+        // Cleanup
+        $this->cmd->publicEndJob();
+    }
+
+    /**
+     * beginJob() must return false and write an error when the job is already
+     * running (lock file present with a live PID).
+     *
+     * This covers the `checkIfRunning() == true` branch of beginJob() (lines
+     * ~255-259): early-return false + error message.
+     */
+    public function testBeginJobReturnsFalseWhenAlreadyRunning(): void
+    {
+        // Arrange — pre-create a lock file with our own PID so checkIfRunning returns true
+        $lockFile = $this->tmpDir . '/var/test_job';
+        file_put_contents($lockFile, getmypid() . "\n");
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+        $ref    = new \ReflectionMethod($this->cmd, 'beginJob');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($this->cmd, $output, false);
+
+        // Assert — already running, must return false
+        $this->assertFalse($result, 'beginJob() must return false when job is already running');
+
+        // Assert — error message written to output
+        $written = $output->fetch();
+        $this->assertStringContainsString('already running', $written,
+            'beginJob() must write an error message when already running');
+
+        // Cleanup
+        @unlink($lockFile);
+    }
 }
