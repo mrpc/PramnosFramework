@@ -61,14 +61,18 @@ class ScopesPostgreSQLIntegrationTest extends TestCase
         }
 
         $this->testAppIds = [];
+        // Drop any leftover table from a previous interrupted run, then recreate
+        // with the limited schema needed for these tests.
+        $this->db->query('DROP TABLE IF EXISTS "applications"');
         $this->ensureApplicationsTable();
     }
 
     protected function tearDown(): void
     {
-        foreach ($this->testAppIds as $appid) {
-            $this->db->query('DELETE FROM "applications" WHERE "appid" = ' . (int) $appid);
-        }
+        // Drop the limited-schema table created in setUp() so it does not
+        // interfere with FrameworkMigrationsPostgreSQLTest, which expects the
+        // full applications schema after running the authserver migration up().
+        $this->db->query('DROP TABLE IF EXISTS "applications"');
     }
 
     // -------------------------------------------------------------------------
