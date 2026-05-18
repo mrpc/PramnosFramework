@@ -342,7 +342,7 @@ class ModelPureHelpersTest extends TestCase
     public function testAddJsonActionRegistersAction(): void
     {
         // Act
-        $this->model->addJsonAction('edit', 'id', 'actions', 'Edit', false);
+        $this->callPrivate('addJsonAction', 'edit', 'id', 'actions', 'Edit', false);
 
         // Assert – action stored in the private array
         $actions = $this->getProp('_jsonactions');
@@ -358,7 +358,7 @@ class ModelPureHelpersTest extends TestCase
     public function testAddJsonActionStoresConfirmTrue(): void
     {
         // Act
-        $this->model->addJsonAction('delete', 'id', 'actions', 'Delete', true);
+        $this->callPrivate('addJsonAction', 'delete', 'id', 'actions', 'Delete', true);
 
         // Assert
         $actions = $this->getProp('_jsonactions');
