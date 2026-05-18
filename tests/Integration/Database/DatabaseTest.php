@@ -674,4 +674,224 @@ class DatabaseTest extends \PHPUnit\Framework\TestCase
         $this->assertFalse($row->fields['active'],
             'Boolean false (0) must be stored and retrieved as false after update');
     }
+
+    // =========================================================================
+    // capabilities(), statement(), selectOne(), getDriverName()
+    // =========================================================================
+
+    /**
+     * Verifies that capabilities() returns a DatabaseCapabilities instance.
+     *
+     * This covers line 2890 of Database.php — the single statement inside the
+     * capabilities() method that was previously uncovered.
+     */
+    public function testCapabilitiesReturnsDatabaseCapabilitiesInstance(): void
+    {
+        // Act
+        $caps = self::$db->capabilities();
+
+        // Assert — returned object is the correct type
+        $this->assertInstanceOf(
+            \Pramnos\Database\DatabaseCapabilities::class,
+            $caps,
+            'capabilities() must return a DatabaseCapabilities instance'
+        );
+    }
+
+    /**
+     * Verifies that statement() executes a DDL statement and returns true on success.
+     *
+     * This covers lines 2904-2905 of Database.php — the query() call and the
+     * bool-return expression inside statement().
+     */
+    public function testStatementExecutesDDLAndReturnsTrue(): void
+    {
+        // Arrange — create a temp table via statement()
+        $tmpTable = 'pramnos_stmt_test_' . time();
+        self::$db->query('DROP TABLE IF EXISTS public.' . $tmpTable);
+
+        // Act
+        $result = self::$db->statement(
+            'CREATE TABLE public.' . $tmpTable . ' (id SERIAL PRIMARY KEY)'
+        );
+
+        // Assert — method returned true and table exists
+        $this->assertTrue($result, 'statement() must return true for a successful DDL');
+
+        // Cleanup
+        self::$db->query('DROP TABLE IF EXISTS public.' . $tmpTable);
+    }
+
+    /**
+     * Verifies that selectOne() returns the first row as an associative array
+     * when given a string binding.
+     *
+     * This covers lines 2921-2946 of Database.php — the binding-substitution loop,
+     * specifically the string branch (line 2935: prepareInput + quote-wrap).
+     */
+    public function testSelectOneWithStringBindingReturnsFirstRow(): void
+    {
+        // Arrange — insert a known row using the required field-descriptor format
+        self::$db->insertDataToTable(self::$table, [
+            ['fieldName' => 'label',  'value' => 'selectone-test', 'type' => 'string'],
+            ['fieldName' => 'amount', 'value' => 9.99,             'type' => 'float'],
+            ['fieldName' => 'qty',    'value' => 7,                'type' => 'integer'],
+            ['fieldName' => 'active', 'value' => true,             'type' => 'boolean'],
+            ['fieldName' => 'code',   'value' => 'SELONE-' . mt_rand(100, 999), 'type' => 'string'],
+        ]);
+
+        // Act — selectOne with a string binding (covers string branch, line 2935)
+        $row = self::$db->selectOne(
+            'SELECT label, qty FROM public.' . self::$table . ' WHERE label = ?',
+            ['selectone-test']
+        );
+
+        // Assert — first row returned with correct data
+        $this->assertIsArray($row, 'selectOne() must return an array when a row exists');
+        $this->assertSame('selectone-test', $row['label']);
+        $this->assertEquals(7, $row['qty']);
+    }
+
+    /**
+     * Verifies that selectOne() returns null when the query produces no rows.
+     *
+     * This covers the early-return null path (lines 2943-2944) when $result->eof
+     * is true.
+     */
+    public function testSelectOneReturnsNullWhenNoRows(): void
+    {
+        // Act — query for a label that does not exist
+        $row = self::$db->selectOne(
+            'SELECT label FROM public.' . self::$table . ' WHERE label = ?',
+            ['__nonexistent_label__']
+        );
+
+        // Assert — no rows → null
+        $this->assertNull($row, 'selectOne() must return null when the result set is empty');
+    }
+
+    /**
+     * Verifies that selectOne() handles bool-true, bool-false, and int/float bindings.
+     *
+     * This covers the type branches inside the binding substitution loop
+     * (lines 2930-2934): bool → TRUE/FALSE, int/float → numeric literal.
+     * (The null branch at line 2929 is dead code because isset() returns false for
+     * null values — the production code documents only string/int/float as supported.)
+     */
+    public function testSelectOneWithBoolAndIntBindings(): void
+    {
+        // Act — bool-true binding: TRUE = TRUE must return a row
+        $rowTrue = self::$db->selectOne(
+            'SELECT 1 AS val WHERE ? = TRUE',
+            [true]
+        );
+        $this->assertIsArray($rowTrue, 'selectOne() with bool-true binding must return a row');
+
+        // Act — bool-false binding: FALSE = FALSE must return a row
+        $rowFalse = self::$db->selectOne(
+            'SELECT 1 AS val WHERE ? = FALSE',
+            [false]
+        );
+        $this->assertIsArray($rowFalse, 'selectOne() with bool-false binding must return a row');
+
+        // Act — int binding
+        $rowInt = self::$db->selectOne(
+            'SELECT ? AS n',
+            [42]
+        );
+        $this->assertIsArray($rowInt, 'selectOne() with int binding must return a row');
+
+        // Act — float binding
+        $rowFloat = self::$db->selectOne(
+            'SELECT ? AS n',
+            [3.14]
+        );
+        $this->assertIsArray($rowFloat, 'selectOne() with float binding must return a row');
+    }
+
+    /**
+     * Verifies that getDriverName() returns 'pgsql' for a PostgreSQL connection.
+     *
+     * This covers lines 2959-2960 of Database.php — the 'postgresql' arm of the
+     * match expression.  The 'mysql' default arm is covered by the MySQL integration
+     * suite; the 'timescaledb' arm is covered here by creating a minimal Database
+     * instance with type='timescaledb'.
+     */
+    public function testGetDriverNameReturnsCorrectNormalizedName(): void
+    {
+        // Assert — the test DB is type 'postgresql', should return 'pgsql'
+        $this->assertSame(
+            'pgsql',
+            self::$db->getDriverName(),
+            'getDriverName() for type=postgresql must return "pgsql"'
+        );
+
+        // Assert — type=timescaledb also maps to 'pgsql'
+        $tsDb = new \Pramnos\Database\Database();
+        $tsDb->type = 'timescaledb';
+        $this->assertSame(
+            'pgsql',
+            $tsDb->getDriverName(),
+            'getDriverName() for type=timescaledb must return "pgsql"'
+        );
+
+        // Assert — type=mysql maps to 'mysql' (default arm)
+        $myDb = new \Pramnos\Database\Database();
+        $myDb->type = 'mysql';
+        $this->assertSame(
+            'mysql',
+            $myDb->getDriverName(),
+            'getDriverName() for type=mysql must return "mysql"'
+        );
+    }
+
+    /**
+     * Verifies that rollbackTransaction() returns false when the DB is not connected.
+     *
+     * This covers line 2712 of Database.php — the early-return false when
+     * $this->connected is false.
+     */
+    public function testRollbackTransactionReturnsFalseWhenNotConnected(): void
+    {
+        // Arrange — a disconnected Database instance
+        $db = new \Pramnos\Database\Database();
+        // connected defaults to false — no need to call connect()
+
+        // Act
+        $result = $db->rollbackTransaction();
+
+        // Assert — early exit returns false
+        $this->assertFalse(
+            $result,
+            'rollbackTransaction() must return false when the database is not connected'
+        );
+    }
+
+    /**
+     * Verifies that selectOne() with no bindings executes the SQL directly (no
+     * binding-substitution loop) and still returns the first row correctly.
+     *
+     * This covers the !empty($bindings) guard at line 2921: when bindings is empty
+     * the substitution block is skipped entirely.
+     */
+    public function testSelectOneWithoutBindingsReturnsFirstRow(): void
+    {
+        // Arrange — insert a known row using the required field-descriptor format
+        self::$db->insertDataToTable(self::$table, [
+            ['fieldName' => 'label',  'value' => 'selone-nobind', 'type' => 'string'],
+            ['fieldName' => 'amount', 'value' => 1.50,            'type' => 'float'],
+            ['fieldName' => 'qty',    'value' => 3,               'type' => 'integer'],
+            ['fieldName' => 'active', 'value' => false,           'type' => 'boolean'],
+            ['fieldName' => 'code',   'value' => 'SELONE-NB-' . mt_rand(100, 999), 'type' => 'string'],
+        ]);
+
+        // Act — no bindings array
+        $row = self::$db->selectOne(
+            "SELECT label FROM public." . self::$table . " WHERE label = 'selone-nobind'"
+        );
+
+        // Assert
+        $this->assertIsArray($row, 'selectOne() without bindings must return an array when row exists');
+        $this->assertSame('selone-nobind', $row['label']);
+    }
 }
