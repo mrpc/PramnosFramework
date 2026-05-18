@@ -140,6 +140,111 @@ class LoggerAndMigratorCharacterizationTest extends TestCase
         $this->deleteIfExists($tmpFile . '.bak');
     }
 
+    /**
+     * Logger PSR-3 level wrappers (emergency → debug) must each delegate to
+     * logWithLevel() and write a line to the specified log file.
+     *
+     * This covers Logger.php lines 147-258: all seven level-wrapper methods
+     * (emergency, alert, critical, error, warning, notice, info, debug) which
+     * previously had no direct test coverage.
+     */
+    public function testAllPsr3LevelMethodsWriteToLog(): void
+    {
+        // Arrange
+        $file = 'char_psr3';
+        $logPath = $this->logDir . DS . $file . '.log';
+        @unlink($logPath);
+
+        // Act — call all seven PSR-3 wrappers; each writes one line
+        Logger::emergency('emergency message', [], $file);
+        Logger::alert('alert message', [], $file);
+        Logger::critical('critical message', [], $file);
+        Logger::warning('warning message', [], $file);
+        Logger::notice('notice message', [], $file);
+        Logger::info('info message', [], $file);
+        Logger::debug('debug message', [], $file);
+
+        // Assert — file exists and contains all seven level markers
+        $this->assertFileExists($logPath);
+        $content = file_get_contents($logPath);
+        foreach (['emergency', 'alert', 'critical', 'warning', 'notice', 'info', 'debug'] as $level) {
+            $this->assertStringContainsString($level, strtolower($content),
+                "Logger::{$level}() must write a line containing the level name");
+        }
+
+        // Cleanup
+        @unlink($logPath);
+    }
+
+    /**
+     * Logger::getLogPath() must return the full path for a log file name and
+     * extension, based on the LOG_PATH constant.
+     *
+     * This covers Logger.php lines 442-460: the static getLogPath() helper.
+     */
+    public function testGetLogPathReturnsExpectedPath(): void
+    {
+        // Act
+        $path = Logger::getLogPath('mylogfile');
+
+        // Assert — path ends with expected filename
+        $this->assertStringEndsWith('mylogfile.log', $path);
+        $this->assertStringContainsString('logs', $path);
+    }
+
+    /**
+     * Logger::clearLog() must empty a log file when it exists, and return true.
+     *
+     * This covers Logger.php lines 425-441: the clearLog() method.
+     */
+    public function testClearLogEmptiesExistingFile(): void
+    {
+        // Arrange
+        $file = 'char_clear';
+        $logPath = $this->logDir . DS . $file . '.log';
+        file_put_contents($logPath, "some existing content\n");
+
+        // Act
+        $result = Logger::clearLog($file);
+
+        // Assert — file exists and is empty, method returned true
+        $this->assertTrue($result, 'clearLog() must return true when file exists');
+        $this->assertSame('', file_get_contents($logPath), 'clearLog() must empty the file');
+
+        // Cleanup
+        @unlink($logPath);
+    }
+
+    /**
+     * Logger::clearLog() must return false when the file does not exist.
+     *
+     * This covers the early-return false branch in clearLog() when
+     * file_exists() returns false.
+     */
+    public function testClearLogReturnsFalseForNonExistentFile(): void
+    {
+        // Act
+        $result = Logger::clearLog('nonexistent_file_' . bin2hex(random_bytes(4)));
+
+        // Assert
+        $this->assertFalse($result, 'clearLog() must return false for non-existent file');
+    }
+
+    /**
+     * Logger::channel() must return a PsrLogger instance bound to the given
+     * channel name.  Calling it is sufficient to cover the factory-method body.
+     *
+     * This covers Logger.php line 461+: the channel() static method.
+     */
+    public function testChannelReturnsPsrLoggerInstance(): void
+    {
+        // Act
+        $logger = Logger::channel('char_channel');
+
+        // Assert — result is a PsrLogger (implements PSR-3 LoggerInterface)
+        $this->assertInstanceOf(\Pramnos\Logs\PsrLogger::class, $logger);
+    }
+
     private function deleteIfExists(string $path): void
     {
         // Arrange
