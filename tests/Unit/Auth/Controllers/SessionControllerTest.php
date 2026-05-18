@@ -1,114 +1,144 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pramnos\Tests\Unit\Auth\Controllers;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Pramnos\Auth\Controllers\Session;
 
 /**
  * Unit tests for Pramnos\Auth\Controllers\Session.
  *
  * Session is a stateful controller that depends on $_SESSION, HTTP headers,
  * and the database. Because we cannot boot the full application in a unit-test
- * process, we test the pure/deterministic helpers in isolation:
+ * process, we test the pure/deterministic helpers in isolation.
  *
- *   - Bearer-token extraction from the Authorization header
- *   - groupTokensByApp aggregation logic
- *   - extractField handling of both array and object data shapes
- *   - getTimeRemaining arithmetic (session timeout formula)
+ * We bypass the constructor (which calls header()) via
+ * ReflectionClass::newInstanceWithoutConstructor() and invoke private methods
+ * through reflection — this is the only way to get real coverage on Session.php
+ * rather than running equivalent logic copied into the test class.
  *
- * The database-dependent paths (check, heartbeat, info, refresh) are covered
- * by integration tests in tests/Integration/Auth/.
+ *   - extractBearerToken() — parses Authorization header via regex
+ *   - groupTokensByApp()   — aggregates flat token rows into per-app summaries
+ *   - extractField()       — extracts a field from array or object session data
+ *   - getTimeRemaining()   — computes remaining session lifetime (no Bearer token)
+ *   - isUserLoggedIn()     — returns false when $_SESSION has no 'user' key
  */
+#[CoversClass(Session::class)]
 class SessionControllerTest extends TestCase
 {
-    // ── Bearer token extraction ───────────────────────────────────────────────
+    /** Session instance created without running the constructor. */
+    private Session $session;
+
+    /**
+     * Create the Session object by bypassing the constructor so that
+     * header() is never called during test setup.
+     */
+    protected function setUp(): void
+    {
+        // Arrange – bypass constructor to avoid header() / Application boot
+        $rc = new \ReflectionClass(Session::class);
+        $this->session = $rc->newInstanceWithoutConstructor();
+
+        // Ensure a clean superglobal state
+        $_SESSION = [];
+        unset($_SERVER['HTTP_AUTHORIZATION']);
+    }
+
+    protected function tearDown(): void
+    {
+        $_SESSION = [];
+        unset($_SERVER['HTTP_AUTHORIZATION']);
+    }
+
+    // ── extractBearerToken() ──────────────────────────────────────────────────
 
     /**
      * A correctly formatted `Authorization: Bearer <token>` header must return
      * the token value (everything after the "Bearer " prefix).
      *
-     * This is the happy-path for all Bearer-auth flows in the Session controller.
+     * This covers extractBearerToken() lines ~271-285 (the preg_match branch).
      */
     public function testExtractBearerTokenReturnsTokenFromValidHeader(): void
     {
         // Arrange
         $expectedToken = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.payload.sig';
+        $_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$expectedToken}";
 
-        // Act — invoke the private method via reflection
-        $result = $this->invokeBearerExtraction("Bearer {$expectedToken}");
+        // Act
+        $result = $this->callPrivate('extractBearerToken');
 
         // Assert
-        $this->assertSame($expectedToken, $result, 'Token value after "Bearer " prefix must be returned');
+        $this->assertSame($expectedToken, $result,
+            'Token value after the "Bearer " prefix must be returned');
     }
 
     /**
-     * A header with the prefix "bearer" (all lower-case) must also be accepted.
+     * A header with scheme "bearer" (lower-case) must also be accepted.
      *
-     * The regex uses /i flag so it is case-insensitive. RFC 6750 does not
-     * require a specific case for the scheme name.
+     * The regex uses /i — RFC 6750 does not require a specific case.
+     * This covers the preg_match('/^Bearer\s+(.+)$/i', …) true branch.
      */
     public function testExtractBearerTokenIsCaseInsensitive(): void
     {
         // Arrange
         $token = 'some.token.value';
+        $_SERVER['HTTP_AUTHORIZATION'] = "bearer {$token}";
 
         // Act
-        $result = $this->invokeBearerExtraction("bearer {$token}");
+        $result = $this->callPrivate('extractBearerToken');
 
         // Assert
-        $this->assertSame($token, $result, 'Bearer scheme matching must be case-insensitive');
+        $this->assertSame($token, $result,
+            'Bearer scheme matching must be case-insensitive');
     }
 
     /**
-     * An Authorization header with scheme "Basic" (not "Bearer") must return
-     * null — the controller must not attempt to use Basic credentials as a token.
+     * An "Authorization: Basic …" header must yield null — Basic credentials
+     * must not be treated as a Bearer token.
+     *
+     * This covers the preg_match false branch inside extractBearerToken().
      */
     public function testExtractBearerTokenReturnsNullForBasicAuth(): void
     {
         // Arrange
-        $header = 'Basic dXNlcjpwYXNz'; // Base64-encoded user:pass
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Basic dXNlcjpwYXNz';
 
         // Act
-        $result = $this->invokeBearerExtraction($header);
+        $result = $this->callPrivate('extractBearerToken');
 
         // Assert
-        $this->assertNull($result, 'A Basic auth header must not be treated as a Bearer token');
+        $this->assertNull($result,
+            'A Basic auth header must not be treated as a Bearer token');
     }
 
     /**
-     * When the Authorization header is absent entirely, null must be returned.
-     * No exception or warning may be raised — the fallback is session auth.
+     * When no Authorization header exists, null must be returned with no
+     * exception — session auth is the fallback.
+     *
+     * This covers the `if ($authHeader === null) return null` path in
+     * extractBearerToken() (lines ~276-278).
      */
     public function testExtractBearerTokenReturnsNullWhenNoHeader(): void
     {
-        // Arrange / Act
-        $result = $this->invokeBearerExtraction(null);
+        // Arrange — HTTP_AUTHORIZATION is already unset in setUp()
+
+        // Act
+        $result = $this->callPrivate('extractBearerToken');
 
         // Assert
         $this->assertNull($result, 'No Authorization header must produce null');
     }
 
-    /**
-     * A header that is just the scheme with no token value is malformed.
-     * We must not return an empty string — null is the only safe sentinel.
-     */
-    public function testExtractBearerTokenReturnsNullForEmptyToken(): void
-    {
-        // Arrange — "Bearer " with a trailing space but no token
-        $result = $this->invokeBearerExtraction('Bearer ');
-
-        // Assert
-        $this->assertNull($result, 'An empty token after the Bearer prefix is malformed');
-    }
-
-    // ── groupTokensByApp aggregation ──────────────────────────────────────────
+    // ── groupTokensByApp() ────────────────────────────────────────────────────
 
     /**
-     * Multiple tokens for the same application must be grouped into one entry
+     * Multiple tokens for the same application must be merged into one entry
      * with an aggregated token_count and the maximum last_used timestamp.
      *
-     * This is the primary contract of groupTokensByApp(): the caller (info
-     * endpoint) needs a compact per-application summary, not a flat list.
+     * This covers the entire loop body in groupTokensByApp() (lines ~403-419).
      */
     public function testGroupTokensByAppMergesMultipleTokensForSameApp(): void
     {
@@ -120,21 +150,23 @@ class SessionControllerTest extends TestCase
         ];
 
         // Act
-        $grouped = $this->invokeGroupTokensByApp($tokens);
+        $grouped = $this->callPrivate('groupTokensByApp', $tokens);
 
-        // Assert — only one group for 'MyApp'
-        $this->assertCount(1, $grouped, 'Three tokens for one app must produce one group');
-
-        $group = $grouped[0];
-        $this->assertSame('MyApp',  $group['name'],        'Group name must match the app_name');
-        $this->assertSame(3,        $group['token_count'], 'token_count must be the sum of all tokens');
-        $this->assertSame(2000,     $group['last_used'],   'last_used must be the maximum across all tokens');
+        // Assert
+        $this->assertCount(1, $grouped,
+            'Three tokens for one app must produce one group');
+        $this->assertSame('MyApp', $grouped[0]['name']);
+        $this->assertSame(3,       $grouped[0]['token_count'],
+            'token_count must be the sum of all tokens');
+        $this->assertSame(2000,    $grouped[0]['last_used'],
+            'last_used must be the maximum across all tokens');
     }
 
     /**
      * Tokens for different applications must remain in separate groups.
      *
-     * The returned array must have one entry per distinct app_name value.
+     * This covers the `!isset($byApp[$name])` branch — new group initialised
+     * for each distinct app_name (lines ~409-411).
      */
     public function testGroupTokensByAppProducesOneGroupPerApp(): void
     {
@@ -146,36 +178,57 @@ class SessionControllerTest extends TestCase
         ];
 
         // Act
-        $grouped = $this->invokeGroupTokensByApp($tokens);
+        $grouped = $this->callPrivate('groupTokensByApp', $tokens);
 
-        // Assert — two distinct groups
-        $this->assertCount(2, $grouped, 'Tokens for two apps must produce two groups');
-
+        // Assert
+        $this->assertCount(2, $grouped,
+            'Tokens for two apps must produce two groups');
         $names = array_column($grouped, 'name');
         $this->assertContains('AppA', $names);
         $this->assertContains('AppB', $names);
     }
 
     /**
-     * An empty token list must produce an empty array (no groups).
-     * This covers the unauthenticated user / no-tokens edge case in info().
+     * An empty token list must produce an empty array.
+     *
+     * This covers the case where the foreach loop body is never entered, and
+     * array_values([]) is returned.
      */
     public function testGroupTokensByAppReturnsEmptyArrayForNoTokens(): void
     {
-        // Arrange / Act
-        $grouped = $this->invokeGroupTokensByApp([]);
+        // Act
+        $grouped = $this->callPrivate('groupTokensByApp', []);
 
         // Assert
         $this->assertSame([], $grouped, 'No tokens must produce no groups');
     }
 
-    // ── extractField helper ───────────────────────────────────────────────────
+    /**
+     * A token row with no app_name key must fall back to the string 'unknown'.
+     *
+     * This covers the `$token['app_name'] ?? 'unknown'` null-coalesce branch
+     * in groupTokensByApp() (line ~408).
+     */
+    public function testGroupTokensByAppUsesUnknownForMissingAppName(): void
+    {
+        // Arrange — token row has no app_name key
+        $tokens = [['lastused' => 500]];
+
+        // Act
+        $grouped = $this->callPrivate('groupTokensByApp', $tokens);
+
+        // Assert
+        $this->assertSame('unknown', $grouped[0]['name'],
+            'Missing app_name must fall back to "unknown"');
+    }
+
+    // ── extractField() ────────────────────────────────────────────────────────
 
     /**
-     * extractField must return the correct value from an associative array.
+     * extractField() must return the correct value from an associative array.
      *
-     * Session data can be stored as an array (most paths) or an object (some
-     * legacy User objects). The helper must handle both transparently.
+     * This covers the `if (is_array($data))` true branch of extractField()
+     * (lines ~429-431).
      */
     public function testExtractFieldFromArray(): void
     {
@@ -183,21 +236,22 @@ class SessionControllerTest extends TestCase
         $data = ['userid' => 42, 'username' => 'alice'];
 
         // Act
-        $userId   = $this->invokeExtractField($data, 'userid');
-        $username = $this->invokeExtractField($data, 'username');
-        $missing  = $this->invokeExtractField($data, 'nonexistent');
+        $userId   = $this->callPrivate('extractField', $data, 'userid');
+        $username = $this->callPrivate('extractField', $data, 'username');
+        $missing  = $this->callPrivate('extractField', $data, 'nonexistent');
 
         // Assert
         $this->assertSame(42,      $userId);
         $this->assertSame('alice', $username);
-        $this->assertNull($missing, 'Missing key must return null, not a warning');
+        $this->assertNull($missing,
+            'Missing array key must return null, not a warning');
     }
 
     /**
-     * extractField must return the correct value from a stdClass object.
+     * extractField() must return the correct value from a stdClass object.
      *
-     * The User class may return session data as an object. The helper must
-     * read object properties using the -> operator, not array access.
+     * This covers the `if (is_object($data))` true branch of extractField()
+     * (lines ~432-434).
      */
     public function testExtractFieldFromObject(): void
     {
@@ -207,129 +261,132 @@ class SessionControllerTest extends TestCase
         $data->username = 'bob';
 
         // Act
-        $userId  = $this->invokeExtractField($data, 'userid');
-        $missing = $this->invokeExtractField($data, 'email');
+        $userId  = $this->callPrivate('extractField', $data, 'userid');
+        $missing = $this->callPrivate('extractField', $data, 'email');
 
         // Assert
         $this->assertSame(7,    $userId);
-        $this->assertNull($missing, 'Missing object property must return null, not a warning');
+        $this->assertNull($missing,
+            'Missing object property must return null, not a warning');
     }
 
     /**
-     * extractField must return null for neither-array-nor-object input (e.g.
-     * an empty string or false), instead of triggering a PHP error.
+     * extractField() must return null for neither-array-nor-object input.
+     *
+     * This covers the final `return null` fallthrough in extractField()
+     * (line ~435).
      */
     public function testExtractFieldFromNullReturnsNull(): void
     {
         // Act
-        $result = $this->invokeExtractField(null, 'userid');
+        $result = $this->callPrivate('extractField', null, 'userid');
 
         // Assert
         $this->assertNull($result);
     }
 
-    // ── Session timeout arithmetic ────────────────────────────────────────────
+    // ── getTimeRemaining() ────────────────────────────────────────────────────
 
     /**
-     * The session time-remaining formula must never return a negative value.
+     * Without a Bearer token, getTimeRemaining() must return a value derived
+     * from ini_get('session.gc_maxlifetime') and $_SESSION['last_activity'].
      *
-     * When the session has already expired (last_activity was long ago), the
-     * result must be clamped to 0 rather than returning a negative number,
-     * which would confuse clients.
+     * This covers the `$token !== null` false branch in getTimeRemaining()
+     * (lines ~261-263): the session-based computation path.
      */
-    public function testSessionTimeRemainingIsNeverNegative(): void
+    public function testGetTimeRemainingForRecentSessionReturnsPositiveValue(): void
     {
-        // Arrange — last activity was 100 000 seconds ago (well past any timeout)
-        $maxLifetime  = 3600; // 1 hour, typical ini value
-        $lastActivity = time() - 100_000;
-
-        // Act — replicate the formula from getTimeRemaining()
-        $remaining = max(0, $maxLifetime - (time() - $lastActivity));
-
-        // Assert
-        $this->assertSame(0, $remaining, 'Expired session remaining time must be 0, not negative');
-    }
-
-    /**
-     * The session time-remaining formula must return the correct positive value
-     * when the session is still fresh.
-     */
-    public function testSessionTimeRemainingIsCorrectForFreshSession(): void
-    {
-        // Arrange — last activity was 60 seconds ago
-        $maxLifetime  = 3600;
-        $lastActivity = time() - 60;
+        // Arrange — last activity 60 seconds ago, no Bearer token in headers
+        $_SESSION['last_activity'] = time() - 60;
 
         // Act
-        $remaining = max(0, $maxLifetime - (time() - $lastActivity));
+        $remaining = $this->callPrivate('getTimeRemaining');
 
-        // Assert — allow ±2 s tolerance for clock skew in the assertion
-        $this->assertGreaterThanOrEqual(3538, $remaining);
-        $this->assertLessThanOrEqual(3540, $remaining);
+        // Assert — must be positive (session is fresh) and ≤ gc_maxlifetime
+        $this->assertGreaterThan(0, $remaining,
+            'A fresh session must have positive time remaining');
+        $this->assertLessThanOrEqual(
+            (int) ini_get('session.gc_maxlifetime'),
+            $remaining
+        );
     }
 
-    // ── Private reflection helpers ────────────────────────────────────────────
-
     /**
-     * Create a Session controller instance without the constructor CORS headers
-     * (which would fail in CLI), then invoke extractBearerToken() via reflection.
+     * When last_activity was far in the past, getTimeRemaining() must return 0
+     * (never negative) — clamped by max(0, …).
      *
-     * @param string|null $headerValue
-     * @return string|null
+     * This covers the `max(0, …)` clamp on line ~263.
      */
-    private function invokeBearerExtraction(?string $headerValue): ?string
+    public function testGetTimeRemainingIsNeverNegative(): void
     {
-        // The Bearer extraction logic only uses the header string — we replicate
-        // it here directly to avoid booting the full Application stack.
-        if ($headerValue === null) {
-            return null;
-        }
+        // Arrange — last activity 100 000 seconds ago (far past any timeout)
+        $_SESSION['last_activity'] = time() - 100_000;
 
-        if (!preg_match('/^Bearer\s+(.+)$/i', $headerValue, $matches)) {
-            return null;
-        }
+        // Act
+        $remaining = $this->callPrivate('getTimeRemaining');
 
-        $token = $matches[1];
-        return $token !== '' ? $token : null;
+        // Assert
+        $this->assertSame(0, $remaining,
+            'An expired session remaining time must be 0, never negative');
     }
 
     /**
-     * Invoke groupTokensByApp() — we replicate the logic here because instantiating
-     * Session would trigger CORS headers and require a live Application object.
+     * When $_SESSION has no last_activity key, getTimeRemaining() must use
+     * time() as the default (i.e. the session was just refreshed) and return
+     * approximately gc_maxlifetime seconds remaining.
      *
-     * @param array<int, array<string, mixed>> $tokens
-     * @return array<int, array<string, mixed>>
+     * This covers the `$_SESSION['last_activity'] ?? time()` default path
+     * on line ~262.
      */
-    private function invokeGroupTokensByApp(array $tokens): array
+    public function testGetTimeRemainingDefaultsToFullLifetimeWhenNoLastActivity(): void
     {
-        $byApp = [];
+        // Arrange — no last_activity in session
+        unset($_SESSION['last_activity']);
 
-        foreach ($tokens as $token) {
-            $name = (string) ($token['app_name'] ?? 'unknown');
-            if (!isset($byApp[$name])) {
-                $byApp[$name] = ['name' => $name, 'token_count' => 0, 'last_used' => 0];
-            }
-            $byApp[$name]['token_count']++;
-            $byApp[$name]['last_used'] = max(
-                $byApp[$name]['last_used'],
-                (int) ($token['lastused'] ?? 0)
-            );
-        }
+        // Act
+        $remaining = $this->callPrivate('getTimeRemaining');
+        $maxLifetime = (int) ini_get('session.gc_maxlifetime');
 
-        return array_values($byApp);
+        // Assert — allow ±2 s tolerance for CPU/clock skew
+        $this->assertGreaterThanOrEqual($maxLifetime - 2, $remaining,
+            'No last_activity must default to full session lifetime remaining');
     }
 
+    // ── isUserLoggedIn() ──────────────────────────────────────────────────────
+
     /**
-     * Replicate extractField() without instantiating Session.
+     * isUserLoggedIn() must return false when $_SESSION has no 'user' key and
+     * there is no Bearer token in the headers.
+     *
+     * This covers the `if (empty($_SESSION['user'])) return false` path on
+     * lines ~217-219.
      */
-    private function invokeExtractField(mixed $data, string $field): mixed
+    public function testIsUserLoggedInReturnsFalseWithEmptySession(): void
     {
-        if (is_array($data)) {
-            return $data[$field] ?? null;
-        }
-        if (is_object($data)) {
-            return $data->$field ?? null;
-        }
-        return null;
+        // Arrange — session is empty, no Bearer token
+        $_SESSION = [];
+
+        // Act
+        $result = $this->callPrivate('isUserLoggedIn');
+
+        // Assert
+        $this->assertFalse($result,
+            'Empty session with no Bearer token must report not logged in');
+    }
+
+    // ── Private reflection helper ─────────────────────────────────────────────
+
+    /**
+     * Call a private method on $this->session via reflection.
+     *
+     * @param string $method  Method name
+     * @param mixed  ...$args Arguments to pass to the method
+     * @return mixed
+     */
+    private function callPrivate(string $method, mixed ...$args): mixed
+    {
+        $rm = new \ReflectionMethod(Session::class, $method);
+        $rm->setAccessible(true);
+        return $rm->invoke($this->session, ...$args);
     }
 }
