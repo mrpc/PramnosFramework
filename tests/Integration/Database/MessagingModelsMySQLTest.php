@@ -438,6 +438,190 @@ class MessagingModelsMySQLTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // getData() / getList() — covers previously-missing method bodies
+    // -------------------------------------------------------------------------
+
+    /**
+     * Mail::getData() must return an associative array containing the model's
+     * properties.  MassMessageRecipient::getData() must do the same.
+     *
+     * These cover the single-stmt method bodies at Mail.php:128 and
+     * MassMessageRecipient.php:95 (each just delegates to parent::getData()).
+     */
+    public function testGetDataReturnsArrayForMailAndRecipient(): void
+    {
+        // Arrange — persist a Mail row so load() populates the object
+        $mail           = new Mail($this->controller);
+        $mail->status   = Mail::STATUS_QUEUED;
+        $mail->frommail = 'from@example.com';
+        $mail->fromname = 'Tester';
+        $mail->tomail   = 'to@example.com';
+        $mail->toname   = 'Recipient';
+        $mail->subject  = 'getData-test';
+        $mail->content  = '<p>body</p>';
+        $mail->date     = time();
+        $mail->module   = 'test';
+        $mail->moduleinfo = '';
+        $mail->extrainfo  = '';
+        $mail->path       = '';
+        $mail->hash       = md5('getData-test');
+        $mail->save();
+
+        // Act — getData() on a loaded instance (covers Mail.php:128)
+        $data = (new Mail($this->controller))->load($mail->id)->getData();
+
+        // Assert — result is an array with the subject key
+        $this->assertIsArray($data, 'Mail::getData() must return an array');
+        $this->assertSame('getData-test', $data['subject'] ?? null);
+
+        // Arrange — MassMessageRecipient
+        $mass          = new MassMessage($this->controller);
+        $mass->subject = 'getData-mass';
+        $mass->message = 'msg';
+        $mass->type    = MassMessage::TYPE_MESSAGE;
+        $mass->sender  = 1;
+        $mass->status  = MassMessage::STATUS_PENDING;
+        $mass->created = time();
+        $mass->scheduled = 0;
+        $mass->totalrecipients = 0;
+        $mass->save();
+
+        $recip            = new MassMessageRecipient($this->controller);
+        $recip->messageid = $mass->messageid;
+        $recip->userid    = 300;
+        $recip->status    = MassMessageRecipient::STATUS_DELIVERED;
+        $recip->save();
+
+        // Act — getData() on MassMessageRecipient
+        $recipData = (new MassMessageRecipient($this->controller))
+            ->load($recip->recipientid)->getData();
+
+        // Assert
+        $this->assertIsArray($recipData, 'MassMessageRecipient::getData() must return an array');
+        $this->assertEquals(300, $recipData['userid'] ?? null);
+    }
+
+    /**
+     * Mail::getList(), MailTemplate::getData(), MailTemplate::getList(),
+     * MassMessageRecipient::getList(), and Message::getData()/getList() — all
+     * single-line wrapper methods that delegate to parent — must not throw and
+     * must return the correct type.
+     *
+     * This covers the following previously-uncovered lines in one pass:
+     *   Mail.php:142        (getList)
+     *   MailTemplate.php:89 (load via _load), :112 (save), :122 (delete), :131 (getData)
+     *   MassMessageRecipient.php:109 (getList)
+     *   Message.php:153 (delete), :163 (getData), :176 (getList)
+     */
+    public function testGetListAndGetDataOnMessagingModels(): void
+    {
+        // ── Mail::getList() ──────────────────────────────────────────────────
+        // Arrange — insert a mail row using the correct Mail model fields
+        $mail           = new Mail($this->controller);
+        $mail->status   = Mail::STATUS_QUEUED;
+        $mail->frommail = 'from@example.com';
+        $mail->fromname = 'From';
+        $mail->tomail   = 'to@example.com';
+        $mail->toname   = 'To';
+        $mail->subject  = 'list-test';
+        $mail->content  = 'body';
+        $mail->date     = time();
+        $mail->module   = 'test';
+        $mail->moduleinfo = '';
+        $mail->extrainfo  = '';
+        $mail->path       = '';
+        $mail->hash       = md5('list-test');
+        $mail->save();
+
+        // Act
+        $list = (new Mail($this->controller))->getList('status = 0');
+
+        // Assert — returned an array (may be empty or populated)
+        $this->assertIsArray($list, 'Mail::getList() must return an array');
+
+        // ── MailTemplate::load/save/delete/getData/getList() ─────────────────
+        $tpl           = new MailTemplate($this->controller);
+        $tpl->name     = 'test-tpl-' . mt_rand(1000, 9999);
+        $tpl->key      = 'tpl_key_' . mt_rand(1000, 9999);
+        $tpl->subject  = 'Welcome';
+        $tpl->text     = 'Hello {{name}}';
+        $tpl->html     = 0;
+        $tpl->fromname = 'System';
+        $tpl->fromemail = 'noreply@example.com';
+        $tpl->save();  // covers MailTemplate::save() (line 112)
+        $tid = $tpl->templateid;
+
+        $loaded = (new MailTemplate($this->controller))->load($tid); // covers load() (line 89)
+        $this->assertNotNull($loaded->templateid);
+
+        $tplData = $loaded->getData(); // covers getData() (line 131)
+        $this->assertIsArray($tplData, 'MailTemplate::getData() must return an array');
+
+        $tplList = (new MailTemplate($this->controller))->getList(); // covers getList()
+        $this->assertIsArray($tplList, 'MailTemplate::getList() must return an array');
+
+        (new MailTemplate($this->controller))->delete($tid); // covers delete() (line 122)
+        // Verify deletion
+        $result = $this->db->query("SELECT COUNT(*) AS cnt FROM `mailtemplates` WHERE templateid = {$tid}");
+        $this->assertSame(0, (int) $result->fields['cnt'], 'MailTemplate::delete() must remove the row');
+
+        // ── MassMessageRecipient::getList() ──────────────────────────────────
+        $mass          = new MassMessage($this->controller);
+        $mass->subject = 'list-mass';
+        $mass->message = 'msg';
+        $mass->type    = MassMessage::TYPE_MESSAGE;
+        $mass->sender  = 1;
+        $mass->status  = MassMessage::STATUS_PENDING;
+        $mass->created = time();
+        $mass->scheduled = 0;
+        $mass->totalrecipients = 0;
+        $mass->save();
+
+        $recip            = new MassMessageRecipient($this->controller);
+        $recip->messageid = $mass->messageid;
+        $recip->userid    = 400;
+        $recip->status    = MassMessageRecipient::STATUS_DELIVERED;
+        $recip->save();
+
+        $recipList = (new MassMessageRecipient($this->controller))
+            ->getList("messageid = {$mass->messageid}"); // covers getList() (line 109)
+        $this->assertIsArray($recipList, 'MassMessageRecipient::getList() must return an array');
+
+        // ── Message::delete()/getData()/getList() ─────────────────────────────
+        $msg                = new Message($this->controller);
+        $msg->type          = Message::TYPE_NEW;
+        $msg->subject       = 'del-test';
+        $msg->text          = 'body';
+        $msg->url           = '';
+        $msg->urlcaption    = '';
+        $msg->attachmenttext = '';
+        $msg->image         = '';
+        $msg->securitycode  = 'sec';
+        $msg->fromuserid    = 1;
+        $msg->touserid      = 2;
+        $msg->date          = time();
+        $msg->ip            = '127.0.0.1';
+        $msg->bbcode        = 1;
+        $msg->html          = 0;
+        $msg->smilies       = 1;
+        $msg->signature     = 0;
+        $msg->attachment    = 0;
+        $msg->save();
+        $mid = $msg->messageid;
+
+        $loaded = (new Message($this->controller))->load($mid);
+        $msgData = $loaded->getData(); // covers getData() (line 163)
+        $this->assertIsArray($msgData, 'Message::getData() must return an array');
+
+        $msgList = (new Message($this->controller))->getList('touserid = 2'); // covers getList() (line 176)
+        $this->assertIsArray($msgList, 'Message::getList() must return an array');
+
+        (new Message($this->controller))->delete($mid); // covers delete() (line 153)
+        $check = $this->db->query("SELECT COUNT(*) AS cnt FROM `messages` WHERE messageid = {$mid}");
+        $this->assertSame(0, (int) $check->fields['cnt'], 'Message::delete() must remove the row');
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
