@@ -159,6 +159,183 @@ class TokenActionMySQLTest extends TestCase
     }
 
     // =========================================================================
+    // Token::load() — load by id and by string token
+    // =========================================================================
+
+    /**
+     * Token::load() with a numeric tokenid must fill the object's properties
+     * from the database and return the same Token instance.
+     *
+     * This covers Token::load() lines 163-185 (the numeric-tokenid branch,
+     * fillProperties() lines 143-156, __construct() with numeric arg lines 126-136).
+     */
+    public function testLoadByNumericIdPopulatesToken(): void
+    {
+        // Act — load by the pre-seeded tokenid
+        $token = new Token($this->tokenId);  // __construct + load
+
+        // Assert
+        $this->assertEquals($this->tokenId, $token->tokenid, 'load() must set tokenid');
+        $this->assertSame('api', $token->tokentype, 'load() must populate tokentype');
+        $this->assertSame('test_token_abc', $token->token, 'load() must populate token string');
+    }
+
+    /**
+     * Token::load() with a string token value must use the string-lookup branch
+     * (the non-numeric path at line 172) and populate properties correctly.
+     *
+     * This covers the else-branch of the numeric check in load() (lines 172-177).
+     */
+    public function testLoadByStringTokenPopulatesToken(): void
+    {
+        // Act — load by the token string value
+        $token = (new Token())->load('test_token_abc');
+
+        // Assert
+        $this->assertEquals($this->tokenId, (int) $token->tokenid);
+        $this->assertSame('api', $token->tokentype);
+    }
+
+    // =========================================================================
+    // Token::getData()
+    // =========================================================================
+
+    /**
+     * Token::getData() must return an associative array containing all scalar
+     * and string properties of the token, including a formatted 'created' date.
+     *
+     * This covers getData() lines 191-224.
+     */
+    public function testGetDataReturnsArrayWithFormattedDates(): void
+    {
+        // Arrange — load the seeded token
+        $token = new Token($this->tokenId);
+
+        // Act
+        $data = $token->getData();
+
+        // Assert — result is array with known fields
+        $this->assertIsArray($data, 'getData() must return an array');
+        $this->assertArrayHasKey('tokenid', $data);
+        $this->assertArrayHasKey('created', $data, 'getData() must include created timestamp');
+        // created is formatted as ISO 8601 date string
+        $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}/', $data['created'],
+            'getData() must format created as a date string');
+    }
+
+    // =========================================================================
+    // Token::save() — insert new token
+    // =========================================================================
+
+    /**
+     * Token::save() with _isnew=true must insert a new row into usertokens and
+     * set the tokenid from the auto-increment value.
+     *
+     * This covers save() lines 480-617: _isnew branch, the large $itemdata build,
+     * MySQL-specific parentToken field, insertDataToTable call, and the tokenid
+     * assignment from getInsertId().
+     */
+    public function testSaveInsertsNewTokenAndSetsId(): void
+    {
+        // Arrange — a fresh Token (not loaded from DB, so _isnew = true)
+        $token            = new Token();
+        $token->userid    = 5000;
+        $token->tokentype = 'api';
+        $token->token     = 'save_test_token_' . time();
+        $token->created   = time();
+        $token->status    = 1;
+        $token->scope     = 'profile';
+        $token->deviceinfo = [];
+        $token->notes      = 'test save';
+
+        // Act
+        $token->save();
+
+        // Assert — tokenid assigned after insert
+        $this->assertGreaterThan(0, (int) $token->tokenid, 'save() must assign tokenid after insert');
+
+        // Verify the row exists in the database
+        $result = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM `#PREFIX#usertokens` WHERE tokenid = " . (int) $token->tokenid
+        );
+        $this->assertSame(1, (int) $result->fields['cnt'], 'save() must actually insert the row');
+    }
+
+    // =========================================================================
+    // Token::getDetails() — early-return when tokenid=0
+    // =========================================================================
+
+    /**
+     * Token::getDetails() when tokenid is 0 must return a default struct with
+     * all fields set to empty/zero values without querying the database.
+     *
+     * This covers the early-return branch in getDetails() (lines 625-644).
+     */
+    public function testGetDetailsReturnsDefaultsForZeroTokenId(): void
+    {
+        // Arrange — fresh Token with no id
+        $token = new Token();
+
+        // Act
+        $details = $token->getDetails();
+
+        // Assert — default struct returned
+        $this->assertIsArray($details, 'getDetails() must return an array');
+        $this->assertSame(0, $details['tokenid']);
+        $this->assertSame('', $details['token']);
+        $this->assertSame('', $details['username'] ?? '');
+    }
+
+    // =========================================================================
+    // Token::getStatistics() — early-return when tokenid=0
+    // =========================================================================
+
+    /**
+     * Token::getStatistics() when tokenid is 0 must return a default struct
+     * with total_actions=0 and null first/last action dates — no DB query.
+     *
+     * This covers the early-return branch in getStatistics() (lines 668-675).
+     */
+    public function testGetStatisticsReturnsDefaultsForZeroTokenId(): void
+    {
+        // Arrange — fresh Token with no id
+        $token = new Token();
+
+        // Act
+        $stats = $token->getStatistics();
+
+        // Assert
+        $this->assertIsArray($stats);
+        $this->assertSame(0, $stats['total_actions']);
+        $this->assertNull($stats['first_action']);
+        $this->assertNull($stats['last_action']);
+    }
+
+    // =========================================================================
+    // Token::getStatistics() — with real data
+    // =========================================================================
+
+    /**
+     * Token::getStatistics() with a real tokenid must query the tokenactions
+     * table and return aggregate counts.
+     *
+     * This covers the MySQL branch of getStatistics() (lines 691-699, 702-703).
+     */
+    public function testGetStatisticsQueriesTokenActionsForRealToken(): void
+    {
+        // Arrange — the seeded token has 1 tokenaction row
+        $token = new Token($this->tokenId);
+
+        // Act
+        $stats = $token->getStatistics();
+
+        // Assert — at least one action recorded
+        $this->assertIsArray($stats);
+        $this->assertGreaterThanOrEqual(1, (int) $stats['total_actions'],
+            'getStatistics() must count the pre-seeded tokenactions row');
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
