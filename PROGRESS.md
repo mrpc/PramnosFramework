@@ -1,7 +1,82 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-17 (session 90)
+## 📅 Last Updated: 2026-05-18 (sessions 90-92)
+
+## 🏁 Session 92 — Scopes integration tests (2026-05-18)
+
+### ✅ Auth/Scopes.php: 85.3% → 90%+ (integration tests for areApplicationScopesGranted)
+
+**Problem:** `areApplicationScopesGranted()` (lines 247–275) calls `Factory::getDatabase()` as a
+fully-qualified static, making unit testing impossible without code changes.
+
+**Solution:** Two integration test files covering the live DB path:
+- `tests/Integration/Auth/ScopesMySQLIntegrationTest.php` — 5 tests against MySQL
+- `tests/Integration/Auth/ScopesPostgreSQLIntegrationTest.php` — 4 tests against PostgreSQL (TimescaleDB)
+
+**Scenarios covered:**
+1. App has explicit scope → all scopes granted
+2. App lacks requested scope → fails with problematic scope listed
+3. App not found in DB (empty result) → non-default scope refused
+4. Only default scopes requested → always granted
+5. Invalid (undefined) scope → flagged as problematic
+
+**Key DB calls exercised:**
+- `Factory::getDatabase()` static call (line 250)
+- QueryBuilder table/select/where/first chain (lines 251–255)
+- `$result->numRows > 0` branch (line 258) — app found vs not found
+- `allowedScopes` array populated from DB (line 260)
+- `getDefaultScopes()` + per-scope grant logic (lines 263–273)
+
+**Commits (session 92):**
+- `pending` test(scopes): add MySQL + PostgreSQL integration tests for areApplicationScopesGranted
+
+**Full suite after session 92:** 4217 tests (final run in progress)
+
+---
+
+## 🏁 Sessions 90–91 — Coverage gap closures (2026-05-17–18)
+
+### ✅ Session 91 — WebhookService, OAuthPolicyHelper, Scopes, DbSeed, Permissions, TwoFactorAuth, ScaffoldViews
+
+**Auth/WebhookService.php: 3.6% → 94.2%** (commit `3dba529`):
+- Changed `deliverEvent()` from `private` to `protected` (BC-safe additive)
+- Added 21 unit tests: all major code paths, DB mocking via anonymous QueryBuilder chain
+- Anonymous subclass overrides `deliverEvent()` for processQueue() tests
+- Real curl to port 19991 (connection refused) to test cURL error path
+
+**Auth/OAuthPolicyHelper.php: 11.1% → 100%** (commit `3dba529`):
+- Added 6 tests for untested methods: `getAuthenticationMethods()`, `getGrantTypes()`, `getWebhookTypes()`
+- Tests verify descriptor structure (method/name/description keys) and specific required entries
+
+**Auth/Scopes.php: 80.9% → 85.3%** (commit `3dba529`):
+- Added 4 tests: `resolveInheritedScopes(null/int)` defensive branch, `addDefaultScopesToToken()` merge/dedup/bracket paths
+- Remaining 20 stmts in `areApplicationScopesGranted()` blocked by `Factory::getDatabase()` static call
+
+**Console/Commands/DbSeed.php: 89.4% → 100%** (commit `27c1e48`):
+- Added 3 tests: non-Pramnos app guard failure, `defaultSeedsPath()` when no `--path`, class-not-found after require_once
+- Used `bin2hex(random_bytes(4))` to avoid PHP class registry collisions
+
+**Auth/Permissions.php: 65.1% → 73.7%** (commit `01b026a`):
+- Added 10 unit tests covering: constructor, `setDefaultPermission()` bool coercion, `allow()`/`deny()` single and array delegates via subclass override, `isAllowed()` cache-hit path
+- Remaining stmts are DB-dependent (`removePermission`, `setPermission`, `_isAllowed`, `setupDb`)
+
+**Auth/TwoFactorAuthService.php: 91.7% → ~95%** (commit `95e84e1`):
+- Added 10 unit tests: `verifyCode()` not-enabled/no-secret/replay-attack guards, `getStatus()` no-row defaults, `getRemainingBackupCodes()` invalid JSON + no-row, `disable()` user not found, `regenerateBackupCodes()` not enabled, `cleanupExpiredSessions()` delete chain
+
+**Console/Commands/ScaffoldViews.php: 86% → ~90%** (commit `95e84e1`):
+- Added 2 tests: no-theme-can-be-determined error path, reads theme from app/app.php config
+- Covers `loadAppConfig()` file-not-found and file-exists branches
+
+**Full suite: 4205 tests (final run in progress)** (+22 new tests since session 89)
+
+### Commits (session 91)
+- `3dba529` test(auth): improve coverage for WebhookService, OAuthPolicyHelper, Scopes
+- `27c1e48` test(dbseed): add unit tests for DbSeed uncovered paths  
+- `01b026a` test(permissions): add unit tests for no-DB paths in Permissions class
+- `95e84e1` test(auth,scaffold): add unit tests for TwoFactorAuthService and ScaffoldViews edge cases
+
+---
 
 ## 🏁 Session 90 — JWT 97% + Auth 100% coverage (2026-05-17)
 
