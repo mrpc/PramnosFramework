@@ -1,7 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pramnos\Tests\Unit\Auth;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Auth\Scopes;
 
@@ -24,6 +27,7 @@ use Pramnos\Auth\Scopes;
  * - resolveInheritedScopes() ignores undefined scopes without error
  * - resolveInheritedScopes() handles direct circular references safely
  */
+#[CoversClass(Scopes::class)]
 class ScopesTest extends TestCase
 {
     // -------------------------------------------------------------------------
