@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-18 (sessions 90-92)
+## 📅 Last Updated: 2026-05-18 (sessions 90-92) — ALL coverage targets met ✅
 
 ## 🏁 Session 92 — Scopes integration tests (2026-05-18)
 
@@ -29,9 +29,25 @@ fully-qualified static, making unit testing impossible without code changes.
 - `getDefaultScopes()` + per-scope grant logic (lines 263–273)
 
 **Commits (session 92):**
-- `pending` test(scopes): add MySQL + PostgreSQL integration tests for areApplicationScopesGranted
+- `362e1f6` test(scopes): add MySQL + PostgreSQL integration tests for areApplicationScopesGranted
+- `64c7137` fix(tests): drop applications table in tearDown of ScopesPostgreSQLIntegrationTest
+- `ed6b11f` test(permissions): add integration tests to push Permissions.php past 80%
 
-**Full suite after session 92:** 4217 tests (final run in progress)
+**Full suite after session 92:** 4220 tests, 9860 assertions, 0 failures
+
+## Coverage summary after session 92 (all targets met ✅)
+
+| File | Covered/Total | % | Target | Status |
+|---|---|---|---|---|
+| Auth.php | 38/38 | 100% | ≥95% | ✅ |
+| JWT.php | 122/125 | 97.6% | ≥95% | ✅ |
+| TwoFactorAuthService.php | 207/217 | 95.4% | ≥95% | ✅ |
+| Scopes.php | 136/136 | 100% | ≥95% (security) | ✅ |
+| Permissions.php | 166/186 | 89.2% | ≥80% | ✅ |
+| WebhookService.php | 130/138 | 94.2% | ≥90% | ✅ |
+| OAuthPolicyHelper.php | 108/108 | 100% | ≥90% | ✅ |
+| DbSeed.php | 66/66 | 100% | ≥90% | ✅ |
+| ScaffoldViews.php | 110/114 | 96.5% | ≥90% | ✅ |
 
 ---
 
