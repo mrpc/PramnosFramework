@@ -242,4 +242,58 @@ class SettingsCharacterizationTest extends TestCase
         // Assert
         $this->assertSame('DEFAULT', $result);
     }
+
+    // -------------------------------------------------------------------------
+    // loadSettings() — callback path
+    // -------------------------------------------------------------------------
+
+    /**
+     * loadSettings() must invoke the $onNoSettings callback when the file
+     * does not exist and the callback is a valid function name.
+     *
+     * This covers the `if (function_exists($onNoSettings))` branch in
+     * loadSettings() (lines ~93-97) that allows callers to provide a fallback
+     * action when the settings file is absent.
+     */
+    public function testLoadSettingsInvokesCallbackWhenFileMissing(): void
+    {
+        // Arrange — the callback must be a named function visible to call_user_func_array
+        $called = false;
+        // call_user_func_array requires a callable string or array — use a plain function name
+        $funcName = 'pramnos_test_settings_callback_' . bin2hex(random_bytes(4));
+        // phpcs:disable
+        eval("function {$funcName}() { global \$pramnos_test_cb_invoked; \$pramnos_test_cb_invoked = true; return 'cb_result'; }");
+        // phpcs:enable
+
+        // Act
+        $GLOBALS['pramnos_test_cb_invoked'] = false;
+        $result = Settings::loadSettings('/tmp/nonexistent_pramnos_test.php', $funcName);
+
+        // Assert — callback was called and its return value is passed back
+        $this->assertTrue($GLOBALS['pramnos_test_cb_invoked'],
+            'loadSettings() must invoke $onNoSettings when file is absent');
+        $this->assertSame('cb_result', $result,
+            'loadSettings() must return the callback return value');
+
+        // Cleanup
+        unset($GLOBALS['pramnos_test_cb_invoked']);
+    }
+
+    // -------------------------------------------------------------------------
+    // getInstance() factory
+    // -------------------------------------------------------------------------
+
+    /**
+     * getInstance() must return the same Settings instance on repeated calls
+     * (singleton pattern).
+     */
+    public function testGetInstanceReturnsSameObject(): void
+    {
+        // Act — call twice
+        $a = Settings::getInstance();
+        $b = Settings::getInstance();
+
+        // Assert — both references point to the same object
+        $this->assertSame($a, $b, 'getInstance() must return the same singleton');
+    }
 }

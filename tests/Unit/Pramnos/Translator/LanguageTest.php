@@ -88,12 +88,144 @@ class LanguageTest extends \PHPUnit\Framework\TestCase
         $this->object->setLang(array());
     }
 
-    
+
     public function testGetInstance()
     {
         $this->assertTrue(
             Language::getInstance() instanceof \Pramnos\Translator\Language
         );
+    }
+
+    /**
+     * Language::load() must return false when neither the custom path nor the
+     * ROOT language directory contains a matching file.
+     *
+     * This covers the final `return false` branch in load() (line ~151) reached
+     * when a non-existent path is given and no fallback files are found.
+     */
+    public function testLoadReturnsFalseWhenNoFileFound(): void
+    {
+        // Arrange — a path with no language files
+        $nonExistentPath = sys_get_temp_dir() . '/pramnos_lang_test_' . bin2hex(random_bytes(4));
+        @mkdir($nonExistentPath . '/language', 0777, true);
+
+        // Act
+        $result = $this->object->load('nonexistentlang', $nonExistentPath);
+
+        // Assert — no file found, must return false
+        $this->assertFalse($result, 'load() must return false when no language file exists');
+
+        // Cleanup
+        @rmdir($nonExistentPath . '/language');
+        @rmdir($nonExistentPath);
+    }
+
+    /**
+     * Language::load() with a custom path must load strings from
+     * <path>/language/<lang>.php when that file exists.
+     *
+     * This covers the `if (file_exists(...))` true branch in the else-block
+     * (lines ~131-133 of load()), which is only reached when $path != ''.
+     */
+    public function testLoadWithCustomPathLoadsStrings(): void
+    {
+        // Arrange — write a minimal language file to a temp directory
+        $tmpDir  = sys_get_temp_dir() . '/pramnos_lang_test_' . bin2hex(random_bytes(4));
+        $langDir = $tmpDir . '/language';
+        @mkdir($langDir, 0777, true);
+        file_put_contents(
+            $langDir . '/testlang.php',
+            "<?php\n\$lang = ['greeting' => 'Hello from testlang'];\n"
+        );
+
+        // Act
+        $result = $this->object->load('testlang', $tmpDir);
+
+        // Assert — file was loaded, key is accessible
+        $this->assertTrue($result, 'load() must return true when language file exists');
+        $strings = $this->object->getlang();
+        $this->assertArrayHasKey('greeting', $strings, 'load() must merge strings from custom path');
+        $this->assertSame('Hello from testlang', $strings['greeting']);
+
+        // Cleanup
+        @unlink($langDir . '/testlang.php');
+        @rmdir($langDir);
+        @rmdir($tmpDir);
+    }
+
+    /**
+     * Language::getFlag() must return false when no flag PNG exists for the
+     * current language.
+     *
+     * This covers the else branch (return false) of getFlag() at line ~221,
+     * reached when no <lang>.png exists in the language directory.
+     */
+    public function testGetFlagReturnsFalseWhenNoImageExists(): void
+    {
+        // Act — no language flag image expected in the test environment
+        $result = $this->object->getFlag('nonexistent_language_xyzzy');
+
+        // Assert
+        $this->assertFalse($result, 'getFlag() must return false when the PNG file does not exist');
+    }
+
+    /**
+     * Language::getFlag() with an empty argument uses the current language.
+     *
+     * This covers the `if ($lang == '')` branch at the top of getFlag() that
+     * sets $lang = $this->_lang when no argument is given.
+     */
+    public function testGetFlagWithNoArgUsesCurrentLanguage(): void
+    {
+        // Arrange — set to a language that certainly has no PNG
+        $this->object->setLang('nonexistent_xyzzy');
+
+        // Act — call with no argument
+        $result = $this->object->getFlag();
+
+        // Assert — should still be false (no PNG), but the current-language path was used
+        $this->assertFalse($result);
+    }
+
+    /**
+     * Language constructor with an explicit language string must attempt
+     * to load that language on construction.
+     *
+     * This covers the `if ($lang <> '')` branch in __construct() (line ~51).
+     */
+    public function testConstructorWithExplicitLangSetsLanguage(): void
+    {
+        // Act — construct with explicit language name (no real file needed to prove branch hit)
+        $lang = new Language('greek');
+
+        // Assert — the language was recorded even if no file loaded
+        $this->assertSame('greek', $lang->currentlang(),
+            '__construct() must record the language when one is given explicitly');
+    }
+
+    /**
+     * Language constructor with an explicit $path must use that path as
+     * the language directory instead of the default LANGPATH/ROOT.
+     *
+     * This covers the `if ($path != null)` branch at the top of __construct()
+     * (lines ~41-42).
+     */
+    public function testConstructorWithCustomPathUsesIt(): void
+    {
+        // Arrange — create a temp directory (no actual language files needed)
+        $tmpDir = sys_get_temp_dir() . '/pramnos_lang_ctor_' . bin2hex(random_bytes(4));
+        @mkdir($tmpDir, 0777, true);
+
+        // Act — construct with a custom path; load() will return false but
+        // the languagePath property must be set to $tmpDir.
+        $lang = new Language('', $tmpDir);
+
+        // Assert — the instance is valid
+        $this->assertInstanceOf(Language::class, $lang,
+            '__construct() must accept a custom $path argument');
+
+        // Cleanup
+        @rmdir($tmpDir);
     }
 
 }

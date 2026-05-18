@@ -373,4 +373,176 @@ class AddonTest extends TestCase
         // Assert
         $this->assertSame([], Addon::triger('nonexistent_action'));
     }
+
+    // =========================================================================
+    // filter()
+    // =========================================================================
+
+    /**
+     * filter() with an empty type must return the original content unchanged
+     * when no addons with a matching method are registered.
+     *
+     * This covers the `else` branch of filter() (lines ~342-350): iterating all
+     * addons when $type == ''.
+     */
+    public function testFilterWithEmptyTypeReturnsContentUnchanged(): void
+    {
+        // Arrange — no addons registered
+        // Act
+        $result = Addon::filter('title', '', 'My Title');
+
+        // Assert — no addon to transform, original content returned
+        $this->assertSame('My Title', $result,
+            'filter() must return the original content when no matching addon exists');
+    }
+
+    /**
+     * filter() with a type that has no registered addons must return the
+     * original content.
+     *
+     * This covers the `if ($type !== '')` branch (lines ~332-341) where the
+     * type is not in $_addons — the foreach body is never entered.
+     */
+    public function testFilterWithUnknownTypeReturnsContentUnchanged(): void
+    {
+        // Act
+        $result = Addon::filter('title', 'content', 'My Title');
+
+        // Assert
+        $this->assertSame('My Title', $result);
+    }
+
+    // =========================================================================
+    // trigerAddon()
+    // =========================================================================
+
+    /**
+     * trigerAddon() must return false when the specified type/addon is not
+     * registered.
+     *
+     * This covers the else-path of the outer `if (isset(...))` guard in
+     * trigerAddon() (lines ~419-428).
+     */
+    public function testTrigerAddonReturnsFalseWhenAddonNotRegistered(): void
+    {
+        // Act — neither type nor addon exists
+        $result = Addon::trigerAddon('init', 'system', 'myaddon');
+
+        // Assert
+        $this->assertFalse($result,
+            'trigerAddon() must return false when the addon is not registered');
+    }
+
+    // =========================================================================
+    // unload()
+    // =========================================================================
+
+    /**
+     * unload() must return false when the addon is not registered.
+     *
+     * This covers the else-branch of unload() (lines ~493-495).
+     */
+    public function testUnloadReturnsFalseWhenAddonNotRegistered(): void
+    {
+        // Act
+        $result = Addon::unload('nonexistent', 'system');
+
+        // Assert
+        $this->assertFalse($result, 'unload() must return false for an unknown addon');
+    }
+
+    /**
+     * unload() must return true and remove the addon when it is registered.
+     *
+     * This covers the if-branch of unload() (lines ~490-492): the addon is
+     * present, so it is unset from the registry and true is returned.
+     */
+    public function testUnloadReturnsTrueAndRemovesAddonWhenRegistered(): void
+    {
+        // Arrange — inject an addon directly into the static registry
+        $addonObj = new Addon();
+        $rp = new \ReflectionProperty(Addon::class, '_addons');
+        $rp->setAccessible(true);
+        $rp->setValue(null, ['system' => ['myaddon' => $addonObj]]);
+
+        // Act
+        $result = Addon::unload('myaddon', 'system');
+
+        // Assert — returned true
+        $this->assertTrue($result, 'unload() must return true when the addon was present');
+
+        // Assert — addon is gone from the registry
+        $this->assertFalse(Addon::isActive('system', 'myaddon'),
+            'unload() must remove the addon from the registry');
+    }
+
+    // =========================================================================
+    // load()
+    // =========================================================================
+
+    /**
+     * load() must return false when the file and class do not exist.
+     *
+     * This covers the else-branch of load() (lines ~535-537): neither the class
+     * exists nor the addon file is found — return false.
+     */
+    public function testLoadReturnsFalseWhenClassAndFileNotFound(): void
+    {
+        // Act — class and file both absent
+        $result = Addon::load('Pramnos_Nonexistent_Addon_XYZ_' . bin2hex(random_bytes(4)), 'system');
+
+        // Assert
+        $this->assertFalse($result,
+            'load() must return false when neither class nor file exists');
+    }
+
+    /**
+     * load() with an already-loaded class must instantiate it and return true.
+     *
+     * This covers the `if (class_exists($addon))` true branch of load()
+     * (lines ~506-514): register the addon without a file and return true.
+     */
+    public function testLoadReturnsTrueWhenClassExists(): void
+    {
+        // Arrange — use Addon itself as the class to load (it definitely exists)
+        // The class name must be a fully-qualified name or autoload-reachable
+        $className = Addon::class; // 'Pramnos\Addon\Addon'
+
+        // Act
+        $result = Addon::load($className, 'test_load');
+
+        // Assert — class was found, true returned
+        $this->assertTrue($result,
+            'load() must return true when the class already exists via autoload');
+
+        // Assert — the addon is now registered
+        $this->assertTrue(Addon::isActive('test_load', $className),
+            'load() must register the instantiated addon in the registry');
+    }
+
+    // =========================================================================
+    // getProperty()
+    // =========================================================================
+
+    /**
+     * getProperty() must return the addon's own property value when no
+     * multilanguage override exists for the current language.
+     *
+     * This covers the `return $this->$property` else-branch of getProperty()
+     * (lines ~558-561): when no multilanguage field is set, fall back to the
+     * addon's public property.
+     */
+    public function testGetPropertyReturnsDynamicPropertyWhenNoMultilanguage(): void
+    {
+        // Arrange — a fresh addon with a public property
+        $addon = new Addon();
+        $addon->title = 'My Addon Title';
+
+        // Act
+        $result = $addon->getProperty('title');
+
+        // Assert
+        $this->assertSame('My Addon Title', $result,
+            'getProperty() must return the direct property when no multilanguage override is set');
+    }
 }
