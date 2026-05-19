@@ -338,7 +338,7 @@
 - [x] **`docs/1.2-new-features.md`:** Section 24 added.
 - [x] **Stub syntax unification:** Ενοποιήθηκε σε `{{ key }}` syntax — `CLAUDE.md.stub` και `mcp.json.stub` ενημερώθηκαν, `Init.php` χρησιμοποιεί πλέον `renderStub()` και για τα δύο. Το `{placeholder}` στα mail/notification templates είναι διαφορετικός σκοπός (αποδεκτή διαφορά).
 
-### 🔧 Enhanced Scaffolding & Developer Experience (v1.2.1+)
+### 🔧 Enhanced Scaffolding & Developer Experience (v1.2)
 *Ανάβαθμη της ποιότητας του scaffolded κώδικα και της εμπειρίας προγραμματιστή.*
 
 - [ ] **PHP 8.5 Default Version:** Ανύψωση της default PHP version από 8.4 σε 8.5 — επηρεάζει:
