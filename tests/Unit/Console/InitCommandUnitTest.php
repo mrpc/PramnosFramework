@@ -23,9 +23,18 @@ class InitCommandUnitTest extends TestCase
 {
     private string $tmpDir;
     private Init   $command;
+    /** @var string|null Original $_SERVER['PHP_SELF'] value */
+    private ?string $originalPhpSelf = null;
 
     protected function setUp(): void
     {
+        // Symfony's DumpCompletionCommand reads $_SERVER['PHP_SELF'] in configure();
+        // ensure it is set to prevent "Undefined array key" warnings in PHP 8.4.
+        $this->originalPhpSelf = $_SERVER['PHP_SELF'] ?? null;
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = 'phpunit';
+        }
+
         // Arrange — isolated temp workspace
         $this->tmpDir = sys_get_temp_dir() . '/pramnos_init_test_' . bin2hex(random_bytes(4));
         mkdir($this->tmpDir, 0777, true);
@@ -40,6 +49,12 @@ class InitCommandUnitTest extends TestCase
     {
         // Cleanup — remove the temp directory tree
         $this->rmdir($this->tmpDir);
+
+        if ($this->originalPhpSelf === null) {
+            unset($_SERVER['PHP_SELF']);
+        } else {
+            $_SERVER['PHP_SELF'] = $this->originalPhpSelf;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
