@@ -1197,6 +1197,8 @@ class Create extends Command
         $editContent = '';
         $className = self::getProperClassName($name, false);
         $filename = $path . DS . $className . '.php';
+        $objectName = ucfirst($name);
+        $primaryKey = 'id';
 
         if ($full) {
             $database = \Pramnos\Database\Database::getInstance();
