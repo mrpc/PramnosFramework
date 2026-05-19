@@ -29,6 +29,29 @@ use Symfony\Component\Console\Output\BufferedOutput;
 #[CoversClass(MigrateLogs::class)]
 class CommandsCharacterizationTest extends TestCase
 {
+    /** @var string|null Original value of $_SERVER['PHP_SELF'] before each test */
+    private ?string $originalPhpSelf = null;
+
+    protected function setUp(): void
+    {
+        // Symfony's DumpCompletionCommand reads $_SERVER['PHP_SELF'] at configure()
+        // time; without it, PHP emits an "Undefined array key" warning plus a
+        // deprecation for basename(null). Ensure it is always set.
+        $this->originalPhpSelf = $_SERVER['PHP_SELF'] ?? null;
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = 'phpunit';
+        }
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->originalPhpSelf === null) {
+            unset($_SERVER['PHP_SELF']);
+        } else {
+            $_SERVER['PHP_SELF'] = $this->originalPhpSelf;
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Create::getProperClassName — singular/plural naming contract
     // -----------------------------------------------------------------------
