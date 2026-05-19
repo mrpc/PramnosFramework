@@ -75,8 +75,8 @@ class Application extends \Pramnos\Application\Model
     /** @var int|null FK to users.userid — dedicated system account for client_credentials JWT grant */
     public ?int $systemuser = null;
 
-    protected string $_primaryKey = 'appid';
-    protected string $_dbtable    = '#PREFIX#applications';
+    protected $_primaryKey = 'appid';
+    protected $_dbtable    = '#PREFIX#applications';
 
     /**
      * @param \Pramnos\Application\Controller $controller
