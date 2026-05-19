@@ -2,6 +2,7 @@
 
 namespace Pramnos\Tests\Unit\Database;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Database\Database;
 use Pramnos\Database\QueryBuilder;
@@ -9,6 +10,7 @@ use Pramnos\Database\QueryBuilder;
 /**
  * Unit tests for QueryBuilder SQL compilation — no database connection required.
  */
+#[CoversClass(QueryBuilder::class)]
 class QueryBuilderUnitTest extends TestCase
 {
     private function makeQB(string $dbType = 'mysql'): QueryBuilder
