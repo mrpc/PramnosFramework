@@ -669,4 +669,117 @@ class CreateCommandFileTest extends TestCase
 
         $tester->execute(['entity' => 'controller']);
     }
+
+    // =========================================================================
+    // execute() — middleware / event / listener switch arms
+    // =========================================================================
+
+    /**
+     * execute() with entity='middleware' must call createMiddleware() and return
+     * exit code 0.
+     *
+     * This covers the 'middleware' switch arm in execute() (lines ~110-113).
+     * The Middleware directory is created if absent and cleaned up by tearDown.
+     */
+    public function testExecuteCreatesMiddlewareViaSwitchCase(): void
+    {
+        // Arrange — ensure Middleware directory exists
+        $root       = defined('ROOT') ? ROOT : getcwd();
+        $middleDir  = $root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Middleware';
+        if (!is_dir($middleDir)) {
+            @mkdir($middleDir, 0777, true);
+            $this->dirsToCleanup[] = $middleDir;
+        }
+
+        $name   = 'ZzzMware' . $this->testId;
+        $tester = new CommandTester($this->create);
+
+        // Act
+        $exit = $tester->execute(['entity' => 'middleware', 'name' => $name]);
+
+        // Assert — exit 0 is the primary invariant
+        $this->assertSame(0, $exit, 'execute(middleware) must return 0');
+        $this->assertStringContainsString('Middleware created', $tester->getDisplay());
+
+        // Cleanup any file written with this testId
+        foreach (glob($middleDir . DIRECTORY_SEPARATOR . '*' . $this->testId . '*.php') ?: [] as $f) {
+            $this->filesToCleanup[] = $f;
+        }
+        // Generated test stub
+        $unitDir = $root . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'Unit';
+        foreach (glob($unitDir . DIRECTORY_SEPARATOR . '*' . $this->testId . '*.php') ?: [] as $f) {
+            $this->filesToCleanup[] = $f;
+        }
+    }
+
+    /**
+     * execute() with entity='event' must call createEvent() and return exit code 0.
+     *
+     * This covers the 'event' switch arm in execute() (lines ~114-117).
+     */
+    public function testExecuteCreatesEventViaSwitchCase(): void
+    {
+        // Arrange — ensure Events directory exists
+        $root      = defined('ROOT') ? ROOT : getcwd();
+        $eventsDir = $root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Events';
+        if (!is_dir($eventsDir)) {
+            @mkdir($eventsDir, 0777, true);
+            $this->dirsToCleanup[] = $eventsDir;
+        }
+
+        $name   = 'ZzzEvent' . $this->testId;
+        $tester = new CommandTester($this->create);
+
+        // Act
+        $exit = $tester->execute(['entity' => 'event', 'name' => $name]);
+
+        // Assert
+        $this->assertSame(0, $exit, 'execute(event) must return 0');
+        $this->assertStringContainsString('Event created', $tester->getDisplay());
+
+        // Cleanup
+        foreach (glob($eventsDir . DIRECTORY_SEPARATOR . '*' . $this->testId . '*.php') ?: [] as $f) {
+            $this->filesToCleanup[] = $f;
+        }
+        $unitDir = $root . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'Unit';
+        foreach (glob($unitDir . DIRECTORY_SEPARATOR . '*' . $this->testId . '*.php') ?: [] as $f) {
+            $this->filesToCleanup[] = $f;
+        }
+    }
+
+    /**
+     * execute() with entity='listener' must call createListener() and return
+     * exit code 0.
+     *
+     * This covers the 'listener' switch arm in execute() (lines ~118-121).
+     */
+    public function testExecuteCreatesListenerViaSwitchCase(): void
+    {
+        // Arrange — ensure Listeners directory exists
+        $root         = defined('ROOT') ? ROOT : getcwd();
+        $listenersDir = $root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Listeners';
+        if (!is_dir($listenersDir)) {
+            @mkdir($listenersDir, 0777, true);
+            $this->dirsToCleanup[] = $listenersDir;
+        }
+
+        $name   = 'ZzzListener' . $this->testId;
+        $tester = new CommandTester($this->create);
+
+        // Act
+        $exit = $tester->execute(['entity' => 'listener', 'name' => $name]);
+
+        // Assert
+        $this->assertSame(0, $exit, 'execute(listener) must return 0');
+        $this->assertStringContainsString('Listener created', $tester->getDisplay());
+
+        // Cleanup
+        foreach (glob($listenersDir . DIRECTORY_SEPARATOR . '*' . $this->testId . '*.php') ?: [] as $f) {
+            $this->filesToCleanup[] = $f;
+        }
+        $unitDir = $root . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'Unit';
+        foreach (glob($unitDir . DIRECTORY_SEPARATOR . '*' . $this->testId . '*.php') ?: [] as $f) {
+            $this->filesToCleanup[] = $f;
+        }
+    }
 }
