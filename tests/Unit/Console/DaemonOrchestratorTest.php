@@ -1665,6 +1665,109 @@ class DaemonOrchestratorTest extends TestCase
 
         $this->rmdirRecursive($tmpDir);
     }
+
+    /**
+     * execute() with --interactive (no --once) and shouldContinue=false must
+     * run exactly one cycle in interactive mode: initialise the terminal, reconcile,
+     * run the dedup scan, call renderInteractiveDashboard, then exit cleanly.
+     *
+     * Pre-setting shouldContinue=false prevents the sleep loop from running and
+     * causes the do-while to exit after one iteration, making the test deterministic.
+     * This covers the interactive-mode code paths:
+     *   - L208: initializeInteractiveTerminal() called
+     *   - L228: modeLabel gets "(interactive)" suffix
+     *   - L291: reconcileOutput = NullOutput() (not $output)
+     *   - L296-305: dedup scan runs (interactive=true → $runDedup=true)
+     *   - L314: renderInteractiveDashboard() called
+     *   - L321-323: shouldContinue sleep-loop breaks on first check
+     *   - L330-331: showCursor() called on exit
+     */
+    public function testExecuteInteractiveModeRunsOneCycleAndExitsZero(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_iact_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+
+        $orch = new TestableDaemonOrchestrator($tmpDir);
+        $orch->desiredProcesses = [];
+        $orch->processRunning   = [];
+
+        $app = new \Symfony\Component\Console\Application();
+        $app->add($orch);
+
+        // Pre-set shouldContinue=false so the loop runs exactly once then exits
+        // without sleeping.  This is equivalent to a SIGTERM arriving on the
+        // very first iteration.
+        $orch->setShouldContinue(false);
+
+        // Use --interactive without --once; interactive mode is active this time
+        $input  = new ArrayInput(['--interactive' => true], $orch->getDefinition());
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $exitCode = $orch->publicExecute($input, $output);
+
+        // Assert — exits 0 even in interactive mode
+        $this->assertSame(0, $exitCode,
+            'execute() in interactive mode with shouldContinue=false must exit 0');
+
+        // Assert — "Starting daemon orchestrator" and exit message are present
+        $out = $output->fetch();
+        $this->assertStringContainsString('Starting daemon orchestrator', $out,
+            'execute() must print the startup message');
+        $this->assertStringContainsString('exited', $out,
+            'execute() must print the exit message after the loop');
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When the orchestrator is disabled, execute() without --once must run the
+     * DISABLED_POLL_SECONDS sleep loop.  Pre-setting shouldContinue=false causes
+     * the inner for-loop to break on its very first iteration (no actual sleep)
+     * and the outer do-while to exit after a single pass.
+     *
+     * This covers the for-loop body in the disabled section:
+     *   - L259: for ($i = 0; ...)
+     *   - L260: if (!$this->shouldContinue)
+     *   - L261: break
+     *   - L265: continue (back to do-while condition, which is also false)
+     */
+    public function testExecuteDisabledWithoutOnceRunsPollLoopAndExits(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_disa2_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+
+        $orch = new TestableDaemonOrchestratorDisabled($tmpDir);
+        $orch->desiredProcesses = [];
+        $orch->processRunning   = [];
+
+        $app = new \Symfony\Component\Console\Application();
+        $app->add($orch);
+
+        // Pre-set shouldContinue=false so the inner for-loop exits without
+        // sleeping DISABLED_POLL_SECONDS (15 s); otherwise the test hangs.
+        $orch->setShouldContinue(false);
+
+        // No --once: the disabled-poll for-loop is entered (L259-265)
+        $input  = new ArrayInput([], $orch->getDefinition());
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act — must complete quickly (no actual sleep)
+        $exitCode = $orch->publicExecute($input, $output);
+
+        // Assert — exits successfully
+        $this->assertSame(0, $exitCode,
+            'execute() disabled without --once must exit 0 when shouldContinue=false');
+
+        // Assert — disabled message is present
+        $out = $output->fetch();
+        $this->assertStringContainsString('Orchestrator disabled', $out,
+            'execute() must print the disabled notice');
+
+        $this->rmdirRecursive($tmpDir);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1847,6 +1950,15 @@ class TestableDaemonOrchestrator extends DaemonOrchestrator
         array $dedupMessages = []
     ): void {
         $this->renderInteractiveDashboard($output, $dryRun, $dedupMessages);
+    }
+
+    /**
+     * Allow tests to pre-set shouldContinue so the main loop exits after one cycle
+     * without sleeping.
+     */
+    public function setShouldContinue(bool $value): void
+    {
+        $this->shouldContinue = $value;
     }
 }
 
