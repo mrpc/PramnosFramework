@@ -36,9 +36,18 @@ class CreateCommandFileTest extends TestCase
     private ConsoleApplication $consoleApp;
     private Create $create;
     private string $testId;
+    /** @var string|null Original $_SERVER['PHP_SELF'] value */
+    private ?string $originalPhpSelf = null;
 
     protected function setUp(): void
     {
+        // Symfony's DumpCompletionCommand reads $_SERVER['PHP_SELF'] in configure();
+        // ensure it is set to prevent "Undefined array key" warnings in PHP 8.4.
+        $this->originalPhpSelf = $_SERVER['PHP_SELF'] ?? null;
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = 'phpunit';
+        }
+
         // A unique suffix so concurrent runs / reruns cannot collide.
         $this->testId = bin2hex(random_bytes(6));
 
@@ -115,6 +124,12 @@ class CreateCommandFileTest extends TestCase
         }
         $this->filesToCleanup = [];
         $this->dirsToCleanup  = [];
+
+        if ($this->originalPhpSelf === null) {
+            unset($_SERVER['PHP_SELF']);
+        } else {
+            $_SERVER['PHP_SELF'] = $this->originalPhpSelf;
+        }
     }
 
     // =========================================================================

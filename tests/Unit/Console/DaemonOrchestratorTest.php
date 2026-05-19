@@ -31,9 +31,18 @@ class DaemonOrchestratorTest extends TestCase
 {
     private DaemonOrchestrator $orch;
     private string $tmpDir;
+    /** @var string|null Original $_SERVER['PHP_SELF'] value */
+    private ?string $originalPhpSelf = null;
 
     protected function setUp(): void
     {
+        // Symfony's DumpCompletionCommand reads $_SERVER['PHP_SELF'] in configure();
+        // ensure it is set to prevent "Undefined array key" warnings in PHP 8.4.
+        $this->originalPhpSelf = $_SERVER['PHP_SELF'] ?? null;
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = 'phpunit';
+        }
+
         $this->tmpDir = sys_get_temp_dir() . '/pramnos_orch_' . bin2hex(random_bytes(4));
         mkdir($this->tmpDir . '/var/logs', 0777, true);
 
@@ -163,6 +172,12 @@ class DaemonOrchestratorTest extends TestCase
     protected function tearDown(): void
     {
         $this->rmdirRecursive($this->tmpDir);
+
+        if ($this->originalPhpSelf === null) {
+            unset($_SERVER['PHP_SELF']);
+        } else {
+            $_SERVER['PHP_SELF'] = $this->originalPhpSelf;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

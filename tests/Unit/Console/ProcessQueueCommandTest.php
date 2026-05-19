@@ -40,6 +40,19 @@ class ProcessQueueCommandTest extends TestCase
 {
     /** @var string[] Paths of lock/stop files created during a test. */
     private array $filesToCleanup = [];
+    /** @var string|null Original $_SERVER['PHP_SELF'] value */
+    private ?string $originalPhpSelf = null;
+
+    protected function setUp(): void
+    {
+        // Symfony's DumpCompletionCommand reads $_SERVER['PHP_SELF'] in configure();
+        // ensure it is set to prevent "Undefined array key" warnings in PHP 8.4.
+        $this->originalPhpSelf = $_SERVER['PHP_SELF'] ?? null;
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = 'phpunit';
+        }
+        parent::setUp();
+    }
 
     protected function tearDown(): void
     {
@@ -47,6 +60,12 @@ class ProcessQueueCommandTest extends TestCase
             @unlink($path);
         }
         $this->filesToCleanup = [];
+
+        if ($this->originalPhpSelf === null) {
+            unset($_SERVER['PHP_SELF']);
+        } else {
+            $_SERVER['PHP_SELF'] = $this->originalPhpSelf;
+        }
         parent::tearDown();
     }
 

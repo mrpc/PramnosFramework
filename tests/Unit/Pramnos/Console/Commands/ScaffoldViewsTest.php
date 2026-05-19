@@ -36,6 +36,8 @@ class ScaffoldViewsTest extends TestCase
 
     private string $projectDir;
     private CommandTester $tester;
+    /** @var string|null Original $_SERVER['PHP_SELF'] value */
+    private ?string $originalPhpSelf = null;
 
     /**
      * Bootstrap: create a fresh temp project dir, wire up the command with its
@@ -44,6 +46,13 @@ class ScaffoldViewsTest extends TestCase
      */
     protected function setUp(): void
     {
+        // Symfony's DumpCompletionCommand reads $_SERVER['PHP_SELF'] in configure();
+        // ensure it is set to prevent "Undefined array key" warnings in PHP 8.4.
+        $this->originalPhpSelf = $_SERVER['PHP_SELF'] ?? null;
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = 'phpunit';
+        }
+
         $this->projectDir = sys_get_temp_dir() . '/pramnos_sv_' . bin2hex(random_bytes(4));
         mkdir($this->projectDir, 0777, true);
 
@@ -61,6 +70,12 @@ class ScaffoldViewsTest extends TestCase
     protected function tearDown(): void
     {
         $this->removeDir($this->projectDir);
+
+        if ($this->originalPhpSelf === null) {
+            unset($_SERVER['PHP_SELF']);
+        } else {
+            $_SERVER['PHP_SELF'] = $this->originalPhpSelf;
+        }
     }
 
     private function removeDir(string $dir): void
