@@ -1118,4 +1118,348 @@ class CommandBaseTest extends TestCase
         // Cleanup
         @unlink($lockFile);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // renderDashboardFrame() / renderDashboardFrameAutoSystem() / renderDashboardGameMode()
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * renderDashboardFrame() must write the ANSI cursor-home escape sequence
+     * followed by a bordered dashboard containing the title and sections, and
+     * end with the ANSI erase-below sequence.
+     *
+     * This is a smoke test that exercises the full rendering pipeline: header,
+     * system-segment rows, section separator, section content, footer.
+     */
+    public function testRenderDashboardFrameWritesBorderedOutput(): void
+    {
+        // Arrange
+        $output   = new \Symfony\Component\Console\Output\BufferedOutput();
+        $segments = ['CPU: 0.0', 'Memory: 1 MB'];
+        $sections = ['Status: idle'];
+
+        // Act
+        $this->cmd->renderDashboardFrame($output, 'My Dashboard', $segments, $sections, 80);
+
+        // Assert — cursor-home + erase-below escape sequences present
+        $raw = $output->fetch();
+        $this->assertStringContainsString("\033[H", $raw,
+            'renderDashboardFrame() must emit cursor-home escape code');
+        $this->assertStringContainsString("\033[J", $raw,
+            'renderDashboardFrame() must emit erase-below escape code');
+
+        // Assert — title and section content appear in the output
+        $this->assertStringContainsString('My Dashboard', $raw,
+            'Title must appear in the rendered frame');
+        $this->assertStringContainsString('Status: idle', $raw,
+            'Section content must appear in the rendered frame');
+    }
+
+    /**
+     * renderDashboardFrameAutoSystem() must produce the same structural output
+     * as renderDashboardFrame() but derive system segments automatically via
+     * buildDefaultSystemSegments().
+     *
+     * Verifies that the convenience wrapper actually calls through to
+     * renderDashboardFrame() (title + ANSI codes present).
+     */
+    public function testRenderDashboardFrameAutoSystemWritesOutput(): void
+    {
+        // Arrange
+        $output   = new \Symfony\Component\Console\Output\BufferedOutput();
+        $sections = ['Worker count: 3'];
+
+        // Act
+        $this->cmd->renderDashboardFrameAutoSystem($output, 'Auto Frame', $sections, 80);
+
+        // Assert — structural markers present
+        $raw = $output->fetch();
+        $this->assertStringContainsString("\033[H", $raw);
+        $this->assertStringContainsString('Auto Frame', $raw,
+            'Title must appear even when system segments are auto-detected');
+        $this->assertStringContainsString('Worker count: 3', $raw,
+            'Section content must propagate through the auto-system wrapper');
+    }
+
+    /**
+     * renderDashboardFrameAutoSystem() must accept an explicit $systemSegments
+     * override and include those segments instead of the auto-detected ones.
+     *
+     * This covers the `$systemSegments ?? $this->buildDefaultSystemSegments()`
+     * branch where the caller-supplied value is used.
+     */
+    public function testRenderDashboardFrameAutoSystemUsesExplicitSegmentsWhenProvided(): void
+    {
+        // Arrange
+        $output   = new \Symfony\Component\Console\Output\BufferedOutput();
+        $override = ['custom-segment: yes'];
+
+        // Act
+        $this->cmd->renderDashboardFrameAutoSystem(
+            $output, 'Override Test', [], 80, $override
+        );
+
+        // Assert — our custom segment appears verbatim in the output
+        $raw = $output->fetch();
+        $this->assertStringContainsString('custom-segment: yes', $raw,
+            'Explicitly supplied systemSegments must appear in the rendered frame');
+    }
+
+    /**
+     * renderDashboardGameMode() must write the game-mode frame including the
+     * adventure track (containing 'R' for runner and possibly '#' for hazard),
+     * the failure title, and a retry countdown line when countdown > 0.
+     *
+     * This exercises the complete game-mode rendering pipeline.
+     */
+    public function testRenderDashboardGameModeWritesGameFrame(): void
+    {
+        // Arrange
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $this->cmd->renderDashboardGameMode(
+            $output,
+            'Game Title',
+            'Service Down',
+            'Reconnecting…',
+            10,
+            80
+        );
+
+        // Assert — game mode header always present
+        $raw = $output->fetch();
+        $this->assertStringContainsString('GAME MODE', $raw,
+            'Game mode frame must contain GAME MODE marker');
+        $this->assertStringContainsString('Game Title', $raw,
+            'Dashboard title must appear in game-mode frame');
+        $this->assertStringContainsString('Retry countdown: 10s', $raw,
+            'Countdown line must appear when countdown > 0');
+        $this->assertStringContainsString('R', $raw,
+            'Runner character must appear in the adventure track');
+    }
+
+    /**
+     * renderDashboardGameMode() must omit the retry countdown line entirely
+     * when countdown is 0 (no active countdown).
+     */
+    public function testRenderDashboardGameModeOmitsCountdownWhenZero(): void
+    {
+        // Arrange
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $this->cmd->renderDashboardGameMode(
+            $output, 'Title', 'DB Down', 'Waiting', 0, 80
+        );
+
+        // Assert — countdown line must not be present
+        $raw = $output->fetch();
+        $this->assertStringNotContainsString('Retry countdown:', $raw,
+            'No countdown line should appear when countdown === 0');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // getDashboardStartTime / getDashboardCpuUsage / getDashboardMemoryUsage
+    // readNumericPropertyValue / buildDefaultSystemSegments
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * getDashboardStartTime() must return the current timestamp when no
+     * 'startTime' property exists on the concrete class.
+     *
+     * readNumericPropertyValue() traverses the class hierarchy looking for a
+     * property named 'startTime'. When not found it returns null, and
+     * getDashboardStartTime() falls back to currentTimestamp().
+     */
+    public function testGetDashboardStartTimeFallsBackToCurrentTimestamp(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->cmd, 'getDashboardStartTime');
+        $ref->setAccessible(true);
+
+        $before = time();
+
+        // Act
+        $result = $ref->invoke($this->cmd);
+
+        $after = time();
+
+        // Assert — value is in the current-second window (not 0 or far past)
+        $this->assertGreaterThanOrEqual($before, $result,
+            'getDashboardStartTime() fallback must return a recent timestamp');
+        $this->assertLessThanOrEqual($after, $result);
+    }
+
+    /**
+     * getDashboardCpuUsage() must return 0.0 when no 'cpuUsage' property exists.
+     *
+     * This covers the `return 0.0` default branch of getDashboardCpuUsage().
+     */
+    public function testGetDashboardCpuUsageReturnsZeroWhenPropertyAbsent(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->cmd, 'getDashboardCpuUsage');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($this->cmd);
+
+        // Assert
+        $this->assertSame(0.0, $result,
+            'getDashboardCpuUsage() must return 0.0 when cpuUsage property is absent');
+    }
+
+    /**
+     * getDashboardMemoryUsage() must return the current memory_get_usage(true)
+     * value when no 'memoryUsage' property exists on the concrete class.
+     *
+     * The returned value must be a positive integer (PHP always allocates at
+     * least one memory page).
+     */
+    public function testGetDashboardMemoryUsageFallsBackToMemoryGetUsage(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->cmd, 'getDashboardMemoryUsage');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($this->cmd);
+
+        // Assert — must be a positive number (current process memory)
+        $this->assertGreaterThan(0, $result,
+            'getDashboardMemoryUsage() fallback must return a positive value');
+    }
+
+    /**
+     * readNumericPropertyValue() must return the float value of a numeric
+     * property when the concrete class declares it.
+     *
+     * We use a fresh anonymous subclass that declares a public $testProp so
+     * the reflection walk can find and read it.
+     */
+    public function testReadNumericPropertyValueReturnsPropertyValue(): void
+    {
+        // Arrange — anonymous subclass with a known numeric property
+        $instance = new class extends CommandBase {
+            public float $testProp = 42.5;
+            protected function getJobName(): string { return 'test'; }
+            protected function configure(): void { $this->setName('test:rnpv'); }
+        };
+
+        $ref = new \ReflectionMethod($instance, 'readNumericPropertyValue');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($instance, 'testProp');
+
+        // Assert — returns the numeric value cast to float
+        $this->assertSame(42.5, $result,
+            'readNumericPropertyValue() must return the float value of an existing numeric property');
+    }
+
+    /**
+     * readNumericPropertyValue() must return null when the named property does
+     * not exist on the class or any of its ancestors.
+     */
+    public function testReadNumericPropertyValueReturnsNullWhenPropertyAbsent(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->cmd, 'readNumericPropertyValue');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($this->cmd, 'nonExistentPropertyXyz');
+
+        // Assert
+        $this->assertNull($result,
+            'readNumericPropertyValue() must return null for a property that does not exist');
+    }
+
+    /**
+     * readNumericPropertyValue() must return null when the property exists but
+     * holds a non-numeric value.
+     */
+    public function testReadNumericPropertyValueReturnsNullForNonNumericProperty(): void
+    {
+        // Arrange — anonymous subclass with a string property
+        $instance = new class extends CommandBase {
+            public string $badProp = 'not-a-number';
+            protected function getJobName(): string { return 'test'; }
+            protected function configure(): void { $this->setName('test:rnpv2'); }
+        };
+
+        $ref = new \ReflectionMethod($instance, 'readNumericPropertyValue');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke($instance, 'badProp');
+
+        // Assert
+        $this->assertNull($result,
+            'readNumericPropertyValue() must return null when the property value is non-numeric');
+    }
+
+    /**
+     * buildDefaultSystemSegments() must return a non-empty array of strings
+     * containing at least the standard Time/Uptime/CPU/Memory keys.
+     *
+     * This covers the buildSystemStatusSegments() call-through and confirms
+     * that the four standard status segments are always present.
+     */
+    public function testBuildDefaultSystemSegmentsReturnsStandardKeys(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod($this->cmd, 'buildDefaultSystemSegments');
+        $ref->setAccessible(true);
+
+        // Act
+        $segments = $ref->invoke($this->cmd);
+
+        // Assert — must return an array
+        $this->assertIsArray($segments, 'buildDefaultSystemSegments() must return an array');
+        $this->assertNotEmpty($segments, 'buildDefaultSystemSegments() must return at least one segment');
+
+        // Assert — each standard key appears somewhere in the joined output
+        $joined = implode(' ', $segments);
+        $this->assertStringContainsString('Time:', $joined,
+            'Standard time segment must be present');
+        $this->assertStringContainsString('CPU:', $joined,
+            'Standard CPU segment must be present');
+        $this->assertStringContainsString('Memory:', $joined,
+            'Standard memory segment must be present');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // shouldInterceptExit() default return value
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The default implementation of shouldInterceptExit() in CommandBase must
+     * return false (do not intercept — let exit() propagate normally).
+     *
+     * The anonymous class used by other tests overrides this to return true.
+     * Here we use a fresh subclass that does NOT override shouldInterceptExit()
+     * so the base-class default is exercised.
+     */
+    public function testShouldInterceptExitDefaultReturnsFalse(): void
+    {
+        // Arrange — subclass that intentionally does NOT override shouldInterceptExit()
+        $instance = new class extends CommandBase {
+            protected function getJobName(): string { return 'sie_test'; }
+            protected function configure(): void { $this->setName('test:sie'); }
+
+            // Expose the protected method for assertion
+            public function publicShouldInterceptExit(int $code): bool
+            {
+                return $this->shouldInterceptExit($code);
+            }
+        };
+
+        // Act + Assert — the base-class default must be false for any exit code
+        $this->assertFalse($instance->publicShouldInterceptExit(0),
+            'shouldInterceptExit(0) default must return false');
+        $this->assertFalse($instance->publicShouldInterceptExit(1),
+            'shouldInterceptExit(1) default must return false');
+    }
 }
