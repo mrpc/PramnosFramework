@@ -33,6 +33,66 @@ class LogViewerTest extends TestCase
         $this->viewer = new LogViewer();
     }
 
+    // ── constructor ───────────────────────────────────────────────────────────
+
+    /**
+     * Constructor with a controller argument must instantiate LogViewerView and
+     * store it in $this->view.
+     *
+     * This covers the `if ($controller) { $this->view = new LogViewerView($controller); }`
+     * branch (line ~82).
+     */
+    public function testConstructorWithControllerCreatesLogViewerView(): void
+    {
+        // Arrange — mock Controller so LogViewerView's constructor just stores it
+        $mockController = $this->getMockBuilder(\Pramnos\Application\Controller::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+
+        // Act — pass controller to LogViewer constructor
+        $viewer = new LogViewer([], $mockController);
+
+        // Assert — viewer was created without error; the $view property is set
+        $rp = new \ReflectionProperty(LogViewer::class, 'view');
+        $rp->setAccessible(true);
+        $this->assertNotNull($rp->getValue($viewer),
+            'constructor with a controller must create a LogViewerView instance');
+    }
+
+    // ── getLogFilePath() (via setFile) ────────────────────────────────────────
+
+    /**
+     * getLogFilePath() must return the GitDeploy API path when the filename is
+     * 'GitDeploy'.
+     *
+     * This covers the `if ($filename === 'GitDeploy')` branch (line ~111).
+     */
+    public function testGetLogFilePathReturnsApiPathForGitDeploy(): void
+    {
+        // Act — private method called via reflection
+        $result = $this->callPrivate('getLogFilePath', 'GitDeploy');
+
+        // Assert — path ends with deploy.log
+        $this->assertStringEndsWith('deploy.log', $result,
+            'GitDeploy must map to the deploy.log API path');
+    }
+
+    /**
+     * getLogFilePath() must return the webhook debug path when the filename is
+     * 'GitWebhookDebug'.
+     *
+     * This covers the `elseif ($filename === 'GitWebhookDebug')` branch (line ~112).
+     */
+    public function testGetLogFilePathReturnsApiPathForGitWebhookDebug(): void
+    {
+        // Act
+        $result = $this->callPrivate('getLogFilePath', 'GitWebhookDebug');
+
+        // Assert
+        $this->assertStringEndsWith('webhook_debug.log', $result,
+            'GitWebhookDebug must map to the webhook_debug.log API path');
+    }
+
     // ── setFile() / setParameters() / setLogLevel() ───────────────────────────
 
     /**
@@ -754,6 +814,96 @@ class LogViewerTest extends TestCase
 
         // Assert — result contains the real line, not whitespace-only lines
         $this->assertStringContainsString('real line here', $html);
+    }
+
+    /**
+     * renderLines() must handle the alternative `[timestamp] {json}` log format
+     * by converting it to a standard JSON entry with timestamp and message fields.
+     *
+     * This covers the `preg_match('/^\[([\d\/]+ [\d:]+)\]\s*({.+})$/', …)` branch
+     * (lines ~971-977).
+     */
+    public function testRenderLinesParsesAlternativeBracketJsonFormat(): void
+    {
+        // Arrange — line in bracket-timestamp + inline-JSON format
+        $line = '[15/01/2025 12:30:00] {"level":"info","message":"user logged in"}';
+
+        // Act
+        $html = $this->callPrivate('renderLines', [$line], 'app.log', '');
+
+        // Assert — the message content appears in the rendered output
+        $this->assertStringContainsString('user logged in', $html);
+    }
+
+    /**
+     * renderLines() must skip a JSON line whose 'message' field is empty after
+     * trimming.
+     *
+     * This covers the `if (empty(trim($data['message'] ?? ''))) continue` guard
+     * (line ~986).
+     */
+    public function testRenderLinesSkipsJsonLineWithEmptyMessage(): void
+    {
+        // Arrange — JSON entry with no/empty message alongside a real entry
+        $emptyMsg = json_encode(['timestamp' => '2025-01-15 10:00:00', 'level' => 'info', 'message' => '   ']);
+        $realMsg  = json_encode(['timestamp' => '2025-01-15 10:01:00', 'level' => 'info', 'message' => 'actual content']);
+
+        // Act
+        $html = $this->callPrivate('renderLines', [$emptyMsg, $realMsg], 'app.log', '');
+
+        // Assert — only the real message appears
+        $this->assertStringContainsString('actual content', $html);
+    }
+
+    /**
+     * renderLines() must handle a JSON entry whose 'message' field is itself a
+     * JSON string, rendering it in collapsible compact/expanded form.
+     *
+     * This covers the `if (!empty($message) && $message[0] === '{' && …)` branch
+     * (lines ~1031-1059).
+     */
+    public function testRenderLinesRendersJsonMessageField(): void
+    {
+        // Arrange — outer JSON with an inner JSON string as the message
+        $innerJson = json_encode(['query' => 'SELECT *', 'rows' => 42]);
+        $line = json_encode([
+            'timestamp' => '2025-01-15 10:00:00',
+            'level'     => 'debug',
+            'message'   => $innerJson,
+        ]);
+
+        // Act
+        $html = $this->callPrivate('renderLines', [$line], 'app.log', '');
+
+        // Assert — the outer wrapper and inner JSON content appear
+        $this->assertStringContainsString('json-container main-json-container', $html,
+            'inner JSON message must be rendered in a collapsible container');
+        $this->assertStringContainsString('SELECT *', $html);
+    }
+
+    // ── matchesLogLevel() — context.level branch ─────────────────────────────
+
+    /**
+     * matchesLogLevel() must check context.level when no top-level level field
+     * is present in the JSON line.
+     *
+     * This covers the `isset($jsonData['context']['level'])` branch (line ~677).
+     */
+    public function testMatchesLogLevelMatchesContextLevelField(): void
+    {
+        // Arrange — JSON with level inside context, not at top level
+        $this->viewer->setLogLevel('warning');
+        $line = json_encode([
+            'message' => 'disk almost full',
+            'context' => ['level' => 'warning', 'disk' => '95%'],
+        ]);
+
+        // Act
+        $result = $this->callPrivate('matchesLogLevel', $line);
+
+        // Assert
+        $this->assertTrue($result,
+            'context.level=warning must match when filter is "warning"');
     }
 
     // ── highlightText() ───────────────────────────────────────────────────────
