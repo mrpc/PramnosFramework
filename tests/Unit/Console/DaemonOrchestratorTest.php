@@ -1315,6 +1315,135 @@ class DaemonOrchestratorTest extends TestCase
         @unlink($lock2); @unlink($lock2 . '.stop');
         $this->rmdirRecursive($tmpDir);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Default implementations: getOrchestratorLockFile, getStateFile,
+    // getManagedLockFileGlobPattern, configure, updateTerminalSize
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * getOrchestratorLockFile() default implementation must return a path whose
+     * filename is 'DAEMON_ORCHESTRATOR.lock'.
+     *
+     * All other test subclasses override this; this test uses a minimal subclass
+     * (MinimalDaemonOrchestrator, declared at the bottom of the file) that does NOT
+     * override the method so the base-class implementation is exercised.
+     */
+    public function testGetOrchestratorLockFileDefaultReturnsExpectedFilename(): void
+    {
+        // Arrange — use the minimal subclass that does not override the method
+        $orch = new MinimalDaemonOrchestrator();
+
+        $ref = new \ReflectionMethod($orch, 'getOrchestratorLockFile');
+        $ref->setAccessible(true);
+
+        // Act
+        $path = $ref->invoke($orch);
+
+        // Assert — filename portion must match the canonical lock file name
+        $this->assertStringEndsWith('DAEMON_ORCHESTRATOR.lock', $path,
+            'getOrchestratorLockFile() default must end with DAEMON_ORCHESTRATOR.lock');
+    }
+
+    /**
+     * getStateFile() default implementation must return a path whose filename is
+     * 'daemon_orchestrator_state.json'.
+     *
+     * Uses MinimalDaemonOrchestrator which does not override getStateFile().
+     */
+    public function testGetStateFileDefaultReturnsExpectedFilename(): void
+    {
+        // Arrange
+        $orch = new MinimalDaemonOrchestrator();
+
+        $ref = new \ReflectionMethod($orch, 'getStateFile');
+        $ref->setAccessible(true);
+
+        // Act
+        $path = $ref->invoke($orch);
+
+        // Assert
+        $this->assertStringEndsWith('daemon_orchestrator_state.json', $path,
+            'getStateFile() default must end with daemon_orchestrator_state.json');
+    }
+
+    /**
+     * getManagedLockFileGlobPattern() default must return '*' so that all lock
+     * files in var/ are eligible for cleanup on orchestrator startup.
+     *
+     * Uses MinimalDaemonOrchestrator which does not override the method.
+     */
+    public function testGetManagedLockFileGlobPatternDefaultReturnsWildcard(): void
+    {
+        // Arrange
+        $orch = new MinimalDaemonOrchestrator();
+
+        $ref = new \ReflectionMethod($orch, 'getManagedLockFileGlobPattern');
+        $ref->setAccessible(true);
+
+        // Act + Assert
+        $this->assertSame('*', $ref->invoke($orch),
+            'getManagedLockFileGlobPattern() default must return wildcard "*"');
+    }
+
+    /**
+     * configure() default implementation must register the command under
+     * 'daemons:start' and add all six expected options (once, interval,
+     * php-binary, dry-run, interactive, verbose-health).
+     *
+     * Uses MinimalDaemonOrchestrator wrapped in a Symfony Application so that
+     * configure() is called as part of the normal command-registration flow.
+     */
+    public function testConfigureDefaultRegistersCommandNameAndOptions(): void
+    {
+        // Arrange — wrap in Symfony Application so configure() is invoked
+        $orch    = new MinimalDaemonOrchestrator();
+        $consApp = new \Symfony\Component\Console\Application('test', '1.0');
+        $consApp->add($orch);
+        $consApp->setAutoExit(false);
+
+        $found = $consApp->find('daemons:start');
+
+        // Assert — command name is correct
+        $this->assertSame('daemons:start', $found->getName(),
+            'configure() default must set the command name to daemons:start');
+
+        // Assert — all expected options are registered
+        $definition = $found->getDefinition();
+        foreach (['once', 'interval', 'php-binary', 'dry-run', 'interactive', 'verbose-health'] as $opt) {
+            $this->assertTrue($definition->hasOption($opt),
+                "configure() default must register the '--{$opt}' option");
+        }
+    }
+
+    /**
+     * updateTerminalSize() must update the $terminalHeight and $terminalWidth
+     * properties of the orchestrator by reading the detected terminal size.
+     *
+     * In a non-TTY environment (like CI / Docker) stty is unavailable, so the
+     * default 80×24 values are expected. The important invariant is that both
+     * properties are set to positive integers and no exception is thrown.
+     */
+    public function testUpdateTerminalSizePopulatesTerminalDimensions(): void
+    {
+        // Arrange
+        $orch = new MinimalDaemonOrchestrator();
+
+        $ref = new \ReflectionMethod($orch, 'updateTerminalSize');
+        $ref->setAccessible(true);
+
+        // Act — must not throw
+        $ref->invoke($orch);
+
+        // Assert — both dimension properties are positive integers
+        $height = (new \ReflectionProperty($orch, 'terminalHeight'))->getValue($orch);
+        $width  = (new \ReflectionProperty($orch, 'terminalWidth'))->getValue($orch);
+
+        $this->assertGreaterThan(0, $height,
+            'updateTerminalSize() must set terminalHeight to a positive value');
+        $this->assertGreaterThan(0, $width,
+            'updateTerminalSize() must set terminalWidth to a positive value');
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1511,5 +1640,38 @@ class TestableDaemonOrchestratorLockFail extends TestableDaemonOrchestrator
         \Symfony\Component\Console\Output\OutputInterface $output
     ): bool {
         return false;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MinimalDaemonOrchestrator — implements only abstract methods, no overrides
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Minimal concrete subclass of DaemonOrchestrator that implements the three
+ * abstract methods but does NOT override any of the default implementations
+ * (getOrchestratorLockFile, getStateFile, getManagedLockFileGlobPattern,
+ * configure, updateTerminalSize).  Used by tests that verify those defaults.
+ */
+class MinimalDaemonOrchestrator extends DaemonOrchestrator
+{
+    protected function buildDesiredProcesses(): array
+    {
+        return [];
+    }
+
+    protected function getDashboardTitle(): string
+    {
+        return ' MINIMAL ORCHESTRATOR ';
+    }
+
+    protected function getEntryPoint(): string
+    {
+        return '/dev/null';
+    }
+
+    protected function getJobName(): string
+    {
+        return 'minimal_orchestrator';
     }
 }
