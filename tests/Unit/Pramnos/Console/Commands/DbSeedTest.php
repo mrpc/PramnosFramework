@@ -33,15 +33,31 @@ class DbSeedTest extends TestCase
      * The Pramnos\Console\Application is used so the getApplication() guard
      * inside execute() passes.
      */
+    /** @var string|null Original $_SERVER['PHP_SELF'] value */
+    private ?string $originalPhpSelf = null;
+
     protected function setUp(): void
     {
         $this->seedsDir = sys_get_temp_dir() . '/pramnos_seeds_' . bin2hex(random_bytes(4));
         mkdir($this->seedsDir, 0777, true);
+
+        // Symfony's DumpCompletionCommand reads $_SERVER['PHP_SELF'] at configure()
+        // time; ensure it is set to avoid "Undefined array key" warnings.
+        $this->originalPhpSelf = $_SERVER['PHP_SELF'] ?? null;
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = 'phpunit';
+        }
     }
 
     protected function tearDown(): void
     {
         $this->removeDir($this->seedsDir);
+
+        if ($this->originalPhpSelf === null) {
+            unset($_SERVER['PHP_SELF']);
+        } else {
+            $_SERVER['PHP_SELF'] = $this->originalPhpSelf;
+        }
     }
 
     private function removeDir(string $dir): void

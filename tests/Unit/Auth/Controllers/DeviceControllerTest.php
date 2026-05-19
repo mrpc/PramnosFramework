@@ -38,6 +38,17 @@ class DeviceControllerTest extends TestCase
         $rc           = new \ReflectionClass(Device::class);
         $this->device = $rc->newInstanceWithoutConstructor();
 
+        // Set a stub Application so Controller::getView() does not emit a
+        // "Attempt to read property on null" warning when display() searches
+        // for view files. The view layer will still throw (INCLUDES not defined
+        // in unit-test context) but at a later point, cleanly as a Throwable.
+        $mockApp = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getExtraPaths'])
+            ->getMock();
+        $mockApp->method('getExtraPaths')->willReturn([]);
+        $this->device->application = $mockApp;
+
         // Clean superglobal state
         $_SESSION = [];
         $_GET     = [];
