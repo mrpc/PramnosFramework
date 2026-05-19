@@ -1353,4 +1353,355 @@ class HelpersExtendedTest extends TestCase
         $this->assertObjectHasProperty('version', $result);
         $this->assertSame('Mozilla/5.0 Firefox/90', $result->userAgent);
     }
+
+    // =========================================================================
+    // get_user_browser — Flock branch
+    // =========================================================================
+
+    /**
+     * get_user_browser() must return 'flock' when the user-agent string contains
+     * the token 'Flock'. This covers the elseif branch for the Flock browser.
+     */
+    public function testGetUserBrowserDetectsFlock(): void
+    {
+        // Arrange — UA string that matches /Flock/i but NOT Chrome/Firefox/Safari/MSIE/Opera.
+        // Real Flock UAs include "Firefox" which would match first; use a minimal stub.
+        $agent = 'Flock/1.0 (compatible; Gecko)';
+
+        // Act
+        $result = Helpers::get_user_browser($agent);
+
+        // Assert — Flock is identified correctly
+        $this->assertSame('flock', $result,
+            'get_user_browser() must return "flock" for a Flock browser UA string');
+    }
+
+    // =========================================================================
+    // timepassed — all branches
+    // =========================================================================
+
+    /**
+     * timepassed() must return a string containing "minutes" for a timestamp
+     * less than one hour ago (hours == 0).
+     *
+     * Language::_() returns the key unchanged when no translation is loaded,
+     * so the output contains literal keys like "minutes" and "ago".
+     */
+    public function testTimepassedReturnsMinutesForRecentTimestamp(): void
+    {
+        // Arrange — 10 minutes ago
+        $date = time() - 600;
+
+        // Act
+        $result = Helpers::timepassed($date);
+
+        // Assert — "X minutes ago" branch
+        $this->assertStringContainsString('minutes', $result,
+            'timepassed() must include "minutes" for a timestamp less than 1 hour ago');
+        $this->assertStringContainsString('10', $result);
+    }
+
+    /**
+     * timepassed() must return "X hours ago" (no minutes component) when the
+     * timestamp is an exact multiple of 60 minutes ago (minutes == 0).
+     */
+    public function testTimepassedReturnsHoursOnlyWhenMinutesAreZero(): void
+    {
+        // Arrange — exactly 2 hours ago (no leftover minutes)
+        $date = time() - (2 * 3600);
+
+        // Act
+        $result = Helpers::timepassed($date);
+
+        // Assert — "X hours ago" branch (minutes == 0)
+        $this->assertStringContainsString('hours', $result,
+            'timepassed() must include "hours" for a timestamp exactly N hours ago');
+        $this->assertStringContainsString('2', $result);
+    }
+
+    /**
+     * timepassed() must return "X hours and Y minutes ago" when there are both
+     * hours and leftover minutes but no days.
+     */
+    public function testTimepassedReturnsHoursAndMinutesForMixedDuration(): void
+    {
+        // Arrange — 2 hours and 30 minutes ago
+        $date = time() - (2 * 3600 + 30 * 60);
+
+        // Act
+        $result = Helpers::timepassed($date);
+
+        // Assert — "X hours and Y minutes ago" branch
+        $this->assertStringContainsString('hours', $result,
+            'timepassed() must include "hours" for a 2.5-hour-old timestamp');
+        $this->assertStringContainsString('minutes', $result,
+            'timepassed() must include "minutes" for a 2.5-hour-old timestamp');
+    }
+
+    /**
+     * timepassed() must return "Yesterday" for a timestamp exactly one day ago.
+     * This covers the special-case branch for days == 1.
+     */
+    public function testTimepassedReturnsYesterdayForOneDayAgo(): void
+    {
+        // Arrange — exactly 24 hours ago
+        $date = time() - 86400;
+
+        // Act
+        $result = Helpers::timepassed($date);
+
+        // Assert — "Yesterday" branch
+        $this->assertStringContainsString('Yesterday', $result,
+            'timepassed() must return "Yesterday" for a timestamp exactly 24 hours ago');
+    }
+
+    /**
+     * timepassed() must return "X days ago" for a timestamp a few days in the
+     * past (months == 0).
+     */
+    public function testTimepassedReturnsDaysForShortPast(): void
+    {
+        // Arrange — exactly 5 days ago
+        $date = time() - (5 * 86400);
+
+        // Act
+        $result = Helpers::timepassed($date);
+
+        // Assert — "X days ago" branch (years == 0 and months == 0)
+        $this->assertStringContainsString('days', $result,
+            'timepassed() must include "days" for a 5-day-old timestamp');
+        $this->assertStringContainsString('5', $result);
+    }
+
+    /**
+     * timepassed() must return "One month and X days ago" when exactly one month
+     * (30 days) plus a few days have elapsed.
+     */
+    public function testTimepassedReturnsOneMonthAndDays(): void
+    {
+        // Arrange — 35 days ago → 1 month and 5 days
+        $date = time() - (35 * 86400);
+
+        // Act
+        $result = Helpers::timepassed($date);
+
+        // Assert — "One month and X days" branch (months == 1, days != 0)
+        $this->assertStringContainsString('month', $result,
+            'timepassed() must include "month" for a ~35-day-old timestamp');
+    }
+
+    /**
+     * timepassed() must return "X months and Y days ago" when more than one month
+     * plus leftover days have elapsed.
+     */
+    public function testTimepassedReturnsMonthsAndDaysForLongerPast(): void
+    {
+        // Arrange — 65 days ago → 2 months and 5 days
+        $date = time() - (65 * 86400);
+
+        // Act
+        $result = Helpers::timepassed($date);
+
+        // Assert — "X months and Y days ago" branch (months > 1, days != 0)
+        $this->assertStringContainsString('months', $result,
+            'timepassed() must include "months" for a ~65-day-old timestamp');
+        $this->assertStringContainsString('days', $result,
+            'timepassed() must include "days" for a ~65-day-old timestamp');
+    }
+
+    /**
+     * timepassed() must return "X months ago" when the elapsed time is a round
+     * multiple of 30 days (days == 0 after month subtraction).
+     */
+    public function testTimepassedReturnsMonthsOnlyWhenNoDaysRemainder(): void
+    {
+        // Arrange — exactly 90 days ago → 3 months, 0 leftover days
+        $date = time() - (90 * 86400);
+
+        // Act
+        $result = Helpers::timepassed($date);
+
+        // Assert — "X months ago" branch (years == 0, days == 0 after subtraction)
+        $this->assertStringContainsString('months', $result,
+            'timepassed() must include "months" for a 90-day-old timestamp');
+    }
+
+    /**
+     * timepassed() must return "X years ago" when the elapsed time is a round
+     * multiple of 12 months (months == 0 after year subtraction).
+     */
+    public function testTimepassedReturnsYearsOnlyWhenNoMonthsRemainder(): void
+    {
+        // Arrange — exactly 720 days (≈ 24 months = 2 years with 0 leftover months)
+        $date = time() - (720 * 86400);
+
+        // Act
+        $result = Helpers::timepassed($date);
+
+        // Assert — "X years ago" branch (months == 0 after subtraction)
+        $this->assertStringContainsString('years', $result,
+            'timepassed() must include "years" for a ~720-day-old timestamp');
+    }
+
+    /**
+     * timepassed() must return "X year and Y months ago" when exactly 1 year
+     * plus leftover months have elapsed.
+     */
+    public function testTimepassedReturnsOneYearAndMonths(): void
+    {
+        // Arrange — 390 days → 13 months → 1 year and 1 month
+        $date = time() - (390 * 86400);
+
+        // Act
+        $result = Helpers::timepassed($date);
+
+        // Assert — "X year and Y months ago" branch (years == 1, months != 0)
+        $this->assertStringContainsString('year', $result,
+            'timepassed() must include "year" for a ~390-day-old timestamp');
+    }
+
+    /**
+     * timepassed() must return "X years and Y months ago" when more than one year
+     * plus leftover months have elapsed.
+     */
+    public function testTimepassedReturnsMultipleYearsAndMonths(): void
+    {
+        // Arrange — 750 days → 25 months → 2 years and 1 month
+        $date = time() - (750 * 86400);
+
+        // Act
+        $result = Helpers::timepassed($date);
+
+        // Assert — "X years and Y months ago" branch (years > 1, months != 0)
+        $this->assertStringContainsString('years', $result,
+            'timepassed() must include "years" for a ~750-day-old timestamp');
+    }
+
+    // =========================================================================
+    // objectDiff — non-scalar property branches
+    // =========================================================================
+
+    /**
+     * objectDiff() must handle changed properties whose values are arrays
+     * and include a description without embedding the raw array content.
+     *
+     * This covers the is_array($value) branch in the 'changed' section.
+     */
+    public function testObjectDiffChangedArrayPropertyProducesDescription(): void
+    {
+        // Arrange — 'tags' property changed from one array to another
+        $first  = (object)['tags' => ['php', 'mysql']];
+        $second = (object)['tags' => ['php', 'postgres']];
+
+        // Act
+        $diff = Helpers::objectDiff($first, $second);
+
+        // Assert — 'tags' is in 'changed'; description must mention the property name
+        $this->assertArrayHasKey('tags', $diff['changed'],
+            'objectDiff() must detect a changed array-valued property');
+        $this->assertStringContainsString('"tags"', $diff['description'],
+            'objectDiff() must include the property name in the description for changed arrays');
+    }
+
+    /**
+     * objectDiff() must handle removed properties whose values are arrays
+     * without embedding the raw array in the description string.
+     *
+     * This covers the is_array($value) branch in the 'removed' section.
+     */
+    public function testObjectDiffRemovedArrayPropertyProducesDescription(): void
+    {
+        // Arrange — 'metadata' array-valued property is in first but not second
+        $first  = (object)['name' => 'Alice', 'metadata' => ['role' => 'admin']];
+        $second = (object)['name' => 'Alice'];
+
+        // Act
+        $diff = Helpers::objectDiff($first, $second);
+
+        // Assert — 'metadata' in 'removed', description mentions property
+        $this->assertArrayHasKey('metadata', $diff['removed'],
+            'objectDiff() must detect a removed array-valued property');
+        $this->assertStringContainsString('"metadata"', $diff['description'],
+            'objectDiff() must include the property name in the description for removed arrays');
+    }
+
+    /**
+     * objectDiff() must handle added properties whose values are arrays
+     * without embedding the raw array in the description string.
+     *
+     * This covers the is_array($value) branch in the 'added' section.
+     */
+    public function testObjectDiffAddedArrayPropertyProducesDescription(): void
+    {
+        // Arrange — 'permissions' array-valued property is in second but not first
+        $first  = (object)['name' => 'Bob'];
+        $second = (object)['name' => 'Bob', 'permissions' => ['read', 'write']];
+
+        // Act
+        $diff = Helpers::objectDiff($first, $second);
+
+        // Assert — 'permissions' in 'added', description mentions property
+        $this->assertArrayHasKey('permissions', $diff['added'],
+            'objectDiff() must detect an added array-valued property');
+        $this->assertStringContainsString('"permissions"', $diff['description'],
+            'objectDiff() must include the property name in the description for added arrays');
+    }
+
+    // =========================================================================
+    // parseMemoryLimit — private method via reflection
+    // =========================================================================
+
+    /**
+     * parseMemoryLimit() must return -1 when given the string '-1' (no memory limit).
+     * This covers the early-return branch in the private static method.
+     */
+    public function testParseMemoryLimitReturnsMinusOneForUnlimited(): void
+    {
+        // Arrange — access the private static method via reflection
+        $ref = new \ReflectionMethod(Helpers::class, 'parseMemoryLimit');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke(null, '-1');
+
+        // Assert — -1 means unlimited
+        $this->assertSame(-1, $result,
+            'parseMemoryLimit() must return -1 for the "-1" (no limit) memory_limit value');
+    }
+
+    /**
+     * parseMemoryLimit() must correctly convert kilobyte-suffixed memory limits
+     * (e.g. '128K') to bytes by multiplying by 1024.
+     */
+    public function testParseMemoryLimitConvertsKilobytes(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod(Helpers::class, 'parseMemoryLimit');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke(null, '128K');
+
+        // Assert — 128 * 1024 = 131072
+        $this->assertSame(131072, $result,
+            'parseMemoryLimit() must convert "128K" to 131072 bytes');
+    }
+
+    /**
+     * parseMemoryLimit() must correctly convert gigabyte-suffixed memory limits
+     * (e.g. '2G') to bytes by multiplying by 1024^3.
+     */
+    public function testParseMemoryLimitConvertsGigabytes(): void
+    {
+        // Arrange
+        $ref = new \ReflectionMethod(Helpers::class, 'parseMemoryLimit');
+        $ref->setAccessible(true);
+
+        // Act
+        $result = $ref->invoke(null, '2G');
+
+        // Assert — 2 * 1024^3 = 2147483648
+        $this->assertSame(2 * 1024 * 1024 * 1024, $result,
+            'parseMemoryLimit() must convert "2G" to 2^31 bytes');
+    }
 }

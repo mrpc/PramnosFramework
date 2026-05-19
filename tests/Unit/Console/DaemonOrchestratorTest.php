@@ -1444,6 +1444,227 @@ class DaemonOrchestratorTest extends TestCase
         $this->assertGreaterThan(0, $width,
             'updateTerminalSize() must set terminalWidth to a positive value');
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // execute() branch coverage: interactive+once, dry-run, disabled orchestrator
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * When --interactive and --once are both set, execute() must print a warning
+     * that interactive mode is being ignored and proceed normally.
+     *
+     * This covers the early-guard branch at the start of execute() that detects
+     * the contradictory flag combination and resolves it by disabling interactive
+     * mode so the output path is non-interactive.
+     */
+    public function testExecuteInteractivePlusOnceWritesWarning(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_iaonce_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+
+        $orch = new TestableDaemonOrchestrator($tmpDir);
+        $orch->desiredProcesses = [];
+        $orch->processRunning   = [];
+
+        $app = new \Symfony\Component\Console\Application();
+        $app->add($orch);
+
+        // --interactive and --once are mutually exclusive; execute() warns and continues
+        $input  = new ArrayInput(['--once' => true, '--interactive' => true], $orch->getDefinition());
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $exitCode = $orch->publicExecute($input, $output);
+
+        // Assert — exits successfully despite the contradictory flags
+        $this->assertSame(0, $exitCode,
+            'execute() with --interactive --once must still exit 0 after printing the warning');
+
+        // Assert — warning message is present in output
+        $out = $output->fetch();
+        $this->assertStringContainsString('Interactive mode is ignored', $out,
+            'execute() must warn when --interactive and --once are combined');
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When --dry-run is set alongside --once, execute() must print a notice that
+     * dry-run mode is active and no process changes will be applied.
+     *
+     * --once ensures the loop executes exactly once then exits, so the test does
+     * not spin or sleep.  This covers the dry-run notice branch in execute().
+     */
+    public function testExecuteDryRunPrintsNoticeAndExitsZero(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_dryrun_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+
+        $orch = new TestableDaemonOrchestrator($tmpDir);
+        $orch->desiredProcesses = [];
+        $orch->processRunning   = [];
+
+        $app = new \Symfony\Component\Console\Application();
+        $app->add($orch);
+
+        $input  = new ArrayInput(['--once' => true, '--dry-run' => true], $orch->getDefinition());
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $exitCode = $orch->publicExecute($input, $output);
+
+        // Assert — exits successfully
+        $this->assertSame(0, $exitCode,
+            'execute() with --dry-run --once must exit 0');
+
+        // Assert — dry-run notice is present
+        $out = $output->fetch();
+        $this->assertStringContainsString('Dry-run mode enabled', $out,
+            'execute() must print a dry-run notice when --dry-run is active');
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When the orchestrator is disabled (isOrchestratorEnabled() returns false)
+     * and --once is set, execute() must call requestStopAll(), print the disabled
+     * messages, and then break out of the loop — exiting 0 without sleeping.
+     *
+     * Uses TestableDaemonOrchestratorDisabled which overrides isOrchestratorEnabled()
+     * to return false.  Without --once the test would sleep for DISABLED_POLL_SECONDS
+     * (15 s) per iteration, making the suite unacceptably slow.
+     */
+    public function testExecuteDisabledOrchestratorBreaksOnOnce(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_disabled_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+
+        $orch = new TestableDaemonOrchestratorDisabled($tmpDir);
+        $orch->desiredProcesses = [];
+        $orch->processRunning   = [];
+
+        $app = new \Symfony\Component\Console\Application();
+        $app->add($orch);
+
+        $input  = new ArrayInput(['--once' => true], $orch->getDefinition());
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act — must not sleep and must exit 0
+        $exitCode = $orch->publicExecute($input, $output);
+
+        // Assert — exits successfully
+        $this->assertSame(0, $exitCode,
+            'execute() with a disabled orchestrator and --once must exit 0');
+
+        // Assert — disabled message is present
+        $out = $output->fetch();
+        $this->assertStringContainsString('Orchestrator disabled', $out,
+            'execute() must print the disabled notice when isOrchestratorEnabled() returns false');
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // renderInteractiveDashboard() and updateSystemMetrics()
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * renderInteractiveDashboard() must produce non-empty output and complete
+     * without throwing.
+     *
+     * This exercises the full rendering path: system-metrics update, state load,
+     * desired-process iteration (empty → "No daemon definitions" branch),
+     * command-info/dedup/help sections, and the final renderDashboardFrameAutoSystem()
+     * call that writes lines to the OutputInterface.
+     */
+    public function testRenderInteractiveDashboardProducesOutput(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_dash_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+
+        $orch = new TestableDaemonOrchestrator($tmpDir);
+        $orch->desiredProcesses = [];
+        $orch->processRunning   = [];
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act — must not throw
+        $orch->publicRenderInteractiveDashboard($output, false, []);
+
+        // Assert — output must be a non-empty frame string
+        $out = $output->fetch();
+        $this->assertNotEmpty($out,
+            'renderInteractiveDashboard() must write at least one line of output');
+
+        // Assert — "No daemon definitions" branch was taken (empty desired list)
+        $this->assertStringContainsString('No daemon definitions', $out,
+            'renderInteractiveDashboard() must report "No daemon definitions" when desired list is empty');
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * renderInteractiveDashboard() with dedup messages must include those messages
+     * in the "Dedup Scan" section of the rendered frame.
+     *
+     * This exercises the non-empty dedupMessages branch (L1157-1164) which is
+     * skipped when the dedup section has no entries.
+     */
+    public function testRenderInteractiveDashboardWithDedupMessages(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_dedup_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+
+        $orch = new TestableDaemonOrchestrator($tmpDir);
+        $orch->desiredProcesses = [];
+        $orch->processRunning   = [];
+
+        $output     = new \Symfony\Component\Console\Output\BufferedOutput();
+        $dedupMsgs  = ['[killed-duplicate] pid=12345 worker=test'];
+
+        // Act
+        $orch->publicRenderInteractiveDashboard($output, false, $dedupMsgs);
+
+        // Assert — dedup section heading is present
+        $out = $output->fetch();
+        $this->assertStringContainsString('Dedup Scan', $out,
+            'renderInteractiveDashboard() must include the Dedup Scan section');
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * updateSystemMetrics() must set the $memoryUsage property to a non-zero value.
+     *
+     * This exercises the memory_get_usage() path and confirms the property is
+     * populated — the dashboard renders memory usage from this field.
+     */
+    public function testUpdateSystemMetricsPopulatesMemoryUsage(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_metrics_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+
+        $orch = new TestableDaemonOrchestrator($tmpDir);
+
+        $ref = new \ReflectionMethod($orch, 'updateSystemMetrics');
+        $ref->setAccessible(true);
+
+        // Act — must not throw
+        $ref->invoke($orch);
+
+        // Assert — memory usage was set to a positive integer
+        $memUsage = (new \ReflectionProperty($orch, 'memoryUsage'))->getValue($orch);
+        $this->assertGreaterThan(0, $memUsage,
+            'updateSystemMetrics() must set $memoryUsage to a positive integer');
+
+        $this->rmdirRecursive($tmpDir);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1616,6 +1837,17 @@ class TestableDaemonOrchestrator extends DaemonOrchestrator
     ): void {
         $this->requestStopAll($output);
     }
+
+    /**
+     * Expose renderInteractiveDashboard() for testing the full dashboard render path.
+     */
+    public function publicRenderInteractiveDashboard(
+        \Symfony\Component\Console\Output\OutputInterface $output,
+        bool $dryRun,
+        array $dedupMessages = []
+    ): void {
+        $this->renderInteractiveDashboard($output, $dryRun, $dedupMessages);
+    }
 }
 
 /**
@@ -1639,6 +1871,18 @@ class TestableDaemonOrchestratorLockFail extends TestableDaemonOrchestrator
     protected function tryAcquireOrchestratorLock(
         \Symfony\Component\Console\Output\OutputInterface $output
     ): bool {
+        return false;
+    }
+}
+
+/**
+ * Variant that makes isOrchestratorEnabled() return false, to test the
+ * "disabled orchestrator" path in execute().
+ */
+class TestableDaemonOrchestratorDisabled extends TestableDaemonOrchestrator
+{
+    protected function isOrchestratorEnabled(): bool
+    {
         return false;
     }
 }
