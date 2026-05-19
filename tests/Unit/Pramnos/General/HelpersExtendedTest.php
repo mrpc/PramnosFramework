@@ -1283,4 +1283,74 @@ class HelpersExtendedTest extends TestCase
         $this->assertGreaterThanOrEqual($before, $result);
         $this->assertLessThanOrEqual($after, $result);
     }
+
+    // =========================================================================
+    // formatMemory — TB branch
+    // =========================================================================
+
+    /**
+     * formatMemory() must return a TB-suffixed string for values larger than
+     * 1 TiB (1024^4 bytes). Covers lines 855-856 in Helpers.php.
+     */
+    public function testFormatMemoryReturnsTBForLargeValue(): void
+    {
+        // Arrange — 2 TiB = 2 * 1024^4 bytes
+        $twoTiB = 2 * 1024 * 1024 * 1024 * 1024;
+
+        // Act
+        $result = Helpers::formatMemory($twoTiB);
+
+        // Assert — must be in TB
+        $this->assertStringContainsString('TB', $result);
+    }
+
+    // =========================================================================
+    // get_user_browser — fallback to $_SERVER['HTTP_USER_AGENT']
+    // =========================================================================
+
+    /**
+     * get_user_browser() with no argument must fall back to
+     * $_SERVER['HTTP_USER_AGENT']. Covers line 207 in Helpers.php.
+     */
+    public function testGetUserBrowserFallsBackToServerHeader(): void
+    {
+        // Arrange — inject a Chrome user-agent into the server superglobal
+        $original = $_SERVER['HTTP_USER_AGENT'] ?? null;
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (compatible) Chrome/100';
+
+        // Act — no argument → must use $_SERVER['HTTP_USER_AGENT']
+        $result = Helpers::get_user_browser();
+
+        // Cleanup
+        if ($original === null) {
+            unset($_SERVER['HTTP_USER_AGENT']);
+        } else {
+            $_SERVER['HTTP_USER_AGENT'] = $original;
+        }
+
+        // Assert
+        $this->assertSame('chrome', $result);
+    }
+
+    // =========================================================================
+    // getBrowser — fallback path when get_browser() is unavailable
+    // =========================================================================
+
+    /**
+     * getBrowser() with an unrecognised agent (get_browser() returns false because
+     * browscap.ini is not configured in CI) must return an object with at least the
+     * userAgent, browser, and version properties. Covers lines 234-267 in Helpers.php.
+     */
+    public function testGetBrowserReturnsFallbackObjectWhenBrowscapUnavailable(): void
+    {
+        // Act — CI typically has no browscap.ini, so get_browser() returns false
+        $result = Helpers::getBrowser('Mozilla/5.0 Firefox/90');
+
+        // Assert — always returns an object with the expected shape
+        $this->assertIsObject($result);
+        $this->assertObjectHasProperty('userAgent', $result);
+        $this->assertObjectHasProperty('browser', $result);
+        $this->assertObjectHasProperty('version', $result);
+        $this->assertSame('Mozilla/5.0 Firefox/90', $result->userAgent);
+    }
 }
