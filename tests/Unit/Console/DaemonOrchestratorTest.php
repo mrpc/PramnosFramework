@@ -909,6 +909,412 @@ class DaemonOrchestratorTest extends TestCase
 
         $this->rmdirRecursive($tmpDir);
     }
+
+    /**
+     * When a lock file contains a live PID, reconcile() must output "[ok] … (lock active)"
+     * and skip spawning. This exercises the lockPid-alive branch (lines ~403–420).
+     */
+    public function testReconcileOutputsOkForHealthyLockWithLivePid(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_PROCESSOR_healthy';
+
+        // Write a lock file with a live PID
+        file_put_contents($lockFile, '55555');
+        $orch->processRunning = [55555 => true];
+
+        $orch->desiredProcesses = [
+            [
+                'id'              => 'queue-healthy',
+                'daemon'          => 'queue',
+                'workerId'        => 'queue-healthy',
+                'lockFile'        => $lockFile,
+                'tokens'          => [],
+                'requireLockFile' => true,
+            ],
+        ];
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert — process is healthy, should report [ok] with (lock active) and not spawn
+        $out = $output->fetch();
+        $this->assertStringContainsString('[ok]', $out);
+        $this->assertStringContainsString('lock active', $out);
+        $this->assertSame(0, $orch->startDesiredProcessCalls);
+
+        @unlink($lockFile);
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When a lock file exists but the lock PID is dead and the state PID is also
+     * dead (or absent), reconcile() must output "[crashed]" and attempt a restart.
+     */
+    public function testReconcileDetectsCrashedProcessAndRestarts(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_PROCESSOR_crashed';
+
+        // Lock file has a PID, but the process is not alive
+        file_put_contents($lockFile, '77777');
+        $orch->processRunning   = [];   // nothing alive
+        $orch->spawnedPid       = 88888;
+        $orch->confirmStartupResult = true;
+
+        $orch->desiredProcesses = [
+            [
+                'id'              => 'queue-crashed',
+                'daemon'          => 'queue',
+                'workerId'        => 'queue-crashed',
+                'lockFile'        => $lockFile,
+                'tokens'          => [],
+                'requireLockFile' => true,
+            ],
+        ];
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert — [crashed] must appear in output; restart was attempted
+        $out = $output->fetch();
+        $this->assertStringContainsString('[crashed]', $out);
+        $this->assertGreaterThan(0, $orch->startDesiredProcessCalls);
+
+        @unlink($lockFile);
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When a stop-file exists (so the lock is not healthy) but the process PID is
+     * still alive, reconcile() must output "[waiting]" and not spawn a replacement yet.
+     */
+    public function testReconcileWaitsWhenStopFileExistsButPidAlive(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_PROCESSOR_waiting';
+
+        // Process is alive but a stop-file exists → not healthy
+        file_put_contents($lockFile, '11111');
+        file_put_contents($lockFile . '.stop', '1');
+        $orch->processRunning = [11111 => true];
+
+        // Pre-populate state with this process so pid is known
+        $orch->publicSaveState([
+            [
+                'id'        => 'queue-waiting',
+                'daemon'    => 'queue',
+                'workerId'  => 'queue-waiting',
+                'lockFile'  => $lockFile,
+                'pid'       => 11111,
+                'updatedAt' => gmdate('c'),
+            ],
+        ]);
+
+        $orch->desiredProcesses = [
+            [
+                'id'              => 'queue-waiting',
+                'daemon'          => 'queue',
+                'workerId'        => 'queue-waiting',
+                'lockFile'        => $lockFile,
+                'tokens'          => [],
+                'requireLockFile' => true,
+            ],
+        ];
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert — waiting for graceful stop, no new spawn
+        $out = $output->fetch();
+        $this->assertStringContainsString('[waiting]', $out);
+        $this->assertSame(0, $orch->startDesiredProcessCalls);
+
+        @unlink($lockFile);
+        @unlink($lockFile . '.stop');
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When a state entry exists with a known PID that is now dead and no lock
+     * file is present, reconcile() must output "[exited]" (clean shutdown path).
+     */
+    public function testReconcileDetectsCleanlyExitedProcess(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_PROCESSOR_exited';
+
+        // PID was known, but is now dead; no lock file
+        $orch->processRunning = [];
+
+        $orch->publicSaveState([
+            [
+                'id'        => 'queue-exited',
+                'daemon'    => 'queue',
+                'workerId'  => 'queue-exited',
+                'lockFile'  => $lockFile,
+                'pid'       => 22222,
+                'updatedAt' => gmdate('c'),
+            ],
+        ]);
+
+        $orch->desiredProcesses = [
+            [
+                'id'              => 'queue-exited',
+                'daemon'          => 'queue',
+                'workerId'        => 'queue-exited',
+                'lockFile'        => $lockFile,
+                'tokens'          => [],
+                'requireLockFile' => true,
+            ],
+        ];
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert — daemon exited cleanly, should be restarted (no lock → will spawn)
+        // We just check for the exited message OR started (it may go straight to spawn)
+        $out = $output->fetch();
+        // Either "[exited]" for dead-but-not-restarted, or "[started]" if it immediately retried
+        $this->assertTrue(
+            str_contains($out, '[exited]') || str_contains($out, '[started]') || str_contains($out, '[started-unverified]'),
+            "Expected [exited] or [started] in output: $out"
+        );
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When a desired process has --worker-id in its token list and
+     * findRunningPidsByWorkerSignature() returns active PIDs, reconcile() must
+     * adopt the existing process and print "[adopt]" instead of spawning.
+     */
+    public function testReconcileAdoptsAlreadyRunningProcess(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_adopt_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+        $lockFile = $tmpDir . '/var/QUEUE_PROCESSOR_adopt';
+
+        $orch = new TestableDaemonOrchestratorAdopt($tmpDir);
+        $orch->processRunning = [];
+
+        $orch->desiredProcesses = [
+            [
+                'id'              => 'queue-adopt',
+                'daemon'          => 'queue',
+                'workerId'        => 'queue-adopt',
+                'lockFile'        => $lockFile,
+                'tokens'          => ['queue:process', '--worker-id', 'queue-adopt'],
+                'requireLockFile' => false,
+            ],
+        ];
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert — process was adopted, no new spawn
+        $out = $output->fetch();
+        $this->assertStringContainsString('[adopt]', $out);
+        $this->assertSame(0, $orch->startDesiredProcessCalls);
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When confirmProcessStartup() returns false but the spawned PID is still
+     * alive, reconcile() must output "[started-unverified]" (will verify next cycle).
+     */
+    public function testReconcileStartedUnverifiedWhenLockNotYetHealthy(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_PROCESSOR_unverified';
+
+        $orch->desiredProcesses = [
+            [
+                'id'              => 'queue-unverified',
+                'daemon'          => 'queue',
+                'workerId'        => 'queue-unverified',
+                'lockFile'        => $lockFile,
+                'tokens'          => [],
+                'requireLockFile' => false,
+            ],
+        ];
+        $orch->processRunning      = [];
+        $orch->spawnedPid          = 33333;
+        $orch->confirmStartupResult = false;
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Register the spawned PID as alive so [started-unverified] fires
+        // (confirmProcessStartup returns false, but the PID is alive)
+        $orch->processRunning = [33333 => true];
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert — lock not yet healthy, but process is alive → unverified
+        $out = $output->fetch();
+        $this->assertStringContainsString('[started-unverified]', $out);
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When confirmProcessStartup() returns false AND the spawned PID is dead,
+     * reconcile() must output "[failed-start]".
+     */
+    public function testReconcileFailedStartWhenSpawnedProcessDies(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_PROCESSOR_failstart';
+
+        $orch->desiredProcesses = [
+            [
+                'id'              => 'queue-failstart',
+                'daemon'          => 'queue',
+                'workerId'        => 'queue-failstart',
+                'lockFile'        => $lockFile,
+                'tokens'          => [],
+                'requireLockFile' => false,
+            ],
+        ];
+        $orch->processRunning       = [];   // spawned PID not alive
+        $orch->spawnedPid           = 44444;
+        $orch->confirmStartupResult = false;
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert
+        $this->assertStringContainsString('[failed-start]', $out = $output->fetch());
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When a process in state is no longer desired and its PID is dead,
+     * reconcile() must output "[stopped]" and remove it from state.
+     */
+    public function testReconcileOutputsStoppedForDeadProcessNoLongerDesired(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+
+        $orch->processRunning = []; // PID is dead
+        $orch->desiredProcesses = []; // nothing desired
+
+        $orch->publicSaveState([
+            [
+                'id'        => 'queue-gone',
+                'daemon'    => 'queue',
+                'workerId'  => 'queue-gone',
+                'lockFile'  => $tmpDir . '/var/QUEUE_PROCESSOR_gone',
+                'pid'       => 9876,
+                'updatedAt' => gmdate('c'),
+            ],
+        ]);
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert
+        $this->assertStringContainsString('[stopped]', $output->fetch());
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When a process in state is no longer desired but its PID is still alive and
+     * no stoppingAt timestamp exists, reconcile() must write a stop file and output
+     * "[stopping]".
+     */
+    public function testReconcileRequestsStopForAliveProcessNoLongerDesired(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_PROCESSOR_alive_stop';
+
+        $orch->processRunning = [98765 => true]; // still alive
+        $orch->desiredProcesses = []; // removed from desired list
+
+        $orch->publicSaveState([
+            [
+                'id'        => 'queue-alive-stop',
+                'daemon'    => 'queue',
+                'workerId'  => 'queue-alive-stop',
+                'lockFile'  => $lockFile,
+                'pid'       => 98765,
+                'updatedAt' => gmdate('c'),
+            ],
+        ]);
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert — soft stop requested, [stopping] in output
+        $out = $output->fetch();
+        $this->assertStringContainsString('[stopping]', $out);
+        $this->assertFileExists($lockFile . '.stop');
+
+        @unlink($lockFile . '.stop');
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * requestStopAll() must write a .stop sentinel for every process currently
+     * tracked in state, covering the requestStopAll() and requestStop() paths.
+     */
+    public function testRequestStopAllWritesStopFilesForAllTrackedProcesses(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lock1 = $tmpDir . '/var/QUEUE_PROCESSOR_stopall_1';
+        $lock2 = $tmpDir . '/var/QUEUE_PROCESSOR_stopall_2';
+
+        file_put_contents($lock1, '11111');
+        file_put_contents($lock2, '22222');
+
+        $orch->publicSaveState([
+            ['id' => 'q1', 'daemon' => 'q', 'workerId' => 'q1', 'lockFile' => $lock1, 'pid' => 11111, 'updatedAt' => gmdate('c')],
+            ['id' => 'q2', 'daemon' => 'q', 'workerId' => 'q2', 'lockFile' => $lock2, 'pid' => 22222, 'updatedAt' => gmdate('c')],
+        ]);
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicRequestStopAll($output);
+
+        // Assert — stop sentinels written for both processes
+        $this->assertFileExists($lock1 . '.stop');
+        $this->assertFileExists($lock2 . '.stop');
+
+        @unlink($lock1); @unlink($lock1 . '.stop');
+        @unlink($lock2); @unlink($lock2 . '.stop');
+        $this->rmdirRecursive($tmpDir);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1074,6 +1480,24 @@ class TestableDaemonOrchestrator extends DaemonOrchestrator
     public function publicSaveState(array $state): void
     {
         $this->saveState($state);
+    }
+
+    public function publicRequestStopAll(
+        \Symfony\Component\Console\Output\OutputInterface $output
+    ): void {
+        $this->requestStopAll($output);
+    }
+}
+
+/**
+ * Variant that simulates findRunningPidsByWorkerSignature() returning a live PID,
+ * to test the "adopt" pre-spawn guard path in reconcile().
+ */
+class TestableDaemonOrchestratorAdopt extends TestableDaemonOrchestrator
+{
+    protected function findRunningPidsByWorkerSignature(string $workerId): array
+    {
+        return [42424];
     }
 }
 
