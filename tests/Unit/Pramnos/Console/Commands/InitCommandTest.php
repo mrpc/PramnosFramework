@@ -16,6 +16,9 @@ class InitCommandTest extends TestCase
 {
     private $tempDir;
 
+    /** @var string|null Original $_SERVER['PHP_SELF'] value */
+    private ?string $originalPhpSelf = null;
+
     /**
      * Setup a unique temporary directory for each test.
      */
@@ -23,6 +26,13 @@ class InitCommandTest extends TestCase
     {
         $this->tempDir = sys_get_temp_dir() . '/pramnos_init_test_internal_' . uniqid();
         mkdir($this->tempDir, 0777, true);
+
+        // Symfony's DumpCompletionCommand reads $_SERVER['PHP_SELF'] in configure();
+        // ensure it is set to prevent "Undefined array key" warnings in PHP 8.4.
+        $this->originalPhpSelf = $_SERVER['PHP_SELF'] ?? null;
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = 'phpunit';
+        }
     }
 
     /**
@@ -31,6 +41,12 @@ class InitCommandTest extends TestCase
     protected function tearDown(): void
     {
         $this->removeDirectory($this->tempDir);
+
+        if ($this->originalPhpSelf === null) {
+            unset($_SERVER['PHP_SELF']);
+        } else {
+            $_SERVER['PHP_SELF'] = $this->originalPhpSelf;
+        }
     }
 
     /**
