@@ -9,9 +9,9 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Database\Database;
-use Pramnos\Database\Migrations\CreateApplicationSettingsTable;
-use Pramnos\Database\Migrations\CreateApplicationStatsTable;
-use Pramnos\Database\Migrations\CreateUserAppAuthorizationsTable;
+use Pramnos\Framework\Migrations\Applications\CreateApplicationSettingsTable;
+use Pramnos\Framework\Migrations\Applications\CreateApplicationStatsTable;
+use Pramnos\Framework\Migrations\AuthServer\CreateUserAppAuthorizationsTable;
 use Pramnos\Database\Migrations\AddMissingForeignKeysToExistingTables;
 
 /**
@@ -32,7 +32,7 @@ use Pramnos\Database\Migrations\AddMissingForeignKeysToExistingTables;
 #[CoversClass(CreateApplicationSettingsTable::class)]
 #[CoversClass(CreateApplicationStatsTable::class)]
 #[CoversClass(CreateUserAppAuthorizationsTable::class)]
-#[CoversClass(AddMissingForeignKeysToExistingTables::class)]
+#[CoversClass(\Pramnos\Database\Migrations\AddMissingForeignKeysToExistingTables::class)]
 #[Group('migrations')]
 class UrbanWaterBackportMigrationsCharacterizationTest extends TestCase
 {

@@ -2478,13 +2478,217 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     }
 
     // =========================================================================
+    // Applications schema — new tables (000044, 000045)
+    // =========================================================================
+
+    /**
+     * CreateApplicationSettingsTable must create applications.application_settings
+     * on PostgreSQL with all rate-limiting, pagination, IP-lock, and CORS columns.
+     *
+     * PostgreSQL-specific invariants:
+     *   - allowed_ips / blocked_ips are INET[] (not JSON like on MySQL)
+     *   - cors_origins is TEXT[]
+     *   - A PL/pgSQL trigger keeps updated_at current on every UPDATE
+     */
+    public function testApplicationSettingsUpCreatesTableWithAllColumns(): void
+    {
+        // Arrange — schema + FK parent must exist first
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $m = $this->loadMigration('applications', 'CreateApplicationSettingsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table is in the applications schema
+        $this->assertTrue(
+            $this->tableExists('application_settings', 'applications'),
+            'applications.application_settings must exist after up()'
+        );
+
+        // Assert — rate-limit columns
+        $this->assertColumnType('application_settings', 'rate_limit_requests',       'integer', 'applications');
+        $this->assertColumnType('application_settings', 'rate_limit_window_seconds', 'integer', 'applications');
+        $this->assertColumnType('application_settings', 'rate_limit_burst',          'integer', 'applications');
+
+        // Assert — pagination
+        $this->assertColumnType('application_settings', 'enforce_pagination', 'boolean', 'applications');
+        $this->assertColumnType('application_settings', 'max_page_size',      'integer', 'applications');
+        $this->assertColumnType('application_settings', 'default_page_size',  'integer', 'applications');
+
+        // Assert — PostgreSQL-native array types for IP lists
+        $this->assertColumnType('application_settings', 'allowed_ips', 'ARRAY', 'applications');
+        $this->assertColumnType('application_settings', 'blocked_ips', 'ARRAY', 'applications');
+        $this->assertColumnNullable('application_settings', 'allowed_ips', true, 'applications');
+
+        // Assert — CORS
+        $this->assertColumnType('application_settings', 'require_https', 'boolean', 'applications');
+        $this->assertColumnType('application_settings', 'cors_enabled',  'boolean', 'applications');
+        $this->assertColumnType('application_settings', 'cors_origins',  'ARRAY',   'applications');
+
+        // Assert — timestamps
+        $this->assertColumnType('application_settings', 'created_at', 'timestamp without time zone', 'applications');
+        $this->assertColumnType('application_settings', 'updated_at', 'timestamp without time zone', 'applications');
+
+        // Assert — unique index on appid
+        $this->assertTrue(
+            $this->indexExists('application_settings', 'idx_application_settings_appid', 'applications'),
+            'UNIQUE index on appid must prevent duplicate settings rows per application'
+        );
+
+        // Assert — trigger: UPDATE must advance updated_at.
+        // Insert a parent row first so the FK constraint is satisfied.
+        $this->db->query(
+            "INSERT INTO public.applications (appid, name, status, added)
+             VALUES (1, 'test_app', 1, 0)"
+        );
+        $this->db->query(
+            "INSERT INTO applications.application_settings
+                 (appid, rate_limit_requests, rate_limit_window_seconds, rate_limit_burst)
+             VALUES (1, 100, 60, 10)"
+        );
+        $this->db->query("SELECT pg_sleep(0.05)"); // ensure clock advances
+        $this->db->query(
+            "UPDATE applications.application_settings SET rate_limit_requests = 200 WHERE appid = 1"
+        );
+        $r = $this->db->query(
+            "SELECT created_at, updated_at FROM applications.application_settings WHERE appid = 1"
+        );
+        $this->assertNotSame(
+            $r->fields['created_at'],
+            $r->fields['updated_at'],
+            'updated_at trigger must advance the column beyond created_at on UPDATE'
+        );
+
+        // Assert — rollback drops the table
+        $m->down();
+        $this->assertFalse(
+            $this->tableExists('application_settings', 'applications'),
+            'applications.application_settings must be gone after down()'
+        );
+    }
+
+    /**
+     * CreateApplicationStatsTable must create applications.application_stats
+     * on PostgreSQL with the time-series metric schema.
+     *
+     * On TimescaleDB the table is converted to a hypertable; on plain PostgreSQL
+     * it remains a regular table.  The test adapts its assertions to the actual
+     * database capabilities at runtime.
+     */
+    public function testApplicationStatsUpCreatesTableWithMetricColumns(): void
+    {
+        // Arrange — schema + FK parents
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
+        $m = $this->loadMigration('applications', 'CreateApplicationStatsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table is in the applications schema
+        $this->assertTrue(
+            $this->tableExists('application_stats', 'applications'),
+            'applications.application_stats must exist after up()'
+        );
+
+        // Assert — time-series dimension
+        $this->assertColumnType('application_stats', 'time', 'timestamp with time zone', 'applications');
+        $this->assertColumnNullable('application_stats', 'time', false, 'applications');
+
+        // Assert — metric columns
+        $this->assertColumnType('application_stats', 'total_requests',      'bigint',         'applications');
+        $this->assertColumnType('application_stats', 'avg_response_time',   'numeric',        'applications');
+        $this->assertColumnType('application_stats', 'status_2xx',          'bigint',         'applications');
+        $this->assertColumnType('application_stats', 'bytes_sent',          'bigint',         'applications');
+        $this->assertColumnNullable('application_stats', 'country_code',    true,             'applications');
+
+        // Assert — composite index on (appid, time DESC)
+        $this->assertTrue(
+            $this->indexExists('application_stats', 'idx_application_stats_appid_time', 'applications'),
+            'Composite index (appid, time) must exist for fast per-app time-range queries'
+        );
+
+        // Assert — hypertable conversion on TimescaleDB (skip on plain PostgreSQL)
+        $isTimescale = $this->isHypertable('application_stats', 'applications');
+        if ($isTimescale) {
+            $this->assertTrue($isTimescale,
+                'On TimescaleDB, application_stats must be converted to a hypertable');
+        }
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse(
+            $this->tableExists('application_stats', 'applications'),
+            'applications.application_stats must be gone after down()'
+        );
+    }
+
+    /**
+     * CreateUserAppAuthorizationsTable must create authserver.user_app_authorizations
+     * on PostgreSQL with the OAuth consent lifecycle columns.
+     *
+     * PostgreSQL-specific: scope is stored as TEXT[], and the table lives inside
+     * the `authserver` schema alongside other OAuth tables.
+     */
+    public function testUserAppAuthorizationsUpCreatesConsentTable(): void
+    {
+        // Arrange — schema + FK parents
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $m = $this->loadMigration('authserver', 'CreateUserAppAuthorizationsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table is in the authserver schema
+        $this->assertTrue(
+            $this->tableExists('user_app_authorizations', 'authserver'),
+            'authserver.user_app_authorizations must exist after up()'
+        );
+
+        // Assert — FK columns
+        $this->assertColumnType('user_app_authorizations', 'userid', 'bigint',  'authserver');
+        $this->assertColumnType('user_app_authorizations', 'appid',  'integer', 'authserver');
+        $this->assertColumnNullable('user_app_authorizations', 'userid', false, 'authserver');
+        $this->assertColumnNullable('user_app_authorizations', 'appid',  false, 'authserver');
+
+        // Assert — PostgreSQL TEXT[] for scope
+        $this->assertColumnType('user_app_authorizations', 'scope', 'ARRAY', 'authserver');
+
+        // Assert — status column with CHECK constraint
+        $this->assertColumnType('user_app_authorizations', 'status', 'character varying', 'authserver');
+
+        // Assert — timestamp columns
+        $this->assertColumnType('user_app_authorizations', 'granted_at', 'timestamp without time zone', 'authserver');
+        $this->assertColumnNullable('user_app_authorizations', 'revoked_at',   true, 'authserver');
+        $this->assertColumnNullable('user_app_authorizations', 'expires_at',   true, 'authserver');
+        $this->assertColumnNullable('user_app_authorizations', 'last_used_at', true, 'authserver');
+
+        // Assert — unique constraint prevents duplicate consent rows
+        $this->assertTrue(
+            $this->indexExists('user_app_authorizations', 'idx_user_app_auth_unique', 'authserver'),
+            'UNIQUE (userid, appid) must prevent duplicate consent records for the same pair'
+        );
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse(
+            $this->tableExists('user_app_authorizations', 'authserver'),
+            'authserver.user_app_authorizations must be gone after down()'
+        );
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
     /**
      * Loads a specific migration class from the framework migrations directory.
      *
-     * @param string $feature Feature subdirectory (core/auth/messaging/queue/authserver)
+     * @param string $feature Feature subdirectory (core/auth/messaging/queue/authserver/applications)
      * @param string $class   Short class name (e.g. 'CreateSessionsTable')
      */
     protected function loadMigration(string $feature, string $class): \Pramnos\Database\Migration

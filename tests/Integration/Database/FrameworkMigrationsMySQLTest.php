@@ -1757,13 +1757,201 @@ class FrameworkMigrationsMySQLTest extends TestCase
     }
 
     // =========================================================================
+    // Applications schema — new tables (000044, 000045)
+    // =========================================================================
+
+    /**
+     * CreateApplicationSettingsTable must create applications_application_settings
+     * on MySQL with all rate-limiting, pagination, IP-lock, and CORS columns.
+     *
+     * The table is UNIQUE on appid (one settings row per application) and has
+     * an FK to applications.appid so orphan settings are removed automatically
+     * when an application is deleted.
+     */
+    public function testApplicationSettingsUpCreatesTableWithAllColumns(): void
+    {
+        // Arrange — applications table is the FK parent
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $m = $this->loadMigration('applications', 'CreateApplicationSettingsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table exists (MySQL: schema_table prefix)
+        $this->assertTrue(
+            $this->tableExists('applications_application_settings'),
+            'applications_application_settings must exist after up()'
+        );
+
+        // Assert — rate-limit columns
+        $this->assertColumnType('applications_application_settings', 'rate_limit_requests',       'int');
+        $this->assertColumnType('applications_application_settings', 'rate_limit_window_seconds', 'int');
+        $this->assertColumnType('applications_application_settings', 'rate_limit_burst',          'int');
+
+        // Assert — pagination columns with correct defaults
+        $this->assertColumnType('applications_application_settings', 'enforce_pagination', 'tinyint');
+        $this->assertColumnType('applications_application_settings', 'max_page_size',      'int');
+        $this->assertColumnType('applications_application_settings', 'default_page_size',  'int');
+
+        // Assert — IP lock columns (JSON on MySQL)
+        $this->assertColumnType('applications_application_settings', 'ip_lock_enabled', 'tinyint');
+        $this->assertColumnType('applications_application_settings', 'allowed_ips',     'json');
+        $this->assertColumnType('applications_application_settings', 'blocked_ips',     'json');
+
+        // Assert — HTTPS / CORS columns
+        $this->assertColumnType('applications_application_settings', 'require_https',  'tinyint');
+        $this->assertColumnType('applications_application_settings', 'cors_enabled',   'tinyint');
+        $this->assertColumnType('applications_application_settings', 'cors_origins',   'json');
+
+        // Assert — timestamps
+        $this->assertColumnType('applications_application_settings', 'created_at', 'timestamp');
+        $this->assertColumnType('applications_application_settings', 'updated_at', 'timestamp');
+
+        // Assert — unique constraint on appid
+        $this->assertTrue(
+            $this->indexExists('applications_application_settings', 'idx_application_settings_appid'),
+            'UNIQUE index on appid must prevent duplicate settings rows per application'
+        );
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse(
+            $this->tableExists('applications_application_settings'),
+            'applications_application_settings must be gone after down()'
+        );
+    }
+
+    /**
+     * CreateApplicationStatsTable must create applications_application_stats
+     * on MySQL with all time-series metric columns.
+     *
+     * There is no hypertable on MySQL — the table is a regular InnoDB table.
+     * The appid FK ensures stats are cascade-deleted when an application is removed.
+     */
+    public function testApplicationStatsUpCreatesTableWithMetricColumns(): void
+    {
+        // Arrange — FK parent
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
+        $m = $this->loadMigration('applications', 'CreateApplicationStatsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table exists
+        $this->assertTrue(
+            $this->tableExists('applications_application_stats'),
+            'applications_application_stats must exist after up()'
+        );
+
+        // Assert — time-series dimension column
+        $this->assertColumnType('applications_application_stats', 'time', 'datetime');
+        $this->assertColumnNullable('applications_application_stats', 'time', false);
+
+        // Assert — request count columns
+        $this->assertColumnType('applications_application_stats', 'total_requests',      'bigint');
+        $this->assertColumnType('applications_application_stats', 'successful_requests', 'bigint');
+        $this->assertColumnType('applications_application_stats', 'failed_requests',     'bigint');
+
+        // Assert — response-time metrics
+        $this->assertColumnType('applications_application_stats', 'avg_response_time', 'decimal');
+        $this->assertColumnType('applications_application_stats', 'min_response_time', 'decimal');
+        $this->assertColumnType('applications_application_stats', 'max_response_time', 'decimal');
+        $this->assertColumnNullable('applications_application_stats', 'avg_response_time', true);
+
+        // Assert — HTTP status buckets
+        $this->assertColumnType('applications_application_stats', 'status_2xx', 'bigint');
+        $this->assertColumnType('applications_application_stats', 'status_3xx', 'bigint');
+        $this->assertColumnType('applications_application_stats', 'status_4xx', 'bigint');
+        $this->assertColumnType('applications_application_stats', 'status_5xx', 'bigint');
+
+        // Assert — rate-limiting and data-transfer columns
+        $this->assertColumnType('applications_application_stats', 'rate_limited_requests',   'bigint');
+        $this->assertColumnType('applications_application_stats', 'rate_limit_violations',   'int');
+        $this->assertColumnType('applications_application_stats', 'bytes_sent',              'bigint');
+        $this->assertColumnType('applications_application_stats', 'bytes_received',          'bigint');
+
+        // Assert — geo column is nullable (not all requests have country data)
+        $this->assertColumnNullable('applications_application_stats', 'country_code', true);
+
+        // Assert — composite index on (appid, time) for efficient app-level queries
+        $this->assertTrue(
+            $this->indexExists('applications_application_stats', 'idx_application_stats_appid_time'),
+            'Composite index (appid, time) must exist for fast per-app time-range queries'
+        );
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse(
+            $this->tableExists('applications_application_stats'),
+            'applications_application_stats must be gone after down()'
+        );
+    }
+
+    /**
+     * CreateUserAppAuthorizationsTable must create authserver_user_app_authorizations
+     * on MySQL with the OAuth consent lifecycle columns and the UNIQUE constraint
+     * that prevents duplicate active-authorization rows per (userid, appid) pair.
+     */
+    public function testUserAppAuthorizationsUpCreatesConsentTable(): void
+    {
+        // Arrange — FK parents
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $m = $this->loadMigration('authserver', 'CreateUserAppAuthorizationsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table exists (MySQL: authserver_ prefix)
+        $this->assertTrue(
+            $this->tableExists('authserver_user_app_authorizations'),
+            'authserver_user_app_authorizations must exist after up()'
+        );
+
+        // Assert — FK columns
+        $this->assertColumnType('authserver_user_app_authorizations', 'userid', 'bigint');
+        $this->assertColumnType('authserver_user_app_authorizations', 'appid',  'int');
+        $this->assertColumnNullable('authserver_user_app_authorizations', 'userid', false);
+        $this->assertColumnNullable('authserver_user_app_authorizations', 'appid',  false);
+
+        // Assert — consent data columns
+        $this->assertColumnType('authserver_user_app_authorizations', 'scope',  'json');
+        $this->assertColumnType('authserver_user_app_authorizations', 'status', 'varchar');
+
+        // Assert — timestamp columns
+        $this->assertColumnType('authserver_user_app_authorizations', 'granted_at',   'timestamp');
+        $this->assertColumnNullable('authserver_user_app_authorizations', 'revoked_at',   true);
+        $this->assertColumnNullable('authserver_user_app_authorizations', 'expires_at',   true);
+        $this->assertColumnNullable('authserver_user_app_authorizations', 'last_used_at', true);
+
+        // Assert — tracking columns (optional)
+        $this->assertColumnNullable('authserver_user_app_authorizations', 'requested_by', true);
+        $this->assertColumnNullable('authserver_user_app_authorizations', 'user_agent',   true);
+        $this->assertColumnNullable('authserver_user_app_authorizations', 'ip_address',   true);
+
+        // Assert — unique constraint prevents duplicate rows per (userid, appid)
+        $this->assertTrue(
+            $this->indexExists('authserver_user_app_authorizations', 'idx_user_app_auth_unique'),
+            'UNIQUE (userid, appid) must prevent duplicate consent records for the same pair'
+        );
+
+        // Assert — rollback
+        $m->down();
+        $this->assertFalse(
+            $this->tableExists('authserver_user_app_authorizations'),
+            'authserver_user_app_authorizations must be gone after down()'
+        );
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
     /**
      * Loads a specific migration class from the framework migrations directory.
      *
-     * @param string $feature Feature subdirectory (core/auth/messaging/queue/authserver)
+     * @param string $feature Feature subdirectory (core/auth/messaging/queue/authserver/applications)
      * @param string $class   Short class name (e.g. 'CreateSessionsTable')
      */
     protected function loadMigration(string $feature, string $class): \Pramnos\Database\Migration
@@ -1893,6 +2081,11 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->db->query("DROP VIEW IF EXISTS `applications_oauth2_active_tokens`");
 
         $tables = [
+            // applications schema tables — stats depends on settings, drop stats first
+            'applications_application_stats',
+            'applications_application_settings',
+            // authserver OAuth consent table (depends on users + applications)
+            'authserver_user_app_authorizations',
             // applications schema tables (drop before applications table)
             'applications_oauth2_webhook_events', 'applications_oauth2_webhook_endpoints',
             'applications_oauth2_client_auth_methods',
