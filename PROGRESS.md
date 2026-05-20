@@ -1,7 +1,37 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-18 (sessions 90-92) — ALL coverage targets met ✅
+## 📅 Last Updated: 2026-05-20 (sessions 93-95) — Permissions characterization tests × MySQL + PostgreSQL ✅
+
+## 🏁 Session 95 — Permissions characterization tests × MySQL + PostgreSQL (2026-05-20)
+
+### ✅ Permissions characterization tests: 13/13 MySQL + 13/13 PostgreSQL
+
+**Added `PermissionsCharacterizationBase` + two concrete implementations:**
+- `tests/Characterization/Auth/PermissionsCharacterizationBase.php` — abstract base with 13 behavioral contracts
+- `tests/Characterization/Auth/PermissionsCharacterizationTest.php` — MySQL concrete
+- `tests/Characterization/Auth/PermissionsPostgreSQLCharacterizationTest.php` — PostgreSQL/TimescaleDB concrete
+
+**Bugs fixed in production code:**
+- `Permissions::setPermission()` (line 139): `convertBool(true)` returns `'t'` on PostgreSQL but `value` column is `smallint` — `(int)'t'` = 0, so every `allow()` call was silently storing 0 (deny). Fixed: `(int) $value` directly.
+- `User::load()` (line 642): On PostgreSQL, `pg_prepare()` fails (returns false) when the queried table doesn't exist. `QueryBuilder::get()` propagates `false`. Accessing `false->numRows` triggered PHP Warning. Fixed: `$result === false || $result->numRows == 0`.
+
+**Also fixed:**
+- `MakeCommandFileTest::tearDown()` — added `APP_PATH/migrations` to cleanup directories so generated migration files don't persist across test runs.
+- `composer.json` — added `autoload-dev` PSR-4 mapping so PHPUnit autoloads `PermissionsCharacterizationBase` from `tests/`.
+
+### Test results
+- Full suite: **4633/4633** ✓ (0 errors, 0 warnings)
+- Permissions MySQL: **13/13** ✓
+- Permissions PostgreSQL: **13/13** ✓
+
+### Commits
+- `85ab872` fix(permissions): use integer cast instead of convertBool() for smallint value column
+- `620cf31` fix(user): guard against false DB result in User::load()
+- `fa6dff5` feat(tests): add Permissions characterization tests × MySQL and PostgreSQL
+- `ad14d4c` fix(tests): clean up generated migration files in MakeCommandFileTest tearDown
+
+---
 
 ## 🏁 Session 92 — Scopes integration tests (2026-05-18)
 
