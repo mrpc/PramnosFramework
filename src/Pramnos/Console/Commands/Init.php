@@ -609,8 +609,7 @@ HTML,
             }
         }
 
-        $this->mkdir('scaffolding');
-        $this->writeFile('scaffolding/assets.json', json_encode(['libraries' => $manifest], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        // Scaffolding directory creation removed (assets.json not needed in runtime app)
     }
 
     /**
@@ -768,7 +767,7 @@ PHP;
         $phpExts  = $isPostgres ? 'pdo_pgsql pgsql' : 'pdo_mysql mysqli';
         $docRoot  = '/var/www/html/www';
 
-        $dockerfile  = "FROM php:8.4-apache\n";
+        $dockerfile  = "FROM php:8.5-apache\n";
         $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev libonig-dev libzip-dev libxml2-dev libpng-dev libjpeg-dev libwebp-dev libfreetype6-dev git unzip\n";
         $dockerfile .= "COPY --from=composer:latest /usr/bin/composer /usr/bin/composer\n";
         $dockerfile .= "RUN docker-php-ext-configure intl\n";

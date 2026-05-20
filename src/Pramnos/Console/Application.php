@@ -46,7 +46,17 @@ class Application extends \Symfony\Component\Console\Application
     protected function registerCommands()
     {
         $this->add(new \Pramnos\Console\Commands\Init());
-        $this->add(new \Pramnos\Console\Commands\Create());
+        $this->add(new \Pramnos\Console\Commands\Create()); // Legacy alias
+        $this->add(new \Pramnos\Console\Commands\Make\MakeModel());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeController());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeView());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeCrud());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeApi());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeMigration());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeMiddleware());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeEvent());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeListener());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeSeeder());
         $this->add(new \Pramnos\Console\Commands\Serve());
         $this->add(new \Pramnos\Console\Commands\MigrateLogs());
         // Migration CLI commands (Phase 4)
