@@ -1945,6 +1945,125 @@ class FrameworkMigrationsMySQLTest extends TestCase
     }
 
     // =========================================================================
+    // Applications schema views (000046)
+    // =========================================================================
+
+    /**
+     * CreateApplicationsViews must create all 10 applications-schema views on MySQL
+     * (prefixed applications_ since MySQL has no schema support).
+     *
+     * Tests verify:
+     *   - Each VIEW exists in information_schema
+     *   - Each VIEW is queryable (returns 0 rows against empty source tables)
+     *   - down() drops all views
+     */
+    public function testApplicationsViewsUpCreatesAllViews(): void
+    {
+        // Arrange — create all FK parents and source tables
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
+        $this->loadMigration('applications', 'CreateApplicationStatsTable')->up();
+        $m = $this->loadMigration('applications', 'CreateApplicationsViews');
+
+        // Act
+        $m->up();
+
+        // Assert — every expected view exists
+        $views = [
+            'applications_api_performance_summary',
+            'applications_application_health',
+            'applications_rate_limit_status',
+            'applications_slow_api_calls',
+            'applications_ip_violations',
+            'applications_oauth2_active_tokens_summary',
+            'applications_top_applications',
+            'applications_application_stats_daily',
+            'applications_application_stats_hourly',
+            'applications_usage_statistics',
+        ];
+        foreach ($views as $view) {
+            $this->assertTrue($this->viewExists($view),
+                "{$view} must exist in information_schema.VIEWS after up()");
+        }
+
+        // Assert — each view is queryable (returns 0 rows against empty tables)
+        foreach ($views as $view) {
+            $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `{$view}`");
+            $this->assertNotNull($r, "{$view} must be queryable without error");
+        }
+
+        // Assert — down() removes all views
+        $m->down();
+        foreach ($views as $view) {
+            $this->assertFalse($this->viewExists($view),
+                "{$view} must be gone after down()");
+        }
+    }
+
+    // =========================================================================
+    // AuthServer schema views (000046)
+    // =========================================================================
+
+    /**
+     * CreateAuthserverViews must create all 8 authserver monitoring views on MySQL
+     * (prefixed authserver_).
+     *
+     * Tests verify each VIEW exists, is queryable, and is removed by down().
+     */
+    public function testAuthserverViewsUpCreatesAllViews(): void
+    {
+        // Arrange — source tables must exist
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('auth', 'CreateLoginlockoutTable')->up();
+        $this->loadMigration('auth', 'CreateUserTwofactorTable')->up();
+        $this->loadMigration('auth', 'CreateTwofactorSetupTable')->up();
+        $this->loadMigration('auth', 'CreateTwofactorAttemptsTable')->up();
+        $this->loadMigration('auth', 'CreateUserActivityLogTable')->up();
+        $this->loadMigration('auth', 'CreateUserConsentsTable')->up();
+        $this->loadMigration('auth', 'CreateUserPrivacySettingsTable')->up();
+        $this->loadMigration('auth', 'CreateGdprRequestsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $m = $this->loadMigration('authserver', 'CreateAuthserverViews');
+
+        // Act
+        $m->up();
+
+        // Assert — every expected view exists
+        $views = [
+            'authserver_alert_high_failure_rate',
+            'authserver_alert_suspicious_ips',
+            'authserver_failed_twofactor_summary',
+            'authserver_gdpr_compliance_report',
+            'authserver_geographic_analysis',
+            'authserver_oauth2_active_tokens',
+            'authserver_recent_twofactor_attempts',
+            'authserver_daily_2fa_stats',
+        ];
+        foreach ($views as $view) {
+            $this->assertTrue($this->viewExists($view),
+                "{$view} must exist in information_schema.VIEWS after up()");
+        }
+
+        // Assert — each view is queryable against empty source tables
+        foreach ($views as $view) {
+            $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `{$view}`");
+            $this->assertNotNull($r, "{$view} must be queryable without error");
+        }
+
+        // Assert — down() removes all views
+        $m->down();
+        foreach ($views as $view) {
+            $this->assertFalse($this->viewExists($view),
+                "{$view} must be gone after down()");
+        }
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
@@ -2079,6 +2198,25 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->db->query("DROP VIEW IF EXISTS `authserver_daily_activity_summary`");
         $this->db->query("DROP VIEW IF EXISTS `applications_oauth2_application_permissions`");
         $this->db->query("DROP VIEW IF EXISTS `applications_oauth2_active_tokens`");
+        // Applications schema views (000046)
+        foreach ([
+            'applications_usage_statistics', 'applications_application_stats_hourly',
+            'applications_application_stats_daily', 'applications_top_applications',
+            'applications_oauth2_active_tokens_summary', 'applications_ip_violations',
+            'applications_slow_api_calls', 'applications_rate_limit_status',
+            'applications_application_health', 'applications_api_performance_summary',
+        ] as $v) {
+            $this->db->query("DROP VIEW IF EXISTS `{$v}`");
+        }
+        // AuthServer schema views (000046)
+        foreach ([
+            'authserver_daily_2fa_stats', 'authserver_recent_twofactor_attempts',
+            'authserver_oauth2_active_tokens', 'authserver_geographic_analysis',
+            'authserver_gdpr_compliance_report', 'authserver_failed_twofactor_summary',
+            'authserver_alert_suspicious_ips', 'authserver_alert_high_failure_rate',
+        ] as $v) {
+            $this->db->query("DROP VIEW IF EXISTS `{$v}`");
+        }
 
         $tables = [
             // applications schema tables — stats depends on settings, drop stats first

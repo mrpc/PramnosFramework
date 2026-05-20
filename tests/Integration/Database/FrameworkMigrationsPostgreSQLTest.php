@@ -2682,6 +2682,174 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     }
 
     // =========================================================================
+    // Applications schema views (000046)
+    // =========================================================================
+
+    /**
+     * CreateApplicationsViews must create all 10 applications-schema views on
+     * PostgreSQL, plus 3 materialized views (application_stats_daily,
+     * application_stats_hourly, usage_statistics).
+     *
+     * Verifies view existence, queryability, and that down() removes them.
+     */
+    public function testApplicationsViewsUpCreatesAllViews(): void
+    {
+        // Arrange — create all FK parents and source tables
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
+        $this->loadMigration('applications', 'CreateApplicationStatsTable')->up();
+        $m = $this->loadMigration('applications', 'CreateApplicationsViews');
+
+        // Act
+        $m->up();
+
+        // Assert — regular views exist in information_schema.views
+        $regularViews = [
+            'api_performance_summary', 'application_health', 'rate_limit_status',
+            'slow_api_calls', 'ip_violations', 'oauth2_active_tokens',
+            'top_applications',
+        ];
+        foreach ($regularViews as $view) {
+            $r = $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt FROM information_schema.views
+                     WHERE table_schema = %s AND table_name = %s",
+                    'applications', $view
+                )
+            );
+            $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+                "applications.{$view} must exist in information_schema.views");
+        }
+
+        // Assert — materialized views exist in pg_matviews
+        $matViews = ['application_stats_daily', 'application_stats_hourly', 'usage_statistics'];
+        foreach ($matViews as $view) {
+            $r = $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt FROM pg_matviews
+                     WHERE schemaname = %s AND matviewname = %s",
+                    'applications', $view
+                )
+            );
+            $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+                "applications.{$view} must exist as a materialized view");
+        }
+
+        // Assert — regular views are queryable
+        foreach ($regularViews as $view) {
+            $r = $this->db->query("SELECT COUNT(*) AS cnt FROM applications.\"{$view}\"");
+            $this->assertNotNull($r, "applications.{$view} must be queryable");
+        }
+
+        // Assert — down() removes everything
+        $m->down();
+        foreach ($regularViews as $view) {
+            $r = $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt FROM information_schema.views
+                     WHERE table_schema = %s AND table_name = %s",
+                    'applications', $view
+                )
+            );
+            $this->assertSame('0', (string) $r->fields['cnt'],
+                "applications.{$view} must be gone after down()");
+        }
+        foreach ($matViews as $view) {
+            $r = $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt FROM pg_matviews
+                     WHERE schemaname = %s AND matviewname = %s",
+                    'applications', $view
+                )
+            );
+            $this->assertSame('0', (string) $r->fields['cnt'],
+                "applications.{$view} matview must be gone after down()");
+        }
+    }
+
+    // =========================================================================
+    // AuthServer schema views (000046)
+    // =========================================================================
+
+    /**
+     * CreateAuthserverViews must create all 8 authserver monitoring views on
+     * PostgreSQL, including the daily_2fa_stats materialized view.
+     */
+    public function testAuthserverViewsUpCreatesAllViews(): void
+    {
+        // Arrange — create all source tables
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('auth', 'CreateLoginlockoutTable')->up();
+        $this->loadMigration('auth', 'CreateUserTwofactorTable')->up();
+        $this->loadMigration('auth', 'CreateTwofactorSetupTable')->up();
+        $this->loadMigration('auth', 'CreateTwofactorAttemptsTable')->up();
+        $this->loadMigration('auth', 'CreateUserActivityLogTable')->up();
+        $this->loadMigration('auth', 'CreateUserConsentsTable')->up();
+        $this->loadMigration('auth', 'CreateUserPrivacySettingsTable')->up();
+        $this->loadMigration('auth', 'CreateGdprRequestsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $m = $this->loadMigration('authserver', 'CreateAuthserverViews');
+
+        // Act
+        $m->up();
+
+        // Assert — regular views
+        $regularViews = [
+            'alert_high_failure_rate', 'alert_suspicious_ips',
+            'failed_twofactor_summary', 'gdpr_compliance_report',
+            'geographic_analysis', 'oauth2_active_tokens', 'recent_twofactor_attempts',
+        ];
+        foreach ($regularViews as $view) {
+            $r = $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt FROM information_schema.views
+                     WHERE table_schema = %s AND table_name = %s",
+                    'authserver', $view
+                )
+            );
+            $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+                "authserver.{$view} must exist after up()");
+        }
+
+        // Assert — daily_2fa_stats materialized view
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_matviews
+                 WHERE schemaname = %s AND matviewname = %s",
+                'authserver', 'daily_2fa_stats'
+            )
+        );
+        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+            'authserver.daily_2fa_stats must be a materialized view');
+
+        // Assert — regular views are queryable
+        foreach ($regularViews as $view) {
+            $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.\"{$view}\"");
+            $this->assertNotNull($r, "authserver.{$view} must be queryable");
+        }
+
+        // Assert — down() removes all views
+        $m->down();
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_matviews
+                 WHERE schemaname = %s AND matviewname = %s",
+                'authserver', 'daily_2fa_stats'
+            )
+        );
+        $this->assertSame('0', (string) $r->fields['cnt'],
+            'authserver.daily_2fa_stats matview must be gone after down()');
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
