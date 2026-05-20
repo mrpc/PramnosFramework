@@ -351,13 +351,74 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
     }
 
     // =========================================================================
+    // Applications schema — application_stats hypertable (000045)
+    // =========================================================================
+
+    /**
+     * CreateApplicationStatsTable must register applications.application_stats
+     * as a TimescaleDB hypertable when the database supports it.
+     *
+     * The hypertable uses 14-day chunks on the `time` column.  A compression
+     * policy is set so chunks older than 30 days are compressed automatically.
+     * This test verifies both the hypertable registration and that the table
+     * is queryable after creation.
+     */
+    public function testApplicationStatsIsHypertableOnTimescaleDB(): void
+    {
+        // Arrange — schema + FK parents must exist first
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
+        $m = $this->loadMigration('applications', 'CreateApplicationStatsTable');
+
+        // Act
+        $m->up();
+
+        // Assert — table exists in applications schema
+        $r = $this->db->execute(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt
+                 FROM information_schema.tables
+                 WHERE table_schema = %s AND table_name = %s",
+                'applications',
+                'application_stats'
+            )
+        );
+        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+            'applications.application_stats must exist after up()');
+
+        // Assert — registered as a hypertable on TimescaleDB
+        $this->assertIsHypertable('application_stats', 'applications',
+            'applications.application_stats must be a TimescaleDB hypertable');
+
+        // Assert — queryable (no rows before data is inserted)
+        $r2 = $this->db->execute('SELECT COUNT(*) AS cnt FROM applications.application_stats');
+        $this->assertSame('0', (string) $r2->fields['cnt'],
+            'empty hypertable must return 0 rows');
+
+        // Assert — down() removes the table (and TimescaleDB drops associated metadata)
+        $m->down();
+        $r3 = $this->db->execute(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt
+                 FROM information_schema.tables
+                 WHERE table_schema = %s AND table_name = %s",
+                'applications',
+                'application_stats'
+            )
+        );
+        $this->assertSame('0', (string) $r3->fields['cnt'],
+            'applications.application_stats must be gone after down()');
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
     /**
      * Loads a specific migration class from the framework migrations directory.
      *
-     * @param string $feature Feature subdirectory (auth, authserver, etc.)
+     * @param string $feature Feature subdirectory (auth, authserver, applications, etc.)
      * @param string $class   Short class name
      */
     protected function loadMigration(string $feature, string $class): \Pramnos\Database\Migration
@@ -428,6 +489,12 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
 
     protected function dropAllTestTables(): void
     {
+        // Drop applications schema tables (stats depends on settings, and both
+        // depend on public.applications which is dropped further below)
+        $this->db->execute('DROP TABLE IF EXISTS applications.application_stats CASCADE');
+        $this->db->execute('DROP TABLE IF EXISTS applications.application_settings CASCADE');
+        $this->db->execute('DROP SCHEMA IF EXISTS applications CASCADE');
+
         // Drop continuous aggregate + views before source hypertables
         $this->db->execute('DROP MATERIALIZED VIEW IF EXISTS authserver.daily_activity_summary CASCADE');
 
