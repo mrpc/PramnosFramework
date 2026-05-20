@@ -1,0 +1,3162 @@
+<?php
+
+namespace Pramnos\Console\Commands;
+
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Question\Question;
+use Symfony\Component\Console\Question\ChoiceQuestion;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
+
+/**
+ * Create something related to the application
+ */
+abstract class MakeCommandBase extends Command
+{
+    /**
+     * The database schema
+     * @var string|null
+     */
+    protected $schema = null;
+    /**
+     * The database table
+     * @var string|null
+     */
+    protected $dbtable = null;
+
+    protected OutputInterface $output;
+
+    /**
+     * Command configuration
+     */
+    /**
+     * Add common command options (schema, table).
+     */
+    protected function addCommonOptions()
+    {
+        $this->addArgument(
+            'name', InputArgument::OPTIONAL, 'Name of the created object'
+        );
+        $this->addOption(
+            'schema', 's', InputArgument::OPTIONAL, 'Database schema', null
+        );
+        $this->addOption(
+            'table', 't', InputArgument::OPTIONAL, 'Database table', null
+        );
+    }
+
+    /**
+     * Command execution
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     */
+    /**
+     * Prepare properties from input.
+     */
+    protected function prepareExecution(InputInterface $input, OutputInterface $output)
+    {
+        $this->output = $output;
+        $this->schema = $input->getOption('schema');
+        $this->dbtable = $input->getOption('table');
+    }
+
+    /**
+     * Create a middleware class from the middleware.stub template.
+     *
+     * Writes to src/Middleware/<Name>.php and generates a matching test stub at
+     * tests/Unit/<Name>MiddlewareTest.php so new middlewares are never test-less.
+     *
+     * @param string $middlewareName PascalCase class name (e.g. RateLimit)
+     * @return string Summary of created files
+     * @throws \Exception
+     */
+    public function createMiddleware(string $middlewareName): string
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $namespace = isset($application->applicationInfo['namespace'])
+            ? $application->applicationInfo['namespace']
+            : 'App';
+
+        $className = ucfirst(preg_replace('/\W+/', '', $middlewareName));
+        if ($className === '') {
+            throw new \InvalidArgumentException('Middleware name must be a valid PHP class name.');
+        }
+
+        $dir = defined('ROOT') ? ROOT . '/src/Middleware' : getcwd() . '/src/Middleware';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+
+        $filename = $dir . '/' . $className . '.php';
+        if (file_exists($filename)) {
+            throw new \Exception("Middleware $className already exists at $filename.");
+        }
+
+        $stub = $this->renderStub('middleware', [
+            'namespace' => $namespace . '\\Middleware',
+            'class'     => $className,
+        ]);
+
+        if (!file_put_contents($filename, $stub)) {
+            throw new \Exception("Cannot write middleware file: $filename");
+        }
+
+        $testOutput = $this->generateTestStub($className . 'Middleware', $namespace);
+
+        return "Namespace: {$namespace}\\Middleware\n"
+            . "Class:     {$className}\n"
+            . "File:      {$filename}\n"
+            . $testOutput
+            . "\nMiddleware created.";
+    }
+
+    /**
+     * Create an event class from the event.stub template.
+     *
+     * Writes to src/Events/<Name>.php. An event is a plain value object that
+     * carries the payload for Event::fire(). Generates a matching test stub.
+     *
+     * @param string $eventName PascalCase class name (e.g. UserRegistered)
+     * @return string Summary of created files
+     * @throws \Exception
+     */
+    public function createEvent(string $eventName): string
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $namespace = isset($application->applicationInfo['namespace'])
+            ? $application->applicationInfo['namespace']
+            : 'App';
+
+        $className = ucfirst(preg_replace('/\W+/', '', $eventName));
+        if ($className === '') {
+            throw new \InvalidArgumentException('Event name must be a valid PHP class name.');
+        }
+
+        $dir = defined('ROOT') ? ROOT . '/src/Events' : getcwd() . '/src/Events';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+
+        $filename = $dir . '/' . $className . '.php';
+        if (file_exists($filename)) {
+            throw new \Exception("Event $className already exists at $filename.");
+        }
+
+        $stub = $this->renderStub('event', [
+            'namespace' => $namespace . '\\Events',
+            'class'     => $className,
+        ]);
+
+        if (!file_put_contents($filename, $stub)) {
+            throw new \Exception("Cannot write event file: $filename");
+        }
+
+        $testOutput = $this->generateTestStub($className . 'Event', $namespace . '\\Events');
+
+        return "Namespace: {$namespace}\\Events\n"
+            . "Class:     {$className}\n"
+            . "File:      {$filename}\n"
+            . $testOutput
+            . "\nEvent created.";
+    }
+
+    /**
+     * Create a listener class from the listener.stub template.
+     *
+     * Writes to src/Listeners/<Name>.php implementing ListenerInterface.
+     * Register the listener with: Event::listen('event.name', MyListener::class)
+     * Generates a matching test stub.
+     *
+     * @param string $listenerName PascalCase class name (e.g. SendWelcomeEmail)
+     * @return string Summary of created files
+     * @throws \Exception
+     */
+    public function createListener(string $listenerName): string
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $namespace = isset($application->applicationInfo['namespace'])
+            ? $application->applicationInfo['namespace']
+            : 'App';
+
+        $className = ucfirst(preg_replace('/\W+/', '', $listenerName));
+        if ($className === '') {
+            throw new \InvalidArgumentException('Listener name must be a valid PHP class name.');
+        }
+
+        $dir = defined('ROOT') ? ROOT . '/src/Listeners' : getcwd() . '/src/Listeners';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+
+        $filename = $dir . '/' . $className . '.php';
+        if (file_exists($filename)) {
+            throw new \Exception("Listener $className already exists at $filename.");
+        }
+
+        $stub = $this->renderStub('listener', [
+            'namespace' => $namespace . '\\Listeners',
+            'class'     => $className,
+        ]);
+
+        if (!file_put_contents($filename, $stub)) {
+            throw new \Exception("Cannot write listener file: $filename");
+        }
+
+        $testOutput = $this->generateTestStub($className . 'Listener', $namespace . '\\Listeners');
+
+        return "Namespace: {$namespace}\\Listeners\n"
+            . "Class:     {$className}\n"
+            . "File:      {$filename}\n"
+            . $testOutput
+            . "\nListener created.";
+    }
+
+    /**
+     * Create a database migration
+     * @param string $migrationName
+     * @return string
+     * @throws \Exception
+     */
+    public function createMigration($migrationName)
+    {
+        // Slug: lowercase alphanum + underscores only
+        $slug = preg_replace('/[^a-z0-9]+/', '_', strtolower(strip_tags($migrationName ?? '')));
+        $slug = trim($slug, '_');
+
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        if (isset($application->applicationInfo['namespace'])) {
+            $namespace = $application->applicationInfo['namespace'];
+        } else {
+            $namespace = 'App';
+        }
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+        }
+        $fullNamespace = $namespace . '\\Migrations';
+
+        // Directory: app/migrations/ (discovered automatically by MigrationLoader)
+        $migrationDir = APP_PATH . DS . 'migrations';
+        if (!is_dir($migrationDir) && !mkdir($migrationDir, 0755, true)) {
+            throw new \Exception('Cannot create migrations directory.');
+        }
+
+        // PascalCase class name from slug (e.g. create_users_table → CreateUsersTable)
+        $className = str_replace(' ', '', ucwords(str_replace('_', ' ', $slug)));
+
+        // Timestamp-based filename keeps MigrationLoader sort order correct
+        $timestamp = date('Y_m_d_His');
+        $filename  = $timestamp . '_' . $slug . '.php';
+        $filePath  = $migrationDir . DS . $filename;
+
+        if (file_exists($filePath)) {
+            throw new \Exception('Migration file already exists: ' . $filename);
+        }
+
+        $content = $this->renderStub('migration', [
+            'namespace'   => $fullNamespace,
+            'class'       => $className,
+            'description' => $migrationName,
+            'date'        => date('d/m/Y H:i'),
+            'up_body'     => '        // TODO: implement',
+            'down_body'   => '        // TODO: implement',
+        ]);
+
+        if (file_put_contents($filePath, $content) === false) {
+            throw new \Exception('Cannot write migration file.');
+        }
+
+        return "Namespace: {$fullNamespace}\n"
+             . "Class:     {$className}\n"
+             . "File:      {$filePath}\n\n"
+             . "Migration created.\n"
+             . "Run with: php bin/pramnos migrate";
+    }
+
+    // ── Stub rendering ────────────────────────────────────────────────────────
+
+    /**
+     * Render a scaffolding stub template with token substitution.
+     *
+     * Looks for the stub in scaffolding/templates/<name>.stub inside the
+     * framework package directory. Falls back to an embedded minimal skeleton
+     * so the command works even when the scaffolding directory is absent.
+     *
+     * @param string               $stubName  Stub identifier without extension
+     * @param array<string,string> $tokens    Substitution map (key → value)
+     * @return string Rendered content
+     */
+    public function renderStub(string $stubName, array $tokens): string
+    {
+        $dir  = $this->resolveScaffoldingDir();
+        $file = $dir . '/templates/' . $stubName . '.stub';
+        if (file_exists($file)) {
+            $content = file_get_contents($file);
+        } else {
+            $content = $this->getFallbackStub($stubName);
+        }
+
+        foreach ($tokens as $key => $value) {
+            $content = str_replace('{{ ' . $key . ' }}', $value, $content);
+        }
+        return $content;
+    }
+
+    private function getFallbackStub(string $name): string
+    {
+        return match ($name) {
+            'middleware'  => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Http\\MiddlewareInterface;\nuse Pramnos\\Http\\Request;\n\n/**\n * {{ class }} Middleware\n *\n * @package {{ namespace }}\n */\nclass {{ class }} implements MiddlewareInterface\n{\n    /**\n     * Handle an incoming request.\n     *\n     * @param Request \$request\n     * @param callable \$next\n     * @return mixed\n     */\n    public function handle(Request \$request, callable \$next): mixed\n    {\n        // Perform action before route\n        \$response = \$next(\$request);\n        // Perform action after route\n        return \$response;\n    }\n}\n",
+            'event'       => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\n/**\n * {{ class }} Event\n *\n * @package {{ namespace }}\n */\nclass {{ class }}\n{\n    /**\n     * Create a new event instance.\n     */\n    public function __construct(\n        // TODO: add public readonly properties for event payload\n    ) {}\n}\n",
+            'listener'    => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\nuse Pramnos\\Event\\ListenerInterface;\n\n/**\n * {{ class }} Listener\n *\n * @package {{ namespace }}\n */\nclass {{ class }} implements ListenerInterface\n{\n    /**\n     * Handle the event.\n     *\n     * @param mixed ...\$args Event arguments\n     * @return mixed\n     */\n    public function handle(mixed ...\$args): mixed\n    {\n        // TODO: implement listener logic\n        return null;\n    }\n}\n",
+            'migration'   => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Database\\Blueprint;\nuse Pramnos\\Database\\Migration;\nuse Pramnos\\Database\\SchemaBuilder;\n\n/**\n * {{ class }} Migration\n *\n * @package {{ namespace }}\n */\nfinal class {{ class }} extends Migration\n{\n    /**\n     * Migration description.\n     * @var string\n     */\n    public string \$description = '{{ description }}';\n\n    /**\n     * Whether the migration should run in a transaction.\n     * @var bool\n     */\n    public bool \$transactional = false;\n\n    /**\n     * Run the migrations.\n     *\n     * @return void\n     */\n    public function up(): void\n    {\n{{ up_body }}\n    }\n\n    /**\n     * Reverse the migrations.\n     *\n     * @return void\n     */\n    public function down(): void\n    {\n{{ down_body }}\n    }\n}\n",
+            'seeder'      => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Database\\Seeder;\n\n/**\n * {{ class }} Seeder\n *\n * @package {{ namespace }}\n */\nclass {{ class }} extends Seeder\n{\n    /**\n     * The table associated with the seeder.\n     * @var string\n     */\n    protected string \$table = '{{ table }}';\n\n    /**\n     * Run the database seeds.\n     *\n     * @return void\n     */\n    public function run(): void\n    {\n        for (\$i = 1; \$i <= {{ count }}; \$i++) {\n            \$this->insert(\$this->table, [\n{{ fields }}\n            ]);\n        }\n    }\n}\n",
+            'controller'  => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Application\\Controller;\n\n/**\n * {{ class }} Controller\n *\n * @package {{ namespace }}\n */\nclass {{ class }} extends Controller\n{\n    /**\n     * Controller constructor.\n     *\n     * @param \\Pramnos\\Application\\Application|null \$application\n     */\n    public function __construct(?\\Pramnos\\Application\\Application \$application = null)\n    {\n        \$this->addAuthAction(['edit', 'save', 'delete']);\n        parent::__construct(\$application);\n    }\n\n    /**\n     * Display the index view.\n     *\n     * @return string\n     */\n    public function display(): string\n    {\n        \$view = \$this->getView('{{ view }}');\n        return \$view->display();\n    }\n}\n",
+            'model'       => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Application\\Model;\n\n/**\n * {{ class }} Model\n *\n * @package {{ namespace }}\n */\nclass {{ class }} extends Model\n{\n    /**\n     * The database table used by the model.\n     * @var string\n     */\n    protected \$_dbtable = '{{ table }}';\n\n    /**\n     * The primary key for the model.\n     * @var string\n     */\n    protected \$_primaryKey = '{{ primaryKey }}';\n}\n",
+            'test'        => "<?php\nnamespace Tests\\Unit;\n\nuse PHPUnit\\Framework\\TestCase;\n\n/**\n * {{ class }}Test\n *\n * @package Tests\\Unit\n */\nclass {{ class }}Test extends TestCase\n{\n    /**\n     * Test successful instantiation.\n     *\n     * @return void\n     */\n    public function testInstantiation(): void\n    {\n        \$instance = new \\{{ namespace }}\\{{ class }}();\n        \$this->assertInstanceOf(\\{{ namespace }}\\{{ class }}::class, \$instance);\n    }\n}\n",
+            'controller_test' => "<?php\nnamespace Tests\\Feature;\n\nuse PHPUnit\\Framework\\TestCase;\nuse Pramnos\\Testing\\TestClient;\n\n/**\n * {{ class }}Test Feature Test\n *\n * @package Tests\\Feature\n */\nclass {{ class }}Test extends TestCase\n{\n    /**\n     * Test that the default display route works.\n     *\n     * @return void\n     */\n    public function testDisplayRouteReturnsSuccessfulResponse(): void\n    {\n        \$client = new TestClient();\n        \$response = \$client->get('/{{ route }}');\n        \n        \$response->assertSuccessful();\n        \$response->assertSelectorExists('body');\n    }\n}\n",
+            default       => '',
+        };
+    }
+
+    /**
+     * Generate a PHPUnit test stub for a newly created class.
+     *
+     * Writes to <baseDir>/tests/Unit/<className>Test.php. Silently skips if the
+     * file already exists or the directory cannot be created.
+     *
+     * @param string $baseDir  Project root. Defaults to ROOT constant or cwd.
+     * @return string Human-readable summary line (empty if skipped).
+     */
+    public function generateTestStub(string $className, string $namespace, string $baseDir = '', string $stubName = 'test'): string
+    {
+        if ($baseDir === '') {
+            $baseDir = defined('ROOT') ? ROOT : getcwd();
+        }
+
+        $testsDir = $baseDir . '/tests/Unit';
+        if ($stubName === 'controller_test') {
+            $testsDir = $baseDir . '/tests/Feature';
+        }
+        if (!is_dir($testsDir)) {
+            @mkdir($testsDir, 0777, true);
+        }
+
+        $testFile = $testsDir . '/' . $className . 'Test.php';
+        if (file_exists($testFile)) {
+            return '';
+        }
+
+        $stub = $this->renderStub($stubName, [
+            'class' => $className,
+            'namespace' => $namespace,
+            'route' => strtolower($className)
+        ]);
+        if (file_put_contents($testFile, $stub) !== false) {
+            return "Test:      $testFile\n";
+        }
+        return '';
+    }
+
+    // ── Migration body builders ───────────────────────────────────────────────
+
+    /**
+     * Get singular primary key name from a table name (e.g. users -> userid).
+     */
+    protected function getSingularPrimaryKey(string $tableName): string
+    {
+        $clean = str_replace('#PREFIX#', '', $tableName);
+        if (substr($clean, -1) === 's') {
+            $clean = substr($clean, 0, -1);
+        }
+        return strtolower($clean) . 'id';
+    }
+
+    /**
+     * Build the PHP code for a migration up() body using SchemaBuilder.
+     *
+     * Returns a string ready to be dropped into the `{{ up_body }}` stub token.
+     * Indented with 8 spaces (method body level).
+     *
+     * @param string  $tableName   Table name as it will appear in the DB (may include #PREFIX#)
+     * @param bool    $hasPk       Whether to add auto-increment increments('id')
+     * @param array   $columns     Column definitions (see blueprintCall() for shape)
+     * @param bool    $timestamps  Whether to call $table->timestamps()
+     * @param bool    $softDeletes Whether to call $table->softDeletes()
+     * @param array   $foreignKeys Foreign key definitions: [{column, references, on, onDelete}]
+     * @return string PHP source, indented for insertion inside up()
+     */
+    public function buildMigrationUpBody(
+        string $tableName,
+        bool $hasPk,
+        array $columns,
+        bool $timestamps,
+        bool $softDeletes,
+        array $foreignKeys
+    ): string {
+        $pad    = '        ';  // 8 spaces — method body
+        $ipad   = '            ';  // 12 spaces — closure body
+
+        $lines = [];
+
+        if ($hasPk) {
+            $pkName = $this->getSingularPrimaryKey($tableName);
+            $lines[] = $ipad . "\$table->increments('{$pkName}');";
+        }
+
+        foreach ($columns as $col) {
+            $lines[] = $ipad . $this->blueprintCall($col);
+        }
+
+        if ($timestamps) {
+            $lines[] = $ipad . "\$table->timestamps();";
+        }
+        if ($softDeletes) {
+            $lines[] = $ipad . "\$table->softDeletes();";
+        }
+
+        if (!empty($foreignKeys)) {
+            $lines[] = '';
+            foreach ($foreignKeys as $fk) {
+                $onDelete = !empty($fk['onDelete']) ? "->onDelete('{$fk['onDelete']}')" : '';
+                $lines[] = $ipad . "\$table->foreign('{$fk['column']}')"
+                         . "->references('{$fk['references']}')"
+                         . "->on('{$fk['on']}')"
+                         . $onDelete . ';';
+            }
+        }
+
+        $body = implode("\n", $lines);
+        return "{$pad}SchemaBuilder::create('{$tableName}', function (Blueprint \$table) {\n{$body}\n{$pad}});";
+    }
+
+    /**
+     * Build the PHP code for a migration down() body.
+     *
+     * @param string $tableName Table name passed to SchemaBuilder::dropIfExists()
+     * @return string PHP source, indented for insertion inside down()
+     */
+    public function buildMigrationDownBody(string $tableName): string
+    {
+        return "        SchemaBuilder::dropIfExists('{$tableName}');";
+    }
+
+    /**
+     * Convert a single column definition array to a Blueprint method call string.
+     *
+     * The returned string ends with `;` and is ready to be placed inside a
+     * SchemaBuilder closure. Handles type-specific constructor arguments and
+     * the full chain of fluent modifiers (nullable, default, unique, comment).
+     *
+     * @param array $col {
+     *   name: string, type: string, options: array,
+     *   nullable: bool, default: mixed, unique: bool, unsigned: bool, comment: string
+     * }
+     * @return string e.g. "$table->string('email', 255)->unique();"
+     */
+    public function blueprintCall(array $col): string
+    {
+        $name      = $col['name'];
+        $type      = strtolower($col['type']);
+        $opts      = $col['options'] ?? [];
+        $isUnsigned = !empty($col['unsigned']) || !empty($opts['unsigned']);
+        $len        = (int) ($opts['length'] ?? 255);
+
+        $call = match ($type) {
+            'string'       => "\$table->string('{$name}'" . ($len !== 255 ? ", {$len}" : '') . ")",
+            'char'         => "\$table->char('{$name}', " . ($opts['length'] ?? 1) . ")",
+            'integer'      => $isUnsigned ? "\$table->unsignedInteger('{$name}')" : "\$table->integer('{$name}')",
+            'biginteger'   => $isUnsigned ? "\$table->unsignedBigInteger('{$name}')" : "\$table->bigInteger('{$name}')",
+            'tinyinteger'  => "\$table->tinyInteger('{$name}')",
+            'smallinteger' => "\$table->smallInteger('{$name}')",
+            'decimal'      => "\$table->decimal('{$name}', " . ($opts['total'] ?? 8) . ", " . ($opts['places'] ?? 2) . ")",
+            'float'        => "\$table->float('{$name}', " . ($opts['total'] ?? 8) . ", " . ($opts['places'] ?? 2) . ")",
+            'double'       => "\$table->double('{$name}')",
+            'boolean'      => "\$table->boolean('{$name}')",
+            'text'         => "\$table->text('{$name}')",
+            'mediumtext'   => "\$table->mediumText('{$name}')",
+            'longtext'     => "\$table->longText('{$name}')",
+            'date'         => "\$table->date('{$name}')",
+            'time'         => "\$table->time('{$name}')",
+            'datetime'     => "\$table->dateTime('{$name}')",
+            'timestamp'    => "\$table->timestamp('{$name}')",
+            'json'         => "\$table->json('{$name}')",
+            'jsonb'        => "\$table->jsonb('{$name}')",
+            'uuid'         => "\$table->uuid('{$name}')",
+            'binary'       => "\$table->binary('{$name}')",
+            default        => "\$table->string('{$name}')",
+        };
+
+        if (!empty($col['nullable'])) {
+            $call .= '->nullable()';
+        }
+        if (isset($col['default']) && $col['default'] !== null && $col['default'] !== '') {
+            $d = (string) $col['default'];
+            if (is_numeric($d)) {
+                $call .= "->default({$d})";
+            } elseif (in_array(strtolower($d), ['true', 'false', 'null'], true)) {
+                $call .= '->default(' . strtolower($d) . ')';
+            } else {
+                $call .= "->default('" . addslashes($d) . "')";
+            }
+        }
+        if (!empty($col['unique'])) {
+            $call .= '->unique()';
+        }
+        if ($isUnsigned && !in_array($type, ['integer', 'biginteger', 'tinyinteger', 'smallinteger'], true)) {
+            $call .= '->unsigned()';
+        }
+        if (!empty($col['comment'])) {
+            $call .= "->comment('" . addslashes($col['comment']) . "')";
+        }
+
+        return $call . ';';
+    }
+
+    /**
+     * Generate a PHP expression that produces a plausible fake value for a column.
+     *
+     * Uses column-name heuristics first, then falls back to type-based defaults.
+     * The returned expression uses `$i` as a loop counter variable (1-based).
+     * This is used by buildSeederFields() to populate seeder templates.
+     *
+     * @param string $colName Column name (used for name-based heuristics)
+     * @param string $colType Blueprint type string (string, integer, boolean, …)
+     * @param array  $options Blueprint constructor options (length, total, places, …)
+     * @return string PHP expression without trailing semicolon
+     */
+    public function generateFakeValue(string $colName, string $colType, array $options = []): string
+    {
+        $lower = strtolower($colName);
+
+        // Name-based heuristics take precedence over type
+        $hints = [
+            'email'       => "'user' . \$i . '@example.com'",
+            'first_name'  => "['Alice','Bob','Charlie','Diana','Eva'][\$i % 5]",
+            'last_name'   => "['Smith','Jones','Taylor','Brown','Wilson'][\$i % 5]",
+            'username'    => "'user_' . \$i",
+            'login'       => "'user_' . \$i",
+            'name'        => "'Name ' . \$i",
+            'title'       => "'Title ' . \$i",
+            'phone'       => "'+30210' . str_pad(\$i, 7, '0', STR_PAD_LEFT)",
+            'mobile'      => "'+306900' . str_pad(\$i, 6, '0', STR_PAD_LEFT)",
+            'address'     => "\$i . ' Main Street'",
+            'city'        => "['Athens','Thessaloniki','Patras','Heraklion','Larissa'][\$i % 5]",
+            'country'     => "'Greece'",
+            'description' => "'Sample description ' . \$i",
+            'body'        => "'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Record ' . \$i",
+            'content'     => "'Content for record ' . \$i",
+            'slug'        => "'record-' . \$i",
+            'url'         => "'https://example.com/item-' . \$i",
+            'ip'          => "'192.168.' . rand(0, 255) . '.' . rand(1, 254)",
+            'password'    => "password_hash('password' . \$i, PASSWORD_DEFAULT)",
+            'token'       => "bin2hex(random_bytes(16))",
+            'status'      => "['active','inactive','pending'][\$i % 3]",
+            'type'        => "['type_a','type_b','type_c'][\$i % 3]",
+            'color'       => "['#FF5733','#33FF57','#3357FF','#F3FF33','#FF33F3'][\$i % 5]",
+            'lat'         => "37.97 + (\$i * 0.001)",
+            'lon'         => "23.73 + (\$i * 0.001)",
+            'lng'         => "23.73 + (\$i * 0.001)",
+            'longitude'   => "23.73 + (\$i * 0.001)",
+            'latitude'    => "37.97 + (\$i * 0.001)",
+            'price'       => "round(\$i * 9.99, 2)",
+            'amount'      => "round(\$i * 100.0, 2)",
+            'score'       => "\$i * 10",
+            'sort'        => "\$i",
+            'order'       => "\$i",
+            'position'    => "\$i",
+            'weight'      => "\$i * 0.5",
+        ];
+
+        foreach ($hints as $hint => $code) {
+            if (str_contains($lower, $hint)) {
+                return $code;
+            }
+        }
+
+        // Type-based fallback
+        return match (strtolower($colType)) {
+            'integer', 'tinyinteger', 'smallinteger', 'biginteger' => "\$i",
+            'decimal', 'float', 'double' => "round(\$i * 9.99, 2)",
+            'boolean'   => "(\$i % 2 === 0)",
+            'date'      => "date('Y-m-d', strtotime('-' . \$i . ' days'))",
+            'datetime', 'timestamp' => "date('Y-m-d H:i:s', strtotime('-' . \$i . ' hours'))",
+            'text', 'mediumtext', 'longtext' => "'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Row ' . \$i",
+            'json', 'jsonb' => "json_encode(['item' => \$i, 'active' => true])",
+            'uuid'      => "sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff))",
+            default     => "'value_' . \$i",
+        };
+    }
+
+    /**
+     * Build the fields block for a seeder template ({{ fields }} token).
+     *
+     * Skips auto-managed columns (id, created_at, updated_at, deleted_at).
+     * Each line is indented to 16 spaces so it lands correctly inside the
+     * `$this->insert(...)` call in the seeder template.
+     *
+     * @param array $columns Column definitions (same shape as used by blueprintCall)
+     * @return string Multi-line PHP key => value pairs, no surrounding braces
+     */
+    public function buildSeederFields(array $columns): string
+    {
+        $skip  = ['id', 'created_at', 'updated_at', 'deleted_at'];
+        $ipad  = '                '; // 16 spaces
+        $lines = [];
+
+        foreach ($columns as $col) {
+            if (in_array($col['name'], $skip, true)) {
+                continue;
+            }
+            $fake  = $this->generateFakeValue($col['name'], $col['type'], $col['options'] ?? []);
+            $lines[] = $ipad . "'{$col['name']}' => {$fake},";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    // ── Seeder creator ────────────────────────────────────────────────────────
+
+    /**
+     * Create a database seeder class populated with plausible fake data.
+     *
+     * When $columns is non-empty (wizard flow), the seeder body is generated
+     * from the column definitions so each field gets type-appropriate fake data.
+     * When $columns is empty (standalone `create seeder <Name>` call), a bare
+     * skeleton with a single // TODO comment is written instead.
+     *
+     * @param string $name      Base name for the seeder (e.g. "User" → "UserSeeder")
+     * @param array  $columns   Column definitions (from wizard); empty = skeleton only
+     * @param string $tableName Table name written into the seeder class property
+     * @return string Summary of created files
+     * @throws \Exception
+     */
+    public function createSeeder(string $name, array $columns, string $tableName): string
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $namespace = isset($application->applicationInfo['namespace'])
+            ? $application->applicationInfo['namespace']
+            : 'App';
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+        }
+        $seederNamespace = $namespace . '\\Seeders';
+
+        $baseName  = self::getProperClassName($name, true);
+        $className = $baseName . 'Seeder';
+
+        $seederDir = APP_PATH . DS . 'seeders';
+        if (!is_dir($seederDir) && !mkdir($seederDir, 0755, true)) {
+            throw new \Exception('Cannot create seeders directory.');
+        }
+
+        $filename = $seederDir . DS . $className . '.php';
+        if (file_exists($filename)) {
+            throw new \Exception("Seeder {$className} already exists at {$filename}.");
+        }
+
+        if (empty($columns)) {
+            // Standalone call — bare skeleton
+            $fieldsCode = '                // TODO: add column => fake-value pairs';
+            $resolvedTable = $tableName ?: '#PREFIX#' . strtolower($baseName) . 's';
+        } else {
+            $fieldsCode    = $this->buildSeederFields($columns);
+            $resolvedTable = $tableName;
+        }
+
+        $content = $this->renderStub('seeder', [
+            'namespace' => $seederNamespace,
+            'class'     => $className,
+            'table'     => $resolvedTable,
+            'date'      => date('d/m/Y H:i'),
+            'fields'    => $fieldsCode,
+            'count'     => '10',
+        ]);
+
+        if (file_put_contents($filename, $content) === false) {
+            throw new \Exception('Cannot write seeder file.');
+        }
+
+        $testLine = $this->generateTestStub(
+            $className, $seederNamespace, defined('ROOT') ? ROOT : getcwd()
+        );
+
+        return "Namespace: {$seederNamespace}\n"
+             . "Class:     {$className}\n"
+             . "File:      {$filename}\n"
+             . $testLine
+             . "\nSeeder created.";
+    }
+
+    // ── Migration wizard ──────────────────────────────────────────────────────
+
+    /**
+     * Interactive CLI wizard for `create migration` (no name argument supplied).
+     *
+     * Guides the developer through: description, table name, primary key, column
+     * definitions (loop), timestamps, soft-deletes, foreign keys (loop), then
+     * optionally creates Model / Web Controller / API Controller / Seeder from
+     * the same schema definition without requiring a database connection.
+     *
+     * Uses Symfony Console QuestionHelper so it works in any terminal.
+     *
+     * @return string Final summary of all created files
+     */
+    protected function runMigrationWizard(InputInterface $input, OutputInterface $output): string
+    {
+        /** @var \Symfony\Component\Console\Helper\QuestionHelper $helper */
+        $helper = $this->getHelper('question');
+
+        $output->writeln('');
+        $output->writeln(' <comment>─── create:migration — Interactive Wizard ──────────────────────────</comment>');
+        $output->writeln('');
+
+        // ── Description ──────────────────────────────────────────────────────
+        $q = new Question(' <info>Migration description</info> (e.g. "create users table"): ');
+        $q->setValidator(function ($v) {
+            $v = trim((string) $v);
+            if ($v === '') throw new \RuntimeException('Description cannot be empty.');
+            return $v;
+        });
+        $description = $helper->ask($input, $output, $q);
+
+        // ── Table name ───────────────────────────────────────────────────────
+        $q = new Question(' <info>Table name</info> (use #PREFIX# for the db prefix, e.g. #PREFIX#users): ');
+        $q->setValidator(function ($v) {
+            $v = trim((string) $v);
+            if ($v === '') throw new \RuntimeException('Table name cannot be empty.');
+            return $v;
+        });
+        $tableName = $helper->ask($input, $output, $q);
+
+        // ── Primary key ───────────────────────────────────────────────────────
+        $q = new ConfirmationQuestion(
+            ' Add auto-increment primary key <info>id</info>? [<comment>yes</comment>] ', true
+        );
+        $hasPk = $helper->ask($input, $output, $q);
+
+        // ── Columns loop ──────────────────────────────────────────────────────
+        $columns  = [];
+        $colTypes = [
+            'string', 'integer', 'biginteger', 'decimal', 'float', 'double',
+            'boolean', 'text', 'longtext', 'date', 'datetime', 'timestamp',
+            'json', 'uuid', 'binary',
+        ];
+
+        $output->writeln('');
+        $output->writeln(' <comment>── Columns ──────────────────────────────────────────────────────────</comment>');
+
+        while (true) {
+            $q = new Question(' Column name (<info>Enter to finish</info>): ');
+            $colName = trim((string) $helper->ask($input, $output, $q));
+            if ($colName === '') {
+                break;
+            }
+
+            $q = new ChoiceQuestion('   Type [<comment>string</comment>]: ', $colTypes, 0);
+            $q->setErrorMessage('Type "%s" is not valid.');
+            $colType = $helper->ask($input, $output, $q);
+
+            $options = [];
+            if (in_array($colType, ['string', 'char'], true)) {
+                $q = new Question('   Length [<comment>255</comment>]: ', '255');
+                $q->setValidator(fn($v) => is_numeric($v) && (int)$v > 0 ? (int)$v : 255);
+                $options['length'] = (int) $helper->ask($input, $output, $q);
+            } elseif (in_array($colType, ['decimal', 'float'], true)) {
+                $q = new Question('   Precision (total digits) [<comment>10</comment>]: ', '10');
+                $options['total'] = (int) $helper->ask($input, $output, $q);
+                $q = new Question('   Scale (decimal places) [<comment>2</comment>]: ', '2');
+                $options['places'] = (int) $helper->ask($input, $output, $q);
+            }
+
+            $q = new ConfirmationQuestion('   Nullable? [<comment>no</comment>] ', false);
+            $nullable = $helper->ask($input, $output, $q);
+
+            $q = new Question('   Default value (blank = none): ', null);
+            $default = $helper->ask($input, $output, $q);
+            if ($default === '' || $default === null) $default = null;
+
+            $q = new Question('   Comment (blank = none): ', '');
+            $comment = trim((string) $helper->ask($input, $output, $q));
+
+            $q = new ConfirmationQuestion('   Unique? [<comment>no</comment>] ', false);
+            $unique = $helper->ask($input, $output, $q);
+
+            $columns[] = [
+                'name'     => $colName,
+                'type'     => $colType,
+                'options'  => $options,
+                'nullable' => $nullable,
+                'default'  => $default,
+                'comment'  => $comment,
+                'unique'   => $unique,
+                'unsigned' => false,
+            ];
+            $output->writeln('');
+        }
+
+        // ── Timestamps / soft-deletes ─────────────────────────────────────────
+        $output->writeln('');
+        $q = new ConfirmationQuestion(
+            ' Add <info>timestamps</info> (created_at / updated_at)? [<comment>yes</comment>] ', true
+        );
+        $timestamps = $helper->ask($input, $output, $q);
+
+        $q = new ConfirmationQuestion(
+            ' Add <info>soft-delete</info> column (deleted_at)? [<comment>no</comment>] ', false
+        );
+        $softDeletes = $helper->ask($input, $output, $q);
+
+        // ── Foreign keys loop ─────────────────────────────────────────────────
+        $foreignKeys = [];
+        $output->writeln('');
+        $output->writeln(' <comment>── Foreign keys ─────────────────────────────────────────────────────</comment>');
+
+        while (true) {
+            $q = new ConfirmationQuestion(' Add a foreign key? [<comment>no</comment>] ', false);
+            if (!$helper->ask($input, $output, $q)) {
+                break;
+            }
+
+            $q = new Question('   Column name (e.g. user_id): ');
+            $q->setValidator(fn($v) => trim((string)$v) !== '' ? trim($v) : throw new \RuntimeException('Column name required.'));
+            $fkCol = $helper->ask($input, $output, $q);
+
+            $q = new Question('   References table: ');
+            $q->setValidator(fn($v) => trim((string)$v) !== '' ? trim($v) : throw new \RuntimeException('Table required.'));
+            $fkTable = $helper->ask($input, $output, $q);
+
+            $q = new Question('   References column [<comment>id</comment>]: ', 'id');
+            $fkRef = trim((string) $helper->ask($input, $output, $q)) ?: 'id';
+
+            $q = new ChoiceQuestion(
+                '   On delete [<comment>RESTRICT</comment>]: ',
+                ['RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION'],
+                0
+            );
+            $fkOnDelete = $helper->ask($input, $output, $q);
+
+            // Add the FK column to the column list if not already defined
+            $alreadyDefined = !empty(array_filter($columns, fn($c) => $c['name'] === $fkCol));
+            if (!$alreadyDefined) {
+                $columns[] = [
+                    'name'     => $fkCol,
+                    'type'     => 'biginteger',
+                    'options'  => [],
+                    'nullable' => $fkOnDelete === 'SET NULL',
+                    'default'  => null,
+                    'comment'  => '',
+                    'unique'   => false,
+                    'unsigned' => true,
+                ];
+            }
+
+            $foreignKeys[] = [
+                'column'     => $fkCol,
+                'references' => $fkRef,
+                'on'         => $fkTable,
+                'onDelete'   => $fkOnDelete,
+            ];
+            $output->writeln('');
+        }
+
+        // ── Write migration ───────────────────────────────────────────────────
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $namespace = isset($application->applicationInfo['namespace'])
+            ? $application->applicationInfo['namespace']
+            : 'App';
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+        }
+        $fullNamespace = $namespace . '\\Migrations';
+
+        $slug      = trim(preg_replace('/[^a-z0-9]+/', '_', strtolower(strip_tags($description))), '_');
+        $className = str_replace(' ', '', ucwords(str_replace('_', ' ', $slug)));
+        $timestamp = date('Y_m_d_His');
+        $migDir    = APP_PATH . DS . 'migrations';
+        if (!is_dir($migDir)) {
+            mkdir($migDir, 0755, true);
+        }
+        $filePath = $migDir . DS . $timestamp . '_' . $slug . '.php';
+
+        $upBody   = $this->buildMigrationUpBody($tableName, $hasPk, $columns, $timestamps, $softDeletes, $foreignKeys);
+        $downBody = $this->buildMigrationDownBody($tableName);
+
+        $content = $this->renderStub('migration', [
+            'namespace'   => $fullNamespace,
+            'class'       => $className,
+            'description' => $description,
+            'date'        => date('d/m/Y H:i'),
+            'up_body'     => $upBody,
+            'down_body'   => $downBody,
+        ]);
+
+        file_put_contents($filePath, $content);
+
+        $output->writeln('');
+        $output->writeln(" <info>✓ Migration created:</info> {$filePath}");
+        $output->writeln('');
+
+        // ── Post-creation scaffold options ────────────────────────────────────
+        // Derive an entity name from the table name (strip prefix placeholder, PascalCase)
+        $stripped   = preg_replace('/^#PREFIX#/', '', $tableName);
+        $entityName = str_replace(' ', '', ucwords(str_replace('_', ' ', $stripped)));
+
+        $summary = "Migration: {$filePath}\n";
+
+        $output->writeln(' <comment>── Also create ────────────────────────────────────────────────────────</comment>');
+
+        $q = new ConfirmationQuestion(
+            " Create <info>Model</info> ({$entityName})? [<comment>yes</comment>] ", true
+        );
+        if ($helper->ask($input, $output, $q)) {
+            try {
+                $this->dbtable = $tableName;
+                $result = $this->createModel($entityName);
+                $summary .= $result . "\n";
+                $output->writeln("   <info>✓</info> Model created.");
+            } catch (\Exception $e) {
+                $output->writeln("   <comment>Model skipped: {$e->getMessage()}</comment>");
+            }
+        }
+
+        $q = new ConfirmationQuestion(
+            " Create <info>Web Controller</info> ({$entityName}Controller)? [<comment>yes</comment>] ", true
+        );
+        if ($helper->ask($input, $output, $q)) {
+            try {
+                $result = $this->createController($entityName, false);
+                $summary .= $result . "\n";
+                $output->writeln("   <info>✓</info> Controller created.");
+            } catch (\Exception $e) {
+                $output->writeln("   <comment>Controller skipped: {$e->getMessage()}</comment>");
+            }
+        }
+
+        $q = new ConfirmationQuestion(
+            " Create <info>API Controller</info> ({$entityName}ApiController)? [<comment>no</comment>] ", false
+        );
+        if ($helper->ask($input, $output, $q)) {
+            try {
+                $result = $this->createApi($entityName);
+                $summary .= $result . "\n";
+                $output->writeln("   <info>✓</info> API Controller created.");
+            } catch (\Exception $e) {
+                $output->writeln("   <comment>API Controller skipped: {$e->getMessage()}</comment>");
+            }
+        }
+
+        $q = new ConfirmationQuestion(
+            " Create <info>Seeder</info> ({$entityName}Seeder with fake data)? [<comment>yes</comment>] ", true
+        );
+        if ($helper->ask($input, $output, $q)) {
+            try {
+                $result = $this->createSeeder($entityName, $columns, $tableName);
+                $summary .= $result . "\n";
+                $output->writeln("   <info>✓</info> Seeder created.");
+            } catch (\Exception $e) {
+                $output->writeln("   <comment>Seeder skipped: {$e->getMessage()}</comment>");
+            }
+        }
+
+        $output->writeln('');
+
+        return $summary . "\nRun the migration with: php bin/pramnos migrate";
+    }
+
+    private function resolveScaffoldingDir(): string
+    {
+        $dir = __DIR__;
+        for ($i = 0; $i < 6; $i++) {
+            $candidate = $dir . '/scaffolding';
+            if (is_dir($candidate . '/templates')) {
+                return $candidate;
+            }
+            $dir = dirname($dir);
+        }
+        return (defined('ROOT') ? ROOT : getcwd()) . '/vendor/mrpc/pramnosframework/scaffolding';
+    }
+
+    // ── Entity creators ───────────────────────────────────────────────────────
+
+    /**
+     * Creates a CRUD system based on a model name
+     * @param string $name
+     * @return string
+     */
+    public function createCrud($name)
+    {
+        $content = "Creating Model: ";
+        try {
+            $this->createModel($name);
+            $content .= "OK\n";
+        } catch (\Exception $ex) {
+            $content .= "FAIL - " . $ex->getMessage() . "\n";
+        }
+        $content .= "Creating Controller: ";
+        try {
+            $this->createController($name, true);
+            $content .= "OK\n";
+        } catch (\Exception $ex) {
+            $content .= "FAIL - " . $ex->getMessage() . "\n";
+        }
+        $content .= "Creating View: ";
+        try {
+            $this->createView($name, true);
+            $content .= "OK\n";
+        } catch (\Exception $ex) {
+            $content .= "FAIL - " . $ex->getMessage() . "\n";
+        }
+        return $content . "\n";
+    }
+
+    /**
+     * Look up a model by table name using either class naming conventions or the model registry
+     * 
+     * @param string $name Base name to look up
+     * @param bool $forceSingular Whether to force singular form when checking by convention
+     * @return array|null Found model information or null if not found
+     */
+    protected function lookupModel($name, $forceSingular = true)
+    {
+        $application = $this->getApplication()->internalApplication;
+        $database = \Pramnos\Database\Database::getInstance();
+        
+        // Try to determine table name
+        if ($this->dbtable != null) {
+            $tableName = $this->dbtable;
+        } else {
+            $tableName = self::getModelTableName($name);
+        }
+        
+        // Prepare namespace
+        $namespace = 'Pramnos';
+        if (isset($application->applicationInfo['namespace'])) {
+            $namespace = $application->applicationInfo['namespace'];
+        }
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+        }
+        $namespace .= '\\Models';
+        
+        // Try convention-based approach first
+        $conventionClassName = self::getProperClassName($name, $forceSingular);
+        $fullConventionClassName = '\\' . $namespace . '\\' . $conventionClassName;
+        
+        // Check if the model exists by convention
+        if (class_exists($fullConventionClassName)) {
+            return [
+                'className' => $conventionClassName,
+                'namespace' => $namespace,
+                'fullClassName' => $fullConventionClassName,
+                'foundBy' => 'convention'
+            ];
+        }
+        
+        // If we have a specific table name, try to locate it in the registry
+        $registryFile = ROOT . DS . 'app' . DS . 'model-registry.json';
+        if (file_exists($registryFile)) {
+            $registry = json_decode(file_get_contents($registryFile), true);
+            
+            if (json_last_error() === JSON_ERROR_NONE && is_array($registry)) {
+                // Check the registry for a model matching this table
+                foreach ($registry as $model) {
+                    $registryTableName = $model['table'] ?? '';
+                    $registrySchema = $model['schema'] ?? '';
+                    
+                    // Check if this model matches the table we're looking for
+                    if ($registryTableName === $tableName || 
+                        str_replace('#PREFIX#', $database->prefix, $registryTableName) === $tableName) {
+                        
+                        // If schema is specified, make sure it matches too
+                        if ($this->schema !== null && $registrySchema !== $this->schema) {
+                            continue;
+                        }
+                        
+                        return [
+                            'className' => $model['className'],
+                            'namespace' => $model['namespace'],
+                            'fullClassName' => $model['fullClassName'],
+                            'foundBy' => 'registry'
+                        ];
+                    }
+                }
+                
+                // If we still haven't found it, try a case-insensitive search by name
+                $lowercaseName = strtolower($name);
+                foreach ($registry as $model) {
+                    if (strtolower($model['className']) === $lowercaseName || 
+                        strpos(strtolower($model['table']), $lowercaseName) !== false) {
+                        
+                        return [
+                            'className' => $model['className'],
+                            'namespace' => $model['namespace'],
+                            'fullClassName' => $model['fullClassName'],
+                            'foundBy' => 'registry_name_match'
+                        ];
+                    }
+                }
+            }
+        }
+        
+        // Return the convention-based lookup result as a fallback, even though the class doesn't exist
+        return [
+            'className' => $conventionClassName,
+            'namespace' => $namespace,
+            'fullClassName' => $fullConventionClassName,
+            'foundBy' => 'convention_fallback'
+        ];
+    }
+
+    /**
+     * Creates a view
+     * @param string $name Name of the view
+     * @param bool $full Create a full crud view (Create/List/Edit/Delete)
+     */
+    protected function createView($name, $full = false)
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $path = ROOT . DS . INCLUDES . DS;
+        if ($application->appName != '') {
+            $path .= $application->appName . DS;
+        }
+        $path .= 'Views';
+        $viewPath = $path . DS . strtolower($name);
+
+        // Check if directory exists and is not empty
+        if (file_exists($viewPath)) {
+            $files = array_diff(scandir($viewPath), array('.', '..'));
+            if (!empty($files)) {
+                throw new \Exception('View already exists and contains files.');
+            }
+        } else {
+            mkdir($viewPath, 0755, true);
+        }
+
+        $files = array();
+
+        $indexContent = 'Hello World';
+        $editContent = '';
+        $className = self::getProperClassName($name, false);
+        $filename = $path . DS . $className . '.php';
+        $objectName = ucfirst($name);
+        $primaryKey = 'id';
+
+        if ($full) {
+            $database = \Pramnos\Database\Database::getInstance();
+            $objectName = ucfirst($name);
+
+            // Look up the model in the registry first
+            $modelInfo = $this->lookupModel($name, true);
+            
+            // Get the model class from the lookup
+            $modelClass = $modelInfo['className'];
+            
+            // Determine table name - either from specified option or from model name
+            if ($this->dbtable != null) {
+                $tableName = $this->dbtable;
+            } else {
+                $tableName = self::getModelTableName($name);
+            }
+
+            if (!$database->tableExists($tableName)) {
+                throw new \Exception(
+                    'Table: ' . $tableName . ' does not exist.'
+                );
+            }
+            $result = $database->getColumns($tableName, $this->schema);
+
+
+            $formContent = '';
+
+            $allFields = array();
+            $primaryKey = '';
+            $count = 0;
+            
+            // First pass to collect field information
+            while ($result->fetch()) {
+                $count++;
+                $primary = false;
+
+                if ($database->type == 'postgresql') {
+                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                    }
+                } elseif (isset($result->fields['Key'])
+                    && $result->fields['Key'] == 'PRI') {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                }
+                
+                // Store all field names and their display names
+                if ($result->fields['Comment'] != '') {
+                    $fieldDisplayName = $result->fields['Comment'];
+                } else {
+                    $fieldDisplayName = ucfirst(str_replace('_', ' ', $result->fields['Field']));
+                }
+                
+                $allFields[] = array(
+                    'name' => $result->fields['Field'],
+                    'display' => $fieldDisplayName,
+                    'isPrimary' => $primary
+                );
+            }
+            
+            // Reset result cursor for form generation
+            $result = $database->getColumns($tableName, $this->schema);
+            
+            while ($result->fetch()) {
+                $primary = false;
+
+                if ($database->type == 'postgresql') {
+                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                    }
+                } elseif (isset($result->fields['Key'])
+                    && $result->fields['Key'] == 'PRI') {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                }
+                
+                if ($result->fields['Comment'] != '') {
+                        $fieldName = $result->fields['Comment'];
+                } else {
+                        $fieldName = ucfirst($result->fields['Field']);
+                }
+                $field = $result->fields['Field'];
+
+                $basicType = explode('(', $result->fields['Type']);
+                if (!$primary) {
+                    // Check if this field is a foreign key
+                    $isForeignKey = false;
+                    if ($database->type == 'postgresql') {
+                        $isForeignKey = $result->fields['ForeignKey'] == 't' || $result->fields['ForeignKey'] === true;
+                    } else {
+                        $isForeignKey = !empty($result->fields['ForeignKey']);
+                    }
+
+                    if ($isForeignKey && !empty($result->fields['ForeignTable'])) {
+                        // This is a foreign key field
+                        $foreignTable = $result->fields['ForeignTable'];
+                        $foreignSchema = $result->fields['ForeignSchema'];
+                        $foreignColumn = $result->fields['ForeignColumn'];
+                        
+                        // Special handling for user foreign keys
+                        $isUserForeignKey = ($foreignColumn == 'userid' && ($foreignTable == 'users' || $foreignTable == '#PREFIX#users'));
+                        
+                        if ($isUserForeignKey) {
+                            // Use userList variable for user foreign keys
+                            $foreignListVar = 'userList';
+                        } else {
+                            // Get potential model name from foreign table for variable access
+                            $foreignModelName = self::getProperClassName($foreignTable, true);
+                            $foreignListVar = lcfirst($foreignModelName) . 'List';
+                        }
+                        if ($isUserForeignKey) {
+                            $formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <?php if (is_array(\$this->{$foreignListVar}) && count(\$this->{$foreignListVar}) > 0): ?>
+                <!-- Foreign key field with available options from {$foreignTable} -->
+                <select id="{$field}" name="{$field}" class="form-control">
+                    <option value="">Select {$fieldName}</option>
+                    <?php foreach (\$this->{$foreignListVar} as \$item): ?>
+                        <?php 
+                        // Find suitable display field (first non-numeric field)
+                        \$selected = \$this->model->{$field} == \$item->{$foreignColumn} ? 'selected' : '';
+                        ?>
+                        <option value="<?php echo \$item->{$foreignColumn}; ?>" <?php echo \$selected; ?>>
+                            <?php echo htmlspecialchars(\$item->username); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <?php else: ?>
+                <!-- No foreign key data available, fallback to number input -->
+                <input type="number" value="<?php echo \$this->model->{$field}; ?>" step="1" id="{$field}" name="{$field}" class="form-control">
+                <small class="form-text text-muted">Foreign key to {$foreignTable} table</small>
+                <?php endif; ?>
+            </div>
+
+content;
+                        } else {
+                            $formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <?php if (is_array(\$this->{$foreignListVar}) && count(\$this->{$foreignListVar}) > 0): ?>
+                <!-- Foreign key field with available options from {$foreignTable} -->
+                <select id="{$field}" name="{$field}" class="form-control">
+                    <option value="">Select {$fieldName}</option>
+                    <?php foreach (\$this->{$foreignListVar} as \$item): ?>
+                        <?php 
+                        // Find suitable display field (first non-numeric field)
+                        \$displayField = null;
+                        \$itemData = \$item->getData();
+                        foreach (\$itemData as \$key => \$value) {
+                            // Skip the ID field for display purposes
+                            if (\$key != '{$foreignColumn}' && !is_numeric(\$value)) {
+                                \$displayField = \$key;
+                                break;
+                            }
+                        }
+                        // If no suitable display field found, use the foreign key
+                        \$displayField = \$displayField ?: '{$foreignColumn}';
+                        \$selected = \$this->model->{$field} == \$item->{$foreignColumn} ? 'selected' : '';
+                        ?>
+                        <option value="<?php echo \$item->{$foreignColumn}; ?>" <?php echo \$selected; ?>>
+                            <?php echo htmlspecialchars(\$item->{\$displayField}); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <?php else: ?>
+                <!-- No foreign key data available, fallback to number input -->
+                <input type="number" value="<?php echo \$this->model->{$field}; ?>" step="1" id="{$field}" name="{$field}" class="form-control">
+                <small class="form-text text-muted">Foreign key to {$foreignTable} table</small>
+                <?php endif; ?>
+            </div>
+
+content;
+                        }
+
+                    } else {
+                        switch ($basicType[0]) {
+                            case "tinyint":
+                            case "smallint":
+                            case "integer":
+                            case "int":
+                            case "mediumint":
+                            case "bigint":
+$formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <input type="number" value="<?php echo \$this->model->{$field}; ?>" step="1" id="{$field}" name="{$field}" class="form-control">
+            </div>
+
+content;
+                                break;
+
+                            case "float":
+                            case "double":
+$formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <input type="number" step="0.0001" value="<?php echo \$this->model->{$field}; ?>" id="{$field}" name="{$field}" class="form-control">
+            </div>
+
+content;
+                                break;
+
+                            case "bool":
+                            case "boolean":
+$formContent .= <<<content
+            <div class="form-group">
+            <label for="{$field}">{$fieldName}:</label>
+                <select id="{$field}" name="{$field}" class="form-control">
+                    <option <?php if (\$this->model->{$field} == 0): echo 'selected'; endif;?> value="0"><?php l('No');?></option>
+                    <option <?php if (\$this->model->{$field} == 1): echo 'selected'; endif;?> value="1"><?php l('Yes');?></option>
+                </select>
+            </div>
+
+content;
+                                break;
+
+                            case "timestamp":
+                            case "timestamptz":
+                            case "timestamp with time zone":
+                            case "timestamp without time zone":
+                            case "datetime":
+                            case "date":
+$formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <input type="datetime-local" value="<?php echo \$this->model->{$field} ? date('Y-m-d\\TH:i', strtotime(\$this->model->{$field})) : ''; ?>" id="{$field}" name="{$field}" class="form-control">
+            </div>
+
+content;
+                                break;
+
+                            case "text":
+$formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <textarea id="{$field}" name="{$field}" class="form-control"><?php echo \$this->model->{$field}; ?></textarea>
+            </div>
+
+content;
+                                break;
+
+                            default:
+$formContent .= <<<content
+            <div class="form-group">
+                <label for="{$field}">{$fieldName}:</label>
+                <input type="text" value="<?php echo \$this->model->{$field}; ?>" id="{$field}" name="{$field}" class="form-control">
+            </div>
+
+content;
+                                break;
+                        }
+                    }
+                }
+                $formContent .= "\n";
+            }
+
+            $editContent = <<<content
+<div class="card">
+    <div class="card-body">
+        <form action="[sURL]{$className}/save/<?php echo \$this->model->{$primaryKey}; ?>" method="post" role="form">
+
+{$formContent}
+
+            <div class="form-group">
+                <button type="submit" class="btn btn-primary"><?php l('Save'); ?></button>
+            </div>
+        </form>
+
+    </div>
+</div>
+content;
+
+            // Generate datatable columns for all fields
+            $datatableColumns = "";
+            foreach ($allFields as $field) {
+                $displayName = $field['display'];
+                $datatableColumns .= "\$datatable->addColumn('{$displayName}', true, true, true, '', '', true, 'left', true);\n";
+            }
+
+            $indexContent = <<<content
+<div class="card">
+    <div class="card-header">
+        <h1 class="page-head-line">
+            {$objectName} list
+        </h1>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-12">
+                <a href="<?php echo sURL; ?>{$className}/edit/0"><button type="button" class="btn btn-primary"><i class="fa fa-plus"></i> <?php l('New'); ?></button></a>
+            </div>
+            <br /><br />
+        </div>
+<?php
+\$datatable = new \Pramnos\Html\Datatable('{$name}', URL . '{$className}/get{$className}');
+
+{$datatableColumns}
+\$datatable->addColumn('Ενέργeιες');
+
+\$datatable->jui = false;
+\$datatable->bootstrap = true;
+echo \$datatable->render();
+?>
+    </div>
+</div>
+content;
+        }
+
+
+        $files[] = array (
+            'reason' => 'Index File',
+            'file' => $viewPath . DS . strtolower($name) . '.html.php',
+            'content' => $indexContent
+        );
+        $files[] = array (
+            'reason' => 'Edit Resource',
+            'file' => $viewPath . DS . 'edit.html.php',
+            'content' => $editContent
+        );
+        $files[] = array (
+            'reason' => 'Show Resource',
+            'file' => $viewPath . DS . 'show.html.php',
+            'content' => <<<content
+<div class="card">
+    <div class="card-header">
+        <h1 class="page-head-line">
+            View {$objectName}
+        </h1>
+    </div>
+    <div class="card-body">
+        <div class="row mb-3">
+            <div class="col-md-12">
+                <div class="btn-group">
+                    <a href="[sURL]{$className}" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back to List</a>
+                    <a href="[sURL]{$className}/edit/<?php echo \$this->model->{$primaryKey}; ?>" class="btn btn-primary"><i class="fa fa-edit"></i> Edit</a>
+                    <a onclick="return confirm('<?php l('Are you sure?');?>');" href="[sURL]{$className}/delete/<?php echo \$this->model->{$primaryKey}; ?>" class="btn btn-danger"><i class="fa fa-trash"></i> Delete</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped">
+                <tbody>
+                    <?php
+                    \$data = \$this->model->getData();
+                    foreach (\$data as \$field => \$value):
+                        // Convert field name to readable format
+                        \$displayName = ucwords(str_replace('_', ' ', \$field));
+                    ?>
+                        <tr>
+                            <th style="width: 30%"><?php echo \$displayName; ?></th>
+                            <td>
+                                <?php 
+                                if (is_bool(\$value)) {
+                                    echo \$value ? 'Yes' : 'No';
+                                } elseif (\$value === null) {
+                                    echo '<span class="text-muted">N/A</span>';
+                                } elseif (is_array(\$value) || is_object(\$value)) {
+                                    echo '<pre>' . htmlspecialchars(json_encode(\$value, JSON_PRETTY_PRINT)) . '</pre>';
+                                } else {
+                                    echo htmlspecialchars(\$value);
+                                }
+                                ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+content
+        );
+        $actualName = ucfirst($name);
+        $date = date('d/m/Y H:i');
+        $fileContent = <<<content
+<?php
+
+/**
+ * {$actualName} View
+ * REASON
+ * Auto generated at: {$date}
+ */
+
+defined('SP') or die('No startpoint defined...');
+content;
+        $fileContent .= "\n?"
+            . ">\nCONTENT";
+        $return = "Files: \n";
+        foreach ($files as $file) {
+            $return .= ' - ' . $file['file'] . "\n";
+            file_put_contents(
+                $file['file'],
+                str_replace(
+                    array('REASON', 'CONTENT', '[sURL]'),
+                    array($file['reason'], $file['content'], '<?php echo sURL;?>'),
+                    $fileContent
+                )
+            );
+        }
+
+        return $return . "\nView created.";
+
+    }
+
+    /**
+     * Creates a controller
+     * @param string $name Name of the controller to be created
+     * @param bool $full Create a full crud controller
+     */
+    protected function createApi($name)
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $path = ROOT . DS . INCLUDES . DS;
+
+        if (isset($application->applicationInfo['namespace'])) {
+            $namespace = $application->applicationInfo['namespace'];
+        } else {
+            $namespace = 'Pramnos';
+        }
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+            $path .= $application->appName . DS;
+        }
+        $namespace .= '\\Api\\Controllers';
+
+        $path .= 'Api/Controllers';
+        // Use the exact entity name provided by the user for API controllers
+        $className = ucfirst($name);
+        $filename = $path . DS . $className . '.php';
+
+        if (class_exists('\\' . $namespace . '\\'. $className)
+            || file_exists($filename)) {
+            throw new \Exception('Controller already exists.');
+        }
+        if (!file_exists($path)) {
+            mkdir($path);
+        }
+
+
+        
+
+        $date = date('d/m/Y H:i');
+        $fileContent = <<<content
+<?php
+namespace {$namespace};
+
+/**
+ * {$className} Controller
+ * Auto generated at: {$date}
+ */
+class {$className} extends \Pramnos\Application\Controller
+{
+
+    /**
+     * {$className} controller constructor
+     * @param Application \$application
+     */
+    public function __construct(?\Pramnos\Application\Application \$application = null)
+    {
+        parent::__construct(\$application);
+    }
+    
+
+content;
+        
+            $database = \Pramnos\Database\Database::getInstance();
+            $viewName = strtolower($name);
+            $modelNameSpace = str_replace("Api\Controllers", "Models", $namespace);
+            
+            // Use the entity name provided by user for the model class name
+            $modelClass = self::getProperClassName($name, true);
+            $modelClassLower = strtolower($modelClass);
+            
+            // Look up the model in the registry to get correct namespace if it exists
+            $modelInfo = $this->lookupModel($name, true);
+            
+            // If we found the model in the registry, use its namespace
+            if ($modelInfo['foundBy'] === 'registry' || $modelInfo['foundBy'] === 'registry_name_match') {
+                $modelNameSpace = $modelInfo['namespace'];
+                // But still use the user-specified entity name for the class
+                $modelClass = self::getProperClassName($name, true);
+            }
+
+            if ($this->dbtable != null) {
+                $tableName = $this->dbtable;
+            } else {
+                $tableName = self::getModelTableName($name);
+            }
+            
+
+
+            if (!$database->tableExists($tableName)) {
+                throw new \Exception(
+                    'Table: ' . $tableName . ' does not exist.'
+                );
+            }
+            $result = $database->getColumns($tableName, $this->schema);
+
+
+            $saveContent = '';
+            $updateContent = '';
+            $returnContent = '';
+            $postContent = '';
+            $putContent = '';
+            $primaryKey = '';
+
+            $routerContent = '';
+
+            while ($result->fetch()) {
+                $primary = false;
+                if ($database->type == 'postgresql') {
+                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                    }
+                } elseif (isset($result->fields['Key'])
+                    && $result->fields['Key'] == 'PRI') {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                }
+                $basicType = explode('(', $result->fields['Type']);
+                switch ($basicType[0]) {
+                    case "tinyint":
+                    case "smallint":
+                    case "integer":
+                    case "int":
+                    case "mediumint":
+                    case "bigint":
+
+                        $returnContent .= '     * @apiSuccess {Number} data.' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                        if (!$primary) {
+                            if ($result->fields['Null'] == 'YES') {
+                                $saveContent .= '     * @apiBody {Number} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\', \'int\');' . "\n";
+                                $postContent .= '        if ($model->' . $result->fields['Field'] . ' == 0) {' . "\n";
+                                $postContent .= '            $model->' . $result->fields['Field'] . ' = null;' . "\n";
+                                $postContent .= '        }' . "\n";
+                            } else {
+                                $saveContent .= '     * @apiBody {Number} ' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', 0, \'post\', \'int\');' . "\n";
+                            }
+                            $updateContent .= '     * @apiBody {Number} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                            $putContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\', \'int\');' . "\n";
+                            
+                        }
+                        break;
+                    case "float":
+                    case "double":
+                        $returnContent .= '     * @apiSuccess {Number} data.' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                        if (!$primary) {
+                            if ($result->fields['Null'] == 'YES') {
+                                $saveContent .= '     * @apiBody {Number} [' . $result->fields['Field'] . ']  ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\');' . "\n";
+                                $postContent .= '        if ($model->' . $result->fields['Field'] . ' == 0) {' . "\n";
+                                $postContent .= '            $model->' . $result->fields['Field'] . ' = null;' . "\n";
+                                $postContent .= '        }' . "\n";
+                            } else {
+                                $saveContent .= '     * @apiBody {Number} ' . $result->fields['Field'] . '  ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', 0, \'post\');' . "\n";
+                            }
+                            $updateContent .= '      * @apiBody {Number} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                            $putContent .= '        $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\');' . "\n";
+                        }
+                        break;
+                    case "bool":
+                    case "boolean":
+                        $returnContent .= '     * @apiSuccess {Boolean} data.' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                        if (!$primary) { 
+                            $postContent .= '        $tmpVar = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\');' . "\n";
+                            $postContent .= '        if ($tmpVar == \'true\' || $tmpVar == \'on\' || $tmpVar == "yes" || $tmpVar === \'1\' || $tmpVar === 1) {' . "\n";
+                            $postContent .= '            $tmpVar = true; ' . "\n";
+                            $postContent .= '        } else { ' . "\n";
+                            $postContent .= '            $tmpVar = false; ' . "\n";
+                            $postContent .= '        } ' . "\n";
+                            $saveContent .= '      * @apiBody {Boolean} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                            $postContent .= '        $model->' . $result->fields['Field'] . ' = $tmpVar;' . "\n";   
+                        }
+                        $updateContent .= '     * @apiBody {Boolean} [' . $result->fields['Field'] . ']  ' . $result->fields['Comment'] . "\n";
+                        $putContent .= '       $model->' . $result->fields['Field'] . ' = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\', \'int\');' . "\n";
+                        break;
+                    case "json":
+                        $returnContent .= '     * @apiSuccess {JSON} data.' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                        if (!$primary) {
+                            if ($result->fields['Null'] == 'YES') {
+                                $saveContent .= '     * @apiBody {JSON} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\'));' . "\n";
+                            } else {
+                                $saveContent .= '     * @apiBody {JSON} ' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', \'\', \'post\'));' . "\n";
+                            }
+                            $updateContent .= '     * @apiBody {JSON} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                            $putContent .= '        $model->' . $result->fields['Field'] . ' = trim(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\'));' . "\n";
+                        }
+                        break;
+                    default:
+                        $returnContent .= '     * @apiSuccess {String} data.' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                        if (!$primary) {
+                            if ($result->fields['Null'] == 'YES') {
+                                $saveContent .= '     * @apiBody {String} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(strip_tags(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\')));' . "\n";
+                            } else {
+                                $saveContent .= '     * @apiBody {String} ' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(strip_tags(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', \'\', \'post\')));' . "\n";
+                            }
+                            $updateContent .= '     * @apiBody {String} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
+                            $putContent .= '        $model->' . $result->fields['Field'] . ' = trim(strip_tags(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\')));' . "\n";
+                        }
+                        break;
+                }
+
+            }
+
+
+            // Generate field list for API documentation
+            $fieldList = '';
+            $result = $database->getColumns($tableName, $this->schema);
+            $fields = array();
+            while ($result->fetch()) {
+                $fields[] = $result->fields['Field'];
+            }
+            $fieldList = implode(', ', $fields);
+
+            $fileContent .= <<<content
+    /**
+     * @api {get} 1.0/$modelClassLower List
+     * @apiVersion 1.0.0
+     * @apiGroup $modelClass
+     * @apiName list$modelClass
+     * @apiDescription List of $modelClass objects with pagination, search, sorting and field selection
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     *
+     * @apiParam  {Number} [page=0] Page number for pagination. Set to 0 to get all results
+     * @apiParam  {Number} [limit=20] Limit number of results per page
+     * @apiParam  {String} [sort] Sort by field. Syntax: [+-]fieldname,[+-]fieldname. You can use the following fields: $fieldList
+     * @apiParam  {String} [search] Global search term. You can use this to search across all fields.
+     *                              It also supports input for specific search fields using JSON format,
+     *                              like: {\"field1\": \"value1\", \"field2\": \"value2\"}
+     * @apiParam  {String} [fields] Specify which fields you want returned by using the fields parameter 
+     *                              and listing each field. This overrides the defaults and returns only 
+     *                              the fields you specify, and the ID of the object, which is always returned.
+     *                              Can be comma-separated string or JSON array: \"field1,field2\" or [\"field1\",\"field2\"]
+     *
+     * @apiSuccess {Array} data List of $modelClass objects
+     * @apiSuccess {Object} [pagination] Pagination information (only when page > 0)
+     * @apiSuccess {Number} pagination.currentpage Current page number
+     * @apiSuccess {Number} pagination.itemsperpage Items per page
+     * @apiSuccess {Number} pagination.totalitems Total number of items
+     * @apiSuccess {Number} pagination.totalpages Total number of pages
+     * @apiSuccess {Boolean} pagination.hasnext Whether there is a next page
+     * @apiSuccess {Boolean} pagination.hasprevious Whether there is a previous page
+     * @apiSuccess {Array} fields List of fields included in the response
+$returnContent
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     */
+    public function display()
+    {
+        if (!isset(\$_SESSION['user']) || !is_object(\$_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        \$user = \$_SESSION['user'];
+        if (\$user->userid < 2) {
+            return array('status' => 401);
+        }
+        
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        
+        // Get parameters from request
+        \$fields = \Pramnos\Http\Request::staticGet('fields', array(), 'get');
+        \$search = \Pramnos\Http\Request::staticGet('search', '', 'get');
+        \$sort = \Pramnos\Http\Request::staticGet('sort', '', 'get');
+        \$page = (int) \Pramnos\Http\Request::staticGet('page', 0, 'get', 'int');
+        \$limit = (int) \Pramnos\Http\Request::staticGet('limit', 20, 'get', 'int');
+        
+        // Use the new getApiList method for enhanced pagination, search, and field selection
+        return \$model->getApiList(
+            \$fields, 
+            \$search, 
+            \$sort, 
+            \$page, 
+            \$limit,
+            false, // debug
+            false, // returnAsModels
+            false   // useGetData
+        );
+    }
+
+    /**
+     * @api {get} 1.0/$modelClassLower/:$primaryKey Read
+     * @apiVersion 1.0.0
+     * @apiGroup $modelClass
+     * @apiName read$modelClass
+     * @apiDescription Read a specific $modelClass object
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * @apiParam  {Number} $primaryKey Id to load
+     *
+     * @apiSuccess {{$modelClass}} data A $modelClass object
+$returnContent
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function read$modelClass(\$$primaryKey)
+    {
+        if (!isset(\$_SESSION['user']) || !is_object(\$_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        \$user = \$_SESSION['user'];
+        if (\$user->userid < 2) {
+            return array('status' => 401);
+        }
+        
+        
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$model->load(\$$primaryKey);
+        if (\$model->$primaryKey == 0) {
+            return array(
+                'status' => 404
+            );
+        }
+        \$data = \$model->getData();
+        return array('data' => \$data);
+    }
+
+    /**
+     * @api {post} 1.0/$modelClassLower Create
+     * @apiVersion 1.0.0
+     * @apiGroup $modelClass
+     * @apiName create$modelClass
+     * @apiDescription Create a $modelClass
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * 
+$saveContent
+     *
+     * @apiSuccess {{$modelClass}} data A $modelClass object
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function create$modelClass()
+    {
+        if (!isset(\$_SESSION['user']) || !is_object(\$_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        \$user = \$_SESSION['user'];
+        
+        
+
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+
+ 
+$postContent
+        
+
+        \$model->save();
+        
+        return array(
+            'status' => 201,
+            'data' => \$model->getData()
+        );
+    }
+
+
+    /**
+     * @api {put} 1.0/$modelClassLower/:$primaryKey Update
+     * @apiVersion 1.0.0
+     * @apiGroup $modelClass
+     * @apiName update$modelClass
+     * @apiDescription Update a specific $modelClass object
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * @apiParam  {Number} $primaryKey Id to update
+     * 
+     * 
+$updateContent
+     * @apiSuccess {{$modelClass}} data A $modelClass object
+     * 
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function update$modelClass(\$$primaryKey)
+    {
+        if (!isset(\$_SESSION['user']) || !is_object(\$_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        \$user = \$_SESSION['user'];
+        
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$model->load((int) \$$primaryKey);
+        if (\$model->$primaryKey == 0) {
+            return array(
+                'status' => 404
+            );
+        }
+
+ 
+$putContent
+
+        
+        \$model->save();
+        return array(
+            'status' => 202,
+            'data' => \$model->getData()
+        );
+    }
+
+    /**
+     * @api {delete} 1.0/$modelClassLower/:$primaryKey Delete
+     * @apiVersion 1.0.0
+     * @apiGroup $modelClass
+     * @apiName delte$modelClass
+     * @apiDescription Delete a $modelClass
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * @apiParam  {Number} $primaryKey Id to delete
+     *
+     *
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function delete$modelClass(\$$primaryKey)
+    {
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$model->load((int) \$$primaryKey);
+        if (\$model->$primaryKey == 0) {
+            return array(
+                'status' => 404
+            );
+        }
+        \$model->delete(\$$primaryKey);
+        return array(
+            'status' => 202
+        );
+
+    }
+
+
+
+}
+content;
+
+
+$routerContent = <<<content
+\$router->delete(
+    '/$modelClassLower/{{$primaryKey}}',
+    function (\$$primaryKey) {
+        \$controller = \$this->getController('$className');
+        return \$controller->delete$modelClass(\$$primaryKey);
+    }
+);
+
+\$router->put(
+    '/$modelClassLower/{{$primaryKey}}',
+    function (\$$primaryKey) {
+        \$controller = \$this->getController('$className');
+        return \$controller->update$modelClass(\$$primaryKey);
+    }
+);
+
+\$router->get(
+    '/$modelClassLower/{{$primaryKey}}',
+    function (\$$primaryKey) {
+        \$controller = \$this->getController('$className');
+        return \$controller->read$modelClass(\$$primaryKey);
+    }
+);
+
+\$router->get(
+    '/$modelClassLower',
+    function () {
+        \$controller = \$this->getController('$className');
+        return \$controller->display();
+    }
+);
+
+\$router->post(
+    '/$modelClassLower',
+    function () {
+        \$controller = \$this->getController('$className');
+        return \$controller->create$modelClass();
+    }
+);
+
+content;
+
+
+      
+        file_put_contents($filename, $fileContent);
+
+
+
+        $routerFile = ROOT . '/src/Api/routes.php';
+        $routerContentOriginal = file_get_contents($routerFile);
+        if (strpos($routerContentOriginal, $routerContent) === false) {
+            $routerContentOriginal = str_replace(
+                'return $router->dispatch($newRequest);',
+                $routerContent . "\n\n" . 'return $router->dispatch($newRequest);',
+                $routerContentOriginal
+            );
+            file_put_contents($routerFile, $routerContentOriginal);
+        }
+
+
+        return "Namespace: {$namespace}\n"
+            . "Class: {$className}\n"
+            . "File: {$filename}\n\nController created. \n";
+    }
+
+    /**
+     * Creates a controller
+     * @param string $name Name of the controller to be created
+     * @param bool $full Create a full crud controller
+     */
+    protected function createController($name, $full = false)
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+        $output = $this->output;
+        $path = ROOT . DS . INCLUDES . DS;
+
+        if (isset($application->applicationInfo['namespace'])) {
+            $namespace = $application->applicationInfo['namespace'];
+        } else {
+            $namespace = 'Pramnos';
+        }
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+            $path .= $application->appName . DS;
+        }
+        $namespace .= '\\Controllers';
+
+        $path .= 'Controllers';
+        $lastLetter = substr($name, -1);
+        $className = self::getProperClassName($name, false);
+        $filename = $path . DS . $className . '.php';
+
+
+        if (class_exists('\\' . $namespace . '\\'. $className)
+            || file_exists($filename)) {
+            throw new \Exception('Controller already exists.');
+        }
+        if (!file_exists($path)) {
+            mkdir($path);
+        }
+        $date = date('d/m/Y H:i');
+        $fileContent = <<<content
+<?php
+namespace {$namespace};
+
+/**
+ * {$className} Controller
+ * Auto generated at: {$date}
+ */
+class {$className} extends \Pramnos\Application\Controller
+{
+
+    /**
+     * {$className} controller constructor
+     * @param Application \$application
+     */
+    public function __construct(?\Pramnos\Application\Application \$application = null)
+    {
+        \$this->addAuthAction(
+            array('edit', 'save', 'delete', 'show', 'get{$className}')
+        );
+        parent::__construct(\$application);
+    }
+    
+
+content;
+        if (!$full) {
+            // Simple controller skeleton generated from stub — no DB introspection needed
+            $viewName    = strtolower($name);
+            $fileContent = $this->renderStub('controller', [
+                'namespace' => $namespace,
+                'class'     => $className,
+                'view'      => $viewName,
+            ]);
+
+            if (file_put_contents($filename, $fileContent) === false) {
+                throw new \Exception('Cannot write controller file.');
+            }
+
+            $testLine = $this->generateTestStub(
+                $className,
+                $namespace,
+                defined('ROOT') ? ROOT : getcwd(),
+                'controller_test'
+            );
+
+            return "Namespace: {$namespace}\n"
+                 . "Class:     {$className}\n"
+                 . "File:      {$filename}\n"
+                 . $testLine
+                 . "\nController created.";
+        } else {
+            $database = \Pramnos\Database\Database::getInstance();
+            $viewName = strtolower($name);
+            
+            // Look up the model in the registry first
+            $modelInfo = $this->lookupModel($name, true);
+            $modelNameSpace = $modelInfo['namespace'];
+            $modelClass = $modelInfo['className'];
+            
+            // If we found the model in the registry, use that information
+            if ($modelInfo['foundBy'] === 'registry' || $modelInfo['foundBy'] === 'registry_name_match') {
+                $output->writeln("Using model " . $modelClass . " found in registry");
+            }
+
+            if ($this->dbtable != null) {
+                $tableName = $this->dbtable;
+            } else {
+                $tableName = self::getModelTableName($name);
+            }
+
+
+            if (!$database->tableExists($tableName)) {
+                throw new \Exception(
+                    'Table: ' . $tableName . ' does not exist.'
+                );
+            }
+            $result = $database->getColumns($tableName, $this->schema);
+
+
+            $saveContent = '';
+            $foreignKeyModels = array();
+            $editContent = '';
+
+            $primaryKey = '';
+            $firstField = ''; // Initialize firstField variable
+            $count = 0;
+            while ($result->fetch()) {
+                $count++;
+                $primary = false;
+                if ($database->type == 'postgresql') {
+                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                    }
+                } elseif (isset($result->fields['Key'])
+                    && $result->fields['Key'] == 'PRI') {
+                        $primaryKey = $result->fields['Field'];
+                        $primary = true;
+                }
+                
+                // Store the second field as the first non-primary field for display
+                if ($count == 2 && !$primary) {
+                    $firstField = $result->fields['Field'];
+                } else if ($count > 2 && empty($firstField) && !$primary) {
+                    // If the second field was the primary key, use the next non-primary field
+                    $firstField = $result->fields['Field'];
+                }
+                
+                // Check if this is a foreign key field
+                $isForeignKey = false;
+                if ($database->type == 'postgresql') {
+                    $isForeignKey = $result->fields['ForeignKey'] == 't' || $result->fields['ForeignKey'] === true;
+                } else {
+                    $isForeignKey = !empty($result->fields['ForeignKey']);
+                }
+                
+                // If this is a foreign key, store information to load related models
+                if ($isForeignKey && !empty($result->fields['ForeignTable'])) {
+                    $foreignTable = $result->fields['ForeignTable'];
+                    $foreignSchema = $result->fields['ForeignSchema'];
+                    $foreignColumn = $result->fields['ForeignColumn'];
+                    
+                    // Special handling for user foreign keys
+                    $isUserForeignKey = ($foreignColumn == 'userid' && ($foreignTable == 'users' || $foreignTable == '#PREFIX#users'));
+                    
+                    if (!$isUserForeignKey) {
+                        // Get potential model name from foreign table
+                        $foreignModelName = self::getProperClassName($foreignTable, true);
+                        
+                        // Check if foreign model exists
+                        $foreignModelClass = "\\{$modelNameSpace}\\{$foreignModelName}";
+                        $foreignModelFile = $path . "/../Models/{$foreignModelName}.php";
+                        
+                        // Store foreign key information
+                        $foreignKeyModels[$result->fields['Field']] = [
+                            'table' => $foreignTable,
+                            'schema' => $foreignSchema,
+                            'column' => $foreignColumn,
+                            'modelClass' => $foreignModelName,
+                            'modelNamespace' => $modelNameSpace,
+                            'field' => $result->fields['Field'],
+                            'exists' => file_exists($foreignModelFile),
+                            'isUserForeignKey' => false
+                        ];
+
+                        // Check the model registry for the foreign model
+                        $registryFile = ROOT . DS . 'app' . DS . 'model-registry.json';
+                        if (file_exists($registryFile)) {
+                            $registry = json_decode(file_get_contents($registryFile), true);
+                            if (json_last_error() === JSON_ERROR_NONE && is_array($registry)) {
+                                foreach ($registry as $model) {
+                                    if (isset($model['table']) && $model['table'] === $foreignTable) {
+                                        $foreignKeyModels[$result->fields['Field']]['modelClass'] = $model['className'];
+                                        $foreignKeyModels[$result->fields['Field']]['modelNamespace'] = $model['namespace'];
+                                        $foreignKeyModels[$result->fields['Field']]['exists'] = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Special handling for user foreign keys
+                        $foreignKeyModels[$result->fields['Field']] = [
+                            'table' => $foreignTable,
+                            'schema' => $foreignSchema,
+                            'column' => $foreignColumn,
+                            'field' => $result->fields['Field'],
+                            'isUserForeignKey' => true
+                        ];
+                    }
+                }
+                
+                $basicType = explode('(', $result->fields['Type']);
+                if (!$primary) {
+                    switch ($basicType[0]) {
+                        case "tinyint":
+                        case "smallint":
+                        case "integer":
+                        case "int":
+                        case "mediumint":
+                        case "bigint":
+                            $saveContent .= '        $model->'
+                                . $result->fields['Field']
+                                . ' = $request->get(\''
+                                . $result->fields['Field']
+                                . '\', \'\', \'post\', \'int\');'
+                                . "\n";
+                            break;
+                        case "float":
+                        case "double":
+                            $saveContent .= '        $model->'
+                                . $result->fields['Field']
+                                . ' = (float) $request->get(\''
+                                . $result->fields['Field']
+                                . '\', \'\', \'post\');'
+                                . "\n";
+                            break;
+                        case "bool":
+                        case "boolean":
+                            $saveContent .= '        $model->'
+                                . $result->fields['Field']
+                                . ' = (bool) $request->get(\''
+                                . $result->fields['Field']
+                                . '\', \'\', \'post\');' . "\n";
+                            break;
+                        default:
+                            $saveContent .= '        $model->'
+                                . $result->fields['Field']
+                                . ' = trim('
+                                . "\n            strip_tags(\n"
+                                . '                $request->get(\''
+                                . $result->fields['Field']
+                                . '\', \'\', \'post\')'
+                                . "\n            )"
+                                . "\n        );\n";
+                            break;
+                    }
+                }
+
+            }
+
+            // Create code to load related models for foreign keys
+            $loadForeignModelsContent = '';
+            foreach ($foreignKeyModels as $field => $fkInfo) {
+                if (isset($fkInfo['exists']) && $fkInfo['exists']) {
+                    $varName = lcfirst($fkInfo['modelClass']) . 'List';
+                    $loadForeignModelsContent .= '        // Load ' . $fkInfo['modelClass'] . ' data for foreign key ' . $field . "\n";
+                    $loadForeignModelsContent .= '        $' . $varName . ' = new \\' . $fkInfo['modelNamespace'] . '\\' . $fkInfo['modelClass'] . '($this);' . "\n";
+                    $loadForeignModelsContent .= '        $view->' . $varName . ' = $' . $varName . '->getList();' . "\n\n";
+                } elseif (isset($fkInfo['isUserForeignKey']) && $fkInfo['isUserForeignKey']) {
+                    $loadForeignModelsContent .= '        // Load user data for foreign key ' . $field . "\n";
+                    $loadForeignModelsContent .= '        $view->userList = \Pramnos\User\User::getUsers();' . "\n\n";
+                }
+            }
+
+            $fileContent .= <<<content
+    /**
+     * Display a listing of the resource
+     * @return string
+     */
+    public function display()
+    {
+        \$view = \$this->getView('{$viewName}');
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+
+        \$view->items = \$model->getList();
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = '{$className}';
+        return \$view->display();
+    }
+
+    /**
+     * Display the specified resource
+     * @return string
+     */
+    public function show()
+    {
+        \$view = \$this->getView('{$viewName}');
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+        \$view->addModel(\$model);
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        \$this->application->addbreadcrumb('View ' . \$model->{$primaryKey}, sURL . '{$className}/show/' . \$model->{$primaryKey});
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = \$model->{$primaryKey} . ' | {$className}';
+        return \$view->display('show');
+    }
+
+    /**
+     * Show the form for creating a new resource or editing an existing one
+     * @return string
+     */
+    public function edit()
+    {
+        \$view = \$this->getView('{$viewName}');
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+        \$view->addModel(\$model);
+
+{$loadForeignModelsContent}
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        if (\$model->{$primaryKey} > 0) {
+            \$this->application->addbreadcrumb('View ' . \$model->{$primaryKey}, sURL . '{$className}/show/' . \$model->{$primaryKey});
+            \$this->application->addbreadcrumb('Edit', sURL . '{$className}/edit/' . \$model->{$primaryKey});
+        } else {
+            \$this->application->addbreadcrumb('Create', sURL . '{$className}/edit/0');
+        }
+        
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = (\$model->{$primaryKey} > 0 ? 'Edit' : 'Create') . ' | {$className}';
+        
+        return \$view->display('edit');
+    }
+
+    /**
+     * Store a newly created or edited resource in storage.
+     */
+    public function save()
+    {
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+{$saveContent}
+        \$model->save();
+        \$this->redirect(sURL . '{$className}');
+    }
+
+    /**
+     * Remove the specified resource from storage
+     */
+    public function delete()
+    {
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->delete(\$request->getOption());
+        \$this->redirect(sURL . '{$className}');
+    }
+
+    /**
+     * Returns the resource in JSON format
+     * @return string
+     */
+    public function get{$className}()
+    {
+        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
+        \Pramnos\Framework\Factory::getDocument('json');
+        return \$model->getJsonList((bool)\Pramnos\Http\Request::staticGet('multiple', 0, 'int', 'get'));
+    }
+
+    /**
+     * Get an API-formatted list with pagination, field selection, and search capabilities
+     * @param array \$fields Array of field names to include in response. If empty, includes all fields
+     * @param string|array \$search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
+     * @param string \$order Order by clause (e.g., "field ASC" or "field DESC")
+     * @param int \$page Current page number (1-based, 0 = no pagination)
+     * @param int \$itemsPerPage Number of items per page (ignored if \$page = 0)
+     * @param bool \$debug Show debug information
+     * @param bool \$returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param bool \$useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @return array API response with pagination info and data
+     */
+    public function getApiList(\$fields = array(), \$search = '', 
+        \$order = '', \$page = 0, \$itemsPerPage = 10, 
+        \$debug = false, \$returnAsModels = false, \$useGetData = true)
+    {
+        return parent::_getApiList(
+            \$fields, \$search, \$order, '', '', '',
+            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
+        );
+    }
+
+}
+content;
+        }        file_put_contents($filename, $fileContent);
+
+        $testLine = $this->generateTestStub(
+            $className,
+            $namespace,
+            defined('ROOT') ? ROOT : getcwd(),
+            'controller_test'
+        );
+
+        return "Namespace: {$namespace}\n"
+            . "Class: {$className}\n"
+            . "File: {$filename}\n"
+            . $testLine
+            . "\nController created.";
+    }
+
+
+    /**
+     * Creates a model
+     * @param string $name Model name
+     */
+    protected function createModel($name)
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+        $database = \Pramnos\Database\Database::getInstance();
+        if ($this->dbtable != null) {
+            $tableName = $this->dbtable;
+        } else {
+            $tableName = self::getModelTableName($name);
+        }
+        
+
+        // Compute namespace/path/className before the table check so the stub
+        // fallback path can use them without repeating the logic.
+        $path = ROOT . DS . INCLUDES . DS;
+
+        if (isset($application->applicationInfo['namespace'])) {
+            $namespace = $application->applicationInfo['namespace'];
+        } else {
+            $namespace = 'Pramnos';
+        }
+        if ($application->appName != '') {
+            $namespace .= '\\' . $application->appName;
+            $path .= $application->appName . DS;
+        }
+        $namespace .= '\\Models';
+        $path .= 'Models';
+
+        $className = self::getProperClassName($name, true);
+        $filename  = $path . DS . $className . '.php';
+
+        if (!$database->tableExists($tableName)) {
+            // Table doesn't exist yet — generate a stub skeleton so schema-first
+            // workflows (write migration first, then model) work without a DB round-trip.
+            if (!is_dir($path)) {
+                mkdir($path, 0755, true);
+            }
+            if (file_exists($filename)) {
+                throw new \Exception('Model already exists: ' . $filename);
+            }
+            $content = $this->renderStub('model', [
+                'namespace'  => $namespace,
+                'class'      => $className,
+                'table'      => $tableName,
+                'primaryKey' => $this->getSingularPrimaryKey($tableName),
+            ]);
+            if (file_put_contents($filename, $content) === false) {
+                throw new \Exception('Cannot write model file.');
+            }
+            $testLine = $this->generateTestStub(
+                $className, $namespace, defined('ROOT') ? ROOT : getcwd()
+            );
+            return "Namespace: {$namespace}\n"
+                 . "Class:     {$className}\n"
+                 . "File:      {$filename}\n"
+                 . $testLine
+                 . "\nModel skeleton created (table '{$tableName}' not found — fill in properties after running the migration).";
+        }
+
+        $result = $database->getColumns($tableName, $this->schema);
+        
+        $isUpdate = false;
+        if (class_exists('\\' . $namespace . '\\'. $className)
+            && file_exists($filename)) {  
+            $isUpdate = true;
+            $updateResult = $this->updateModel('\\' . $namespace . '\\'. $className, $result, $filename);
+            
+            // Check if getApiList method exists, if not, add it
+            $fileContents = file_get_contents($filename);
+            if (strpos($fileContents, 'function getApiList(') === false) {
+                // Find the position just before the last closing brace
+                $lastBracePosition = strrpos($fileContents, '}');
+                
+                if ($lastBracePosition !== false) {
+                    $getApiListMethod = "
+    /**
+     * Get an API-formatted list with pagination, field selection, and search capabilities
+     * @param array \$fields Array of field names to include in response. If empty, includes all fields
+     * @param string|array \$search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
+     * @param string \$order Order by clause (e.g., \"field ASC\" or \"field DESC\")
+     * @param int \$page Current page number (1-based, 0 = no pagination)
+     * @param int \$itemsPerPage Number of items per page (ignored if \$page = 0)
+     * @param bool \$debug Show debug information
+     * @param bool \$returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param bool \$useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @return array API response with pagination info and data
+     */
+    public function getApiList(\$fields = array(), \$search = '', 
+        \$order = '', \$page = 0, \$itemsPerPage = 10, 
+        \$debug = false, \$returnAsModels = false, \$useGetData = true)
+    {
+        return parent::_getApiList(
+            \$fields, \$search, \$order, '', '', '',
+            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
+        );
+    }
+
+";
+                    
+                    // Insert the method just before the last closing brace
+                    $newFileContents = substr_replace($fileContents, $getApiListMethod, $lastBracePosition, 0);
+                    file_put_contents($filename, $newFileContents);
+                }
+            }
+        } elseif (class_exists('\\' . $namespace . '\\'. $className)
+            && file_exists($filename)) {  
+                throw new \Exception(
+                    'Model already exists and cannot be updated'
+                );
+        }
+        if (!file_exists($path)) {
+            mkdir($path);
+        }
+
+
+        $date = date('d/m/Y H:i');
+        $fileContent = <<<content
+<?php
+namespace {$namespace};
+
+/**
+ * {$className} Model
+ * Auto generated at: {$date}
+ */
+class {$className} extends \Pramnos\Application\Model
+{
+
+
+    
+
+content;
+
+        if ($this->schema != '') {
+            $fileContent .= <<<content
+    /**
+     * Database schema
+     * @var string
+     */
+    protected \$_dbschema = '{$this->schema}';
+
+content;
+        }
+
+        $arrayFix = '';
+        $foreignFixes = '';
+        $primaryKey = '';
+        $firstNonPrimaryField = '';
+        $count = 0;
+        
+        // First pass - find primary key and first non-primary field
+        $result = $database->getColumns($tableName, $this->schema);
+        while ($result->fetch()) {
+            $count++;
+            $isPrimary = false;
+            if ($database->type == 'postgresql') {
+                if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
+                    $primaryKey = $result->fields['Field'];
+                    $isPrimary = true;
+                }
+            } elseif (isset($result->fields['Key']) && $result->fields['Key'] == 'PRI') {
+                $primaryKey = $result->fields['Field'];
+                $isPrimary = true;
+            }
+            
+            // Get the first non-primary field to use for display
+            if (!$isPrimary && empty($firstNonPrimaryField)) {
+                $firstNonPrimaryField = $result->fields['Field'];
+            }
+        }
+        
+        // If no field was found, use 'name' as a fallback
+        if (empty($firstNonPrimaryField)) {
+            $firstNonPrimaryField = 'name';
+        }
+        
+        // Get columns again for the second pass since we can't rewind/reset the previous result
+        $result = $database->getColumns($tableName, $this->schema);
+
+        // Store all field names for the getJsonList method
+        $allFields = array();
+        
+        while ($result->fetch()) {
+            $primary = false;
+            if ($database->type == 'postgresql') {
+                if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
+                    $primaryKey = $result->fields['Field'];
+                    $primary = true;
+                }
+            } elseif (isset($result->fields['Key'])
+                && $result->fields['Key'] == 'PRI') {
+                    $primaryKey = $result->fields['Field'];
+                    $primary = true;
+            }
+            
+            // Store field name for use in getJsonList
+            $allFields[] = $result->fields['Field'];
+            
+            $type = 'string';
+            $basicType = explode('(', $result->fields['Type']);
+            switch ($basicType[0]) {
+                case "tinyint":
+                case "smallint":
+                case "integer":
+                case "int":
+                case "mediumint":
+                case "bigint":
+                    if ($database->type == 'postgresql' && $result->fields['ForeignKey'] == "t") {
+                        $foreignFixes .= '        if ($this->' . $result->fields['Field'] . ' == 0) {' . "\n";
+                        $foreignFixes .= '            $this->' . $result->fields['Field'] . ' = null;' . "\n";
+                        $foreignFixes .= '        }' . "\n";
+                    }
+                    $type = 'int';
+                    $arrayFix .= '        if (isset($data[\'' . $result->fields['Field'] . '\']) &&  $data[\'' . $result->fields['Field'] . '\'] !== null) {' . "\n";
+                    $arrayFix .= '            $data[\'' . $result->fields['Field'] . '\'] = (int) $this->' . $result->fields['Field'] . ";\n";
+                    $arrayFix .= '        }' . "\n";
+                    break;
+                case "decimal":
+                case "numeric":
+                case "float":
+                case "double":
+                    $type = 'float';
+                    $arrayFix .= '        if (isset($data[\'' . $result->fields['Field'] . '\']) &&  $data[\'' . $result->fields['Field'] . '\'] !== null) {' . "\n";
+                    $arrayFix .= '            $data[\'' . $result->fields['Field'] . '\'] = (float) $this->' . $result->fields['Field'] . ";\n";
+                    $arrayFix .= '        }' . "\n";
+                    break;
+                case "bool":
+                case "boolean":
+                    $type = 'bool';
+                    $arrayFix .= '        $data[\'' . $result->fields['Field'] . '\'] = (bool) $this->' . $result->fields['Field'] . ";\n";
+                    break;
+                default: 
+                    $type = 'string';
+                    break;
+            }
+
+            $fileContent .= "    /**\n";
+            if ($result->fields['Comment'] != '') {
+                $fileContent .= "     * "
+                    . $result->fields['Comment']
+                    . "\n";
+            }
+            if ($primary) {
+                if ($result->fields['Comment'] != '') {
+                    $fileContent .= "     * Primary Key \n";
+                } else {
+                    $fileContent .= "     * (Primary Key) \n";
+                }
+            }
+            $fileContent .= "     * @var "
+                . $type
+                . "\n"
+                . "     */\n"
+                . "    public $"
+                . $result->fields['Field']
+                . ";\n";
+        }
+        if ($primaryKey != '') {
+            $fileContent .= "    /**\n"
+                . "     * Primary key in database\n"
+                . "     * @var string\n"
+                . "     */\n"
+                . '    protected $_primaryKey = "'
+                . $primaryKey
+                . "\";\n\n";
+        }
+        $fileContent .= "    /**\n"
+            . "     * Database table\n"
+            . "     * @var string\n"
+            . "     */\n"
+            . '    protected $_dbtable = "'
+            . $tableName
+            . "\";\n\n";
+
+        $primaryKeyVal = '$primaryKey';
+        if ($primaryKey != '') {
+            $primaryKeyVal = '$' . $primaryKey;
+        }
+
+        // Get the controller name here once, before generating the model
+        $controllerName = self::getProperClassName($name, false);
+
+        $theFieldsTxt = '';
+        $lastField = end($allFields);
+        foreach ($allFields as $field) {
+            $theFieldsTxt .= '            \'' . $field . '\'';
+            if ($field !== $lastField) {
+                $theFieldsTxt .= ',';
+            }
+            $theFieldsTxt .= "\n";
+        }
+
+
+        $fileContent .= <<<content
+    /**
+     * Load from database
+     * @param string {$primaryKeyVal} ID to load
+     * @param string \$key Primary key on database
+     * @param boolean   \$debug Show debug information
+     * @return \$this
+     */
+    public function load({$primaryKeyVal},
+        \$key = NULL, \$debug = false)
+    {
+        return parent::_load({$primaryKeyVal}, null, \$key, \$debug);
+    }
+
+    /**
+     * Save to database
+     * @param boolean   \$autoGetValues If true, get all values from \$_REQUEST
+     * @param boolean   \$debug Show debug information (and die)
+     * @return          \$this
+     */
+    public function save(\$autoGetValues = false, \$debug = false)
+    {
+$foreignFixes
+        return parent::_save(null, null, \$autoGetValues, \$debug);
+    }
+
+
+    /**
+     * Delete from database
+     * @param integer {$primaryKeyVal} ID to delete
+     * @return \$this
+     */
+    public function delete({$primaryKeyVal})
+    {
+        return parent::_delete({$primaryKeyVal}, null, null);
+    }
+
+    /**
+     * Return all data as array
+     * @return array
+     */
+    public function getData()
+    {
+        \$data = parent::getData();
+$arrayFix
+        return \$data;
+    }
+
+/**
+     * Return data in JSON format for datatables
+     * @return string
+     */
+    public function getJsonList()
+    {
+        // Define all fields to be included in the query
+        \$fields = array(
+            $theFieldsTxt
+        );
+
+        // Get database instance
+        \$database = \Pramnos\Database\Database::getInstance();
+        
+        // Make sure to use the actual table name with prefix instead of the placeholder
+        \$actualTableName = str_replace('#PREFIX#', \$database->prefix, '{$tableName}');
+        
+        // Add schema if specified in the model and using PostgreSQL
+        if (\$database->type == 'postgresql' && !empty(\$this->_dbschema)) {
+            \$actualTableName = \$this->_dbschema . '.' . \$actualTableName;
+        } elseif (\$database->type == 'postgresql' && !empty(\$database->schema)) {
+            \$actualTableName = \$database->schema . '.' . \$actualTableName;
+        }
+
+        
+
+        \$items = \Pramnos\Html\Datatable\Datasource::getList(
+            \$actualTableName,
+            \$fields,
+            false,
+            ''
+        );
+
+        \$loopCounter = 0;
+        if (isset(\$items['aaData']) && is_array(\$items['aaData'])) {
+            foreach (\$items['aaData'] as \$data) {
+                \${$primaryKey} = \$data[0];
+
+                \$link = '<a href="' . sURL . '{$controllerName}/show/' . \${$primaryKey} . '">';
+                foreach (\$data as \$key => \$value) {
+                    \$data[\$key] = \$link . \$value . '</a>';    
+                }
+                
+
+                // Add action buttons at the end
+                \$actions = '<a href="'
+                    . sURL
+                    . '{$controllerName}/edit/'
+                    . \${$primaryKey}
+                    . '">Edit</a> '
+                    . '<a onclick="return confirm'
+                    . '(\'Are you sure?\');"'
+                    . ' href="'
+                    . sURL
+                    . '{$controllerName}/delete/'
+                    . \${$primaryKey}
+                    . '">Delete</a>';
+
+                \$data[] = \$actions;
+                \$items['aaData'][\$loopCounter] = \$data;
+                \$loopCounter += 1;
+            }
+        }
+        return json_encode(\$items);
+    }
+
+    /**
+     * List objects
+     * @param string \$filter Filter for where statement in database query
+     * @param string \$order Order for database query
+     * @return {$className}[]
+     */
+    public function getList(\$filter = NULL, \$order = NULL)
+    {
+        return parent::_getList(\$filter, \$order);
+    }
+
+    /**
+     * Get an API-formatted list with pagination, field selection, and search capabilities
+     * @param array \$fields Array of field names to include in response. If empty, includes all fields
+     * @param string|array \$search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
+     * @param string \$order Order by clause (e.g., "field ASC" or "field DESC")
+     * @param int \$page Current page number (1-based, 0 = no pagination)
+     * @param int \$itemsPerPage Number of items per page (ignored if \$page = 0)
+     * @param bool \$debug Show debug information
+     * @param bool \$returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param bool \$useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @return array API response with pagination info and data
+     */
+    public function getApiList(\$fields = array(), \$search = '', 
+        \$order = '', \$page = 0, \$itemsPerPage = 10, 
+        \$debug = false, \$returnAsModels = false, \$useGetData = true)
+    {
+        return parent::_getApiList(
+            \$fields, \$search, \$order, '', '', '',
+            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
+        );
+    }
+
+}
+content;
+
+        file_put_contents($filename, $fileContent);
+
+        if (!$isUpdate) {
+            // Register model in the registry for easier lookup
+            $this->registerModelInRegistry([
+                'className' => $className,
+                'namespace' => $namespace,
+                'fullClassName' => '\\' . $namespace . '\\' . $className,
+                'table' => $tableName,
+                'schema' => $this->schema ?? '',
+                'timestamp' => date('Y-m-d H:i:s'),
+                'generatedBy' => 'createModel'
+            ]);
+        }
+
+        $testLine = '';
+        if (!$isUpdate) {
+            $testLine = $this->generateTestStub(
+                $className, $namespace, defined('ROOT') ? ROOT : getcwd()
+            );
+        }
+
+        return "Namespace: {$namespace}\n"
+            . "Class:     {$className}\n"
+            . "File:      {$filename}\n"
+            . $testLine
+            . "\n" . ($isUpdate ? "Model updated." : "Model created.");
+    }
+
+    /**
+     * Add getApiList method to an existing model file
+     * @param string $filename Path to the model file
+     * @return bool Success status
+     */
+    protected function addGetApiListMethod($filename)
+    {
+        $fileContents = file_get_contents($filename);
+        
+        // Find the position just before the last closing brace
+        $lastBracePosition = strrpos($fileContents, '}');
+        
+        if ($lastBracePosition === false) {
+            return false;
+        }
+        
+        $getApiListMethod = <<<'METHOD'
+
+    /**
+     * Get an API-formatted list with pagination, field selection, and search capabilities
+     * @param array $fields Array of field names to include in response. If empty, includes all fields
+     * @param string|array $search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
+     * @param string $order Order by clause (e.g., "field ASC" or "field DESC")
+     * @param int $page Current page number (1-based, 0 = no pagination)
+     * @param int $itemsPerPage Number of items per page (ignored if $page = 0)
+     * @param bool $debug Show debug information
+     * @param bool $returnAsModels If true, return objects as models, otherwise return as arrays
+     * @param bool $useGetData If true, use getData() to return data instead of model properties (returning an array)
+     * @return array API response with pagination info and data
+     */
+    public function getApiList($fields = array(), $search = '', 
+        $order = '', $page = 0, $itemsPerPage = 10, 
+        $debug = false, $returnAsModels = false, $useGetData = true)
+    {
+        return parent::_getApiList(
+            $fields, $search, $order, '', '', '',
+            null, null, $page, $itemsPerPage, $debug, $returnAsModels, $useGetData
+        );
+    }
+
+METHOD;
+        
+        // Insert the method just before the last closing brace
+        $newFileContents = substr_replace($fileContents, $getApiListMethod, $lastBracePosition, 0);
+        
+        return file_put_contents($filename, $newFileContents) !== false;
+    }
+
+    /**
+     * Register or update model information in the registry JSON file
+     * 
+     * @param array $modelInfo Information about the model to register
+     * @return bool Success status
+     */
+    protected function registerModelInRegistry(array $modelInfo)
+    {
+        $registryDir = ROOT . DS . 'app';
+        $registryFile = $registryDir . DS . 'model-registry.json';
+        
+        // Create directory if it doesn't exist
+        if (!file_exists($registryDir)) {
+            if (!mkdir($registryDir, 0755, true)) {
+                return false;
+            }
+        }
+        
+        // Load existing registry or create new one
+        $registry = [];
+        if (file_exists($registryFile)) {
+            $fileContents = file_get_contents($registryFile);
+            if (!empty($fileContents)) {
+                $registry = json_decode($fileContents, true);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    $registry = []; // Reset if JSON was invalid
+                }
+            }
+        }
+        
+        // Use model's full class name as the key for easy lookup
+        $modelKey = $modelInfo['fullClassName'];
+        
+        // Check if the model already exists in registry
+        $existingModelEntry = false;
+        foreach ($registry as $index => $entry) {
+            if (isset($entry['fullClassName']) && $entry['fullClassName'] === $modelKey) {
+                $existingModelEntry = true;
+                
+                // Update existing entry but preserve creation timestamp if it exists
+                if (isset($registry[$index]['createdAt'])) {
+                    $modelInfo['createdAt'] = $registry[$index]['createdAt'];
+                } else {
+                    $modelInfo['createdAt'] = $modelInfo['timestamp'];
+                }
+                
+                $modelInfo['updatedAt'] = $modelInfo['timestamp'];
+                $registry[$index] = $modelInfo;
+                break;
+            }
+        }
+        
+        // Add new entry if it doesn't exist
+        if (!$existingModelEntry) {
+            $modelInfo['createdAt'] = $modelInfo['timestamp'];
+            $modelInfo['updatedAt'] = $modelInfo['timestamp'];
+            $registry[] = $modelInfo;
+        }
+        
+        // Write updated registry back to file with pretty formatting
+        return file_put_contents(
+            $registryFile, 
+            json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        ) !== false;
+    }
+
+    /**
+     * Get the fully qualified table name with schema if needed
+     * @param string $table Table name
+     * @param bool $addSchema Add schema to the table name
+     * @return string
+     */
+    protected function getFullTableName($table, $addSchema = true)
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        
+        if (!$addSchema) {
+            return str_replace(
+                '#PREFIX#', $database->prefix, $table
+            );
+        }
+        
+        // For PostgreSQL with schema defined, prepend the schema
+        if ($database->type == 'postgresql' && !empty($this->schema)) {
+            return str_replace(
+                '#PREFIX#', $database->prefix, $this->schema . '.' . $table
+            );
+        } elseif ($database->type == 'postgresql' && !empty($database->schema)) {
+            return str_replace(
+                '#PREFIX#', $database->prefix, $database->schema . '.' . $table
+            );
+        }
+        
+        return str_replace(
+            '#PREFIX#', $database->prefix, $table
+        );
+    }
+
+
+     /**
+     * Get proper class name for a model based on naming conventions
+     * 
+     * @param string $name The input name
+     * @param bool $forceSingular Force return in singular form
+     * @return string Proper class name
+     */
+    public static function getProperClassName($name, $forceSingular = true)
+    {
+        if ($forceSingular) {
+            if (\Pramnos\General\StringHelper::isPlural($name)) {
+                return ucfirst(\Pramnos\General\StringHelper::singularize($name));
+            }
+            return ucfirst($name);
+        } else {
+            if (\Pramnos\General\StringHelper::isPlural($name)) {
+                return ucfirst($name);
+            }
+            return ucfirst(\Pramnos\General\StringHelper::pluralize($name));
+        }
+    }
+    
+    /**
+     * Get model table name from a model name
+     * 
+     * @param string $name Model name
+     * @return string Table name with prefix placeholder
+     */
+    public static function getModelTableName($name)
+    {
+        $name = strtolower($name);
+        if (\Pramnos\General\StringHelper::isPlural($name)) {
+            return '#PREFIX#' . $name;
+        }
+        return '#PREFIX#' . \Pramnos\General\StringHelper::pluralize($name);
+    }
+
+}
