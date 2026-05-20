@@ -76,11 +76,12 @@ class MakeCommandFileTest extends TestCase
         $root = defined('ROOT') ? ROOT : getcwd();
         $unitDir = $root . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR . 'Unit';
         $seedDir = APP_PATH . DIRECTORY_SEPARATOR . 'seeders';
+        $migDir  = APP_PATH . DIRECTORY_SEPARATOR . 'migrations';
         $eventsDir = $root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Events';
         $listenersDir = $root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Listeners';
         $middlewareDir = $root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Middleware';
-        
-        $dirs = [$unitDir, $seedDir, $eventsDir, $listenersDir, $middlewareDir];
+
+        $dirs = [$unitDir, $seedDir, $migDir, $eventsDir, $listenersDir, $middlewareDir];
         foreach ($dirs as $dir) {
             foreach (glob($dir . DIRECTORY_SEPARATOR . '*' . $this->testId . '*.php') ?: [] as $leftover) {
                 @unlink($leftover);
