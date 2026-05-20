@@ -11,6 +11,8 @@ use Pramnos\Application\Settings;
 use Pramnos\Application\Application;
 use Pramnos\Console\Application as ConsoleApplication;
 use Pramnos\Console\Commands\Create;
+use Pramnos\Console\Commands\MakeCommandBase;
+use Pramnos\Console\Commands\Make\MakeModel;
 use Pramnos\Database\Database;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -94,6 +96,8 @@ class CreateCommandIntegrationTest extends TestCase
             public function init(): void {}
         };
 
+        // Register Make commands so the Create alias can delegate to them
+        $this->consoleApp->add(new MakeModel());
         $this->create = new Create();
         $this->consoleApp->add($this->create);
     }
@@ -206,8 +210,8 @@ class CreateCommandIntegrationTest extends TestCase
         }
 
         $modelName  = 'Zzzmexist' . $this->testId;
-        // getProperClassName() with $forceSingular=true: singularize if plural, else ucfirst
-        $className  = \Pramnos\Console\Commands\Create::getProperClassName($modelName, true);
+        // getProperClassName() moved from Create to MakeCommandBase in v1.2 refactoring
+        $className  = MakeCommandBase::getProperClassName($modelName, true);
         $preExisting = $modDir . DIRECTORY_SEPARATOR . $className . '.php';
         file_put_contents($preExisting, "<?php // pre-existing\n");
         $this->filesToCleanup[] = $preExisting;

@@ -866,7 +866,6 @@ class CommandBaseTest extends TestCase
 
         // Expose heartbeat via reflection (protected method)
         $ref = new \ReflectionMethod($this->cmd, 'heartbeat');
-        $ref->setAccessible(true);
 
         // Act
         $ref->invoke($this->cmd);
@@ -889,7 +888,6 @@ class CommandBaseTest extends TestCase
     {
         // Arrange — no lock file exists
         $ref = new \ReflectionMethod($this->cmd, 'heartbeat');
-        $ref->setAccessible(true);
 
         // Act + Assert — must not throw
         $ref->invoke($this->cmd);
@@ -911,7 +909,6 @@ class CommandBaseTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->cmd, 'isProcessStillRunning');
-        $ref->setAccessible(true);
 
         // Act + Assert
         $this->assertFalse($ref->invoke($this->cmd, 0),
@@ -928,7 +925,6 @@ class CommandBaseTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->cmd, 'isProcessStillRunning');
-        $ref->setAccessible(true);
 
         // Act + Assert
         $this->assertTrue($ref->invoke($this->cmd, getmypid()),
@@ -980,21 +976,18 @@ class CommandBaseTest extends TestCase
 
         // Act — clearScreen
         $clear = $ref->getMethod('clearScreen');
-        $clear->setAccessible(true);
         $clear->invoke($this->cmd, $output);
         $this->assertStringContainsString("\033", $output->fetch(),
             'clearScreen() must write ANSI codes');
 
         // Act — hideCursor
         $hide = $ref->getMethod('hideCursor');
-        $hide->setAccessible(true);
         $hide->invoke($this->cmd, $output);
         $this->assertStringContainsString("\033", $output->fetch(),
             'hideCursor() must write ANSI codes');
 
         // Act — showCursor
         $show = $ref->getMethod('showCursor');
-        $show->setAccessible(true);
         $show->invoke($this->cmd, $output);
         $this->assertStringContainsString("\033", $output->fetch(),
             'showCursor() must write ANSI codes');
@@ -1071,7 +1064,6 @@ class CommandBaseTest extends TestCase
         // Arrange
         $output = new \Symfony\Component\Console\Output\BufferedOutput();
         $ref    = new \ReflectionMethod($this->cmd, 'beginJob');
-        $ref->setAccessible(true);
 
         // Act — registerShutdown=false so we don't register an actual shutdown function
         $result = $ref->invoke($this->cmd, $output, false);
@@ -1102,7 +1094,6 @@ class CommandBaseTest extends TestCase
 
         $output = new \Symfony\Component\Console\Output\BufferedOutput();
         $ref    = new \ReflectionMethod($this->cmd, 'beginJob');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($this->cmd, $output, false);
@@ -1276,7 +1267,6 @@ class CommandBaseTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->cmd, 'getDashboardStartTime');
-        $ref->setAccessible(true);
 
         $before = time();
 
@@ -1300,7 +1290,6 @@ class CommandBaseTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->cmd, 'getDashboardCpuUsage');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($this->cmd);
@@ -1321,7 +1310,6 @@ class CommandBaseTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->cmd, 'getDashboardMemoryUsage');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($this->cmd);
@@ -1348,7 +1336,6 @@ class CommandBaseTest extends TestCase
         };
 
         $ref = new \ReflectionMethod($instance, 'readNumericPropertyValue');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($instance, 'testProp');
@@ -1366,7 +1353,6 @@ class CommandBaseTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->cmd, 'readNumericPropertyValue');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($this->cmd, 'nonExistentPropertyXyz');
@@ -1390,7 +1376,6 @@ class CommandBaseTest extends TestCase
         };
 
         $ref = new \ReflectionMethod($instance, 'readNumericPropertyValue');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($instance, 'badProp');
@@ -1411,7 +1396,6 @@ class CommandBaseTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->cmd, 'buildDefaultSystemSegments');
-        $ref->setAccessible(true);
 
         // Act
         $segments = $ref->invoke($this->cmd);
