@@ -38,11 +38,9 @@ class HtmlNonceInjectionTest extends TestCase
         // Manually inject the mock instance into the static registry
         $reflection = new \ReflectionClass(Application::class);
         $instancesProp = $reflection->getProperty('appInstances');
-        $instancesProp->setAccessible(true);
         $instancesProp->setValue(null, ['default' => $app]);
         
         $lastUsedProp = $reflection->getProperty('lastUsedApplication');
-        $lastUsedProp->setAccessible(true);
         $lastUsedProp->setValue(null, 'default');
 
         $htmlDoc = new Html();
@@ -52,7 +50,6 @@ class HtmlNonceInjectionTest extends TestCase
         // Note: Using a fresh buffer for the test
         $reflectionDoc = new \ReflectionClass(\Pramnos\Document\Document::class);
         $bufferProp = $reflectionDoc->getProperty('buffer');
-        $bufferProp->setAccessible(true);
         $bufferProp->setValue(null, '');
 
         $htmlDoc->addContent('<script>var x = 1;</script>');

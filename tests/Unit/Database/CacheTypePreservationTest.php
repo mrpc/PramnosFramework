@@ -41,7 +41,6 @@ class CacheTypePreservationTest extends TestCase
 
         foreach (['castToType', 'getSimpleType', 'prepareDataForCache', 'restoreDataFromCache'] as $name) {
             $m = $ref->getMethod($name);
-            $m->setAccessible(true);
             $this->$name = $m;
         }
     }

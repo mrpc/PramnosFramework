@@ -197,7 +197,6 @@ class DashboardCharacterizationTest extends TestCase
     private function callPrivate(Dashboard $dashboard, string $method, mixed ...$args): mixed
     {
         $ref = new \ReflectionMethod(Dashboard::class, $method);
-        $ref->setAccessible(true);
         return $ref->invoke($dashboard, ...$args);
     }
 

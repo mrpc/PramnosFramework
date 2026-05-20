@@ -49,7 +49,6 @@ class QueueManagerTest extends TestCase
             {
                 // Access via reflection because generateTaskHash is private
                 $ref = new \ReflectionMethod(QueueManager::class, 'generateTaskHash');
-                $ref->setAccessible(true);
                 return $ref->invoke($this, $type, $data);
             }
 

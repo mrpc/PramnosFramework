@@ -105,7 +105,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->mysqlGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($grammar, "O'Reilly");
@@ -122,7 +121,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->mysqlGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
-        $ref->setAccessible(true);
 
         // Act + Assert
         $this->assertSame('NULL', $ref->invoke($grammar, null));
@@ -136,7 +134,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->mysqlGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
-        $ref->setAccessible(true);
 
         // Act + Assert
         $this->assertSame('42', $ref->invoke($grammar, 42));
@@ -150,7 +147,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->mysqlGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
-        $ref->setAccessible(true);
 
         // Act + Assert
         $this->assertSame('3.14', $ref->invoke($grammar, 3.14));
@@ -164,7 +160,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->mysqlGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
-        $ref->setAccessible(true);
 
         // Act + Assert
         $this->assertSame('1', $ref->invoke($grammar, true));
@@ -178,7 +173,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->mysqlGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
-        $ref->setAccessible(true);
 
         // Act + Assert
         $this->assertSame('0', $ref->invoke($grammar, false));
@@ -192,7 +186,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->mysqlGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($grammar, new Expression('CURRENT_TIMESTAMP'));
@@ -209,7 +202,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->pgGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
-        $ref->setAccessible(true);
 
         // Act + Assert
         $this->assertSame('TRUE', $ref->invoke($grammar, true));
@@ -223,7 +215,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->pgGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
-        $ref->setAccessible(true);
 
         // Act + Assert
         $this->assertSame('FALSE', $ref->invoke($grammar, false));
@@ -1796,7 +1787,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange — access via reflection since the method is protected
         $grammar = $this->pgGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
-        $ref->setAccessible(true);
 
         // Act + Assert — PG should delegate these to SchemaGrammar::compileDefaultValue
         $this->assertSame("'hello'", $ref->invoke($grammar, 'hello'));
@@ -2640,7 +2630,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->baseGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileAutoIncrement');
-        $ref->setAccessible(true);
 
         // Act — column with autoIncrement flag set
         $colWithAI  = new ColumnDefinition('id', 'integer', ['autoIncrement' => true]);
@@ -2663,7 +2652,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->baseGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDefaultValue');
-        $ref->setAccessible(true);
 
         // Act + Assert — base grammar uses integer literals for booleans
         $this->assertSame('1', $ref->invoke($grammar, true));
@@ -2682,7 +2670,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->baseGrammar();
         $ref     = new \ReflectionMethod($grammar, 'inlineForeignKeys');
-        $ref->setAccessible(true);
 
         // Act + Assert — base dialect does not inline FKs
         $this->assertFalse($ref->invoke($grammar));
@@ -2700,7 +2687,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->baseGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileInlineIndex');
-        $ref->setAccessible(true);
 
         // Act — two quoted columns already passed in
         $result = $ref->invoke($grammar, 'idx_test', ['`col_a`', '`col_b`']);
@@ -2901,7 +2887,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->baseGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileRenameColumn');
-        $ref->setAccessible(true);
 
         // Act
         $sql = $ref->invoke($grammar, 'users', 'fname', 'first_name');
@@ -2950,7 +2935,6 @@ class SchemaGrammarTest extends TestCase
         // Arrange
         $grammar = $this->baseGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDropForeignKey');
-        $ref->setAccessible(true);
 
         // Act
         $sql = $ref->invoke($grammar, 'orders', 'fk_orders_user_id');

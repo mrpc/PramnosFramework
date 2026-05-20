@@ -51,7 +51,6 @@ class BaseTestCaseTest extends BaseTestCase
         // Use reflection to set static dbConfig
         $reflection = new \ReflectionClass(BaseTestCase::class);
         $prop = $reflection->getProperty('dbConfig');
-        $prop->setAccessible(true);
         $prop->setValue(null, [
             'hostname' => 'testhost',
             'database' => 'testdb',
@@ -76,7 +75,6 @@ class BaseTestCaseTest extends BaseTestCase
         // Use reflection to set static dbConfig
         $reflection = new \ReflectionClass(BaseTestCase::class);
         $prop = $reflection->getProperty('dbConfig');
-        $prop->setAccessible(true);
         $prop->setValue(null, [
             'hostname' => 'pghost',
             'database' => 'pgdb',
@@ -102,7 +100,6 @@ class BaseTestCaseTest extends BaseTestCase
         
         $reflection = new \ReflectionClass(BaseTestCase::class);
         $prop = $reflection->getProperty('dbConfig');
-        $prop->setAccessible(true);
         $prop->setValue(null, [
             'hostname' => 'localhost',
             'database' => 'testdb',
@@ -142,7 +139,6 @@ class BaseTestCaseTest extends BaseTestCase
         // Use reflection to set the internal pdo property
         $reflection = new \ReflectionClass(BaseTestCase::class);
         $prop = $reflection->getProperty('pdo');
-        $prop->setAccessible(true);
         $prop->setValue($this, $pdo);
 
         // This should pass (uses $stmt1)
@@ -194,7 +190,6 @@ class BaseTestCaseTest extends BaseTestCase
 
         $reflection = new \ReflectionClass(BaseTestCase::class);
         $prop = $reflection->getProperty('pdo');
-        $prop->setAccessible(true);
         $prop->setValue($this, $pdo);
 
         // 1. Test assertDatabaseHas failure (expected record missing)
@@ -221,7 +216,6 @@ class BaseTestCaseTest extends BaseTestCase
     {
         $reflection = new \ReflectionClass(BaseTestCase::class);
         $prop = $reflection->getProperty('dbConfig');
-        $prop->setAccessible(true);
         $prop->setValue(null, [
             'type' => 'invalid',
             'hostname' => 'invalid',
@@ -266,7 +260,6 @@ class BaseTestCaseTest extends BaseTestCase
         // Use reflection to set static dbConfig to valid local one
         $reflection = new \ReflectionClass(BaseTestCase::class);
         $propConfig = $reflection->getProperty('dbConfig');
-        $propConfig->setAccessible(true);
         $propConfig->setValue(null, [
             'type' => 'postgresql',
             'hostname' => 'timescaledb',
@@ -277,7 +270,6 @@ class BaseTestCaseTest extends BaseTestCase
 
         // Nullify the current instance's pdo property
         $propPdo = $reflection->getProperty('pdo');
-        $propPdo->setAccessible(true);
         $propPdo->setValue($this, null);
 
         $db = $this->getConnection();
@@ -292,7 +284,6 @@ class BaseTestCaseTest extends BaseTestCase
         $pdo = $this->createMock(\PDO::class);
         $reflection = new \ReflectionClass(BaseTestCase::class);
         $prop = $reflection->getProperty('pdo');
-        $prop->setAccessible(true);
         $prop->setValue($this, $pdo);
         
         $result = $this->getConnection();

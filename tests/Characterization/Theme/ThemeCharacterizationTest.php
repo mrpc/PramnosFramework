@@ -33,25 +33,20 @@ class ThemeCharacterizationTest extends TestCase
         $theme = $ref->newInstanceWithoutConstructor();
 
         $widgetAreasProp = new \ReflectionProperty($theme, 'widgetAreas');
-        $widgetAreasProp->setAccessible(true);
         $widgetAreasProp->setValue($theme, []);
 
         $menuAreasProp = new \ReflectionProperty($theme, 'menuAreas');
-        $menuAreasProp->setAccessible(true);
         $menuAreasProp->setValue($theme, []);
 
         $menusProp = new \ReflectionProperty($theme, 'menus');
-        $menusProp->setAccessible(true);
         $menusProp->setValue($theme, []);
 
         // widgets array must be initialised (constructor loads it from Settings)
         $widgetsProp = new \ReflectionProperty($theme, 'widgets');
-        $widgetsProp->setAccessible(true);
         $widgetsProp->setValue($theme, []);
 
         // theme name is used as part of the Settings key when persisting widgets
         $themeProp = new \ReflectionProperty($theme, 'theme');
-        $themeProp->setAccessible(true);
         $themeProp->setValue($theme, 'test');
 
         return $theme;
@@ -110,13 +105,11 @@ class ThemeCharacterizationTest extends TestCase
         $theme = $this->newThemeWithoutConstructor();
 
         $menuAreasProp = new \ReflectionProperty($theme, 'menuAreas');
-        $menuAreasProp->setAccessible(true);
         $menuAreasProp->setValue($theme, [
             'primary' => ['description' => 'Primary menu', 'menuid' => 5],
         ]);
 
         $menusProp = new \ReflectionProperty($theme, 'menus');
-        $menusProp->setAccessible(true);
         $menusProp->setValue($theme, ['primary' => 5]);
 
         $result = $theme->removeMenuArea('primary');

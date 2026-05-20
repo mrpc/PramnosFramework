@@ -29,7 +29,6 @@ class ModelFilterKeywordTest extends TestCase
         // Access the private _stripSqlKeyword method via reflection
         $ref = new \ReflectionClass(\Pramnos\Application\Model::class);
         $this->method = $ref->getMethod('_stripSqlKeyword');
-        $this->method->setAccessible(true);
     }
 
     private function strip(string $sql, string $keyword): string

@@ -247,7 +247,6 @@ final class LogControllerCharacterizationTest extends TestCase
     private function readProtectedArray(object $object, string $property): array
     {
         $ref = new \ReflectionProperty($object, $property);
-        $ref->setAccessible(true);
 
         /** @var array<int, string> $value */
         $value = $ref->getValue($object);

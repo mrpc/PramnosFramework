@@ -178,7 +178,6 @@ class ClientTest extends TestCase
             'https://api.example.com/me' => function (Client $c) use (&$sentHeaders): ClientResponse {
                 // Expose internal headers via reflection for assertion
                 $ref = new \ReflectionProperty($c, 'headers');
-                $ref->setAccessible(true);
                 $sentHeaders = $ref->getValue($c);
                 return ClientResponse::make([], 200);
             },
@@ -201,7 +200,6 @@ class ClientTest extends TestCase
         Client::fake([
             '*' => function (Client $c) use (&$sentHeaders): ClientResponse {
                 $ref = new \ReflectionProperty($c, 'headers');
-                $ref->setAccessible(true);
                 $sentHeaders = $ref->getValue($c);
                 return ClientResponse::make([], 200);
             },
@@ -225,7 +223,6 @@ class ClientTest extends TestCase
         Client::fake([
             '*' => function (Client $c) use (&$sentHeaders): ClientResponse {
                 $ref = new \ReflectionProperty($c, 'headers');
-                $ref->setAccessible(true);
                 $sentHeaders = $ref->getValue($c);
                 return ClientResponse::make([], 200);
             },
@@ -259,11 +256,9 @@ class ClientTest extends TestCase
         Client::fake([
             '*' => function (Client $c) use (&$capturedBody, &$capturedContentType): ClientResponse {
                 $bodyRef = new \ReflectionProperty($c, 'body');
-                $bodyRef->setAccessible(true);
                 $capturedBody = $bodyRef->getValue($c);
 
                 $ctRef = new \ReflectionProperty($c, 'contentType');
-                $ctRef->setAccessible(true);
                 $capturedContentType = $ctRef->getValue($c);
 
                 return ClientResponse::make([], 201);
@@ -293,11 +288,9 @@ class ClientTest extends TestCase
         Client::fake([
             '*' => function (Client $c) use (&$capturedBody, &$capturedContentType): ClientResponse {
                 $bodyRef = new \ReflectionProperty($c, 'body');
-                $bodyRef->setAccessible(true);
                 $capturedBody = $bodyRef->getValue($c);
 
                 $ctRef = new \ReflectionProperty($c, 'contentType');
-                $ctRef->setAccessible(true);
                 $capturedContentType = $ctRef->getValue($c);
 
                 return ClientResponse::make([], 200);
@@ -327,11 +320,9 @@ class ClientTest extends TestCase
         Client::fake([
             '*' => function (Client $c) use (&$capturedBody, &$capturedContentType): ClientResponse {
                 $bodyRef = new \ReflectionProperty($c, 'body');
-                $bodyRef->setAccessible(true);
                 $capturedBody = $bodyRef->getValue($c);
 
                 $ctRef = new \ReflectionProperty($c, 'contentType');
-                $ctRef->setAccessible(true);
                 $capturedContentType = $ctRef->getValue($c);
 
                 return ClientResponse::make([], 200);
@@ -366,7 +357,6 @@ class ClientTest extends TestCase
         Client::fake([
             '*' => function (Client $c) use (&$resolvedUrls): ClientResponse {
                 $ref = new \ReflectionMethod($c, 'resolveUrl');
-                $ref->setAccessible(true);
                 $resolvedUrls[] = $ref->invoke($c);
                 return ClientResponse::make([], 200);
             },
@@ -393,7 +383,6 @@ class ClientTest extends TestCase
         Client::fake([
             '*' => function (Client $c) use (&$capturedHeaders): ClientResponse {
                 $ref = new \ReflectionProperty($c, 'headers');
-                $ref->setAccessible(true);
                 $capturedHeaders = $ref->getValue($c);
                 return ClientResponse::make([], 200);
             },
@@ -622,7 +611,6 @@ class ClientTest extends TestCase
         Client::fake([
             '*' => function (Client $c) use (&$resolvedUrl): ClientResponse {
                 $ref = new \ReflectionMethod($c, 'resolveUrl');
-                $ref->setAccessible(true);
                 $resolvedUrl = $ref->invoke($c);
                 return ClientResponse::make([], 200);
             },
@@ -646,7 +634,6 @@ class ClientTest extends TestCase
         Client::fake([
             '*' => function (Client $c) use (&$resolvedUrl): ClientResponse {
                 $ref = new \ReflectionMethod($c, 'resolveUrl');
-                $ref->setAccessible(true);
                 $resolvedUrl = $ref->invoke($c);
                 return ClientResponse::make([], 200);
             },

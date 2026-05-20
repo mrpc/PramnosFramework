@@ -706,7 +706,6 @@ class InitCommandTest extends TestCase
         $command = new Init();
         $reflection = new \ReflectionClass($command);
         $method = $reflection->getMethod('isPortAvailable');
-        $method->setAccessible(true);
 
         // Test with a port that is likely to be boolean (true or false depending on env)
         $result = $method->invoke($command, 8080);

@@ -54,7 +54,6 @@ class LogViewerTest extends TestCase
 
         // Assert — viewer was created without error; the $view property is set
         $rp = new \ReflectionProperty(LogViewer::class, 'view');
-        $rp->setAccessible(true);
         $this->assertNotNull($rp->getValue($viewer),
             'constructor with a controller must create a LogViewerView instance');
     }
@@ -162,15 +161,12 @@ class LogViewerTest extends TestCase
         $ref = new \ReflectionClass(LogViewer::class);
 
         $page = $ref->getProperty('page');
-        $page->setAccessible(true);
         $this->assertSame(3, $page->getValue($this->viewer));
 
         $maxLines = $ref->getProperty('maxLines');
-        $maxLines->setAccessible(true);
         $this->assertSame(50, $maxLines->getValue($this->viewer));
 
         $search = $ref->getProperty('search');
-        $search->setAccessible(true);
         $this->assertSame('hello world', $search->getValue($this->viewer),
             'URL-encoded search term must be decoded');
     }
@@ -189,12 +185,10 @@ class LogViewerTest extends TestCase
         $ref = new \ReflectionClass(LogViewer::class);
 
         $page = $ref->getProperty('page');
-        $page->setAccessible(true);
         $this->assertSame(1, $page->getValue($this->viewer),
             'page must be clamped to 1');
 
         $maxLines = $ref->getProperty('maxLines');
-        $maxLines->setAccessible(true);
         $this->assertSame(1, $maxLines->getValue($this->viewer),
             'maxLines must be clamped to 1');
     }
@@ -215,7 +209,6 @@ class LogViewerTest extends TestCase
         // Assert – stored as lowercase
         $ref = new \ReflectionClass(LogViewer::class);
         $prop = $ref->getProperty('logLevel');
-        $prop->setAccessible(true);
         $this->assertSame('warning', $prop->getValue($this->viewer));
     }
 
@@ -1342,7 +1335,6 @@ class LogViewerTest extends TestCase
     private function callPrivate(string $method, mixed ...$args): mixed
     {
         $rm = new \ReflectionMethod(LogViewer::class, $method);
-        $rm->setAccessible(true);
         return $rm->invoke($this->viewer, ...$args);
     }
 
@@ -1352,7 +1344,6 @@ class LogViewerTest extends TestCase
     private function setPrivate(string $property, mixed $value): void
     {
         $rp = new \ReflectionProperty(LogViewer::class, $property);
-        $rp->setAccessible(true);
         $rp->setValue($this->viewer, $value);
     }
 }

@@ -279,7 +279,6 @@ class AuthCharacterizationTest extends TestCase
     private function getAddonRegistry(): array
     {
         $reflection = new \ReflectionProperty(Addon::class, '_addons');
-        $reflection->setAccessible(true);
         /** @var array<string, array<string, object>> $addons */
         $addons = $reflection->getValue();
 
@@ -292,7 +291,6 @@ class AuthCharacterizationTest extends TestCase
     private function setAddonRegistry(array $addons): void
     {
         $reflection = new \ReflectionProperty(Addon::class, '_addons');
-        $reflection->setAccessible(true);
         $reflection->setValue(null, $addons);
     }
 }

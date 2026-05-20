@@ -27,7 +27,6 @@ class QueryBuilderUnitTest extends TestCase
     private function setType(QueryBuilder $qb, string $type): void
     {
         $prop = new \ReflectionProperty(QueryBuilder::class, 'type');
-        $prop->setAccessible(true);
         $prop->setValue($qb, $type);
     }
 
@@ -254,7 +253,6 @@ class QueryBuilderUnitTest extends TestCase
     {
         $qb     = $this->makeQB();
         $method = new \ReflectionMethod(QueryBuilder::class, 'addBinding');
-        $method->setAccessible(true);
 
         $this->expectException(\InvalidArgumentException::class);
         $method->invoke($qb, 'value', 'nonexistent_type');

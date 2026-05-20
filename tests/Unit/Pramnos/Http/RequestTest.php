@@ -331,11 +331,9 @@ class RequestTest extends \PHPUnit\Framework\TestCase
         // Reset static properties to force loading from session
         $reflection = new \ReflectionClass(Request::class);
         $errorsProp = $reflection->getProperty('validationErrors');
-        $errorsProp->setAccessible(true);
         $errorsProp->setValue(null, null);
         
         $oldProp = $reflection->getProperty('oldInput');
-        $oldProp->setAccessible(true);
         $oldProp->setValue(null, null);
 
         $_SESSION['_validation_errors'] = ['field' => ['error']];

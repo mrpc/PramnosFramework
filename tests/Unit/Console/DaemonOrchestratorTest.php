@@ -1335,7 +1335,6 @@ class DaemonOrchestratorTest extends TestCase
         $orch = new MinimalDaemonOrchestrator();
 
         $ref = new \ReflectionMethod($orch, 'getOrchestratorLockFile');
-        $ref->setAccessible(true);
 
         // Act
         $path = $ref->invoke($orch);
@@ -1357,7 +1356,6 @@ class DaemonOrchestratorTest extends TestCase
         $orch = new MinimalDaemonOrchestrator();
 
         $ref = new \ReflectionMethod($orch, 'getStateFile');
-        $ref->setAccessible(true);
 
         // Act
         $path = $ref->invoke($orch);
@@ -1379,7 +1377,6 @@ class DaemonOrchestratorTest extends TestCase
         $orch = new MinimalDaemonOrchestrator();
 
         $ref = new \ReflectionMethod($orch, 'getManagedLockFileGlobPattern');
-        $ref->setAccessible(true);
 
         // Act + Assert
         $this->assertSame('*', $ref->invoke($orch),
@@ -1430,7 +1427,6 @@ class DaemonOrchestratorTest extends TestCase
         $orch = new MinimalDaemonOrchestrator();
 
         $ref = new \ReflectionMethod($orch, 'updateTerminalSize');
-        $ref->setAccessible(true);
 
         // Act — must not throw
         $ref->invoke($orch);
@@ -1653,7 +1649,6 @@ class DaemonOrchestratorTest extends TestCase
         $orch = new TestableDaemonOrchestrator($tmpDir);
 
         $ref = new \ReflectionMethod($orch, 'updateSystemMetrics');
-        $ref->setAccessible(true);
 
         // Act — must not throw
         $ref->invoke($orch);

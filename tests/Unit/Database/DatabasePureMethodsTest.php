@@ -376,7 +376,6 @@ class DatabasePureMethodsTest extends TestCase
     private function callGetConnectionErrorMessage(): string
     {
         $ref = new \ReflectionMethod($this->db, 'getConnectionErrorMessage');
-        $ref->setAccessible(true);
         return (string) $ref->invoke($this->db);
     }
 
@@ -434,7 +433,6 @@ class DatabasePureMethodsTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->db, 'setError');
-        $ref->setAccessible(true);
 
         // Act + Assert — must not throw
         $threwException = false;
@@ -460,7 +458,6 @@ class DatabasePureMethodsTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->db, 'setError');
-        $ref->setAccessible(true);
         $this->db->error_text = '';
 
         // Act + Assert
@@ -477,7 +474,6 @@ class DatabasePureMethodsTest extends TestCase
     private function callPrepareValue(mixed $value, string $type): mixed
     {
         $ref = new \ReflectionMethod($this->db, 'prepareValue');
-        $ref->setAccessible(true);
         return $ref->invoke($this->db, $value, $type);
     }
 
@@ -577,7 +573,6 @@ class DatabasePureMethodsTest extends TestCase
             public function prepareInput($string) { return addslashes($string ?? ''); }
         };
         $ref = new \ReflectionMethod($db, 'prepareValue');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($db, 'hello', 'string');
@@ -599,7 +594,6 @@ class DatabasePureMethodsTest extends TestCase
             public function prepareInput($string) { return addslashes($string ?? ''); }
         };
         $ref = new \ReflectionMethod($db, 'prepareValue');
-        $ref->setAccessible(true);
 
         // Act + Assert — all three types produce a quoted value
         foreach (['json', 'currency', 'date'] as $type) {
@@ -629,7 +623,6 @@ class DatabasePureMethodsTest extends TestCase
     private function callCastToType(mixed $value, string $type): mixed
     {
         $ref = new \ReflectionMethod($this->db, 'castToType');
-        $ref->setAccessible(true);
         return $ref->invoke($this->db, $value, $type);
     }
 
@@ -936,7 +929,6 @@ class DatabasePureMethodsTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->db, 'prepareDataForCache');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($this->db, 'plain string');
@@ -954,7 +946,6 @@ class DatabasePureMethodsTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->db, 'restoreDataFromCache');
-        $ref->setAccessible(true);
 
         // Act
         $plain = ['row1' => 'value'];
@@ -972,7 +963,6 @@ class DatabasePureMethodsTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->db, 'restoreTypes');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($this->db, 'just a string');
@@ -990,7 +980,6 @@ class DatabasePureMethodsTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->db, 'restoreTypes');
-        $ref->setAccessible(true);
 
         // Act — a plain scalar value (not a typed ['v'=>...,'t'=>...] structure)
         $result = $ref->invoke($this->db, ['key' => 'plain_value']);
@@ -1011,7 +1000,6 @@ class DatabasePureMethodsTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->db, 'estimateResultSetMemory');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($this->db, []);
@@ -1036,7 +1024,6 @@ class DatabasePureMethodsTest extends TestCase
         ini_set('memory_limit', '-1');
 
         $ref = new \ReflectionMethod($this->db, 'getAvailableMemoryMB');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($this->db);
@@ -1060,7 +1047,6 @@ class DatabasePureMethodsTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->db, 'parseMemoryLimit');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($this->db, '128M');
@@ -1076,7 +1062,6 @@ class DatabasePureMethodsTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->db, 'parseMemoryLimit');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($this->db, '512K');
@@ -1093,7 +1078,6 @@ class DatabasePureMethodsTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod($this->db, 'parseMemoryLimit');
-        $ref->setAccessible(true);
 
         // Act — plain integer string with no unit
         $result = $ref->invoke($this->db, '1048576');
