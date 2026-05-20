@@ -674,7 +674,7 @@
 #### UrbanWater Schema Backport
 
 ##### Νέοι Πίνακες (HIGH PRIORITY)
-- [ ] **`000037a: create_application_settings_table`**
+- [x] **`000037a: create_application_settings_table`**
   - Πεδία: appid (PK/FK), rate_limit_requests, rate_limit_window_seconds, rate_limit_burst
   - enforce_pagination, max_page_size, default_page_size
   - ip_lock_enabled, allowed_ips[] (JSON), blocked_ips[] (JSON)
@@ -683,7 +683,7 @@
   - Indexes: PRIMARY KEY (appid), INDEX (updated_at)
   - × 3 databases (MySQL, PostgreSQL, TimescaleDB) — integration tests mandatory
 
-- [ ] **`000037b: create_application_stats_table` (hypertable on TimescaleDB)**
+- [x] **`000037b: create_application_stats_table` (hypertable on TimescaleDB)**
   - Hypertable partition key: `time` (TIMESTAMP)
   - Δεδομένα: appid, total_requests, successful_requests, failed_requests
   - avg_response_time (NUMERIC 10,3), min_response_time, max_response_time (NUMERIC 10,3)
@@ -697,7 +697,7 @@
   - × 3 databases με fallback σε MySQL/PostgreSQL (retention policy via framework_policies)
   - Integration tests: hypertable verification × TimescaleDB, retention job via Policy Engine × MySQL/PostgreSQL
 
-- [ ] **`000037c: add_user_app_authorizations_table`**
+- [x] **`000037c: add_user_app_authorizations_table`**
   - PK: id (BIGINT AUTO_INCREMENT / BIGSERIAL)
   - Columns: userid (FK → users.userid CASCADE), appid (FK → applications.appid CASCADE), 
     scope (TEXT), status (VARCHAR 50: 'active'/'revoked'/'expired'), 
@@ -707,33 +707,37 @@
   - × 3 databases
 
 ##### Foreign Key Συγχρονισμός (HIGH PRIORITY)
-- [ ] **Missing FK σε `usertokens` (migration 000014):**
+- [x] **Missing FK σε `usertokens` (migration 000014):**
   - Προσθήκη: `parentToken` → `usertokens.tokenid` (SET NULL)
   - Προσθήκη: `applicationid` → `applications.appid` (SET NULL) — στήλη υπάρχει, FK λείπει
   - Alter migration με rollback safety
+  - *Καλύπτεται από `core/000050-AddMissingForeignKeysToExistingTables.php`*
 
-- [ ] **Missing FK σε `tokenactions` (migration 000016):**
+- [x] **Missing FK σε `tokenactions` (migration 000016):**
   - Προσθήκη: `tokenid` → `usertokens.tokenid` (CASCADE)
   - Προσθήκη: `urlid` → `urls.urlid` (CASCADE)
+  - *Καλύπτεται από `core/000050-AddMissingForeignKeysToExistingTables.php`*
 
-- [ ] **Missing FK σε `applications` (migration 000025):**
+- [x] **Missing FK σε `applications` (migration 000025):**
   - Προσθήκη: `owner` → `users.userid` (SET NULL)
+  - *Καλύπτεται από `core/000050-AddMissingForeignKeysToExistingTables.php`*
 
 - [ ] **Missing FK σε `users` (migration 000010):**
   - Προσθήκη: `locationid` → `locations.locationid` (SET NULL) — *αν υπάρχει locations table στη parent app*
 
-- [ ] **Missing FK σε GDPR tables (migrations 000021-000025):**
+- [x] **Missing FK σε GDPR tables (migrations 000021-000025):**
   - `user_activity_log.userid` → `users.userid` (CASCADE)
   - `user_privacy_settings.userid` → `users.userid` (CASCADE)
   - `user_consents.userid` → `users.userid` (CASCADE)
   - `data_processing_records.userid` → `users.userid` (CASCADE)
   - `gdpr_requests.userid` → `users.userid` (CASCADE)
+  - *Καλύπτεται από `core/000050-AddMissingForeignKeysToExistingTables.php`*
 
 ##### Triggers & Functions (MEDIUM PRIORITY)
-- [ ] **`applications.update_updated_at_column()` trigger function**
+- [x] **`applications.update_updated_at_column()` trigger function**
   - Εκτελεί: `SET updated_at = NOW()` κατά UPDATE της `application_settings`
   - Backends: PostgreSQL/TimescaleDB (PL/pgSQL), MySQL (TRIGGER FOR EACH ROW)
-  - Ενσωματώνεται σε migration 000037a (application_settings)
+  - Ενσωματώνεται σε migration 000044 (application_settings)
 
 - [ ] **`authserver.sync_consent_timestamp()` trigger function**
   - Εκτελεί: `SET updated_at = NOW()` κατά INSERT/UPDATE της `oauth2_user_consents`
@@ -743,92 +747,92 @@
 ##### Views (HIGH PRIORITY)
 
 ###### Applications Schema Views (10 views)
-- [ ] **`applications.api_performance_summary` VIEW**
+- [x] **`applications.api_performance_summary` VIEW**
   - Aggregates: response times (avg, min, max), success rates, method analysis per appid
   - Columns: appid, avg_response_time, min_response_time, max_response_time, success_rate, total_requests
   - Source: `application_stats` με time bucketing (last 24h ή aggregation interval ρυθμιζόμενο)
 
-- [ ] **`applications.application_health` VIEW**
+- [x] **`applications.application_health` VIEW**
   - Health indicators per app: error_rate, avg_latency, throughput (requests/min)
   - Columns: appid, overall_status ('healthy'/'degraded'/'unhealthy'), error_rate, avg_latency, throughput, last_update
   - Source: `application_stats` + rule thresholds
 
-- [ ] **`applications.application_stats_daily` VIEW (Materialized, PostreSQL/TimescaleDB)**
+- [x] **`applications.application_stats_daily` VIEW (Materialized, PostreSQL/TimescaleDB)**
   - Ημερήσιες aggregates του `application_stats` — 1 row/app/day
   - Columns: appid, date, total_requests, successful_requests, avg_response_time, status distribution
   - Refresh policy: daily ή κατ' απαίτηση
 
-- [ ] **`applications.application_stats_hourly` VIEW (Materialized)**
+- [x] **`applications.application_stats_hourly` VIEW (Materialized)**
   - Ωριαίες aggregates — 1 row/app/hour
   - Refresh policy: every hour
 
-- [ ] **`applications.rate_limit_status` VIEW**
+- [x] **`applications.rate_limit_status` VIEW**
   - Current rate limiting state per app
   - Columns: appid, requests_in_current_window, limit, remaining, resets_at, is_limited (BOOLEAN)
   - Source: real-time calculation από `application_stats` + `application_settings`
 
-- [ ] **`applications.slow_api_calls` VIEW**
+- [x] **`applications.slow_api_calls` VIEW**
   - Calls exceeding 5 second threshold
   - Columns: appid, method, endpoint, response_time, timestamp, ip_address, status_code
   - Source: `application_stats` με WHERE avg_response_time > 5000 (ms)
 
-- [ ] **`applications.ip_violations` VIEW**
+- [x] **`applications.ip_violations` VIEW**
   - IPs που παραβιάζουν `application_settings.ip_lock_enabled` rules
   - Columns: appid, ip_address, violation_count, first_attempt, last_attempt, status
   - Source: `application_stats` με JOIN σε `application_settings` IP whitelist/blacklist
 
-- [ ] **`applications.oauth2_active_tokens` VIEW**
+- [x] **`applications.oauth2_active_tokens` VIEW**
   - Active OAuth tokens by status (not expired, not revoked)
   - Columns: appid, token_count, expired_count, revoked_count, avg_expiry_days
   - Source: `usertokens` + `oauth2_user_consents`
 
-- [ ] **`applications.usage_statistics` VIEW (Materialized)**
+- [x] **`applications.usage_statistics` VIEW (Materialized)**
   - Aggregate usage metrics per app — total requests, unique users, bandwidth, top countries
   - Columns: appid, total_requests, unique_users, bytes_transferred, top_country_codes (JSON), period (last 30/90/365 days)
 
-- [ ] **`applications.top_applications` VIEW**
+- [x] **`applications.top_applications` VIEW**
   - Applications ranked by usage volume
   - Columns: rank (ROW_NUMBER), appid, total_requests, successful_requests, avg_response_time
 
 ###### AuthServer Schema Views (8 views)
-- [ ] **`authserver.alert_high_failure_rate` VIEW**
+- [x] **`authserver.alert_high_failure_rate` VIEW**
   - Authentication failures spike detection — προειδοποίηση αν failure rate > threshold
   - Columns: alert_id, severity, message, affected_users, trigger_time, resolvable_at
   - Source: `twofactor_attempts` + `loginlockout` με trend analysis
 
-- [ ] **`authserver.alert_suspicious_ips` VIEW**
+- [x] **`authserver.alert_suspicious_ips` VIEW**
   - Suspicious IP activity detection
   - Columns: ip_address, suspicious_score, reason (failed_logins_in_timewindow, geographic_anomaly, κλπ), 
     attempt_count, last_seen, recommended_action
   - Source: `loginlockout` + `user_activity_log` με heuristics
 
-- [ ] **`authserver.daily_2fa_stats` VIEW (Materialized)**
+- [x] **`authserver.daily_2fa_stats` VIEW (Materialized)**
   - Daily 2FA usage aggregates — completions, failures, average time
   - Columns: date, total_2fa_attempts, successful_completions, failed_attempts, avg_completion_time_seconds
   - Source: `twofactor_attempts` hypertable + continuous aggregate
   - Refresh policy: daily
 
-- [ ] **`authserver.failed_twofactor_summary` VIEW**
+- [x] **`authserver.failed_twofactor_summary` VIEW**
   - 2FA failures in last hour, 3+ attempts per user flagged
   - Columns: userid, failed_attempts, last_failure_time, account_status_recommendation
   - Source: `twofactor_attempts` με WHERE created_at > NOW() - INTERVAL '1 hour'
 
-- [ ] **`authserver.gdpr_compliance_report` VIEW**
+- [x] **`authserver.gdpr_compliance_report` VIEW**
   - User data processing and consent summary
   - Columns: userid, consents_given, data_retention_days, deletion_requested, export_requested, last_processing_date
   - Source: `user_consents` + `user_privacy_settings` + `gdpr_requests`
 
-- [ ] **`authserver.geographic_analysis` VIEW**
+- [x] **`authserver.geographic_analysis` VIEW**
   - Login locations and geographic patterns
   - Columns: userid, country_code, city, last_login, login_count_7days, login_count_30days, anomaly_flag (BOOLEAN)
   - Source: `user_activity_log` + geolocation enrichment
 
-- [ ] **`authserver.oauth2_active_tokens` VIEW** *(δύο ίδια ονόματα στο applications και authserver)*
+- [x] **`authserver.oauth2_active_tokens` VIEW** *(δύο ίδια ονόματα στο applications και authserver)*
   - Active OAuth tokens by app — authserver-wide overview
   - Columns: appid, token_count, by_grant_type (JSON), by_status (JSON)
   - Source: `usertokens` + grant type analysis
 
-- [ ] **`authserver.recent_twofactor_attempts` VIEW**
+- [x] **`authserver.recent_twofactor_attempts` VIEW**
   - 2FA activity last 24h
   - Columns: userid, attempt_timestamp, success (BOOLEAN), method (totp/backup), device_fingerprint
   - Source: `twofactor_attempts` με WHERE created_at > NOW() - INTERVAL '1 day'
