@@ -245,6 +245,11 @@ class Cache extends \Pramnos\Framework\Base
                 }
                 break;
 
+            case 'array':
+                $this->adapter = new Adapter\ArrayAdapter($this->prefix);
+                self::$_connected[$methodKey] = true;
+                break;
+
             case 'file':
             default:
                 // Use a default cache directory if not defined
@@ -412,6 +417,30 @@ class Cache extends \Pramnos\Framework\Base
     public function clear($category = '')
     {
         return $this->adapter ? $this->adapter->clear($category) : false;
+    }
+
+    /**
+     * Get a cached value or compute and cache it.
+     *
+     * If the $key is present in the cache, its value is returned immediately.
+     * Otherwise $callback is invoked, the return value is stored under $key
+     * with the given $ttl, and then returned to the caller.
+     *
+     * @param string   $key      Cache key.
+     * @param int      $ttl      Time-to-live in seconds. 0 = never expires.
+     * @param callable $callback Produces the value when the cache misses.
+     * @return mixed
+     */
+    public function remember(string $key, int $ttl, callable $callback): mixed
+    {
+        $this->timeout = $ttl;
+        $cached = $this->load($key);
+        if ($cached !== false) {
+            return $cached;
+        }
+        $value = $callback();
+        $this->save($value, $key);
+        return $value;
     }
 
     /**

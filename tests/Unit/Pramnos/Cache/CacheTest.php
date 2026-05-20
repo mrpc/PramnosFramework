@@ -257,4 +257,69 @@ class CacheTest extends TestCase
         // Act / Assert
         $this->assertFalse($cache->save('data', 'key'));
     }
+
+    // =========================================================================
+    // remember()
+    // =========================================================================
+
+    /**
+     * On a cache miss, remember() invokes the callback, stores the result, and
+     * returns it. The callback must be called exactly once.
+     */
+    public function testRememberInvokesCallbackOnMiss(): void
+    {
+        // Arrange — array adapter guarantees no file I/O and deterministic state
+        $cache     = new Cache(null, null, 'array');
+        $callCount = 0;
+
+        // Act
+        $result = $cache->remember('mykey', 3600, function () use (&$callCount): string {
+            $callCount++;
+            return 'computed value';
+        });
+
+        // Assert — callback ran once and result was returned
+        $this->assertSame(1, $callCount);
+        $this->assertSame('computed value', $result);
+    }
+
+    /**
+     * On a cache hit, remember() returns the cached value without calling the
+     * callback. The callback must NOT be invoked.
+     */
+    public function testRememberReturnsCachedValueOnHit(): void
+    {
+        // Arrange — populate the cache first
+        $cache = new Cache(null, null, 'array');
+        $cache->remember('mykey', 3600, fn(): string => 'first value');
+        $callCount = 0;
+
+        // Act — second call with same key
+        $result = $cache->remember('mykey', 3600, function () use (&$callCount): string {
+            $callCount++;
+            return 'should not be returned';
+        });
+
+        // Assert — callback was NOT called and the cached value was returned
+        $this->assertSame(0, $callCount);
+        $this->assertSame('first value', $result);
+    }
+
+    /**
+     * remember() works correctly with the 'array' adapter — verifies that the
+     * 'array' method key is accepted by initializeAdapter().
+     */
+    public function testRememberWithArrayAdapter(): void
+    {
+        // Arrange
+        $cache = new Cache(null, null, 'array');
+
+        // Act
+        $v1 = $cache->remember('x', 60, fn(): int => 42);
+        $v2 = $cache->remember('x', 60, fn(): int => 99);
+
+        // Assert — first call computed, second returned cached
+        $this->assertSame(42, $v1);
+        $this->assertSame(42, $v2);
+    }
 }
