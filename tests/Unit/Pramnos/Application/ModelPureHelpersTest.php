@@ -47,7 +47,6 @@ class ModelPureHelpersTest extends TestCase
         // Base::$_data is needed for getChanges() dynamic property access
         $parentRef = new \ReflectionClass(\Pramnos\Framework\Base::class);
         $dataProp  = $parentRef->getProperty('_data');
-        $dataProp->setAccessible(true);
         $dataProp->setValue($this->model, []);
     }
 
@@ -371,7 +370,6 @@ class ModelPureHelpersTest extends TestCase
     private function callPrivate(string $method, mixed ...$args): mixed
     {
         $rm = new \ReflectionMethod(Model::class, $method);
-        $rm->setAccessible(true);
         return $rm->invoke($this->model, ...$args);
     }
 
@@ -383,7 +381,6 @@ class ModelPureHelpersTest extends TestCase
         while ($class) {
             if ($class->hasProperty($prop)) {
                 $rp = $class->getProperty($prop);
-                $rp->setAccessible(true);
                 $rp->setValue($this->model, $value);
                 return;
             }
@@ -399,7 +396,6 @@ class ModelPureHelpersTest extends TestCase
         while ($class) {
             if ($class->hasProperty($prop)) {
                 $rp = $class->getProperty($prop);
-                $rp->setAccessible(true);
                 return $rp->getValue($this->model);
             }
             $class = $class->getParentClass();

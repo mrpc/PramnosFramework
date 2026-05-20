@@ -119,15 +119,12 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
     private function forceModelTable(Model $model): void
     {
         $tableProp = new \ReflectionProperty($model, '_dbtable');
-        $tableProp->setAccessible(true);
         $tableProp->setValue($model, $this->table);
 
         $keyProp = new \ReflectionProperty($model, '_primaryKey');
-        $keyProp->setAccessible(true);
         $keyProp->setValue($model, 'id');
 
         $cacheKeyProp = new \ReflectionProperty($model, '_cacheKey');
-        $cacheKeyProp->setAccessible(true);
         $cacheKeyProp->setValue($model, null);
     }
 

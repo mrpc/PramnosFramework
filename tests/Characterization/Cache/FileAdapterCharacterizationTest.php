@@ -168,7 +168,6 @@ class FileAdapterCharacterizationTest extends TestCase
         $this->adapter->save($key, 'old data', 1);
 
         $method = new \ReflectionMethod($this->adapter, 'getFilePath');
-        $method->setAccessible(true);
         $filePath = $method->invoke($this->adapter, $key, false);
         $this->assertIsString($filePath);
         $this->assertFileExists($filePath);

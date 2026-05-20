@@ -183,7 +183,6 @@ class HtmlCharacterizationTest extends TestCase
         // Arrange
         $html = new Html();
         $ref  = new \ReflectionProperty($html, '_content');
-        $ref->setAccessible(true);
         $ref->setValue($html, '<div>hello</div>');
 
         // Act & Assert
@@ -198,7 +197,6 @@ class HtmlCharacterizationTest extends TestCase
         // Arrange
         $html = new Html();
         $ref  = new \ReflectionProperty($html, '_content');
-        $ref->setAccessible(true);
         $ref->setValue($html, 'test content');
 
         // Act

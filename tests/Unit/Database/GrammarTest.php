@@ -1689,7 +1689,6 @@ class GrammarTest extends TestCase
         // Arrange
         $grammar = new PostgreSQLGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDatePartExtraction');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($grammar, 'time', 'created_at');
@@ -1708,7 +1707,6 @@ class GrammarTest extends TestCase
         // Arrange
         $grammar = new PostgreSQLGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDatePartExtraction');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($grammar, 'date', 'created_at');
@@ -1727,7 +1725,6 @@ class GrammarTest extends TestCase
         // Arrange
         $grammar = new MySQLGrammar();
         $ref     = new \ReflectionMethod($grammar, 'compileDatePartExtraction');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke($grammar, 'time', 'created_at');

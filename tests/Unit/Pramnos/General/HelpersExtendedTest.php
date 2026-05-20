@@ -1659,7 +1659,6 @@ class HelpersExtendedTest extends TestCase
     {
         // Arrange — access the private static method via reflection
         $ref = new \ReflectionMethod(Helpers::class, 'parseMemoryLimit');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke(null, '-1');
@@ -1677,7 +1676,6 @@ class HelpersExtendedTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod(Helpers::class, 'parseMemoryLimit');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke(null, '128K');
@@ -1695,7 +1693,6 @@ class HelpersExtendedTest extends TestCase
     {
         // Arrange
         $ref = new \ReflectionMethod(Helpers::class, 'parseMemoryLimit');
-        $ref->setAccessible(true);
 
         // Act
         $result = $ref->invoke(null, '2G');

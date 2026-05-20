@@ -70,7 +70,6 @@ class ControllerScaffoldingFallbackTest extends TestCase
     private function callGetFallbackDirs(Controller $controller): array
     {
         $ref    = new \ReflectionMethod(Controller::class, '_getScaffoldingFallbackDirs');
-        $ref->setAccessible(true);
         return $ref->invoke($controller);
     }
 
@@ -204,7 +203,6 @@ class ControllerScaffoldingFallbackTest extends TestCase
 
         // Act
         $ref    = new \ReflectionMethod(Controller::class, '_getScaffoldingFallbackDirs');
-        $ref->setAccessible(true);
         $dirs = $ref->invoke($controller);
 
         // Assert — no exception, returns expected dirs

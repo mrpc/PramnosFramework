@@ -99,7 +99,6 @@ class PermissionsTest extends TestCase
 
         // Assert — use reflection because $_storageMethod is protected
         $refDefault = new \ReflectionProperty(Permissions::class, '_storageMethod');
-        $refDefault->setAccessible(true);
 
         $this->assertSame('database', $refDefault->getValue($default),
             'default storage method must be "database"');
