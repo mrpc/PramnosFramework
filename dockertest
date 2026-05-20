@@ -77,7 +77,7 @@ if [[ "$coverage" == true ]]; then
         --coverage-clover coverage/clover.xml \
         $extra_flags "${passthrough[@]}"
 else
-    docker-compose exec php-apache-environment vendor/bin/phpunit $extra_flags "${passthrough[@]}"
+    docker-compose exec php-apache-environment php -d memory_limit=1G vendor/bin/phpunit $extra_flags "${passthrough[@]}"
 fi
 
 # Open coverage report if generated and not suppressed

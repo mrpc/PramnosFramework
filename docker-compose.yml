@@ -22,7 +22,9 @@ services:
       - redis
 
   db:
-    image: mysql:8.0
+    build:
+      context: ./docker/mysql
+    image: pramnosframework-mysql:8.0
     container_name: pramnos_db
     environment:
       - MYSQL_ROOT_PASSWORD=secret
