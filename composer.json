@@ -41,6 +41,11 @@
             "database/migrations/"
         ]
     },
+    "autoload-dev": {
+        "psr-4": {
+            "Pramnos\\Tests\\": "tests/"
+        }
+    },
     "bin": "bin/pramnos",
     "config": {
         "platform-check": false
