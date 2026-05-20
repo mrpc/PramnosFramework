@@ -566,7 +566,7 @@ class Api extends Application
                     $return['status']
                 );
             }
-            if (function_exists('http_response_code')) {
+            if (function_exists('http_response_code') && PHP_SAPI !== 'cli' && !headers_sent()) {
                 http_response_code((int)$return['status']);
             }
         }
