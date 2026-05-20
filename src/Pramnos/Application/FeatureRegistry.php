@@ -261,6 +261,10 @@ class FeatureRegistry
                 dirname(__DIR__, 3) . '/database/migrations/framework/queue',
             ],
         ]);
+        static::register('cache', [
+            'description' => 'Cache System (PSR-16, adapters: array/file/redis/memcached)',
+            'provider'    => \Pramnos\Cache\CacheServiceProvider::class,
+        ]);
     }
 
     /**
