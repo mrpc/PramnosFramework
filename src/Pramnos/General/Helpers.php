@@ -444,10 +444,8 @@ class Helpers
                 $array = array();
                 $array['content'] = $string;
                 $array['info'] = curl_getinfo($handler);
-                curl_close($handler);
                 return $array;
             } else {
-                curl_close($handler);
                 return $string;
             }
         } elseif (ini_get('allow_url_fopen')) {
@@ -685,7 +683,6 @@ class Helpers
         curl_exec($handler);
         // get HTTP response code
         $httpcode = curl_getinfo($handler, CURLINFO_HTTP_CODE);
-        curl_close($handler);
         if ($httpcode >= 200 && $httpcode < 300)
             return array('online' => true, 'status' => $httpcode);
         else {
