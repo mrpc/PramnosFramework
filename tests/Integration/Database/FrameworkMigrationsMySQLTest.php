@@ -2063,6 +2063,113 @@ class FrameworkMigrationsMySQLTest extends TestCase
         }
     }
 
+    /**
+     * AddSyncConsentTimestampTrigger must install two triggers on oauth2_user_consents
+     * (BEFORE INSERT and BEFORE UPDATE) so that updated_at is always set automatically.
+     *
+     * MySQL does not allow a single trigger to fire on multiple events, so the
+     * migration creates trg_sync_consent_timestamp_insert and
+     * trg_sync_consent_timestamp_update separately.
+     */
+    public function testSyncConsentTimestampTriggerUpAddsTriggers(): void
+    {
+        // Arrange — oauth2_user_consents table must exist
+        $this->loadMigration('authserver', 'CreateOauth2UserConsentsTable')->up();
+        $m = $this->loadMigration('authserver', 'AddSyncConsentTimestampTrigger');
+
+        // Act
+        $m->up();
+
+        // Assert — both triggers are registered in information_schema
+        foreach ([
+            'trg_sync_consent_timestamp_insert',
+            'trg_sync_consent_timestamp_update',
+        ] as $trigger) {
+            $r = $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt FROM information_schema.TRIGGERS
+                     WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s",
+                    'pramnos_test',
+                    $trigger
+                )
+            );
+            $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+                "{$trigger} must exist on oauth2_user_consents after up()");
+        }
+
+        // Assert — INSERT trigger populates updated_at automatically
+        $this->db->query(
+            "INSERT INTO `oauth2_user_consents` (userid, applicationid, scope) VALUES (1, 1, 'read')"
+        );
+        $r = $this->db->query(
+            "SELECT updated_at FROM `oauth2_user_consents` WHERE userid = 1"
+        );
+        $this->assertNotNull($r->fields['updated_at'],
+            'BEFORE INSERT trigger must populate updated_at');
+
+        // Assert — UPDATE trigger refreshes updated_at (advance clock by 1 s so TIMESTAMP differs)
+        $this->db->query("SELECT SLEEP(1)");
+        $this->db->query(
+            "UPDATE `oauth2_user_consents` SET scope = 'read write' WHERE userid = 1"
+        );
+        $r2 = $this->db->query(
+            "SELECT updated_at FROM `oauth2_user_consents` WHERE userid = 1"
+        );
+        $this->assertGreaterThan($r->fields['updated_at'], $r2->fields['updated_at'],
+            'BEFORE UPDATE trigger must advance updated_at beyond the INSERT value');
+
+        // Assert — down() removes both triggers
+        $m->down();
+        foreach ([
+            'trg_sync_consent_timestamp_insert',
+            'trg_sync_consent_timestamp_update',
+        ] as $trigger) {
+            $r = $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt FROM information_schema.TRIGGERS
+                     WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s",
+                    'pramnos_test',
+                    $trigger
+                )
+            );
+            $this->assertSame(0, (int) $r->fields['cnt'],
+                "{$trigger} must be gone after down()");
+        }
+    }
+
+    /**
+     * RepositionSlowApiCallsView must drop the authserver_slow_api_calls view,
+     * consolidating slow-call analysis under applications_slow_api_calls (migration 000046).
+     *
+     * Rollback must restore the original authserver view from the same source tables
+     * (tokenactions, usertokens, applications) so pre-migration code continues to work.
+     */
+    public function testRepositionSlowApiCallsViewUpDropsAuthserverView(): void
+    {
+        // Arrange — tables needed by CreateSlowApiCallsView
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('auth', 'CreateTokenactionsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('authserver', 'CreateSlowApiCallsView')->up();
+        $this->assertTrue($this->viewExists('authserver_slow_api_calls'),
+            'authserver_slow_api_calls must exist before the reposition migration runs');
+        $m = $this->loadMigration('authserver', 'RepositionSlowApiCallsView');
+
+        // Act
+        $m->up();
+
+        // Assert — authserver_slow_api_calls no longer exists
+        $this->assertFalse($this->viewExists('authserver_slow_api_calls'),
+            'authserver_slow_api_calls must be dropped: slow-call analysis is now in applications schema');
+
+        // Assert — rollback recreates the authserver view for backward compatibility
+        $m->down();
+        $this->assertTrue($this->viewExists('authserver_slow_api_calls'),
+            'authserver_slow_api_calls must be restored by down()');
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================
@@ -2192,6 +2299,9 @@ class FrameworkMigrationsMySQLTest extends TestCase
     protected function dropAllTestTables(): void
     {
         // Drop in dependency order (children first)
+        // Drop triggers before their tables
+        $this->db->query("DROP TRIGGER IF EXISTS `trg_sync_consent_timestamp_insert`");
+        $this->db->query("DROP TRIGGER IF EXISTS `trg_sync_consent_timestamp_update`");
         // Drop views first (before the underlying tables are removed)
         $this->db->query("DROP VIEW IF EXISTS `authserver_slow_api_calls`");
         $this->db->query("DROP VIEW IF EXISTS `authserver_effective_permissions`");
@@ -2243,6 +2353,9 @@ class FrameworkMigrationsMySQLTest extends TestCase
             'authserver_user_roles', 'authserver_audit_log',
             'authserver_permissions', 'authserver_roles',
             'authserver_schema',
+            // oauth2 tables (public schema, no prefix)
+            'oauth2_user_consents',
+            'oauth2_device_codes',
             // auth 000017-000026 (authserver-prefixed on MySQL)
             'authserver_gdpr_requests',
             'authserver_data_processing_records',

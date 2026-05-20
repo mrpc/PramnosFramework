@@ -2849,6 +2849,162 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             'authserver.daily_2fa_stats matview must be gone after down()');
     }
 
+    /**
+     * AddSyncConsentTimestampTrigger must create authserver.sync_consent_timestamp()
+     * and install it as BEFORE INSERT OR UPDATE on public.oauth2_user_consents.
+     *
+     * The trigger must set updated_at = CURRENT_TIMESTAMP on every INSERT and UPDATE
+     * so callers never need to supply the field manually.
+     */
+    public function testSyncConsentTimestampTriggerUpAddsTrigger(): void
+    {
+        // Arrange — authserver schema + oauth2_user_consents table must exist
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateOauth2UserConsentsTable')->up();
+        $m = $this->loadMigration('authserver', 'AddSyncConsentTimestampTrigger');
+
+        // Act
+        $m->up();
+
+        // Assert — trigger is attached to oauth2_user_consents in the public schema
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt
+                 FROM pg_trigger t
+                 JOIN pg_class c ON c.oid = t.tgrelid
+                 JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE c.relname = %s AND n.nspname = %s
+                   AND t.tgname = %s AND NOT t.tgisinternal",
+                'oauth2_user_consents',
+                'public',
+                'trg_sync_consent_timestamp'
+            )
+        );
+        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+            'trg_sync_consent_timestamp must be attached to public.oauth2_user_consents');
+
+        // Assert — trigger function exists in authserver schema
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_proc p
+                 JOIN pg_namespace n ON n.oid = p.pronamespace
+                 WHERE n.nspname = %s AND p.proname = %s",
+                'authserver',
+                'sync_consent_timestamp'
+            )
+        );
+        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+            'authserver.sync_consent_timestamp() function must exist');
+
+        // Assert — INSERT sets updated_at automatically
+        $this->db->query(
+            "INSERT INTO public.oauth2_user_consents (userid, applicationid, scope)
+             VALUES (1, 1, 'read')"
+        );
+        $r = $this->db->query(
+            "SELECT updated_at FROM public.oauth2_user_consents WHERE userid = 1"
+        );
+        $this->assertNotNull($r->fields['updated_at'],
+            'BEFORE INSERT trigger must populate updated_at');
+
+        // Assert — UPDATE advances updated_at
+        $this->db->query("SELECT pg_sleep(0.05)");
+        $before = $r->fields['updated_at'];
+        $this->db->query(
+            "UPDATE public.oauth2_user_consents SET scope = 'read write' WHERE userid = 1"
+        );
+        $r2 = $this->db->query(
+            "SELECT updated_at FROM public.oauth2_user_consents WHERE userid = 1"
+        );
+        $this->assertGreaterThan($before, $r2->fields['updated_at'],
+            'BEFORE UPDATE trigger must advance updated_at beyond the INSERT timestamp');
+
+        // Assert — down() removes the trigger and function
+        $m->down();
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt
+                 FROM pg_trigger t
+                 JOIN pg_class c ON c.oid = t.tgrelid
+                 JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE c.relname = %s AND n.nspname = %s
+                   AND t.tgname = %s AND NOT t.tgisinternal",
+                'oauth2_user_consents',
+                'public',
+                'trg_sync_consent_timestamp'
+            )
+        );
+        $this->assertSame(0, (int) $r->fields['cnt'],
+            'trg_sync_consent_timestamp must be removed after down()');
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_proc p
+                 JOIN pg_namespace n ON n.oid = p.pronamespace
+                 WHERE n.nspname = %s AND p.proname = %s",
+                'authserver',
+                'sync_consent_timestamp'
+            )
+        );
+        $this->assertSame(0, (int) $r->fields['cnt'],
+            'authserver.sync_consent_timestamp() function must be removed after down()');
+    }
+
+    /**
+     * RepositionSlowApiCallsView must drop authserver.slow_api_calls so all
+     * slow-call analysis is unified under applications.slow_api_calls (000046).
+     *
+     * Rollback must restore the original authserver view so pre-migration code
+     * that references authserver.slow_api_calls continues to work.
+     */
+    public function testRepositionSlowApiCallsViewUpDropsAuthserverView(): void
+    {
+        // Arrange — create source tables and the original authserver view
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('auth', 'CreateTokenactionsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('authserver', 'CreateSlowApiCallsView')->up();
+
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.views
+                 WHERE table_schema = %s AND table_name = %s",
+                'authserver', 'slow_api_calls'
+            )
+        );
+        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+            'authserver.slow_api_calls must exist before repositioning');
+        $m = $this->loadMigration('authserver', 'RepositionSlowApiCallsView');
+
+        // Act
+        $m->up();
+
+        // Assert — authserver.slow_api_calls is gone
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.views
+                 WHERE table_schema = %s AND table_name = %s",
+                'authserver', 'slow_api_calls'
+            )
+        );
+        $this->assertSame(0, (int) $r->fields['cnt'],
+            'authserver.slow_api_calls must be dropped after repositioning');
+
+        // Assert — rollback recreates the authserver view
+        $m->down();
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM information_schema.views
+                 WHERE table_schema = %s AND table_name = %s",
+                'authserver', 'slow_api_calls'
+            )
+        );
+        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+            'authserver.slow_api_calls must be restored after down()');
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================
@@ -3048,6 +3204,9 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             'queueitems',
             'settings', 'sessions',
             'organizations',
+            // oauth2 tables (public schema)
+            'oauth2_user_consents',
+            'oauth2_device_codes',
         ];
 
         foreach ($tables as $table) {
