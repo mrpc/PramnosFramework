@@ -85,10 +85,8 @@ class ConsoleApplicationCoverageTest extends TestCase
         // Without this, Database::displayError() calls $app->showError() → exit().
         $ref = new \ReflectionClass(\Pramnos\Application\Application::class);
         $prop = $ref->getProperty('appInstances');
-        $prop->setAccessible(true);
         $prop->setValue(null, []);
         $last = $ref->getProperty('lastUsedApplication');
-        $last->setAccessible(true);
         $last->setValue(null, null);
 
         // Reset Database::getInstance() static cache so integration tests get
