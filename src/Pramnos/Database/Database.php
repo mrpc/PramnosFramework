@@ -2119,9 +2119,9 @@ class Database extends \Pramnos\Framework\Base
                 $appName = 'CLI';
             } else {
                 $app = \Pramnos\Application\Application::getInstance();
-                if (is_array($app->applicationInfo) && isset($app->applicationInfo['name'])) {
+                if ($app !== null && is_array($app->applicationInfo) && isset($app->applicationInfo['name'])) {
                     $appName = str_replace(' ', '', ucfirst($app->applicationInfo['name']));
-                } else{
+                } else {
                     $appName = 'PramnosApp';
                 }
             }
