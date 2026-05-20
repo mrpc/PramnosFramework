@@ -908,7 +908,7 @@
 - [x] **`SimpleCache` (PSR-16):** `Psr\SimpleCache\CacheInterface` adapter — `get`, `set`, `delete`, `clear`, `getMultiple`, `setMultiple`, `deleteMultiple`, `has`; TTL ως `int|null|DateInterval`.
 - [x] **`AdapterInterface` + adapters:** `FileAdapter`, `MemcacheAdapter`, `MemcachedAdapter`, `RedisAdapter`.
 - [x] **Characterization tests:** 14 tests για SimpleCache στο `tests/Characterization/Cache/`.
-- [ ] **`ArrayAdapter`:** in-memory adapter για unit tests — αντικαθιστά τα hacks με `$_cacheData` arrays στα tests.
+- [x] **`ArrayAdapter`:** in-memory adapter για unit tests — αντικαθιστά τα hacks με `$_cacheData` arrays στα tests.
 - [x] **`Cache::remember($key, $ttl, $callback)`:** lazy-fetch pattern — αν δεν υπάρχει το key, καλεί το callback και το αποθηκεύει.
 - [x] **`ArrayAdapter`:** in-memory adapter για unit tests — χωρίς APCu/Redis/file I/O. TTL-aware (lazy expiry), prefix isolation. Εγγεγραμμένο ως `method='array'` στο `Cache::initializeAdapter()`.
 - [x] **ServiceProvider integration:** `CacheServiceProvider` που διαβάζει `app.php` και αρχικοποιεί τον default adapter. Feature key `'cache'` εγγεγραμμένο στο `FeatureRegistry`.
