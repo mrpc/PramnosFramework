@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Unit\Console;
 
 use PHPUnit\Framework\TestCase;
-use Pramnos\Console\Commands\Create;
+use Pramnos\Console\Commands\MakeCommandBase;
+use Pramnos\Console\Commands\Make\MakeController;
 
 /**
  * Unit tests for the pure computation helpers that power the migration wizard.
@@ -29,13 +30,20 @@ use Pramnos\Console\Commands\Create;
  */
 class MigrationWizardHelpersTest extends TestCase
 {
-    private Create $cmd;
+    private MakeCommandBase $cmd;
 
     protected function setUp(): void
     {
-        // Arrange — Create can be instantiated without an Application context;
-        // the helper methods under test are pure string-builders.
-        $this->cmd = new Create();
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = 'phpunit';
+        }
+        if (!defined('INCLUDES')) {
+            define('INCLUDES', 'src');
+        }
+        // The helper methods under test live in MakeCommandBase; we instantiate
+        // MakeController (the simplest concrete subclass) to get access to them
+        // without any Application or I/O context.
+        $this->cmd = new MakeController();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -180,9 +188,10 @@ class MigrationWizardHelpersTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * When hasPk=true the first line of the closure body must be
-     * $table->increments('id') — this enforces the unsigned auto-PK convention
-     * shared by the framework's Model base class.
+     * When hasPk=true the closure must contain an auto-increment primary key.
+     * Advanced Primary Key Naming derives the column name from the singular
+     * of the table (e.g. '#PREFIX#users' → 'user' → 'userid'), which is the
+     * convention for the framework's model-to-table mapping.
      */
     public function testBuildMigrationUpBodyIncludesPrimaryKey(): void
     {
@@ -191,9 +200,9 @@ class MigrationWizardHelpersTest extends TestCase
             '#PREFIX#users', true, [], false, false, []
         );
 
-        // Assert
+        // Assert — table wrapper present and auto-PK uses derived name 'userid'
         $this->assertStringContainsString("SchemaBuilder::create('#PREFIX#users'", $body);
-        $this->assertStringContainsString("\$table->increments('id');", $body);
+        $this->assertStringContainsString("\$table->increments('userid');", $body);
     }
 
     /**

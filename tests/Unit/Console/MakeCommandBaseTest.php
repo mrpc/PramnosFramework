@@ -6,10 +6,18 @@ namespace Pramnos\Tests\Unit\Console;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Pramnos\Console\Commands\Create;
+use Pramnos\Console\Commands\MakeCommandBase;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
+
+class DummyMakeCommand extends MakeCommandBase
+{
+    protected function configure() {}
+    protected function execute(InputInterface $input, OutputInterface $output) { return 0; }
+}
 
 /**
- * Unit tests for Create command stub rendering and pure generation helpers.
+ * Unit tests for MakeCommandBase stub rendering and pure generation helpers.
  *
  * Two categories:
  * 1. File-system tests (renderStub, generateTestStub): redirect ROOT to a temp
@@ -18,11 +26,11 @@ use Pramnos\Console\Commands\Create;
  *    buildMigrationDownBody, buildSeederFields): no filesystem or application
  *    context needed — only input arrays → output strings.
  */
-#[CoversClass(Create::class)]
-class CreateCommandUnitTest extends TestCase
+#[CoversClass(MakeCommandBase::class)]
+class MakeCommandBaseTest extends TestCase
 {
     private string $tmpDir;
-    private Create $command;
+    private DummyMakeCommand $command;
 
     protected function setUp(): void
     {
@@ -37,7 +45,7 @@ class CreateCommandUnitTest extends TestCase
             define('ROOT', $this->tmpDir);
         }
 
-        $this->command = new Create();
+        $this->command = new DummyMakeCommand();
     }
 
     protected function tearDown(): void
@@ -577,15 +585,17 @@ class CreateCommandUnitTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * buildMigrationUpBody() with hasPk=true prepends increments('id') to the body.
+     * buildMigrationUpBody() with hasPk=true prepends an auto-increment PK.
+     * Advanced Primary Key Naming derives the column name from the singular
+     * of the table (e.g. '#PREFIX#orders' → 'order' → 'orderid').
      */
     public function testBuildMigrationUpBodyWithPrimaryKey(): void
     {
         // Act — no extra columns, just the PK
         $result = $this->command->buildMigrationUpBody('#PREFIX#orders', true, [], false, false, []);
 
-        // Assert — increments call present
-        $this->assertStringContainsString("\$table->increments('id')", $result);
+        // Assert — table wrapper and derived PK name present
+        $this->assertStringContainsString("\$table->increments('orderid')", $result);
         $this->assertStringContainsString("SchemaBuilder::create('#PREFIX#orders'", $result);
     }
 
