@@ -66,7 +66,7 @@ class ResizeToolsCharacterizationTest extends TestCase
         $col  = imagecolorallocate($img, 30, 100, 200);
         imagefill($img, 0, 0, $col);
         imagejpeg($img, $path, 85);
-        imagedestroy($img);
+        unset($img);
         $this->tempFiles[] = $path;
         return $path;
     }
