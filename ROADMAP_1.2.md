@@ -341,47 +341,55 @@
 ### 🔧 Enhanced Scaffolding & Developer Experience (v1.2)
 *Ανάβαθμη της ποιότητας του scaffolded κώδικα και της εμπειρίας προγραμματιστή.*
 
-- [ ] **PHP 8.5 Default Version:** Ανύψωση της default PHP version από 8.4 σε 8.5 — επηρεάζει:
+- [x] **PHP 8.5 Default Version:** Ανύψωση της default PHP version από 8.4 σε 8.5 — επηρεάζει:
   - Το `Dockerfile` του framework (base image αναβάθμιση)
   - Τα scaffolded Dockerfiles κάθε νέας εφαρμογής (`pramnos init`)
   - Τη `composer.json` requirement (`php: ^8.5`)
   - Τη δοκιμαστική μήνυμα κατά το bootstrap αν ο τοπικός PHP είναι πιο παλιός
 
-- [ ] **Symfony-Compatible Console Commands:** Αναδιαμόρφωση της ονοματολογίας CLI commands σε symfony format — π.χ. `create migration` → `create:migration`, `create model` → `create:model`, `create controller` → `create:controller`, `service queue` → `service:queue`, κλπ. Επηρεάζει:
+- [x] **Symfony-Compatible Console Commands:** Αναδιαμόρφωση της ονοματολογίας CLI commands σε symfony format — π.χ. `create migration` → `create:migration`, `create model` → `create:model`, `create controller` → `create:controller`, `service queue` → `service:queue`, κλπ. Επηρεάζει:
   - Όλα τα `Console/Commands/*.php` αρχεία (όνομα κλάσης ή `getCommand()` return)
   - Την τεκμηρίωση (`docs/1.2-new-features.md` — πίνακας διαθέσιμων commands)
   - Τη backward compatibility: κρατήστε alias για τις παλιές εντολές (π.χ. `create migration` → εσωτερικά καλεί το `create:migration` command)
 
-- [ ] **Full Unit Tests in `create` Commands:** Τα scaffolded unit tests δεν θα είναι πια placeholders. Όταν δημιουργείται ένα model/controller/middleware, τα auto-generated tests πρέπει να:
+- [x] **Full Unit Tests in `create` Commands:** Τα scaffolded unit tests δεν θα είναι πια placeholders. Όταν δημιουργείται ένα model/controller/middleware, τα auto-generated tests πρέπει να:
   - Περιλαμβάνουν πλήρεις test methods για κάθε public method του scaffolded class
   - Ορίζουν fixtures (mocks, test data) ανάλογα με τα fields/relations του model
   - Χρησιμοποιούν σωστές assertions (π.χ. μη-empty strings, valid dates, type checks)
   - Καλύπτουν edge cases (null values, boundary conditions) για κάθε method
   - Περιλαμβάνουν docblocks που εξηγούν τι δοκιμάζει κάθε test
 
-- [ ] **Advanced Primary Key Naming:** Τα `create:migration` commands θα παράγουν primary keys με naming convention `{databasename}id` (π.χ. `userid`, `customerid`, `deviceid`) αντί του generic `id`. Ενδιαφέρει:
+- [x] **Advanced Primary Key Naming:** Τα `create:migration` commands θα παράγουν primary keys με naming convention `{databasename}id` (π.χ. `userid`, `customerid`, `deviceid`) αντί του generic `id`. Ενδιαφέρει:
   - Τη `migration.stub` — το auto-generated schema πρέπει να χρησιμοποιεί `$table->bigIncrements('{pluralSnake}id')` και όχι `id`
   - Την αναλογία στα `Model` scaffolds (ώστε το `_dbtable` και το `_primarykey` να συμφωνούν με τη DB)
   - Τα integration tests × 2 databases (ότι το primary key έχει δημιουργηθεί με σωστό όνομα)
 
-- [ ] **Full CRUD Controllers & Views:** Τα scaffolded controllers και views δεν είναι πια placeholders — παράγουν **100% λειτουργικό CRUD** με την επιλεγμένη UI system (plain-css, bootstrap, ή tailwind). Ενδιαφέρει:
+- [x] **Full CRUD Controllers & Views:** Τα scaffolded controllers και views δεν είναι πια placeholders — παράγουν **100% λειτουργικό CRUD** με την επιλεγμένη UI system (plain-css, bootstrap, ή tailwind). Ενδιαφέρει:
   - **Controllers:** 7 methods (list, create, store, edit, update, show, destroy) με πλήρη validation, model queries και error handling
   - **Views:** List/create/edit/show templates σύμφωνα με το UI system — data binding, form rendering, validation error display, success messages
   - **Routes:** Αυτόματη δημιουργία RESTful routes (GET /items, GET /items/create, POST /items, GET /items/{id}/edit, PUT /items/{id}, GET /items/{id}, DELETE /items/{id}) στο routing config
   - **UI Integration:** Τα created views να φορτώνουν σωστά τα UI components (buttons, forms, tables) από το επιλεγμένο theme
   - **Validation:** Σωστά πεδία validation σύμφωνα με τα scaffolded model properties
 
-- [ ] **Remove Scaffolding Output Folder:** Κατά το `pramnos init`, δεν θα δημιουργείται πλέον ο κενός φάκελος `scaffolding/` στη ρίζα του project. Αυτός ο φάκελος:
+- [x] **Remove Scaffolding Output Folder:** Κατά το `pramnos init`, δεν θα δημιουργείται πλέον ο κενός φάκελος `scaffolding/` στη ρίζα του project. Αυτός ο φάκελος:
   - Θα παραμείνει μόνο μέσα στο framework (`src/Pramnos/Console/Resources/scaffolding/`)
   - Αν η εφαρμογή θέλει να override κάποιο stub ή theme, θα δημιουργήσει τη δικιά της `scaffolding/` δομή (προαιρετικό, όχι υποχρεωτικό)
 
-- [ ] **Full Docblocks for Scaffolded Code:** Ό,τι παράγεται από τα commands (`create:model`, `create:controller`, κλπ.) πρέπει να έχει **πλήρη docblocks**:
+- [x] **Full Docblocks for Scaffolded Code:** Ό,τι παράγεται από τα commands (`create:model`, `create:controller`, κλπ.) πρέπει να έχει **πλήρη docblocks**:
   - Class-level docblocks: περιγραφή του σκοπού της κλάσης, `@package` annotation
   - Method-level docblocks: περιγραφή του τι κάνει η μέθοδος, `@param` για όλα τα arguments, `@return` με τύπο, `@throws` αν πετάει exception
   - Property-level docblocks: περιγραφή του σκοπού της ιδιότητας και ο τύπος της (`@var`)
   - Inline comments μόνο για non-obvious λογική (π.χ. γιατί χρειάζεται special handling)
 
-- [ ] **API Controller Scaffolding & Auto-Route Generation:** Η εφαρμογή θα μπορεί να δημιουργεί αυτόματα **ολοκληρωμένα API endpoints** για CRUD resources μέσω του `create:api-controller` command. Τα scaffolded API controllers θα περιλαμβάνουν:
+- [ ] **Decompose MakeCommandBase.php:** Η κλάση `src/Pramnos/Console/Commands/MakeCommandBase.php` έχει ~3,000 γραμμές — απλώς μεταφέρθηκε η πολυπλοκότητα από την παλιά `Create.php`. Απαιτείται refactor σε focused service classes για να βελτιωθεί η testability και η maintainability:
+  - `StubRenderer` — φορτώνει/renders τα `.stub` αρχεία με variable substitution
+  - `FieldParser` / `BlueprintCompiler` — μετατρέπει field definitions σε DDL fragments (`blueprintCall`, `buildMigrationUpBody`)
+  - `NamespaceResolver` — εντοπίζει namespace/path της εφαρμογής από το `applicationInfo`
+  - `FakeDataGenerator` — heuristics για fake values (`generateFakeValue`, `buildSeederFields`)
+  - Κάθε service class πρέπει να έχει dedicated unit tests χωρίς filesystem dependencies
+  - Τα `Make/*.php` commands παραμένουν thin wrappers που καλούν τους services
+
+- [x] **API Controller Scaffolding & Auto-Route Generation:** Η εφαρμογή θα μπορεί να δημιουργεί αυτόματα **ολοκληρωμένα API endpoints** για CRUD resources μέσω του `create:api-controller` command. Τα scaffolded API controllers θα περιλαμβάνουν:
   - **Full CRUD Methods:** `index()` (list with pagination/filtering), `store()` (create), `show()` (retrieve), `update()` (edit), `destroy()` (delete), με proper HTTP status codes (200, 201, 404, 422, 500)
   - **Request Validation:** Αυτόματη ενσωμάτωση της `Pramnos\Validation` system με validators ανάλογα με τα model fields
   - **JSON Response Serialization:** Χρήση `Model::toArray()` ή custom serializers για consistent JSON output format με metadata (pagination, errors, timestamps)
@@ -1306,6 +1314,22 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 - [x] **Storage facade:** `src/Pramnos/Storage/Storage.php` — static façade; `Storage::init($config)` bootstrap; `Storage::disk('name')` για named disk; `Storage::setManager()` για testing.
 - [x] **37 characterization tests:** `tests/Characterization/Storage/StorageCharacterizationTest.php` — LocalDriver (all 20 methods), S3/FTP optional-dependency guards, StorageManager (lazy creation, extend, default disk), Storage façade, Filesystem delegation verification.
 
+### 🧪 Φάση 20: HTTP Testing Infrastructure & DOM Assertions
+*Εργαλεία για να γράφονται γρήγορα και αξιόπιστα tests που επαληθεύουν το τελικό HTML/JSON output, χωρίς την ευθραυστότητα του `strpos()`.*
+
+- [x] **`symfony/dom-crawler` & `symfony/css-selector`:** Προσθήκη ως `require-dev` dependencies στο `composer.json` του framework. Δεν φορτώνονται στο production.
+- [x] **`Pramnos\Testing\TestResponse` Wrapper:** Κλάση που «ντύνει» την απάντηση του framework (string ή object) και προσφέρει fluent assertions:
+  - `assertSuccessful()`, `assertStatus(int)`
+  - `assertSee(string)`, `assertDontSee(string)`, `assertSeeText(string)`
+  - `assertJson(array)`, `assertJsonPath(path, value)`
+  - `assertSelectorExists(string $selector)`
+  - `assertSelectorContains(string $selector, string $text)`
+  - `assertSelectorAttribute(string $selector, string $attr, string $val)`
+- [x] **`Pramnos\Testing\TestClient` (Mock Browser):** Ένας in-memory client που κάνει bypass τον πραγματικό web server (Nginx/Apache) και χτυπάει απευθείας το `Application` / `Router`.
+  - `$client->get('/url')`, `$client->post('/url', data)`
+  - `$client->submitForm('Κουμπί', [data])` — Αυτόματη ανακάλυψη CSRF tokens από το DOM και αποστολή τους.
+- [x] **Scaffolding Integration:** Τα scaffolded Feature Tests των controllers (`pramnos create:controller`) να χρησιμοποιούν αυτόματα το νέο `TestClient` κάνοντας πλήρη έλεγχο των views που παράγονται.
+
 ## UrbanWater Schema Backport Tasks
 
 ### AuthServer Schema
@@ -1334,3 +1358,12 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 ### Public Schema
 - [ ] Create `public.organizations` table for generic organization registry.
+
+## Μελοντικές Φάσεις / DX Advanced Tooling
+
+### 🚀 Φάση 21: Developer Experience (DX) - Advanced Tooling
+*Προσθήκες που θα φέρουν το Pramnos στο επίπεδο των πιο σύγχρονων frameworks (Laravel/Symfony) όσον αφορά την ταχύτητα ανάπτυξης και την ποιότητα κώδικα.*
+
+- [ ] **Form Requests (Advanced Validation):** Επέκταση του `Pramnos\Validation\Validator`. Αντί για χειροκίνητο validation στους controllers, δημιουργία κλάσεων Request (π.χ. `StoreUserRequest`) που εκτελούνται αυτόματα πριν τον controller και κάνουν αυτόματο redirect σε περίπτωση λάθους.
+- [ ] **Model Factories:** Δημιουργία συστήματος Factories (π.χ. `UserFactory`) που θα συνδέει το ORM με το `Pramnos\Support\Faker`. Έτσι, με μία εντολή όπως `User::factory()->count(50)->create()`, θα δημιουργούνται μαζικά test data απευθείας στη βάση, ιδανικό για Seeding και Unit Testing.
+- [ ] **Notification Channels:** Δημιουργία ενός ενοποιημένου Notification Component (πέραν του απλού Email και Messaging). Έτσι, θα ορίζουμε μια κλάση `InvoicePaidNotification` και το σύστημα θα την κάνει dispatch ταυτόχρονα σε πολλαπλά κανάλια (Email, SMS, WebSockets, Database Logs) ανάλογα με τα preferences του χρήστη.
