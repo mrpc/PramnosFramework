@@ -165,7 +165,7 @@ class ResizeTools extends \Pramnos\Framework\Base
         } else {
             imagejpeg($this->thumb, $this->exportpath . $this->exportfile);
         }
-        imagedestroy($this->thumb);
+        unset($this->thumb);
     }
 
     /**
@@ -329,8 +329,7 @@ class ResizeTools extends \Pramnos\Framework\Base
                     0, ($x_mid - ($this->thumbW / 2)),
                     ($y_mid - ($this->thumbH / 2)), $this->thumbW,
                     $this->thumbH, $this->thumbW, $this->thumbH);
-
-            imagedestroy($process);
+            unset($process);
         }
     }
 
@@ -419,7 +418,7 @@ class ResizeTools extends \Pramnos\Framework\Base
                 0, $nwidth, $nheight, $this->width, $this->height);
 
         imagecopy($this->thumb, $tempThumb, $xpos, $ypos, 0, 0, $nwidth, $nheight);
-        @imagedestroy($tempThumb);
+        unset($tempThumb);
     }
 
     /**
@@ -596,7 +595,7 @@ class ResizeTools extends \Pramnos\Framework\Base
                     $dst_w * $quality + 1, $dst_h * $quality + 1, $src_w, $src_h);
             imagecopyresampled($dst_image, $temp, $dst_x, $dst_y, 0, 0, $dst_w,
                     $dst_h, $dst_w * $quality, $dst_h * $quality);
-            imagedestroy($temp);
+            unset($temp);
         } else {
             imagecopyresampled($dst_image, $src_image, $dst_x, $dst_y, $src_x,
                     $src_y, $dst_w, $dst_h, $src_w, $src_h);

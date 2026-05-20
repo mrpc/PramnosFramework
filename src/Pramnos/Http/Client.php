@@ -510,7 +510,6 @@ class Client
         $errno  = curl_errno($ch);
         $error  = curl_error($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
 
         if ($errno !== 0 || $body === false) {
             throw new ClientException($error ?: 'curl request failed', $errno);
