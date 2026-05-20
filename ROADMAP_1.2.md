@@ -905,9 +905,10 @@
 - [x] **`AdapterInterface` + adapters:** `FileAdapter`, `MemcacheAdapter`, `MemcachedAdapter`, `RedisAdapter`.
 - [x] **Characterization tests:** 14 tests για SimpleCache στο `tests/Characterization/Cache/`.
 - [ ] **`ArrayAdapter`:** in-memory adapter για unit tests — αντικαθιστά τα hacks με `$_cacheData` arrays στα tests.
-- [ ] **`Cache::remember($key, $ttl, $callback)`:** lazy-fetch pattern — αν δεν υπάρχει το key, καλεί το callback και το αποθηκεύει.
-- [ ] **ServiceProvider integration:** `CacheServiceProvider` που διαβάζει `app.php` και αρχικοποιεί τον default adapter.
-- [ ] **Rate limiting middleware:** `RateLimitMiddleware` με sliding window μέσω Cache.
+- [x] **`Cache::remember($key, $ttl, $callback)`:** lazy-fetch pattern — αν δεν υπάρχει το key, καλεί το callback και το αποθηκεύει.
+- [x] **`ArrayAdapter`:** in-memory adapter για unit tests — χωρίς APCu/Redis/file I/O. TTL-aware (lazy expiry), prefix isolation. Εγγεγραμμένο ως `method='array'` στο `Cache::initializeAdapter()`.
+- [x] **ServiceProvider integration:** `CacheServiceProvider` που διαβάζει `app.php` και αρχικοποιεί τον default adapter. Feature key `'cache'` εγγεγραμμένο στο `FeatureRegistry`.
+- [x] **Rate limiting middleware:** `RateLimitMiddleware` με sliding window μέσω Cache — διαφορετικό από `ThrottleMiddleware` (APCu-only) γιατί δουλεύει με οποιονδήποτε adapter (Array/File/Redis/Memcached). 29 νέα tests (18 ArrayAdapter + 3 remember + 8 RateLimit).
 
 ### 📡 Φάση 12: Broadcasting / WebSockets
 *Real-time events από server σε browser — αρχιτεκτονικά χωρισμένη από τα model events της Φάσης 9.*
