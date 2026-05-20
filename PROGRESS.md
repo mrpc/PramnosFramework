@@ -33,9 +33,14 @@
 ### Test results
 - Full suite: **4673/4673** ✓ (11258 assertions)
 
+**Επιπλέον migrations (ίδια session):**
+- migration 000047: `authserver.sync_consent_timestamp()` PL/pgSQL function + `trg_sync_consent_timestamp` BEFORE INSERT OR UPDATE on `public.oauth2_user_consents` (MySQL: δύο ξεχωριστά triggers)
+- migration 000048: drop `authserver.slow_api_calls` — consolidated into `applications.slow_api_calls` (000046); rollback αποκαθιστά την αρχική view
+
 ### Commits
 - `c09cf6d` feat(migrations): add application_settings, application_stats, user_app_authorizations tables
 - `6df8d5b` feat(migrations): add 18 analytics/monitoring views for applications and authserver schemas
+- `f53cb9b` feat(migrations): add sync_consent_timestamp trigger and reposition slow_api_calls view
 
 ---
 
