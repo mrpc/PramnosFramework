@@ -1,7 +1,43 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-20 (session 96) — Cache Phase 11: ArrayAdapter, remember(), CacheServiceProvider, RateLimitMiddleware ✅
+## 📅 Last Updated: 2026-05-21 (session 97) — Framework migrations backlog: 3 new tables + 18 analytics views ✅
+
+## 🏁 Session 97 — Framework Migrations Backlog: Tables + Views (2026-05-21)
+
+### ✅ 3 νέοι πίνακες + 18 analytics/monitoring views για applications και authserver schemas
+
+**Νέοι πίνακες:**
+- `applications.application_settings` (migration 000044) — rate limiting, IP lock, CORS, HTTPS config per app + `updated_at` trigger
+- `applications.application_stats` (migration 000045) — TimescaleDB hypertable με 14-day chunks, compression policy, request/response/bandwidth metrics
+- `authserver.user_app_authorizations` (migration 000044) — per-user app consent με scope, status, timestamps
+
+**Applications schema views (10, migration 000046):**
+- Regular: `api_performance_summary`, `application_health`, `rate_limit_status`, `slow_api_calls`, `ip_violations`, `oauth2_active_tokens`, `top_applications`
+- Materialized (PG) / regular (MySQL): `application_stats_daily`, `application_stats_hourly`, `usage_statistics`
+
+**AuthServer schema views (8, migration 000046):**
+- `alert_high_failure_rate`, `alert_suspicious_ips`, `failed_twofactor_summary`, `recent_twofactor_attempts` — monitoring
+- `gdpr_compliance_report`, `geographic_analysis` — compliance
+- `oauth2_active_tokens` — token overview
+- `daily_2fa_stats` — materialized daily aggregate (PG) / regular view (MySQL)
+
+**Διαγραφές (redundant migrations):**
+- Removed 4 FK migrations (auth/000027-000029, authserver/000045) — `core/000050` τα καλύπτει ήδη
+
+**Tests:**
+- `FrameworkMigrationsMySQLTest`: +5 tests (3 tables + 2 view suites, 97 assertions)
+- `FrameworkMigrationsPostgreSQLTest`: +5 tests (triggers, schema queries, view existence)
+- `FrameworkMigrationsTimescaleDBTest`: +1 test (hypertable verification)
+
+### Test results
+- Full suite: **4673/4673** ✓ (11258 assertions)
+
+### Commits
+- `c09cf6d` feat(migrations): add application_settings, application_stats, user_app_authorizations tables
+- `6df8d5b` feat(migrations): add 18 analytics/monitoring views for applications and authserver schemas
+
+---
 
 ## 🏁 Session 96 — Cache Phase 11 (2026-05-20)
 
