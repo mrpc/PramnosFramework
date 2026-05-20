@@ -1,7 +1,32 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-20 (sessions 93-95) — Permissions characterization tests × MySQL + PostgreSQL ✅
+## 📅 Last Updated: 2026-05-20 (session 96) — Cache Phase 11: ArrayAdapter, remember(), CacheServiceProvider, RateLimitMiddleware ✅
+
+## 🏁 Session 96 — Cache Phase 11 (2026-05-20)
+
+### ✅ Cache system expanded: ArrayAdapter, Cache::remember(), CacheServiceProvider, RateLimitMiddleware
+
+**New components:**
+- `src/Pramnos/Cache/Adapter/ArrayAdapter.php` — in-memory adapter, deterministic, no I/O, ideal for tests and transient caching
+- `Cache::remember(string $key, int $ttl, callable $callback)` — lazy-fetch with cache-aside pattern
+- `src/Pramnos/Cache/CacheServiceProvider.php` — registers 'cache' feature in FeatureRegistry, warms Cache singleton
+- `src/Pramnos/Http/Middleware/RateLimitMiddleware.php` — sliding-window rate limiter via any Cache adapter (unlike ThrottleMiddleware which is APCu-only)
+
+**Tests added (29 new tests, suite total 4662):**
+- `tests/Unit/Pramnos/Cache/ArrayAdapterTest.php` — 18 tests (store/load/TTL/expiry/clear/categories)
+- `tests/Unit/Pramnos/Cache/CacheTest.php` — +3 remember() tests (miss/hit/array adapter)
+- `tests/Unit/Pramnos/Http/Middleware/RateLimitMiddlewareTest.php` — 8 tests (allow/reject/sliding window/IP isolation/prefix isolation/passthrough)
+
+### Test results
+- Full suite: **4662/4662** ✓ (0 errors, 0 warnings)
+
+### Commits
+- `7d3bb92` feat(cache): add ArrayAdapter and Cache::remember()
+- `8f9adb4` feat(cache): add CacheServiceProvider and register 'cache' feature
+- `863bc2d` feat(cache): add RateLimitMiddleware — sliding-window rate limiter via Cache
+
+---
 
 ## 🏁 Session 95 — Permissions characterization tests × MySQL + PostgreSQL (2026-05-20)
 
