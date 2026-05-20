@@ -739,7 +739,7 @@
   - Backends: PostgreSQL/TimescaleDB (PL/pgSQL), MySQL (TRIGGER FOR EACH ROW)
   - Ενσωματώνεται σε migration 000044 (application_settings)
 
-- [ ] **`authserver.sync_consent_timestamp()` trigger function**
+- [x] **`authserver.sync_consent_timestamp()` trigger function**
   - Εκτελεί: `SET updated_at = NOW()` κατά INSERT/UPDATE της `oauth2_user_consents`
   - Backends: PostgreSQL/TimescaleDB (PL/pgSQL), MySQL (TRIGGER FOR EACH ROW)
   - Αν migration 000042 (oauth2_user_consents) υπάρχει χωρίς trigger, προσθήκη μέσω ξεχωριστής alter migration
@@ -838,9 +838,9 @@
   - Source: `twofactor_attempts` με WHERE created_at > NOW() - INTERVAL '1 day'
 
 ##### Ενημέρωση Υπάρχοντος Κώδικα
-- [ ] **Schema Repositioning:** `slow_api_calls` view — currently σε authserver, πρέπει να μεταφερθεί σε applications schema (ή να υπάρχει και στα δύο ως separate views με διαφορετικές sources)
+- [x] **Schema Repositioning:** `slow_api_calls` view — dropped from authserver schema (migration 000048), consolidated under `applications.slow_api_calls` (migration 000046)
 - [ ] Συγχρονισμός indexes, comments, default values με UrbanWater schema
-- [ ] Ενημέρωση docs/1.2-new-features.md με τα νέα migration/schema elements
+- [x] Ενημέρωση docs/1.2-new-features.md με τα νέα migration/schema elements
 
 #### Open Jira Issues προς ενσωμάτωση
 - **PF-9:** Native caching σε views (όχι μόνο manual)
