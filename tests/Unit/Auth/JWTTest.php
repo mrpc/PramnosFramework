@@ -733,7 +733,10 @@ class JWTTest extends TestCase
     /**
      * PS256 (RSA-PSS + SHA-256) tokens round-trip with RSA keys.
      * Exercises the PS256 branch in getAlgorithmsByName().
+     * @note web-token/jwt-framework 3.x calls chr() with out-of-range values in
+     *       its RSA padding helper (fixed upstream in v4.x); ignore until upgraded.
      */
+    #[\PHPUnit\Framework\Attributes\IgnoreDeprecations]
     public function testEncodeDecodeRoundTripWithPs256(): void
     {
         // Arrange
@@ -753,7 +756,10 @@ class JWTTest extends TestCase
     /**
      * PS384 tokens round-trip with RSA keys.
      * Exercises the PS384 branch in getAlgorithmsByName().
+     * @note web-token/jwt-framework 3.x calls chr() with out-of-range values in
+     *       its RSA padding helper (fixed upstream in v4.x); ignore until upgraded.
      */
+    #[\PHPUnit\Framework\Attributes\IgnoreDeprecations]
     public function testEncodeDecodeRoundTripWithPs384(): void
     {
         // Arrange
@@ -773,7 +779,10 @@ class JWTTest extends TestCase
     /**
      * PS512 tokens round-trip with RSA keys.
      * Exercises the PS512 branch in getAlgorithmsByName().
+     * @note web-token/jwt-framework 3.x calls chr() with out-of-range values in
+     *       its RSA padding helper (fixed upstream in v4.x); ignore until upgraded.
      */
+    #[\PHPUnit\Framework\Attributes\IgnoreDeprecations]
     public function testEncodeDecodeRoundTripWithPs512(): void
     {
         // Arrange
