@@ -790,7 +790,6 @@ abstract class CommandBase extends Command
             while ($ref) {
                 if ($ref->hasProperty($propertyName)) {
                     $prop = $ref->getProperty($propertyName);
-                    $prop->setAccessible(true);
                     $value = $prop->getValue($this);
                     return is_numeric($value) ? (float)$value : null;
                 }
