@@ -639,7 +639,7 @@ class User extends \Pramnos\Framework\Base
             ->table('users')
             ->where('userid', $uid)
             ->get(true, 10, 'userlist');
-        if ($result->numRows == 0) {
+        if ($result === false || $result->numRows == 0) {
             return false;
         }
         $this->_isnew = false;
