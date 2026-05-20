@@ -46,7 +46,6 @@ class TestEnvironmentTest extends TestCase
         // Use reflection to call protected acquireLock
         $reflection = new \ReflectionClass(TestEnvironment::class);
         $method = $reflection->getMethod('acquireLock');
-        $method->setAccessible(true);
 
         $result = $method->invoke(null);
         $this->assertTrue($result);
@@ -69,7 +68,6 @@ class TestEnvironmentTest extends TestCase
 
         $reflection = new \ReflectionClass(TestEnvironment::class);
         $method = $reflection->getMethod('initializeDatabase');
-        $method->setAccessible(true);
 
         // We use a try-catch because it will try to connect to PDO and fail, 
         // but we want to see it reach that stage or we can mock/catch the exception.
@@ -98,7 +96,6 @@ class TestEnvironmentTest extends TestCase
         $reflection = new \ReflectionClass(TestEnvironment::class);
         
         $pgMethod = $reflection->getMethod('setupPostgres');
-        $pgMethod->setAccessible(true);
         
         try {
             $pgMethod->invoke(null, 'localhost', 5432, 'testdb', 'user', 'pass', $this->tempDir . '/schema.sql');
@@ -108,7 +105,6 @@ class TestEnvironmentTest extends TestCase
         }
 
         $myMethod = $reflection->getMethod('setupMysql');
-        $myMethod->setAccessible(true);
         try {
             $myMethod->invoke(null, 'localhost', 3306, 'testdb', 'user', 'pass', $this->tempDir . '/schema.sql');
             $this->assertStringContainsString('mysql', $mock::$lastCommand);
@@ -151,7 +147,6 @@ class TestEnvironmentTest extends TestCase
 
         $reflection = new \ReflectionClass(TestEnvironment::class);
         $method = $reflection->getMethod('initializeDatabase');
-        $method->setAccessible(true);
 
         // This will trigger the /.dockerenv check and switch localhost -> postgres
         try {
@@ -180,7 +175,6 @@ class TestEnvironmentTest extends TestCase
     {
         $reflection = new \ReflectionClass(TestEnvironment::class);
         $method = $reflection->getMethod('runCommand');
-        $method->setAccessible(true);
 
         $output = $method->invoke(null, 'echo "hello"');
         $this->assertEquals("hello\n", $output);
@@ -193,7 +187,6 @@ class TestEnvironmentTest extends TestCase
     {
         $reflection = new \ReflectionClass(TestEnvironment::class);
         $method = $reflection->getMethod('setupPostgres');
-        $method->setAccessible(true);
 
         // We use the real credentials from docker-compose.yml
         // If this fails due to environment, it will still cover some lines.
@@ -213,7 +206,6 @@ class TestEnvironmentTest extends TestCase
     {
         $reflection = new \ReflectionClass(TestEnvironment::class);
         $method = $reflection->getMethod('setupMysql');
-        $method->setAccessible(true);
 
         // Provide a dummy schema file to cover the import branch
         $schemaFile = $this->tempDir . '/schema.sql';
@@ -234,7 +226,6 @@ class TestEnvironmentTest extends TestCase
     {
         $reflection = new \ReflectionClass(TestEnvironment::class);
         $method = $reflection->getMethod('setupPostgres');
-        $method->setAccessible(true);
 
         $schemaFile = $this->tempDir . '/schema_pg.sql';
         file_put_contents($schemaFile, 'SELECT 1;');

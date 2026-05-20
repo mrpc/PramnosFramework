@@ -131,7 +131,6 @@ class WebhookServiceTest extends TestCase
 
         // Assert — read the private $database via reflection
         $ref = new \ReflectionProperty(WebhookService::class, 'database');
-        $ref->setAccessible(true);
         $this->assertSame($db, $ref->getValue($service),
             'Constructor must store the injected Database instance');
     }
@@ -600,7 +599,6 @@ class WebhookServiceTest extends TestCase
             public function publicGetLastError(): string
             {
                 $ref = new \ReflectionProperty(WebhookService::class, 'lastError');
-                $ref->setAccessible(true);
                 return $ref->getValue($this);
             }
         };

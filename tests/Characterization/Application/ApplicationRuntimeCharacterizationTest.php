@@ -37,7 +37,6 @@ class ApplicationRuntimeCharacterizationTest extends TestCase
         $app = $ref->newInstanceWithoutConstructor();
 
         $breadcrumbsProp = new \ReflectionProperty($app, 'breadcrumbs');
-        $breadcrumbsProp->setAccessible(true);
         $breadcrumbsProp->setValue($app, new Breadcrumb());
 
         return $app;

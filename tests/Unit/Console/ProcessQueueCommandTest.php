@@ -808,7 +808,6 @@ class TestableProcessQueue extends ProcessQueue
         $ref = new \ReflectionClass(ProcessQueue::class);
         // shouldContinue is private in ProcessQueue
         $prop = $ref->getProperty('shouldContinue');
-        $prop->setAccessible(true);
         $prop->setValue($this, $value);
     }
 
@@ -961,7 +960,6 @@ class TestableExecutableProcessQueue extends ProcessQueue
                 // Expose call count to the test via the owning command.
                 $ref = new \ReflectionClass(TestableExecutableProcessQueue::class);
                 $prop = $ref->getProperty('statsCallCount');
-                $prop->setAccessible(true);
                 $prop->setValue($this->cmd, $prop->getValue($this->cmd) + 1);
 
                 return ['pending' => 0, 'processing' => 0, 'completed' => 0, 'failed' => 0, 'warning' => 0];
