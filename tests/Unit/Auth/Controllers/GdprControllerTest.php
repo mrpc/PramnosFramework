@@ -223,7 +223,6 @@ class GdprControllerTest extends TestCase
     private function callPrivate(string $method, mixed ...$args): mixed
     {
         $rm = new \ReflectionMethod(Gdpr::class, $method);
-        $rm->setAccessible(true);
         return $rm->invoke($this->gdpr, ...$args);
     }
 }

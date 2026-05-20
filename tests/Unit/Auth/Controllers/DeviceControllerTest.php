@@ -173,7 +173,6 @@ class DeviceControllerTest extends TestCase
     private function callPrivate(string $method, mixed ...$args): mixed
     {
         $rm = new \ReflectionMethod(Device::class, $method);
-        $rm->setAccessible(true);
         return $rm->invoke($this->device, ...$args);
     }
 }

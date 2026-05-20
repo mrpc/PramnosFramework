@@ -61,7 +61,6 @@ class AddonTest extends TestCase
     {
         foreach (['_actions', '_filters', '_addons'] as $prop) {
             $rp = new \ReflectionProperty(Addon::class, $prop);
-            $rp->setAccessible(true);
             $rp->setValue(null, []);
         }
     }
@@ -462,7 +461,6 @@ class AddonTest extends TestCase
         // Arrange — inject an addon directly into the static registry
         $addonObj = new Addon();
         $rp = new \ReflectionProperty(Addon::class, '_addons');
-        $rp->setAccessible(true);
         $rp->setValue(null, ['system' => ['myaddon' => $addonObj]]);
 
         // Act

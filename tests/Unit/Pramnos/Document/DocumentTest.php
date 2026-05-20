@@ -220,7 +220,6 @@ class DocumentTest extends TestCase
 
         // Assert — both classes must be in the bodyclasses property
         $ref = new \ReflectionProperty($this->document, 'bodyclasses');
-        $ref->setAccessible(true);
         $classes = $ref->getValue($this->document);
 
         $this->assertContains('page-home', $classes);
@@ -244,7 +243,6 @@ class DocumentTest extends TestCase
 
         // Assert — content appended to header
         $ref = new \ReflectionProperty($this->document, 'header');
-        $ref->setAccessible(true);
         $this->assertStringContainsString('var x=1;', $ref->getValue($this->document),
             'addHeadContent() must append to the header property');
     }
@@ -264,7 +262,6 @@ class DocumentTest extends TestCase
 
         // Assert — content appended
         $ref = new \ReflectionProperty($this->document, 'headContent');
-        $ref->setAccessible(true);
         $this->assertStringContainsString('lang="el"', $ref->getValue($this->document));
     }
 
@@ -290,12 +287,10 @@ class DocumentTest extends TestCase
 
         // Assert — og:title stored in meta array
         $meta = new \ReflectionProperty($this->document, 'meta');
-        $meta->setAccessible(true);
         $this->assertArrayHasKey('og:title', $meta->getValue($this->document));
 
         // Assert — description stored in metanames array
         $metanames = new \ReflectionProperty($this->document, 'metanames');
-        $metanames->setAccessible(true);
         $this->assertArrayHasKey('description', $metanames->getValue($this->document));
 
         // Act — remove og:title
