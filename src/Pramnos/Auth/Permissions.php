@@ -136,7 +136,7 @@ class Permissions extends \Pramnos\Framework\Base
             ['fieldName' => 'privilege', 'value' => $privilege, 'type' => 'string'],
             ['fieldName' => 'resourceelement', 'value' => $resourceElement, 'type' => 'string'],
             ['fieldName' => 'subjecttype', 'value' => $subjectType, 'type' => 'string'],
-            ['fieldName' => 'value', 'value' => $database->convertBool($value), 'type' => 'integer']
+            ['fieldName' => 'value', 'value' => (int) $value, 'type' => 'integer']
         ];
         
         if ($subjectType == 'user') {
