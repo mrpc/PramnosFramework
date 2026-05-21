@@ -104,7 +104,7 @@ class MigrationRunner
      * @param array{force?: bool, cutoff?: string} $options
      *   - force: if true, include autorun=false migrations.
      *   - cutoff: YYYY_MM_DD_HHmmss string; skip migrations at or before this point.
-     * @return array{ran: string[], failed: string[]} Slugs of ran and failed migrations.
+     * @return array{ran: string[], failed: array<string,string>} ran = slugs; failed = slug → error message.
      */
     public function run(array $migrations, array $options = []): array
     {
@@ -174,7 +174,7 @@ class MigrationRunner
                     }
 
                     $this->recordHistory($migration, $slug, $batch, $elapsed, 0, $e->getMessage());
-                    $failed[] = $slug;
+                    $failed[$slug] = $e->getMessage();
                 }
             }
         } finally {

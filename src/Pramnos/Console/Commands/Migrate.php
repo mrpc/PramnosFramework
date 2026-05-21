@@ -146,8 +146,9 @@ class Migrate extends Command
         foreach ($result['ran'] as $slug) {
             $output->writeln('<info>Migrated:</info>  ' . $slug);
         }
-        foreach ($result['failed'] as $slug) {
+        foreach ($result['failed'] as $slug => $errorMessage) {
             $output->writeln('<error>Failed:  </error>  ' . $slug);
+            $output->writeln('  <comment>' . $errorMessage . '</comment>');
         }
 
         return empty($result['failed']) ? 0 : 1;

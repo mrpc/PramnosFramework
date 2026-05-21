@@ -245,7 +245,9 @@ class MigrationRunnerPostgreSQLTest extends TestCase
         );
         $this->assertSame('1', (string) $validRow->fields['result'], 'Subsequent migration must run even after a failure');
 
-        $this->assertContains('broken_mr_pg_migration', $result['failed']);
+        // failed is now slug => errorMessage; assert the key exists and carries a message
+        $this->assertArrayHasKey('broken_mr_pg_migration', $result['failed']);
+        $this->assertNotEmpty($result['failed']['broken_mr_pg_migration'], 'failed map must carry the error message as value');
     }
 
     // -------------------------------------------------------------------------
