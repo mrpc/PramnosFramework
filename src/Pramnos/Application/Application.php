@@ -260,8 +260,8 @@ class Application extends Base
         if ($this->initialized === true) {
             return;
         }
-        if (PHP_VERSION_ID < 80500) {
-            $this->showError("Pramnos Framework requires PHP 8.5.0 or greater. You are running PHP " . PHP_VERSION . ".");
+        if (PHP_VERSION_ID < 80400) {
+            $this->showError("Pramnos Framework requires PHP 8.4.0 or greater. You are running PHP " . PHP_VERSION . ".");
         }
         $this->settings = Settings::getInstance($settingsFile);
         $this->database = \Pramnos\Database\Database::getInstance(
