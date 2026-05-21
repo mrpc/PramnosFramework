@@ -1,7 +1,52 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-21 (session 98) — Schema fixes, QB migration, PHP 8.1 min, real-time migration output ✅
+## 📅 Last Updated: 2026-05-21 (session 99) — Urbanwater DB comparison + continuous aggregate correctness ✅
+
+## 🏁 Session 99 — Urbanwater DB sync: continuous aggregates + missing views (2026-05-21)
+
+Thorough comparison between framework migrations and the live Urbanwater production database (Docker). Rule: "do it like Urbanwater" for all decisions.
+
+### ✅ Continuous aggregate column corrections
+
+- **`authserver.daily_2fa_stats`**: `total_2fa_attempts` → `total_attempts`, `successful_completions` → `successful_attempts`, remove `avg_completion_time_seconds`, add `unique_users` + `unique_ips`
+- **`authserver.daily_activity_summary`**: Add `action` to GROUP BY (per-action granularity), rename `action_count` → `activity_count`, remove `distinct_action_types`, add `unique_ips` + `first_activity` + `last_activity`
+- **`applications.application_stats_daily`**: Alias `day` → `bucket`, add `min_response_time`, `max_response_time`, `rate_limited_requests`, `rate_limit_violations`, `bytes_sent`, `bytes_received`, `countries_count`
+- **`applications.application_stats_hourly`**: Alias `hour` → `bucket`, same column additions as daily, index renamed `idx_app_stats_hourly_appid_bucket`
+
+All MySQL fallback views receive identical column additions.
+
+### ✅ Refresh policies for all continuous aggregates
+
+Added `$schema->addContinuousAggregatePolicy()` calls (was missing everywhere):
+- `daily_2fa_stats`: 1h schedule, 1-month lookback, 1h end-offset
+- `daily_activity_summary`: 1h schedule, 1-month lookback, 1h end-offset
+- `application_stats_daily`: 1-day schedule, 3-day lookback, 1-day end-offset
+- `application_stats_hourly`: 1h schedule, 3h lookback, 1h end-offset
+
+### ✅ New migration: `applications.tokenactions_hourly` (000049)
+
+Continuous aggregate over `public.tokenactions` hypertable:
+- 1-hour buckets per (tokenid, urlid, method, return_status)
+- Columns: request_count, avg/min/max/p50/p95 execution_time, success/client_error/server_error counts
+- TimescaleDB: continuous aggregate with 1h refresh policy (3h lookback)
+- Plain PG: materialized view (percentile columns NULL)
+- MySQL: regular VIEW (conditional SUM for status counts)
+
+### ✅ New view: `applications.oauth2_webhook_status`
+
+Delivery statistics per webhook endpoint (total/successful/failed/pending events, last delivery, avg attempts). Added to `000046_create_applications_views.php` with MySQL counterpart.
+
+### Test results
+- All targeted tests: **10/10** (TimescaleDB), **2/2** (PostgreSQL), **4/4** (cross-DB applications views) ✓
+- Full suite: **passing** ✓
+
+### Commits
+- `c192d98` fix(migrations): align continuous aggregate columns and add refresh policies
+- `a048ff6` feat(migrations): add tokenactions_hourly continuous aggregate
+- `d6d31bb` feat(migrations): add oauth2_webhook_status view to applications schema
+
+---
 
 ## 🏁 Session 98 — Schema fixes + refactoring (2026-05-21)
 
