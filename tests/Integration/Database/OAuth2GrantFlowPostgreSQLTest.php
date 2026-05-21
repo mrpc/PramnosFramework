@@ -70,8 +70,8 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
 
     protected function dropTables(): void
     {
-        $this->db->execute('DROP TABLE IF EXISTS public.oauth2_user_consents CASCADE');
-        $this->db->execute('DROP TABLE IF EXISTS public.oauth2_device_codes CASCADE');
+        $this->db->execute('DROP TABLE IF EXISTS authserver.oauth2_user_consents CASCADE');
+        $this->db->execute('DROP TABLE IF EXISTS authserver.oauth2_device_codes CASCADE');
         $this->db->execute('DROP TABLE IF EXISTS public.usertokens CASCADE');
         $this->db->execute('DROP TABLE IF EXISTS public.applications CASCADE');
         $this->db->execute('DROP TABLE IF EXISTS public.users CASCADE');
@@ -134,8 +134,10 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
             ON public.usertokens (token, tokentype, status, expires, code_challenge)
             WHERE tokentype = 'auth_code'");
 
+        $this->db->execute("CREATE SCHEMA IF NOT EXISTS authserver");
+
         // oauth2_device_codes (mirrors migration 000041)
-        $this->db->execute("CREATE TABLE IF NOT EXISTS public.oauth2_device_codes (
+        $this->db->execute("CREATE TABLE IF NOT EXISTS authserver.oauth2_device_codes (
             id            BIGSERIAL PRIMARY KEY,
             device_code   VARCHAR(64)  NOT NULL,
             user_code     VARCHAR(9)   NOT NULL,
@@ -149,10 +151,10 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
             CONSTRAINT uq_oauth2_dc_user_code   UNIQUE (user_code)
         )");
         $this->db->execute("CREATE INDEX IF NOT EXISTS idx_oauth2_dc_expires_status
-            ON public.oauth2_device_codes (expires_at, status)");
+            ON authserver.oauth2_device_codes (expires_at, status)");
 
         // oauth2_user_consents (mirrors migration 000042)
-        $this->db->execute("CREATE TABLE IF NOT EXISTS public.oauth2_user_consents (
+        $this->db->execute("CREATE TABLE IF NOT EXISTS authserver.oauth2_user_consents (
             id            BIGSERIAL PRIMARY KEY,
             userid        BIGINT NOT NULL,
             applicationid INT NOT NULL,
@@ -162,7 +164,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
             CONSTRAINT uq_oauth2_consents_user_app UNIQUE (userid, applicationid)
         )");
         $this->db->execute("CREATE INDEX IF NOT EXISTS idx_oauth2_consents_userid
-            ON public.oauth2_user_consents (userid)");
+            ON authserver.oauth2_user_consents (userid)");
     }
 
     // -------------------------------------------------------------------------
@@ -211,7 +213,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
 
         // Act
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_device_codes
+            "INSERT INTO authserver.oauth2_device_codes
                 (device_code, user_code, client_id, scope, expires_at, status)
              VALUES (%s, %s, %s, %s, %d, 'pending')",
             $deviceCode, $userCode, 'test-client', 'openid profile', $expiresAt
@@ -219,7 +221,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
         $this->db->query($sql);
 
         $sql = $this->db->prepareQuery(
-            "SELECT * FROM oauth2_device_codes
+            "SELECT * FROM authserver.oauth2_device_codes
               WHERE user_code = %s AND status = 'pending' AND expires_at > %d",
             $userCode, time()
         );
@@ -243,7 +245,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
         $deviceCode = bin2hex(random_bytes(32));
         $userCode   = 'LMNP-QRST';
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_device_codes
+            "INSERT INTO authserver.oauth2_device_codes
                 (device_code, user_code, client_id, scope, expires_at, status)
              VALUES (%s, %s, %s, %s, %d, 'pending')",
             $deviceCode, $userCode, 'test-client', 'openid', time() - 10
@@ -252,7 +254,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
 
         // Act
         $sql = $this->db->prepareQuery(
-            "SELECT * FROM oauth2_device_codes
+            "SELECT * FROM authserver.oauth2_device_codes
               WHERE user_code = %s AND status = 'pending' AND expires_at > %d",
             $userCode, time()
         );
@@ -272,7 +274,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
         $userCode   = 'VWXZ-BCDF';
         $userId     = $this->insertUser();
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_device_codes
+            "INSERT INTO authserver.oauth2_device_codes
                 (device_code, user_code, client_id, scope, expires_at, status)
              VALUES (%s, %s, %s, %s, %d, 'pending')",
             $deviceCode, $userCode, 'test-client', 'openid', time() + 600
@@ -282,7 +284,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
         // Act
         $now = time();
         $sql = $this->db->prepareQuery(
-            "UPDATE oauth2_device_codes
+            "UPDATE authserver.oauth2_device_codes
                 SET status = 'authorized', user_id = %d, authorized_at = %d
               WHERE user_code = %s",
             $userId, $now, $userCode
@@ -292,7 +294,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
         // Assert
         $result = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT status, user_id, authorized_at FROM oauth2_device_codes WHERE user_code = %s",
+                "SELECT status, user_id, authorized_at FROM authserver.oauth2_device_codes WHERE user_code = %s",
                 $userCode
             )
         );
@@ -310,7 +312,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
         $deviceCode = bin2hex(random_bytes(32));
         $userCode   = 'GHJK-LMNP';
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_device_codes
+            "INSERT INTO authserver.oauth2_device_codes
                 (device_code, user_code, client_id, scope, expires_at, status)
              VALUES (%s, %s, %s, %s, %d, 'pending')",
             $deviceCode, $userCode, 'test-client', 'openid', time() + 600
@@ -319,7 +321,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
 
         // Act
         $sql = $this->db->prepareQuery(
-            "UPDATE oauth2_device_codes
+            "UPDATE authserver.oauth2_device_codes
                 SET status = 'denied', authorized_at = %d
               WHERE user_code = %s",
             time(), $userCode
@@ -329,7 +331,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
         // Assert
         $result = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT status, user_id FROM oauth2_device_codes WHERE user_code = %s",
+                "SELECT status, user_id FROM authserver.oauth2_device_codes WHERE user_code = %s",
                 $userCode
             )
         );
@@ -352,7 +354,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
 
         // Act
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
+            "INSERT INTO authserver.oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
              VALUES (%d, %d, %s, NOW(), NOW())",
             $userId, $appId, 'openid profile'
         );
@@ -361,7 +363,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
         // Assert
         $result = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT scope FROM oauth2_user_consents WHERE userid = %d AND applicationid = %d",
+                "SELECT scope FROM authserver.oauth2_user_consents WHERE userid = %d AND applicationid = %d",
                 $userId, $appId
             )
         );
@@ -378,7 +380,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
         $userId = $this->insertUser('bob');
         $appId  = $this->insertApp('client-b');
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
+            "INSERT INTO authserver.oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
              VALUES (%d, %d, %s, NOW(), NOW())",
             $userId, $appId, 'openid profile'
         );
@@ -392,7 +394,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
             explode(' ', $new)
         ))));
         $sql = $this->db->prepareQuery(
-            "UPDATE oauth2_user_consents SET scope = %s, updated_at = NOW()
+            "UPDATE authserver.oauth2_user_consents SET scope = %s, updated_at = NOW()
               WHERE userid = %d AND applicationid = %d",
             $merged, $userId, $appId
         );
@@ -401,7 +403,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
         // Assert
         $result = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT scope FROM oauth2_user_consents WHERE userid = %d AND applicationid = %d",
+                "SELECT scope FROM authserver.oauth2_user_consents WHERE userid = %d AND applicationid = %d",
                 $userId, $appId
             )
         );

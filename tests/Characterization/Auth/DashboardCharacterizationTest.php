@@ -25,7 +25,7 @@ use Pramnos\User\User;
  *   - user_activity_log
  *   - user_privacy_settings   (column names match what the controller uses,
  *                               not the migration naming — pre-existing mismatch)
- *   - oauth2_user_consents
+ *   - authserver_oauth2_user_consents  (authserver schema → authserver_ prefix on MySQL)
  *   - user_twofactor
  *   - twofactor_setup
  *
@@ -71,7 +71,7 @@ class DashboardCharacterizationTest extends TestCase
     {
         // Remove test rows (preserve table structure for the next test in the same run)
         foreach ($this->createdUserIds as $uid) {
-            $this->db->queryBuilder()->table('oauth2_user_consents')->where('userid', $uid)->delete();
+            $this->db->queryBuilder()->table('authserver.oauth2_user_consents')->where('userid', $uid)->delete();
             $this->db->queryBuilder()->table('user_activity_log')->where('userid', $uid)->delete();
             $this->db->queryBuilder()->table('user_privacy_settings')->where('userid', $uid)->delete();
             $this->db->queryBuilder()->table('user_twofactor')->where('userid', $uid)->delete();
@@ -122,9 +122,9 @@ class DashboardCharacterizationTest extends TestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 
-        // oauth2_user_consents — columns match Dashboard::revokeapplication()
+        // oauth2_user_consents — columns match Dashboard::revokeapplication() (authserver schema → authserver_ prefix on MySQL)
         $this->db->query(
-            "CREATE TABLE IF NOT EXISTS `{$p}oauth2_user_consents` (
+            "CREATE TABLE IF NOT EXISTS `{$p}authserver_oauth2_user_consents` (
                 `id`            bigint AUTO_INCREMENT PRIMARY KEY,
                 `userid`        bigint NOT NULL,
                 `applicationid` int NOT NULL,
@@ -517,7 +517,7 @@ class DashboardCharacterizationTest extends TestCase
             'token' => 'tok_' . bin2hex(random_bytes(4)), 'applicationid' => $appId,
             'lastused' => time(), 'expires' => 0, 'notes' => '',
         ]);
-        $this->db->queryBuilder()->table('oauth2_user_consents')->insert([
+        $this->db->queryBuilder()->table('authserver.oauth2_user_consents')->insert([
             'userid' => $targetId, 'applicationid' => $appId,
         ]);
         $this->db->queryBuilder()->table('user_activity_log')->insert([
@@ -562,7 +562,7 @@ class DashboardCharacterizationTest extends TestCase
         );
         $this->assertSame(
             0,
-            $this->db->queryBuilder()->table('oauth2_user_consents')->where('userid', $targetId)->count(),
+            $this->db->queryBuilder()->table('authserver.oauth2_user_consents')->where('userid', $targetId)->count(),
             'oauth2_user_consents rows must be deleted'
         );
         $this->assertSame(
