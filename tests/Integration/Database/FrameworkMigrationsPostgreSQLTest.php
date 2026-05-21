@@ -2023,7 +2023,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         // Assert — all 7 functions exist in pg_proc
         $fns = [
             'set_permission_priority',
-            'check_user_deya_membership',
+            'check_user_org_membership',
             'apply_permission_template',
             'apply_role_template',
             'log_audit_event',
