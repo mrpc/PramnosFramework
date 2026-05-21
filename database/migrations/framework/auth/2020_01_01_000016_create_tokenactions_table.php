@@ -85,6 +85,7 @@ class CreateTokenactionsTable extends Migration
                 'orderby'   => 'action_time DESC',
             ]);
             $schema->addCompressionPolicy('tokenactions', '60 days');
+            $schema->addRetentionPolicy('tokenactions', '3 years', 'action_time');
         });
 
         // PostgreSQL: sync trigger keeps servertime (legacy UNIX int) and
