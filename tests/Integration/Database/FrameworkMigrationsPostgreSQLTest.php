@@ -2726,19 +2726,44 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
                 "applications.{$view} must exist in information_schema.views");
         }
 
-        // Assert — materialized views exist in pg_matviews
-        $matViews = ['application_stats_daily', 'application_stats_hourly', 'usage_statistics'];
-        foreach ($matViews as $view) {
-            $r = $this->db->query(
-                $this->db->prepareQuery(
-                    "SELECT COUNT(*) AS cnt FROM pg_matviews
-                     WHERE schemaname = %s AND matviewname = %s",
-                    'applications', $view
-                )
-            );
-            $this->assertGreaterThan(0, (int) $r->fields['cnt'],
-                "applications.{$view} must exist as a materialized view");
+        // Assert — aggregated views: on TimescaleDB, daily/hourly are continuous aggregates;
+        // on plain PG they are regular materialized views. usage_statistics is always a matview.
+        $hasTsdb   = $this->db->schema()->getCapabilities()->hasTimescaleDB();
+        $caggViews = ['application_stats_daily', 'application_stats_hourly'];
+        foreach ($caggViews as $view) {
+            if ($hasTsdb) {
+                $r = $this->db->query(
+                    $this->db->prepareQuery(
+                        "SELECT COUNT(*) AS cnt
+                         FROM timescaledb_information.continuous_aggregates
+                         WHERE view_schema = %s AND view_name = %s",
+                        'applications', $view
+                    )
+                );
+                $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+                    "applications.{$view} must be a TimescaleDB continuous aggregate");
+            } else {
+                $r = $this->db->query(
+                    $this->db->prepareQuery(
+                        "SELECT COUNT(*) AS cnt FROM pg_matviews
+                         WHERE schemaname = %s AND matviewname = %s",
+                        'applications', $view
+                    )
+                );
+                $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+                    "applications.{$view} must exist as a materialized view on plain PG");
+            }
         }
+        // usage_statistics uses a rolling window and cannot be a continuous aggregate
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_matviews
+                 WHERE schemaname = %s AND matviewname = %s",
+                'applications', 'usage_statistics'
+            )
+        );
+        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+            'applications.usage_statistics must exist as a materialized view');
 
         // Assert — regular views are queryable
         foreach ($regularViews as $view) {
@@ -2759,17 +2784,39 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             $this->assertSame('0', (string) $r->fields['cnt'],
                 "applications.{$view} must be gone after down()");
         }
-        foreach ($matViews as $view) {
-            $r = $this->db->query(
-                $this->db->prepareQuery(
-                    "SELECT COUNT(*) AS cnt FROM pg_matviews
-                     WHERE schemaname = %s AND matviewname = %s",
-                    'applications', $view
-                )
-            );
-            $this->assertSame('0', (string) $r->fields['cnt'],
-                "applications.{$view} matview must be gone after down()");
+        foreach ($caggViews as $view) {
+            if ($hasTsdb) {
+                $r = $this->db->query(
+                    $this->db->prepareQuery(
+                        "SELECT COUNT(*) AS cnt
+                         FROM timescaledb_information.continuous_aggregates
+                         WHERE view_schema = %s AND view_name = %s",
+                        'applications', $view
+                    )
+                );
+                $this->assertSame('0', (string) $r->fields['cnt'],
+                    "applications.{$view} continuous aggregate must be gone after down()");
+            } else {
+                $r = $this->db->query(
+                    $this->db->prepareQuery(
+                        "SELECT COUNT(*) AS cnt FROM pg_matviews
+                         WHERE schemaname = %s AND matviewname = %s",
+                        'applications', $view
+                    )
+                );
+                $this->assertSame('0', (string) $r->fields['cnt'],
+                    "applications.{$view} matview must be gone after down()");
+            }
         }
+        $r = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt FROM pg_matviews
+                 WHERE schemaname = %s AND matviewname = %s",
+                'applications', 'usage_statistics'
+            )
+        );
+        $this->assertSame('0', (string) $r->fields['cnt'],
+            'applications.usage_statistics matview must be gone after down()');
     }
 
     // =========================================================================
