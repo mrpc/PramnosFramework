@@ -1554,7 +1554,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
 
         $this->db->query(
             "INSERT INTO `authserver_twofactor_attempts` (userid, success, ip_address, attempt_time)
-             VALUES (999, 1, '127.0.0.1', NOW())"
+             VALUES (999, TRUE, '127.0.0.1', NOW())"
         );
         $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_twofactor_attempts`");
         $this->assertSame('1', (string) $r->fields['cnt']);

@@ -485,7 +485,7 @@ class TwoFactorAuthService
             ->table('authserver.twofactor_attempts')
             ->insert([
                 'userid'       => $userId,
-                'success'      => $success ? 1 : 0,
+                'success'      => $success,
                 'ip_address'   => $ipAddress,
                 'code_used'    => sprintf('%08x', crc32($codeUsed)),
                 'user_agent'   => (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''),
