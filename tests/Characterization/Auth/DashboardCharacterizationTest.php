@@ -97,6 +97,17 @@ class DashboardCharacterizationTest extends TestCase
     {
         $p = $this->db->prefix;
 
+        // applications — referenced by makeApp(), getAuthorizedApplications(), eraseUserData()
+        $this->db->query(
+            "CREATE TABLE IF NOT EXISTS `{$p}applications` (
+                `appid`      INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                `name`       VARCHAR(255) NOT NULL DEFAULT '',
+                `apikey`     VARCHAR(255) NOT NULL DEFAULT '',
+                `apisecret`  VARCHAR(255) NOT NULL DEFAULT '',
+                `status`     TINYINT      NOT NULL DEFAULT 1
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        );
+
         // user_activity_log — column names match what Dashboard::getActivityLog() selects
         $this->db->query(
             "CREATE TABLE IF NOT EXISTS `{$p}user_activity_log` (
