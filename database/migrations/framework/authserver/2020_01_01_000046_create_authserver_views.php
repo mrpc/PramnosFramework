@@ -65,8 +65,9 @@ class CreateAuthserverViews extends Migration
     private function upPostgreSQL(): void
     {
         // alert_high_failure_rate — 2FA failures spike detection
+        $this->DB()->query("DROP VIEW IF EXISTS authserver.alert_high_failure_rate CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW authserver.alert_high_failure_rate AS
+            CREATE VIEW authserver.alert_high_failure_rate AS
             SELECT
                 gen_random_uuid()::TEXT                     AS alert_id,
                 'warning'                                   AS severity,
@@ -81,8 +82,9 @@ class CreateAuthserverViews extends Migration
         ");
 
         // alert_suspicious_ips — IPs with many lockout events in the last hour
+        $this->DB()->query("DROP VIEW IF EXISTS authserver.alert_suspicious_ips CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW authserver.alert_suspicious_ips AS
+            CREATE VIEW authserver.alert_suspicious_ips AS
             SELECT
                 lookupvalue                                 AS ip_address,
                 SUM(failedattempts)                         AS attempt_count,
@@ -103,8 +105,9 @@ class CreateAuthserverViews extends Migration
         ");
 
         // failed_twofactor_summary — users with 3+ 2FA failures in last hour
+        $this->DB()->query("DROP VIEW IF EXISTS authserver.failed_twofactor_summary CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW authserver.failed_twofactor_summary AS
+            CREATE VIEW authserver.failed_twofactor_summary AS
             SELECT
                 userid,
                 COUNT(*) FILTER (WHERE success = 0)        AS failed_attempts,
@@ -123,8 +126,9 @@ class CreateAuthserverViews extends Migration
         ");
 
         // gdpr_compliance_report — user consent and data processing summary
+        $this->DB()->query("DROP VIEW IF EXISTS authserver.gdpr_compliance_report CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW authserver.gdpr_compliance_report AS
+            CREATE VIEW authserver.gdpr_compliance_report AS
             SELECT
                 u.userid,
                 COUNT(DISTINCT uc.granted_at)               AS consents_given,
@@ -144,8 +148,9 @@ class CreateAuthserverViews extends Migration
         ");
 
         // geographic_analysis — per-user login activity (by IP, no geo data yet)
+        $this->DB()->query("DROP VIEW IF EXISTS authserver.geographic_analysis CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW authserver.geographic_analysis AS
+            CREATE VIEW authserver.geographic_analysis AS
             SELECT
                 userid,
                 ip_address                                  AS country_code,
@@ -162,8 +167,9 @@ class CreateAuthserverViews extends Migration
         ");
 
         // oauth2_active_tokens — active OAuth token counts per app
+        $this->DB()->query("DROP VIEW IF EXISTS authserver.oauth2_active_tokens CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW authserver.oauth2_active_tokens AS
+            CREATE VIEW authserver.oauth2_active_tokens AS
             SELECT
                 applicationid                               AS appid,
                 COUNT(*) FILTER (WHERE status = 1 AND expires > EXTRACT(EPOCH FROM NOW()))
@@ -178,8 +184,9 @@ class CreateAuthserverViews extends Migration
         ");
 
         // recent_twofactor_attempts — 2FA activity last 24h
+        $this->DB()->query("DROP VIEW IF EXISTS authserver.recent_twofactor_attempts CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW authserver.recent_twofactor_attempts AS
+            CREATE VIEW authserver.recent_twofactor_attempts AS
             SELECT
                 userid,
                 attempt_time                                AS attempt_timestamp,
@@ -191,8 +198,9 @@ class CreateAuthserverViews extends Migration
         ");
 
         // daily_2fa_stats — materialized daily 2FA aggregate
+        $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS authserver.daily_2fa_stats CASCADE");
         $this->DB()->query("
-            CREATE MATERIALIZED VIEW IF NOT EXISTS authserver.daily_2fa_stats AS
+            CREATE MATERIALIZED VIEW authserver.daily_2fa_stats AS
             SELECT
                 date_trunc('day', attempt_time)             AS date,
                 COUNT(*)                                    AS total_2fa_attempts,
