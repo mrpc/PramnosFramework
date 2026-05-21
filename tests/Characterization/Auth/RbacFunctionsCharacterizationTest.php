@@ -393,44 +393,64 @@ class RbacFunctionsCharacterizationTest extends TestCase
     // =========================================================================
 
     /**
-     * log_audit_event() must insert a row into authserver.audit_log and return
-     * the new logid (positive BIGINT).
+     * log_audit_event() must insert a row into authserver.audit_log using the
+     * generic polymorphic schema and return the new auditid (positive INTEGER).
      *
-     * Verifies: return value > 0, row inserted, all scalar fields stored correctly,
-     * JSON before/after state stored as JSONB.
+     * The function signature matches Urbanwater's authserver.log_audit_event():
+     *   (event_type, actor_userid, actor_type, target_type, target_id,
+     *    object_type, object_id, old_values, new_values, metadata, organization_context)
+     *
+     * Verifies: return value > 0, row exists, all scalar fields stored correctly,
+     * JSONB old_values/new_values/metadata preserved round-trip.
      */
     public function testLogAuditEventInsertsRowAndReturnsId(): void
     {
+        // Arrange — build metadata JSON that includes ip_address (moved from dedicated column)
+        $metadata = json_encode(['ip_address' => '127.0.0.1', 'notes' => 'Test audit entry']);
+
         // Act
         $r = $this->db->execute(
             "SELECT authserver.log_audit_event(
                  'permission_granted',
                  99,
-                 42,
-                 NULL,
-                 '{\"before\": null}',
-                 '{\"after\": \"allow\"}',
-                 '127.0.0.1',
-                 'Test audit entry'
-             ) AS logid"
+                 'user',
+                 'user',
+                 '42',
+                 'permission',
+                 'read_data',
+                 '{\"before\": null}'::jsonb,
+                 '{\"after\": \"allow\"}'::jsonb,
+                 " . $this->db->prepareQuery('%s', $metadata) . "::jsonb,
+                 NULL
+             ) AS auditid"
         );
         $r->fetch();
-        $logId = (int) $r->fields['logid'];
+        $auditId = (int) $r->fields['auditid'];
 
         // Assert — returned ID is a positive integer
-        $this->assertGreaterThan(0, $logId, 'log_audit_event() must return a positive logid');
+        $this->assertGreaterThan(0, $auditId, 'log_audit_event() must return a positive auditid');
 
         // Assert — row exists with correct scalar fields
         $row = $this->db->execute(
-            "SELECT action_type, performed_by, target_userid, ip_address, notes
-             FROM authserver.audit_log WHERE logid = {$logId}"
+            "SELECT event_type, actor_userid, actor_type, target_type, target_id,
+                    object_type, object_id, metadata
+             FROM authserver.audit_log WHERE auditid = {$auditId}"
         );
         $row->fetch();
-        $this->assertSame('permission_granted', $row->fields['action_type']);
-        $this->assertSame(99, (int) $row->fields['performed_by']);
-        $this->assertSame(42, (int) $row->fields['target_userid']);
-        $this->assertSame('127.0.0.1',   $row->fields['ip_address']);
-        $this->assertSame('Test audit entry', $row->fields['notes']);
+        $this->assertSame('permission_granted', $row->fields['event_type'],
+            'event_type must match the value passed to log_audit_event()');
+        $this->assertSame(99,           (int) $row->fields['actor_userid'],
+            'actor_userid must store the integer actor identity');
+        $this->assertSame('user',             $row->fields['actor_type']);
+        $this->assertSame('user',             $row->fields['target_type']);
+        $this->assertSame('42',               $row->fields['target_id']);
+        $this->assertSame('permission',       $row->fields['object_type']);
+        $this->assertSame('read_data',        $row->fields['object_id']);
+
+        // Assert — metadata JSONB round-trip preserves ip_address
+        $storedMeta = json_decode($row->fields['metadata'], true);
+        $this->assertSame('127.0.0.1', $storedMeta['ip_address'],
+            'ip_address stored in metadata jsonb must survive JSONB round-trip');
     }
 
     // =========================================================================
