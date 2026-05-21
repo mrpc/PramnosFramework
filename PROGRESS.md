@@ -1,7 +1,27 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-21 (session 100) — Urbanwater DB sync: policies, indexes, usage_statistics rewrite ✅
+## 📅 Last Updated: 2026-05-21 (session 101) — Urbanwater DB sync: deya→org terminology cleanup ✅
+
+## 🏁 Session 101 — Urbanwater DB sync: deya→org terminology cleanup (2026-05-21)
+
+### ✅ Renamed `check_user_deya_membership` → `check_user_org_membership`
+
+Completed the deya→organization terminology cleanup across the authserver RBAC layer:
+- `CreateAuthserverRbacFunctions` (000036): function and trigger renamed (`check_user_deya_membership` → `check_user_org_membership`, `trigger_check_user_deya_membership` → `trigger_check_user_org_membership`); `down()` DROP statements updated; docblock updated.
+- Column comments in `permission_templates` (000032): `"deya_admin_read_all"` → `"org_admin_read_all"`, `deya_template` → `org_template`, `"deya"` → `"organization"`.
+- Column comments in `role_templates` (000033): `"deya_administrator"` → `"org_administrator"`.
+- `audit_log` (000024): removed residual `deya_context` contextual reference from docblock.
+- `docs/1.2-new-features.md`: all deya terminology replaced (`user_deyas` → `user_organizations`, `deyaid` → `organization_id`, `:deyaid` params → `:org_id`, `deya_template` → `org_template`, etc.).
+- Tests: `RbacFunctionsCharacterizationTest` — section headers, docblock, and test method renamed; PostgreSQL integration test functions list updated.
+
+### Test results
+- Full suite: **4680/4680** ✓
+
+### Commits
+- `d19424d` refactor(authserver): rename check_user_deya_membership to check_user_org_membership
+
+---
 
 ## 🏁 Session 100 — Urbanwater DB sync: policies, indexes, usage_statistics (2026-05-21)
 
