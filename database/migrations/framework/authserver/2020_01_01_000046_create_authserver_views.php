@@ -5,27 +5,27 @@ namespace Pramnos\Framework\Migrations\AuthServer;
 use Pramnos\Database\Migration;
 
 /**
- * Creates the 8 monitoring/analytics views in the authserver schema.
+ * Creates 8 monitoring/analytics views in the authserver schema.
+ * View logic matches the Urbanwater production schema exactly.
  *
- * Column names used match the actual framework migration schemas:
- *   twofactor_attempts : userid, ip_address, code_used, user_agent,
- *                         attempt_time, success
- *   loginlockouts       : locktype, lookupvalue, failedattempts,
- *                         createdat (Unix int), lastfailedat (Unix int)
- *   user_activity_log   : userid, action, ip_address, created_at
- *   user_consents       : userid, consent_type, granted, granted_at
- *   user_privacy_settings: userid, updated_at
- *   usertokens          : tokenid, userid, applicationid, status (1=active), expires (Unix int)
+ * Source tables:
+ *   twofactor_attempts    : userid, ip_address, success (boolean), attempt_time
+ *   user_activity_log     : userid, action, ip_address, created_at
+ *   user_consents         : userid, granted_at, id
+ *   user_privacy_settings : userid, share_usage_analytics, marketing_emails, updated_at
+ *   usertokens            : tokenid, userid, applicationid, status, expires (Unix int), ipaddress
+ *   applications          : appid, name, apikey
+ *   users                 : userid, username, email, lasttermsagreed, validated
  *
  * Views created:
- *   alert_high_failure_rate      — 2FA failure spikes in the last hour
- *   alert_suspicious_ips         — IPs with many recent lockout events
- *   daily_2fa_stats              — daily 2FA usage aggregate (continuous aggregate on TimescaleDB, materialized view on plain PG, regular VIEW on MySQL)
- *   failed_twofactor_summary     — users with 3+ 2FA failures in the last hour
- *   gdpr_compliance_report       — per-user consent and privacy summary
- *   geographic_analysis          — per-user recent login activity by IP
- *   oauth2_active_tokens         — active OAuth token counts by app
- *   recent_twofactor_attempts    — 2FA activity in the last 24 h
+ *   alert_high_failure_rate   — 2FA failure rate > 20 % in the last hour (HAVING guard)
+ *   alert_suspicious_ips      — IPs with ≥3 distinct users AND ≥10 failures in last hour
+ *   daily_2fa_stats           — daily aggregate (continuous agg on TimescaleDB, matview on plain PG, VIEW on MySQL)
+ *   failed_twofactor_summary  — ip+user pairs with ≥3 failures in last hour
+ *   gdpr_compliance_report    — per-user GDPR consent/activity summary
+ *   geographic_analysis       — 2FA attempts grouped by /8 subnet, last 7 days
+ *   oauth2_active_tokens      — active OAuth2 tokens with client name and user info
+ *   recent_twofactor_attempts — 2FA activity last 24 h with SUCCESS/FAILED status label
  *
  * @package PramnosFramework
  */
@@ -64,137 +64,158 @@ class CreateAuthserverViews extends Migration
 
     private function upPostgreSQL(): void
     {
-        // alert_high_failure_rate — 2FA failures spike detection
+        // alert_high_failure_rate — 2FA failure rate spike in the last hour
         $this->DB()->query("DROP VIEW IF EXISTS authserver.alert_high_failure_rate CASCADE");
         $this->DB()->query("
             CREATE VIEW authserver.alert_high_failure_rate AS
             SELECT
-                gen_random_uuid()::TEXT                     AS alert_id,
-                'warning'                                   AS severity,
-                'High 2FA failure rate detected'            AS message,
-                COUNT(DISTINCT userid)                      AS affected_users,
-                NOW()                                       AS trigger_time,
-                NOW() + INTERVAL '1 hour'                   AS resolvable_at
+                'HIGH_FAILURE_RATE'::TEXT                   AS alert_type,
+                CURRENT_TIMESTAMP                           AS alert_time,
+                COUNT(*)                                    AS total_attempts,
+                COUNT(*) FILTER (WHERE success = false)     AS failed_attempts,
+                ROUND(
+                    COUNT(*) FILTER (WHERE success = false)::NUMERIC
+                    / COUNT(*)::NUMERIC * 100, 2
+                )                                           AS failure_rate_percent
             FROM authserver.twofactor_attempts
-            WHERE attempt_time >= NOW() - INTERVAL '1 hour'
-              AND success = 0
+            WHERE attempt_time >= CURRENT_TIMESTAMP - INTERVAL '1 hour'
             HAVING COUNT(*) > 10
+               AND COUNT(*) FILTER (WHERE success = false)::NUMERIC
+                   / COUNT(*)::NUMERIC > 0.2
         ");
 
-        // alert_suspicious_ips — IPs with many lockout events in the last hour
+        // alert_suspicious_ips — IPs with many distinct users + failures in the last hour
         $this->DB()->query("DROP VIEW IF EXISTS authserver.alert_suspicious_ips CASCADE");
         $this->DB()->query("
             CREATE VIEW authserver.alert_suspicious_ips AS
             SELECT
-                lookupvalue                                 AS ip_address,
-                SUM(failedattempts)                         AS attempt_count,
-                CASE
-                    WHEN SUM(failedattempts) > 50 THEN 100
-                    WHEN SUM(failedattempts) > 20 THEN 70
-                    WHEN SUM(failedattempts) > 10 THEN 40
-                    ELSE 20
-                END                                         AS suspicious_score,
-                'High login failure count from this IP'     AS reason,
-                MAX(TO_TIMESTAMP(lastfailedat))             AS last_seen,
-                'investigate'                               AS recommended_action
-            FROM authserver.loginlockouts
-            WHERE locktype = 'ip'
-              AND TO_TIMESTAMP(lastfailedat) >= NOW() - INTERVAL '1 hour'
-            GROUP BY lookupvalue
-            HAVING SUM(failedattempts) > 5
+                'SUSPICIOUS_IP'::TEXT                       AS alert_type,
+                ip_address,
+                COUNT(DISTINCT userid)                      AS unique_users,
+                COUNT(*)                                    AS total_attempts,
+                COUNT(*) FILTER (WHERE success = false)     AS failed_attempts
+            FROM authserver.twofactor_attempts
+            WHERE attempt_time >= CURRENT_TIMESTAMP - INTERVAL '1 hour'
+            GROUP BY ip_address
+            HAVING COUNT(DISTINCT userid) >= 3
+               AND COUNT(*) FILTER (WHERE success = false) >= 10
         ");
 
-        // failed_twofactor_summary — users with 3+ 2FA failures in last hour
+        // failed_twofactor_summary — IPs+users with 3+ failures in the last hour
         $this->DB()->query("DROP VIEW IF EXISTS authserver.failed_twofactor_summary CASCADE");
         $this->DB()->query("
             CREATE VIEW authserver.failed_twofactor_summary AS
             SELECT
+                ip_address,
                 userid,
-                COUNT(*) FILTER (WHERE success = 0)        AS failed_attempts,
-                MAX(attempt_time)                           AS last_failure_time,
-                CASE
-                    WHEN COUNT(*) FILTER (WHERE success = 0) >= 5
-                    THEN 'consider_lockout'
-                    WHEN COUNT(*) FILTER (WHERE success = 0) >= 3
-                    THEN 'monitor'
-                    ELSE 'normal'
-                END                                        AS account_status_recommendation
+                COUNT(*)                                    AS failed_attempts,
+                MAX(attempt_time)                           AS last_attempt,
+                MIN(attempt_time)                           AS first_attempt
             FROM authserver.twofactor_attempts
-            WHERE attempt_time >= NOW() - INTERVAL '1 hour'
-            GROUP BY userid
-            HAVING COUNT(*) FILTER (WHERE success = 0) >= 3
+            WHERE success = false
+              AND attempt_time >= CURRENT_TIMESTAMP - INTERVAL '1 hour'
+            GROUP BY ip_address, userid
+            HAVING COUNT(*) >= 3
+            ORDER BY COUNT(*) DESC, MAX(attempt_time) DESC
         ");
 
-        // gdpr_compliance_report — user consent and data processing summary
+        // gdpr_compliance_report — per-user GDPR consent and activity summary
         $this->DB()->query("DROP VIEW IF EXISTS authserver.gdpr_compliance_report CASCADE");
         $this->DB()->query("
             CREATE VIEW authserver.gdpr_compliance_report AS
             SELECT
                 u.userid,
-                COUNT(DISTINCT uc.granted_at)               AS consents_given,
-                365                                         AS data_retention_days,
-                FALSE                                       AS deletion_requested,
-                FALSE                                       AS export_requested,
-                GREATEST(
-                    MAX(uc.granted_at),
-                    MAX(ups.updated_at)
-                )                                           AS last_processing_date
+                u.username,
+                u.email,
+                CASE WHEN u.lasttermsagreed > 0 THEN TRUE ELSE FALSE END
+                                                            AS gdpr_consent_given,
+                TO_TIMESTAMP(u.lasttermsagreed::FLOAT)      AS gdpr_consent_date,
+                u.validated                                 AS email_verification_status,
+                ups.share_usage_analytics,
+                ups.marketing_emails,
+                ups.updated_at                              AS privacy_settings_updated,
+                COUNT(DISTINCT a.apikey)                    AS authorized_apps_count,
+                COUNT(ual.id)                               AS total_activities,
+                MAX(ual.created_at)                         AS last_activity,
+                COUNT(DISTINCT uc.id)                       AS total_consents,
+                (SELECT COUNT(*) FROM authserver.user_activity_log
+                  WHERE userid = u.userid
+                    AND created_at >= NOW() - INTERVAL '30 days') AS recent_activity_30d,
+                (SELECT COUNT(*) FROM authserver.user_activity_log
+                  WHERE userid = u.userid
+                    AND created_at >= NOW() - INTERVAL '7 days')  AS recent_activity_7d
             FROM public.users u
-            LEFT JOIN authserver.user_consents uc
-                   ON uc.userid = u.userid AND uc.granted = 1
-            LEFT JOIN authserver.user_privacy_settings ups
-                   ON ups.userid = u.userid
-            GROUP BY u.userid
+            LEFT JOIN authserver.user_privacy_settings ups  ON u.userid = ups.userid
+            LEFT JOIN public.usertokens ut
+                   ON u.userid = ut.userid
+                  AND ut.expires > EXTRACT(EPOCH FROM NOW())::INTEGER
+            LEFT JOIN public.applications a                 ON ut.applicationid = a.appid
+            LEFT JOIN authserver.user_activity_log ual      ON u.userid = ual.userid
+            LEFT JOIN authserver.user_consents uc           ON u.userid = uc.userid
+            GROUP BY u.userid, u.username, u.email,
+                     u.lasttermsagreed, u.validated,
+                     ups.share_usage_analytics, ups.marketing_emails, ups.updated_at
         ");
 
-        // geographic_analysis — per-user login activity (by IP, no geo data yet)
+        // geographic_analysis — 2FA attempt volume grouped by /8 subnet, last 7 days
+        // ip_address is VARCHAR in the framework (inet in Urbanwater), so HOST() is not needed.
         $this->DB()->query("DROP VIEW IF EXISTS authserver.geographic_analysis CASCADE");
         $this->DB()->query("
             CREATE VIEW authserver.geographic_analysis AS
             SELECT
-                userid,
-                ip_address                                  AS country_code,
-                NULL::TEXT                                  AS city,
-                MAX(created_at)                             AS last_login,
-                COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')
-                                                            AS login_count_7days,
-                COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')
-                                                            AS login_count_30days,
-                FALSE                                       AS anomaly_flag
-            FROM authserver.user_activity_log
-            WHERE action = 'login'
-            GROUP BY userid, ip_address
+                SPLIT_PART(ip_address, '.', 1) || '.x.x.x'
+                                                            AS ip_network,
+                COUNT(*)                                    AS attempts,
+                COUNT(*) FILTER (WHERE success = false)     AS failed_attempts,
+                COUNT(DISTINCT userid)                      AS unique_users,
+                MIN(attempt_time)                           AS first_seen,
+                MAX(attempt_time)                           AS last_seen
+            FROM authserver.twofactor_attempts
+            WHERE attempt_time >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+            GROUP BY SPLIT_PART(ip_address, '.', 1)
+            ORDER BY COUNT(*) DESC
         ");
 
-        // oauth2_active_tokens — active OAuth token counts per app
+        // oauth2_active_tokens — active OAuth2 tokens with client and user info
         $this->DB()->query("DROP VIEW IF EXISTS authserver.oauth2_active_tokens CASCADE");
         $this->DB()->query("
             CREATE VIEW authserver.oauth2_active_tokens AS
             SELECT
-                applicationid                               AS appid,
-                COUNT(*) FILTER (WHERE status = 1 AND expires > EXTRACT(EPOCH FROM NOW()))
-                                                            AS token_count,
-                json_build_object(
-                    'active',   COUNT(*) FILTER (WHERE status = 1),
-                    'expired',  COUNT(*) FILTER (WHERE expires <= EXTRACT(EPOCH FROM NOW())),
-                    'revoked',  COUNT(*) FILTER (WHERE status <> 1)
-                )                                           AS by_status
-            FROM public.usertokens
-            GROUP BY applicationid
+                ut.tokenid,
+                ut.userid,
+                ut.tokentype,
+                ut.token,
+                ut.created,
+                ut.expires,
+                ut.lastused,
+                ut.scope,
+                ut.ipaddress,
+                a.name                                      AS client_name,
+                a.apikey                                    AS client_id,
+                u.username,
+                u.email
+            FROM public.usertokens ut
+            JOIN public.applications a  ON ut.applicationid = a.appid
+            LEFT JOIN public.users u    ON ut.userid = u.userid
+            WHERE ut.status = 1
+              AND ut.expires::NUMERIC > EXTRACT(EPOCH FROM NOW())
+              AND ut.tokentype = ANY(ARRAY['access_token','refresh_token','auth_code'])
         ");
 
-        // recent_twofactor_attempts — 2FA activity last 24h
+        // recent_twofactor_attempts — 2FA activity last 24 h
         $this->DB()->query("DROP VIEW IF EXISTS authserver.recent_twofactor_attempts CASCADE");
         $this->DB()->query("
             CREATE VIEW authserver.recent_twofactor_attempts AS
             SELECT
                 userid,
-                attempt_time                                AS attempt_timestamp,
+                ip_address,
                 success,
-                code_used                                   AS method,
-                user_agent                                  AS device_fingerprint
+                attempt_time,
+                CASE WHEN success THEN 'SUCCESS'::TEXT ELSE 'FAILED'::TEXT END
+                                                            AS status
             FROM authserver.twofactor_attempts
-            WHERE attempt_time >= NOW() - INTERVAL '1 day'
+            WHERE attempt_time >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+            ORDER BY attempt_time DESC
         ");
 
         // daily_2fa_stats — continuous aggregate on TimescaleDB, materialized view on plain PG
@@ -210,8 +231,8 @@ class CreateAuthserverViews extends Migration
                     "SELECT
                          time_bucket('1 day', attempt_time)               AS day,
                          COUNT(*)                                          AS total_attempts,
-                         COUNT(*) FILTER (WHERE success = 1)               AS successful_attempts,
-                         COUNT(*) FILTER (WHERE success = 0)               AS failed_attempts,
+                         COUNT(*) FILTER (WHERE success = true)            AS successful_attempts,
+                         COUNT(*) FILTER (WHERE success = false)           AS failed_attempts,
                          COUNT(DISTINCT userid)                            AS unique_users,
                          COUNT(DISTINCT ip_address)                        AS unique_ips
                      FROM authserver.twofactor_attempts
@@ -230,8 +251,8 @@ class CreateAuthserverViews extends Migration
                     "SELECT
                          date_trunc('day', attempt_time)                   AS day,
                          COUNT(*)                                          AS total_attempts,
-                         COUNT(*) FILTER (WHERE success = 1)               AS successful_attempts,
-                         COUNT(*) FILTER (WHERE success = 0)               AS failed_attempts,
+                         COUNT(*) FILTER (WHERE success = true)            AS successful_attempts,
+                         COUNT(*) FILTER (WHERE success = false)           AS failed_attempts,
                          COUNT(DISTINCT userid)                            AS unique_users,
                          COUNT(DISTINCT ip_address)                        AS unique_ips
                      FROM authserver.twofactor_attempts
@@ -252,136 +273,161 @@ class CreateAuthserverViews extends Migration
 
     private function upMySQL(): void
     {
-        // alert_high_failure_rate
+        // alert_high_failure_rate — 2FA failure rate spike in the last hour
         $this->DB()->query("
             CREATE OR REPLACE VIEW `authserver_alert_high_failure_rate` AS
             SELECT
-                UUID()                                       AS alert_id,
-                'warning'                                    AS severity,
-                'High 2FA failure rate detected'             AS message,
-                COUNT(DISTINCT userid)                       AS affected_users,
-                NOW()                                        AS trigger_time,
-                DATE_ADD(NOW(), INTERVAL 1 HOUR)             AS resolvable_at
+                'HIGH_FAILURE_RATE'                          AS alert_type,
+                NOW()                                        AS alert_time,
+                COUNT(*)                                     AS total_attempts,
+                SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END)
+                                                             AS failed_attempts,
+                ROUND(SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END)
+                      / COUNT(*) * 100, 2)                   AS failure_rate_percent
             FROM `authserver_twofactor_attempts`
             WHERE attempt_time >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
-              AND success = 0
             HAVING COUNT(*) > 10
+               AND SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) / COUNT(*) > 0.2
         ");
 
-        // alert_suspicious_ips
+        // alert_suspicious_ips — IPs with many distinct users + failures in the last hour
         $this->DB()->query("
             CREATE OR REPLACE VIEW `authserver_alert_suspicious_ips` AS
             SELECT
-                lookupvalue                                  AS ip_address,
-                SUM(failedattempts)                          AS attempt_count,
-                CASE
-                    WHEN SUM(failedattempts) > 50 THEN 100
-                    WHEN SUM(failedattempts) > 20 THEN 70
-                    WHEN SUM(failedattempts) > 10 THEN 40
-                    ELSE 20
-                END                                          AS suspicious_score,
-                'High login failure count from this IP'      AS reason,
-                FROM_UNIXTIME(MAX(lastfailedat))              AS last_seen,
-                'investigate'                                AS recommended_action
-            FROM `authserver_loginlockouts`
-            WHERE locktype = 'ip'
-              AND FROM_UNIXTIME(lastfailedat) >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
-            GROUP BY lookupvalue
-            HAVING SUM(failedattempts) > 5
+                'SUSPICIOUS_IP'                              AS alert_type,
+                ip_address,
+                COUNT(DISTINCT userid)                       AS unique_users,
+                COUNT(*)                                     AS total_attempts,
+                SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END)
+                                                             AS failed_attempts
+            FROM `authserver_twofactor_attempts`
+            WHERE attempt_time >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+            GROUP BY ip_address
+            HAVING COUNT(DISTINCT userid) >= 3
+               AND SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) >= 10
         ");
 
-        // failed_twofactor_summary
+        // failed_twofactor_summary — IPs+users with 3+ failures in the last hour
         $this->DB()->query("
             CREATE OR REPLACE VIEW `authserver_failed_twofactor_summary` AS
             SELECT
+                ip_address,
                 userid,
-                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_attempts,
-                MAX(attempt_time)                              AS last_failure_time,
-                CASE
-                    WHEN SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) >= 5
-                    THEN 'consider_lockout'
-                    WHEN SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) >= 3
-                    THEN 'monitor'
-                    ELSE 'normal'
-                END AS account_status_recommendation
+                COUNT(*)                                     AS failed_attempts,
+                MAX(attempt_time)                            AS last_attempt,
+                MIN(attempt_time)                            AS first_attempt
             FROM `authserver_twofactor_attempts`
-            WHERE attempt_time >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
-            GROUP BY userid
-            HAVING SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) >= 3
+            WHERE success = FALSE
+              AND attempt_time >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+            GROUP BY ip_address, userid
+            HAVING COUNT(*) >= 3
+            ORDER BY COUNT(*) DESC, MAX(attempt_time) DESC
         ");
 
-        // gdpr_compliance_report
+        // gdpr_compliance_report — per-user GDPR consent and activity summary
         $this->DB()->query("
             CREATE OR REPLACE VIEW `authserver_gdpr_compliance_report` AS
             SELECT
                 u.userid,
-                COUNT(DISTINCT uc.granted_at)                AS consents_given,
-                365                                          AS data_retention_days,
-                0                                            AS deletion_requested,
-                0                                            AS export_requested,
-                GREATEST(MAX(uc.granted_at), MAX(ups.updated_at))
-                                                             AS last_processing_date
+                u.username,
+                u.email,
+                CASE WHEN u.lasttermsagreed > 0 THEN TRUE ELSE FALSE END
+                                                             AS gdpr_consent_given,
+                FROM_UNIXTIME(u.lasttermsagreed)             AS gdpr_consent_date,
+                u.validated                                  AS email_verification_status,
+                ups.share_usage_analytics,
+                ups.marketing_emails,
+                ups.updated_at                               AS privacy_settings_updated,
+                COUNT(DISTINCT a.apikey)                     AS authorized_apps_count,
+                COUNT(ual.id)                                AS total_activities,
+                MAX(ual.created_at)                          AS last_activity,
+                COUNT(DISTINCT uc.id)                        AS total_consents,
+                (SELECT COUNT(*) FROM `authserver_user_activity_log`
+                  WHERE userid = u.userid
+                    AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)) AS recent_activity_30d,
+                (SELECT COUNT(*) FROM `authserver_user_activity_log`
+                  WHERE userid = u.userid
+                    AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY))  AS recent_activity_7d
             FROM `users` u
-            LEFT JOIN `authserver_user_consents` uc
-                   ON uc.userid = u.userid AND uc.granted = 1
-            LEFT JOIN `authserver_user_privacy_settings` ups
-                   ON ups.userid = u.userid
-            GROUP BY u.userid
+            LEFT JOIN `authserver_user_privacy_settings` ups ON u.userid = ups.userid
+            LEFT JOIN `usertokens` ut
+                   ON u.userid = ut.userid AND ut.expires > UNIX_TIMESTAMP()
+            LEFT JOIN `applications` a                       ON ut.applicationid = a.appid
+            LEFT JOIN `authserver_user_activity_log` ual     ON u.userid = ual.userid
+            LEFT JOIN `authserver_user_consents` uc          ON u.userid = uc.userid
+            GROUP BY u.userid, u.username, u.email,
+                     u.lasttermsagreed, u.validated,
+                     ups.share_usage_analytics, ups.marketing_emails, ups.updated_at
         ");
 
-        // geographic_analysis
+        // geographic_analysis — 2FA attempt volume grouped by /8 subnet, last 7 days
         $this->DB()->query("
             CREATE OR REPLACE VIEW `authserver_geographic_analysis` AS
             SELECT
-                userid,
-                ip_address                                   AS country_code,
-                NULL                                         AS city,
-                MAX(created_at)                              AS last_login,
-                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END)
-                                                             AS login_count_7days,
-                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END)
-                                                             AS login_count_30days,
-                0                                            AS anomaly_flag
-            FROM `authserver_user_activity_log`
-            WHERE action = 'login'
-            GROUP BY userid, ip_address
+                CONCAT(SUBSTRING_INDEX(ip_address, '.', 1), '.x.x.x')
+                                                             AS ip_network,
+                COUNT(*)                                     AS attempts,
+                SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END)
+                                                             AS failed_attempts,
+                COUNT(DISTINCT userid)                       AS unique_users,
+                MIN(attempt_time)                            AS first_seen,
+                MAX(attempt_time)                            AS last_seen
+            FROM `authserver_twofactor_attempts`
+            WHERE attempt_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+            GROUP BY CONCAT(SUBSTRING_INDEX(ip_address, '.', 1), '.x.x.x')
+            ORDER BY COUNT(*) DESC
         ");
 
-        // oauth2_active_tokens
+        // oauth2_active_tokens — active OAuth2 tokens with client and user info
         $this->DB()->query("
             CREATE OR REPLACE VIEW `authserver_oauth2_active_tokens` AS
             SELECT
-                applicationid                                AS appid,
-                SUM(CASE WHEN status = 1 AND expires > UNIX_TIMESTAMP() THEN 1 ELSE 0 END)
-                                                             AS token_count,
-                NULL                                         AS by_status
-            FROM `usertokens`
-            GROUP BY applicationid
+                ut.tokenid,
+                ut.userid,
+                ut.tokentype,
+                ut.token,
+                ut.created,
+                ut.expires,
+                ut.lastused,
+                ut.scope,
+                ut.ipaddress,
+                a.name                                       AS client_name,
+                a.apikey                                     AS client_id,
+                u.username,
+                u.email
+            FROM `usertokens` ut
+            JOIN `applications` a  ON ut.applicationid = a.appid
+            LEFT JOIN `users` u    ON ut.userid = u.userid
+            WHERE ut.status = 1
+              AND ut.expires > UNIX_TIMESTAMP()
+              AND ut.tokentype IN ('access_token', 'refresh_token', 'auth_code')
         ");
 
-        // recent_twofactor_attempts
+        // recent_twofactor_attempts — 2FA activity last 24 h
         $this->DB()->query("
             CREATE OR REPLACE VIEW `authserver_recent_twofactor_attempts` AS
             SELECT
                 userid,
-                attempt_time                                 AS attempt_timestamp,
+                ip_address,
                 success,
-                code_used                                    AS method,
-                user_agent                                   AS device_fingerprint
+                attempt_time,
+                CASE WHEN success THEN 'SUCCESS' ELSE 'FAILED' END
+                                                             AS status
             FROM `authserver_twofactor_attempts`
             WHERE attempt_time >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+            ORDER BY attempt_time DESC
         ");
 
         // daily_2fa_stats (regular VIEW on MySQL — no materialisation available)
         $this->DB()->query("
             CREATE OR REPLACE VIEW `authserver_daily_2fa_stats` AS
             SELECT
-                DATE(attempt_time)                            AS `day`,
-                COUNT(*)                                      AS total_attempts,
-                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_attempts,
-                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_attempts,
-                COUNT(DISTINCT userid)                        AS unique_users,
-                COUNT(DISTINCT ip_address)                    AS unique_ips
+                DATE(attempt_time)                           AS `day`,
+                COUNT(*)                                     AS total_attempts,
+                SUM(CASE WHEN success = TRUE  THEN 1 ELSE 0 END) AS successful_attempts,
+                SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) AS failed_attempts,
+                COUNT(DISTINCT userid)                       AS unique_users,
+                COUNT(DISTINCT ip_address)                   AS unique_ips
             FROM `authserver_twofactor_attempts`
             GROUP BY DATE(attempt_time)
         ");
