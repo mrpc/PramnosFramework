@@ -89,6 +89,10 @@ class CreateApplicationStatsTable extends Migration
         ");
 
         $this->DB()->query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS unique_app_stats_time_appid
+             ON applications.application_stats (time, appid)"
+        );
+        $this->DB()->query(
             "CREATE INDEX IF NOT EXISTS idx_application_stats_appid_time
              ON applications.application_stats (appid, time DESC)"
         );
@@ -167,6 +171,7 @@ class CreateApplicationStatsTable extends Migration
 
                 `country_code`          CHAR(2),
 
+                UNIQUE KEY `unique_app_stats_time_appid` (`time`, `appid`),
                 KEY `idx_application_stats_appid_time` (`appid`, `time`),
                 KEY `idx_application_stats_country_time` (`country_code`, `time`),
                 CONSTRAINT `fk_appstats_appid`
