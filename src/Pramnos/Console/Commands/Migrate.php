@@ -7,6 +7,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
+use Pramnos\Database\Database;
 use Pramnos\Database\Migration;
 use Pramnos\Database\MigrationLoader;
 use Pramnos\Database\MigrationRunner;
@@ -95,7 +96,7 @@ class Migrate extends Command
         $migrations   = MigrationLoader::loadFromDirectories($dirs, $app);
 
         if (empty($migrations)) {
-            $output->writeln('<comment>No migrations found in: ' . $path . '</comment>');
+            $output->writeln('<comment>No migrations found.</comment>');
             return 0;
         }
 
@@ -136,22 +137,118 @@ class Migrate extends Command
         }
 
         $runner = new MigrationRunner($db);
-        $result = $runner->run($migrations, $options);
+        $result = $runner->run($migrations, $options, function (string $event, string $slug, string $error) use ($output): void {
+            if ($event === 'ran') {
+                $output->writeln('<info>Migrated:</info>   ' . $slug);
+            } else {
+                $output->writeln('<error>Failed:  </error>   ' . $slug);
+                // Print the first line of the error inline (full detail in summary)
+                $firstLine = strtok(trim($error), "\n");
+                $output->writeln('           <comment>' . $firstLine . '</comment>');
+            }
+        });
 
         if (empty($result['ran']) && empty($result['failed'])) {
             $output->writeln('<info>Nothing to migrate.</info>');
             return 0;
         }
 
-        foreach ($result['ran'] as $slug) {
-            $output->writeln('<info>Migrated:</info>  ' . $slug);
-        }
-        foreach ($result['failed'] as $slug => $errorMessage) {
-            $output->writeln('<error>Failed:  </error>  ' . $slug);
-            $output->writeln('  <comment>' . $errorMessage . '</comment>');
-        }
+        $this->printSummary($output, $db, $input, $dirs, $result);
 
         return empty($result['failed']) ? 0 : 1;
+    }
+
+    /**
+     * Prints a summary block with totals, context, and full error details.
+     *
+     * @param array{ran: string[], failed: array<string,string>} $result
+     * @param string[] $dirs
+     */
+    private function printSummary(
+        OutputInterface $output,
+        Database        $db,
+        InputInterface  $input,
+        array           $dirs,
+        array           $result
+    ): void {
+        $sep = str_repeat('─', 62);
+        $output->writeln('');
+        $output->writeln('<comment>' . $sep . '</comment>');
+
+        $ranCount    = count($result['ran']);
+        $failedCount = count($result['failed']);
+
+        if ($failedCount === 0) {
+            $output->writeln(sprintf('<info> ✓  %d migrated</info>', $ranCount));
+        } else {
+            $output->writeln(sprintf(
+                '<info> ✓  %d migrated</info>   <error> ✗  %d failed </error>',
+                $ranCount,
+                $failedCount
+            ));
+        }
+
+        $output->writeln('');
+
+        // Context
+        $output->writeln(' <comment>Database:</comment>   ' . $this->formatDbType($db));
+
+        if ($scope = $input->getOption('scope')) {
+            $output->writeln(' <comment>Scope:</comment>      ' . $scope);
+        }
+        if ($feature = $input->getOption('feature')) {
+            $output->writeln(' <comment>Feature:</comment>    ' . $feature);
+        }
+        if ($name = $input->getArgument('migration')) {
+            $output->writeln(' <comment>Migration:</comment>  ' . $name);
+        }
+        if ($cutoff = $input->getOption('cutoff')) {
+            $output->writeln(' <comment>Cutoff:</comment>     ' . $cutoff);
+        }
+
+        $output->writeln(' <comment>Dirs:</comment>       ' . array_shift($dirs));
+        foreach ($dirs as $dir) {
+            $output->writeln('             ' . $dir);
+        }
+
+        // Failed details
+        if (!empty($result['failed'])) {
+            $output->writeln('');
+            $output->writeln('<comment>' . $sep . '</comment>');
+            $output->writeln('<error> Failed migrations                                                </error>');
+            $output->writeln('<comment>' . $sep . '</comment>');
+            foreach ($result['failed'] as $slug => $errorMessage) {
+                $output->writeln(' <error>✗</error> <options=bold>' . $slug . '</>');
+                foreach (explode("\n", trim($errorMessage)) as $line) {
+                    if (trim($line) !== '') {
+                        $output->writeln('   <comment>' . $line . '</comment>');
+                    }
+                }
+                $output->writeln('');
+            }
+        }
+
+        $output->writeln('<comment>' . $sep . '</comment>');
+    }
+
+    /**
+     * Returns a human-readable database type string, including TimescaleDB if detected.
+     */
+    private function formatDbType(Database $db): string
+    {
+        $label = match ($db->type) {
+            'postgresql' => 'PostgreSQL',
+            'mysql'      => 'MySQL',
+            default      => ucfirst($db->type),
+        };
+
+        try {
+            if ($db->schema()->getCapabilities()->hasTimescaleDB()) {
+                $label .= ' · TimescaleDB';
+            }
+        } catch (\Throwable) {}
+
+        return $label;
     }
 
     /**
