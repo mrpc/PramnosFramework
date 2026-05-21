@@ -2695,6 +2695,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     public function testApplicationsViewsUpCreatesAllViews(): void
     {
         // Arrange — create all FK parents and source tables
+        // (oauth2_webhook_endpoints/events are required by the oauth2_webhook_status view)
         $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
         $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
         $this->loadMigration('auth', 'CreateUsersTable')->up();
@@ -2703,6 +2704,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
         $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
         $this->loadMigration('applications', 'CreateApplicationStatsTable')->up();
+        $this->loadMigration('authserver', 'CreateOauth2WebhooksTables')->up();
         $m = $this->loadMigration('applications', 'CreateApplicationsViews');
 
         // Act
@@ -2712,7 +2714,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $regularViews = [
             'api_performance_summary', 'application_health', 'rate_limit_status',
             'slow_api_calls', 'ip_violations', 'oauth2_active_tokens',
-            'top_applications',
+            'oauth2_webhook_status', 'top_applications',
         ];
         foreach ($regularViews as $view) {
             $r = $this->db->query(

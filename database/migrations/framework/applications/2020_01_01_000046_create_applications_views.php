@@ -8,19 +8,20 @@ use Pramnos\Database\DatabaseCapabilities;
 /**
  * Creates all monitoring/analytics views in the applications schema.
  *
- * Views created (10 total):
+ * Views created (11 total):
  *   api_performance_summary    — per-app response time aggregates (last 24h)
  *   application_health         — health status per app (healthy/degraded/unhealthy)
  *   rate_limit_status          — real-time rate-limit state per app
  *   slow_api_calls             — calls with avg_response_time > 5 000ms
  *   ip_violations              — IPs that violate ip_lock_enabled rules
  *   oauth2_active_tokens       — active OAuth token counts by app
+ *   oauth2_webhook_status      — per-endpoint delivery stats (sent/failed/pending)
  *   top_applications           — apps ranked by total request volume
  *
- * Three materialized views (PostgreSQL only; regular views on MySQL):
- *   application_stats_daily    — daily request aggregates
- *   application_stats_hourly   — hourly request aggregates
- *   usage_statistics           — 30-day aggregate per app
+ * Three materialized views / continuous aggregates (PostgreSQL only; regular views on MySQL):
+ *   application_stats_daily    — daily request aggregates (continuous aggregate on TimescaleDB)
+ *   application_stats_hourly   — hourly request aggregates (continuous aggregate on TimescaleDB)
+ *   usage_statistics           — 30-day aggregate per app (materialized view)
  *
  * On MySQL, each view is prefixed applications_ to simulate the schema.
  *
@@ -37,8 +38,9 @@ class CreateApplicationsViews extends Migration
         'create_application_settings_table',
         'create_application_stats_table',
         'create_usertokens_table',
+        'create_oauth2_webhooks_tables',
     ];
-    public $description = 'Creates all 10 monitoring/analytics views in the applications schema';
+    public $description = 'Creates all 11 monitoring/analytics views in the applications schema';
 
     public function up(): void
     {
@@ -171,6 +173,30 @@ class CreateApplicationsViews extends Migration
             FROM public.applications a
             LEFT JOIN public.usertokens ut ON ut.applicationid = a.appid
             GROUP BY a.appid
+        ");
+
+        // oauth2_webhook_status — per-endpoint delivery statistics
+        $this->DB()->query("DROP VIEW IF EXISTS applications.oauth2_webhook_status CASCADE");
+        $this->DB()->query("
+            CREATE VIEW applications.oauth2_webhook_status AS
+            SELECT
+                wep.webhook_id,
+                wep.appid,
+                a.name                                                          AS app_name,
+                wep.webhook_type,
+                wep.endpoint_url,
+                wep.is_active,
+                COUNT(we.event_id)                                              AS total_events,
+                COUNT(CASE WHEN we.status = 'sent'    THEN 1 END)              AS successful_events,
+                COUNT(CASE WHEN we.status = 'failed'  THEN 1 END)              AS failed_events,
+                COUNT(CASE WHEN we.status = 'pending' THEN 1 END)              AS pending_events,
+                MAX(we.sent_at)                                                 AS last_successful_delivery,
+                AVG(CASE WHEN we.status = 'sent' THEN we.attempts END)         AS avg_attempts_for_success
+            FROM applications.oauth2_webhook_endpoints wep
+            JOIN public.applications a ON wep.appid = a.appid
+            LEFT JOIN applications.oauth2_webhook_events we ON wep.webhook_id = we.webhook_id
+            GROUP BY wep.webhook_id, wep.appid, a.name,
+                     wep.webhook_type, wep.endpoint_url, wep.is_active
         ");
 
         // top_applications — applications ranked by total request volume
@@ -452,6 +478,29 @@ class CreateApplicationsViews extends Migration
             GROUP BY a.appid
         ");
 
+        // oauth2_webhook_status
+        $this->DB()->query("
+            CREATE OR REPLACE VIEW `applications_oauth2_webhook_status` AS
+            SELECT
+                wep.webhook_id,
+                wep.appid,
+                a.name                                                           AS app_name,
+                wep.webhook_type,
+                wep.endpoint_url,
+                wep.is_active,
+                COUNT(we.event_id)                                               AS total_events,
+                SUM(CASE WHEN we.status = 'sent'    THEN 1 ELSE 0 END)          AS successful_events,
+                SUM(CASE WHEN we.status = 'failed'  THEN 1 ELSE 0 END)          AS failed_events,
+                SUM(CASE WHEN we.status = 'pending' THEN 1 ELSE 0 END)          AS pending_events,
+                MAX(we.sent_at)                                                  AS last_successful_delivery,
+                AVG(CASE WHEN we.status = 'sent' THEN we.attempts END)          AS avg_attempts_for_success
+            FROM `applications_oauth2_webhook_endpoints` wep
+            JOIN `applications` a ON wep.appid = a.appid
+            LEFT JOIN `applications_oauth2_webhook_events` we ON wep.webhook_id = we.webhook_id
+            GROUP BY wep.webhook_id, wep.appid, a.name,
+                     wep.webhook_type, wep.endpoint_url, wep.is_active
+        ");
+
         // top_applications
         $this->DB()->query("
             CREATE OR REPLACE VIEW `applications_top_applications` AS
@@ -542,6 +591,7 @@ class CreateApplicationsViews extends Migration
             $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_hourly");
             $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_daily");
             $this->DB()->query("DROP VIEW IF EXISTS applications.top_applications");
+            $this->DB()->query("DROP VIEW IF EXISTS applications.oauth2_webhook_status");
             $this->DB()->query("DROP VIEW IF EXISTS applications.oauth2_active_tokens");
             $this->DB()->query("DROP VIEW IF EXISTS applications.ip_violations");
             $this->DB()->query("DROP VIEW IF EXISTS applications.slow_api_calls");
@@ -554,6 +604,7 @@ class CreateApplicationsViews extends Migration
                 'applications_application_stats_hourly',
                 'applications_application_stats_daily',
                 'applications_top_applications',
+                'applications_oauth2_webhook_status',
                 'applications_oauth2_active_tokens_summary',
                 'applications_ip_violations',
                 'applications_slow_api_calls',

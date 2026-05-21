@@ -1949,7 +1949,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
     // =========================================================================
 
     /**
-     * CreateApplicationsViews must create all 10 applications-schema views on MySQL
+     * CreateApplicationsViews must create all 11 applications-schema views on MySQL
      * (prefixed applications_ since MySQL has no schema support).
      *
      * Tests verify:
@@ -1960,12 +1960,14 @@ class FrameworkMigrationsMySQLTest extends TestCase
     public function testApplicationsViewsUpCreatesAllViews(): void
     {
         // Arrange — create all FK parents and source tables
+        // (webhook tables required for oauth2_webhook_status view)
         $this->loadMigration('auth', 'CreateUsersTable')->up();
         $this->loadMigration('auth', 'CreateUsertokensTable')->up();
         $this->loadMigration('auth', 'CreateUrlsTable')->up();
         $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
         $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
         $this->loadMigration('applications', 'CreateApplicationStatsTable')->up();
+        $this->loadMigration('authserver', 'CreateOauth2WebhooksTables')->up();
         $m = $this->loadMigration('applications', 'CreateApplicationsViews');
 
         // Act
@@ -1979,6 +1981,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             'applications_slow_api_calls',
             'applications_ip_violations',
             'applications_oauth2_active_tokens_summary',
+            'applications_oauth2_webhook_status',
             'applications_top_applications',
             'applications_application_stats_daily',
             'applications_application_stats_hourly',
@@ -2312,9 +2315,10 @@ class FrameworkMigrationsMySQLTest extends TestCase
         foreach ([
             'applications_usage_statistics', 'applications_application_stats_hourly',
             'applications_application_stats_daily', 'applications_top_applications',
-            'applications_oauth2_active_tokens_summary', 'applications_ip_violations',
-            'applications_slow_api_calls', 'applications_rate_limit_status',
-            'applications_application_health', 'applications_api_performance_summary',
+            'applications_oauth2_webhook_status', 'applications_oauth2_active_tokens_summary',
+            'applications_ip_violations', 'applications_slow_api_calls',
+            'applications_rate_limit_status', 'applications_application_health',
+            'applications_api_performance_summary',
         ] as $v) {
             $this->db->query("DROP VIEW IF EXISTS `{$v}`");
         }
