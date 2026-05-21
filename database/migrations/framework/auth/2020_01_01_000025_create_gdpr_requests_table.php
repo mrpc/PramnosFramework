@@ -37,6 +37,8 @@ class CreateGdprRequestsTable extends Migration
         $schema->createTable('authserver.gdpr_requests', function ($table) {
             $table->comment('GDPR rights exercise requests (erasure, access, portability); TimescaleDB hypertable with 7-year retention');
 
+            $table->bigIncrements('id')
+                ->comment('Surrogate auto-increment key; part of composite PK with requested_at for TimescaleDB compatibility');
             $table->bigInteger('userid')
                 ->comment('User ID who submitted the request');
             $table->string('request_type', 50)
@@ -47,10 +49,19 @@ class CreateGdprRequestsTable extends Migration
                 ->comment('Timestamp when the request was submitted — time dimension for hypertable');
             $table->timestampTz('completed_at')->nullable()
                 ->comment('Timestamp when the request was fulfilled or rejected; NULL while pending/processing');
+            $table->text('request_details')->nullable()
+                ->comment('Detailed description of the request (e.g. specific data categories for access requests, rectification details)');
+            $table->text('response_data')->nullable()
+                ->comment('Data package returned for access or portability requests; may be a URL or JSON payload');
             $table->text('notes')->nullable()
                 ->comment('Internal processing notes, rejection reason, or completion details');
+            $table->bigInteger('processed_by')->nullable()
+                ->comment('userid of the admin or system that processed this request; NULL if not yet processed');
             $table->string('ip_address', 45)->nullable()
                 ->comment('IP address from which the request was submitted');
+
+            // Composite PK: TimescaleDB requires the partition key (requested_at) in every unique/primary constraint.
+            $table->primary(['id', 'requested_at']);
 
             $table->index(['userid', 'requested_at'], 'idx_gdpr_requests_userid');
             $table->index(['status', 'requested_at'], 'idx_gdpr_requests_status');
