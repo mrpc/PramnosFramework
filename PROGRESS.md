@@ -1,7 +1,72 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-21 (session 101) — Urbanwater DB sync: deya→org terminology cleanup ✅
+## 📅 Last Updated: 2026-05-22 (session 103) — Urbanwater DB sync: oauth2_client_auth_methods, loginlockouts, user_privacy_settings ✅
+
+## 🏁 Session 103 — Urbanwater DB sync: continued schema alignment (2026-05-22)
+
+### ✅ `Database::execute()` — MySQL boolean binding fix
+
+`%b` placeholder sent PHP `false` as empty string `''` to MySQL TINYINT(1) columns.
+Added bool→int conversion in the MySQL `bind_param` path (mirroring the existing pg_execute path).
+- `src/Pramnos/Database/Database.php`: remap 'b' → 'i' in types string, cast bool → int before `bind_param`
+- Commit: `081e994`
+
+### ✅ `oauth2_client_auth_methods` — rename is_active → is_enabled + add updated_at
+
+- Migration `000028`: `is_active` → `is_enabled`, added `updated_at`, removed NOT NULL from nullable columns
+- Tests: added assertions for `is_enabled`/`updated_at` existence and `is_active` absence
+- Commits: `081e994` (database fix) + `fe61cb7` (migration)
+
+### ✅ `loginlockouts` — integer timestamps → TIMESTAMPTZ/DATETIME
+
+- Migration `000017` rewritten: all 5 time columns changed from INTEGER Unix timestamps to TIMESTAMPTZ (PostgreSQL) / DATETIME (MySQL); NULL replaces integer 0 as "no lockout" sentinel; index names aligned with Urbanwater (`uniq_loginlockouts_lookup`, `idx_loginlockouts_active`, `idx_loginlockouts_userid`); string columns → NOT NULL DEFAULT ''
+- `Loginlockout.php`: all timestamp handling rewritten via `formatTimestamp()` / `strtotime()`
+- Characterization tests: `LoginlockoutCharacterizationTest.php` added in `tests/Characterization/Auth/`
+- Integration tests: raw INSERTs updated to `FROM_UNIXTIME()` / `TO_TIMESTAMP()`, `assertSame(0, ...)` → `assertNull()`
+- Commits: `b6b0b48` (char tests) + `8f31e3b` (schema + PHP)
+
+### ✅ `user_privacy_settings` — PK fix + column rename + remove data_processing
+
+- Migration `000022`: PK changed from `userid` to serial `id`; `userid` now UNIQUE + FK to users; `analytics_consent`/`marketing_consent` → `share_usage_analytics`/`marketing_emails`; removed `data_processing` column; `updated_at` NOT NULL DEFAULT NOW()
+- `Dashboard.php`: fixed column names and added `authserver.` schema prefix
+- `DashboardCharacterizationTest.php`: updated to use correct column names
+- Commit: `ab50f94`
+
+---
+
+## 🏁 Session 102 — Urbanwater DB sync: boolean success + authserver views rewrite (2026-05-21)
+
+### ✅ `twofactor_attempts.success` — tinyInteger → boolean
+
+- Migration `000020`: `tinyInteger('success')->default(0)` → `boolean('success')->default(false)`
+- Partial index WHERE clause: `WHERE success = 0` → `WHERE success = false`
+- `TwoFactorAuthService::logAttempt()`: `$success ? 1 : 0` → `$success` (PHP bool passed directly)
+- All 4 test INSERTs updated: `VALUES (..., 1, ...)` → `VALUES (..., TRUE, ...)`
+
+### ✅ authserver views (000046) — full rewrite matching Urbanwater
+
+All 7 monitoring views replaced with exact Urbanwater logic:
+
+| View | Αλλαγή |
+|------|--------|
+| `alert_high_failure_rate` | Νέα δομή: alert_type, alert_time, failure_rate_percent με HAVING guard (>20%) |
+| `alert_suspicious_ips` | Πηγή: loginlockouts → twofactor_attempts · Νέα δομή: unique_users, total_attempts, failed_attempts |
+| `failed_twofactor_summary` | GROUP BY ip_address+userid (ήταν μόνο userid) · επιστρέφει first_attempt/last_attempt |
+| `gdpr_compliance_report` | Πλήρες view: username/email, gdpr_consent_given, authorized_apps_count, total_activities, recent_activity_7d/30d |
+| `geographic_analysis` | Πηγή: user_activity_log → twofactor_attempts · /8 subnet grouping (SPLIT_PART) |
+| `oauth2_active_tokens` | Per-token detail (tokenid, token, client_name, username) αντί per-app aggregate |
+| `recent_twofactor_attempts` | Προσθήκη ip_address + status label (SUCCESS/FAILED) |
+
+`daily_2fa_stats` continuous aggregate: `success = 1/0` → `success = true/false`.
+
+MySQL: `CONCAT(SUBSTRING_INDEX(...))` στο GROUP BY για ONLY_FULL_GROUP_BY compatibility. `HOST()` (inet-only) αντικαταστάθηκε με `SPLIT_PART()` (varchar).
+
+### Commits
+- `eacffae` fix(migrations): change twofactor_attempts.success from tinyInteger to boolean
+- `9e914e8` fix(migrations): rewrite authserver views to match Urbanwater production
+
+---
 
 ## 🏁 Session 101 — Urbanwater DB sync: deya→org terminology cleanup (2026-05-21)
 
