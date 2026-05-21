@@ -117,15 +117,13 @@ class Device extends Controller
             }
 
             // Look up the pending device authorization
-            $db  = \Pramnos\Framework\Factory::getDatabase();
-            $sql = $db->prepareQuery(
-                "SELECT * FROM " . $db->schema()->quoteTable('authserver.oauth2_device_codes') . "
-                 
-                  WHERE user_code = %s AND status = 'pending' AND expires_at > %d",
-                $userCode,
-                time()
-            );
-            $result = $db->query($sql);
+            $db     = \Pramnos\Framework\Factory::getDatabase();
+            $result = $db->queryBuilder()
+                ->table('authserver.oauth2_device_codes')
+                ->where('user_code', $userCode)
+                ->where('status', 'pending')
+                ->where('expires_at', '>', time())
+                ->first();
 
             if (!$result || $result->numRows == 0) {
                 throw new \RuntimeException('Invalid or expired device code');
@@ -156,16 +154,14 @@ class Device extends Controller
         array $deviceAuth,
         array $user
     ): void {
-        $t   = $db->schema()->quoteTable('authserver.oauth2_device_codes');
-        $sql = $db->prepareQuery(
-            "UPDATE {$t}
-                SET status = 'authorized', user_id = %d, authorized_at = %d
-              WHERE user_code = %s",
-            $user['userid'],
-            time(),
-            $deviceAuth['user_code']
-        );
-        $db->query($sql);
+        $db->queryBuilder()
+            ->table('authserver.oauth2_device_codes')
+            ->where('user_code', $deviceAuth['user_code'])
+            ->update([
+                'status'        => 'authorized',
+                'user_id'       => $user['userid'],
+                'authorized_at' => time(),
+            ]);
 
         $this->webhookService->queueEvent(
             'device_authorized',
@@ -187,15 +183,13 @@ class Device extends Controller
         \Pramnos\Database\Database $db,
         array $deviceAuth
     ): void {
-        $t   = $db->schema()->quoteTable('authserver.oauth2_device_codes');
-        $sql = $db->prepareQuery(
-            "UPDATE {$t}
-                SET status = 'denied', authorized_at = %d
-              WHERE user_code = %s",
-            time(),
-            $deviceAuth['user_code']
-        );
-        $db->query($sql);
+        $db->queryBuilder()
+            ->table('authserver.oauth2_device_codes')
+            ->where('user_code', $deviceAuth['user_code'])
+            ->update([
+                'status'        => 'denied',
+                'authorized_at' => time(),
+            ]);
 
         $this->webhookService->queueEvent(
             'device_deauthorized',
