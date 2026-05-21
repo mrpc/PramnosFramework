@@ -2297,30 +2297,46 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
     /**
      * Migration 000022 (user_privacy_settings) creates authserver.user_privacy_settings.
+     * PK is serial `id`; `userid` is UNIQUE NOT NULL with FK to public.users.
+     * Column names are share_usage_analytics + marketing_emails (not the old
+     * analytics_consent / marketing_consent naming).
      */
     public function testUserPrivacySettingsCreatedInAuthserverSchemaOnPostgreSQL(): void
     {
-        // Arrange
+        // Arrange — users table must exist for the FK constraint
         $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
         $m = $this->loadMigration('auth', 'CreateUserPrivacySettingsTable');
 
         // Act
         $m->up();
 
-        // Assert
+        // Assert — table in authserver schema
         $this->assertTrue($this->tableExists('user_privacy_settings', 'authserver'),
             'user_privacy_settings must be in the authserver schema');
         $this->assertFalse($this->tableExists('user_privacy_settings', 'public'));
 
-        $this->db->query(
-            "INSERT INTO authserver.user_privacy_settings (userid, updated_at)
-             VALUES (999, NOW())"
+        // Assert — Urbanwater-aligned column names exist; old analytics_consent must NOT exist
+        $this->assertTrue(
+            $this->columnExists('user_privacy_settings', 'share_usage_analytics', 'authserver'),
+            'share_usage_analytics column must exist (Urbanwater column name)'
         );
-        $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.user_privacy_settings");
-        $this->assertSame('1', (string) $r->fields['cnt']);
+        $this->assertTrue(
+            $this->columnExists('user_privacy_settings', 'marketing_emails', 'authserver'),
+            'marketing_emails column must exist (Urbanwater column name)'
+        );
+        $this->assertFalse(
+            $this->columnExists('user_privacy_settings', 'data_processing', 'authserver'),
+            'data_processing must not exist (not in Urbanwater schema)'
+        );
+        $this->assertFalse(
+            $this->columnExists('user_privacy_settings', 'analytics_consent', 'authserver'),
+            'analytics_consent must not exist (old incorrect column name)'
+        );
 
         $m->down();
         $this->assertFalse($this->tableExists('user_privacy_settings', 'authserver'));
+        $this->loadMigration('auth', 'CreateUsersTable')->down();
     }
 
     /**

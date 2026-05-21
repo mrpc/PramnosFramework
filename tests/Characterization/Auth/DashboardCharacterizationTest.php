@@ -73,7 +73,7 @@ class DashboardCharacterizationTest extends TestCase
         foreach ($this->createdUserIds as $uid) {
             $this->db->queryBuilder()->table('authserver.oauth2_user_consents')->where('userid', $uid)->delete();
             $this->db->queryBuilder()->table('user_activity_log')->where('userid', $uid)->delete();
-            $this->db->queryBuilder()->table('user_privacy_settings')->where('userid', $uid)->delete();
+            $this->db->queryBuilder()->table('authserver.user_privacy_settings')->where('userid', $uid)->delete();
             $this->db->queryBuilder()->table('user_twofactor')->where('userid', $uid)->delete();
             $this->db->queryBuilder()->table('twofactor_setup')->where('userid', $uid)->delete();
             $this->db->queryBuilder()->table('usertokens')->where('userid', $uid)->delete();
@@ -110,15 +110,16 @@ class DashboardCharacterizationTest extends TestCase
         );
 
         // user_privacy_settings — columns match Dashboard::getPrivacySettings() / privacy() POST
-        // NOTE: the framework migration uses different column names (share_usage_analytics,
-        // marketing_emails). The controller was written with analytics_consent / marketing_consent.
-        // This table is created with the controller's expected names for test isolation.
+        // Column names align with the migration and Urbanwater: share_usage_analytics, marketing_emails.
+        // The authserver.* schema prefix is mapped to authserver_ table prefix on MySQL.
         $this->db->query(
-            "CREATE TABLE IF NOT EXISTS `{$p}user_privacy_settings` (
-                `userid`            bigint NOT NULL PRIMARY KEY,
-                `analytics_consent` tinyint NOT NULL DEFAULT 0,
-                `marketing_consent` tinyint NOT NULL DEFAULT 0,
-                `updated_at`        datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            "CREATE TABLE IF NOT EXISTS `{$p}authserver_user_privacy_settings` (
+                `id`                    int UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                `userid`                bigint NOT NULL,
+                `share_usage_analytics` tinyint NOT NULL DEFAULT 0,
+                `marketing_emails`      tinyint NOT NULL DEFAULT 0,
+                `updated_at`            datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY `uniq_user_privacy_userid` (`userid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 
@@ -391,19 +392,19 @@ class DashboardCharacterizationTest extends TestCase
         $this->assertFalse($settings['marketing'],  'Default marketing must be false');
 
         // Arrange — insert a row with both consents true
-        $this->db->queryBuilder()->table('user_privacy_settings')->insert([
-            'userid'            => $userId,
-            'analytics_consent' => 1,
-            'marketing_consent' => 1,
-            'updated_at'        => date('Y-m-d H:i:s'),
+        $this->db->queryBuilder()->table('authserver.user_privacy_settings')->insert([
+            'userid'                => $userId,
+            'share_usage_analytics' => 1,
+            'marketing_emails'      => 1,
+            'updated_at'            => date('Y-m-d H:i:s'),
         ]);
 
         // Act
         $settings = $this->callPrivate($dashboard, 'getPrivacySettings', $userId);
 
         // Assert
-        $this->assertTrue($settings['analytics'], 'Persisted analytics_consent = 1 must return true');
-        $this->assertTrue($settings['marketing'],  'Persisted marketing_consent = 1 must return true');
+        $this->assertTrue($settings['analytics'], 'share_usage_analytics = 1 must return true');
+        $this->assertTrue($settings['marketing'],  'marketing_emails = 1 must return true');
     }
 
     // ── Tests — verifyUserPassword ────────────────────────────────────────────
@@ -524,8 +525,8 @@ class DashboardCharacterizationTest extends TestCase
             'userid' => $targetId, 'action' => 'login',
             'created_at' => date('Y-m-d H:i:s'),
         ]);
-        $this->db->queryBuilder()->table('user_privacy_settings')->insert([
-            'userid' => $targetId, 'analytics_consent' => 1, 'marketing_consent' => 0,
+        $this->db->queryBuilder()->table('authserver.user_privacy_settings')->insert([
+            'userid' => $targetId, 'share_usage_analytics' => 1, 'marketing_emails' => 0,
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
         $this->db->queryBuilder()->table('user_twofactor')->insert([
@@ -572,7 +573,7 @@ class DashboardCharacterizationTest extends TestCase
         );
         $this->assertSame(
             0,
-            $this->db->queryBuilder()->table('user_privacy_settings')->where('userid', $targetId)->count(),
+            $this->db->queryBuilder()->table('authserver.user_privacy_settings')->where('userid', $targetId)->count(),
             'user_privacy_settings rows must be deleted'
         );
         $this->assertSame(

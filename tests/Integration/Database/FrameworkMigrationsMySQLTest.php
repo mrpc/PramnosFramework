@@ -1616,7 +1616,8 @@ class FrameworkMigrationsMySQLTest extends TestCase
 
     /**
      * Migration 000022 (user_privacy_settings) creates authserver.user_privacy_settings.
-     * On MySQL: authserver_user_privacy_settings with userid as PK.
+     * On MySQL: authserver_user_privacy_settings with id as PK, userid UNIQUE.
+     * Column names are share_usage_analytics + marketing_emails (Urbanwater-aligned).
      */
     public function testUserPrivacySettingsCreatedInAuthserverPrefixOnMySQL(): void
     {
@@ -1626,10 +1627,29 @@ class FrameworkMigrationsMySQLTest extends TestCase
         // Act
         $m->up();
 
-        // Assert
+        // Assert — table exists with MySQL authserver_ prefix
         $this->assertTrue($this->tableExists('authserver_user_privacy_settings'),
             'authserver_user_privacy_settings must exist after up()');
 
+        // Assert — Urbanwater-aligned column names
+        $this->assertTrue(
+            $this->columnExists('authserver_user_privacy_settings', 'share_usage_analytics'),
+            'share_usage_analytics column must exist'
+        );
+        $this->assertTrue(
+            $this->columnExists('authserver_user_privacy_settings', 'marketing_emails'),
+            'marketing_emails column must exist'
+        );
+        $this->assertFalse(
+            $this->columnExists('authserver_user_privacy_settings', 'data_processing'),
+            'data_processing must not exist (removed to match Urbanwater)'
+        );
+
+        // Assert — unique constraint on userid
+        $this->assertTrue($this->indexExists('authserver_user_privacy_settings', 'uniq_user_privacy_userid'),
+            'uniq_user_privacy_userid must exist');
+
+        // Assert — insertable without specifying auto-increment id
         $this->db->query(
             "INSERT INTO `authserver_user_privacy_settings` (userid, updated_at)
              VALUES (999, NOW())"
