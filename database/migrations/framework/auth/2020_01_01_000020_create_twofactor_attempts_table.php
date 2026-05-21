@@ -13,9 +13,11 @@ use Pramnos\Database\DatabaseCapabilities;
  *   - compression enabled; compress chunks older than 7 days
  *   - retention: drop chunks older than 2 years
  *
- * On MySQL and plain PostgreSQL it is a regular table with an index on attempt_time.
- * The table has no auto-increment PK so that TimescaleDB can use attempt_time
- * as the sole time dimension without a PK conflict.
+ * The composite PK (attemptid, attempt_time) satisfies TimescaleDB's requirement
+ * that the partition key (attempt_time) be part of every unique/primary index.
+ *
+ * PostgreSQL-only indexes use raw CREATE INDEX with DESC and WHERE clauses because
+ * the schema builder does not support column ordering or partial index predicates.
  *
  * attempt_time is stored as a TIMESTAMPTZ (PostgreSQL/TimescaleDB) or DATETIME (MySQL).
  * TwoFactorAuthService::logAttempt() inserts formatted UTC strings for portability.
@@ -41,8 +43,10 @@ class CreateTwofactorAttemptsTable extends Migration
         $schema->createTable('authserver.twofactor_attempts', function ($table) {
             $table->comment('Append-only 2FA attempt log; TimescaleDB hypertable on capable backends');
 
-            $table->bigInteger('userid')
-                ->comment('User ID whose 2FA was verified');
+            $table->bigIncrements('attemptid')
+                ->comment('Auto-increment surrogate key; part of composite PK with attempt_time for TimescaleDB compatibility');
+            $table->bigInteger('userid')->nullable()
+                ->comment('User ID whose 2FA was verified (nullable — anonymous attempts may lack a resolved userid)');
             $table->tinyInteger('success')->default(0)
                 ->comment('1 = code accepted, 0 = code rejected');
             $table->string('ip_address', 45)->nullable()
@@ -54,7 +58,12 @@ class CreateTwofactorAttemptsTable extends Migration
             $table->timestampTz('attempt_time')
                 ->comment('Timestamp of the attempt — TIMESTAMPTZ on PostgreSQL/TimescaleDB, DATETIME on MySQL; time dimension for hypertable');
 
-            $table->index(['userid', 'attempt_time'], 'idx_twofactor_attempts_userid');
+            // Composite PK: TimescaleDB requires the partition key (attempt_time) in every
+            // unique/primary constraint. bigIncrements sets single-column PK by default;
+            // ->primary() below overrides it with the composite form.
+            $table->primary(['attemptid', 'attempt_time']);
+
+            $table->index(['userid', 'attempt_time'], 'idx_twofactor_attempts_userid_time');
             $table->index(['attempt_time'], 'idx_twofactor_attempts_time');
         });
 
@@ -70,6 +79,22 @@ class CreateTwofactorAttemptsTable extends Migration
                 $schema->addRetentionPolicy('authserver.twofactor_attempts', '2 years');
             }
         );
+
+        // PostgreSQL-only: partial index for failure-rate queries and ip-rate-limit lookups.
+        // These use DESC ordering and a WHERE predicate which the schema builder does not
+        // support, so they are emitted as raw DDL guarded by the PostgreSQL capability.
+        $schema->ifCapable(DatabaseCapabilities::ENGINE_POSTGRESQL, function () {
+            $db = $this->application->database;
+            $db->query(
+                "CREATE INDEX IF NOT EXISTS idx_twofactor_attempts_ip_time
+                 ON authserver.twofactor_attempts (ip_address, attempt_time DESC)"
+            );
+            $db->query(
+                "CREATE INDEX IF NOT EXISTS idx_twofactor_attempts_success
+                 ON authserver.twofactor_attempts (success, attempt_time DESC)
+                 WHERE success = 0"
+            );
+        });
     }
 
     public function down(): void
