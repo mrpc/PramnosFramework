@@ -134,7 +134,7 @@ class Dashboard extends Controller
 
             // Remove consent record if present
             $db->queryBuilder()
-                ->table('oauth2_user_consents')
+                ->table('authserver.oauth2_user_consents')
                 ->where('userid', $currentUser->userid)
                 ->where('applicationid', $appId)
                 ->delete();
@@ -444,7 +444,7 @@ class Dashboard extends Controller
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $tables = [
             'usertokens'            => 'userid',
-            'oauth2_user_consents'  => 'userid',
+            'authserver.oauth2_user_consents' => 'userid',
             'user_activity_log'     => 'userid',
             'user_privacy_settings' => 'userid',
             'user_twofactor'        => 'userid',
