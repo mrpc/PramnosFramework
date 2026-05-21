@@ -20,7 +20,7 @@ use Pramnos\Database\Migration;
  * Views created:
  *   alert_high_failure_rate      — 2FA failure spikes in the last hour
  *   alert_suspicious_ips         — IPs with many recent lockout events
- *   daily_2fa_stats              — daily 2FA usage aggregate (materialized on PG)
+ *   daily_2fa_stats              — daily 2FA usage aggregate (continuous aggregate on TimescaleDB, materialized view on plain PG, regular VIEW on MySQL)
  *   failed_twofactor_summary     — users with 3+ 2FA failures in the last hour
  *   gdpr_compliance_report       — per-user consent and privacy summary
  *   geographic_analysis          — per-user recent login activity by IP
@@ -197,23 +197,44 @@ class CreateAuthserverViews extends Migration
             WHERE attempt_time >= NOW() - INTERVAL '1 day'
         ");
 
-        // daily_2fa_stats — materialized daily 2FA aggregate
+        // daily_2fa_stats — continuous aggregate on TimescaleDB, materialized view on plain PG
+        $schema = $this->DB()->schema();
         $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS authserver.daily_2fa_stats CASCADE");
-        $this->DB()->query("
-            CREATE MATERIALIZED VIEW authserver.daily_2fa_stats AS
-            SELECT
-                date_trunc('day', attempt_time)             AS date,
-                COUNT(*)                                    AS total_2fa_attempts,
-                COUNT(*) FILTER (WHERE success = 1)         AS successful_completions,
-                COUNT(*) FILTER (WHERE success = 0)         AS failed_attempts,
-                NULL::NUMERIC                               AS avg_completion_time_seconds
-            FROM authserver.twofactor_attempts
-            GROUP BY date_trunc('day', attempt_time)
-            WITH NO DATA
-        ");
-        $this->DB()->query(
-            "CREATE INDEX IF NOT EXISTS idx_authserver_daily_2fa_stats_date
-             ON authserver.daily_2fa_stats (date)"
+        $schema->ifCapable(
+            \Pramnos\Database\DatabaseCapabilities::TIMESCALEDB,
+            function () use ($schema) {
+                // time_bucket() is required by TimescaleDB for continuous aggregates;
+                // the source table (twofactor_attempts) is a hypertable partitioned on attempt_time.
+                $schema->createContinuousAggregate(
+                    'authserver.daily_2fa_stats',
+                    "SELECT
+                         time_bucket('1 day', attempt_time)          AS day,
+                         COUNT(*)                                     AS total_2fa_attempts,
+                         COUNT(*) FILTER (WHERE success = 1)          AS successful_completions,
+                         COUNT(*) FILTER (WHERE success = 0)          AS failed_attempts,
+                         NULL::NUMERIC                                AS avg_completion_time_seconds
+                     FROM authserver.twofactor_attempts
+                     GROUP BY time_bucket('1 day', attempt_time)"
+                );
+            },
+            function () use ($schema) {
+                $schema->createMaterializedView(
+                    'authserver.daily_2fa_stats',
+                    "SELECT
+                         date_trunc('day', attempt_time)              AS day,
+                         COUNT(*)                                     AS total_2fa_attempts,
+                         COUNT(*) FILTER (WHERE success = 1)          AS successful_completions,
+                         COUNT(*) FILTER (WHERE success = 0)          AS failed_attempts,
+                         NULL::NUMERIC                                AS avg_completion_time_seconds
+                     FROM authserver.twofactor_attempts
+                     GROUP BY date_trunc('day', attempt_time)
+                     WITH NO DATA"
+                );
+                $this->DB()->query(
+                    "CREATE INDEX IF NOT EXISTS idx_authserver_daily_2fa_stats_day
+                     ON authserver.daily_2fa_stats (day)"
+                );
+            }
         );
     }
 
@@ -343,11 +364,11 @@ class CreateAuthserverViews extends Migration
             WHERE attempt_time >= DATE_SUB(NOW(), INTERVAL 1 DAY)
         ");
 
-        // daily_2fa_stats (regular VIEW on MySQL)
+        // daily_2fa_stats (regular VIEW on MySQL — no materialisation available)
         $this->DB()->query("
             CREATE OR REPLACE VIEW `authserver_daily_2fa_stats` AS
             SELECT
-                DATE(attempt_time)                           AS `date`,
+                DATE(attempt_time)                           AS `day`,
                 COUNT(*)                                     AS total_2fa_attempts,
                 SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_completions,
                 SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_attempts,
