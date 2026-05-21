@@ -2851,7 +2851,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
     /**
      * AddSyncConsentTimestampTrigger must create authserver.sync_consent_timestamp()
-     * and install it as BEFORE INSERT OR UPDATE on public.oauth2_user_consents.
+     * and install it as BEFORE INSERT OR UPDATE on authserver.oauth2_user_consents.
      *
      * The trigger must set updated_at = CURRENT_TIMESTAMP on every INSERT and UPDATE
      * so callers never need to supply the field manually.
@@ -2866,7 +2866,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         // Act
         $m->up();
 
-        // Assert — trigger is attached to oauth2_user_consents in the public schema
+        // Assert — trigger is attached to oauth2_user_consents in the authserver schema
         $r = $this->db->query(
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt
@@ -2876,12 +2876,12 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
                  WHERE c.relname = %s AND n.nspname = %s
                    AND t.tgname = %s AND NOT t.tgisinternal",
                 'oauth2_user_consents',
-                'public',
+                'authserver',
                 'trg_sync_consent_timestamp'
             )
         );
         $this->assertGreaterThan(0, (int) $r->fields['cnt'],
-            'trg_sync_consent_timestamp must be attached to public.oauth2_user_consents');
+            'trg_sync_consent_timestamp must be attached to authserver.oauth2_user_consents');
 
         // Assert — trigger function exists in authserver schema
         $r = $this->db->query(
@@ -2898,11 +2898,11 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
         // Assert — INSERT sets updated_at automatically
         $this->db->query(
-            "INSERT INTO public.oauth2_user_consents (userid, applicationid, scope)
+            "INSERT INTO authserver.oauth2_user_consents (userid, applicationid, scope)
              VALUES (1, 1, 'read')"
         );
         $r = $this->db->query(
-            "SELECT updated_at FROM public.oauth2_user_consents WHERE userid = 1"
+            "SELECT updated_at FROM authserver.oauth2_user_consents WHERE userid = 1"
         );
         $this->assertNotNull($r->fields['updated_at'],
             'BEFORE INSERT trigger must populate updated_at');
@@ -2911,10 +2911,10 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->db->query("SELECT pg_sleep(0.05)");
         $before = $r->fields['updated_at'];
         $this->db->query(
-            "UPDATE public.oauth2_user_consents SET scope = 'read write' WHERE userid = 1"
+            "UPDATE authserver.oauth2_user_consents SET scope = 'read write' WHERE userid = 1"
         );
         $r2 = $this->db->query(
-            "SELECT updated_at FROM public.oauth2_user_consents WHERE userid = 1"
+            "SELECT updated_at FROM authserver.oauth2_user_consents WHERE userid = 1"
         );
         $this->assertGreaterThan($before, $r2->fields['updated_at'],
             'BEFORE UPDATE trigger must advance updated_at beyond the INSERT timestamp');
@@ -2930,7 +2930,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
                  WHERE c.relname = %s AND n.nspname = %s
                    AND t.tgname = %s AND NOT t.tgisinternal",
                 'oauth2_user_consents',
-                'public',
+                'authserver',
                 'trg_sync_consent_timestamp'
             )
         );
@@ -3204,9 +3204,8 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             'queueitems',
             'settings', 'sessions',
             'organizations',
-            // oauth2 tables (public schema)
-            'oauth2_user_consents',
-            'oauth2_device_codes',
+            // oauth2_user_consents and oauth2_device_codes are in authserver schema,
+            // already dropped by dropSchemaWithRetry('authserver') above.
         ];
 
         foreach ($tables as $table) {

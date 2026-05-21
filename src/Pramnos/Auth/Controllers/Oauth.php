@@ -390,7 +390,7 @@ class Oauth extends Controller
 
             $db = \Pramnos\Framework\Factory::getDatabase();
             $db->queryBuilder()
-                ->table('oauth2_device_codes')
+                ->table('authserver.oauth2_device_codes')
                 ->insert([
                     'device_code' => $deviceCode,
                     'user_code'   => $userCode,
@@ -681,7 +681,7 @@ class Oauth extends Controller
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('oauth2_user_consents')
+            ->table('authserver.oauth2_user_consents')
             ->select('scope')
             ->where('userid', $userId)
             ->where('applicationid', $appId)
@@ -712,7 +712,7 @@ class Oauth extends Controller
         // Read existing scopes so we only ever expand, never shrink
         $existing = '';
         $result   = $db->queryBuilder()
-            ->table('oauth2_user_consents')
+            ->table('authserver.oauth2_user_consents')
             ->select('scope')
             ->where('userid', $userId)
             ->where('applicationid', $appId)
@@ -729,13 +729,13 @@ class Oauth extends Controller
 
         if ($existing !== '') {
             $db->queryBuilder()
-                ->table('oauth2_user_consents')
+                ->table('authserver.oauth2_user_consents')
                 ->where('userid', $userId)
                 ->where('applicationid', $appId)
                 ->update(['scope' => $merged, 'updated_at' => date('Y-m-d H:i:s')]);
         } else {
             $db->queryBuilder()
-                ->table('oauth2_user_consents')
+                ->table('authserver.oauth2_user_consents')
                 ->insert([
                     'userid'        => $userId,
                     'applicationid' => $appId,

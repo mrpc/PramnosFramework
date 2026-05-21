@@ -105,8 +105,8 @@ class OAuth2GrantFlowMySQLTest extends TestCase
      */
     protected function dropOwnedTables(): void
     {
-        $this->db->query('DROP TABLE IF EXISTS `oauth2_user_consents`');
-        $this->db->query('DROP TABLE IF EXISTS `oauth2_device_codes`');
+        $this->db->query('DROP TABLE IF EXISTS `authserver_oauth2_user_consents`');
+        $this->db->query('DROP TABLE IF EXISTS `authserver_oauth2_device_codes`');
         $this->db->query('DROP TABLE IF EXISTS `applications`');
     }
 
@@ -214,7 +214,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
             `systemuser`      BIGINT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-        $this->db->query("CREATE TABLE IF NOT EXISTS `oauth2_device_codes` (
+        $this->db->query("CREATE TABLE IF NOT EXISTS `authserver_oauth2_device_codes` (
             `id`            INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
             `device_code`   VARCHAR(64)  NOT NULL,
             `user_code`     VARCHAR(9)   NOT NULL,
@@ -229,7 +229,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
             KEY `idx_oauth2_dc_expires_status` (`expires_at`, `status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-        $this->db->query("CREATE TABLE IF NOT EXISTS `oauth2_user_consents` (
+        $this->db->query("CREATE TABLE IF NOT EXISTS `authserver_oauth2_user_consents` (
             `id`            BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
             `userid`        BIGINT NOT NULL,
             `applicationid` INT    NOT NULL,
@@ -335,7 +335,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
 
         // Act — replicate Oauth::deviceauthorization() INSERT
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_device_codes
+            "INSERT INTO authserver_oauth2_device_codes
                 (device_code, user_code, client_id, scope, expires_at, status)
              VALUES (%s, %s, %s, %s, %d, 'pending')",
             $deviceCode, $userCode, $clientId, 'openid profile', $expiresAt
@@ -345,7 +345,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
 
         // Act — replicate Device::handleVerification() SELECT
         $sql = $this->db->prepareQuery(
-            "SELECT * FROM oauth2_device_codes
+            "SELECT * FROM authserver_oauth2_device_codes
               WHERE user_code = %s AND status = 'pending' AND expires_at > %d",
             $userCode,
             time()
@@ -372,7 +372,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         $deviceCode = bin2hex(random_bytes(32));
         $userCode   = 'LMNP-QRST';
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_device_codes
+            "INSERT INTO authserver_oauth2_device_codes
                 (device_code, user_code, client_id, scope, expires_at, status)
              VALUES (%s, %s, %s, %s, %d, 'pending')",
             $deviceCode, $userCode, 'test-client', 'openid', time() - 10
@@ -382,7 +382,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
 
         // Act — the verification query must filter out expired codes
         $sql = $this->db->prepareQuery(
-            "SELECT * FROM oauth2_device_codes
+            "SELECT * FROM authserver_oauth2_device_codes
               WHERE user_code = %s AND status = 'pending' AND expires_at > %d",
             $userCode,
             time()
@@ -407,7 +407,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         $userCode   = 'VWXZ-BCDF';
         $userId     = $this->insertUser();
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_device_codes
+            "INSERT INTO authserver_oauth2_device_codes
                 (device_code, user_code, client_id, scope, expires_at, status)
              VALUES (%s, %s, %s, %s, %d, 'pending')",
             $deviceCode, $userCode, 'test-client', 'openid', time() + 600
@@ -418,7 +418,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         // Act — replicate Device::approveDevice()
         $now = time();
         $sql = $this->db->prepareQuery(
-            "UPDATE oauth2_device_codes
+            "UPDATE authserver_oauth2_device_codes
                 SET status = 'authorized', user_id = %d, authorized_at = %d
               WHERE user_code = %s",
             $userId, $now, $userCode
@@ -428,7 +428,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         // Assert
         $result = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT status, user_id, authorized_at FROM oauth2_device_codes WHERE user_code = %s",
+                "SELECT status, user_id, authorized_at FROM authserver_oauth2_device_codes WHERE user_code = %s",
                 $userCode
             )
         );
@@ -449,7 +449,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         $deviceCode = bin2hex(random_bytes(32));
         $userCode   = 'GHJK-LMNP';
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_device_codes
+            "INSERT INTO authserver_oauth2_device_codes
                 (device_code, user_code, client_id, scope, expires_at, status)
              VALUES (%s, %s, %s, %s, %d, 'pending')",
             $deviceCode, $userCode, 'test-client', 'openid', time() + 600
@@ -459,7 +459,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
 
         // Act — replicate Device::denyDevice()
         $sql = $this->db->prepareQuery(
-            "UPDATE oauth2_device_codes
+            "UPDATE authserver_oauth2_device_codes
                 SET status = 'denied', authorized_at = %d
               WHERE user_code = %s",
             time(), $userCode
@@ -469,7 +469,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         // Assert
         $result = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT status, user_id FROM oauth2_device_codes WHERE user_code = %s",
+                "SELECT status, user_id FROM authserver_oauth2_device_codes WHERE user_code = %s",
                 $userCode
             )
         );
@@ -496,7 +496,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
 
         // Act — replicate Oauth::recordConsent() INSERT path
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
+            "INSERT INTO authserver_oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
              VALUES (%d, %d, %s, NOW(), NOW())",
             $userId, $appId, 'openid profile'
         );
@@ -504,7 +504,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
 
         // Assert — consent row was persisted
         $sql    = $this->db->prepareQuery(
-            "SELECT scope FROM oauth2_user_consents WHERE userid = %d AND applicationid = %d",
+            "SELECT scope FROM authserver_oauth2_user_consents WHERE userid = %d AND applicationid = %d",
             $userId, $appId
         );
         $result = $this->db->query($sql);
@@ -525,7 +525,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         $userId = $this->insertUser('bob');
         $appId  = $this->insertApp('client-b');
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
+            "INSERT INTO authserver_oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
              VALUES (%d, %d, %s, NOW(), NOW())",
             $userId, $appId, 'openid profile'
         );
@@ -539,7 +539,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
             explode(' ', $new)
         ))));
         $sql = $this->db->prepareQuery(
-            "UPDATE oauth2_user_consents SET scope = %s, updated_at = NOW()
+            "UPDATE authserver_oauth2_user_consents SET scope = %s, updated_at = NOW()
               WHERE userid = %d AND applicationid = %d",
             $merged, $userId, $appId
         );
@@ -548,7 +548,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         // Assert — all three scopes are present
         $result = $this->db->query(
             $this->db->prepareQuery(
-                "SELECT scope FROM oauth2_user_consents WHERE userid = %d AND applicationid = %d",
+                "SELECT scope FROM authserver_oauth2_user_consents WHERE userid = %d AND applicationid = %d",
                 $userId, $appId
             )
         );
@@ -570,7 +570,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         $userId = $this->insertUser('carol');
         $appId  = $this->insertApp('client-c');
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
+            "INSERT INTO authserver_oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
              VALUES (%d, %d, %s, NOW(), NOW())",
             $userId, $appId, 'openid profile email'
         );
@@ -579,7 +579,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         // Act — replicate hasUserAuthorizedApp() query + check
         $requestedScopes = ['openid', 'profile'];
         $sql    = $this->db->prepareQuery(
-            "SELECT scope FROM oauth2_user_consents WHERE userid = %d AND applicationid = %d",
+            "SELECT scope FROM authserver_oauth2_user_consents WHERE userid = %d AND applicationid = %d",
             $userId, $appId
         );
         $result = $this->db->query($sql);
@@ -608,7 +608,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         $userId = $this->insertUser('dave');
         $appId  = $this->insertApp('client-d');
         $sql = $this->db->prepareQuery(
-            "INSERT INTO oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
+            "INSERT INTO authserver_oauth2_user_consents (userid, applicationid, scope, created_at, updated_at)
              VALUES (%d, %d, %s, NOW(), NOW())",
             $userId, $appId, 'openid'
         );
@@ -617,7 +617,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         // Act — request openid + profile; profile is missing
         $requestedScopes = ['openid', 'profile'];
         $sql    = $this->db->prepareQuery(
-            "SELECT scope FROM oauth2_user_consents WHERE userid = %d AND applicationid = %d",
+            "SELECT scope FROM authserver_oauth2_user_consents WHERE userid = %d AND applicationid = %d",
             $userId, $appId
         );
         $result = $this->db->query($sql);

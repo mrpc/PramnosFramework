@@ -2099,10 +2099,10 @@ class FrameworkMigrationsMySQLTest extends TestCase
 
         // Assert — INSERT trigger populates updated_at automatically
         $this->db->query(
-            "INSERT INTO `oauth2_user_consents` (userid, applicationid, scope) VALUES (1, 1, 'read')"
+            "INSERT INTO `authserver_oauth2_user_consents` (userid, applicationid, scope) VALUES (1, 1, 'read')"
         );
         $r = $this->db->query(
-            "SELECT updated_at FROM `oauth2_user_consents` WHERE userid = 1"
+            "SELECT updated_at FROM `authserver_oauth2_user_consents` WHERE userid = 1"
         );
         $this->assertNotNull($r->fields['updated_at'],
             'BEFORE INSERT trigger must populate updated_at');
@@ -2110,10 +2110,10 @@ class FrameworkMigrationsMySQLTest extends TestCase
         // Assert — UPDATE trigger refreshes updated_at (advance clock by 1 s so TIMESTAMP differs)
         $this->db->query("SELECT SLEEP(1)");
         $this->db->query(
-            "UPDATE `oauth2_user_consents` SET scope = 'read write' WHERE userid = 1"
+            "UPDATE `authserver_oauth2_user_consents` SET scope = 'read write' WHERE userid = 1"
         );
         $r2 = $this->db->query(
-            "SELECT updated_at FROM `oauth2_user_consents` WHERE userid = 1"
+            "SELECT updated_at FROM `authserver_oauth2_user_consents` WHERE userid = 1"
         );
         $this->assertGreaterThan($r->fields['updated_at'], $r2->fields['updated_at'],
             'BEFORE UPDATE trigger must advance updated_at beyond the INSERT value');
@@ -2353,9 +2353,9 @@ class FrameworkMigrationsMySQLTest extends TestCase
             'authserver_user_roles', 'authserver_audit_log',
             'authserver_permissions', 'authserver_roles',
             'authserver_schema',
-            // oauth2 tables (public schema, no prefix)
-            'oauth2_user_consents',
-            'oauth2_device_codes',
+            // oauth2 tables (authserver schema → authserver_ prefix on MySQL)
+            'authserver_oauth2_user_consents',
+            'authserver_oauth2_device_codes',
             // auth 000017-000026 (authserver-prefixed on MySQL)
             'authserver_gdpr_requests',
             'authserver_data_processing_records',
