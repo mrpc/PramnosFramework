@@ -14,9 +14,8 @@ use Pramnos\Database\DatabaseCapabilities;
  *   - retention: drop chunks older than 24 months
  *   - continuous aggregate `daily_activity_summary` created separately (migration 000026)
  *
- * On MySQL and plain PostgreSQL it is a regular table. The table has no
- * auto-increment PK so that TimescaleDB can use created_at as the sole
- * time dimension without a composite PK requirement.
+ * The composite PK (id, created_at) satisfies TimescaleDB's requirement that
+ * the partition key (created_at) be part of every unique/primary constraint.
  *
  * @package PramnosFramework
  */
@@ -39,6 +38,8 @@ class CreateUserActivityLogTable extends Migration
         $schema->createTable('authserver.user_activity_log', function ($table) {
             $table->comment('GDPR-compliant user action audit trail; TimescaleDB hypertable on capable backends');
 
+            $table->bigIncrements('id')
+                ->comment('Surrogate auto-increment key; part of composite PK with created_at for TimescaleDB compatibility');
             $table->bigInteger('userid')
                 ->comment('User ID whose action is being logged');
             $table->string('action', 100)
@@ -52,8 +53,12 @@ class CreateUserActivityLogTable extends Migration
             $table->timestampTz('created_at')
                 ->comment('Timestamp of the action — TIMESTAMPTZ on PostgreSQL/TimescaleDB, DATETIME on MySQL; time dimension for hypertable');
 
-            $table->index(['userid', 'created_at'], 'idx_user_activity_log_userid');
-            $table->index(['action', 'created_at'], 'idx_user_activity_log_action');
+            // Composite PK: TimescaleDB requires the partition key (created_at) in every unique/primary constraint.
+            $table->primary(['id', 'created_at']);
+
+            $table->index(['userid', 'created_at'], 'idx_user_activity_userid');
+            $table->index(['action', 'created_at'], 'idx_user_activity_action');
+            $table->index(['created_at'], 'idx_user_activity_log_time');
         });
 
         $schema->ifCapable(
