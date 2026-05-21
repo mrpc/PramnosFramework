@@ -45,6 +45,15 @@ Added columns to match Urbanwater schema:
 ### Test results
 - Full suite: **119/119** ✓
 
+### `authserver.audit_log` complete rewrite — generic polymorphic event schema
+
+Aligned with Urbanwater (deya_context → organization_context):
+- Column renames: `action_type` → `event_type`, `performed_by` → `actor_userid`, `before_state/after_state` → `old_values/new_values`, `created_at` → `event_timestamp`
+- New columns: `actor_type` (varchar 20, default 'user'), `target_type/target_id` (varchar), `object_type/object_id` (varchar), `metadata` (jsonb), `organization_context` (int nullable)
+- Removed RBAC-specific: `target_userid`, `target_roleid`, `ip_address`, `notes` (moved to metadata jsonb)
+- Indexes updated to match Urbanwater naming
+- PostgreSQL test rewritten for new schema
+
 ### `authserver.loginlockouts` missing columns
 
 Added columns missing from framework: `displayvalue`, `userid`, `lastipaddress`, `lastuseragent`, `lastchannel`, `lastunlockedat`, `lastunlockedby`, `unlockreason`. Existing columns (including integer timestamps) unchanged.
