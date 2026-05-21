@@ -558,6 +558,81 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
     }
 
     // =========================================================================
+    // Applications: tokenactions_hourly continuous aggregate (000049)
+    // =========================================================================
+
+    /**
+     * CreateTokenactionsHourlyView must create applications.tokenactions_hourly as
+     * a TimescaleDB continuous aggregate (not a plain view or materialized view).
+     *
+     * The aggregate queries public.tokenactions (a hypertable partitioned on
+     * action_time) and groups into 1-hour buckets per tokenid/urlid/method/status.
+     * It includes percentile approximations (p50, p95) that are not available on
+     * plain PostgreSQL, where NULL placeholders are used instead.
+     *
+     * This test verifies:
+     *   1. The aggregate is registered in timescaledb_information.continuous_aggregates.
+     *   2. It is queryable before and after inserting rows.
+     *   3. A force-refresh populates rows from tokenactions data.
+     *   4. down() removes the continuous aggregate.
+     */
+    public function testTokenactionsHourlyIsContinuousAggregateOnTimescaleDB(): void
+    {
+        // Arrange — public.tokenactions (hypertable) + applications schema must exist
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('auth', 'CreateTokenactionsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
+
+        $m = $this->loadMigration('applications', 'CreateTokenactionsHourlyView');
+
+        // Act
+        $m->up();
+
+        // Assert — registered as a continuous aggregate in the applications schema
+        $r = $this->db->execute(
+            "SELECT COUNT(*) AS cnt
+             FROM timescaledb_information.continuous_aggregates
+             WHERE view_schema = 'applications' AND view_name = 'tokenactions_hourly'"
+        );
+        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+            'applications.tokenactions_hourly must be a TimescaleDB continuous aggregate');
+
+        // Assert — queryable before any data
+        $r2 = $this->db->execute('SELECT COUNT(*) AS cnt FROM applications.tokenactions_hourly');
+        $this->assertSame('0', (string) $r2->fields['cnt'],
+            'empty continuous aggregate must return 0 rows before data');
+
+        // Assert — inserts to tokenactions and force-refresh must populate the aggregate
+        $this->db->execute(
+            "INSERT INTO public.tokenactions
+                (tokenid, urlid, method, params, servertime, return_status, execution_time_ms, action_time)
+             VALUES
+                (1, 1, 'GET', '', EXTRACT(EPOCH FROM NOW() - INTERVAL '2 hours')::INT,
+                 200, 45.5, NOW() - INTERVAL '2 hours'),
+                (1, 2, 'POST', '', EXTRACT(EPOCH FROM NOW() - INTERVAL '1 hour')::INT,
+                 500, 1200.0, NOW() - INTERVAL '1 hour')"
+        );
+        $this->db->execute(
+            "CALL refresh_continuous_aggregate('applications.tokenactions_hourly', NULL, NULL)"
+        );
+        $r3 = $this->db->execute('SELECT COUNT(*) AS cnt FROM applications.tokenactions_hourly');
+        $this->assertGreaterThan(0, (int) $r3->fields['cnt'],
+            'continuous aggregate must return rows after refresh');
+
+        // Assert — down() removes the continuous aggregate
+        $m->down();
+        $r4 = $this->db->execute(
+            "SELECT COUNT(*) AS cnt
+             FROM timescaledb_information.continuous_aggregates
+             WHERE view_schema = 'applications' AND view_name = 'tokenactions_hourly'"
+        );
+        $this->assertSame('0', (string) $r4->fields['cnt'],
+            'applications.tokenactions_hourly must be removed by down()');
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
@@ -663,7 +738,10 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
             $this->db->execute("DROP TABLE IF EXISTS authserver.\"{$t}\" CASCADE");
         }
 
-        // Drop public-schema tables
+        // Drop public-schema tables (tokenactions depends on usertokens + urls)
+        $this->db->execute('DROP TABLE IF EXISTS public."tokenactions" CASCADE');
+        $this->db->execute('DROP TABLE IF EXISTS public."usertokens" CASCADE');
+        $this->db->execute('DROP TABLE IF EXISTS public."urls" CASCADE');
         $this->db->execute('DROP TABLE IF EXISTS public."users" CASCADE');
     }
 }
