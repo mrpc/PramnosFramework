@@ -351,6 +351,87 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
     }
 
     // =========================================================================
+    // AuthServer: daily_2fa_stats continuous aggregate (000046)
+    // =========================================================================
+
+    /**
+     * CreateAuthserverViews must create authserver.daily_2fa_stats as a
+     * TimescaleDB continuous aggregate (not a plain materialized view) when
+     * the database supports TimescaleDB.
+     *
+     * A continuous aggregate is auto-refreshed by the TimescaleDB background
+     * worker using time_bucket() over the twofactor_attempts hypertable.
+     * It appears in timescaledb_information.continuous_aggregates and can be
+     * force-refreshed with CALL refresh_continuous_aggregate().
+     *
+     * This test verifies:
+     *   1. The aggregate is registered as a continuous aggregate (not a plain matview).
+     *   2. It is queryable and returns 0 rows before data is inserted.
+     *   3. After inserting rows and force-refreshing, it returns aggregated data.
+     *   4. down() removes the continuous aggregate.
+     */
+    public function testDailyTwoFaStatsIsContinuousAggregateOnTimescaleDB(): void
+    {
+        // Arrange — source hypertable (twofactor_attempts) and all view dependencies must exist
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('auth', 'CreateLoginlockoutTable')->up();
+        $this->loadMigration('auth', 'CreateUserTwofactorTable')->up();
+        $this->loadMigration('auth', 'CreateTwofactorSetupTable')->up();
+        $this->loadMigration('auth', 'CreateTwofactorAttemptsTable')->up();
+        $this->loadMigration('auth', 'CreateUserActivityLogTable')->up();
+        $this->loadMigration('auth', 'CreateUserConsentsTable')->up();
+        $this->loadMigration('auth', 'CreateUserPrivacySettingsTable')->up();
+        $this->loadMigration('auth', 'CreateGdprRequestsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $m = $this->loadMigration('authserver', 'CreateAuthserverViews');
+
+        // Act
+        $m->up();
+
+        // Assert — registered as a continuous aggregate, not a plain materialized view
+        $r = $this->db->execute(
+            "SELECT COUNT(*) AS cnt
+             FROM timescaledb_information.continuous_aggregates
+             WHERE view_schema = 'authserver' AND view_name = 'daily_2fa_stats'"
+        );
+        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+            'authserver.daily_2fa_stats must be a TimescaleDB continuous aggregate');
+
+        // Assert — queryable before any data
+        $r2 = $this->db->execute('SELECT COUNT(*) AS cnt FROM authserver.daily_2fa_stats');
+        $this->assertSame('0', (string) $r2->fields['cnt'],
+            'empty continuous aggregate must return 0 rows before data');
+
+        // Assert — insert data and force-refresh; the aggregate must populate
+        $this->db->execute(
+            "INSERT INTO authserver.twofactor_attempts
+                (userid, ip_address, code_used, user_agent, attempt_time, success)
+             VALUES
+                (1, '1.2.3.4', 'totp', 'browser', NOW() - INTERVAL '2 hours', 1),
+                (2, '5.6.7.8', 'totp', 'browser', NOW() - INTERVAL '1 hour',  0)"
+        );
+        $this->db->execute(
+            "CALL refresh_continuous_aggregate('authserver.daily_2fa_stats', NULL, NULL)"
+        );
+        $r3 = $this->db->execute('SELECT COUNT(*) AS cnt FROM authserver.daily_2fa_stats');
+        $this->assertGreaterThan(0, (int) $r3->fields['cnt'],
+            'continuous aggregate must return rows after refresh');
+
+        // Assert — down() removes the continuous aggregate
+        $m->down();
+        $r4 = $this->db->execute(
+            "SELECT COUNT(*) AS cnt
+             FROM timescaledb_information.continuous_aggregates
+             WHERE view_schema = 'authserver' AND view_name = 'daily_2fa_stats'"
+        );
+        $this->assertSame('0', (string) $r4->fields['cnt'],
+            'authserver.daily_2fa_stats must be removed by down()');
+    }
+
+    // =========================================================================
     // Applications schema — application_stats hypertable (000045)
     // =========================================================================
 

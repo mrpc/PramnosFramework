@@ -2819,16 +2819,30 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
                 "authserver.{$view} must exist after up()");
         }
 
-        // Assert — daily_2fa_stats materialized view
-        $r = $this->db->query(
+        // Assert — daily_2fa_stats is a materialized view or continuous aggregate.
+        // On TimescaleDB it is created as a continuous aggregate (appears in
+        // timescaledb_information.continuous_aggregates, not in pg_matviews).
+        // On plain PostgreSQL it is a regular materialized view (in pg_matviews).
+        $matviewCount = (int) $this->db->query(
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM pg_matviews
                  WHERE schemaname = %s AND matviewname = %s",
                 'authserver', 'daily_2fa_stats'
             )
-        );
-        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
-            'authserver.daily_2fa_stats must be a materialized view');
+        )->fields['cnt'];
+        $hasTsdb = $this->db->schema()->getCapabilities()->hasTimescaleDB();
+        if ($hasTsdb) {
+            $caCount = (int) $this->db->query(
+                "SELECT COUNT(*) AS cnt
+                 FROM timescaledb_information.continuous_aggregates
+                 WHERE view_schema = 'authserver' AND view_name = 'daily_2fa_stats'"
+            )->fields['cnt'];
+            $this->assertGreaterThan(0, $caCount,
+                'authserver.daily_2fa_stats must be a TimescaleDB continuous aggregate');
+        } else {
+            $this->assertGreaterThan(0, $matviewCount,
+                'authserver.daily_2fa_stats must be a materialized view on plain PostgreSQL');
+        }
 
         // Assert — regular views are queryable
         foreach ($regularViews as $view) {
@@ -2836,17 +2850,27 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             $this->assertNotNull($r, "authserver.{$view} must be queryable");
         }
 
-        // Assert — down() removes all views
+        // Assert — down() removes daily_2fa_stats (matview or continuous aggregate)
         $m->down();
-        $r = $this->db->query(
-            $this->db->prepareQuery(
-                "SELECT COUNT(*) AS cnt FROM pg_matviews
-                 WHERE schemaname = %s AND matviewname = %s",
-                'authserver', 'daily_2fa_stats'
-            )
-        );
-        $this->assertSame('0', (string) $r->fields['cnt'],
-            'authserver.daily_2fa_stats matview must be gone after down()');
+        if ($hasTsdb) {
+            $r = $this->db->query(
+                "SELECT COUNT(*) AS cnt
+                 FROM timescaledb_information.continuous_aggregates
+                 WHERE view_schema = 'authserver' AND view_name = 'daily_2fa_stats'"
+            );
+            $this->assertSame('0', (string) $r->fields['cnt'],
+                'authserver.daily_2fa_stats continuous aggregate must be gone after down()');
+        } else {
+            $r = $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt FROM pg_matviews
+                     WHERE schemaname = %s AND matviewname = %s",
+                    'authserver', 'daily_2fa_stats'
+                )
+            );
+            $this->assertSame('0', (string) $r->fields['cnt'],
+                'authserver.daily_2fa_stats matview must be gone after down()');
+        }
     }
 
     /**
