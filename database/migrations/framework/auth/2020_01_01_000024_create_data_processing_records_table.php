@@ -37,6 +37,8 @@ class CreateDataProcessingRecordsTable extends Migration
         $schema->createTable('authserver.data_processing_records', function ($table) {
             $table->comment('GDPR Article 30 data processing activity log; TimescaleDB hypertable with 36-month retention');
 
+            $table->bigIncrements('id')
+                ->comment('Surrogate auto-increment key; part of composite PK with processed_at for TimescaleDB compatibility');
             $table->bigInteger('userid')
                 ->comment('User ID whose data is being processed');
             $table->string('operation', 100)
@@ -45,12 +47,21 @@ class CreateDataProcessingRecordsTable extends Migration
                 ->comment('Category of personal data processed (e.g. profile, financial, health)');
             $table->string('legal_basis', 100)->default('consent')
                 ->comment('GDPR legal basis for the processing (e.g. consent, legitimate_interest, contract, legal_obligation)');
+            $table->text('purpose')->nullable()
+                ->comment('Human-readable description of the processing purpose (GDPR Art.5 transparency requirement)');
+            $table->integer('retention_period')->nullable()
+                ->comment('Expected retention period in days; NULL = uses the hypertable default retention policy');
+            $table->string('client_id', 255)->nullable()
+                ->comment('OAuth2 client_id (apikey) if the processing was triggered via an OAuth flow; NULL for internal operations');
             $table->string('processor', 100)->nullable()
                 ->comment('Identity of the data processor (e.g. internal, aws-ses, stripe); NULL for internal operations');
             $table->text('details')->nullable()
                 ->comment('JSON-encoded additional context for the processing record');
             $table->timestampTz('processed_at')
                 ->comment('Timestamp when the processing occurred — time dimension for hypertable');
+
+            // Composite PK: TimescaleDB requires the partition key (processed_at) in every unique/primary constraint.
+            $table->primary(['id', 'processed_at']);
 
             $table->index(['userid', 'processed_at'], 'idx_data_processing_userid');
             $table->index(['operation', 'processed_at'], 'idx_data_processing_operation');
