@@ -238,16 +238,16 @@ class Dashboard extends Controller
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $db = \Pramnos\Framework\Factory::getDatabase();
             $qb = $db->queryBuilder();
-            $qb->table('user_privacy_settings')
+            $qb->table('authserver.user_privacy_settings')
                ->upsert(
                    [
-                       'userid'            => (int) $currentUser->userid,
-                       'analytics_consent' => isset($_POST['analytics']) ? 1 : 0,
-                       'marketing_consent' => isset($_POST['marketing']) ? 1 : 0,
-                       'updated_at'        => $qb->raw('NOW()'),
+                       'userid'                => (int) $currentUser->userid,
+                       'share_usage_analytics' => isset($_POST['analytics']) ? 1 : 0,
+                       'marketing_emails'      => isset($_POST['marketing']) ? 1 : 0,
+                       'updated_at'            => $qb->raw('NOW()'),
                    ],
                    ['userid'],
-                   ['analytics_consent', 'marketing_consent', 'updated_at']
+                   ['share_usage_analytics', 'marketing_emails', 'updated_at']
                );
 
             $this->redirect(sURL . 'Dashboard/privacy');
@@ -446,7 +446,7 @@ class Dashboard extends Controller
             'usertokens'            => 'userid',
             'authserver.oauth2_user_consents' => 'userid',
             'user_activity_log'     => 'userid',
-            'user_privacy_settings' => 'userid',
+            'authserver.user_privacy_settings' => 'userid',
             'user_twofactor'        => 'userid',
             'twofactor_setup'       => 'userid',
         ];
@@ -473,15 +473,15 @@ class Dashboard extends Controller
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('user_privacy_settings')
-            ->select(['analytics_consent', 'marketing_consent'])
+            ->table('authserver.user_privacy_settings')
+            ->select(['share_usage_analytics', 'marketing_emails'])
             ->where('userid', $userId)
             ->first();
 
         if ($result && $result->numRows > 0) {
             return [
-                'analytics' => (bool) ($result->fields['analytics_consent'] ?? false),
-                'marketing' => (bool) ($result->fields['marketing_consent'] ?? false),
+                'analytics' => (bool) ($result->fields['share_usage_analytics'] ?? false),
+                'marketing' => (bool) ($result->fields['marketing_emails'] ?? false),
             ];
         }
 
