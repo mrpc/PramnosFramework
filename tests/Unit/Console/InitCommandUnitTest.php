@@ -410,7 +410,7 @@ class InitCommandUnitTest extends TestCase
         $compose = file_get_contents($this->tmpDir . '/docker-compose.yml');
         $this->assertStringContainsString('"8080:80"', $compose);
 
-        // Dockerfile targets PHP 8.5 (current minimum for framework v1.2)
+        // Dockerfile targets PHP 8.5 (recommended development image; minimum requirement is 8.1)
         $dockerfile = file_get_contents($this->tmpDir . '/Dockerfile');
         $this->assertStringContainsString('php:8.5-apache', $dockerfile);
     }
