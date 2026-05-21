@@ -51,10 +51,26 @@ class CreateLoginlockoutTable extends Migration
                 ->comment('Unix timestamp of the most recent failure (0 = no attempts)');
             $table->integer('lockoutuntil')->default(0)
                 ->comment('Unix timestamp when the lockout expires (0 = no active lockout)');
+            $table->string('displayvalue', 255)->nullable()
+                ->comment('Human-readable label for the locked entity (e.g. masked email, username); for display in admin UIs');
+            $table->bigInteger('userid')->nullable()
+                ->comment('Resolved user ID when lock type is user or identifier; NULL for ip-only locks');
+            $table->string('lastipaddress', 45)->nullable()
+                ->comment('IP address from the most recent failed attempt; useful for cross-check during manual review');
+            $table->text('lastuseragent')->nullable()
+                ->comment('User-Agent string from the most recent failed attempt');
+            $table->string('lastchannel', 50)->nullable()
+                ->comment('Authentication channel of the last attempt (e.g. web, api, mobile, oauth2)');
             $table->integer('createdat')
                 ->comment('Unix timestamp when this row was first created');
             $table->integer('updatedat')
                 ->comment('Unix timestamp of the last update to this row');
+            $table->integer('lastunlockedat')->default(0)->nullable()
+                ->comment('Unix timestamp of the most recent manual unlock (0 = never unlocked)');
+            $table->bigInteger('lastunlockedby')->nullable()
+                ->comment('userid of the admin who performed the last manual unlock; NULL if never unlocked or auto-expired');
+            $table->text('unlockreason')->nullable()
+                ->comment('Free-text reason recorded when an admin manually unlocks the entry');
 
             $table->unique(['locktype', 'lookupvalue'], 'uq_loginlockout_type_value');
             $table->index(['lockoutuntil'], 'idx_loginlockout_until');
