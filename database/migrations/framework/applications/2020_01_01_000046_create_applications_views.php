@@ -196,41 +196,61 @@ class CreateApplicationsViews extends Migration
                 $schema->createContinuousAggregate(
                     'applications.application_stats_daily',
                     "SELECT
-                         time_bucket('1 day', time)               AS day,
+                         time_bucket('1 day', time)                    AS bucket,
                          appid,
-                         SUM(total_requests)                      AS total_requests,
-                         SUM(successful_requests)                 AS successful_requests,
-                         SUM(failed_requests)                     AS failed_requests,
-                         ROUND(AVG(avg_response_time)::NUMERIC, 3) AS avg_response_time,
-                         SUM(status_2xx)                          AS status_2xx,
-                         SUM(status_3xx)                          AS status_3xx,
-                         SUM(status_4xx)                          AS status_4xx,
-                         SUM(status_5xx)                          AS status_5xx
+                         SUM(total_requests)                           AS total_requests,
+                         SUM(successful_requests)                      AS successful_requests,
+                         SUM(failed_requests)                          AS failed_requests,
+                         AVG(avg_response_time)                        AS avg_response_time,
+                         MIN(min_response_time)                        AS min_response_time,
+                         MAX(max_response_time)                        AS max_response_time,
+                         SUM(status_2xx)                               AS status_2xx,
+                         SUM(status_3xx)                               AS status_3xx,
+                         SUM(status_4xx)                               AS status_4xx,
+                         SUM(status_5xx)                               AS status_5xx,
+                         SUM(rate_limited_requests)                    AS rate_limited_requests,
+                         SUM(rate_limit_violations)                    AS rate_limit_violations,
+                         SUM(bytes_sent)                               AS bytes_sent,
+                         SUM(bytes_received)                           AS bytes_received,
+                         COUNT(DISTINCT country_code)                  AS countries_count
                      FROM applications.application_stats
                      GROUP BY time_bucket('1 day', time), appid"
+                );
+                $schema->addContinuousAggregatePolicy(
+                    'applications.application_stats_daily',
+                    '3 days',
+                    '1 day',
+                    '1 day'
                 );
             },
             function () use ($schema) {
                 $schema->createMaterializedView(
                     'applications.application_stats_daily',
                     "SELECT
-                         date_trunc('day', time)                   AS day,
+                         date_trunc('day', time)                        AS bucket,
                          appid,
-                         SUM(total_requests)                       AS total_requests,
-                         SUM(successful_requests)                  AS successful_requests,
-                         SUM(failed_requests)                      AS failed_requests,
-                         ROUND(AVG(avg_response_time)::NUMERIC, 3) AS avg_response_time,
-                         SUM(status_2xx)                           AS status_2xx,
-                         SUM(status_3xx)                           AS status_3xx,
-                         SUM(status_4xx)                           AS status_4xx,
-                         SUM(status_5xx)                           AS status_5xx
+                         SUM(total_requests)                           AS total_requests,
+                         SUM(successful_requests)                      AS successful_requests,
+                         SUM(failed_requests)                          AS failed_requests,
+                         AVG(avg_response_time)                        AS avg_response_time,
+                         MIN(min_response_time)                        AS min_response_time,
+                         MAX(max_response_time)                        AS max_response_time,
+                         SUM(status_2xx)                               AS status_2xx,
+                         SUM(status_3xx)                               AS status_3xx,
+                         SUM(status_4xx)                               AS status_4xx,
+                         SUM(status_5xx)                               AS status_5xx,
+                         SUM(rate_limited_requests)                    AS rate_limited_requests,
+                         SUM(rate_limit_violations)                    AS rate_limit_violations,
+                         SUM(bytes_sent)                               AS bytes_sent,
+                         SUM(bytes_received)                           AS bytes_received,
+                         COUNT(DISTINCT country_code)                  AS countries_count
                      FROM applications.application_stats
                      GROUP BY date_trunc('day', time), appid
                      WITH NO DATA"
                 );
                 $this->DB()->query(
-                    "CREATE INDEX IF NOT EXISTS idx_app_stats_daily_appid_day
-                     ON applications.application_stats_daily (appid, day)"
+                    "CREATE INDEX IF NOT EXISTS idx_app_stats_daily_appid_bucket
+                     ON applications.application_stats_daily (appid, bucket)"
                 );
             }
         );
@@ -243,33 +263,59 @@ class CreateApplicationsViews extends Migration
                 $schema->createContinuousAggregate(
                     'applications.application_stats_hourly',
                     "SELECT
-                         time_bucket('1 hour', time)              AS hour,
+                         time_bucket('1 hour', time)                   AS bucket,
                          appid,
-                         SUM(total_requests)                      AS total_requests,
-                         SUM(successful_requests)                 AS successful_requests,
-                         ROUND(AVG(avg_response_time)::NUMERIC, 3) AS avg_response_time,
-                         SUM(status_4xx + status_5xx)             AS error_count
+                         SUM(total_requests)                           AS total_requests,
+                         SUM(successful_requests)                      AS successful_requests,
+                         SUM(failed_requests)                          AS failed_requests,
+                         AVG(avg_response_time)                        AS avg_response_time,
+                         MIN(min_response_time)                        AS min_response_time,
+                         MAX(max_response_time)                        AS max_response_time,
+                         SUM(status_2xx)                               AS status_2xx,
+                         SUM(status_3xx)                               AS status_3xx,
+                         SUM(status_4xx)                               AS status_4xx,
+                         SUM(status_5xx)                               AS status_5xx,
+                         SUM(rate_limited_requests)                    AS rate_limited_requests,
+                         SUM(rate_limit_violations)                    AS rate_limit_violations,
+                         SUM(bytes_sent)                               AS bytes_sent,
+                         SUM(bytes_received)                           AS bytes_received
                      FROM applications.application_stats
                      GROUP BY time_bucket('1 hour', time), appid"
+                );
+                $schema->addContinuousAggregatePolicy(
+                    'applications.application_stats_hourly',
+                    '3 hours',
+                    '1 hour',
+                    '1 hour'
                 );
             },
             function () use ($schema) {
                 $schema->createMaterializedView(
                     'applications.application_stats_hourly',
                     "SELECT
-                         date_trunc('hour', time)                  AS hour,
+                         date_trunc('hour', time)                       AS bucket,
                          appid,
-                         SUM(total_requests)                       AS total_requests,
-                         SUM(successful_requests)                  AS successful_requests,
-                         ROUND(AVG(avg_response_time)::NUMERIC, 3) AS avg_response_time,
-                         SUM(status_4xx + status_5xx)              AS error_count
+                         SUM(total_requests)                           AS total_requests,
+                         SUM(successful_requests)                      AS successful_requests,
+                         SUM(failed_requests)                          AS failed_requests,
+                         AVG(avg_response_time)                        AS avg_response_time,
+                         MIN(min_response_time)                        AS min_response_time,
+                         MAX(max_response_time)                        AS max_response_time,
+                         SUM(status_2xx)                               AS status_2xx,
+                         SUM(status_3xx)                               AS status_3xx,
+                         SUM(status_4xx)                               AS status_4xx,
+                         SUM(status_5xx)                               AS status_5xx,
+                         SUM(rate_limited_requests)                    AS rate_limited_requests,
+                         SUM(rate_limit_violations)                    AS rate_limit_violations,
+                         SUM(bytes_sent)                               AS bytes_sent,
+                         SUM(bytes_received)                           AS bytes_received
                      FROM applications.application_stats
                      GROUP BY date_trunc('hour', time), appid
                      WITH NO DATA"
                 );
                 $this->DB()->query(
-                    "CREATE INDEX IF NOT EXISTS idx_app_stats_hourly_appid_hour
-                     ON applications.application_stats_hourly (appid, hour)"
+                    "CREATE INDEX IF NOT EXISTS idx_app_stats_hourly_appid_bucket
+                     ON applications.application_stats_hourly (appid, bucket)"
                 );
             }
         );
@@ -423,16 +469,23 @@ class CreateApplicationsViews extends Migration
         $this->DB()->query("
             CREATE OR REPLACE VIEW `applications_application_stats_daily` AS
             SELECT
-                DATE(`time`)                             AS `date`,
+                DATE(`time`)                              AS bucket,
                 appid,
-                SUM(total_requests)                      AS total_requests,
-                SUM(successful_requests)                 AS successful_requests,
-                SUM(failed_requests)                     AS failed_requests,
-                ROUND(AVG(avg_response_time), 3)         AS avg_response_time,
-                SUM(status_2xx)                          AS status_2xx,
-                SUM(status_3xx)                          AS status_3xx,
-                SUM(status_4xx)                          AS status_4xx,
-                SUM(status_5xx)                          AS status_5xx
+                SUM(total_requests)                       AS total_requests,
+                SUM(successful_requests)                  AS successful_requests,
+                SUM(failed_requests)                      AS failed_requests,
+                AVG(avg_response_time)                    AS avg_response_time,
+                MIN(min_response_time)                    AS min_response_time,
+                MAX(max_response_time)                    AS max_response_time,
+                SUM(status_2xx)                           AS status_2xx,
+                SUM(status_3xx)                           AS status_3xx,
+                SUM(status_4xx)                           AS status_4xx,
+                SUM(status_5xx)                           AS status_5xx,
+                SUM(rate_limited_requests)                AS rate_limited_requests,
+                SUM(rate_limit_violations)                AS rate_limit_violations,
+                SUM(bytes_sent)                           AS bytes_sent,
+                SUM(bytes_received)                       AS bytes_received,
+                COUNT(DISTINCT country_code)              AS countries_count
             FROM `applications_application_stats`
             GROUP BY DATE(`time`), appid
         ");
@@ -441,12 +494,22 @@ class CreateApplicationsViews extends Migration
         $this->DB()->query("
             CREATE OR REPLACE VIEW `applications_application_stats_hourly` AS
             SELECT
-                DATE_FORMAT(`time`, '%Y-%m-%d %H:00:00')  AS `hour`,
+                DATE_FORMAT(`time`, '%Y-%m-%d %H:00:00')  AS bucket,
                 appid,
                 SUM(total_requests)                        AS total_requests,
                 SUM(successful_requests)                   AS successful_requests,
-                ROUND(AVG(avg_response_time), 3)           AS avg_response_time,
-                SUM(status_4xx + status_5xx)               AS error_count
+                SUM(failed_requests)                       AS failed_requests,
+                AVG(avg_response_time)                     AS avg_response_time,
+                MIN(min_response_time)                     AS min_response_time,
+                MAX(max_response_time)                     AS max_response_time,
+                SUM(status_2xx)                            AS status_2xx,
+                SUM(status_3xx)                            AS status_3xx,
+                SUM(status_4xx)                            AS status_4xx,
+                SUM(status_5xx)                            AS status_5xx,
+                SUM(rate_limited_requests)                 AS rate_limited_requests,
+                SUM(rate_limit_violations)                 AS rate_limit_violations,
+                SUM(bytes_sent)                            AS bytes_sent,
+                SUM(bytes_received)                        AS bytes_received
             FROM `applications_application_stats`
             GROUP BY DATE_FORMAT(`time`, '%Y-%m-%d %H:00:00'), appid
         ");
