@@ -107,10 +107,10 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
         $this->assertIsHypertable('twofactor_attempts', 'authserver',
             'twofactor_attempts must be a TimescaleDB hypertable after up()');
 
-        // Assert — the hypertable is insertable and queryable (success is SMALLINT, not BOOL)
+        // Assert — the hypertable is insertable and queryable
         $this->db->execute(
             "INSERT INTO authserver.twofactor_attempts (userid, success, attempt_time)
-             VALUES (1, 1, NOW())"
+             VALUES (1, TRUE, NOW())"
         );
         $r = $this->db->execute('SELECT COUNT(*) AS cnt FROM authserver.twofactor_attempts');
         $this->assertSame('1', (string) $r->fields['cnt'],
@@ -410,8 +410,8 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
             "INSERT INTO authserver.twofactor_attempts
                 (userid, ip_address, code_used, user_agent, attempt_time, success)
              VALUES
-                (1, '1.2.3.4', 'totp', 'browser', NOW() - INTERVAL '2 hours', 1),
-                (2, '5.6.7.8', 'totp', 'browser', NOW() - INTERVAL '1 hour',  0)"
+                (1, '1.2.3.4', 'totp', 'browser', NOW() - INTERVAL '2 hours', TRUE),
+                (2, '5.6.7.8', 'totp', 'browser', NOW() - INTERVAL '1 hour',  FALSE)"
         );
         $this->db->execute(
             "CALL refresh_continuous_aggregate('authserver.daily_2fa_stats', NULL, NULL)"
