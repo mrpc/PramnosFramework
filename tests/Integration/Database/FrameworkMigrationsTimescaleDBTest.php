@@ -493,6 +493,71 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
     }
 
     // =========================================================================
+    // Applications schema — application_stats_daily/hourly continuous aggregates (000046)
+    // =========================================================================
+
+    /**
+     * CreateApplicationsViews must create application_stats_daily and
+     * application_stats_hourly as TimescaleDB continuous aggregates when the
+     * database supports TimescaleDB.
+     *
+     * Both views aggregate applications.application_stats (a hypertable) with
+     * time_bucket() — daily and hourly respectively.  They must appear in
+     * timescaledb_information.continuous_aggregates and be queryable before and
+     * after a force-refresh.
+     */
+    public function testApplicationStatsAggregatesAreContinuousOnTimescaleDB(): void
+    {
+        // Arrange — source hypertable, schema, and FK parents must exist
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
+        $this->loadMigration('applications', 'CreateApplicationStatsTable')->up();
+        $m = $this->loadMigration('applications', 'CreateApplicationsViews');
+
+        // Act
+        $m->up();
+
+        // Assert — daily aggregate is a continuous aggregate
+        foreach (['application_stats_daily', 'application_stats_hourly'] as $view) {
+            $r = $this->db->execute(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt
+                     FROM timescaledb_information.continuous_aggregates
+                     WHERE view_schema = %s AND view_name = %s",
+                    'applications', $view
+                )
+            );
+            $this->assertGreaterThan(0, (int) $r->fields['cnt'],
+                "applications.{$view} must be a TimescaleDB continuous aggregate");
+
+            // Assert — queryable with 0 rows before data
+            $r2 = $this->db->execute("SELECT COUNT(*) AS cnt FROM applications.\"{$view}\"");
+            $this->assertSame('0', (string) $r2->fields['cnt'],
+                "applications.{$view} must return 0 rows before data is inserted");
+        }
+
+        // Assert — down() removes both continuous aggregates
+        $m->down();
+        foreach (['application_stats_daily', 'application_stats_hourly'] as $view) {
+            $r = $this->db->execute(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt
+                     FROM timescaledb_information.continuous_aggregates
+                     WHERE view_schema = %s AND view_name = %s",
+                    'applications', $view
+                )
+            );
+            $this->assertSame('0', (string) $r->fields['cnt'],
+                "applications.{$view} must be gone after down()");
+        }
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 

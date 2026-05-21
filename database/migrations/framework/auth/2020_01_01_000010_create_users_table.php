@@ -3,6 +3,7 @@
 namespace Pramnos\Framework\Migrations\Auth;
 
 use Pramnos\Database\Migration;
+use Pramnos\Database\DatabaseCapabilities;
 
 /**
  * Creates the users table — the central user account registry.
@@ -100,13 +101,13 @@ class CreateUsersTable extends Migration
         // separately at userid=1.
         $db = $this->application->database;
 
-        $schema->ifCapable('postgresql', function () use ($db) {
+        $schema->ifCapable(DatabaseCapabilities::ENGINE_POSTGRESQL, function () use ($db) {
             // setval(seq, 1, true) → current value = 1, is_called = true,
             // so the next nextval() call returns 2.
             $db->query("SELECT setval(pg_get_serial_sequence('users', 'userid'), 1)");
         });
 
-        $schema->ifCapable('mysql', function () use ($db) {
+        $schema->ifCapable(DatabaseCapabilities::ENGINE_MYSQL, function () use ($db) {
             $db->query('ALTER TABLE users AUTO_INCREMENT = 2');
         });
     }
