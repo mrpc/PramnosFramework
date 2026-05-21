@@ -8,13 +8,17 @@ use Pramnos\Database\Migration;
  * Creates the loginlockout table — progressive brute-force lockout state store.
  *
  * Tracks failed login attempts per (locktype, lookupvalue) pair. Three lock types
- * are supported: 'user' (by user ID), 'identifier' (by normalised username/email),
- * and 'ip' (by IP address). Rows are keyed by a unique composite index so that a
- * single upsert-by-lookup pattern works across all supported databases.
+ * are supported: 'user' (by user ID string), 'identifier' (by normalised
+ * username/email), and 'ip' (by IP address).
  *
- * Timestamps are stored as Unix integers to avoid timezone ambiguity between
- * MySQL and PostgreSQL. A sliding window (default 900 s) resets the counter when
- * the gap between failures is large; lockoutuntil = 0 means no active lockout.
+ * Timestamps are stored as TIMESTAMPTZ (PostgreSQL) / DATETIME (MySQL) to align
+ * with the Urbanwater production schema. NULL timestamps mean "never occurred"
+ * (replaces the old integer 0 sentinel). createdat and updatedat are NOT NULL
+ * with a DEFAULT NOW() / CURRENT_TIMESTAMP so rows are always auditable.
+ *
+ * String columns that were previously nullable (displayvalue, lastipaddress,
+ * lastuseragent, lastchannel, unlockreason) are now NOT NULL DEFAULT '' to
+ * simplify query-side comparisons and match Urbanwater.
  *
  * @package PramnosFramework
  */
@@ -28,53 +32,67 @@ class CreateLoginlockoutTable extends Migration
 
     public function up(): void
     {
-        $schema = $this->application->database->schema();
+        $db   = $this->application->database;
+        $caps = $db->schema()->getCapabilities();
 
-        if ($schema->hasTable('authserver.loginlockouts')) {
+        if ($db->schema()->hasTable('authserver.loginlockouts')) {
             return;
         }
 
-        $schema->createTable('authserver.loginlockouts', function ($table) {
-            $table->comment('Progressive brute-force lockout state: tracks failed login attempts per scope+identifier pair');
+        $t = $db->schema()->quoteTable('authserver.loginlockouts');
 
-            $table->increments('lockoutid')
-                ->comment('Auto-increment record identifier');
-            $table->string('locktype', 20)
-                ->comment('Lock scope: user | identifier | ip');
-            $table->string('lookupvalue', 255)
-                ->comment('The scope-specific identifier being tracked (user ID string, normalised email, or IP address)');
-            $table->integer('failedattempts')->default(0)
-                ->comment('Number of failed attempts within the current sliding window');
-            $table->integer('firstfailedat')->default(0)
-                ->comment('Unix timestamp of the first failure in the current window (0 = no attempts)');
-            $table->integer('lastfailedat')->default(0)
-                ->comment('Unix timestamp of the most recent failure (0 = no attempts)');
-            $table->integer('lockoutuntil')->default(0)
-                ->comment('Unix timestamp when the lockout expires (0 = no active lockout)');
-            $table->string('displayvalue', 255)->nullable()
-                ->comment('Human-readable label for the locked entity (e.g. masked email, username); for display in admin UIs');
-            $table->bigInteger('userid')->nullable()
-                ->comment('Resolved user ID when lock type is user or identifier; NULL for ip-only locks');
-            $table->string('lastipaddress', 45)->nullable()
-                ->comment('IP address from the most recent failed attempt; useful for cross-check during manual review');
-            $table->text('lastuseragent')->nullable()
-                ->comment('User-Agent string from the most recent failed attempt');
-            $table->string('lastchannel', 50)->nullable()
-                ->comment('Authentication channel of the last attempt (e.g. web, api, mobile, oauth2)');
-            $table->integer('createdat')
-                ->comment('Unix timestamp when this row was first created');
-            $table->integer('updatedat')
-                ->comment('Unix timestamp of the last update to this row');
-            $table->integer('lastunlockedat')->default(0)->nullable()
-                ->comment('Unix timestamp of the most recent manual unlock (0 = never unlocked)');
-            $table->bigInteger('lastunlockedby')->nullable()
-                ->comment('userid of the admin who performed the last manual unlock; NULL if never unlocked or auto-expired');
-            $table->text('unlockreason')->nullable()
-                ->comment('Free-text reason recorded when an admin manually unlocks the entry');
-
-            $table->unique(['locktype', 'lookupvalue'], 'uq_loginlockout_type_value');
-            $table->index(['lockoutuntil'], 'idx_loginlockout_until');
-        });
+        if ($caps->isPostgreSQL()) {
+            $db->query("CREATE TABLE IF NOT EXISTS {$t} (
+                lockoutid      SERIAL PRIMARY KEY,
+                locktype       VARCHAR(20)   NOT NULL,
+                lookupvalue    VARCHAR(255)  NOT NULL,
+                displayvalue   VARCHAR(255)  NOT NULL DEFAULT '',
+                userid         BIGINT,
+                failedattempts INTEGER       NOT NULL DEFAULT 0,
+                firstfailedat  TIMESTAMPTZ,
+                lastfailedat   TIMESTAMPTZ,
+                lockoutuntil   TIMESTAMPTZ,
+                lastipaddress  VARCHAR(45)   NOT NULL DEFAULT '',
+                lastuseragent  TEXT          NOT NULL DEFAULT '',
+                lastchannel    VARCHAR(50)   NOT NULL DEFAULT '',
+                lastunlockedat TIMESTAMPTZ,
+                lastunlockedby BIGINT,
+                unlockreason   TEXT          NOT NULL DEFAULT '',
+                createdat      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+                updatedat      TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+            )");
+            $db->query("CREATE UNIQUE INDEX IF NOT EXISTS uniq_loginlockouts_lookup
+                ON {$t} (locktype, lookupvalue)");
+            $db->query("CREATE INDEX IF NOT EXISTS idx_loginlockouts_active
+                ON {$t} (locktype, lockoutuntil DESC, updatedat DESC)");
+            $db->query("CREATE INDEX IF NOT EXISTS idx_loginlockouts_userid
+                ON {$t} (userid, lockoutuntil DESC)");
+            $db->query("COMMENT ON TABLE {$t} IS
+                'Progressive brute-force lockout state: tracks failed login attempts per scope+identifier pair'");
+        } else {
+            $db->query("CREATE TABLE IF NOT EXISTS {$t} (
+                `lockoutid`      INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                `locktype`       VARCHAR(20)  NOT NULL,
+                `lookupvalue`    VARCHAR(255) NOT NULL,
+                `displayvalue`   VARCHAR(255) NOT NULL DEFAULT '',
+                `userid`         BIGINT,
+                `failedattempts` INT          NOT NULL DEFAULT 0,
+                `firstfailedat`  DATETIME     NULL,
+                `lastfailedat`   DATETIME     NULL,
+                `lockoutuntil`   DATETIME     NULL,
+                `lastipaddress`  VARCHAR(45)  NOT NULL DEFAULT '',
+                `lastuseragent`  TEXT         NULL,
+                `lastchannel`    VARCHAR(50)  NOT NULL DEFAULT '',
+                `lastunlockedat` DATETIME     NULL,
+                `lastunlockedby` BIGINT,
+                `unlockreason`   TEXT         NULL,
+                `createdat`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updatedat`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY `uniq_loginlockouts_lookup` (`locktype`, `lookupvalue`),
+                KEY `idx_loginlockouts_active` (`locktype`, `lockoutuntil` DESC, `updatedat` DESC),
+                KEY `idx_loginlockouts_userid` (`userid`, `lockoutuntil` DESC)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Progressive brute-force lockout state: tracks failed login attempts per scope+identifier pair'");
+        }
     }
 
     public function down(): void

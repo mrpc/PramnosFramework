@@ -20,9 +20,8 @@ use Pramnos\Database\MigrationLoader;
  * is created by sibling tests.
  *
  * The loginlockout table is a plain PostgreSQL table (no hypertable DDL),
- * so all tests are identical to the MySQL suite. This confirms that the
- * Unix-timestamp storage, LIMIT 1 queries, and prepareQuery() escaping all
- * work correctly on the PostgreSQL dialect.
+ * so all tests are identical to the MySQL suite. Timestamps are stored as
+ * TIMESTAMPTZ (not Unix integers); lockoutuntil = NULL means no active lockout.
  *
  * Requires the Docker TimescaleDB container (host: timescaledb, port: 5432).
  */
@@ -146,7 +145,7 @@ class LoginlockoutPostgreSQLTest extends TestCase
         $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM authserver.loginlockouts WHERE locktype = 'identifier' AND lookupvalue = 'user@example.com'");
         $this->assertSame(1, $result->numRows, 'row must be created on first failed attempt');
         $this->assertSame(1, (int) $result->fields['failedattempts']);
-        $this->assertSame(0, (int) $result->fields['lockoutuntil'], 'no lockout after 1 attempt');
+        $this->assertNull($result->fields['lockoutuntil'], 'lockoutuntil must be NULL when below threshold');
     }
 
     /**
@@ -166,7 +165,7 @@ class LoginlockoutPostgreSQLTest extends TestCase
         // Assert
         $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM authserver.loginlockouts WHERE locktype = 'identifier' AND lookupvalue = 'user2@example.com'");
         $this->assertSame(2, (int) $result->fields['failedattempts']);
-        $this->assertSame(0, (int) $result->fields['lockoutuntil'], 'no lockout after 2 attempts');
+        $this->assertNull($result->fields['lockoutuntil'], 'lockoutuntil must be NULL when below threshold');
     }
 
     // -------------------------------------------------------------------------
@@ -318,7 +317,8 @@ class LoginlockoutPostgreSQLTest extends TestCase
         // Assert — counter is 1, no lockout
         $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM authserver.loginlockouts WHERE locktype = 'identifier' AND lookupvalue = 'restart@example.com'");
         $this->assertSame(1, (int) $result->fields['failedattempts']);
-        $this->assertSame(0, (int) $result->fields['lockoutuntil']);
+        $this->assertNull($result->fields['lockoutuntil'],
+            'lockoutuntil must be NULL when attempt count is below threshold');
     }
 
     // -------------------------------------------------------------------------
@@ -330,7 +330,7 @@ class LoginlockoutPostgreSQLTest extends TestCase
      *
      * When lastfailedat is older than DEFAULT_WINDOW_SECONDS, the counter resets
      * to 1. We simulate an expired window by directly backdating lastfailedat
-     * via a raw INSERT.
+     * via a raw INSERT using TO_TIMESTAMP() to convert Unix time to TIMESTAMPTZ.
      */
     public function testOldFailuresOutsideWindowAreDiscarded(): void
     {
@@ -342,18 +342,20 @@ class LoginlockoutPostgreSQLTest extends TestCase
         $this->db->query(
             "INSERT INTO authserver.loginlockouts
              (locktype, lookupvalue, failedattempts, firstfailedat, lastfailedat, lockoutuntil, createdat, updatedat)
-             VALUES ('identifier', 'oldwindow@example.com', 9, {$oldTime}, {$oldTime}, 0, {$oldTime}, {$oldTime})"
+             VALUES ('identifier', 'oldwindow@example.com', 9,
+                     TO_TIMESTAMP({$oldTime}), TO_TIMESTAMP({$oldTime}), NULL,
+                     TO_TIMESTAMP({$oldTime}), TO_TIMESTAMP({$oldTime}))"
         );
 
         // Act
         $this->lockout->recordFailedAttempt($scope, $id);
 
-        // Assert
+        // Assert — counter resets to 1; lockoutuntil is NULL (no lockout after 1 attempt)
         $result = $this->db->query("SELECT failedattempts, lockoutuntil FROM authserver.loginlockouts WHERE locktype = 'identifier' AND lookupvalue = 'oldwindow@example.com'");
         $this->assertSame(1, (int) $result->fields['failedattempts'],
             'counter must reset when last failure is outside the sliding window');
-        $this->assertSame(0, (int) $result->fields['lockoutuntil'],
-            'no lockout must be applied after window reset');
+        $this->assertNull($result->fields['lockoutuntil'],
+            'no lockout must be applied after window reset (NULL, not integer 0)');
     }
 
     // -------------------------------------------------------------------------

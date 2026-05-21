@@ -1469,8 +1469,9 @@ class FrameworkMigrationsMySQLTest extends TestCase
 
     /**
      * Migration 000017 (loginlockout) creates authserver.loginlockouts.
-     * On MySQL this produces the table authserver_loginlockouts with the
-     * composite unique index uq_loginlockout_type_value for upsert-by-lookup.
+     * On MySQL this produces the table authserver_loginlockouts. Timestamps are
+     * stored as DATETIME (not Unix integers); uniq_loginlockouts_lookup is the
+     * unique constraint name to match Urbanwater.
      */
     public function testLoginlockoutsCreatedInAuthserverPrefixOnMySQL(): void
     {
@@ -1484,11 +1485,15 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->assertTrue($this->tableExists('authserver_loginlockouts'),
             'authserver_loginlockouts must exist after up()');
 
-        // Assert — insertable and queryable
+        // Assert — unique constraint uses the Urbanwater-aligned name
+        $this->assertTrue($this->indexExists('authserver_loginlockouts', 'uniq_loginlockouts_lookup'),
+            'uniq_loginlockouts_lookup must exist (renamed from uq_loginlockout_type_value)');
+
+        // Assert — insertable and queryable using DATETIME values (not Unix integers)
         $this->db->query(
             "INSERT INTO `authserver_loginlockouts`
              (locktype, lookupvalue, failedattempts, firstfailedat, lastfailedat, lockoutuntil, createdat, updatedat)
-             VALUES ('ip', '127.0.0.1', 1, UNIX_TIMESTAMP(), UNIX_TIMESTAMP(), 0, UNIX_TIMESTAMP(), UNIX_TIMESTAMP())"
+             VALUES ('ip', '127.0.0.1', 1, NOW(), NOW(), NULL, NOW(), NOW())"
         );
         $r = $this->db->query("SELECT COUNT(*) AS cnt FROM `authserver_loginlockouts`");
         $this->assertSame('1', (string) $r->fields['cnt']);

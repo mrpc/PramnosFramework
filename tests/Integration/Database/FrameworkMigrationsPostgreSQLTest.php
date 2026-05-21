@@ -2143,8 +2143,9 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
     /**
      * Migration 000017 (loginlockout) creates authserver.loginlockouts on PostgreSQL.
-     * The table must be in the authserver schema (not public) for compatibility
-     * with the urbanwater codebase which references authserver.loginlockouts.
+     * Timestamps are TIMESTAMPTZ (not Unix integers). The table must be in the
+     * authserver schema; index names match Urbanwater (uniq_loginlockouts_lookup,
+     * idx_loginlockouts_active, idx_loginlockouts_userid).
      */
     public function testLoginlockoutsCreatedInAuthserverSchemaOnPostgreSQL(): void
     {
@@ -2161,13 +2162,11 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->assertFalse($this->tableExists('loginlockouts', 'public'),
             'loginlockouts must NOT be in the public schema');
 
-        // Assert — insertable and queryable
+        // Assert — insertable and queryable (timestamps are TIMESTAMPTZ, not integers)
         $this->db->query(
             "INSERT INTO authserver.loginlockouts
              (locktype, lookupvalue, failedattempts, firstfailedat, lastfailedat, lockoutuntil, createdat, updatedat)
-             VALUES ('ip', '127.0.0.1', 1, EXTRACT(EPOCH FROM NOW())::INT,
-                     EXTRACT(EPOCH FROM NOW())::INT, 0,
-                     EXTRACT(EPOCH FROM NOW())::INT, EXTRACT(EPOCH FROM NOW())::INT)"
+             VALUES ('ip', '127.0.0.1', 1, NOW(), NOW(), NOW() + INTERVAL '60 seconds', NOW(), NOW())"
         );
         $r = $this->db->query("SELECT COUNT(*) AS cnt FROM authserver.loginlockouts");
         $this->assertSame('1', (string) $r->fields['cnt']);

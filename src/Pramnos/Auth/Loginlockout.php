@@ -21,11 +21,13 @@ namespace Pramnos\Auth;
  * A sliding window (default 900 s) applies: if the gap between the last failure
  * and the current attempt exceeds the window, the counter resets to 1.
  *
- * All timestamps are stored as Unix integers in the `authserver.loginlockouts` table.
+ * Timestamps are stored as UTC datetime strings (TIMESTAMPTZ on PostgreSQL,
+ * DATETIME on MySQL) in the `authserver.loginlockouts` table.
+ * NULL timestamps mean "never occurred" — there is no integer-0 sentinel.
  * On MySQL the schema prefix is expressed as a table-name prefix
- * (`authserver_loginlockouts`); on PostgreSQL the schema is the `authserver` namespace.
- * Schema resolution and dialect-appropriate quoting is handled automatically by
- * QueryBuilder::table().
+ * (`authserver_loginlockouts`); on PostgreSQL the schema is the `authserver`
+ * namespace. Schema resolution and dialect-appropriate quoting is handled
+ * automatically by QueryBuilder::table().
  *
  * @package     PramnosFramework
  * @subpackage  Auth
@@ -63,22 +65,27 @@ class Loginlockout
      */
     public function recordFailedAttempt(string $scope, string $identifier): void
     {
-        $db  = \Pramnos\Database\Database::getInstance();
-        $now = time();
-        $row = $this->loadRow($scope, $identifier);
+        $db       = \Pramnos\Database\Database::getInstance();
+        $now      = time();
+        $nowStr   = $this->formatTimestamp($now);
+        $row      = $this->loadRow($scope, $identifier);
 
         // Determine attempt count within the current sliding window
         $windowStart = $now - self::DEFAULT_WINDOW_SECONDS;
-        if ($row && (int) $row['lastfailedat'] >= $windowStart) {
+        if ($row && !empty($row['lastfailedat'])
+            && strtotime((string) $row['lastfailedat']) >= $windowStart
+        ) {
             $attempts    = (int) $row['failedattempts'] + 1;
-            $firstFailed = (int) $row['firstfailedat'];
+            $firstFailed = (string) $row['firstfailedat'];
         } else {
             $attempts    = 1;
-            $firstFailed = $now;
+            $firstFailed = $nowStr;
         }
 
         $duration     = $this->calculateDuration($attempts);
-        $lockoutUntil = $duration > 0 ? $now + $duration : 0;
+        $lockoutUntil = $duration > 0
+            ? $this->formatTimestamp($now + $duration)
+            : null;
 
         if ($row) {
             $db->queryBuilder()
@@ -87,9 +94,9 @@ class Loginlockout
                 ->update([
                     'failedattempts' => $attempts,
                     'firstfailedat'  => $firstFailed,
-                    'lastfailedat'   => $now,
+                    'lastfailedat'   => $nowStr,
                     'lockoutuntil'   => $lockoutUntil,
-                    'updatedat'      => $now,
+                    'updatedat'      => $nowStr,
                 ]);
         } else {
             $db->queryBuilder()
@@ -99,10 +106,10 @@ class Loginlockout
                     'lookupvalue'    => $identifier,
                     'failedattempts' => $attempts,
                     'firstfailedat'  => $firstFailed,
-                    'lastfailedat'   => $now,
+                    'lastfailedat'   => $nowStr,
                     'lockoutuntil'   => $lockoutUntil,
-                    'createdat'      => $now,
-                    'updatedat'      => $now,
+                    'createdat'      => $nowStr,
+                    'updatedat'      => $nowStr,
                 ]);
         }
     }
@@ -125,7 +132,9 @@ class Loginlockout
         }
 
         $now          = time();
-        $lockoutUntil = (int) $row['lockoutuntil'];
+        $lockoutUntil = !empty($row['lockoutuntil'])
+            ? strtotime((string) $row['lockoutuntil'])
+            : 0;
 
         if ($lockoutUntil > $now) {
             return ['locked' => true, 'remaining' => $lockoutUntil - $now];
@@ -175,6 +184,17 @@ class Loginlockout
         }
 
         return $result->fields;
+    }
+
+    /**
+     * Format a Unix timestamp as a UTC datetime string for DB storage.
+     *
+     * @param int $ts Unix timestamp
+     * @return string  e.g. '2024-01-15 10:30:00'
+     */
+    protected function formatTimestamp(int $ts): string
+    {
+        return gmdate('Y-m-d H:i:s', $ts);
     }
 
     /**
