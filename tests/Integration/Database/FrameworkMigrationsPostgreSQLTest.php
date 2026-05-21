@@ -1132,17 +1132,23 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * authserver.audit_log must store before_state and after_state as JSONB columns
-     * (not plain JSON) to allow GIN indexing of permission change history.
-     * The created_at column must be TIMESTAMPTZ (timestamp with time zone) for
-     * correct timezone-aware audit timestamps.
+     * authserver.audit_log must use the polymorphic actor/target/object schema.
+     * old_values and new_values must be JSONB (GIN-indexable snapshots).
+     * event_timestamp must be TIMESTAMPTZ (timezone-aware audit record).
+     * organization_context provides optional organisation scoping.
+     *
+     * Columns were renamed from the original RBAC-specific schema to the generic
+     * event model that matches Urbanwater production (with organization_context
+     * replacing deya_context).
      */
-    public function testAuthserverAuditLogHasJsonbColumns(): void
+    public function testAuthserverAuditLogHasCorrectSchema(): void
     {
-        // Arrange
+        // Arrange — audit_log now depends on organizations table for the FK
         $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
         $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
         $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('authserver', 'CreateOrganizationsTable')->up();
         $m = $this->loadMigration('authserver', 'CreateAuthserverAuditLogTable');
 
         // Act
@@ -1151,24 +1157,38 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         // Assert — table in correct schema
         $this->assertTrue($this->tableExists('audit_log', 'authserver'));
 
-        // Assert — before_state and after_state are JSONB (not plain json)
-        $this->assertColumnType('audit_log', 'before_state', 'jsonb', 'authserver',
-            'before_state must be JSONB for GIN indexable permission history');
-        $this->assertColumnType('audit_log', 'after_state', 'jsonb', 'authserver',
-            'after_state must be JSONB for GIN indexable permission history');
+        // Assert — old_values and new_values are JSONB (not plain JSON) for GIN indexability
+        $this->assertColumnType('audit_log', 'old_values', 'jsonb', 'authserver',
+            'old_values must be JSONB for GIN-indexable change snapshots');
+        $this->assertColumnType('audit_log', 'new_values', 'jsonb', 'authserver',
+            'new_values must be JSONB for GIN-indexable change snapshots');
+        $this->assertColumnType('audit_log', 'metadata',   'jsonb', 'authserver',
+            'metadata must be JSONB to store structured request context');
 
-        // Assert — both state columns are nullable (creation events have no before, deletion events have no after)
-        $this->assertColumnNullable('audit_log', 'before_state', true, 'authserver');
-        $this->assertColumnNullable('audit_log', 'after_state', true, 'authserver');
+        // Assert — state columns are nullable (creation events lack old_values, deletions lack new_values)
+        $this->assertColumnNullable('audit_log', 'old_values', true, 'authserver');
+        $this->assertColumnNullable('audit_log', 'new_values', true, 'authserver');
 
-        // Assert — created_at is timezone-aware (immutable audit record)
-        $this->assertColumnType('audit_log', 'created_at', 'timestamp with time zone', 'authserver',
-            'created_at must be TIMESTAMPTZ for timezone-correct audit timestamps');
+        // Assert — event_timestamp is timezone-aware
+        $this->assertColumnType('audit_log', 'event_timestamp', 'timestamp with time zone', 'authserver',
+            'event_timestamp must be TIMESTAMPTZ for timezone-correct audit records');
 
-        // Assert — audit trail indexes
-        $this->assertTrue($this->indexExists('audit_log', 'idx_authserver_audit_by', 'authserver'));
-        $this->assertTrue($this->indexExists('audit_log', 'idx_authserver_audit_user', 'authserver'));
-        $this->assertTrue($this->indexExists('audit_log', 'idx_authserver_audit_type', 'authserver'));
+        // Assert — polymorphic columns exist
+        $this->assertColumnType('audit_log', 'actor_type',   'character varying', 'authserver');
+        $this->assertColumnType('audit_log', 'target_type',  'character varying', 'authserver');
+        $this->assertColumnType('audit_log', 'target_id',    'character varying', 'authserver');
+        $this->assertColumnType('audit_log', 'object_type',  'character varying', 'authserver');
+        $this->assertColumnType('audit_log', 'object_id',    'character varying', 'authserver');
+
+        // Assert — organisation context column exists and is nullable
+        $this->assertColumnNullable('audit_log', 'organization_context', true, 'authserver');
+
+        // Assert — expected indexes exist
+        $this->assertTrue($this->indexExists('audit_log', 'idx_audit_actor',        'authserver'));
+        $this->assertTrue($this->indexExists('audit_log', 'idx_audit_event_type',   'authserver'));
+        $this->assertTrue($this->indexExists('audit_log', 'idx_audit_target',       'authserver'));
+        $this->assertTrue($this->indexExists('audit_log', 'idx_audit_timestamp',    'authserver'));
+        $this->assertTrue($this->indexExists('audit_log', 'idx_audit_organization', 'authserver'));
 
         // Assert — rollback
         $m->down();
