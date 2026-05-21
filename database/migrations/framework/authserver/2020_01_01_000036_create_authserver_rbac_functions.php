@@ -18,7 +18,7 @@ use Pramnos\Database\Migration;
  *
  * Functions created:
  *  1. set_permission_priority()     — trigger fn: deny entries get priority+1000
- *  2. check_user_deya_membership()  — trigger fn: org-scoped role assignment guard
+ *  2. check_user_org_membership()   — trigger fn: org-scoped role assignment guard
  *  3. apply_permission_template()   — apply a permission template to a subject
  *  4. apply_role_template()         — create a role from a role template
  *  5. log_audit_event()             — helper to insert an audit_log row
@@ -27,7 +27,7 @@ use Pramnos\Database\Migration;
  *
  * Triggers:
  *  - trigger_set_permission_priority  (BEFORE INSERT OR UPDATE ON authserver.permissions)
- *  - trigger_check_user_deya_membership (BEFORE INSERT OR UPDATE ON authserver.user_roles)
+ *  - trigger_check_user_org_membership  (BEFORE INSERT OR UPDATE ON authserver.user_roles)
  *
  * @package PramnosFramework
  */
@@ -85,7 +85,7 @@ class CreateAuthserverRbacFunctions extends Migration
 
         // 2. Enforce organisation membership before assigning an organisation-scoped role
         $db->query(
-            "CREATE OR REPLACE FUNCTION authserver.check_user_deya_membership()
+            "CREATE OR REPLACE FUNCTION authserver.check_user_org_membership()
              RETURNS TRIGGER AS \$\$
              DECLARE
                  role_org_id INTEGER;
@@ -114,14 +114,14 @@ class CreateAuthserverRbacFunctions extends Migration
         );
 
         $db->query(
-            "DROP TRIGGER IF EXISTS trigger_check_user_deya_membership
+            "DROP TRIGGER IF EXISTS trigger_check_user_org_membership
              ON authserver.user_roles"
         );
         $db->query(
-            "CREATE TRIGGER trigger_check_user_deya_membership
+            "CREATE TRIGGER trigger_check_user_org_membership
                  BEFORE INSERT OR UPDATE ON authserver.user_roles
                  FOR EACH ROW
-                 EXECUTE FUNCTION authserver.check_user_deya_membership()"
+                 EXECUTE FUNCTION authserver.check_user_org_membership()"
         );
 
         // 3. Apply a single permission template to a subject
@@ -387,7 +387,7 @@ class CreateAuthserverRbacFunctions extends Migration
 
         $db = $this->application->database;
 
-        $db->query('DROP TRIGGER IF EXISTS trigger_check_user_deya_membership ON authserver.user_roles');
+        $db->query('DROP TRIGGER IF EXISTS trigger_check_user_org_membership ON authserver.user_roles');
         $db->query('DROP TRIGGER IF EXISTS trigger_set_permission_priority ON authserver.permissions');
 
         $db->query('DROP FUNCTION IF EXISTS authserver.get_user_effective_permissions(INTEGER, INTEGER) CASCADE');
@@ -395,7 +395,7 @@ class CreateAuthserverRbacFunctions extends Migration
         $db->query('DROP FUNCTION IF EXISTS authserver.log_audit_event(VARCHAR, BIGINT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, JSONB, JSONB, JSONB, INTEGER) CASCADE');
         $db->query('DROP FUNCTION IF EXISTS authserver.apply_role_template(INTEGER, VARCHAR, INTEGER, INTEGER) CASCADE');
         $db->query('DROP FUNCTION IF EXISTS authserver.apply_permission_template(INTEGER, VARCHAR, INTEGER, INTEGER, INTEGER) CASCADE');
-        $db->query('DROP FUNCTION IF EXISTS authserver.check_user_deya_membership() CASCADE');
+        $db->query('DROP FUNCTION IF EXISTS authserver.check_user_org_membership() CASCADE');
         $db->query('DROP FUNCTION IF EXISTS authserver.set_permission_priority() CASCADE');
     }
 }

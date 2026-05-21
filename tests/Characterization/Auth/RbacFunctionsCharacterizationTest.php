@@ -24,7 +24,7 @@ use Pramnos\Database\MigrationLoader;
  *   - apply_role_template()                — creates role + applies every listed permission template
  *   - log_audit_event()                    — inserts a structured row in audit_log
  *
- * The check_user_deya_membership() trigger is also exercised: it must raise an
+ * The check_user_org_membership() trigger is also exercised: it must raise an
  * exception when assigning a org-scoped role to a user who is not a member of
  * that organisation.
  *
@@ -454,18 +454,18 @@ class RbacFunctionsCharacterizationTest extends TestCase
     }
 
     // =========================================================================
-    // check_user_deya_membership() trigger
+    // check_user_org_membership() trigger
     // =========================================================================
 
     /**
      * Assigning a user to an org-scoped role when the user is NOT a member of
      * that organisation must raise an exception (via the trigger).
      *
-     * This verifies that check_user_deya_membership() correctly rejects the
+     * This verifies that check_user_org_membership() correctly rejects the
      * INSERT into user_roles when the role has an organization_id and the user
      * has no matching active row in user_organizations.
      */
-    public function testCheckUserDeyaMembershipTriggerBlocksNonMember(): void
+    public function testCheckUserOrgMembershipTriggerBlocksNonMember(): void
     {
         // Arrange — create an org-scoped role (organisation_id = 1)
         $roleResult = $this->db->execute(
