@@ -45,11 +45,29 @@ Added columns to match Urbanwater schema:
 ### Test results
 - Full suite: **119/119** ✓
 
+### `authserver.loginlockouts` missing columns
+
+Added columns missing from framework: `displayvalue`, `userid`, `lastipaddress`, `lastuseragent`, `lastchannel`, `lastunlockedat`, `lastunlockedby`, `unlockreason`. Existing columns (including integer timestamps) unchanged.
+
+### `authserver.user_activity_log`, `data_processing_records`, `gdpr_requests` — id + composite PK
+
+Added `bigIncrements(id)` + composite PK `(id, <time_column>)` for TimescaleDB to: `user_activity_log`, `data_processing_records`, `gdpr_requests`. Also added:
+- `user_activity_log`: standalone time index, renamed indexes to match Urbanwater
+- `data_processing_records`: `purpose`, `retention_period`, `client_id`
+- `gdpr_requests`: `request_details`, `response_data`, `processed_by`
+
+### Test results
+- Full suite: **119/119** ✓
+
 ### Commits
 - `adfb98d` fix(migrations): align retention/compression policies with Urbanwater
 - `e2182bc` fix(migrations): add missing indexes and attemptid PK to match Urbanwater
 - `a209d7b` feat(migrations): rewrite usage_statistics as live multi-CTE view
 - `9bad729` fix(migrations): add OAuth and expiry columns to user_consents
+- `48d93f6` fix(migrations): add missing columns to loginlockouts to match Urbanwater
+- `0571857` fix(migrations): add id PK and composite primary key to user_activity_log
+- `c7e7c61` fix(migrations): add id PK and missing columns to data_processing_records
+- `9e0d79f` fix(migrations): add id PK and missing columns to gdpr_requests
 
 ---
 
