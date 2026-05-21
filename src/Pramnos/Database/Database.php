@@ -1153,8 +1153,18 @@ class Database extends \Pramnos\Framework\Base
                     }
                 } else {
                     if (count($arguments) > 1) {
+                        // mysqli bind_param uses 'b' for BLOB (not boolean).
+                        // Convert PHP booleans to int (0/1) and remap 'b' → 'i'
+                        // in the types string so MySQL TINYINT(1) columns accept them.
+                        $mysqlArgs = $arguments;
+                        $mysqlArgs[0] = str_replace('b', 'i', $mysqlArgs[0]);
+                        for ($ai = 1; $ai < count($mysqlArgs); $ai++) {
+                            if (is_bool($mysqlArgs[$ai])) {
+                                $mysqlArgs[$ai] = (int) $mysqlArgs[$ai];
+                            }
+                        }
                         call_user_func_array(
-                            array($statement, 'bind_param'), $arguments
+                            array($statement, 'bind_param'), $mysqlArgs
                         );
                     }
                     if ($statement->execute()) {
