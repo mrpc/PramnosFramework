@@ -104,9 +104,12 @@ class MigrationRunner
      * @param array{force?: bool, cutoff?: string} $options
      *   - force: if true, include autorun=false migrations.
      *   - cutoff: YYYY_MM_DD_HHmmss string; skip migrations at or before this point.
+     * @param callable|null $onProgress Optional callback invoked immediately after each migration.
+     *   Signature: fn(string $event, string $slug, string $errorMessage): void
+     *   Events: 'ran' (success) | 'failed' (error — $errorMessage is non-empty).
      * @return array{ran: string[], failed: array<string,string>} ran = slugs; failed = slug → error message.
      */
-    public function run(array $migrations, array $options = []): array
+    public function run(array $migrations, array $options = [], ?callable $onProgress = null): array
     {
         $this->ensureHistoryTable();
 
@@ -166,6 +169,9 @@ class MigrationRunner
 
                     $this->recordHistory($migration, $slug, $batch, $elapsed, 1, null);
                     $ran[] = $slug;
+                    if ($onProgress !== null) {
+                        $onProgress('ran', $slug, '');
+                    }
                 } catch (\Throwable $e) {
                     $elapsed = microtime(true) - $start;
 
@@ -175,6 +181,9 @@ class MigrationRunner
 
                     $this->recordHistory($migration, $slug, $batch, $elapsed, 0, $e->getMessage());
                     $failed[$slug] = $e->getMessage();
+                    if ($onProgress !== null) {
+                        $onProgress('failed', $slug, $e->getMessage());
+                    }
                 }
             }
         } finally {
@@ -194,9 +203,11 @@ class MigrationRunner
      * @param Migration[] $migrations Full list of migrations (needed to resolve down() calls).
      * @param array{batch?: int} $options
      *   - batch: specific batch number to roll back; defaults to the last batch.
+     * @param callable|null $onProgress Optional callback: fn(string $event, string $slug, string $error): void.
+     *   Event: 'rolledBack' on success.
      * @return array{rolledBack: string[]} Slugs of migrations that were rolled back.
      */
-    public function rollback(array $migrations, array $options = []): array
+    public function rollback(array $migrations, array $options = [], ?callable $onProgress = null): array
     {
         if ($this->db === null) {
             return ['rolledBack' => []];
@@ -246,6 +257,9 @@ class MigrationRunner
             if ($downSucceeded) {
                 $this->deleteHistoryRow($slug);
                 $rolledBack[] = $slug;
+                if ($onProgress !== null) {
+                    $onProgress('rolledBack', $slug, '');
+                }
             }
         }
 
@@ -257,14 +271,15 @@ class MigrationRunner
      * Equivalent to migrate:reset — returns the full system to a clean state.
      *
      * @param Migration[] $migrations Full list of migrations for down() dispatch.
+     * @param callable|null $onProgress Optional callback passed through to rollback().
      * @return array{rolledBack: string[]} All slugs that were rolled back.
      */
-    public function rollbackAll(array $migrations): array
+    public function rollbackAll(array $migrations, ?callable $onProgress = null): array
     {
         $rolledBack = [];
 
         do {
-            $result     = $this->rollback($migrations);
+            $result     = $this->rollback($migrations, [], $onProgress);
             $rolledBack = array_merge($rolledBack, $result['rolledBack']);
         } while (!empty($result['rolledBack']));
 
