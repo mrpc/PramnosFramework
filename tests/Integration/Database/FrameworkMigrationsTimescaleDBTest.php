@@ -508,7 +508,9 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
      */
     public function testApplicationStatsAggregatesAreContinuousOnTimescaleDB(): void
     {
-        // Arrange — source hypertable, schema, and FK parents must exist
+        // Arrange — source hypertable, schema, and FK parents must exist;
+        // webhook tables are also required because CreateApplicationsViews
+        // creates the oauth2_webhook_status view that joins them.
         $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
         $this->loadMigration('auth', 'CreateUsersTable')->up();
         $this->loadMigration('auth', 'CreateUrlsTable')->up();
@@ -517,6 +519,7 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
         $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
         $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
         $this->loadMigration('applications', 'CreateApplicationStatsTable')->up();
+        $this->loadMigration('authserver', 'CreateOauth2WebhooksTables')->up();
         $m = $this->loadMigration('applications', 'CreateApplicationsViews');
 
         // Act
@@ -710,10 +713,9 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
 
     protected function dropAllTestTables(): void
     {
-        // Drop applications schema tables (stats depends on settings, and both
-        // depend on public.applications which is dropped further below)
-        $this->db->execute('DROP TABLE IF EXISTS applications.application_stats CASCADE');
-        $this->db->execute('DROP TABLE IF EXISTS applications.application_settings CASCADE');
+        // Drop applications schema (CASCADE drops all tables, views, and aggregates
+        // including application_stats, application_settings, oauth2_webhook_endpoints,
+        // oauth2_webhook_events, tokenactions_hourly, application_stats_daily/hourly)
         $this->db->execute('DROP SCHEMA IF EXISTS applications CASCADE');
 
         // Drop continuous aggregate + views before source hypertables
