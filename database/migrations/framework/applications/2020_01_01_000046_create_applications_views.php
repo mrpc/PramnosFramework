@@ -17,11 +17,11 @@ use Pramnos\Database\DatabaseCapabilities;
  *   oauth2_active_tokens       — active OAuth token counts by app
  *   oauth2_webhook_status      — per-endpoint delivery stats (sent/failed/pending)
  *   top_applications           — apps ranked by total request volume
+ *   usage_statistics           — live multi-CTE: token activity, OAuth grants, webhook health, activity_level
  *
- * Three materialized views / continuous aggregates (PostgreSQL only; regular views on MySQL):
+ * Two continuous aggregates (PostgreSQL only; regular views on MySQL):
  *   application_stats_daily    — daily request aggregates (continuous aggregate on TimescaleDB)
  *   application_stats_hourly   — hourly request aggregates (continuous aggregate on TimescaleDB)
- *   usage_statistics           — 30-day aggregate per app (materialized view)
  *
  * On MySQL, each view is prefixed applications_ to simulate the schema.
  *
@@ -39,6 +39,7 @@ class CreateApplicationsViews extends Migration
         'create_application_stats_table',
         'create_usertokens_table',
         'create_oauth2_webhooks_tables',
+        'create_oauth2_application_grants_table',
     ];
     public $description = 'Creates all 11 monitoring/analytics views in the applications schema';
 
@@ -346,22 +347,118 @@ class CreateApplicationsViews extends Migration
             }
         );
 
-        // usage_statistics — 30-day aggregate per app (materialized)
-        $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.usage_statistics CASCADE");
+        // usage_statistics — live multi-CTE view: token activity, OAuth config, webhook health
+        $this->DB()->query("DROP VIEW IF EXISTS applications.usage_statistics CASCADE");
         $this->DB()->query("
-            CREATE MATERIALIZED VIEW applications.usage_statistics AS
+            CREATE VIEW applications.usage_statistics AS
+            WITH token_stats AS (
+                SELECT
+                    ut.applicationid,
+                    COUNT(*)                                                          AS active_tokens_total,
+                    COUNT(DISTINCT ut.userid)                                         AS active_users_total,
+                    COUNT(*) FILTER (WHERE ut.tokentype IN ('access_token', 'auth')) AS access_tokens,
+                    COUNT(*) FILTER (WHERE ut.tokentype = 'refresh_token')            AS refresh_tokens,
+                    COUNT(*) FILTER (WHERE ut.tokentype = 'auth_code')                AS auth_codes,
+                    MIN(TO_TIMESTAMP(ut.created::DOUBLE PRECISION))                   AS first_token_created,
+                    MAX(TO_TIMESTAMP(ut.created::DOUBLE PRECISION))                   AS latest_token_created,
+                    AVG(ut.expires - ut.created)                                      AS avg_token_lifetime_seconds,
+                    COUNT(*) FILTER (WHERE ut.created::NUMERIC >= EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours'))  AS tokens_created_24h,
+                    COUNT(*) FILTER (WHERE ut.created::NUMERIC >= EXTRACT(EPOCH FROM NOW() - INTERVAL '7 days'))    AS tokens_created_7d,
+                    COUNT(*) FILTER (WHERE ut.created::NUMERIC >= EXTRACT(EPOCH FROM NOW() - INTERVAL '30 days'))   AS tokens_created_30d,
+                    COUNT(DISTINCT ut.userid) FILTER (WHERE ut.lastused::NUMERIC >= EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')) AS active_users_24h,
+                    COUNT(DISTINCT ut.userid) FILTER (WHERE ut.lastused::NUMERIC >= EXTRACT(EPOCH FROM NOW() - INTERVAL '7 days'))   AS active_users_7d,
+                    COUNT(DISTINCT ut.userid) FILTER (WHERE ut.lastused::NUMERIC >= EXTRACT(EPOCH FROM NOW() - INTERVAL '30 days'))  AS active_users_30d
+                FROM public.usertokens ut
+                WHERE ut.status = 1 AND ut.expires::NUMERIC > EXTRACT(EPOCH FROM NOW())
+                GROUP BY ut.applicationid
+            ),
+            historical_stats AS (
+                SELECT
+                    ut.applicationid,
+                    COUNT(*)                                                                         AS total_tokens_ever,
+                    COUNT(DISTINCT ut.userid)                                                        AS total_users_ever,
+                    COUNT(*) FILTER (WHERE ut.status = 3)                                            AS revoked_tokens,
+                    COUNT(*) FILTER (WHERE ut.expires::NUMERIC <= EXTRACT(EPOCH FROM NOW()) AND ut.status IN (0, 1)) AS expired_tokens,
+                    MAX(TO_TIMESTAMP(ut.lastused::DOUBLE PRECISION)) FILTER (WHERE ut.lastused > 0) AS last_token_activity,
+                    AVG(CASE WHEN ut.lastused > 0 THEN ut.lastused - ut.created ELSE NULL::INTEGER END) AS avg_token_usage_duration
+                FROM public.usertokens ut
+                GROUP BY ut.applicationid
+            ),
+            oauth_config AS (
+                SELECT
+                    ag.appid,
+                    ARRAY_AGG(ag.grant_type ORDER BY ag.grant_type) FILTER (WHERE ag.is_enabled = TRUE) AS enabled_grant_types,
+                    COUNT(*) FILTER (WHERE ag.grant_type = 'authorization_code' AND ag.is_enabled = TRUE) > 0 AS supports_authorization_code,
+                    COUNT(*) FILTER (WHERE ag.grant_type = 'client_credentials'  AND ag.is_enabled = TRUE) > 0 AS supports_client_credentials,
+                    COUNT(*) FILTER (WHERE ag.grant_type = 'refresh_token'       AND ag.is_enabled = TRUE) > 0 AS supports_refresh_token
+                FROM applications.oauth2_application_grants ag
+                GROUP BY ag.appid
+            ),
+            webhook_stats AS (
+                SELECT
+                    wep.appid,
+                    COUNT(DISTINCT wep.webhook_type)                                  AS configured_webhook_types,
+                    COUNT(*) FILTER (WHERE wep.is_active = TRUE)                      AS active_webhooks,
+                    COALESCE(SUM((SELECT COUNT(*) FROM applications.oauth2_webhook_events ev WHERE ev.webhook_id = wep.webhook_id)), 0) AS total_webhook_events,
+                    COALESCE(SUM((SELECT COUNT(*) FROM applications.oauth2_webhook_events ev WHERE ev.webhook_id = wep.webhook_id AND ev.status = 'sent')), 0) AS successful_webhook_events
+                FROM applications.oauth2_webhook_endpoints wep
+                GROUP BY wep.appid
+            )
             SELECT
-                appid,
-                SUM(total_requests)       AS total_requests,
-                SUM(unique_ips_approx)    AS unique_users,
-                SUM(bytes_sent + bytes_received) AS bytes_transferred,
-                json_agg(DISTINCT country_code) FILTER (WHERE country_code IS NOT NULL)
-                                          AS top_country_codes,
-                '30 days'::TEXT           AS period
-            FROM applications.application_stats
-            WHERE time >= NOW() - INTERVAL '30 days'
-            GROUP BY appid
-            WITH NO DATA
+                a.appid,
+                a.name                                                               AS application_name,
+                a.apikey                                                             AS client_id,
+                a.accesstype,
+                a.scope                                                              AS allowed_scopes,
+                a.callback                                                           AS redirect_uri,
+                COALESCE(ts.active_tokens_total,  0)                                AS active_tokens,
+                COALESCE(ts.active_users_total,   0)                                AS active_users,
+                COALESCE(ts.access_tokens,        0)                                AS active_access_tokens,
+                COALESCE(ts.refresh_tokens,       0)                                AS active_refresh_tokens,
+                COALESCE(ts.auth_codes,           0)                                AS active_auth_codes,
+                COALESCE(ts.tokens_created_24h,   0)                                AS new_tokens_24h,
+                COALESCE(ts.tokens_created_7d,    0)                                AS new_tokens_7d,
+                COALESCE(ts.tokens_created_30d,   0)                                AS new_tokens_30d,
+                COALESCE(ts.active_users_24h,     0)                                AS active_users_24h,
+                COALESCE(ts.active_users_7d,      0)                                AS active_users_7d,
+                COALESCE(ts.active_users_30d,     0)                                AS active_users_30d,
+                COALESCE(hs.total_tokens_ever,    0)                                AS total_tokens_ever,
+                COALESCE(hs.total_users_ever,     0)                                AS total_users_ever,
+                COALESCE(hs.revoked_tokens,       0)                                AS revoked_tokens,
+                COALESCE(hs.expired_tokens,       0)                                AS expired_tokens,
+                ts.first_token_created,
+                ts.latest_token_created,
+                hs.last_token_activity,
+                ROUND(COALESCE(ts.avg_token_lifetime_seconds, 0) / 3600.0, 2)       AS avg_token_lifetime_hours,
+                ROUND(COALESCE(hs.avg_token_usage_duration,   0) / 3600.0, 2)       AS avg_token_usage_duration_hours,
+                COALESCE(oc.enabled_grant_types, ARRAY[]::VARCHAR[])                AS enabled_grant_types,
+                COALESCE(oc.supports_authorization_code, FALSE)                     AS supports_authorization_code,
+                COALESCE(oc.supports_client_credentials,  FALSE)                    AS supports_client_credentials,
+                COALESCE(oc.supports_refresh_token,       FALSE)                    AS supports_refresh_token,
+                COALESCE(ws.configured_webhook_types,     0)                        AS configured_webhook_types,
+                COALESCE(ws.active_webhooks,              0)                        AS active_webhooks,
+                COALESCE(ws.total_webhook_events,         0)                        AS total_webhook_events,
+                COALESCE(ws.successful_webhook_events,    0)                        AS successful_webhook_events,
+                CASE WHEN ws.total_webhook_events > 0
+                     THEN ROUND(ws.successful_webhook_events / ws.total_webhook_events * 100.0, 2)
+                     ELSE NULL
+                END                                                                  AS webhook_success_rate_percent,
+                CASE
+                    WHEN COALESCE(ts.active_users_total, 0) = 0  THEN 'Inactive'
+                    WHEN COALESCE(ts.active_users_24h,   0) > 0  THEN 'Highly Active'
+                    WHEN COALESCE(ts.active_users_7d,    0) > 0  THEN 'Active'
+                    WHEN COALESCE(ts.active_users_30d,   0) > 0  THEN 'Low Activity'
+                    ELSE 'Dormant'
+                END                                                                  AS activity_level,
+                CASE WHEN a.accesstype = 1 THEN 'OAuth2 Application' ELSE 'Legacy Application' END AS application_type,
+                NOW()                                                                AS stats_updated_at
+            FROM public.applications a
+            LEFT JOIN token_stats    ts ON a.appid = ts.applicationid
+            LEFT JOIN historical_stats hs ON a.appid = hs.applicationid
+            LEFT JOIN oauth_config   oc ON a.appid = oc.appid
+            LEFT JOIN webhook_stats  ws ON a.appid = ws.appid
+            ORDER BY COALESCE(ts.active_users_total, 0) DESC,
+                     COALESCE(ts.active_tokens_total, 0) DESC
         ");
     }
 
@@ -563,19 +660,124 @@ class CreateApplicationsViews extends Migration
             GROUP BY DATE_FORMAT(`time`, '%Y-%m-%d %H:00:00'), appid
         ");
 
-        // usage_statistics
+        // usage_statistics — live multi-CTE view: token activity, OAuth config, webhook health
         $this->DB()->query("
             CREATE OR REPLACE VIEW `applications_usage_statistics` AS
+            WITH token_stats AS (
+                SELECT
+                    ut.applicationid,
+                    COUNT(*)                                                                               AS active_tokens_total,
+                    COUNT(DISTINCT ut.userid)                                                               AS active_users_total,
+                    SUM(CASE WHEN ut.tokentype IN ('access_token','auth') THEN 1 ELSE 0 END)               AS access_tokens,
+                    SUM(CASE WHEN ut.tokentype = 'refresh_token'          THEN 1 ELSE 0 END)               AS refresh_tokens,
+                    SUM(CASE WHEN ut.tokentype = 'auth_code'              THEN 1 ELSE 0 END)               AS auth_codes,
+                    MIN(FROM_UNIXTIME(ut.created))                                                         AS first_token_created,
+                    MAX(FROM_UNIXTIME(ut.created))                                                         AS latest_token_created,
+                    AVG(ut.expires - ut.created)                                                            AS avg_token_lifetime_seconds,
+                    SUM(CASE WHEN ut.created >= UNIX_TIMESTAMP(NOW() - INTERVAL 24 HOUR)  THEN 1 ELSE 0 END) AS tokens_created_24h,
+                    SUM(CASE WHEN ut.created >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)    THEN 1 ELSE 0 END) AS tokens_created_7d,
+                    SUM(CASE WHEN ut.created >= UNIX_TIMESTAMP(NOW() - INTERVAL 30 DAY)   THEN 1 ELSE 0 END) AS tokens_created_30d,
+                    COUNT(DISTINCT CASE WHEN ut.lastused >= UNIX_TIMESTAMP(NOW() - INTERVAL 24 HOUR) THEN ut.userid END) AS active_users_24h,
+                    COUNT(DISTINCT CASE WHEN ut.lastused >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)   THEN ut.userid END) AS active_users_7d,
+                    COUNT(DISTINCT CASE WHEN ut.lastused >= UNIX_TIMESTAMP(NOW() - INTERVAL 30 DAY)  THEN ut.userid END) AS active_users_30d
+                FROM `usertokens` ut
+                WHERE ut.status = 1 AND ut.expires > UNIX_TIMESTAMP()
+                GROUP BY ut.applicationid
+            ),
+            historical_stats AS (
+                SELECT
+                    ut.applicationid,
+                    COUNT(*)                                                                           AS total_tokens_ever,
+                    COUNT(DISTINCT ut.userid)                                                          AS total_users_ever,
+                    SUM(CASE WHEN ut.status = 3 THEN 1 ELSE 0 END)                                    AS revoked_tokens,
+                    SUM(CASE WHEN ut.expires <= UNIX_TIMESTAMP() AND ut.status IN (0,1) THEN 1 ELSE 0 END) AS expired_tokens,
+                    MAX(CASE WHEN ut.lastused > 0 THEN FROM_UNIXTIME(ut.lastused) END)                AS last_token_activity,
+                    AVG(CASE WHEN ut.lastused > 0 THEN ut.lastused - ut.created END)                   AS avg_token_usage_duration
+                FROM `usertokens` ut
+                GROUP BY ut.applicationid
+            ),
+            oauth_config AS (
+                SELECT
+                    ag.appid,
+                    GROUP_CONCAT(CASE WHEN ag.is_enabled = 1 THEN ag.grant_type END ORDER BY ag.grant_type) AS enabled_grant_types,
+                    MAX(CASE WHEN ag.grant_type = 'authorization_code' AND ag.is_enabled = 1 THEN 1 ELSE 0 END) AS supports_authorization_code,
+                    MAX(CASE WHEN ag.grant_type = 'client_credentials'  AND ag.is_enabled = 1 THEN 1 ELSE 0 END) AS supports_client_credentials,
+                    MAX(CASE WHEN ag.grant_type = 'refresh_token'       AND ag.is_enabled = 1 THEN 1 ELSE 0 END) AS supports_refresh_token
+                FROM `applications_oauth2_application_grants` ag
+                GROUP BY ag.appid
+            ),
+            webhook_stats AS (
+                SELECT
+                    wep.appid,
+                    COUNT(DISTINCT wep.webhook_type)                              AS configured_webhook_types,
+                    SUM(CASE WHEN wep.is_active = 1 THEN 1 ELSE 0 END)           AS active_webhooks,
+                    COALESCE(SUM(ev_counts.total), 0)                             AS total_webhook_events,
+                    COALESCE(SUM(ev_counts.sent),  0)                             AS successful_webhook_events
+                FROM `applications_oauth2_webhook_endpoints` wep
+                LEFT JOIN (
+                    SELECT ev.webhook_id,
+                           COUNT(*)                                               AS total,
+                           SUM(CASE WHEN ev.status = 'sent' THEN 1 ELSE 0 END)   AS sent
+                    FROM `applications_oauth2_webhook_events` ev
+                    GROUP BY ev.webhook_id
+                ) ev_counts ON ev_counts.webhook_id = wep.webhook_id
+                GROUP BY wep.appid
+            )
             SELECT
-                appid,
-                SUM(total_requests)              AS total_requests,
-                SUM(unique_ips_approx)           AS unique_users,
-                SUM(bytes_sent + bytes_received) AS bytes_transferred,
-                NULL                             AS top_country_codes,
-                '30 days'                        AS period
-            FROM `applications_application_stats`
-            WHERE `time` >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-            GROUP BY appid
+                a.appid,
+                a.name                                                            AS application_name,
+                a.apikey                                                          AS client_id,
+                a.accesstype,
+                a.scope                                                           AS allowed_scopes,
+                a.callback                                                        AS redirect_uri,
+                COALESCE(ts.active_tokens_total,  0)                             AS active_tokens,
+                COALESCE(ts.active_users_total,   0)                             AS active_users,
+                COALESCE(ts.access_tokens,        0)                             AS active_access_tokens,
+                COALESCE(ts.refresh_tokens,       0)                             AS active_refresh_tokens,
+                COALESCE(ts.auth_codes,           0)                             AS active_auth_codes,
+                COALESCE(ts.tokens_created_24h,   0)                             AS new_tokens_24h,
+                COALESCE(ts.tokens_created_7d,    0)                             AS new_tokens_7d,
+                COALESCE(ts.tokens_created_30d,   0)                             AS new_tokens_30d,
+                COALESCE(ts.active_users_24h,     0)                             AS active_users_24h,
+                COALESCE(ts.active_users_7d,      0)                             AS active_users_7d,
+                COALESCE(ts.active_users_30d,     0)                             AS active_users_30d,
+                COALESCE(hs.total_tokens_ever,    0)                             AS total_tokens_ever,
+                COALESCE(hs.total_users_ever,     0)                             AS total_users_ever,
+                COALESCE(hs.revoked_tokens,       0)                             AS revoked_tokens,
+                COALESCE(hs.expired_tokens,       0)                             AS expired_tokens,
+                ts.first_token_created,
+                ts.latest_token_created,
+                hs.last_token_activity,
+                ROUND(COALESCE(ts.avg_token_lifetime_seconds, 0) / 3600.0, 2)    AS avg_token_lifetime_hours,
+                ROUND(COALESCE(hs.avg_token_usage_duration,   0) / 3600.0, 2)    AS avg_token_usage_duration_hours,
+                COALESCE(oc.enabled_grant_types, '')                             AS enabled_grant_types,
+                COALESCE(oc.supports_authorization_code, 0)                      AS supports_authorization_code,
+                COALESCE(oc.supports_client_credentials,  0)                     AS supports_client_credentials,
+                COALESCE(oc.supports_refresh_token,       0)                     AS supports_refresh_token,
+                COALESCE(ws.configured_webhook_types,     0)                     AS configured_webhook_types,
+                COALESCE(ws.active_webhooks,              0)                     AS active_webhooks,
+                COALESCE(ws.total_webhook_events,         0)                     AS total_webhook_events,
+                COALESCE(ws.successful_webhook_events,    0)                     AS successful_webhook_events,
+                CASE WHEN ws.total_webhook_events > 0
+                     THEN ROUND(ws.successful_webhook_events / ws.total_webhook_events * 100.0, 2)
+                     ELSE NULL
+                END                                                               AS webhook_success_rate_percent,
+                CASE
+                    WHEN COALESCE(ts.active_users_total, 0) = 0 THEN 'Inactive'
+                    WHEN COALESCE(ts.active_users_24h,   0) > 0 THEN 'Highly Active'
+                    WHEN COALESCE(ts.active_users_7d,    0) > 0 THEN 'Active'
+                    WHEN COALESCE(ts.active_users_30d,   0) > 0 THEN 'Low Activity'
+                    ELSE 'Dormant'
+                END                                                               AS activity_level,
+                CASE WHEN a.accesstype = 1 THEN 'OAuth2 Application' ELSE 'Legacy Application' END AS application_type,
+                NOW()                                                             AS stats_updated_at
+            FROM `applications` a
+            LEFT JOIN token_stats     ts ON a.appid = ts.applicationid
+            LEFT JOIN historical_stats hs ON a.appid = hs.applicationid
+            LEFT JOIN oauth_config    oc ON a.appid = oc.appid
+            LEFT JOIN webhook_stats   ws ON a.appid = ws.appid
+            ORDER BY COALESCE(ts.active_users_total, 0) DESC,
+                     COALESCE(ts.active_tokens_total, 0) DESC
         ");
     }
 
@@ -587,7 +789,7 @@ class CreateApplicationsViews extends Migration
     {
         $caps = $this->DB()->schema()->getCapabilities();
         if ($caps->isPostgreSQL()) {
-            $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.usage_statistics");
+            $this->DB()->query("DROP VIEW IF EXISTS applications.usage_statistics");
             $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_hourly");
             $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_daily");
             $this->DB()->query("DROP VIEW IF EXISTS applications.top_applications");
