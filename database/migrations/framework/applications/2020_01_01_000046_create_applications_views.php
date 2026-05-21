@@ -35,6 +35,7 @@ class CreateApplicationsViews extends Migration
         'create_applications_table',
         'create_application_settings_table',
         'create_application_stats_table',
+        'create_usertokens_table',
     ];
     public $description = 'Creates all 10 monitoring/analytics views in the applications schema';
 

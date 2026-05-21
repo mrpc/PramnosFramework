@@ -37,6 +37,7 @@ class CreateAuthserverViews extends Migration
     public array  $dependencies = [
         'create_authserver_schema',
         'create_applications_table',
+        'create_usertokens_table',
         'create_user_twofactor_table',
         'create_twofactor_attempts_table',
         'create_loginlockout_table',
