@@ -1,7 +1,50 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-21 (session 97) — Framework migrations backlog: 3 new tables + 18 analytics views ✅
+## 📅 Last Updated: 2026-05-21 (session 98) — Schema fixes, QB migration, PHP 8.1 min, real-time migration output ✅
+
+## 🏁 Session 98 — Schema fixes + refactoring (2026-05-21)
+
+### ✅ PHP minimum requirement lowered to 8.1
+
+Grepped all 5 locations (`composer.json`, `bin/pramnos`, `Application.php`) and changed `>=8.4` → `>=8.1`. PHP 8.5 remains the recommended Docker development image.
+
+### ✅ Migration output: real-time streaming + summary block
+
+- `MigrationRunner::run()` / `rollback()` / `rollbackAll()` accept optional `?callable $onProgress` for per-migration callbacks
+- `Migrate.php` και `MigrateRefresh.php` εκτυπώνουν αποτέλεσμα αμέσως μετά κάθε migration
+- Summary block: DB type (PostgreSQL/TimescaleDB/MySQL), active filters, directories, full error details
+
+### ✅ `create_applications_views` dependency fix
+
+Προστέθηκε `'create_usertokens_table'` στα dependencies του `create_applications_views` και `create_authserver_views` — έτρεχαν πριν δημιουργηθεί ο πίνακας `usertokens`.
+
+### ✅ Idempotent view migrations
+
+Αντικατάσταση `CREATE OR REPLACE VIEW` με `DROP VIEW IF EXISTS ... CASCADE` + `CREATE VIEW` σε όλες τις views migration 000046 — δεν αποτυγχάνουν πλέον σε re-run χωρίς DB reset.
+
+### ✅ oauth2_device_codes και oauth2_user_consents → authserver schema
+
+Μεταφορά από `public` schema στο `authserver`:
+- Migrations 000041, 000042: `authserver.oauth2_device_codes` / `authserver.oauth2_user_consents` (PostgreSQL), `authserver_*` prefix (MySQL)
+- Migration 000047 (trigger): `authserver.oauth2_user_consents` (PG) / `authserver_oauth2_user_consents` (MySQL)
+- Controllers `Oauth.php`, `Dashboard.php`, `Device.php`: `->table('authserver.oauth2_*')`
+- Tests: OAuth2GrantFlow (MySQL + PostgreSQL), FrameworkMigrations (MySQL + PostgreSQL), DashboardCharacterization
+
+### ✅ Device controller: raw SQL → QueryBuilder
+
+`handleVerification`, `approveDevice`, `denyDevice` μετατράπηκαν από `prepareQuery/query` σε `queryBuilder()->table('authserver.oauth2_device_codes')->where(...)->first()/update()`.
+
+### Test results
+- Full suite: **4677/4677** ✓ (11278 assertions)
+
+### Commits
+- `303f11c` docs(progress): session 84 bootstrap fix
+- Various commits: PHP 8.1, migration output, view idempotency, dependency fix
+- `8f1da01` fix(schema): move oauth2_device_codes and oauth2_user_consents to authserver schema
+- `bde7480` refactor(auth): migrate Device controller DB operations to QueryBuilder
+
+---
 
 ## 🏁 Session 97 — Framework Migrations Backlog: Tables + Views (2026-05-21)
 
