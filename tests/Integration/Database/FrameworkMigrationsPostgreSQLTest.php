@@ -2705,6 +2705,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
         $this->loadMigration('applications', 'CreateApplicationStatsTable')->up();
         $this->loadMigration('authserver', 'CreateOauth2WebhooksTables')->up();
+        $this->loadMigration('authserver', 'CreateOauth2ApplicationGrantsTable')->up();
         $m = $this->loadMigration('applications', 'CreateApplicationsViews');
 
         // Act
@@ -2715,6 +2716,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             'api_performance_summary', 'application_health', 'rate_limit_status',
             'slow_api_calls', 'ip_violations', 'oauth2_active_tokens',
             'oauth2_webhook_status', 'top_applications',
+            'usage_statistics',
         ];
         foreach ($regularViews as $view) {
             $r = $this->db->query(
@@ -2729,7 +2731,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         }
 
         // Assert — aggregated views: on TimescaleDB, daily/hourly are continuous aggregates;
-        // on plain PG they are regular materialized views. usage_statistics is always a matview.
+        // on plain PG they are regular materialized views.
         $hasTsdb   = $this->db->schema()->getCapabilities()->hasTimescaleDB();
         $caggViews = ['application_stats_daily', 'application_stats_hourly'];
         foreach ($caggViews as $view) {
@@ -2756,17 +2758,6 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
                     "applications.{$view} must exist as a materialized view on plain PG");
             }
         }
-        // usage_statistics uses a rolling window and cannot be a continuous aggregate
-        $r = $this->db->query(
-            $this->db->prepareQuery(
-                "SELECT COUNT(*) AS cnt FROM pg_matviews
-                 WHERE schemaname = %s AND matviewname = %s",
-                'applications', 'usage_statistics'
-            )
-        );
-        $this->assertGreaterThan(0, (int) $r->fields['cnt'],
-            'applications.usage_statistics must exist as a materialized view');
-
         // Assert — regular views are queryable
         foreach ($regularViews as $view) {
             $r = $this->db->query("SELECT COUNT(*) AS cnt FROM applications.\"{$view}\"");
