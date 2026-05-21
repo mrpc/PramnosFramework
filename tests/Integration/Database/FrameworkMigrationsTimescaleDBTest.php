@@ -520,6 +520,7 @@ class FrameworkMigrationsTimescaleDBTest extends TestCase
         $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
         $this->loadMigration('applications', 'CreateApplicationStatsTable')->up();
         $this->loadMigration('authserver', 'CreateOauth2WebhooksTables')->up();
+        $this->loadMigration('authserver', 'CreateOauth2ApplicationGrantsTable')->up();
         $m = $this->loadMigration('applications', 'CreateApplicationsViews');
 
         // Act
