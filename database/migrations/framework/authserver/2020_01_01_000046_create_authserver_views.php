@@ -208,24 +208,32 @@ class CreateAuthserverViews extends Migration
                 $schema->createContinuousAggregate(
                     'authserver.daily_2fa_stats',
                     "SELECT
-                         time_bucket('1 day', attempt_time)          AS day,
-                         COUNT(*)                                     AS total_2fa_attempts,
-                         COUNT(*) FILTER (WHERE success = 1)          AS successful_completions,
-                         COUNT(*) FILTER (WHERE success = 0)          AS failed_attempts,
-                         NULL::NUMERIC                                AS avg_completion_time_seconds
+                         time_bucket('1 day', attempt_time)               AS day,
+                         COUNT(*)                                          AS total_attempts,
+                         COUNT(*) FILTER (WHERE success = 1)               AS successful_attempts,
+                         COUNT(*) FILTER (WHERE success = 0)               AS failed_attempts,
+                         COUNT(DISTINCT userid)                            AS unique_users,
+                         COUNT(DISTINCT ip_address)                        AS unique_ips
                      FROM authserver.twofactor_attempts
                      GROUP BY time_bucket('1 day', attempt_time)"
+                );
+                $schema->addContinuousAggregatePolicy(
+                    'authserver.daily_2fa_stats',
+                    '1 month',
+                    '1 hour',
+                    '1 hour'
                 );
             },
             function () use ($schema) {
                 $schema->createMaterializedView(
                     'authserver.daily_2fa_stats',
                     "SELECT
-                         date_trunc('day', attempt_time)              AS day,
-                         COUNT(*)                                     AS total_2fa_attempts,
-                         COUNT(*) FILTER (WHERE success = 1)          AS successful_completions,
-                         COUNT(*) FILTER (WHERE success = 0)          AS failed_attempts,
-                         NULL::NUMERIC                                AS avg_completion_time_seconds
+                         date_trunc('day', attempt_time)                   AS day,
+                         COUNT(*)                                          AS total_attempts,
+                         COUNT(*) FILTER (WHERE success = 1)               AS successful_attempts,
+                         COUNT(*) FILTER (WHERE success = 0)               AS failed_attempts,
+                         COUNT(DISTINCT userid)                            AS unique_users,
+                         COUNT(DISTINCT ip_address)                        AS unique_ips
                      FROM authserver.twofactor_attempts
                      GROUP BY date_trunc('day', attempt_time)
                      WITH NO DATA"
@@ -368,11 +376,12 @@ class CreateAuthserverViews extends Migration
         $this->DB()->query("
             CREATE OR REPLACE VIEW `authserver_daily_2fa_stats` AS
             SELECT
-                DATE(attempt_time)                           AS `day`,
-                COUNT(*)                                     AS total_2fa_attempts,
-                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_completions,
+                DATE(attempt_time)                            AS `day`,
+                COUNT(*)                                      AS total_attempts,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_attempts,
                 SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_attempts,
-                NULL                                         AS avg_completion_time_seconds
+                COUNT(DISTINCT userid)                        AS unique_users,
+                COUNT(DISTINCT ip_address)                    AS unique_ips
             FROM `authserver_twofactor_attempts`
             GROUP BY DATE(attempt_time)
         ");
