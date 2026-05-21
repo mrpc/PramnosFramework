@@ -41,13 +41,13 @@ class CreateAuthserverPermissionTemplatesTable extends Migration
             $table->increments('templateid')
                 ->comment('Auto-increment template identifier');
             $table->string('template_name', 100)
-                ->comment('Unique human-readable name (e.g. "deya_admin_read_all")');
+                ->comment('Unique human-readable name (e.g. "org_admin_read_all")');
             $table->text('description')->nullable()
                 ->comment('What this template provides');
             $table->string('template_type', 20)
-                ->comment('Intended target: role_template | deya_template | user_template');
+                ->comment('Intended target: role_template | org_template | user_template');
             $table->string('object_type', 50)
-                ->comment('Resource type this template applies to (e.g. "deya", "device", "report")');
+                ->comment('Resource type this template applies to (e.g. "organization", "device", "report")');
             $table->string('object_id_pattern', 100)->nullable()
                 ->comment('Object ID with optional placeholders, e.g. "{organization_id}" or "*" for all');
             $table->string('action', 20)

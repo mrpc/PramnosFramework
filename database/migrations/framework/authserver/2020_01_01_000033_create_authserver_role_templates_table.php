@@ -41,7 +41,7 @@ class CreateAuthserverRoleTemplatesTable extends Migration
             $table->increments('role_templateid')
                 ->comment('Auto-increment role template identifier');
             $table->string('template_name', 100)
-                ->comment('Unique human-readable name (e.g. "deya_administrator")');
+                ->comment('Unique human-readable name (e.g. "org_administrator")');
             $table->text('description')->nullable()
                 ->comment('Description of what type of role this template creates');
             $table->string('suggested_role_name', 100)->nullable()

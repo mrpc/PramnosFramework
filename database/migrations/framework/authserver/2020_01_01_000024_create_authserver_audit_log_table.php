@@ -13,8 +13,8 @@ use Pramnos\Database\Migration;
  * OAuth actions, consent changes, and application-level events without schema
  * changes. ip_address and other request metadata go in the metadata JSONB field.
  *
- * organization_context links an event to a specific organisation (the framework
- * equivalent of Urbanwater's deya_context). NULL for cross-organisation events.
+ * organization_context links an event to a specific organisation.
+ * NULL for cross-organisation events.
  *
  * This is a regular table (not a TimescaleDB hypertable). For high-volume
  * time-series logging, prefer user_activity_log or tokenactions.
