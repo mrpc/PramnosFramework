@@ -56,8 +56,10 @@ class CreateApplicationsViews extends Migration
     private function upPostgreSQL(): void
     {
         // api_performance_summary — response time aggregates per app (last 24h)
+        // CASCADE also drops application_health which depends on this view.
+        $this->DB()->query("DROP VIEW IF EXISTS applications.api_performance_summary CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW applications.api_performance_summary AS
+            CREATE VIEW applications.api_performance_summary AS
             SELECT
                 appid,
                 ROUND(AVG(avg_response_time)::NUMERIC, 3)  AS avg_response_time,
@@ -76,8 +78,9 @@ class CreateApplicationsViews extends Migration
         ");
 
         // application_health — overall health status per app
+        $this->DB()->query("DROP VIEW IF EXISTS applications.application_health CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW applications.application_health AS
+            CREATE VIEW applications.application_health AS
             SELECT
                 appid,
                 CASE
@@ -93,8 +96,9 @@ class CreateApplicationsViews extends Migration
         ");
 
         // rate_limit_status — current rate-limit window state per app
+        $this->DB()->query("DROP VIEW IF EXISTS applications.rate_limit_status CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW applications.rate_limit_status AS
+            CREATE VIEW applications.rate_limit_status AS
             SELECT
                 s.appid,
                 COALESCE(SUM(st.total_requests), 0)         AS requests_in_current_window,
@@ -116,8 +120,9 @@ class CreateApplicationsViews extends Migration
         ");
 
         // slow_api_calls — entries where avg_response_time > 5 000ms
+        $this->DB()->query("DROP VIEW IF EXISTS applications.slow_api_calls CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW applications.slow_api_calls AS
+            CREATE VIEW applications.slow_api_calls AS
             SELECT
                 appid,
                 time                    AS \"timestamp\",
@@ -130,8 +135,9 @@ class CreateApplicationsViews extends Migration
         ");
 
         // ip_violations — IPs found in blocked_ips list
+        $this->DB()->query("DROP VIEW IF EXISTS applications.ip_violations CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW applications.ip_violations AS
+            CREATE VIEW applications.ip_violations AS
             SELECT
                 st.appid,
                 st.country_code  AS ip_address,
@@ -146,8 +152,9 @@ class CreateApplicationsViews extends Migration
         ");
 
         // oauth2_active_tokens — active OAuth token summary by app
+        $this->DB()->query("DROP VIEW IF EXISTS applications.oauth2_active_tokens CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW applications.oauth2_active_tokens AS
+            CREATE VIEW applications.oauth2_active_tokens AS
             SELECT
                 a.appid,
                 COUNT(ut.tokenid) FILTER (WHERE ut.status = 1 AND ut.expires > EXTRACT(EPOCH FROM NOW()))
@@ -166,8 +173,9 @@ class CreateApplicationsViews extends Migration
         ");
 
         // top_applications — applications ranked by total request volume
+        $this->DB()->query("DROP VIEW IF EXISTS applications.top_applications CASCADE");
         $this->DB()->query("
-            CREATE OR REPLACE VIEW applications.top_applications AS
+            CREATE VIEW applications.top_applications AS
             SELECT
                 ROW_NUMBER() OVER (ORDER BY SUM(total_requests) DESC) AS rank,
                 appid,
@@ -179,8 +187,9 @@ class CreateApplicationsViews extends Migration
         ");
 
         // application_stats_daily — materialized daily aggregate
+        $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_daily CASCADE");
         $this->DB()->query("
-            CREATE MATERIALIZED VIEW IF NOT EXISTS applications.application_stats_daily AS
+            CREATE MATERIALIZED VIEW applications.application_stats_daily AS
             SELECT
                 date_trunc('day', time)      AS date,
                 appid,
@@ -202,8 +211,9 @@ class CreateApplicationsViews extends Migration
         );
 
         // application_stats_hourly — materialized hourly aggregate
+        $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_hourly CASCADE");
         $this->DB()->query("
-            CREATE MATERIALIZED VIEW IF NOT EXISTS applications.application_stats_hourly AS
+            CREATE MATERIALIZED VIEW applications.application_stats_hourly AS
             SELECT
                 date_trunc('hour', time)     AS hour,
                 appid,
@@ -221,8 +231,9 @@ class CreateApplicationsViews extends Migration
         );
 
         // usage_statistics — 30-day aggregate per app (materialized)
+        $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.usage_statistics CASCADE");
         $this->DB()->query("
-            CREATE MATERIALIZED VIEW IF NOT EXISTS applications.usage_statistics AS
+            CREATE MATERIALIZED VIEW applications.usage_statistics AS
             SELECT
                 appid,
                 SUM(total_requests)       AS total_requests,
