@@ -90,8 +90,9 @@ class MigrateRefresh extends Command
         foreach ($runResult['ran'] as $slug) {
             $output->writeln('  <info>Migrated:</info>  ' . $slug);
         }
-        foreach ($runResult['failed'] as $slug) {
+        foreach ($runResult['failed'] as $slug => $errorMessage) {
             $output->writeln('  <error>Failed:  </error>  ' . $slug);
+            $output->writeln('    <comment>' . $errorMessage . '</comment>');
         }
 
         $output->writeln(sprintf(

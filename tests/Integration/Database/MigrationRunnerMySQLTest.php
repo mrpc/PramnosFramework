@@ -292,9 +292,10 @@ class MigrationRunnerMySQLTest extends TestCase
         );
         $this->assertSame('1', (string) $validRow->fields['result'], 'Subsequent migration must still run after a failure');
 
-        // Assert – run() return value reports both ran and failed migrations
+        // Assert – run() return value reports failed as slug => errorMessage map
         $this->assertArrayHasKey('failed', $result);
-        $this->assertContains('broken_mr_my_migration', $result['failed']);
+        $this->assertArrayHasKey('broken_mr_my_migration', $result['failed']);
+        $this->assertNotEmpty($result['failed']['broken_mr_my_migration'], 'failed map must carry the error message as value');
     }
 
     // -------------------------------------------------------------------------
