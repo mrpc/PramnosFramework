@@ -14,7 +14,12 @@ use Pramnos\Database\DatabaseCapabilities;
  *   - compression enabled; compress chunks older than 6 months
  *   - retention: drop chunks older than 7 years (GDPR retention requirement)
  *
- * No auto-increment PK — TimescaleDB uses granted_at as the time dimension.
+ * The composite PK (id, granted_at) satisfies TimescaleDB's requirement that
+ * the partition key (granted_at) be part of every unique/primary constraint.
+ *
+ * OAuth-aware fields (client_id, scope) allow recording per-client consent
+ * decisions. expires_at / revoked_at model time-bounded and explicitly revoked
+ * consents respectively; NULL expires_at means the consent does not expire.
  *
  * @package PramnosFramework
  */
@@ -37,21 +42,35 @@ class CreateUserConsentsTable extends Migration
         $schema->createTable('authserver.user_consents', function ($table) {
             $table->comment('Append-only GDPR consent records; TimescaleDB hypertable with 7-year retention');
 
+            $table->bigIncrements('id')
+                ->comment('Surrogate auto-increment key; part of composite PK with granted_at for TimescaleDB compatibility');
             $table->bigInteger('userid')
                 ->comment('User ID whose consent state is being recorded');
             $table->string('consent_type', 100)
                 ->comment('Type of consent being recorded (e.g. marketing_emails, share_usage_analytics, data_processing)');
             $table->tinyInteger('granted')->default(0)
                 ->comment('1 = consent granted, 0 = consent withdrawn at this point in time');
+            $table->string('client_id', 255)->nullable()
+                ->comment('OAuth2 client_id (apikey) when consent was recorded in an OAuth flow; NULL for non-OAuth consent');
+            $table->text('scope')->nullable()
+                ->comment('Space-separated OAuth2 scopes covered by this consent record; NULL for non-OAuth consent');
             $table->timestampTz('granted_at')
                 ->comment('Timestamp when this consent state was recorded — time dimension for hypertable');
-            $table->string('legal_basis', 100)->default('consent')
+            $table->timestampTz('expires_at')->nullable()
+                ->comment('When this consent record expires; NULL = does not expire (consent is permanent until revoked)');
+            $table->timestampTz('revoked_at')->nullable()
+                ->comment('Timestamp of explicit revocation; NULL = consent has not been revoked');
+            $table->string('legal_basis', 100)->nullable()->default('consent')
                 ->comment('GDPR legal basis for the processing (e.g. consent, legitimate_interest, contract)');
             $table->string('ip_address', 45)->nullable()
                 ->comment('IP address from which the consent was submitted');
 
-            $table->index(['userid', 'consent_type', 'granted_at'], 'idx_user_consents_userid_type');
-            $table->index(['granted_at'], 'idx_user_consents_time');
+            // Composite PK: TimescaleDB requires the partition key (granted_at) in every unique/primary constraint.
+            $table->primary(['id', 'granted_at']);
+
+            $table->index(['userid', 'granted_at'], 'idx_user_consents_userid');
+            $table->index(['consent_type', 'granted_at'], 'idx_user_consents_type');
+            $table->index(['client_id', 'granted_at'], 'idx_user_consents_client_id');
         });
 
         $schema->ifCapable(
