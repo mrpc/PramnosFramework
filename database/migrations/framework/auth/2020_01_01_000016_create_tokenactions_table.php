@@ -3,6 +3,7 @@
 namespace Pramnos\Framework\Migrations\Auth;
 
 use Pramnos\Database\Migration;
+use Pramnos\Database\DatabaseCapabilities;
 
 /**
  * Creates the tokenactions table — API call audit log per token.
@@ -74,7 +75,7 @@ class CreateTokenactionsTable extends Migration
         });
 
         // TimescaleDB: convert to hypertable with 14-day chunks and 60-day compression
-        $schema->ifCapable('timescaledb', function ($schema) {
+        $schema->ifCapable(DatabaseCapabilities::TIMESCALEDB, function ($schema) {
             $schema->createHypertable('tokenactions', 'action_time', [
                 'chunk_time_interval' => '14 days',
                 'migrate_data'        => true,
@@ -89,7 +90,7 @@ class CreateTokenactionsTable extends Migration
         // PostgreSQL: sync trigger keeps servertime (legacy UNIX int) and
         // action_time (TIMESTAMPTZ) in sync bidirectionally so old code that
         // writes only servertime still gets a correct action_time for range queries.
-        $schema->ifCapable('postgresql', function () {
+        $schema->ifCapable(DatabaseCapabilities::ENGINE_POSTGRESQL, function () {
             $db = $this->application->database;
             $db->query(
                 "CREATE OR REPLACE FUNCTION sync_tokenactions_time() RETURNS TRIGGER AS $$\n"

@@ -3,6 +3,7 @@
 namespace Pramnos\Framework\Migrations\Applications;
 
 use Pramnos\Database\Migration;
+use Pramnos\Database\DatabaseCapabilities;
 
 /**
  * Creates all monitoring/analytics views in the applications schema.
@@ -186,48 +187,91 @@ class CreateApplicationsViews extends Migration
             GROUP BY appid
         ");
 
-        // application_stats_daily — materialized daily aggregate
+        // application_stats_daily — continuous aggregate on TimescaleDB, matview on plain PG
+        $schema = $this->DB()->schema();
         $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_daily CASCADE");
-        $this->DB()->query("
-            CREATE MATERIALIZED VIEW applications.application_stats_daily AS
-            SELECT
-                date_trunc('day', time)      AS date,
-                appid,
-                SUM(total_requests)          AS total_requests,
-                SUM(successful_requests)     AS successful_requests,
-                SUM(failed_requests)         AS failed_requests,
-                ROUND(AVG(avg_response_time)::NUMERIC, 3) AS avg_response_time,
-                SUM(status_2xx)              AS status_2xx,
-                SUM(status_3xx)              AS status_3xx,
-                SUM(status_4xx)              AS status_4xx,
-                SUM(status_5xx)              AS status_5xx
-            FROM applications.application_stats
-            GROUP BY date_trunc('day', time), appid
-            WITH NO DATA
-        ");
-        $this->DB()->query(
-            "CREATE INDEX IF NOT EXISTS idx_app_stats_daily_appid_date
-             ON applications.application_stats_daily (appid, date)"
+        $schema->ifCapable(
+            DatabaseCapabilities::TIMESCALEDB,
+            function () use ($schema) {
+                $schema->createContinuousAggregate(
+                    'applications.application_stats_daily',
+                    "SELECT
+                         time_bucket('1 day', time)               AS day,
+                         appid,
+                         SUM(total_requests)                      AS total_requests,
+                         SUM(successful_requests)                 AS successful_requests,
+                         SUM(failed_requests)                     AS failed_requests,
+                         ROUND(AVG(avg_response_time)::NUMERIC, 3) AS avg_response_time,
+                         SUM(status_2xx)                          AS status_2xx,
+                         SUM(status_3xx)                          AS status_3xx,
+                         SUM(status_4xx)                          AS status_4xx,
+                         SUM(status_5xx)                          AS status_5xx
+                     FROM applications.application_stats
+                     GROUP BY time_bucket('1 day', time), appid"
+                );
+            },
+            function () use ($schema) {
+                $schema->createMaterializedView(
+                    'applications.application_stats_daily',
+                    "SELECT
+                         date_trunc('day', time)                   AS day,
+                         appid,
+                         SUM(total_requests)                       AS total_requests,
+                         SUM(successful_requests)                  AS successful_requests,
+                         SUM(failed_requests)                      AS failed_requests,
+                         ROUND(AVG(avg_response_time)::NUMERIC, 3) AS avg_response_time,
+                         SUM(status_2xx)                           AS status_2xx,
+                         SUM(status_3xx)                           AS status_3xx,
+                         SUM(status_4xx)                           AS status_4xx,
+                         SUM(status_5xx)                           AS status_5xx
+                     FROM applications.application_stats
+                     GROUP BY date_trunc('day', time), appid
+                     WITH NO DATA"
+                );
+                $this->DB()->query(
+                    "CREATE INDEX IF NOT EXISTS idx_app_stats_daily_appid_day
+                     ON applications.application_stats_daily (appid, day)"
+                );
+            }
         );
 
-        // application_stats_hourly — materialized hourly aggregate
+        // application_stats_hourly — continuous aggregate on TimescaleDB, matview on plain PG
         $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_hourly CASCADE");
-        $this->DB()->query("
-            CREATE MATERIALIZED VIEW applications.application_stats_hourly AS
-            SELECT
-                date_trunc('hour', time)     AS hour,
-                appid,
-                SUM(total_requests)          AS total_requests,
-                SUM(successful_requests)     AS successful_requests,
-                ROUND(AVG(avg_response_time)::NUMERIC, 3) AS avg_response_time,
-                SUM(status_4xx + status_5xx) AS error_count
-            FROM applications.application_stats
-            GROUP BY date_trunc('hour', time), appid
-            WITH NO DATA
-        ");
-        $this->DB()->query(
-            "CREATE INDEX IF NOT EXISTS idx_app_stats_hourly_appid_hour
-             ON applications.application_stats_hourly (appid, hour)"
+        $schema->ifCapable(
+            DatabaseCapabilities::TIMESCALEDB,
+            function () use ($schema) {
+                $schema->createContinuousAggregate(
+                    'applications.application_stats_hourly',
+                    "SELECT
+                         time_bucket('1 hour', time)              AS hour,
+                         appid,
+                         SUM(total_requests)                      AS total_requests,
+                         SUM(successful_requests)                 AS successful_requests,
+                         ROUND(AVG(avg_response_time)::NUMERIC, 3) AS avg_response_time,
+                         SUM(status_4xx + status_5xx)             AS error_count
+                     FROM applications.application_stats
+                     GROUP BY time_bucket('1 hour', time), appid"
+                );
+            },
+            function () use ($schema) {
+                $schema->createMaterializedView(
+                    'applications.application_stats_hourly',
+                    "SELECT
+                         date_trunc('hour', time)                  AS hour,
+                         appid,
+                         SUM(total_requests)                       AS total_requests,
+                         SUM(successful_requests)                  AS successful_requests,
+                         ROUND(AVG(avg_response_time)::NUMERIC, 3) AS avg_response_time,
+                         SUM(status_4xx + status_5xx)              AS error_count
+                     FROM applications.application_stats
+                     GROUP BY date_trunc('hour', time), appid
+                     WITH NO DATA"
+                );
+                $this->DB()->query(
+                    "CREATE INDEX IF NOT EXISTS idx_app_stats_hourly_appid_hour
+                     ON applications.application_stats_hourly (appid, hour)"
+                );
+            }
         );
 
         // usage_statistics — 30-day aggregate per app (materialized)
