@@ -47,8 +47,8 @@ class CreateTwofactorAttemptsTable extends Migration
                 ->comment('Auto-increment surrogate key; part of composite PK with attempt_time for TimescaleDB compatibility');
             $table->bigInteger('userid')->nullable()
                 ->comment('User ID whose 2FA was verified (nullable — anonymous attempts may lack a resolved userid)');
-            $table->tinyInteger('success')->default(0)
-                ->comment('1 = code accepted, 0 = code rejected');
+            $table->boolean('success')->default(false)
+                ->comment('true = code accepted, false = code rejected');
             $table->string('ip_address', 45)->nullable()
                 ->comment('IPv4 or IPv6 address of the requester (nullable — not always available)');
             $table->string('code_used', 10)->nullable()
@@ -92,7 +92,7 @@ class CreateTwofactorAttemptsTable extends Migration
             $db->query(
                 "CREATE INDEX IF NOT EXISTS idx_twofactor_attempts_success
                  ON authserver.twofactor_attempts (success, attempt_time DESC)
-                 WHERE success = 0"
+                 WHERE success = false"
             );
         });
     }
