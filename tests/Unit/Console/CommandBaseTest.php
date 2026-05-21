@@ -735,11 +735,11 @@ class CommandBaseTest extends TestCase
 
     /**
      * supportsMbStrSplit() returns true when mb_str_split() is available
-     * (PHP 7.4+; this project requires PHP 8.4).
+     * (PHP 7.4+; this project requires PHP 8.1).
      */
-    public function testSupportsMbStrSplitReturnsTrueOnPhp84(): void
+    public function testSupportsMbStrSplitReturnsTrueOnPhp81(): void
     {
-        // Assert — mb_str_split is always present in PHP 8.4
+        // Assert — mb_str_split is always present in PHP 8.1+
         $this->assertTrue($this->cmd->publicSupportsMbStrSplit());
     }
 
@@ -772,9 +772,9 @@ class CommandBaseTest extends TestCase
 
     /**
      * supportsMbStrlen() returns true when mb_strlen() is available
-     * (PHP 8.4 always ships with mbstring).
+     * (mbstring is required by this framework's composer.json since PHP 8.1).
      */
-    public function testSupportsMbStrlenReturnsTrueOnPhp84(): void
+    public function testSupportsMbStrlenReturnsTrueOnPhp81(): void
     {
         // Assert
         $this->assertTrue($this->cmd->publicSupportsMbStrlen());
