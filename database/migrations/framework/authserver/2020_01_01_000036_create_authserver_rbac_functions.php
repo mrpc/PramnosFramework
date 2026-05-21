@@ -225,28 +225,33 @@ class CreateAuthserverRbacFunctions extends Migration
         // 5. Insert an audit_log row
         $db->query(
             "CREATE OR REPLACE FUNCTION authserver.log_audit_event(
-                 p_action_type   VARCHAR(50),
-                 p_performed_by  BIGINT,
-                 p_target_userid BIGINT  DEFAULT NULL,
-                 p_target_roleid INTEGER DEFAULT NULL,
-                 p_before_state  TEXT    DEFAULT NULL,
-                 p_after_state   TEXT    DEFAULT NULL,
-                 p_ip_address    VARCHAR(45) DEFAULT NULL,
-                 p_notes         TEXT    DEFAULT NULL
-             ) RETURNS BIGINT AS \$\$
+                 p_event_type          VARCHAR(50),
+                 p_actor_userid        BIGINT,
+                 p_actor_type          VARCHAR(20)  DEFAULT 'user',
+                 p_target_type         VARCHAR(50)  DEFAULT NULL,
+                 p_target_id           VARCHAR(100) DEFAULT NULL,
+                 p_object_type         VARCHAR(50)  DEFAULT NULL,
+                 p_object_id           VARCHAR(100) DEFAULT NULL,
+                 p_old_values          JSONB        DEFAULT NULL,
+                 p_new_values          JSONB        DEFAULT NULL,
+                 p_metadata            JSONB        DEFAULT NULL,
+                 p_organization_context INTEGER     DEFAULT NULL
+             ) RETURNS INTEGER AS \$\$
              DECLARE
-                 new_logid BIGINT;
+                 new_auditid INTEGER;
              BEGIN
                  INSERT INTO authserver.audit_log (
-                     action_type, performed_by, target_userid, target_roleid,
-                     before_state, after_state, ip_address, notes
+                     event_type, actor_userid, actor_type,
+                     target_type, target_id, object_type, object_id,
+                     old_values, new_values, metadata, organization_context
                  ) VALUES (
-                     p_action_type, p_performed_by, p_target_userid, p_target_roleid,
-                     p_before_state::jsonb, p_after_state::jsonb, p_ip_address, p_notes
+                     p_event_type, p_actor_userid, p_actor_type,
+                     p_target_type, p_target_id, p_object_type, p_object_id,
+                     p_old_values, p_new_values, p_metadata, p_organization_context
                  )
-                 RETURNING logid INTO new_logid;
+                 RETURNING auditid INTO new_auditid;
 
-                 RETURN new_logid;
+                 RETURN new_auditid;
              END;
              \$\$ LANGUAGE plpgsql"
         );
@@ -387,7 +392,7 @@ class CreateAuthserverRbacFunctions extends Migration
 
         $db->query('DROP FUNCTION IF EXISTS authserver.get_user_effective_permissions(INTEGER, INTEGER) CASCADE');
         $db->query('DROP FUNCTION IF EXISTS authserver.check_permission_with_inheritance(VARCHAR, INTEGER, VARCHAR, VARCHAR, VARCHAR) CASCADE');
-        $db->query('DROP FUNCTION IF EXISTS authserver.log_audit_event(VARCHAR, BIGINT, BIGINT, INTEGER, TEXT, TEXT, VARCHAR, TEXT) CASCADE');
+        $db->query('DROP FUNCTION IF EXISTS authserver.log_audit_event(VARCHAR, BIGINT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, JSONB, JSONB, JSONB, INTEGER) CASCADE');
         $db->query('DROP FUNCTION IF EXISTS authserver.apply_role_template(INTEGER, VARCHAR, INTEGER, INTEGER) CASCADE');
         $db->query('DROP FUNCTION IF EXISTS authserver.apply_permission_template(INTEGER, VARCHAR, INTEGER, INTEGER, INTEGER) CASCADE');
         $db->query('DROP FUNCTION IF EXISTS authserver.check_user_deya_membership() CASCADE');
