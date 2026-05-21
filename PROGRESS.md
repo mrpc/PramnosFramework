@@ -1,7 +1,57 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-21 (session 99) — the reference application DB comparison + continuous aggregate correctness ✅
+## 📅 Last Updated: 2026-05-21 (session 100) — the reference application DB sync: policies, indexes, usage_statistics rewrite ✅
+
+## 🏁 Session 100 — the reference application DB sync: policies, indexes, usage_statistics (2026-05-21)
+
+Continued systematic comparison with reference production database. All changes are "do it like the reference application".
+
+### ✅ Retention/compression policy fixes
+
+- **`public.tokenactions`**: Added missing 3-year retention policy.
+- **`applications.application_stats`**: Fixed compression interval (30d → 60d); added missing 3-year retention policy; updated `down()` to call `remove_retention_policy` before `remove_compression_policy`.
+
+### ✅ Missing indexes
+
+- **`applications.application_stats`** (PostgreSQL + MySQL): Added `UNIQUE(time, appid)` index (`unique_app_stats_time_appid`). Prevents duplicate time+appid combinations.
+- **`authserver.twofactor_attempts`**:
+  - Added `bigIncrements('id')` (surrogate key) + composite PK `(id, attempt_time)` for TimescaleDB compatibility.
+  - Added `idx_twofactor_attempts_ip_time` on `(ip_address, attempt_time DESC)` (PostgreSQL, raw DDL).
+  - Added `idx_twofactor_attempts_success` partial index on `(success, attempt_time DESC) WHERE success = 0` (PostgreSQL, raw DDL).
+  - Renamed `idx_twofactor_attempts_userid` → `idx_twofactor_attempts_userid_time`.
+  - Made `userid` nullable (matches the reference application).
+
+### ✅ `applications.usage_statistics` complete rewrite
+
+Replaced simple 30-day `application_stats` aggregate (materialized view) with live multi-CTE VIEW matching the reference application exactly:
+- 4 CTEs: `token_stats`, `historical_stats`, `oauth_config`, `webhook_stats`
+- 35 columns including `activity_level` classification (Highly Active/Active/Low Activity/Dormant/Inactive), token windows (24h/7d/30d), OAuth grant flags, webhook delivery rate.
+- Changed from `MATERIALIZED VIEW` to regular `VIEW`.
+- Added `create_oauth2_application_grants_table` to `$dependencies`.
+- MySQL version uses CTE syntax (MySQL 8.0+) with `SUM(CASE WHEN...)` for aggregate filters.
+- Tests updated: add `CreateOauth2ApplicationGrantsTable` to setUp in all 3 test files; remove stale `pg_matviews` assertion.
+
+### ✅ `authserver.user_consents` OAuth columns
+
+Added columns to match the reference application schema:
+- `id` (bigIncrements) + composite PK `(id, granted_at)` for TimescaleDB compatibility.
+- `client_id` (varchar 255, nullable) — OAuth2 client reference.
+- `scope` (text, nullable) — OAuth scopes covered by consent.
+- `expires_at`, `revoked_at` (timestamptz, nullable) — time-bounded and explicitly-revoked consent states.
+- Made `legal_basis` nullable.
+- Renamed indexes: `idx_user_consents_userid`, `idx_user_consents_type`, `idx_user_consents_client_id`.
+
+### Test results
+- Full suite: **119/119** ✓
+
+### Commits
+- `adfb98d` fix(migrations): align retention/compression policies with the reference application
+- `e2182bc` fix(migrations): add missing indexes and attemptid PK to match the reference application
+- `a209d7b` feat(migrations): rewrite usage_statistics as live multi-CTE view
+- `9bad729` fix(migrations): add OAuth and expiry columns to user_consents
+
+---
 
 ## 🏁 Session 99 — the reference application DB sync: continuous aggregates + missing views (2026-05-21)
 
