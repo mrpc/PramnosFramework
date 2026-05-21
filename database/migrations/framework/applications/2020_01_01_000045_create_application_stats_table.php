@@ -119,7 +119,14 @@ class CreateApplicationStatsTable extends Migration
             $this->DB()->query(
                 "SELECT add_compression_policy(
                     'applications.application_stats',
-                    INTERVAL '30 days',
+                    INTERVAL '60 days',
+                    if_not_exists => TRUE
+                )"
+            );
+            $this->DB()->query(
+                "SELECT add_retention_policy(
+                    'applications.application_stats',
+                    INTERVAL '3 years',
                     if_not_exists => TRUE
                 )"
             );
@@ -178,6 +185,11 @@ class CreateApplicationStatsTable extends Migration
         $caps = $this->DB()->schema()->getCapabilities();
         if ($caps->isPostgreSQL()) {
             if ($caps->supports(DatabaseCapabilities::TIMESCALEDB)) {
+                $this->DB()->query(
+                    "SELECT remove_retention_policy(
+                        'applications.application_stats', if_exists => TRUE
+                    )"
+                );
                 $this->DB()->query(
                     "SELECT remove_compression_policy(
                         'applications.application_stats', if_exists => TRUE
