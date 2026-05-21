@@ -21,18 +21,18 @@ class CreateOauth2DeviceCodesTable extends Migration
     public string $feature      = 'authserver';
     public string $scope        = 'framework';
     public int    $priority     = 55;
-    public array  $dependencies = ['create_applications_table', 'create_users_table'];
+    public array  $dependencies = ['create_authserver_schema', 'create_applications_table', 'create_users_table'];
     public $description  = 'Creates the oauth2_device_codes table (RFC 8628 Device Authorization Grant)';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('oauth2_device_codes')) {
+        if ($schema->hasTable('authserver.oauth2_device_codes')) {
             return;
         }
 
-        $schema->createTable('oauth2_device_codes', function ($table) {
+        $schema->createTable('authserver.oauth2_device_codes', function ($table) {
             $table->comment('RFC 8628 device authorization requests — pending, authorized, and denied');
 
             $table->increments('id')
@@ -62,6 +62,6 @@ class CreateOauth2DeviceCodesTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('oauth2_device_codes');
+        $this->application->database->schema()->dropTableIfExists('authserver.oauth2_device_codes');
     }
 }
