@@ -866,6 +866,24 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->assertTrue($this->indexExists('applications_oauth2_client_auth_methods', 'uq_ocam_appid_method'),
             'unique(appid, auth_method) must prevent duplicate method entries per application');
 
+        // Assert – is_enabled column exists (renamed from is_active to match Urbanwater)
+        $this->assertTrue(
+            $this->columnExists('applications_oauth2_client_auth_methods', 'is_enabled'),
+            'is_enabled column must exist; is_active was the old incorrect name'
+        );
+
+        // Assert – updated_at column exists (missing in original backport)
+        $this->assertTrue(
+            $this->columnExists('applications_oauth2_client_auth_methods', 'updated_at'),
+            'updated_at must be present to match Urbanwater schema'
+        );
+
+        // Assert – is_active must NOT exist (was renamed to is_enabled)
+        $this->assertFalse(
+            $this->columnExists('applications_oauth2_client_auth_methods', 'is_active'),
+            'is_active must not exist; column was renamed to is_enabled'
+        );
+
         // Assert – rollback
         $m->down();
         $this->assertFalse($this->tableExists('applications_oauth2_client_auth_methods'));

@@ -43,9 +43,10 @@ class CreateOauth2ClientAuthMethodsTable extends Migration
                 appid          INTEGER      NOT NULL REFERENCES public.applications(appid) ON DELETE CASCADE,
                 auth_method    VARCHAR(50)  NOT NULL
                     CHECK (auth_method IN ('client_secret_basic','client_secret_post','private_key_jwt','none')),
-                is_primary     BOOLEAN      NOT NULL DEFAULT FALSE,
-                is_active      BOOLEAN      NOT NULL DEFAULT TRUE,
-                created_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                is_primary     BOOLEAN      DEFAULT FALSE,
+                is_enabled     BOOLEAN      DEFAULT TRUE,
+                created_at     TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+                updated_at     TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (appid, auth_method)
             )");
             $db->query("CREATE INDEX IF NOT EXISTS idx_ocam_appid ON {$t} (appid)");
@@ -55,9 +56,10 @@ class CreateOauth2ClientAuthMethodsTable extends Migration
                 `auth_method_id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `appid`          INT UNSIGNED NOT NULL,
                 `auth_method`    ENUM('client_secret_basic','client_secret_post','private_key_jwt','none') NOT NULL,
-                `is_primary`     TINYINT(1) NOT NULL DEFAULT 0,
-                `is_active`      TINYINT(1) NOT NULL DEFAULT 1,
-                `created_at`     DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `is_primary`     TINYINT(1) DEFAULT 0,
+                `is_enabled`     TINYINT(1) DEFAULT 1,
+                `created_at`     DATETIME   DEFAULT CURRENT_TIMESTAMP,
+                `updated_at`     DATETIME   DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY `uq_ocam_appid_method` (`appid`, `auth_method`),
                 KEY `idx_ocam_appid` (`appid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");

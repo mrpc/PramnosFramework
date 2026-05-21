@@ -1336,8 +1336,9 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
     /**
      * CreateOauth2ClientAuthMethodsTable must create the table inside the
-     * `applications` schema on PostgreSQL with a CHECK constraint on auth_method
-     * and a unique constraint on (appid, auth_method).
+     * `applications` schema on PostgreSQL with a CHECK constraint on auth_method,
+     * a unique constraint on (appid, auth_method), and the Urbanwater-aligned
+     * column set: is_enabled (not is_active) + updated_at.
      */
     public function testAuthserverOauth2ClientAuthMethodsCreatesTableInApplicationsSchemaOnPostgres(): void
     {
@@ -1357,6 +1358,24 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
         // Assert — auth_method uses VARCHAR + CHECK (not ENUM) on PostgreSQL
         $this->assertColumnType('oauth2_client_auth_methods', 'auth_method', 'character varying', 'applications');
+
+        // Assert — is_enabled column exists (renamed from is_active to match Urbanwater)
+        $this->assertTrue(
+            $this->columnExists('oauth2_client_auth_methods', 'is_enabled', 'applications'),
+            'is_enabled column must exist; is_active was the old incorrect name'
+        );
+
+        // Assert — updated_at column exists (missing in original backport)
+        $this->assertTrue(
+            $this->columnExists('oauth2_client_auth_methods', 'updated_at', 'applications'),
+            'updated_at must be present to match Urbanwater schema'
+        );
+
+        // Assert — is_active must NOT exist (was renamed to is_enabled)
+        $this->assertFalse(
+            $this->columnExists('oauth2_client_auth_methods', 'is_active', 'applications'),
+            'is_active must not exist; column was renamed to is_enabled'
+        );
 
         // Assert — rollback
         $m->down();
