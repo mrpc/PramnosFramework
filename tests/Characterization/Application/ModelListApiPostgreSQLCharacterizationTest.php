@@ -292,18 +292,20 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
     }
 
     /**
-     * _getApiList() paginated path returns an error envelope on PostgreSQL —
-     * same known limitation as MySQL.
+     * _getApiList() paginated path must return the correct pagination envelope
+     * on PostgreSQL (page=1, limit=2 from 5 seeded rows).
      *
-     * Proves the bug is not dialect-specific.
+     * Phase 17 fix: the pre-existing empty-WHERE-clause bug (a leading space in
+     * $finalFilter caused `WHERE ` to be emitted) has been resolved. Verifies
+     * the fix is dialect-neutral — PostgreSQL now returns correct rows too.
      */
-    public function testGetApiListWithPaginationReturnsErrorEnvelopeInCurrentImplementation(): void
+    public function testGetApiListWithPaginationReturnsPaginatedRows(): void
     {
         // Arrange
         $model = $this->makeModel();
         $this->forceModelTable($model);
 
-        // Act
+        // Act — page 1, 2 items per page, 5 total seeded rows
         $result = $model->_getApiList(
             ['id', 'name'],
             '',
@@ -320,12 +322,20 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
             false
         );
 
-        // Assert
-        $this->assertArrayHasKey('error',      $result);
-        $this->assertArrayHasKey('pagination', $result);
-        $this->assertNull($result['pagination']);
-        $this->assertArrayHasKey('data', $result);
-        $this->assertSame([], $result['data']);
+        // Assert — must have the standard API envelope keys
+        $this->assertArrayHasKey('data', $result,
+            'PostgreSQL: paginated _getApiList must return the data key');
+        $this->assertArrayHasKey('pagination', $result,
+            'PostgreSQL: paginated _getApiList must return the pagination key');
+        $this->assertArrayNotHasKey('error', $result,
+            'PostgreSQL: paginated _getApiList must not return an error when filter is empty');
+        $this->assertCount(2, $result['data'],
+            'PostgreSQL: page=1, limit=2 must return exactly 2 rows');
+        $this->assertSame(5, $result['pagination']['totalitems'],
+            'PostgreSQL: pagination.totalitems must reflect all 5 seeded rows');
+        $this->assertSame(1, $result['pagination']['currentpage']);
+        $this->assertSame(3, (int) $result['pagination']['totalpages'],
+            'PostgreSQL: ceil(5/2) = 3 total pages');
     }
 
     /**
@@ -368,5 +378,86 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
         $this->assertCount(2, $result['data']);
         $this->assertSame('gamma', $result['data'][0]['name']);
         $this->assertSame('alpha', $result['data'][1]['name']);
+    }
+
+    // ── Phase 17 — DataTables 2.x format wrapper ──────────────────────────────
+
+    /**
+     * _getApiList(format: 'datatables') must return the DataTables 2.x envelope
+     * on PostgreSQL: {draw, data, recordsTotal, recordsFiltered}.
+     *
+     * Tests the paginated path (page = 1) which exercises the standard pagination
+     * code before wrapping the output.
+     */
+    public function testGetApiListDataTablesFormatOnPostgresql(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+        $_REQUEST['draw'] = '3';
+
+        // Act
+        $result = $model->_getApiList(
+            [],
+            '',
+            '',
+            '',
+            '',
+            '',
+            $this->table,
+            'id',
+            1,
+            10,
+            false, false, false, false, false,
+            'datatables'
+        );
+
+        // Assert
+        $this->assertArrayHasKey('draw', $result,
+            'PostgreSQL: DataTables 2.x format must include draw');
+        $this->assertArrayHasKey('data', $result,
+            'PostgreSQL: DataTables 2.x format must include data');
+        $this->assertArrayHasKey('recordsTotal', $result,
+            'PostgreSQL: DataTables 2.x format must include recordsTotal');
+        $this->assertArrayHasKey('recordsFiltered', $result,
+            'PostgreSQL: DataTables 2.x format must include recordsFiltered');
+        $this->assertSame(3, $result['draw'],
+            'draw must echo the $_REQUEST[draw] value as int on PostgreSQL');
+        $this->assertArrayNotHasKey('pagination', $result,
+            'datatables format must not include the standard pagination key on PostgreSQL');
+
+        unset($_REQUEST['draw']);
+    }
+
+    /**
+     * _getJsonList() must work on PostgreSQL after introspection is unified to
+     * _getAllTableFields() (which queries information_schema on PG instead of SHOW COLUMNS).
+     *
+     * Before Phase 17, _getJsonList() ran SHOW COLUMNS — a MySQL-only statement
+     * that would cause a syntax error on PostgreSQL. This test proves the fix.
+     */
+    public function testGetJsonListWorksOnPostgresqlAfterIntrospectionUnification(): void
+    {
+        // Arrange
+        unset($_POST['sEcho'], $_POST['iDisplayStart'], $_POST['iDisplayLength']);
+        unset($_GET['sEcho'],  $_GET['iDisplayStart'],  $_GET['iDisplayLength']);
+
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act — this would throw a syntax error on PostgreSQL before Phase 17
+        // _getJsonList() returns a JSON-encoded string (Datasource::getList() contract)
+        $raw = $model->_getJsonList('', $this->table, 'id');
+        $result = json_decode($raw, true);
+
+        // Assert — DT 1.9 keys still present after introspection fix
+        $this->assertIsArray($result,
+            'PostgreSQL: _getJsonList must return valid JSON that decodes to an array');
+        $this->assertArrayHasKey('aaData', $result,
+            'PostgreSQL: _getJsonList must return aaData key (DataTables 1.9 BC)');
+        $this->assertArrayHasKey('iTotalRecords', $result,
+            'PostgreSQL: _getJsonList must return iTotalRecords (DataTables 1.9 BC)');
+        $this->assertCount(5, $result['aaData'],
+            'PostgreSQL: all 5 seeded rows must be returned without DT paging params');
     }
 }
