@@ -60,208 +60,95 @@ class Api extends Application
     }
 
     /**
-     * Executes a controller
-     * @param string $coontrollerName
+     * Execute the API application for an HTTP request.
+     *
+     * The method runs a three-layer middleware pipeline before dispatching to
+     * controllers:
+     *   1. CorsMiddleware   — CORS headers + OPTIONS preflight (short-circuits)
+     *   2. JsonResponseMiddleware — sets application/json Content-Type
+     *   3. ApiAuthMiddleware — API key + Bearer token validation, session setup
+     *
+     * On authentication failure the pipeline short-circuits and returns a JSON
+     * error envelope without reaching the controller.  All existing behaviour
+     * (routes.php, controller dispatch, validation/exception handling, token
+     * action tracking) is preserved — only the auth/CORS preamble is delegated
+     * to middleware.
+     *
+     * BC note: existing code that calls `new Api(...)` and `->exec()` continues
+     * to work without modification.
+     *
+     * @param string $coontrollerName Controller name (kept misspelled for BC).
      */
     public function exec($coontrollerName = '')
     {
-        /*
-         * Run any needed updates
-         */
         if ($this->checkversion() !== true) {
             $this->upgrade();
-        }
-        #if (isset($_SERVER['HTTP_ORIGIN'])) {
-            #header("Access-Control-Allow-Origin: {$_SERVER['HTTP_ORIGIN']}");
-            #header("Access-Control-Allow-Origin: *");
-            #header('Access-Control-Allow-Credentials: true');
-            #header('Access-Control-Max-Age: 86400');    // cache for 1 day
-        #}
-        header("Access-Control-Allow-Origin: *");
-        header('Access-Control-Allow-Credentials: true');
-        // Access-Control headers are received during OPTIONS requests
-        if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
-            if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_METHOD']))
-                header(
-                    "Access-Control-Allow-Methods: "
-                    . "GET, POST, OPTIONS, PUT, DELETE"
-                );
-
-            if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']))
-                header(
-                    "Access-Control-Allow-Headers: "
-                    . "{$_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']}"
-                );
-            exit(0);
-        }
-        if (isset($_SERVER['HTTP_ACCEPT']) 
-            && ($_SERVER['HTTP_ACCEPT'] == 'application/xml' 
-                || $_SERVER['HTTP_ACCEPT'] == 'xml')
-            ) {
-            $this->accept = 'xml';
-            header('content-type: application/xml; charset=utf-8');
-        } else {
-            header('content-type: application/json; charset=utf-8');
         }
 
         $controller = strtolower($coontrollerName);
         if ($controller === '' && $this->controller === '') {
-            if ($this->defaultController !== "") {
+            if ($this->defaultController !== '') {
                 $this->controller = $this->defaultController;
             } else {
                 $this->close('There is no controller to run...');
             }
-        } elseif ($controller != '') {
+        } elseif ($controller !== '') {
             $this->controller = $controller;
         }
 
-        $doc = & \Pramnos\Framework\Factory::getDocument('raw');
-        if (!isset($_SERVER['HTTP_APIKEY'])) {
-            $doc->addContent(
-                $this->_translateStatus(
-                    array(
-                        'status' => 403,
-                        'message' => 'API key is missing.',
-                        'error' => 'APIKeyMissing'
-                    )
-                )
-            );
-            return;
-        } elseif (!$this->checkApiKey($_SERVER['HTTP_APIKEY'])) {
-            $doc->addContent(
-                $this->_translateStatus(
-                    array(
-                        'status' => 401,
-                        'message' => 'Invalid API key.',
-                        'error' => 'APIKeyInvalid'
-                    )
-                )
-            );
-            return;
-        }
+        $doc = &\Pramnos\Framework\Factory::getDocument('raw');
 
-        //Authentication
-        //$_SESSION['logged'] = false;
-        if (isset($_SERVER['HTTP_ACCESSTOKEN'])
-            && trim($_SERVER['HTTP_ACCESSTOKEN'] != '')) {
+        // Build the middleware pipeline: CORS → JSON content-type → API auth
+        $allowedOrigins = (array) ($this->applicationInfo['cors_origins'] ?? ['*']);
+        $pipeline = new \Pramnos\Http\MiddlewarePipeline();
+        $pipeline->pipe(new \Pramnos\Http\Middleware\CorsMiddleware($allowedOrigins));
+        $pipeline->pipe(new \Pramnos\Http\Middleware\JsonResponseMiddleware());
+        $pipeline->pipe(new \Pramnos\Http\Middleware\ApiAuthMiddleware(
+            apiKeyChecker: [$this, 'checkApiKey'],
+            authKey:       $this->authenticationKey,
+            appNamespace:  $this->applicationInfo['namespace'] ?? null,
+        ));
 
-            // Try to find an override user class
-            if (isset($this->applicationInfo['namespace'])
-                && $this->applicationInfo['namespace'] != ''
-                && class_exists(
-                    '\\'
-                    . $this->applicationInfo['namespace']
-                    . '\\User'
-                )) {
-                $className = '\\'
-                    . $this->applicationInfo['namespace']
-                    . '\\User';
-                $user = new $className();
-            } else {
-                $user = new \Pramnos\User\User();
+        $request   = \Pramnos\Framework\Factory::getRequest();
+        $startTime = microtime(true);
+        $self      = $this;
+
+        $response = $pipeline->run(
+            $request,
+            function (\Pramnos\Http\Request $req) use ($self, $doc, $startTime): mixed {
+                return $self->_executeCore($startTime);
             }
+        );
 
-            \Pramnos\Auth\JWT::$leeway = 60; // $leeway in seconds
-            $tkn = $_SERVER['HTTP_ACCESSTOKEN'];
-            
-            $tokenInfo = \Pramnos\Auth\JWT::getTokenInformation($tkn);
-            if (!$tokenInfo) {
-                $doc->addContent(
-                    $this->_translateStatus(
-                        array(
-                            'status' => 403,
-                            'message' => 'Invalid Access Token.',
-                            'error' => 'InvalidAccessToken',
-                            'data' => 'Token information could not be retrieved.'
-                        )
-                    )
-                );
-                return;
-            }
-
-            if (isset($tokenInfo->alg) && $tokenInfo->alg == 'RS256') {
-                $decodeKey = $this->authenticationKey;
-                $privateKeyPath = ROOT . '/app/keys/public.key';
-                if (file_exists($privateKeyPath)) {
-                    $decodeKey = file_get_contents($privateKeyPath);
-                } elseif (file_exists(ROOT . '/keys/public.key')) {
-                    $decodeKey = file_get_contents(ROOT . '/keys/public.key');
-                }
-                try {
-                    $jwt = \Pramnos\Auth\JWT::decode(
-                        $tkn, $decodeKey,
-                        array('HS256', 'RS256')
-                    );
-                } catch (\Exception $ex) {
-                    $doc->addContent(
-                        $this->_translateStatus(
-                            array(
-                                'status' => 403,
-                                'message' => 'Invalid Access Token.',
-                                'error' => 'InvalidAccessToken',
-                                'data' => $ex->getMessage()
-                            )
-                        )
-                    );
-                return;
-                }
-            } else {
-                try {
-                    $jwt = \Pramnos\Auth\JWT::decode(
-                        $tkn, $this->authenticationKey,
-                        array('HS256')
-                    );
-                } catch (\Exception $ex) {
-                    $doc->addContent(
-                        $this->_translateStatus(
-                            array(
-                                'status' => 403,
-                                'message' => 'Invalid Access Token.',
-                                'error' => 'InvalidAccessToken',
-                                'data' => $ex->getMessage()
-                            )
-                        )
-                    );
-                return;
-                }
-            }
-
-            
-            $user->loadByToken($_SERVER['HTTP_ACCESSTOKEN']);
-            if ($user->userid > 1) {
-                $_SESSION['logged'] = true;
-                $_SESSION['user'] = $user;
-            } elseif ($_SERVER['HTTP_ACCESSTOKEN'] != '') {
-                $_SESSION['user'] = null;
-                $doc->addContent(
-                    $this->_translateStatus(
-                        array(
-                            'status' => 403,
-                            'message' => 'Invalid Access Token.',
-                            'error' => 'InvalidAccessToken'
-                        )
-                    )
-                );
-                return;
-            } else {
-                $_SESSION['user'] = null;
-            }
-        } elseif (isset($_SERVER['HTTP_USERAUTH'])) {
-            if (isset($_SESSION['logged'])
-                && $_SESSION['logged'] == true
-                && isset($_SESSION['auth'])
-                && $_SESSION['auth'] == $_SERVER['HTTP_USERAUTH']
-                && isset($_SESSION['uid'])) {
-                $user = new \Pramnos\User\User($_SESSION['uid']);
-                $_SESSION['user'] = $user;
+        // Pipeline short-circuited (CORS OPTIONS or auth failure) — write & return.
+        if ($response !== null && $response !== '') {
+            // OPTIONS preflight returns '' — nothing to write
+            if ($response !== '') {
+                $doc->addContent($response);
             }
         }
-        $userdata = array();
-        $userdata['username'] = $user->username ?? 'guest';
-        $userdata['userid'] = $user->userid ?? null;
+    }
+
+    /**
+     * Core request dispatch: routes.php + controller execution + token tracking.
+     *
+     * Called by exec() after the auth middleware has already validated the
+     * request.  Separated so that it can be tested independently of the
+     * middleware pipeline.
+     *
+     * @param float $startTime microtime(true) captured at exec() entry
+     */
+    public function _executeCore(float $startTime): mixed
+    {
+        $doc = &\Pramnos\Framework\Factory::getDocument('raw');
+
+        $userdata = [];
+        $userdata['username'] = ($_SESSION['user'] ?? null)?->username ?? 'guest';
+        $userdata['userid']   = ($_SESSION['user'] ?? null)?->userid ?? null;
+
         try {
             $this->database->setTrackingInfo(
-                $user->userid ?? null,
+                $userdata['userid'],
                 $this->applicationInfo['name'],
                 $userdata
             );
@@ -271,219 +158,115 @@ class Api extends Application
                 $ex
             );
         }
-        
 
-        if (isset($_SESSION['usertoken'])
-            && is_object($_SESSION['usertoken'])) {
-            $userdata['tokenid'] = $_SESSION['usertoken']->tokenid;
+        if (isset($_SESSION['usertoken']) && is_object($_SESSION['usertoken'])) {
             try {
                 $_SESSION['usertoken']->addAction();
             } catch (\Exception $ex) {
                 unset($_SESSION['usertoken']);
                 \Pramnos\Logs\Logger::log($ex->getMessage());
             }
-
-        } else {
-            //Uncomment this to log non authenticated actions
-            //$this->logAction();
         }
 
-        $startTime = microtime(true);
+        // Routes.php dispatch path
         if (file_exists(ROOT . '/src/Api/routes.php')) {
-            /**
-             * Ok, εδώ θα γίνει λίγο της πουτάνας - προσωρινά - αφού φορτώνουμε
-             * κομμάτια του PramnosFramework2 για να έχουμε καλύτερο routing
-             */
             try {
                 $response = include(ROOT . '/src/Api/routes.php');
             } catch (\Pramnos\Validation\ValidationException $ex) {
-                $doc->addContent(
-                    $this->_translateStatus(
-                        array(
-                            'status' => 422,
-                            'message' => $ex->getMessage(),
-                            'error' => 'ValidationError',
-                            'errors' => $ex->errors()
-                        )
-                    )
-                );
-
-                return;
+                return $this->_translateStatus([
+                    'status'  => 422,
+                    'message' => $ex->getMessage(),
+                    'error'   => 'ValidationError',
+                    'errors'  => $ex->errors(),
+                ]);
             } catch (\Exception $ex) {
-                if ($ex->getCode() == 403) {
-                    $doc->addContent(
-                        $this->_translateStatus(
-                            array(
-                                'status' => 403,
-                                'message' => $ex->getMessage(),
-                                'error' => 'InvalidPermissions'
-                            )
-                        )
-                    );
-                } else {
-                    $doc->addContent(
-                        $this->_translateStatus(
-                            array(
-                                'status' => 500,
-                                'message' => 'Error loading routes.',
-                                'error' => 'RoutesLoadError',
-                                'details' => $ex->getMessage()
-                            )
-                        )
-                    );
-                }
-
-                return;
+                return $this->_translateStatus(
+                    $ex->getCode() === 403
+                        ? ['status' => 403, 'message' => $ex->getMessage(), 'error' => 'InvalidPermissions']
+                        : ['status' => 500, 'message' => 'Error loading routes.', 'error' => 'RoutesLoadError', 'details' => $ex->getMessage()]
+                );
             }
 
             if ($response) {
                 $content = $this->_translateStatus($response);
-                $record = array();
-
-                // if return status is not 2xx, record the return data
-                if (is_array($response)
-                    && isset($response['status'])
-                    && $response['status'] >= 300) {
-                    $record = $response;
-                }
-
-                if (isset($_SESSION['usertoken'])
-                    && is_object($_SESSION['usertoken'])) {
-                    $_SESSION['usertoken']->updateAction(
-                        $_SESSION['usertoken']->lastActionId,
-                        (is_array($response) && isset($response['status']))
-                            ? $response['status']
-                            : 200,
-                        microtime(true) - $startTime,
-                        $record
-                    );
-                }
-
-                $doc->addContent(
-                    $content
-                );
-                return;
+                $this->_recordTokenAction($startTime, $response);
+                $doc->addContent($content);
+                return null;
             }
         }
 
-        $moduleObject = $this->getController($this->controller);
+        // Controller dispatch path
+        $moduleObject         = $this->getController($this->controller);
         $this->activeController = $moduleObject;
+
         try {
             $response = $moduleObject->exec($this->action);
-            $content = $this->_translateStatus($response);
-            $record = array();
-
-            // if return status is not 2xx, record the return data
-            if (is_array($response)
-                && isset($response['status'])
-                && $response['status'] >= 300) {
-                $record = $response;
-            }
-
-            if (isset($_SESSION['usertoken'])
-                && is_object($_SESSION['usertoken'])) {
-                $_SESSION['usertoken']->updateAction(
-                    $_SESSION['usertoken']->lastActionId,
-                    (is_array($response) && isset($response['status']))
-                        ? $response['status']
-                        : 200,
-                    microtime(true) - $startTime,
-                    $record
-                );
-            }
-
-            $doc->addContent(
-                $content
-            );
+            $this->_recordTokenAction($startTime, $response);
+            $doc->addContent($this->_translateStatus($response));
         } catch (\Pramnos\Validation\ValidationException $exception) {
-            $errorResponse = array(
-                'status' => 422,
+            $errorResponse = [
+                'status'  => 422,
                 'message' => $exception->getMessage(),
-                'error' => 'ValidationError',
-                'errors' => $exception->errors()
-            );
-
-            if (isset($_SESSION['usertoken'])
-                && is_object($_SESSION['usertoken'])) {
-                $_SESSION['usertoken']->updateAction(
-                    $_SESSION['usertoken']->lastActionId,
-                    422,
-                    microtime(true) - $startTime,
-                    $errorResponse
-                );
-            }
-
-            $doc->addContent(
-                $this->_translateStatus($errorResponse)
-            );
+                'error'   => 'ValidationError',
+                'errors'  => $exception->errors(),
+            ];
+            $this->_recordTokenAction($startTime, $errorResponse);
+            $doc->addContent($this->_translateStatus($errorResponse));
         } catch (\Exception $exception) {
-            if ($exception->getCode() == 403) {
-                $lang = \Pramnos\Framework\Factory::getLanguage();
-                if (isset($_SESSION['usertoken'])
-                    && is_object($_SESSION['usertoken'])) {
-                    $_SESSION['usertoken']->updateAction(
-                        $_SESSION['usertoken']->lastActionId,
-                        403,
-                        microtime(true) - $startTime,
-                        array(
-                            'status' => 403,
-                            'message' => $lang->_(
-                                'You are not logged in '
-                                . 'or your session has expired.'
-                            ),
-                            'error' => 'PermissionDenied',
-                            'details' => $exception->getMessage()
-                        )
-                    );
-                }
-                $doc->addContent(
-                    $this->_translateStatus(
-                        array(
-                            'status' => 403,
-                            'message' => $lang->_(
-                                'You are not logged in '
-                                . 'or your session has expired.'
-                            ),
-                            'error' => 'PermissionDenied',
-                            'details' => $exception->getMessage()
-                        )
-                    )
-                );
+            if ($exception->getCode() === 403) {
+                $lang          = \Pramnos\Framework\Factory::getLanguage();
+                $errorResponse = [
+                    'status'  => 403,
+                    'message' => $lang->_('You are not logged in or your session has expired.'),
+                    'error'   => 'PermissionDenied',
+                    'details' => $exception->getMessage(),
+                ];
+                $this->_recordTokenAction($startTime, $errorResponse);
+                $doc->addContent($this->_translateStatus($errorResponse));
             } else {
                 $message = $exception->getMessage();
-                if (strpbrk($message, 'SQL') !== false) {
+                if (str_contains($message, 'SQL')) {
                     \Pramnos\Logs\Logger::log(
-                        $message
-                        . "\nLine:\n"
-                        . $exception->getFile()
-                        . " -> "
-                        . $exception->getLine()
-                        . "\nTrace:\n"
-                        . $exception->getTraceAsString()
+                        $message . "\nLine:\n" . $exception->getFile()
+                        . ' -> ' . $exception->getLine()
+                        . "\nTrace:\n" . $exception->getTraceAsString()
                     );
                 }
-
-                if (isset($_SESSION['usertoken'])
-                    && is_object($_SESSION['usertoken'])) {
-                    $_SESSION['usertoken']->updateAction(
-                        $_SESSION['usertoken']->lastActionId,
-                        500,
-                        microtime(true) - $startTime
-                    );
-                }
-
-                $doc->addContent(
-                    $this->_translateStatus(
-                        array(
-                            'status' => 500
-                        )
-                    )
-                );
+                $this->_recordTokenAction($startTime, null);
+                $doc->addContent($this->_translateStatus(['status' => 500]));
             }
         }
 
+        return null;
+    }
 
+    /**
+     * Record token action execution time and status code.
+     *
+     * @param float      $startTime microtime(true) at request start
+     * @param mixed      $response  Controller/routes response (used to extract status code)
+     */
+    private function _recordTokenAction(float $startTime, mixed $response): void
+    {
+        if (!isset($_SESSION['usertoken']) || !is_object($_SESSION['usertoken'])) {
+            return;
+        }
 
+        $status = 200;
+        $record = [];
+        if (is_array($response) && isset($response['status'])) {
+            $status = (int) $response['status'];
+            if ($status >= 300) {
+                $record = $response;
+            }
+        }
+
+        $_SESSION['usertoken']->updateAction(
+            $_SESSION['usertoken']->lastActionId,
+            $status,
+            microtime(true) - $startTime,
+            $record
+        );
     }
 
     /**
