@@ -1012,6 +1012,269 @@ class InitCommandUnitTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Auth feature wiring
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * When the 'auth' feature is requested, the scaffolder must create
+     * src/Controllers/Login.php so that /login routes to a login form.
+     */
+    public function testAuthFeatureScaffoldsLoginController(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'AuthApp',
+            '--namespace' => 'AuthApp',
+            '--features'  => 'auth',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'authapp_db',
+            '--db-user'   => 'authapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — Login controller must exist
+        $loginPath = $this->tmpDir . '/src/Controllers/Login.php';
+        $this->assertFileExists($loginPath, 'src/Controllers/Login.php must be scaffolded when auth feature is enabled');
+
+        $login = file_get_contents($loginPath);
+
+        // Must declare the correct namespace
+        $this->assertStringContainsString('namespace AuthApp\\Controllers;', $login);
+
+        // Must contain display, dologin, logout actions
+        $this->assertStringContainsString('public function display()', $login);
+        $this->assertStringContainsString('public function dologin()', $login);
+        $this->assertStringContainsString('public function logout()', $login);
+
+        // Must use the framework Auth class for authentication
+        $this->assertStringContainsString('Auth::getInstance()', $login);
+        $this->assertStringContainsString('->auth(', $login);
+        $this->assertStringContainsString('->logout()', $login);
+    }
+
+    /**
+     * When the 'auth' feature is requested, the scaffolder must create
+     * src/Controllers/Account.php that extends the framework Dashboard controller,
+     * making all account management actions available via /account.
+     */
+    public function testAuthFeatureScaffoldsAccountControllerExtendingDashboard(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'AuthApp',
+            '--namespace' => 'AuthApp',
+            '--features'  => 'auth',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'authapp_db',
+            '--db-user'   => 'authapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — Account controller must exist
+        $accountPath = $this->tmpDir . '/src/Controllers/Account.php';
+        $this->assertFileExists($accountPath, 'src/Controllers/Account.php must be scaffolded when auth feature is enabled');
+
+        $account = file_get_contents($accountPath);
+
+        // Must declare the correct namespace
+        $this->assertStringContainsString('namespace AuthApp\\Controllers;', $account);
+
+        // Must extend the framework Dashboard controller
+        $this->assertStringContainsString('extends \\Pramnos\\Auth\\Controllers\\Dashboard', $account);
+    }
+
+    /**
+     * When the 'auth' feature is requested, the scaffolder must create a login
+     * view at src/Views/login/login.html.php with a working login form.
+     */
+    public function testAuthFeatureScaffoldsLoginView(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'AuthApp',
+            '--namespace' => 'AuthApp',
+            '--features'  => 'auth',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'authapp_db',
+            '--db-user'   => 'authapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — login view must exist
+        $viewPath = $this->tmpDir . '/src/Views/login/login.html.php';
+        $this->assertFileExists($viewPath, 'src/Views/login/login.html.php must be scaffolded when auth feature is enabled');
+
+        $view = file_get_contents($viewPath);
+
+        // Must POST to the dologin action
+        $this->assertStringContainsString('login/dologin', $view);
+
+        // Must have username and password fields
+        $this->assertStringContainsString('name="username"', $view);
+        $this->assertStringContainsString('name="password"', $view);
+
+        // Must show login error when present
+        $this->assertStringContainsString('$this->error', $view);
+    }
+
+    /**
+     * When the 'auth' feature is requested the Bootstrap theme header must include
+     * conditional PHP that renders Login/Logout/Account links depending on session state.
+     * This allows the navbar to reflect authentication status without a page refresh.
+     */
+    public function testAuthFeatureAddsAuthLinksToBootstrapNavbar(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — bootstrap UI with auth feature
+        $tester->execute([
+            '--app-name'  => 'AuthApp',
+            '--namespace' => 'AuthApp',
+            '--features'  => 'auth',
+            '--ui-system' => 'bootstrap',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'authapp_db',
+            '--db-user'   => 'authapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+
+        // Must check session state for login detection
+        $this->assertStringContainsString('staticIsLogged()', $header);
+
+        // Must have a login link
+        $this->assertStringContainsString('login/logout', $header);
+        $this->assertStringContainsString('href="<?php echo sURL; ?>login"', $header);
+
+        // Must have account link for logged-in users
+        $this->assertStringContainsString('href="<?php echo sURL; ?>account"', $header);
+    }
+
+    /**
+     * When the 'auth' feature is NOT requested, the theme header must NOT contain
+     * auth-related conditional PHP. The nav should remain static.
+     */
+    public function testNoAuthFeatureOmitsAuthLinksFromNavbar(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no features, bootstrap UI
+        $tester->execute([
+            '--app-name'  => 'PlainApp',
+            '--namespace' => 'PlainApp',
+            '--features'  => '',
+            '--ui-system' => 'bootstrap',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'plainapp_db',
+            '--db-user'   => 'plainapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+
+        // Auth nav conditional must not be present
+        $this->assertStringNotContainsString('staticIsLogged()', $header,
+            'Auth session check must not appear in navbar when auth feature is disabled');
+        $this->assertStringNotContainsString('login/logout', $header,
+            'Logout link must not appear in navbar when auth feature is disabled');
+    }
+
+    /**
+     * When the 'auth' feature is NOT requested, the Login and Account controllers
+     * must NOT be scaffolded — these are auth-only files.
+     */
+    public function testNoAuthFeatureSkipsLoginAndAccountControllers(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no features selected
+        $tester->execute([
+            '--app-name'  => 'PlainApp',
+            '--namespace' => 'PlainApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'plainapp_db',
+            '--db-user'   => 'plainapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — auth-specific controllers must not be created
+        $this->assertFileDoesNotExist(
+            $this->tmpDir . '/src/Controllers/Login.php',
+            'Login.php must not be scaffolded when auth feature is disabled'
+        );
+        $this->assertFileDoesNotExist(
+            $this->tmpDir . '/src/Controllers/Account.php',
+            'Account.php must not be scaffolded when auth feature is disabled'
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 

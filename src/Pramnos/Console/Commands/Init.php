@@ -203,7 +203,11 @@ class Init extends Command
             $withRestApi
         ));
 
-        $this->scaffoldTheme($uiSystem, $appName, $catalog);
+        $this->scaffoldTheme($uiSystem, $appName, $catalog, $enabledFeatures);
+
+        if (in_array('auth', $enabledFeatures, true)) {
+            $this->scaffoldAuthWiring($namespace, $uiSystem);
+        }
 
         if (!empty($selectedLibraries)) {
             $skipDownload = (bool) $input->getOption('no-download');
@@ -535,7 +539,7 @@ PHP;
      * registered in Application::registerVendorLibraries() and enqueued
      * per-page by controllers via addScript()/addStyle().
      */
-    private function scaffoldTheme(string $uiSystem, string $appName, array $catalog = []): void
+    private function scaffoldTheme(string $uiSystem, string $appName, array $catalog = [], array $features = []): void
     {
         $themeDir = $this->scaffoldingDir . '/themes/' . $uiSystem;
         $dest     = 'app/themes/default';
@@ -545,7 +549,7 @@ PHP;
             $this->writeFile($dest . '/theme.html.php', file_get_contents($src));
         }
 
-        $this->writeFile($dest . '/header.php', $this->buildThemeHeader($uiSystem, $appName, $catalog));
+        $this->writeFile($dest . '/header.php', $this->buildThemeHeader($uiSystem, $appName, $catalog, $features));
         $this->writeFile($dest . '/footer.php', $this->buildThemeFooter($uiSystem, $appName, $catalog));
 
         $cssFile = $themeDir . '/style.css';
@@ -558,7 +562,7 @@ PHP;
         }
     }
 
-    private function buildThemeHeader(string $uiSystem, string $appName, array $catalog): string
+    private function buildThemeHeader(string $uiSystem, string $appName, array $catalog, array $features = []): string
     {
         // Only layout-critical CSS lives here. Per-page libraries are
         // enqueued by controllers and output via renderCss().
@@ -572,6 +576,30 @@ PHP;
             }
         }
 
+        $withAuth = in_array('auth', $features, true);
+
+        $authNavBootstrap = $withAuth ? <<<'HTML'
+
+                    <?php if (\Pramnos\Http\Session::staticIsLogged()): ?>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>account">Account</a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>login/logout">Logout</a></li>
+                    <?php else: ?>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>login">Login</a></li>
+                    <?php endif; ?>
+HTML
+            : '';
+
+        $authNavPlain = $withAuth ? <<<'HTML'
+
+                    <?php if (\Pramnos\Http\Session::staticIsLogged()): ?>
+                    <li><a href="<?php echo sURL; ?>account">Account</a></li>
+                    <li><a href="<?php echo sURL; ?>login/logout">Logout</a></li>
+                    <?php else: ?>
+                    <li><a href="<?php echo sURL; ?>login">Login</a></li>
+                    <?php endif; ?>
+HTML
+            : '';
+
         $nav = match ($uiSystem) {
             'bootstrap' => <<<HTML
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -584,7 +612,7 @@ PHP;
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>">Home</a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>">Home</a></li>{$authNavBootstrap}
                 </ul>
             </div>
         </div>
@@ -598,7 +626,7 @@ HTML,
             </a>
             <nav class="main-nav">
                 <ul>
-                    <li><a href="<?php echo sURL; ?>">Home</a></li>
+                    <li><a href="<?php echo sURL; ?>">Home</a></li>{$authNavPlain}
                 </ul>
             </nav>
         </div>
@@ -1694,5 +1722,192 @@ PHP;
         }
 
         return $exitCode;
+    }
+
+    /**
+     * Scaffold auth wiring for a new application: Login controller, login view,
+     * and an Account controller wrapper around the framework Dashboard.
+     *
+     * Called from execute() only when the 'auth' feature is enabled.
+     */
+    private function scaffoldAuthWiring(string $namespace, string $uiSystem): void
+    {
+        $this->mkdir('src/Controllers');
+        $this->mkdir('src/Views/login');
+        $this->mkdir('src/Views/account');
+
+        // ── Login controller ──────────────────────────────────────────────────
+        $loginController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controller;
+use Pramnos\\Auth\\Auth;
+
+/**
+ * Handles user login, logout, and login form display.
+ */
+class Login extends Controller
+{
+    /** Show the login form. */
+    public function display(): void
+    {
+        \$doc = \\Pramnos\\Framework\\Factory::getDocument();
+        \$doc->title = 'Login';
+
+        \$view = \$this->getView('login');
+        \$view->error = \$_SESSION['login_error'] ?? '';
+        unset(\$_SESSION['login_error']);
+        \$view->display();
+    }
+
+    /** Process login form submission (POST). */
+    public function dologin(): void
+    {
+        \$username = trim((string) (\$_POST['username'] ?? ''));
+        \$password  = (string) (\$_POST['password'] ?? '');
+        \$remember  = !empty(\$_POST['remember']);
+
+        if (\$username === '' || \$password === '') {
+            \$_SESSION['login_error'] = 'Please enter your username and password.';
+            \$this->redirect(sURL . 'login');
+            return;
+        }
+
+        \$auth = Auth::getInstance();
+        if (\$auth->auth(\$username, \$password, \$remember)) {
+            \$this->redirect(sURL);
+        } else {
+            \$response = \$auth->lastResponse;
+            \$_SESSION['login_error'] = \$response['message'] ?? 'Invalid username or password.';
+            \$this->redirect(sURL . 'login');
+        }
+    }
+
+    /** Log out the current user and redirect to the homepage. */
+    public function logout(): void
+    {
+        Auth::getInstance()->logout();
+        \$this->redirect(sURL);
+    }
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Login.php', $loginController);
+
+        // ── Account controller (wrapper for framework Dashboard) ──────────────
+        $accountController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+/**
+ * User account dashboard — delegates to the framework Dashboard controller.
+ *
+ * Routes: /account (display), /account/security, /account/changepassword, etc.
+ * All actions require authentication (inherited from framework Dashboard).
+ */
+class Account extends \\Pramnos\\Auth\\Controllers\\Dashboard
+{
+    // Extend or override methods here as needed for this application.
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Account.php', $accountController);
+
+        // ── Login view ────────────────────────────────────────────────────────
+        $loginView = $uiSystem === 'bootstrap'
+            ? $this->buildBootstrapLoginView()
+            : $this->buildPlainLoginView();
+
+        $this->writeFile('src/Views/login/login.html.php', $loginView);
+
+        // ── Account views directory ───────────────────────────────────────────
+        // The framework Dashboard controller resolves its views from the app's
+        // view path (via getView('dashboard')). Scaffold a minimal placeholder.
+        $dashboardView = <<<'HTML'
+<?php /** @var \Pramnos\View\View $this */ ?>
+<div class="container mt-4">
+    <h1>My Account</h1>
+    <p>Welcome, <?php echo htmlspecialchars($this->user->username ?? 'User', ENT_QUOTES, 'UTF-8'); ?>.</p>
+    <ul>
+        <li><a href="<?php echo sURL; ?>account/security">Security</a></li>
+        <li><a href="<?php echo sURL; ?>account/changepassword">Change Password</a></li>
+        <li><a href="<?php echo sURL; ?>login/logout">Logout</a></li>
+    </ul>
+</div>
+HTML;
+
+        $this->writeFile('src/Views/account/dashboard.html.php', $dashboardView);
+    }
+
+    private function buildBootstrapLoginView(): string
+    {
+        return <<<'HTML'
+<?php /** @var \Pramnos\View\View $this */ ?>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-5">
+            <div class="card shadow-sm">
+                <div class="card-body p-4">
+                    <h2 class="card-title mb-4 text-center">Login</h2>
+                    <?php if (!empty($this->error)): ?>
+                    <div class="alert alert-danger"><?php echo htmlspecialchars($this->error, ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php endif; ?>
+                    <form method="post" action="<?php echo sURL; ?>login/dologin">
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Username or Email</label>
+                            <input type="text" class="form-control" id="username" name="username" required autofocus>
+                        </div>
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="password" name="password" required>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="remember" name="remember" value="1">
+                            <label class="form-check-label" for="remember">Remember me</label>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Login</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+HTML;
+    }
+
+    private function buildPlainLoginView(): string
+    {
+        return <<<'HTML'
+<?php /** @var \Pramnos\View\View $this */ ?>
+<div class="container">
+    <h1>Login</h1>
+    <?php if (!empty($this->error)): ?>
+    <p class="error"><?php echo htmlspecialchars($this->error, ENT_QUOTES, 'UTF-8'); ?></p>
+    <?php endif; ?>
+    <form method="post" action="<?php echo sURL; ?>login/dologin">
+        <div class="form-group">
+            <label for="username">Username or Email</label>
+            <input type="text" id="username" name="username" required autofocus>
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <div class="form-group">
+            <label>
+                <input type="checkbox" name="remember" value="1"> Remember me
+            </label>
+        </div>
+        <button type="submit">Login</button>
+    </form>
+</div>
+HTML;
     }
 }

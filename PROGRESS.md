@@ -1,7 +1,30 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 112) — Init routing & API scaffold fixes ✅
+## 📅 Last Updated: 2026-05-22 (session 113) — Auth feature wiring in init app ✅
+
+## 🏁 Session 113 — Auth feature wiring + CRUD scaffold fixes (2026-05-22)
+
+### ✅ Auth feature wiring in `init app`
+
+Commit: (pending)
+
+Το `init app` τώρα scaffolds authentication wiring όταν επιλεγεί το `auth` feature:
+
+- **`src/Controllers/Login.php`:** Handles `display()` (login form), `dologin()` (POST authentication via `Auth::getInstance()->auth()`), και `logout()`. `dologin` και `logout` είναι `addNoRenderAction` (κάνουν redirect).
+- **`src/Controllers/Account.php`:** Thin wrapper που extends `\Pramnos\Auth\Controllers\Dashboard` — δίνει πρόσβαση σε όλες τις framework account management actions (`/account`, `/account/security`, `/account/changepassword`, κτλ.) μέσω του app namespace.
+- **`src/Views/login/login.html.php`:** Login form view (Bootstrap ή plain-CSS variant), με error display, username/password fields, remember me checkbox.
+- **`src/Views/account/dashboard.html.php`:** Minimal account overview view.
+- **Theme navbar:** `buildThemeHeader()` δέχεται τώρα `$features` array. Όταν `auth` είναι ενεργό, generates PHP conditional block: Login link (αν δεν είναι logged in) ή Account + Logout links (αν είναι logged in). Χρησιμοποιεί `\Pramnos\Http\Session::staticIsLogged()`.
+- **6 νέα tests** στο `InitCommandUnitTest`: scaffolding Login/Account controllers, login view, navbar auth links (present/absent ανάλογα με feature).
+
+### ✅ CRUD scaffold fixes (commit `7edccb7`)
+
+- **`$ is not defined`:** jQuery φορτώνεται στο footer αλλά inline `$(document.ready())` εκτελείται πριν. Fix: polling pattern `(function poll() { if (typeof PramnosDataTable !== 'undefined') {...} else { setTimeout(poll, 30); }})()`.
+- **403 Forbidden στο "Create":** `edit` action ήταν στο `addAuthAction`. Fix: μόνο `save` και `delete` χρειάζονται auth.
+- **Singular list title:** `$objectName` αντί για `$objectNamePlural`. Fix: προστέθηκε `$objectNamePlural = $objectName . 's'`.
+
+---
 
 ## 🏁 Session 112 — Init routing fix + full REST API scaffold (2026-05-22)
 
