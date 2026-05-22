@@ -649,10 +649,17 @@ HTML,
             ];
 
             if (!$skipDownload) {
-                $output->writeln("  <comment>→ Downloading $key@{$lib['version']}...</comment>");
-                [$downloadedCss, $downloadedJs] = $this->downloadLibraryAssets($key, $lib, true);
-                $manifest[$key]['css'] = $downloadedCss;
-                $manifest[$key]['js']  = $downloadedJs;
+                if (!empty($lib['bundled'])) {
+                    $output->writeln("  <comment>→ Copying $key@{$lib['version']} (bundled)...</comment>");
+                    [$copiedCss, $copiedJs] = $this->copyBundledAssets($lib);
+                    $manifest[$key]['css'] = $copiedCss;
+                    $manifest[$key]['js']  = $copiedJs;
+                } else {
+                    $output->writeln("  <comment>→ Downloading $key@{$lib['version']}...</comment>");
+                    [$downloadedCss, $downloadedJs] = $this->downloadLibraryAssets($key, $lib, true);
+                    $manifest[$key]['css'] = $downloadedCss;
+                    $manifest[$key]['js']  = $downloadedJs;
+                }
             }
         }
 
@@ -690,6 +697,45 @@ HTML,
         }
 
         return [$downloadedCss, $downloadedJs];
+    }
+
+    /**
+     * Copy framework-bundled asset files from scaffolding/resources to the project's www/ dir.
+     *
+     * Used for libraries with `"bundled": true` in assets.json — these ship with the
+     * framework itself and are copied rather than downloaded from a CDN.
+     *
+     * @param array $lib  Library entry from assets.json (must have source_path, local_path, js, css)
+     * @return array{list<string>, list<string>}  [copied_css_paths, copied_js_paths]
+     */
+    private function copyBundledAssets(array $lib): array
+    {
+        $sourceBase = $this->scaffoldingDir . DIRECTORY_SEPARATOR . ($lib['source_path'] ?? '');
+        $localBase  = $this->targetBaseDir . '/www/' . $lib['local_path'];
+
+        if (!is_dir($localBase)) {
+            @mkdir($localBase, 0777, true);
+        }
+
+        $copiedCss = [];
+        $copiedJs  = [];
+
+        foreach ($lib['css'] as $filename) {
+            $src  = $sourceBase . DIRECTORY_SEPARATOR . $filename;
+            $dest = $localBase . '/' . $filename;
+            if (file_exists($src) && @copy($src, $dest)) {
+                $copiedCss[] = $lib['local_path'] . '/' . $filename;
+            }
+        }
+        foreach ($lib['js'] as $filename) {
+            $src  = $sourceBase . DIRECTORY_SEPARATOR . $filename;
+            $dest = $localBase . '/' . $filename;
+            if (file_exists($src) && @copy($src, $dest)) {
+                $copiedJs[] = $lib['local_path'] . '/' . $filename;
+            }
+        }
+
+        return [$copiedCss, $copiedJs];
     }
 
     private function downloadFile(string $url, string $dest): bool
