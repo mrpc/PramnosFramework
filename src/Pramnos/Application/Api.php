@@ -99,9 +99,21 @@ class Api extends Application
         $doc = &\Pramnos\Framework\Factory::getDocument('raw');
 
         // Build the middleware pipeline: CORS → JSON content-type → API auth
-        $allowedOrigins = (array) ($this->applicationInfo['cors_origins'] ?? ['*']);
+        //
+        // CORS resolution priority:
+        //  1. cors_from_db: true in applicationInfo → read from application_settings table (PF-43)
+        //  2. cors_origins array in applicationInfo → use as-is
+        //  3. Default: wildcard ['*']
         $pipeline = new \Pramnos\Http\MiddlewarePipeline();
-        $pipeline->pipe(new \Pramnos\Http\Middleware\CorsMiddleware($allowedOrigins));
+        if (!empty($this->applicationInfo['cors_from_db'])) {
+            $cors = \Pramnos\Http\Middleware\CorsMiddleware::fromApplicationSettings(
+                $this->applicationInfo['name'] ?? ''
+            );
+        } else {
+            $allowedOrigins = (array) ($this->applicationInfo['cors_origins'] ?? ['*']);
+            $cors = new \Pramnos\Http\Middleware\CorsMiddleware($allowedOrigins);
+        }
+        $pipeline->pipe($cors);
         $pipeline->pipe(new \Pramnos\Http\Middleware\JsonResponseMiddleware());
         $pipeline->pipe(new \Pramnos\Http\Middleware\ApiAuthMiddleware(
             apiKeyChecker: [$this, 'checkApiKey'],

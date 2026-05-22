@@ -1,9 +1,39 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 106) — REST API scaffolding (Phase 15 single config + scaffolding update) ✅
+## 📅 Last Updated: 2026-05-22 (session 106) — Phase 15 complete + PF-43 CORS from DB ✅
 
-## 🏁 Session 106 — REST API scaffolding — Phase 15 complete (2026-05-22)
+## 🏁 Session 106 — Phase 15 complete + PF-43 (2026-05-22)
+
+### ✅ Phase 15 Integration test — `ApiWebConvergenceTest`
+
+6 tests που επαληθεύουν το κεντρικό claim της Φάσης 15:
+- API pipeline (CorsMiddleware → JsonResponseMiddleware → ApiAuthMiddleware) χωρίς key → JSON 403
+- Invalid key → JSON 401
+- Valid key → $next καλείται, επιστρέφει το αποτέλεσμα του controller
+- Web pipeline (χωρίς auth) → $next πάντα καλείται
+- Ίδιο request — διαφορετική συμπεριφορά API vs web pipeline
+- Error envelope πάντα έχει τα 4 required keys
+
+**Φάση 15 ΟΛΟΚΛΗΡΩΜΕΝΗ.**
+
+### ✅ PF-43 — Database-driven CORS policy enforcement
+
+`CorsMiddleware` επεκτάθηκε με 3 νέα public members:
+- `getAllowedOrigins(): array` — getter για testing
+- `fromCorsData(bool $enabled, array|string|null $rawOrigins): self` — testable factory από pre-fetched DB data
+- `fromApplicationSettings(string $appName, ?Database $db = null): self` — DB factory που διαβάζει `application_settings` με JOIN σε `applications` by `name`. Fallback σε wildcard σε exception, 0 rows, ή `cors_enabled = false`.
+
+`Api::exec()` — νέα επίλυση CORS:
+1. `cors_from_db: true` στο `applicationInfo` → `fromApplicationSettings($name)`
+2. `cors_origins: [...]` → config-based (παλιά συμπεριφορά, BC διατηρείται)
+3. τίποτα → wildcard `['*']`
+
+11 unit tests στο `CorsMiddlewareTest.php`.
+
+---
+
+## 🏁 Session 106 — REST API scaffolding — Phase 15 partial (2026-05-22)
 
 ### ✅ `pramnos init --rest-api` — REST API scaffolding
 
