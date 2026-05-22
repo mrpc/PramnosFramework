@@ -184,8 +184,8 @@ class Init extends Command
         $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true);
         $this->scaffoldAppConfig('app/app.php', $appName, $namespace, $enabledFeatures, $uiSystem, $withRestApi);
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
-        $this->writeFile('www/index.php', $this->getIndexTemplate());
-        $this->writeFile('www/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?url=$1 [QSA,L]\n");
+        $this->writeFile('www/index.php', $this->getIndexTemplate($namespace));
+        $this->writeFile('www/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?r=\$1 [QSA,L]\n");
         $catalog = $this->loadAssetCatalog();
         $this->writeFile('src/Application.php', $this->getApplicationTemplate($namespace, $selectedLibraries, $catalog));
         $this->writeFile('src/Console.php', $this->getConsoleTemplate($namespace, $appName));
@@ -199,7 +199,8 @@ class Init extends Command
             ])
         );
         $this->writeFile('src/Views/home/home.html.php', $this->getHomepageView(
-            $appName, $namespace, $enabledFeatures, $selectedLibraries, $useDocker, $dockerPort, $dbType, $cliName
+            $appName, $namespace, $enabledFeatures, $selectedLibraries, $useDocker, $dockerPort, $dbType, $cliName,
+            $withRestApi
         ));
 
         $this->scaffoldTheme($uiSystem, $appName, $catalog);
@@ -464,24 +465,59 @@ class Init extends Command
     {
         $this->mkdir('src/Api/Controllers');
 
-        $stub = <<<'ROUTES'
+        $routesStub = <<<'ROUTES'
 <?php
 declare(strict_types=1);
 
-// API routes — loaded by the API application entry point.
-// Authentication is handled by ApiAuthMiddleware configured in the Api application.
+// API routes — included by Api::_executeCore() with $this bound to the Api instance.
+// Return value of this file is the dispatched response (passed back to the caller).
 
-/** @var \Pramnos\Routing\Router $router */
+$router     = new \Pramnos\Routing\Router($this);
+$newRequest = new \Pramnos\Http\Request();
 
 $router->group(
     ['prefix' => '/v1'],
     function (\Pramnos\Routing\Router $r): void {
-        // $r->get('/hello', [{{ namespace }}\Api\Controllers\HelloController::class, 'index']);
+        // Example: $r->get('/hello', [{{ namespace }}\Api\Controllers\HelloController::class, 'index']);
     }
 );
+
+return $router->dispatch($newRequest);
 ROUTES;
 
-        $this->writeFile('src/Api/routes.php', str_replace('{{ namespace }}', $namespace, $stub));
+        $this->writeFile('src/Api/routes.php', str_replace('{{ namespace }}', $namespace, $routesStub));
+
+        $apiClass = <<<PHP
+<?php
+namespace $namespace;
+
+class Api extends \\Pramnos\\Application\\Api
+{
+    // Add app-specific API behaviour here.
+}
+PHP;
+        $this->writeFile('src/Api.php', $apiClass);
+
+        $apiIndex = <<<PHP
+<?php
+define('ROOT', dirname(dirname(__DIR__)));
+define('SP', 1);
+require ROOT . '/vendor/autoload.php';
+
+\$app = new \\$namespace\\Api();
+\$app->init();
+\$app->exec();
+echo \$app->render();
+PHP;
+        $this->mkdir('www/api');
+        $this->writeFile('www/api/index.php', $apiIndex);
+
+        $apiHtaccess = "RewriteEngine On\n"
+            . "RewriteRule ^\$ index.php [L]\n"
+            . "RewriteCond %{REQUEST_FILENAME} !-f\n"
+            . "RewriteCond %{REQUEST_FILENAME} !-d\n"
+            . "RewriteRule ^(.*)\$ index.php?r=\$1 [QSA,L]\n";
+        $this->writeFile('www/api/.htaccess', $apiHtaccess);
     }
 
     private function scaffoldSettings(string $path, string $type, string $host, string $name, string $user, string $pass, string $prefix, bool $dev): void
@@ -793,18 +829,17 @@ HTML,
 XML;
     }
 
-    private function getIndexTemplate(): string
+    private function getIndexTemplate(string $namespace = 'Pramnos'): string
     {
         return <<<PHP
 <?php
-require __DIR__ . '/../vendor/autoload.php';
-
 define('ROOT', dirname(__DIR__));
 define('SP', 1);
+require ROOT . '/vendor/autoload.php';
 
-\$app = \Pramnos\Application\Application::getInstance();
+\$app = new \\$namespace\\Application();
 \$app->init();
-echo \$app->exec();
+\$app->exec();
 echo \$app->render();
 PHP;
     }
@@ -1197,7 +1232,9 @@ PHP;
         bool   $useDocker,
         int    $dockerPort,
         string $dbType,
-        string $cliName
+        string $cliName,
+        bool   $withApi    = false,
+        string $apiPrefix  = '/api/v1'
     ): string {
         $toolPort     = $dockerPort + 1;
         $toolName     = ($dbType === 'mysql') ? 'PHPMyAdmin' : 'Adminer';
@@ -1205,6 +1242,7 @@ PHP;
         $libList      = $selectedLibraries ? implode(', ', $selectedLibraries) : 'none';
         $appUrl       = $useDocker ? "http://localhost:$dockerPort" : '/';
         $toolUrl      = $useDocker ? "http://localhost:$toolPort" : '#';
+        $apiUrl       = $useDocker ? "http://localhost:$dockerPort" . $apiPrefix : $apiPrefix;
 
         $sections = "<h1>Welcome to $appName</h1>\n<p>Your Pramnos Framework application is ready.</p>\n\n";
 
@@ -1217,6 +1255,9 @@ PHP;
         if ($useDocker) {
             $sections .= "<h2>Quick Links</h2>\n<ul>\n";
             $sections .= "  <li><a href=\"$appUrl\">Application: $appUrl</a></li>\n";
+            if ($withApi) {
+                $sections .= "  <li><a href=\"$apiUrl\">REST API: $apiUrl</a></li>\n";
+            }
             $sections .= "  <li><a href=\"$toolUrl\">$toolName: $toolUrl</a></li>\n";
             $sections .= "</ul>\n\n";
         }
