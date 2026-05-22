@@ -1,7 +1,22 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 113) — Auth/authserver/logs wiring in init app ✅
+## 📅 Last Updated: 2026-05-23 (session 114) — Real-world app bug fixes ✅
+
+## 🏁 Session 114 — Real-world app bug fixes (2026-05-23)
+
+### ✅ Commit `cbd73f9` — 4 bugs από δοκιμή νέας εφαρμογής
+
+**Root cause ανάλυση της αλυσίδας:** `View::display()` επιστρέφει `$this->output`. `Controller::exec()` επιστρέφει αυτό που επιστρέφει η action method. `Application::exec()` δίνει το αποτέλεσμα στο `$doc->addContent()`. Το `Html::render()` φτιάχνει τη σελίδα από `_getContent()` (static buffer). Άρα: αν το `display()` επιστρέφει `void`, τίποτα δεν εμφανίζεται.
+
+- **Login κενή σελίδα:** Το scaffolded `Login::display()` ήταν δηλωμένο `void` και καλούσε `$view->display()` χωρίς return. Fix: αφαίρεση `: void`, προσθήκη `return $view->display()`. Το ίδιο πρόβλημα στο `Dashboard` (framework) — 6 action methods (display, applications, deleteaccount, privacy, security, changepassword) είχαν `void` και δεν επέστρεφαν view output.
+- **OAuth Apps κενό view:** `\Pramnos\Auth\Controllers\Oauth` δεν είχε `display()` στο actions array. Fix: προστέθηκε `display` στο `addAuthAction`, υλοποίηση που φέρνει λίστα OAuth applications από τον πίνακα `applications`. Scaffolding views για όλα τα themes (`bootstrap/plain-css/tailwind`).
+- **Logs iframe 403:** `LogController::display()` δεν ήταν auth-protected, αλλά το `LogViewerView` παράγει `<iframe>` που φορτώνει το `raw` action (που ΕΙΝΑΙprotected). Unauthenticated user έβλεπε τη σελίδα αλλά το iframe έπαιρνε 403. Fix: προσθήκη `display` στο `addAuthAction`.
+- **app/keys/ permission denied:** `OAuth2ServerFactory::generateKeyPair()` χρησιμοποιούσε `file_put_contents`/`mkdir` χωρίς error handling — PHP warnings σε κάθε request. Fix: `@mkdir` με logging, error checking για `file_put_contents`, `@chmod`. Επίσης directory mode αλλάχθηκε από `0700` σε `0750` (web server μπορεί να διαβάσει αν ίδια group).
+
+**Γιατί `file_put_contents` και όχι Storage/Filesystem:** Τα RSA κλειδιά είναι configuration infrastructure (fixed absolute path, expected by League OAuth2 library), όχι application content. Το Storage system είναι για named disks με relative paths (uploads, documents). Η `Filesystem` utility class δεν έχει καν write methods.
+
+---
 
 ## 🏁 Session 113 — Auth feature wiring + CRUD scaffold fixes (2026-05-22)
 
