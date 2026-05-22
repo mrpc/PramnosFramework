@@ -64,6 +64,14 @@ class Auth extends \Pramnos\Framework\Base
         //var_dump(\Pramnos\Addon\Addon::triger('Auth', 'auth', $username, $password));
         //echo '<br />';
         $addons = \Pramnos\Addon\Addon::getaddons('auth');
+        if (empty($addons)) {
+            \Pramnos\Logs\Logger::log(
+                'Auth::auth() — no auth handlers registered. '
+                . 'Add an auth addon (e.g. Pramnos\\Addon\\Auth\\UserDatabase) '
+                . "to your app.php 'addons' array.",
+                'auth'
+            );
+        }
         foreach ($addons as $addon) {
             if (method_exists($addon, 'onAuth')) {
                 $response = $addon->onAuth(

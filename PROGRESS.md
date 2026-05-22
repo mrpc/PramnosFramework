@@ -280,6 +280,33 @@ Phase 15 ROADMAP items marked ✅: Single config + Scaffolding update. Remaining
 
 ---
 
+## 🏁 Session 115 — Phase 25.3 & 25.6: MD5 auto-upgrade + empty-auth warning (2026-05-23)
+
+### ✅ Phase 25.3 — MD5 legacy password: opt-in + auto-upgrade to bcrypt
+
+**`Pramnos\Addon\Auth\UserDatabase::onAuth()`** — MD5 fallback is now disabled by default and opt-in via `'auth' => ['legacy_md5' => true]` in `app.php`. When enabled with `'auto_upgrade' => true` (default), a matched MD5 hash is immediately replaced with bcrypt in the database. New apps are unaffected.
+
+Bugs fixed in the same session (continuation of session 114):
+- `Auth\Controllers\Dashboard` — 6 methods had `: void` return type preventing view output from reaching Document buffer
+- `Auth\Controllers\Oauth` — `display` not registered in `addAuthAction`, added `display()` method
+- `Application\Controllers\LogController` — `display` missing from `addAuthAction`
+- `Auth\OAuth2\OAuth2ServerFactory` — `@` suppression on all file ops in `generateKeyPair()` and `loadOrGenerateEncryptionKey()`
+- `Application\Controller::exec()` — added `_throwAuthFailure()` that redirects unauthenticated users to `/login?return=...`
+- `Console\Commands\Init` — Login controller template now registers `dologin`/`logout` via `addaction()`; `scaffoldAppConfig()` injects `addons` section when auth is enabled
+- `plain-css/style.css` — added form/table/button styles that were missing entirely
+
+### ✅ Phase 25.6 — Warning when no auth handlers registered
+
+**`Pramnos\Auth\Auth::auth()`** — logs to `auth.log` when `Addon::getaddons('auth')` returns an empty array, instead of silently returning `false`.
+
+### Tests added
+
+- `tests/Integration/Database/UserDatabaseMySQLTest.php` — 5 tests × MySQL
+- `tests/Integration/Database/UserDatabasePostgreSQLTest.php` — 5 tests × PostgreSQL
+- `tests/Characterization/Auth/AuthCharacterizationTest.php` — 1 new test for empty-addons warning
+
+---
+
 ## 🏁 Session 104 — MakeCommandBase service decomposition + legacy `create` removal (2026-05-22)
 
 ### ✅ MakeCommandBase decomposed into 4 focused service classes
