@@ -845,7 +845,7 @@
 #### Open Jira Issues προς ενσωμάτωση
 - **PF-9:** Native caching σε views (όχι μόνο manual)
 - **PF-40:** Υποστήριξη group by επιλογής στο datatable UI (όχι μόνο backend)
-- **PF-43:** Database-driven CORS policy enforcement (όχι wildcard, να διαβάζει από application_settings)
+- ~~**PF-43:** Database-driven CORS policy enforcement~~ ✅ `CorsMiddleware::fromApplicationSettings(appName, ?db)` + `fromCorsData(enabled, rawOrigins)` + `getAllowedOrigins()`. `Api::exec()` χρησιμοποιεί `fromApplicationSettings()` όταν `cors_from_db: true` στο `applicationInfo`. Fallback σε wildcard όταν η `application_settings` δεν υπάρχει / η DB δεν είναι συνδεδεμένη. 11 unit tests.
 
 > Τα παρακάτω είναι **υποχρεωτικά follow-ups** που εντοπίστηκαν από τα νέα framework-native characterization tests. Παραμένουν εδώ ως ενεργό backlog και κλείνουν σταδιακά με ξεχωριστά commits.
 
@@ -1074,7 +1074,7 @@ class UsersApiController
 - [x] **`Api` class refactor (BC-safe):** το `Api::exec()` γίνεται thin wrapper που τρέχει `CorsMiddleware → JsonResponseMiddleware → ApiAuthMiddleware` pipeline. Κύρια λογική εξαιρέθηκε στο `_executeCore()`. `cors_origins` configurable μέσω `applicationInfo`. Συμπεριφορά αμετάβλητη.
 - [x] **Single config:** `app/app.php` αποκτά ένα `'api'` section (`prefix`, `cors_origins`, `version`) — δεν χρειάζεται ξεχωριστό `app/api.php`. Το ξεχωριστό config παραμένει supported για BC. Παράγεται μόνο αν `--rest-api=y`.
 - [x] **Scaffolding update:** `pramnos init` ρωτάει «Scaffold a REST API layer? [y/N]» (Step 2b) — αν ναι, δημιουργεί `src/Api/Controllers/` + `src/Api/routes.php` με Router::group() παράδειγμα, **χωρίς** ξεχωριστό entry point. 4 unit tests στο `InitCommandUnitTest.php`.
-- [ ] **Integration test:** API routes επιστρέφουν JSON και web routes επιστρέφουν HTML από το ίδιο `Application` instance.
+- [x] **Integration test:** API routes επιστρέφουν JSON και web routes επιστρέφουν HTML από το ίδιο `Application` instance. (`ApiWebConvergenceTest` — 6 tests: 403 JSON missing key, 401 JSON invalid key, pass-through with valid key, web pipeline no auth, same request handled differently by API vs web pipeline, error envelope structure).
 
 > **BC:** `Pramnos\Application\Api`, `www/api/index.php` με `new Api(...)`, και ξεχωριστό `app/api.php` συνεχίζουν να λειτουργούν αναλλοίωτα. Δεν υπάρχει deprecation — η νέα προσέγγιση είναι additive.
 

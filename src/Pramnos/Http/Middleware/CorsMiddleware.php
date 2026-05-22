@@ -34,6 +34,86 @@ class CorsMiddleware implements MiddlewareInterface
         private int   $maxAge = 86400
     ) {}
 
+    /** @return list<string> */
+    public function getAllowedOrigins(): array
+    {
+        return $this->allowedOrigins;
+    }
+
+    /**
+     * Construct from pre-fetched application_settings data.
+     *
+     * Separates data-parsing from DB access so the logic can be unit-tested
+     * without a database connection.
+     *
+     * @param bool              $enabled    Value of application_settings.cors_enabled
+     * @param list<string>|string|null $rawOrigins  JSON string or array from cors_origins column
+     */
+    public static function fromCorsData(bool $enabled, array|string|null $rawOrigins): self
+    {
+        if (!$enabled) {
+            return new self(['*']);
+        }
+        if (is_string($rawOrigins)) {
+            $rawOrigins = json_decode($rawOrigins, true) ?? [];
+        }
+        $origins = array_values(array_filter((array) $rawOrigins));
+        return new self(!empty($origins) ? $origins : ['*']);
+    }
+
+    /**
+     * Build a CorsMiddleware by reading cors_enabled and cors_origins from the
+     * application_settings table (PF-43).
+     *
+     * Falls back to wildcard ('*') when:
+     *  - The DB is unavailable (table not yet migrated, connection error)
+     *  - No row exists for $appName
+     *  - cors_enabled is false
+     *
+     * @param string                           $appName Human-readable name from applications.name
+     * @param \Pramnos\Database\Database|null  $db      Injected connection (defaults to Factory)
+     */
+    public static function fromApplicationSettings(
+        string $appName,
+        ?\Pramnos\Database\Database $db = null
+    ): self {
+        try {
+            $db       ??= \Pramnos\Framework\Factory::getDatabase();
+            $isPostgres = ($db->type === 'postgresql');
+
+            if ($isPostgres) {
+                $sql = $db->prepareQuery(
+                    "SELECT s.cors_enabled, s.cors_origins
+                     FROM applications.application_settings s
+                     JOIN public.applications a ON a.appid = s.appid
+                     WHERE a.name = %s
+                     LIMIT 1",
+                    $appName
+                );
+            } else {
+                $sql = $db->prepareQuery(
+                    "SELECT s.cors_enabled, s.cors_origins
+                     FROM `applications_application_settings` s
+                     JOIN `applications` a ON a.appid = s.appid
+                     WHERE a.name = %s
+                     LIMIT 1",
+                    $appName
+                );
+            }
+
+            $result = $db->query($sql);
+            if ($result && $result->numRows > 0) {
+                return static::fromCorsData(
+                    (bool) $result->fields['cors_enabled'],
+                    $result->fields['cors_origins'] ?? null
+                );
+            }
+        } catch (\Throwable) {
+            // DB unavailable, table missing, feature not enabled — fall back to wildcard.
+        }
+        return new self(['*']);
+    }
+
     public function handle(Request $request, callable $next): mixed
     {
         $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
