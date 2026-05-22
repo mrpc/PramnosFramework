@@ -122,7 +122,13 @@ class OAuth2ServerFactory
         $keysDir = dirname($this->privateKeyPath);
 
         if (!is_dir($keysDir)) {
-            mkdir($keysDir, 0700, true);
+            if (!@mkdir($keysDir, 0750, true)) {
+                \Pramnos\Logs\Logger::log(
+                    'OAuth2: cannot create keys directory: ' . $keysDir
+                    . '. Run `pramnos init` or create it manually with correct permissions.'
+                );
+                return;
+            }
         }
 
         if (file_exists($this->privateKeyPath) && file_exists($this->publicKeyPath)) {
@@ -135,13 +141,31 @@ class OAuth2ServerFactory
             'private_key_type' => OPENSSL_KEYTYPE_RSA,
         ]);
 
+        if ($privateKey === false) {
+            \Pramnos\Logs\Logger::log('OAuth2: RSA key generation failed: ' . openssl_error_string());
+            return;
+        }
+
         openssl_pkey_export($privateKey, $privateKeyPem);
-        file_put_contents($this->privateKeyPath, $privateKeyPem);
-        chmod($this->privateKeyPath, 0600);
+
+        if (file_put_contents($this->privateKeyPath, $privateKeyPem) === false) {
+            \Pramnos\Logs\Logger::log(
+                'OAuth2: cannot write private key to ' . $this->privateKeyPath
+                . '. Check directory permissions.'
+            );
+            return;
+        }
+        @chmod($this->privateKeyPath, 0600);
 
         $details = openssl_pkey_get_details($privateKey);
-        file_put_contents($this->publicKeyPath, $details['key']);
-        chmod($this->publicKeyPath, 0644);
+        if (file_put_contents($this->publicKeyPath, $details['key']) === false) {
+            \Pramnos\Logs\Logger::log(
+                'OAuth2: cannot write public key to ' . $this->publicKeyPath
+                . '. Check directory permissions.'
+            );
+            return;
+        }
+        @chmod($this->publicKeyPath, 0644);
     }
 
     /**

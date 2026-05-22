@@ -41,6 +41,8 @@ class Oauth extends Controller
             'userinfo', 'logout', 'deviceauthorization',
         ]);
 
+        $this->addAuthAction(['display']);
+
         $this->oauth2Factory = new OAuth2ServerFactory($this);
         $this->oauth2Factory->generateKeyPair();
 
@@ -51,6 +53,41 @@ class Oauth extends Controller
             header('Access-Control-Allow-Headers: Content-Type, Authorization');
             exit(0);
         }
+    }
+
+    // ── Admin overview ────────────────────────────────────────────────────────
+
+    /**
+     * Admin overview — list of registered OAuth2 applications.
+     *
+     * Requires authentication (addAuthAction). Renders via the scaffolded
+     * view at src/Views/oauth/oauth.html.php (falling back to the framework
+     * scaffolding view oauth/oauth.html.php).
+     */
+    public function display()
+    {
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = 'OAuth Applications';
+
+        $db = \Pramnos\Framework\Factory::getDatabase();
+
+        $result = $db->queryBuilder()
+            ->table('applications')
+            ->select(['appid', 'name', 'description', 'apikey', 'status', 'created'])
+            ->orderBy('created', 'desc')
+            ->get();
+
+        $apps = [];
+        if ($result) {
+            while ($result->fetch()) {
+                $apps[] = (array) $result->fields;
+            }
+        }
+
+        $view        = $this->getView('oauth');
+        $view->apps  = $apps;
+
+        return $view->display();
     }
 
     // ── Authorization endpoint ────────────────────────────────────────────────

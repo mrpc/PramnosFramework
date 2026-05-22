@@ -1781,7 +1781,7 @@ use Pramnos\\Auth\\Auth;
 class Login extends Controller
 {
     /** Show the login form. */
-    public function display(): void
+    public function display()
     {
         \$doc = \\Pramnos\\Framework\\Factory::getDocument();
         \$doc->title = 'Login';
@@ -1789,7 +1789,7 @@ class Login extends Controller
         \$view = \$this->getView('login');
         \$view->error = \$_SESSION['login_error'] ?? '';
         unset(\$_SESSION['login_error']);
-        \$view->display();
+        return \$view->display();
     }
 
     /** Process login form submission (POST). */
