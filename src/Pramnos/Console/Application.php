@@ -46,7 +46,6 @@ class Application extends \Symfony\Component\Console\Application
     protected function registerCommands()
     {
         $this->add(new \Pramnos\Console\Commands\Init());
-        $this->add(new \Pramnos\Console\Commands\Create()); // Legacy alias
         $this->add(new \Pramnos\Console\Commands\Make\MakeModel());
         $this->add(new \Pramnos\Console\Commands\Make\MakeController());
         $this->add(new \Pramnos\Console\Commands\Make\MakeView());
