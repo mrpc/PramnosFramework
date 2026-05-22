@@ -1704,3 +1704,182 @@ $_nav = \Pramnos\Application\NavRegistry::getForUser($_navUser, $_navFeatures);
 **Scaffolding:**
 - [ ] `buildThemeHeader()` παράγει nav snippet που καλεί `NavRegistry::getForUser()` (string assertion)
 - [ ] `header.php` δεν περιέχει hardcoded controller URLs μετά τη Φάση 24
+
+---
+
+## Phase 25: Auth System Modernization — Addons → Native / Middleware
+
+### Κίνητρο
+
+Το framework έχει 3 built-in addons που αποτελούν ουσιαστικά **υποδομή, όχι επέκταση**. Πρέπει να γίνουν native components ή middleware, με το addon system να παραμένει μόνο για genuine extension points (LDAP, OAuth external, custom auth providers).
+
+---
+
+### 25.1 — Ανάλυση υπαρχόντων addons
+
+| Addon | Type | Hook | Τι κάνει | Κατάλληλο για |
+|---|---|---|---|---|
+| `Addon\Auth\UserDatabase` | `auth` | `onAuth`, `onAuthCheck` | Επαλήθευση κωδικού από DB | Native driver (default) |
+| `Addon\User\User` | `user` | `onLogin`, `onLogout` | Session vars + cookies + lastlogin | Built-in lifecycle (Auth class) |
+| `Addon\System\Session` | `system` | `onAppInit` | DB session tracking, bot detection, force-logout | `SessionTrackingMiddleware` (opt-in) |
+
+**Κοινό πρόβλημα:** Αν κάποιο addon δεν φορτωθεί στο `app.php`, το σύστημα αποτυγχάνει σιωπηλά — δεν υπάρχει fallback ούτε warning.
+
+---
+
+### 25.2 — `UserDatabase` → Native Authentication Driver
+
+**Στόχος:** Το `Auth::auth()` να λειτουργεί χωρίς addon registration στο `app.php`.
+
+#### Σχέδιο
+
+```php
+// Πριν: απαιτεί 'addons' entry στο app.php
+Auth::getInstance()->auth($user, $pass);  // → silent false αν δεν υπάρχει addon
+
+// Μετά: λειτουργεί out-of-the-box
+Auth::getInstance()->auth($user, $pass);  // → χρησιμοποιεί DatabaseAuthDriver by default
+```
+
+- Νέος `DatabaseAuthDriver` (`src/Pramnos/Auth/Drivers/DatabaseAuthDriver.php`) — εξάγει λογική από `UserDatabase::onAuth()` σε standalone class
+- `Auth::setDriver(AuthDriverInterface $driver)` για custom drivers (LDAP, OAuth, κτλ.)
+- `Auth::addDriver(AuthDriverInterface $driver)` για chaining (π.χ. DB + LDAP fallback)
+- `AuthDriverInterface` — `verify(string $username, string $password): AuthResult`
+- Default driver: `DatabaseAuthDriver` — ενεργοποιείται αυτόματα χωρίς config
+- Addon system (παλιό): παραμένει functional για BC, με `@deprecated` notice
+
+#### BC
+
+Το `app.php` `addons` format δεν αφαιρείται — applications που το έχουν ήδη συνεχίζουν να δουλεύουν. Ο νέος driver απλώς προηγείται αν δεν υπάρχει addon.
+
+---
+
+### 25.3 — MD5 Legacy Path με Auto-Upgrade
+
+**Πρόβλημα:** Το `UserDatabase::onAuth()` (και ο `DatabaseAuthDriver`) υποστηρίζει `md5($password)` ως fallback για legacy password stores. Αυτό πρέπει να είναι:
+- Disabled by default σε νέες εφαρμογές
+- Enabled μόνο για legacy apps (explicit opt-in)
+- Αυτόματα αναβαθμίζεται σε bcrypt κατά το πρώτο login
+
+#### Σχέδιο
+
+```php
+// Νέα εφαρμογή: MD5 ανενεργό (default)
+$driver = new DatabaseAuthDriver(['legacy_md5' => false]);
+
+// Legacy εφαρμογή: MD5 ενεργό με auto-upgrade
+$driver = new DatabaseAuthDriver(['legacy_md5' => true, 'auto_upgrade' => true]);
+// → αν βρεθεί MD5 match, κάνει rehash σε bcrypt αμέσως και σώζει στη DB
+```
+
+#### Auto-upgrade flow
+
+```
+VERIFY($username, $password)
+  ├── bcrypt_verify(password + md5(salt+uid), stored_hash)  →  ✓ → login
+  ├── [legacy_md5=true] md5(password) == stored_hash        →  ✓ → login + rehash → login
+  └── FAIL
+```
+
+**Rehash:** Μόλις βρεθεί MD5 match:
+1. Υπολόγισε `$newHash = password_hash($password . md5($salt . $userId), PASSWORD_DEFAULT)`
+2. `UPDATE users SET password = $newHash WHERE userid = $userId`
+3. Συνέχισε το login κανονικά
+
+Αυτό εξαλείφει σταδιακά τα MD5 passwords χωρίς migration script.
+
+#### Config στο app.php
+
+```php
+'auth' => [
+    'legacy_md5'   => false,   // default για νέες εφαρμογές
+    'auto_upgrade' => true,    // αν legacy_md5=true, αναβάθμισε αυτόματα
+],
+```
+
+Το scaffolded `app.php` (με `auth` feature) παράγεται με `'legacy_md5' => false`.
+
+---
+
+### 25.4 — `Addon\User\User` → Built-in Login/Logout Lifecycle
+
+**Πρόβλημα:** Το `onLogin` / `onLogout` ρυθμίζει `$_SESSION`, cookies, και `lastlogin` — λογική που **πρέπει πάντα να τρέξει** μετά από κάθε επιτυχές login. Ο addon mechanism την κάνει optional (silently missing).
+
+#### Σχέδιο
+
+- Η λογική `onLogin` / `onLogout` ενσωματώνεται απευθείας στο `Auth` class ή σε `AuthLifecycle` class που καλείται αυτόματα
+- Extension points μέσω hooks: `Auth::afterLogin(callable $fn)` / `Auth::afterLogout(callable $fn)` για custom behavior
+- `Addon\User\User` παραμένει για BC (deprecated)
+
+---
+
+### 25.5 — `Addon\System\Session` → `SessionTrackingMiddleware` (opt-in)
+
+**Πρόβλημα:** Το `onAppInit` κάνει:
+- DB write σε **κάθε** request (performance cost)
+- Bot detection με 60+ regex
+- Tracking visitorid, country, agent
+- Force-logout μέσω sessions table
+
+Αυτό ΔΕΝ είναι appropriate για κάθε εφαρμογή — πρέπει να είναι opt-in.
+
+#### Σχέδιο
+
+```php
+// Διαχωρισμός σε υπηρεσίες:
+SessionTrackingMiddleware   // DB upsert sessions table + force-logout check
+BotDetector                 // extract: isBot(string $agent): bool + botName(string $agent): string
+VisitorTracker              // visitorid cookie management + lastseen
+
+// Opt-in στο app.php:
+'middleware' => [
+    \Pramnos\Http\Middleware\SessionTrackingMiddleware::class,
+],
+```
+
+- `Addon\System\Session` παραμένει για BC (deprecated)
+- Νέες εφαρμογές (scaffolded) δεν το ενεργοποιούν αυτόματα — το Session tracking γίνεται explicit choice
+- `BotDetector` είναι standalone service χρήσιμο και σε άλλα contexts (analytics, rate limiting)
+
+---
+
+### 25.6 — Improved Auth Error Surfacing
+
+**Πρόβλημα:** `Auth::auth()` επιστρέφει `false` σιωπηλά αν δεν υπάρχει κανένα addon / driver. Ο developer δεν ξέρει γιατί το login δεν δουλεύει.
+
+#### Σχέδιο
+
+```php
+// Αν δεν υπάρχει κανένας driver:
+Logger::log('Auth::auth() called but no authentication driver is registered. '
+    . 'Ensure DatabaseAuthDriver is configured or a Pramnos\\Addon\\Auth addon is loaded.');
+```
+
+---
+
+### Σειρά υλοποίησης
+
+```
+25.3 (MD5 auto-upgrade, μέσα στον υπάρχοντα UserDatabase)  — γρήγορο, isolated
+  ↓
+25.6 (error surfacing)                                       — 5 λεπτά
+  ↓
+25.2 (DatabaseAuthDriver native)                             — νέα κλάση + Auth refactor
+  ↓
+25.4 (Auth lifecycle built-in)                               — Auth class changes
+  ↓
+25.5 (SessionTrackingMiddleware)                             — νέο middleware + BotDetector
+```
+
+### Tests
+
+- [ ] `DatabaseAuthDriver::verify()` επιστρέφει `AuthResult::success` για σωστό bcrypt password
+- [ ] `DatabaseAuthDriver::verify()` επιστρέφει `AuthResult::failure` για λάθος password
+- [ ] `legacy_md5=false` → MD5 password δεν γίνεται δεκτό
+- [ ] `legacy_md5=true` → MD5 password γίνεται δεκτό ΚΑΙ rehashed σε bcrypt στη DB
+- [ ] Auto-upgrade: μετά το login, το stored password είναι πλέον bcrypt-verifiable
+- [ ] `Auth::auth()` χωρίς driver → log warning, return false
+- [ ] `SessionTrackingMiddleware` γράφει session record στη DB
+- [ ] `BotDetector::isBot('Googlebot/2.1')` → true
+- [ ] `BotDetector::isBot('Mozilla/5.0 (Windows NT 10.0)')` → false
+- [ ] BC: `app.php` με `addons: [UserDatabase]` συνεχίζει να δουλεύει
