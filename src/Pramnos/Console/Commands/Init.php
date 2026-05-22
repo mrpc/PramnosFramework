@@ -457,10 +457,18 @@ class Init extends Command
             ? "    'api' => [\n        'prefix'       => '$apiPrefix',\n        'cors_origins' => ['*'],\n        'version'      => 'v1',\n    ],\n"
             : '';
 
-        // Register the database auth addon when the auth feature is enabled.
-        // Without this, Auth::auth() finds no onAuth handlers and always returns false.
+        // Register the auth addon pair when the auth feature is enabled:
+        //   - UserDatabase: handles password verification (type=auth)
+        //   - User:         sets $_SESSION['logged'], uid, username after a successful
+        //                   login and clears cookies on logout (type=user)
+        // Without UserDatabase, Auth::auth() always returns false.
+        // Without User, auth succeeds but $_SESSION['logged'] is never set, so the
+        // app behaves as if the user is not logged in after every login attempt.
         $addonsSection = in_array('auth', $features, true)
-            ? "    'addons' => [\n        ['addon' => 'Pramnos\\\\Addon\\\\Auth\\\\UserDatabase', 'type' => 'auth'],\n    ],\n"
+            ? "    'addons' => [\n"
+              . "        ['addon' => 'Pramnos\\\\Addon\\\\Auth\\\\UserDatabase', 'type' => 'auth'],\n"
+              . "        ['addon' => 'Pramnos\\\\Addon\\\\User\\\\User', 'type' => 'user'],\n"
+              . "    ],\n"
             : '';
 
         $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}{$addonsSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n        'style-src'  => []\n    ]\n];\n";

@@ -8,8 +8,14 @@
                 <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>
             </a>
             <nav>
-                <ul class="flex gap-6">
+                <ul class="flex gap-6 items-center">
                     <li><a href="<?php echo sURL; ?>" class="text-gray-700 hover:text-blue-600 font-medium transition-colors">Home</a></li>
+                    <?php if (\Pramnos\Http\Session::staticIsLogged()): ?>
+                    <li><a href="<?php echo sURL; ?>account" class="text-gray-700 hover:text-blue-600 font-medium transition-colors">My Account</a></li>
+                    <li><a href="<?php echo sURL; ?>login/logout" class="text-gray-700 hover:text-blue-600 font-medium transition-colors">Logout (<?php echo htmlspecialchars((string) ($_SESSION['username'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>)</a></li>
+                    <?php else: ?>
+                    <li><a href="<?php echo sURL; ?>login" class="text-blue-600 font-semibold hover:text-blue-800 transition-colors">Login</a></li>
+                    <?php endif; ?>
                 </ul>
             </nav>
         </div>

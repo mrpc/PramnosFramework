@@ -314,6 +314,9 @@ class User extends \Pramnos\Framework\Base
             );
             $this->password = password_hash($pwd, PASSWORD_DEFAULT);
         } else {
+            // userid <= 1: either unsaved user (default userid=1) or Guest
+            // sentinel (userid=1 inserted by setupDb). MD5 is a placeholder;
+            // the caller must rehash after the real userid is known.
             $this->password = md5($password);
         }
     }

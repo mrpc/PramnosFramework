@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 114) — Real-world app bug fixes ✅
+## 📅 Last Updated: 2026-05-23 (session 116) — Scaffold addon fix + auth-aware nav ✅
 
 ## 🏁 Session 114 — Real-world app bug fixes (2026-05-23)
 
@@ -277,6 +277,30 @@ Phase 15 ROADMAP items marked ✅: Single config + Scaffolding update. Remaining
 ### ✅ Fix: PostgreSQL FK test
 
 `testUserConsentsCreatedInAuthserverSchemaOnPostgreSQL` was missing `CreateUsersTable->up()` before `CreateUserPrivacySettingsTable->up()`. The FK `REFERENCES public.users(userid)` failed when `public.users` didn't exist. Added `CreateUsersTable->up()` to Arrange and both `->down()` calls to teardown. Commit `22af117`.
+
+---
+
+## 🏁 Session 116 — Scaffold addon fix + auth-aware navigation (2026-05-23)
+
+### ✅ Scaffold: missing `Addon\User\User` addon
+
+**Root cause of login redirect bug:** After a successful login, `Auth::auth()` fires `triger('Login', 'user', $response)`, but if no `type=user` addon is registered, nobody sets `$_SESSION['logged'] = true`. The `dologin()` controller correctly redirects to `sURL` after auth — but without the session flag the app behaves as if the user is not logged in.
+
+**Fix:** `Console\Commands\Init::scaffoldAppConfig()` now emits **both** addons when `auth` is in the features list:
+- `Pramnos\Addon\Auth\UserDatabase` (type=auth) — handles password verification
+- `Pramnos\Addon\User\User` (type=user) — sets `$_SESSION['logged']`, `uid`, `username`, updates `lastlogin` and `sessions` table
+
+**Also fixed:** `User::setPassword()` — added explanatory comment about the `userid <= 1` sentinel (MD5 placeholder for unsaved users).
+
+### ✅ Scaffold header templates: auth-aware navigation
+
+All three scaffold themes (`plain-css`, `bootstrap`, `tailwind`) now render login-state-aware navigation using `\Pramnos\Http\Session::staticIsLogged()`:
+- Logged in: "My Account" + "Logout (username)"
+- Guest: "Login"
+
+Uses `staticIsLogged()` (checks both `$_SESSION['logged']` and `$_SESSION['uid'] > 1`) rather than raw `$_SESSION` access, consistent with how `test-app/themes/default/header.php` already worked.
+
+**Note:** This static nav is temporary scaffolding — **Phase 24 (NavRegistry)** will replace it with a dynamic registry where each controller registers its own nav item.
 
 ---
 

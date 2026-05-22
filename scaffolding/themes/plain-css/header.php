@@ -12,6 +12,12 @@
             <nav class="main-nav">
                 <ul>
                     <li><a href="<?php echo sURL; ?>">Home</a></li>
+                    <?php if (\Pramnos\Http\Session::staticIsLogged()): ?>
+                    <li><a href="<?php echo sURL; ?>account">My Account</a></li>
+                    <li><a href="<?php echo sURL; ?>login/logout">Logout (<?php echo htmlspecialchars((string) ($_SESSION['username'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>)</a></li>
+                    <?php else: ?>
+                    <li><a href="<?php echo sURL; ?>login">Login</a></li>
+                    <?php endif; ?>
                 </ul>
             </nav>
         </div>
