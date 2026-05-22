@@ -1063,6 +1063,29 @@ abstract class MakeCommandBase extends Command
         $stripped   = preg_replace('/^#PREFIX#/', '', $tableName);
         $entityName = str_replace(' ', '', ucwords(str_replace('_', ' ', $stripped)));
 
+        // Ask the user to confirm or override the derived class name.
+        // Singularisation is approximate (e.g. 'whores' → 'whor' instead of 'whore'),
+        // so the user must always have a chance to correct it before any file is written.
+        $suggestedClass = self::getProperClassName($entityName, true);
+        $output->writeln('');
+        $q = new Question(
+            " <info>Class name</info> (singular) [<comment>{$suggestedClass}</comment>]: ",
+            $suggestedClass
+        );
+        $q->setValidator(function ($v) {
+            $v = trim((string) $v);
+            if ($v === '') {
+                throw new \RuntimeException('Class name cannot be empty.');
+            }
+            if (!preg_match('/^[A-Z][A-Za-z0-9]*$/', $v)) {
+                throw new \RuntimeException(
+                    'Class name must start with an uppercase letter and contain only letters/digits.'
+                );
+            }
+            return $v;
+        });
+        $entityName = $helper->ask($input, $output, $q);
+
         // Announce secondary tables if any
         if (count($tables) > 1) {
             $output->writeln('');
@@ -2934,6 +2957,7 @@ PHP;
         $viewBasePath .= 'Views';
         $viewDir  = $viewBasePath . DS . strtolower($name);
         $className = self::getProperClassName($name, false);
+        $viewName  = strtolower($name);
         $objectName = ucfirst($name);
 
         if (!is_dir($viewDir)) {
