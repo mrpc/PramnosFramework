@@ -1568,44 +1568,70 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 #### Αρχιτεκτονική: `NavRegistry`
 
+#### Τα δύο μοντέλα permission
+
+Το framework παρέχει δύο επίπεδα permission control που πρέπει να υποστηρίζονται ταυτόχρονα:
+
+| Μοντέλο | Πότε χρησιμοποιείται | Πώς ελέγχεται |
+|---|---|---|
+| **Απλό** — `usertype` levels | Πάντα διαθέσιμο | `$user->usertype >= minUserType` |
+| **Σύνθετο** — RBAC roles/permissions | Μόνο όταν feature `authserver` + RBAC schema | `PermissionEngine::userHas($user, $permission)` |
+
+Κανόνας: **και τα δύο πρέπει να περνούν** όταν είναι ορισμένα. Το `minUserType` λειτουργεί ως minimum bar — ακόμα κι αν ο χρήστης έχει το RBAC permission, αν ο `usertype` είναι κάτω από το minimum, δεν βλέπει το item. Αν δεν υπάρχει RBAC (authserver απενεργοποιημένο), μόνο το `minUserType` μετράει.
+
 - [ ] **`\Pramnos\Application\NavRegistry`** — static registry (pattern ίδιο με `HealthRegistry`):
 
 ```php
 NavRegistry::register(new NavItem(
-    id:          'admin.logs',
-    label:       'Logs',
-    url:         sURL . 'logs',
-    section:     NavSection::Admin,   // Main | User | Admin | Feature
-    position:    10,
+    id:         'admin.logs',
+    label:      'Logs',
+    url:        sURL . 'logs',
+    section:    NavSection::Admin,
+    position:   10,
     requireAuth: true,
-    minUserType: 80,                  // 0=all, 50=user, 80=manager, 90=admin, 99=superadmin
-    feature:     null,                // null=always, 'auth', 'queue', 'authserver', ...
-    icon:        'bi-journal-text',   // Bootstrap Icons handle (optional)
+    minUserType: 80,               // Απλό μοντέλο: 0=all, 50=user, 80=manager, 90=admin, 99=superadmin
+    permission: 'admin.logs.view', // Σύνθετο μοντέλο: RBAC permission name (null = skip RBAC check)
+    feature:    null,              // null=always, 'auth', 'queue', 'authserver', ...
+    icon:       'bi-journal-text',
 ));
 ```
 
-- [ ] **`NavItem`** value object — immutable, readonly properties: `id`, `label`, `url`, `section`, `position`, `requireAuth`, `minUserType`, `feature`, `icon`
-- [ ] **`NavSection`** enum — `Main`, `User`, `Admin`, `Feature` (για ομαδοποίηση στη navbar)
-- [ ] **`NavRegistry::getForUser(?User $user, array $enabledFeatures): array`** — επιστρέφει filtered + sorted items ανά section:
-  - Αφαιρεί items με `requireAuth=true` αν ο χρήστης δεν είναι logged in
-  - Αφαιρεί items με `minUserType > $user->usertype`
-  - Αφαιρεί items με `feature` που δεν είναι στα `$enabledFeatures`
-  - Ταξινομεί ανά `position`
-- [ ] **`NavRegistry::reset()`** — για test isolation (ίδιο pattern με `HealthRegistry::reset()`)
+- [ ] **`NavItem`** value object — immutable, readonly properties: `id`, `label`, `url`, `section`, `position`, `requireAuth`, `minUserType`, `permission`, `feature`, `icon`
+- [ ] **`NavSection`** enum — `Main`, `User`, `Admin`, `Feature`
+- [ ] **`NavRegistry::getForUser(?User $user, array $enabledFeatures): array`** — επιστρέφει filtered + sorted items ανά section με **διπλό permission check**:
+  1. Αν `requireAuth=true` και χρήστης δεν είναι logged in → **αφαίρεση**
+  2. Αν `minUserType > 0` και `$user->usertype < minUserType` → **αφαίρεση**
+  3. Αν `permission !== null` ΚΑΙ RBAC είναι ενεργό (`authserver` + RBAC schema) → ελέγχει `PermissionEngine::userHas($user, $permission)` → αφαίρεση αν false
+  4. Αν `permission !== null` ΚΑΙ RBAC **δεν είναι** ενεργό → το permission check **παραλείπεται** (fallback στο minUserType)
+  5. Αν `feature !== null` και δεν είναι στα `$enabledFeatures` → **αφαίρεση**
+  6. Ταξινόμηση ανά `position`
+- [ ] **`NavRegistry::reset()`** — για test isolation
+- [ ] **`NavRegistry::remove(string $id)`** — για εφαρμογές που θέλουν να αφαιρέσουν framework items
 
 #### Εγγραφή nav items
 
-Κάθε framework controller εγγράφει το nav item του σε **static initializer** ή μέσω του `Application::init()` bootstrapping. Δεν χρειάζεται instance — η εγγραφή γίνεται μία φορά κατά το boot:
+Κάθε framework controller εγγράφει το nav item του μέσω του `Application::init()` bootstrapping. Δεν χρειάζεται instance — η εγγραφή γίνεται μία φορά κατά το boot:
 
 ```php
-// Στο Application::init() ή σε ServiceProvider::boot():
-NavRegistry::register(new NavItem('main.home',  'Home',   sURL,          NavSection::Main,  0));
-NavRegistry::register(new NavItem('admin.logs', 'Logs',   sURL.'logs',   NavSection::Admin, 10, requireAuth: true, minUserType: 80));
-NavRegistry::register(new NavItem('admin.health','Health',sURL.'health', NavSection::Admin, 20, requireAuth: true, minUserType: 80));
-// κ.ο.κ. — κάθε φάση 23 controller προσθέτει τη δική του εγγραφή
+// Απλό μοντέλο μόνο (χωρίς authserver):
+NavRegistry::register(new NavItem('admin.logs', 'Logs', sURL.'logs',
+    NavSection::Admin, 10, requireAuth: true, minUserType: 80));
+
+// Και τα δύο μοντέλα (με authserver):
+NavRegistry::register(new NavItem('admin.tokens', 'Tokens', sURL.'tokens',
+    NavSection::Admin, 30, requireAuth: true, minUserType: 80,
+    permission: 'admin.tokens.view', feature: 'authserver'));
+
+// User section (login/logout — δεν χρειάζεται permission, μόνο auth state):
+NavRegistry::register(new NavItem('user.login',  'Login',   sURL.'login',
+    NavSection::User, 0, requireAuth: false));
+NavRegistry::register(new NavItem('user.account','Account', sURL.'account',
+    NavSection::User, 0, requireAuth: true,  minUserType: 1));
+NavRegistry::register(new NavItem('user.logout', 'Logout',  sURL.'login/logout',
+    NavSection::User, 99, requireAuth: true, minUserType: 1));
 ```
 
-Η εφαρμογή μπορεί να προσθέσει δικά της items ή να αφαιρέσει/αντικαταστήσει framework items (override by id).
+Η εφαρμογή μπορεί να προσθέσει δικά της items ή να αφαιρέσει/αντικαταστήσει framework items (override by id, `NavRegistry::remove()`).
 
 #### Scaffolded `header.php`
 
@@ -1657,9 +1683,24 @@ $_nav = \Pramnos\Application\NavRegistry::getForUser($_navUser, $_navFeatures);
 
 #### Tests
 
-- [ ] Unit tests για `NavRegistry`: register/getForUser, permission filtering, feature filtering, section grouping, position sorting, reset isolation
-- [ ] Unit tests για `NavItem` immutability και `NavSection` enum values
-- [ ] Test: anonymous user βλέπει μόνο `requireAuth=false` items
-- [ ] Test: `usertype=50` δεν βλέπει `minUserType=80` admin items
-- [ ] Test: disabled feature items φιλτράρονται από `getForUser()`
-- [ ] Test: `buildThemeHeader()` παράγει nav snippet που καλεί `NavRegistry::getForUser()` (string assertion)
+**Απλό μοντέλο (usertype):**
+- [ ] Anonymous user βλέπει μόνο `requireAuth=false` items
+- [ ] `usertype=50` δεν βλέπει `minUserType=80` admin items
+- [ ] `usertype=90` βλέπει `minUserType=80` items
+
+**Σύνθετο μοντέλο (RBAC):**
+- [ ] Χρήστης με αρκετό `minUserType` αλλά χωρίς RBAC permission → **δεν βλέπει** το item (RBAC ενεργό)
+- [ ] Χρήστης με αρκετό `minUserType` και χωρίς RBAC (authserver ανενεργό) → **βλέπει** το item (fallback)
+- [ ] Χρήστης με RBAC permission αλλά ανεπαρκή `usertype` → **δεν βλέπει** (minUserType πάντα ισχύει)
+- [ ] Χρήστης με αρκετό `minUserType` ΚΑΙ RBAC permission → **βλέπει** (και τα δύο pass)
+
+**Features & sections:**
+- [ ] Item με `feature: 'queue'` φιλτράρεται όταν το queue δεν είναι στα `$enabledFeatures`
+- [ ] Admin dropdown εμφανίζεται μόνο αν υπάρχουν ορατά admin items για τον χρήστη
+- [ ] `NavRegistry::remove()` αφαιρεί item, επόμενο `getForUser()` δεν το επιστρέφει
+- [ ] `NavRegistry::reset()` καθαρίζει όλα τα items (test isolation)
+- [ ] Items ταξινομούνται ανά `position` εντός κάθε section
+
+**Scaffolding:**
+- [ ] `buildThemeHeader()` παράγει nav snippet που καλεί `NavRegistry::getForUser()` (string assertion)
+- [ ] `header.php` δεν περιέχει hardcoded controller URLs μετά τη Φάση 24
