@@ -57,6 +57,7 @@ class Init extends Command
         $this->addOption('libraries',     null, InputOption::VALUE_OPTIONAL, 'Comma-separated extra library list');
         $this->addOption('no-download',   null, InputOption::VALUE_NONE,     'Skip asset download (record in assets.json only)');
         $this->addOption('no-migrations', null, InputOption::VALUE_NONE,     'Skip migrate --scope=framework after Docker startup');
+        $this->addOption('rest-api',      null, InputOption::VALUE_OPTIONAL, 'Scaffold REST API layer (y/n)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -90,6 +91,7 @@ class Init extends Command
 
         // ── Step 2: Framework features ────────────────────────────────────────
         $enabledFeatures = $this->askFeatures($input, $output, $helper);
+        $withRestApi     = $this->askRestApi($input, $output, $helper);
 
         // ── Step 3: UI system ─────────────────────────────────────────────────
         $uiSystem = $this->askUiSystem($input, $output, $helper);
@@ -180,7 +182,7 @@ class Init extends Command
         $cliName = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $namespace));
 
         $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true);
-        $this->scaffoldAppConfig('app/app.php', $appName, $namespace, $enabledFeatures, $uiSystem);
+        $this->scaffoldAppConfig('app/app.php', $appName, $namespace, $enabledFeatures, $uiSystem, $withRestApi);
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
         $this->writeFile('www/index.php', $this->getIndexTemplate());
         $this->writeFile('www/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?url=$1 [QSA,L]\n");
@@ -213,6 +215,11 @@ class Init extends Command
 
         $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker);
         $this->scaffoldGitignore($enabledFeatures);
+
+        if ($withRestApi) {
+            $this->scaffoldRestApi($namespace);
+        }
+
         $this->scaffoldAiGuidelines($appName, $namespace, $dbType, $dbName, $dbUser, $dbPass, $dockerPort, $cliName, $enabledFeatures);
 
         if (in_array('authserver', $enabledFeatures, true)) {
@@ -423,7 +430,9 @@ class Init extends Command
         string $appName,
         string $namespace,
         array  $features,
-        string $scaffoldTheme = ''
+        string $scaffoldTheme = '',
+        bool   $withApi = false,
+        string $apiPrefix = '/api/v1'
     ): void {
         $featuresPhp = empty($features)
             ? "    'features' => [],\n"
@@ -433,8 +442,46 @@ class Init extends Command
             ? "    'scaffold_theme' => '$scaffoldTheme',\n"
             : '';
 
-        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}    'csp' => [\n        'script-src' => [],\n        'style-src'  => []\n    ]\n];\n";
+        $apiSection = $withApi
+            ? "    'api' => [\n        'prefix'       => '$apiPrefix',\n        'cors_origins' => ['*'],\n        'version'      => 'v1',\n    ],\n"
+            : '';
+
+        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}{$apiSection}    'csp' => [\n        'script-src' => [],\n        'style-src'  => []\n    ]\n];\n";
         $this->writeFile($path, $content);
+    }
+
+    private function askRestApi(InputInterface $input, OutputInterface $output, mixed $helper): bool
+    {
+        $option = $input->getOption('rest-api');
+        if ($option !== null) {
+            return in_array(strtolower($option), ['y', 'yes', '1', 'true'], true);
+        }
+        $output->writeln("\n<comment>Step 2b — REST API</comment>");
+        return $helper->ask($input, $output, new ConfirmationQuestion('Scaffold a REST API layer? [y/N] ', false));
+    }
+
+    private function scaffoldRestApi(string $namespace): void
+    {
+        $this->mkdir('src/Api/Controllers');
+
+        $stub = <<<'ROUTES'
+<?php
+declare(strict_types=1);
+
+// API routes — loaded by the API application entry point.
+// Authentication is handled by ApiAuthMiddleware configured in the Api application.
+
+/** @var \Pramnos\Routing\Router $router */
+
+$router->group(
+    ['prefix' => '/v1'],
+    function (\Pramnos\Routing\Router $r): void {
+        // $r->get('/hello', [{{ namespace }}\Api\Controllers\HelloController::class, 'index']);
+    }
+);
+ROUTES;
+
+        $this->writeFile('src/Api/routes.php', str_replace('{{ namespace }}', $namespace, $stub));
     }
 
     private function scaffoldSettings(string $path, string $type, string $host, string $name, string $user, string $pass, string $prefix, bool $dev): void

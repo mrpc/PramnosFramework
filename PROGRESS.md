@@ -1,7 +1,30 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 105) — Router::group() + #[RouteGroup] (Φάση 7 complete) ✅
+## 📅 Last Updated: 2026-05-22 (session 106) — REST API scaffolding (Phase 15 single config + scaffolding update) ✅
+
+## 🏁 Session 106 — REST API scaffolding — Phase 15 complete (2026-05-22)
+
+### ✅ `pramnos init --rest-api` — REST API scaffolding
+
+`Init.php` extended with a new Step 2b question: «Scaffold a REST API layer? [y/N]».
+
+**When answered yes (`--rest-api=y`):**
+- Creates `src/Api/Controllers/` directory
+- Writes `src/Api/routes.php` with a `Router::group(['prefix' => '/v1'], ...)` example; `{{ namespace }}` token substituted with the app namespace
+- Writes `'api' => ['prefix' => '/api/v1', 'cors_origins' => ['*'], 'version' => 'v1']` section to `app/app.php`
+
+**When skipped (default):** no `src/Api/` directory, no `'api'` key in `app.php`.
+
+**CLI option:** `--rest-api=y` for non-interactive use.
+
+**4 new unit tests** in `InitCommandUnitTest.php`: directory+file creation, routes.php content (group call, /v1 prefix, namespace substitution), app.php api section keys, no-api skip behavior.
+
+**Suite: 4763 tests, 11495 assertions, 0 errors.**
+
+Phase 15 ROADMAP items marked ✅: Single config + Scaffolding update. Remaining open: Integration test.
+
+---
 
 ## 🏁 Session 105 — Router::group() + #[RouteGroup] — Φάση 7 complete (2026-05-22)
 
