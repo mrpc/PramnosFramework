@@ -1301,8 +1301,80 @@ class User extends \Pramnos\Framework\Base
     }
     
     /**
+     * Create a web-session token for the current user and store it in the session.
+     *
+     * Call this at the end of a successful web login.  The token is persisted
+     * in `usertokens` (type: `Token::TYPE_WEB_SESSION`) and placed in
+     * `$_SESSION['usertoken']` so that UnifiedAuthMiddleware can accept it on
+     * subsequent same-origin AJAX requests without a Bearer token.
+     *
+     * `$_SESSION['auth']` is kept for BC — existing code that reads it will
+     * continue to work, but new code should use the token mechanism.
+     *
+     * @param  string|null $ipAddress  Optional client IP (stored in the token record).
+     * @return Token                   The newly created token object.
+     */
+    public function createWebSessionToken(?string $ipAddress = null): Token
+    {
+        $rawToken = bin2hex(random_bytes(32));
+        $this->addToken(Token::TYPE_WEB_SESSION, $rawToken, 'web_session');
+
+        $database   = \Pramnos\Framework\Factory::getDatabase();
+        $result     = $database->queryBuilder()
+            ->table('usertokens')
+            ->where('token', $rawToken)
+            ->where('userid', $this->userid)
+            ->first();
+
+        if ($result->numRows > 0) {
+            $tokenObj             = new Token($result->fields);
+            $tokenObj->ipaddress  = $ipAddress ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+            $_SESSION['usertoken'] = $tokenObj;
+            return $tokenObj;
+        }
+
+        // Fallback: build a minimal in-memory token (DB write succeeded but
+        // re-read failed — should not happen in practice)
+        $tokenObj = new Token([
+            'tokentype' => Token::TYPE_WEB_SESSION,
+            'token'     => $rawToken,
+            'userid'    => $this->userid,
+            'status'    => 1,
+        ]);
+        $_SESSION['usertoken'] = $tokenObj;
+        return $tokenObj;
+    }
+
+    /**
+     * Invalidate the web-session token on logout.
+     *
+     * Marks the token as inactive in `usertokens` and removes it from the
+     * session.  Should be called before `session_destroy()` / `session_regenerate_id()`.
+     *
+     * @return void
+     */
+    public function invalidateWebSessionToken(): void
+    {
+        if (!isset($_SESSION['usertoken']) || !is_object($_SESSION['usertoken'])) {
+            return;
+        }
+        /** @var Token $token */
+        $token = $_SESSION['usertoken'];
+        if ($token->tokentype !== Token::TYPE_WEB_SESSION || $token->tokenid < 1) {
+            unset($_SESSION['usertoken']);
+            return;
+        }
+        try {
+            $this->deactivateToken($token->tokenid);
+        } catch (\Throwable) {
+            // Best-effort — session will be destroyed regardless
+        }
+        unset($_SESSION['usertoken']);
+    }
+
+    /**
      * Verify user password
-     * 
+     *
      * @param string $password
      * @return bool
      */

@@ -14,6 +14,41 @@ namespace Pramnos\User;
 class Token extends \Pramnos\Framework\Base
 {
     /**
+     * Web session token — created on web login, accepted by UnifiedAuthMiddleware via session cookie.
+     */
+    const TYPE_WEB_SESSION = 'web_session';
+
+    /**
+     * Standard API / authentication token — issued to first-party or third-party API clients.
+     */
+    const TYPE_API = 'auth';
+
+    /**
+     * OAuth2 Bearer access token.
+     */
+    const TYPE_ACCESS_TOKEN = 'access_token';
+
+    /**
+     * OAuth2 refresh token.
+     */
+    const TYPE_REFRESH_TOKEN = 'refresh_token';
+
+    /**
+     * OAuth2 authorization code.
+     */
+    const TYPE_AUTH_CODE = 'auth_code';
+
+    /**
+     * Apple Push Notification Service device token (push notifications only, not auth).
+     */
+    const TYPE_APNS = 'apns';
+
+    /**
+     * Google Cloud Messaging / Firebase device token (push notifications only, not auth).
+     */
+    const TYPE_GCM = 'gcm';
+
+    /**
      * Token ID (primary key)
      * @var int
      */

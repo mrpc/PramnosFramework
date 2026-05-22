@@ -1,7 +1,32 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 106) — Phase 15 complete + PF-43 CORS from DB ✅
+## 📅 Last Updated: 2026-05-22 (session 107) — Phase 16 complete (SPA-style auth) + ROADMAP Phase 17 fix ✅
+
+## 🏁 Session 107 — Phase 16 complete + ROADMAP Phase 17 fix (2026-05-22)
+
+### ✅ Phase 16 — SPA-style Auth (UnifiedAuthMiddleware)
+
+**Νέα αρχεία:**
+- `src/Pramnos/Http/Middleware/UnifiedAuthMiddleware.php` — Dual-credential middleware: Bearer JWT (path 1) ή session cookie + X-CSRF-Token (path 2). Χωρίς API key requirement.
+- `tests/Unit/Http/Middleware/UnifiedAuthMiddlewareTest.php` — 12 unit tests, όλα pass.
+
+**Αλλαγές σε υπάρχοντα αρχεία:**
+- `Token.php`: 7 class constants — `TYPE_WEB_SESSION`, `TYPE_API`, `TYPE_ACCESS_TOKEN`, `TYPE_REFRESH_TOKEN`, `TYPE_AUTH_CODE`, `TYPE_APNS`, `TYPE_GCM`.
+- `CsrfMiddleware.php`: νέα `csrfMeta()` static method — επιστρέφει `<meta name="csrf" ...>` για JS AJAX.
+- `ApiAuthMiddleware.php`: `@deprecated since v1.2` comment στο `HTTP_USERAUTH` path.
+- `User.php`: `createWebSessionToken()` + `invalidateWebSessionToken()`.
+- `Application.php`: web request audit trail — `addAction()` σε `TYPE_WEB_SESSION` tokens.
+
+**Docs:** §68 "SPA-style Auth — Session Cookie as API Credential (Phase 16)" στο `docs/1.2-new-features.md`.
+
+**Test suite:** 4794 tests, 11548 assertions — OK (0 errors).
+
+### ✅ ROADMAP Phase 17 fix
+
+Διόρθωση λανθασμένης αναφοράς "MySQL-only (`SHOW COLUMNS`)" για το `_getJsonList()`. Το method λειτουργεί cross-DB (MySQL μέσω `SHOW COLUMNS`, PostgreSQL μέσω `information_schema`). Το πραγματικό πρόβλημα Phase 17 είναι το legacy DataTables 1.9 format (aaData/sEcho).
+
+---
 
 ## 🏁 Session 106 — Phase 15 complete + PF-43 (2026-05-22)
 
