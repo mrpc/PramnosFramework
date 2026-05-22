@@ -1177,7 +1177,7 @@ JS AJAX → API controller → _getApiList() → {items, pagination} (clean REST
 #### Υλοποίηση — Server side
 
 - [x] **`_getApiList(format: 'datatables')`:** νέο optional parameter — wraps την `{items, pagination}` απόκριση στο DataTables 2.x format (`{draw, data, recordsTotal, recordsFiltered}`). Εσωτερική λεπτομέρεια, χωρίς αλλαγή στη δημόσια API.
-- [ ] **`_getJsonList()` → delegate:** `_getJsonList()` καλεί εσωτερικά `_getApiList(format: 'datatables')` και αποδίδει το ίδιο αποτέλεσμα. Κανένα υπάρχον `getJsonList()` override στο Urbanwater δεν σπάει — BC αποδεδειγμένα διατηρείται.
+- [x] **`_getJsonList()` → delegate:** `_getJsonList()` καλεί εσωτερικά `_getApiList()` και αποδίδει DT 1.9 envelope για BC. Κανένα υπάρχον `getJsonList()` override στο Urbanwater δεν σπάει.
 - [x] **Ενοποίηση column introspection:** `_getJsonList()` μεταβαίνει στο `_getAllTableFields()` αντί για inline `SHOW COLUMNS` / `information_schema` query — εξαλείφει τον duplicated κώδικα και ενοποιεί τη λογική introspection σε ένα σημείο.
 - [x] **`_getJsonList()` marked `@deprecated`** στο docblock — δεν αφαιρείται, αλλά η τεκμηρίωση κατευθύνει τους νέους developers στο `_getApiList()`.
 
@@ -1185,24 +1185,23 @@ JS AJAX → API controller → _getApiList() → {items, pagination} (clean REST
 
 Κάθε adapter είναι ένα μικρό JS module (`www/assets/vendor/pramnos/`) που μεταφράζει το widget protocol → API format:
 
-- [ ] **`PramnosDataTable` adapter:** DataTables 2.x serverSide mode — μεταφράζει `{draw, start, length, search, order, columns}` → `?page=N&search=...&order=...&fields=...`. Αντικαθιστά το legacy `_getJsonList()` pattern. Config: `data-api="/api/1.0/users"`.
-- [ ] **`PramnosGridJS` adapter:** Grid.js `server` config — μεταφράζει Grid.js pagination/search params → API format, αντιστοιχεί `{items, total}` → `{data, total}`. Vanilla JS, χωρίς jQuery εξάρτηση.
-- [ ] **CSRF header injection:** Και οι δύο adapters προσθέτουν αυτόματα `X-CSRF-Token` από το `<meta name="csrf">` (Φάση 16) — λειτουργούν χωρίς Bearer token όταν ο χρήστης είναι session-authenticated.
+- [x] **`PramnosDataTable` adapter:** DataTables 2.x serverSide mode — μεταφράζει `{draw, start, length, search, order, columns}` → `?page=N&search=...&order=...&fields=...`. Αντικαθιστά το legacy `_getJsonList()` pattern. Config: `data-dt-api="/api/1.0/users"`.
+- [x] **`PramnosGridJS` adapter:** Grid.js `server` config — μεταφράζει Grid.js pagination/search params → API format, αντιστοιχεί `{items, pagination}` → `{data, total}`. Vanilla JS, χωρίς jQuery εξάρτηση.
+- [x] **CSRF header injection:** Και οι δύο adapters προσθέτουν αυτόματα `X-CSRF-Token` από το `<meta name="csrf-token">` (Φάση 16) — λειτουργούν χωρίς Bearer token όταν ο χρήστης είναι session-authenticated.
 
 #### Αποτέλεσμα για τον developer
 
-```php
-// Πριν: ξεχωριστή μέθοδος στον controller για κάθε datatable
-public function getUsersJson() {
-    return (new User)->getJsonList();   // DT 1.9 format, non-REST
-}
-
-// Μετά: το DataTables widget καλεί απευθείας το API
-// <table data-api="/api/1.0/users" data-widget="datatables">
-// Κανένας server-side κώδικας δεν χρειάζεται
+```html
+<!-- Πριν: ξεχωριστή μέθοδος στον controller + inline DT config -->
+<!-- Μετά: table με data-dt-api, κανένας server-side κώδικας δεν χρειάζεται -->
+<table id="users-table" data-dt-api="<?php echo sURL;?>users/getApiList?format=datatables">
+</table>
+<script>
+$(function() { PramnosDataTable.init('#users-table', { columns: [...] }); });
+</script>
 ```
 
-- [ ] **Scaffolding:** `create:model` παράγει `getApiList()` override αντί για `getJsonList()`. Η view template για list pages χρησιμοποιεί το adapter αντί για inline DataTables config.
+- [x] **Scaffolding:** `create:model` παράγει `getApiList()` override μόνο (χωρίς `getJsonList()`). Η view template για list pages χρησιμοποιεί `PramnosDataTable.init()` αντί για inline DataTables config.
 - [x] **Tests:** server-side: `_getApiList(format: 'datatables')` output format validation × MySQL + PostgreSQL; `_getJsonList()` introspection unification tests × MySQL + PostgreSQL. Client-side: adapter unit tests (mock fetch) — pending.
 - [ ] **UrbanWater migration:** βλ. `UrbanWater-Cleanup-Guide.md` Phase 8 — custom `getJsonList()` overrides μεταφέρονται σταδιακά.
 

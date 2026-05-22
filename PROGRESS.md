@@ -1,7 +1,37 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 109) — create:migration wizard enhancements ✅
+## 📅 Last Updated: 2026-05-22 (session 110) — Phase 17 client-side complete ✅
+
+## 🏁 Session 110 — Phase 17 client-side complete (2026-05-22)
+
+### ✅ Phase 17 — Universal List API (client-side)
+
+**Commits:** `302409c`, `78add70`, `c54831e`, `70e1336`
+
+**1. `_getJsonList()` → delegate (commit `302409c`)**
+
+`_getJsonList()` τώρα καλεί εσωτερικά `_getApiList()` αντί για `Datasource::getList()`. Μετατρέπει το clean REST response σε DT 1.9 `aaData`/`sEcho` envelope για BC. Το `_jsonactions` processing διατηρείται. Νέο test `testBuildModelFromWizardColumnsDoesNotEmitGetJsonList`.
+
+**2. JS Adapters (commit `78add70`)**
+
+- `scaffolding/resources/vendor/pramnos/pramnos-datatable.js`: DataTables 2.x serverSide adapter — `PramnosDataTable.init()`. Translates DT2 params → Pramnos API format, converts response back.
+- `scaffolding/resources/vendor/pramnos/pramnos-gridjs.js`: Grid.js 6.x adapter — `PramnosGridJS.createConfig()` + `PramnosGridJS.init()`. Vanilla JS.
+- Και οι δύο: X-CSRF-Token από `<meta name="csrf-token">`.
+- `assets.json`: νέο `pramnos-adapters` entry (`bundled: true`).
+- `Init.php`: νέα `copyBundledAssets()` method για bundled entries (copy από scaffolding αντί για download).
+
+**3. Scaffolding update (commit `c54831e`)**
+
+- `create:model` δεν παράγει πλέον `getJsonList()` — μόνο `getApiList()`.
+- Legacy `get{Class}()` DT 1.9 controller endpoint αφαιρέθηκε από scaffolding.
+- List views χρησιμοποιούν `PramnosDataTable.init('#table', {...})` με `data-dt-api` attribute.
+
+**Tests:** 92/92 pass (72 MakeCommandBaseTest + 10 MySQL + 9 PostgreSQL + 1 νέο)
+
+**Εκκρεμεί:** Client-side adapter unit tests (mock fetch), UrbanWater migration Phase 8.
+
+---
 
 ## 🏁 Session 109 — create:migration wizard enhancements (2026-05-22)
 
