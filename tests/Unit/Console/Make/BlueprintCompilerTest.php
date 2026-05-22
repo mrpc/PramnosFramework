@@ -295,8 +295,8 @@ class BlueprintCompilerTest extends TestCase
             '#PREFIX#users', true, [], false, false, []
         );
 
-        // Assert — SchemaBuilder wrapper and derived PK name
-        $this->assertStringContainsString("SchemaBuilder::create('#PREFIX#users'", $body);
+        // Assert — schema->createTable wrapper and derived PK name
+        $this->assertStringContainsString("\$schema->createTable('#PREFIX#users'", $body);
         $this->assertStringContainsString("\$table->increments('userid');", $body);
     }
 
@@ -407,7 +407,7 @@ class BlueprintCompilerTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * The down() body must call SchemaBuilder::dropIfExists() with exactly the
+     * The down() body must call ->schema()->dropIfExists() with exactly the
      * same table name used in up() — a different name here means rollbacks would
      * silently target the wrong table or fail entirely.
      */
@@ -417,6 +417,6 @@ class BlueprintCompilerTest extends TestCase
         $body = $this->compiler->buildMigrationDownBody('#PREFIX#products');
 
         // Assert
-        $this->assertStringContainsString("SchemaBuilder::dropIfExists('#PREFIX#products')", $body);
+        $this->assertStringContainsString("->schema()->dropIfExists('#PREFIX#products')", $body);
     }
 }
