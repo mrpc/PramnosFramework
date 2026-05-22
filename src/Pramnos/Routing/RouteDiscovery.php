@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Routing;
 
 use Pramnos\Routing\Attributes\Route as RouteAttribute;
+use Pramnos\Routing\Attributes\RouteGroup as RouteGroupAttribute;
 
 /**
  * Scans a directory tree for controller classes decorated with #[Route]
@@ -103,18 +104,41 @@ class RouteDiscovery
      * Inspect every public method of `$class` for `#[Route]` attributes and
      * register the corresponding routes.
      *
+     * If the class carries a `#[RouteGroup]` attribute, all discovered routes
+     * are registered inside a Router::group() call so they inherit the group's
+     * prefix, middleware, permissions, and name prefix.
+     *
      * @param  class-string $class
      */
     private function registerRoutesFromClass(string $class): void
     {
         $reflection = new \ReflectionClass($class);
 
-        foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
-            foreach ($method->getAttributes(RouteAttribute::class) as $attrRef) {
-                /** @var RouteAttribute $routeDef */
-                $routeDef = $attrRef->newInstance();
-                $this->registerRoute($class, $method->getName(), $routeDef);
+        // Check for a class-level #[RouteGroup] attribute.
+        $groupAttrs = $reflection->getAttributes(RouteGroupAttribute::class);
+        $groupAttr  = !empty($groupAttrs) ? $groupAttrs[0]->newInstance() : null;
+
+        $register = function() use ($reflection, $class): void {
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                foreach ($method->getAttributes(RouteAttribute::class) as $attrRef) {
+                    /** @var RouteAttribute $routeDef */
+                    $routeDef = $attrRef->newInstance();
+                    $this->registerRoute($class, $method->getName(), $routeDef);
+                }
             }
+        };
+
+        if ($groupAttr !== null) {
+            $this->router->group([
+                'prefix'      => $groupAttr->prefix,
+                'middleware'  => $groupAttr->middleware,
+                'permissions' => $groupAttr->permissions,
+                'name'        => $groupAttr->name,
+            ], function() use ($register): void {
+                $register();
+            });
+        } else {
+            $register();
         }
     }
 
