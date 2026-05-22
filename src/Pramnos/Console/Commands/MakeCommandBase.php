@@ -656,14 +656,21 @@ abstract class MakeCommandBase extends Command
                 $q = new ConfirmationQuestion('   Nullable? [<comment>no</comment>] ', false);
                 $nullable = $helper->ask($input, $output, $q);
 
-                $q = new Question("   Default value (blank = none, '' = empty string): ", null);
-                $rawDefault = $helper->ask($input, $output, $q);
-                if ($rawDefault === null || $rawDefault === '') {
-                    $default = null;
-                } elseif ($rawDefault === "''") {
-                    $default = '';
+                // String-family types default to '' when the user presses Enter;
+                // other types default to no default (null). NULL forces explicit opt-in.
+                $isStringType = in_array($colType, ['string', 'char', 'text', 'longtext'], true);
+                if ($isStringType) {
+                    $q = new Question("   Default value [<comment>''</comment>] (NULL = no default): ", '');
+                    $rawDefault = $helper->ask($input, $output, $q);
+                    if (strtolower((string) $rawDefault) === 'null') {
+                        $default = null;
+                    } else {
+                        $default = (string) $rawDefault; // '' or whatever the user typed
+                    }
                 } else {
-                    $default = $rawDefault;
+                    $q = new Question("   Default value (blank = none): ", null);
+                    $rawDefault = $helper->ask($input, $output, $q);
+                    $default = ($rawDefault === null || $rawDefault === '') ? null : $rawDefault;
                 }
 
                 $q = new Question('   Comment (blank = none): ', '');

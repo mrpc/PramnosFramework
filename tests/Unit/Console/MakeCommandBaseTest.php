@@ -527,6 +527,25 @@ class MakeCommandBaseTest extends TestCase
     }
 
     /**
+     * blueprintCall() emits ->default('') when default is an empty string.
+     *
+     * String-family columns default to empty string in the wizard, so the
+     * compiler must NOT suppress empty-string defaults (unlike null).
+     */
+    public function testBlueprintCallEmptyStringDefault(): void
+    {
+        // Arrange — empty string default (produced by wizard for string columns)
+        $col = ['name' => 'notes', 'type' => 'string', 'options' => [], 'default' => ''];
+
+        // Act
+        $result = $this->command->blueprintCall($col);
+
+        // Assert — ->default('') must be present
+        $this->assertSame("\$table->string('notes')->default('');", $result,
+            "empty string default must be emitted as ->default('') not suppressed");
+    }
+
+    /**
      * blueprintCall() appends ->unique() when the column is unique.
      */
     public function testBlueprintCallUniqueModifier(): void
