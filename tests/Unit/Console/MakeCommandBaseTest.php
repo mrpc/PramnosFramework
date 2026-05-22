@@ -1206,8 +1206,141 @@ class MakeCommandBaseTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // getColumnsForFKTable() — wizard-state resolution logic
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * getColumnsForFKTable() resolves columns from the current table being defined
+     * in the wizard (resolution path 1: current table).
+     *
+     * When the referenced FK table equals the table currently being defined,
+     * columns must come entirely from wizard state — PK (derived from table name)
+     * plus all user-defined columns — without touching the database.
+     */
+    public function testGetColumnsForFKTableResolvesCurrentTable(): void
+    {
+        // Arrange — current table has PK + two user-defined columns
+        $columns = [
+            ['name' => 'title',   'type' => 'string',     'options' => [], 'nullable' => false, 'default' => null, 'comment' => '', 'unique' => false, 'unsigned' => false],
+            ['name' => 'user_id', 'type' => 'biginteger',  'options' => [], 'nullable' => false, 'default' => null, 'comment' => '', 'unique' => false, 'unsigned' => true],
+        ];
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        // DB must never be consulted when the answer is in wizard state
+        $db->expects($this->never())->method('getColumns');
+
+        // Act — FK table is the same table currently being defined
+        $result = $this->callPrivate('getColumnsForFKTable',
+            ['#PREFIX#posts', [], '#PREFIX#posts', $columns, true, $db]);
+
+        // Assert — PK derived from table name + explicit columns
+        $this->assertContains('postid', $result,
+            'PK column must be derived from the table name (strips #PREFIX#, removes trailing s)');
+        $this->assertContains('title', $result);
+        $this->assertContains('user_id', $result);
+    }
+
+    /**
+     * getColumnsForFKTable() resolves columns from a table defined earlier in the
+     * same wizard run (resolution path 2: migration tables array).
+     *
+     * A FK can legitimately reference another table created in the same migration.
+     * The wizard must surface that table's columns without a DB query, since the
+     * table does not yet exist on disk.
+     */
+    public function testGetColumnsForFKTableResolvesPreviouslyDefinedMigrationTable(): void
+    {
+        // Arrange — 'categories' was defined in an earlier iteration of the table loop
+        $tables = [
+            [
+                'tableName'   => '#PREFIX#categories',
+                'hasPk'       => true,
+                'columns'     => [
+                    ['name' => 'name', 'type' => 'string', 'options' => [], 'nullable' => false, 'default' => null, 'comment' => '', 'unique' => false, 'unsigned' => false],
+                ],
+                'timestamps'  => false,
+                'softDeletes' => false,
+                'foreignKeys' => [],
+            ],
+        ];
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $db->expects($this->never())->method('getColumns'); // DB must not be touched
+
+        // Act — FK table matches a previously defined migration table (not current)
+        $result = $this->callPrivate('getColumnsForFKTable',
+            ['#PREFIX#categories', $tables, '#PREFIX#posts', [], false, $db]);
+
+        // Assert — PK + columns of the migration-defined table.
+        // getSingularPrimaryKey strips #PREFIX# then removes the trailing 's' character:
+        // 'categories' → 'categorie' → 'categorieid'
+        $this->assertContains('categorieid', $result,
+            'PK must be derived from the migration-table name (strip #PREFIX#, drop trailing s → categorieid)');
+        $this->assertContains('name', $result);
+    }
+
+    /**
+     * getColumnsForFKTable() returns [] when the DB query throws (path 3
+     * graceful degradation).
+     *
+     * If the referenced table is unknown to the wizard and the DB raises an
+     * exception (connection error, permission denied, etc.), the method must
+     * swallow the error and return [] so the wizard can continue with a
+     * free-text fallback for the column question.
+     */
+    public function testGetColumnsForFKTableReturnsEmptyArrayOnDbException(): void
+    {
+        // Arrange — DB throws on getColumns()
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $db->method('getColumns')
+           ->willThrowException(new \RuntimeException('Connection refused'));
+
+        // Act — table unknown to wizard, DB path is attempted and throws
+        $result = $this->callPrivate('getColumnsForFKTable',
+            ['unknown_table', [], '#PREFIX#posts', [], false, $db]);
+
+        // Assert — graceful degradation: empty array, exception not propagated
+        $this->assertSame([], $result,
+            'DB exception must be silently caught and [] returned so the FK wizard continues');
+    }
+
+    /**
+     * fetchTableNames() returns [] when the DB query throws.
+     *
+     * Used to build the autocomplete list for the "References table" prompt.
+     * When the DB is unavailable (e.g. first run, no connection yet), the
+     * wizard must still be usable — just without suggestions.
+     */
+    public function testFetchTableNamesReturnsEmptyArrayOnDbException(): void
+    {
+        // Arrange — DB throws on any query
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $db->method('query')
+           ->willThrowException(new \RuntimeException('Connection refused'));
+
+        // Act
+        $result = $this->callPrivate('fetchTableNames', [$db]);
+
+        // Assert — graceful degradation: empty array, no propagation
+        $this->assertSame([], $result,
+            'fetchTableNames() must return [] when the DB is unavailable, not throw');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Call a private method on $this->command via reflection.
+     *
+     * @param string $name   Method name
+     * @param array  $args   Arguments to pass
+     * @return mixed         Return value of the method
+     */
+    private function callPrivate(string $name, array $args = []): mixed
+    {
+        // setAccessible() is a no-op since PHP 8.1 and deprecated in 8.5 — omitted intentionally
+        $method = new \ReflectionMethod($this->command, $name);
+        return $method->invokeArgs($this->command, $args);
+    }
 
     private function rmdir(string $dir): void
     {
