@@ -577,129 +577,193 @@ abstract class MakeCommandBase extends Command
         $hasPk = $helper->ask($input, $output, $q);
 
         // ── Columns loop ──────────────────────────────────────────────────────
-        $columns  = [];
-        $colTypes = [
-            'string', 'integer', 'biginteger', 'decimal', 'float', 'double',
-            'boolean', 'text', 'longtext', 'date', 'datetime', 'timestamp',
-            'json', 'uuid', 'binary',
+        // Type labels shown to user → internal type names used in migration/model
+        $colTypeMap = [
+            'string  (VARCHAR — variable length text)'  => 'string',
+            'char    (CHAR — fixed length text)'         => 'char',
+            'integer (INT)'                              => 'integer',
+            'biginteger (BIGINT)'                        => 'biginteger',
+            'decimal (DECIMAL — exact numeric)'          => 'decimal',
+            'float   (FLOAT)'                            => 'float',
+            'double  (DOUBLE)'                           => 'double',
+            'boolean (TINYINT 0/1)'                      => 'boolean',
+            'text    (TEXT — long text, no length limit)' => 'text',
+            'longtext (LONGTEXT)'                        => 'longtext',
+            'date    (DATE)'                             => 'date',
+            'datetime (DATETIME)'                        => 'datetime',
+            'timestamp (TIMESTAMP)'                      => 'timestamp',
+            'json    (JSON)'                             => 'json',
+            'uuid    (UUID / CHAR 36)'                   => 'uuid',
+            'binary  (BLOB)'                             => 'binary',
         ];
+        $colTypeLabels = array_keys($colTypeMap);
 
-        $output->writeln('');
-        $output->writeln(' <comment>── Columns ──────────────────────────────────────────────────────────</comment>');
+        // ── Tables loop — each iteration collects one table definition ────────
+        $tables = [];  // array of [{tableName, hasPk, columns, timestamps, softDeletes, foreignKeys}]
 
-        while (true) {
-            $q = new Question(' Column name (<info>Enter to finish</info>): ');
-            $colName = trim((string) $helper->ask($input, $output, $q));
-            if ($colName === '') {
-                break;
+        $firstTable = true;
+        do {
+            if (!$firstTable) {
+                $output->writeln('');
+                $output->writeln(' <comment>─── Additional table ────────────────────────────────────────────────</comment>');
+                $q = new Question(' <info>Table name</info> (use #PREFIX# for the db prefix): ');
+                $q->setValidator(function ($v) {
+                    $v = trim((string) $v);
+                    if ($v === '') throw new \RuntimeException('Table name cannot be empty.');
+                    return $v;
+                });
+                $tableName = $helper->ask($input, $output, $q);
+
+                $q = new ConfirmationQuestion(
+                    ' Add auto-increment primary key <info>id</info>? [<comment>yes</comment>] ', true
+                );
+                $hasPk = $helper->ask($input, $output, $q);
             }
+            $firstTable = false;
 
-            $q = new ChoiceQuestion('   Type [<comment>string</comment>]: ', $colTypes, 0);
-            $q->setErrorMessage('Type "%s" is not valid.');
-            $colType = $helper->ask($input, $output, $q);
+            $columns = [];
 
-            $options = [];
-            if (in_array($colType, ['string', 'char'], true)) {
-                $q = new Question('   Length [<comment>255</comment>]: ', '255');
-                $q->setValidator(fn($v) => is_numeric($v) && (int)$v > 0 ? (int)$v : 255);
-                $options['length'] = (int) $helper->ask($input, $output, $q);
-            } elseif (in_array($colType, ['decimal', 'float'], true)) {
-                $q = new Question('   Precision (total digits) [<comment>10</comment>]: ', '10');
-                $options['total'] = (int) $helper->ask($input, $output, $q);
-                $q = new Question('   Scale (decimal places) [<comment>2</comment>]: ', '2');
-                $options['places'] = (int) $helper->ask($input, $output, $q);
-            }
-
-            $q = new ConfirmationQuestion('   Nullable? [<comment>no</comment>] ', false);
-            $nullable = $helper->ask($input, $output, $q);
-
-            $q = new Question('   Default value (blank = none): ', null);
-            $default = $helper->ask($input, $output, $q);
-            if ($default === '' || $default === null) $default = null;
-
-            $q = new Question('   Comment (blank = none): ', '');
-            $comment = trim((string) $helper->ask($input, $output, $q));
-
-            $q = new ConfirmationQuestion('   Unique? [<comment>no</comment>] ', false);
-            $unique = $helper->ask($input, $output, $q);
-
-            $columns[] = [
-                'name'     => $colName,
-                'type'     => $colType,
-                'options'  => $options,
-                'nullable' => $nullable,
-                'default'  => $default,
-                'comment'  => $comment,
-                'unique'   => $unique,
-                'unsigned' => false,
-            ];
             $output->writeln('');
-        }
+            $output->writeln(' <comment>── Columns ──────────────────────────────────────────────────────────</comment>');
+            $output->writeln(' <info>Tip:</info> to set an <info>empty string</info> as default, type <comment>\'\'</comment> (two single quotes).');
+            $output->writeln('');
 
-        // ── Timestamps / soft-deletes ─────────────────────────────────────────
-        $output->writeln('');
-        $q = new ConfirmationQuestion(
-            ' Add <info>timestamps</info> (created_at / updated_at)? [<comment>yes</comment>] ', true
-        );
-        $timestamps = $helper->ask($input, $output, $q);
+            while (true) {
+                $q = new Question(' Column name (<info>Enter to finish</info>): ');
+                $colName = trim((string) $helper->ask($input, $output, $q));
+                if ($colName === '') {
+                    break;
+                }
 
-        $q = new ConfirmationQuestion(
-            ' Add <info>soft-delete</info> column (deleted_at)? [<comment>no</comment>] ', false
-        );
-        $softDeletes = $helper->ask($input, $output, $q);
+                $q = new ChoiceQuestion('   Type [<comment>string (VARCHAR)</comment>]: ', $colTypeLabels, 0);
+                $q->setErrorMessage('Type "%s" is not valid.');
+                $colTypeLabel = $helper->ask($input, $output, $q);
+                $colType = $colTypeMap[$colTypeLabel] ?? 'string';
 
-        // ── Foreign keys loop ─────────────────────────────────────────────────
-        $foreignKeys = [];
-        $output->writeln('');
-        $output->writeln(' <comment>── Foreign keys ─────────────────────────────────────────────────────</comment>');
+                $options = [];
+                if (in_array($colType, ['string', 'char'], true)) {
+                    $defaultLen = $colType === 'char' ? '1' : '255';
+                    $q = new Question("   Length [<comment>{$defaultLen}</comment>]: ", $defaultLen);
+                    $q->setValidator(fn($v) => is_numeric($v) && (int)$v > 0 ? (int)$v : (int)$defaultLen);
+                    $options['length'] = (int) $helper->ask($input, $output, $q);
+                } elseif (in_array($colType, ['decimal', 'float'], true)) {
+                    $q = new Question('   Precision (total digits) [<comment>10</comment>]: ', '10');
+                    $options['total'] = (int) $helper->ask($input, $output, $q);
+                    $q = new Question('   Scale (decimal places) [<comment>2</comment>]: ', '2');
+                    $options['places'] = (int) $helper->ask($input, $output, $q);
+                }
 
-        while (true) {
-            $q = new ConfirmationQuestion(' Add a foreign key? [<comment>no</comment>] ', false);
-            if (!$helper->ask($input, $output, $q)) {
-                break;
-            }
+                $q = new ConfirmationQuestion('   Nullable? [<comment>no</comment>] ', false);
+                $nullable = $helper->ask($input, $output, $q);
 
-            $q = new Question('   Column name (e.g. user_id): ');
-            $q->setValidator(fn($v) => trim((string)$v) !== '' ? trim($v) : throw new \RuntimeException('Column name required.'));
-            $fkCol = $helper->ask($input, $output, $q);
+                $q = new Question("   Default value (blank = none, '' = empty string): ", null);
+                $rawDefault = $helper->ask($input, $output, $q);
+                if ($rawDefault === null || $rawDefault === '') {
+                    $default = null;
+                } elseif ($rawDefault === "''") {
+                    $default = '';
+                } else {
+                    $default = $rawDefault;
+                }
 
-            $q = new Question('   References table: ');
-            $q->setValidator(fn($v) => trim((string)$v) !== '' ? trim($v) : throw new \RuntimeException('Table required.'));
-            $fkTable = $helper->ask($input, $output, $q);
+                $q = new Question('   Comment (blank = none): ', '');
+                $comment = trim((string) $helper->ask($input, $output, $q));
 
-            $q = new Question('   References column [<comment>id</comment>]: ', 'id');
-            $fkRef = trim((string) $helper->ask($input, $output, $q)) ?: 'id';
+                $q = new ConfirmationQuestion('   Unique? [<comment>no</comment>] ', false);
+                $unique = $helper->ask($input, $output, $q);
 
-            $q = new ChoiceQuestion(
-                '   On delete [<comment>RESTRICT</comment>]: ',
-                ['RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION'],
-                0
-            );
-            $fkOnDelete = $helper->ask($input, $output, $q);
-
-            // Add the FK column to the column list if not already defined
-            $alreadyDefined = !empty(array_filter($columns, fn($c) => $c['name'] === $fkCol));
-            if (!$alreadyDefined) {
                 $columns[] = [
-                    'name'     => $fkCol,
-                    'type'     => 'biginteger',
-                    'options'  => [],
-                    'nullable' => $fkOnDelete === 'SET NULL',
-                    'default'  => null,
-                    'comment'  => '',
-                    'unique'   => false,
-                    'unsigned' => true,
+                    'name'     => $colName,
+                    'type'     => $colType,
+                    'options'  => $options,
+                    'nullable' => $nullable,
+                    'default'  => $default,
+                    'comment'  => $comment,
+                    'unique'   => $unique,
+                    'unsigned' => false,
                 ];
+                $output->writeln('');
             }
 
-            $foreignKeys[] = [
-                'column'     => $fkCol,
-                'references' => $fkRef,
-                'on'         => $fkTable,
-                'onDelete'   => $fkOnDelete,
-            ];
+            // ── Timestamps / soft-deletes ──────────────────────────────────────
             $output->writeln('');
-        }
+            $q = new ConfirmationQuestion(
+                ' Add <info>timestamps</info> (created_at / updated_at)? [<comment>yes</comment>] ', true
+            );
+            $timestamps = $helper->ask($input, $output, $q);
+
+            $q = new ConfirmationQuestion(
+                ' Add <info>soft-delete</info> column (deleted_at)? [<comment>no</comment>] ', false
+            );
+            $softDeletes = $helper->ask($input, $output, $q);
+
+            // ── Foreign keys loop ──────────────────────────────────────────────
+            $foreignKeys = [];
+            $output->writeln('');
+            $output->writeln(' <comment>── Foreign keys ─────────────────────────────────────────────────────</comment>');
+
+            while (true) {
+                $q = new ConfirmationQuestion(' Add a foreign key? [<comment>no</comment>] ', false);
+                if (!$helper->ask($input, $output, $q)) {
+                    break;
+                }
+
+                $q = new Question('   Column name (e.g. user_id): ');
+                $q->setValidator(fn($v) => trim((string)$v) !== '' ? trim($v) : throw new \RuntimeException('Column name required.'));
+                $fkCol = $helper->ask($input, $output, $q);
+
+                $q = new Question('   References table: ');
+                $q->setValidator(fn($v) => trim((string)$v) !== '' ? trim($v) : throw new \RuntimeException('Table required.'));
+                $fkTable = $helper->ask($input, $output, $q);
+
+                $q = new Question('   References column [<comment>id</comment>]: ', 'id');
+                $fkRef = trim((string) $helper->ask($input, $output, $q)) ?: 'id';
+
+                $q = new ChoiceQuestion(
+                    '   On delete [<comment>RESTRICT</comment>]: ',
+                    ['RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION'],
+                    0
+                );
+                $fkOnDelete = $helper->ask($input, $output, $q);
+
+                // Add the FK column to the column list if not already defined
+                $alreadyDefined = !empty(array_filter($columns, fn($c) => $c['name'] === $fkCol));
+                if (!$alreadyDefined) {
+                    $columns[] = [
+                        'name'     => $fkCol,
+                        'type'     => 'biginteger',
+                        'options'  => [],
+                        'nullable' => $fkOnDelete === 'SET NULL',
+                        'default'  => null,
+                        'comment'  => '',
+                        'unique'   => false,
+                        'unsigned' => true,
+                    ];
+                }
+
+                $foreignKeys[] = [
+                    'column'     => $fkCol,
+                    'references' => $fkRef,
+                    'on'         => $fkTable,
+                    'onDelete'   => $fkOnDelete,
+                ];
+                $output->writeln('');
+            }
+
+            $tables[] = [
+                'tableName'   => $tableName,
+                'hasPk'       => $hasPk,
+                'columns'     => $columns,
+                'timestamps'  => $timestamps,
+                'softDeletes' => $softDeletes,
+                'foreignKeys' => $foreignKeys,
+            ];
+
+            $output->writeln('');
+            $q = new ConfirmationQuestion(
+                ' Add <info>another table</info> to this migration? [<comment>no</comment>] ', false
+            );
+        } while ($helper->ask($input, $output, $q));
 
         // ── Write migration ───────────────────────────────────────────────────
         $application = $this->getApplication()->internalApplication;
@@ -722,8 +786,19 @@ abstract class MakeCommandBase extends Command
         }
         $filePath = $migDir . DS . $timestamp . '_' . $slug . '.php';
 
-        $upBody   = $this->buildMigrationUpBody($tableName, $hasPk, $columns, $timestamps, $softDeletes, $foreignKeys);
-        $downBody = $this->buildMigrationDownBody($tableName);
+        // Build up() and down() bodies for all collected tables
+        $upBodyParts   = [];
+        $downBodyParts = [];
+        foreach ($tables as $tbl) {
+            $upBodyParts[]   = $this->buildMigrationUpBody(
+                $tbl['tableName'], $tbl['hasPk'], $tbl['columns'],
+                $tbl['timestamps'], $tbl['softDeletes'], $tbl['foreignKeys']
+            );
+            // down() drops in reverse order
+            array_unshift($downBodyParts, $this->buildMigrationDownBody($tbl['tableName']));
+        }
+        $upBody   = implode("\n\n", $upBodyParts);
+        $downBody = implode("\n", $downBodyParts);
 
         $content = $this->renderStub('migration', [
             'namespace'   => $fullNamespace,
@@ -740,13 +815,58 @@ abstract class MakeCommandBase extends Command
         $output->writeln(" <info>✓ Migration created:</info> {$filePath}");
         $output->writeln('');
 
+        // ── Run migration now? ────────────────────────────────────────────────
+        $q = new ConfirmationQuestion(
+            ' Run this migration <info>now</info>? [<comment>yes</comment>] ', true
+        );
+        if ($helper->ask($input, $output, $q)) {
+            try {
+                $output->writeln(' Running migration...');
+                $app  = $this->getApplication()->internalApplication;
+                $db   = \Pramnos\Database\Database::getInstance();
+                if (!$db->connected) {
+                    $db->connect();
+                }
+                $dirs       = [$migDir];
+                $migrations = \Pramnos\Database\MigrationLoader::loadFromDirectories($dirs, $app);
+                $runner     = new \Pramnos\Database\MigrationRunner($db);
+                $runner->run($migrations, [], function (string $event, string $slug, string $error) use ($output): void {
+                    if ($event === 'ran') {
+                        $output->writeln(' <info>✓ Migrated:</info> ' . $slug);
+                    } else {
+                        $output->writeln(' <error>Failed:</error>   ' . $slug . ' — ' . strtok(trim($error), "\n"));
+                    }
+                });
+                $output->writeln(' <info>✓ Migration complete.</info>');
+            } catch (\Exception $e) {
+                $output->writeln(" <comment>Migration failed: {$e->getMessage()}</comment>");
+                $output->writeln(" Run manually with: php bin/pramnos migrate");
+            }
+        }
+
         // ── Post-creation scaffold options ────────────────────────────────────
-        // Derive an entity name from the table name (strip prefix placeholder, PascalCase)
+        // Use the first table's definition for model/controller/seeder creation.
+        // For multi-table migrations the user can run create:model separately for
+        // additional tables.
+        $primaryTable  = $tables[0];
+        $tableName     = $primaryTable['tableName'];
+        $columns       = $primaryTable['columns'];
+        $foreignKeys   = $primaryTable['foreignKeys'];
+        $hasPk         = $primaryTable['hasPk'];
+
         $stripped   = preg_replace('/^#PREFIX#/', '', $tableName);
         $entityName = str_replace(' ', '', ucwords(str_replace('_', ' ', $stripped)));
 
+        // Announce secondary tables if any
+        if (count($tables) > 1) {
+            $output->writeln('');
+            $output->writeln(' <comment>Note: scaffold below targets the first table (' . $tableName . ').</comment>');
+            $output->writeln(' <comment>Run create:model / create:controller for additional tables separately.</comment>');
+        }
+
         $summary = "Migration: {$filePath}\n";
 
+        $output->writeln('');
         $output->writeln(' <comment>── Also create ────────────────────────────────────────────────────────</comment>');
 
         $q = new ConfirmationQuestion(
@@ -755,7 +875,7 @@ abstract class MakeCommandBase extends Command
         if ($helper->ask($input, $output, $q)) {
             try {
                 $this->dbtable = $tableName;
-                $result = $this->createModel($entityName);
+                $result = $this->createModel($entityName, $columns, $foreignKeys);
                 $summary .= $result . "\n";
                 $output->writeln("   <info>✓</info> Model created.");
             } catch (\Exception $e) {
@@ -768,7 +888,7 @@ abstract class MakeCommandBase extends Command
         );
         if ($helper->ask($input, $output, $q)) {
             try {
-                $result = $this->createController($entityName, false);
+                $result = $this->createController($entityName, true, $columns, $foreignKeys);
                 $summary .= $result . "\n";
                 $output->writeln("   <info>✓</info> Controller created.");
             } catch (\Exception $e) {
@@ -777,7 +897,7 @@ abstract class MakeCommandBase extends Command
         }
 
         $q = new ConfirmationQuestion(
-            " Create <info>API Controller</info> ({$entityName}ApiController)? [<comment>no</comment>] ", false
+            " Create <info>API Controller</info> ({$entityName}ApiController)? [<comment>yes</comment>] ", true
         );
         if ($helper->ask($input, $output, $q)) {
             try {
@@ -1910,11 +2030,19 @@ content;
     }
 
     /**
-     * Creates a controller
-     * @param string $name Name of the controller to be created
-     * @param bool $full Create a full crud controller
+     * Creates a controller.
+     *
+     * When $wizardColumns is provided (from the migration wizard) a full CRUD
+     * controller and view files are generated from those definitions — no DB
+     * round-trip required. The generated views adapt to the app's scaffold_theme
+     * and installed libraries (datatables, select2) from assets.json.
+     *
+     * @param string $name           Entity name
+     * @param bool   $full           Generate full CRUD (vs. skeleton)
+     * @param array  $wizardColumns  Column definitions from runMigrationWizard()
+     * @param array  $wizardForeignKeys FK definitions from runMigrationWizard()
      */
-    protected function createController($name, $full = false)
+    protected function createController($name, $full = false, array $wizardColumns = [], array $wizardForeignKeys = [])
     {
         $application = $this->getApplication()->internalApplication;
         $application->init();
@@ -1999,15 +2127,16 @@ content;
         } else {
             $database = \Pramnos\Database\Database::getInstance();
             $viewName = strtolower($name);
-            
+
             // Look up the model in the registry first
             $modelInfo = $this->lookupModel($name, true);
             $modelNameSpace = $modelInfo['namespace'];
             $modelClass = $modelInfo['className'];
-            
-            // If we found the model in the registry, use that information
+
             if ($modelInfo['foundBy'] === 'registry' || $modelInfo['foundBy'] === 'registry_name_match') {
-                $output->writeln("Using model " . $modelClass . " found in registry");
+                if (isset($this->output)) {
+                    $this->output->writeln("Using model " . $modelClass . " found in registry");
+                }
             }
 
             if ($this->dbtable != null) {
@@ -2016,6 +2145,25 @@ content;
                 $tableName = self::getModelTableName($name);
             }
 
+            // ── Wizard-columns path (schema-first, no DB round-trip) ──────────
+            if (!empty($wizardColumns)) {
+                $result = $this->createControllerAndViewsFromWizard(
+                    $name, $namespace, $modelNameSpace, $modelClass,
+                    $className, $tableName, $path,
+                    $wizardColumns, $wizardForeignKeys,
+                    $filename
+                );
+                $testLine = $this->generateTestStub(
+                    $className, $namespace,
+                    defined('ROOT') ? ROOT : getcwd(),
+                    'controller_test'
+                );
+                return "Namespace: {$namespace}\n"
+                     . "Class:     {$className}\n"
+                     . "File:      {$filename}\n"
+                     . $testLine
+                     . "\n" . $result;
+            }
 
             if (!$database->tableExists($tableName)) {
                 throw new \Exception(
@@ -2320,10 +2468,746 @@ content;
 
 
     /**
-     * Creates a model
-     * @param string $name Model name
+     * Detect which UI libraries are installed in this project.
+     *
+     * Checks $applicationInfo['scaffold_theme'] and the presence of known
+     * library directories under www/assets/vendor/.
+     *
+     * @return array{theme:string, datatables:bool, select2:bool, bootstrap:bool}
      */
-    protected function createModel($name)
+    protected function detectUiSetup(): array
+    {
+        $application = $this->getApplication()->internalApplication;
+        $theme = $application->applicationInfo['scaffold_theme'] ?? 'plain-css';
+
+        $vendorBase = (defined('ROOT') ? ROOT : getcwd()) . '/www/assets/vendor';
+        return [
+            'theme'      => $theme,
+            'datatables' => is_dir($vendorBase . '/datatables'),
+            'select2'    => is_dir($vendorBase . '/select2'),
+            'bootstrap'  => ($theme === 'bootstrap') || is_dir($vendorBase . '/bootstrap'),
+        ];
+    }
+
+    /**
+     * Generate a full CRUD controller + views from wizard column definitions.
+     *
+     * This is the schema-first path called from createController() when wizard
+     * columns are available. Generates:
+     *   - Controller file with display/show/edit/save/delete/getApiList methods
+     *   - views/{entity}/ directory with list, edit, and show HTML templates
+     *
+     * The list view uses DataTables (serverSide) when available, Bootstrap table
+     * otherwise. Forms use Select2 for FK fields when available.
+     *
+     * @return string Summary of created files
+     */
+    protected function createControllerAndViewsFromWizard(
+        string $name,
+        string $namespace,
+        string $modelNameSpace,
+        string $modelClass,
+        string $className,
+        string $tableName,
+        string $path,
+        array  $columns,
+        array  $foreignKeys,
+        string $controllerFile
+    ): string {
+        $date       = date('d/m/Y H:i');
+        $viewName   = strtolower($name);
+        $primaryKey = $this->getSingularPrimaryKey($tableName);
+        $ui         = $this->detectUiSetup();
+
+        // ── Build $saveContent from wizard columns ──────────────────────────
+        $saveContent        = '';
+        $loadForeignContent = '';
+        $fkByColumn         = [];
+        foreach ($foreignKeys as $fk) {
+            $fkByColumn[$fk['column']] = $fk;
+        }
+        $firstNonPkField = '';
+
+        foreach ($columns as $col) {
+            $colName = $col['name'];
+            $colType = $col['type'];
+            if (empty($firstNonPkField)) {
+                $firstNonPkField = $colName;
+            }
+            if (in_array($colType, ['integer', 'biginteger', 'tinyinteger', 'smallinteger'], true)) {
+                $saveContent .= "        \$model->{$colName} = \$request->get('{$colName}', '', 'post', 'int');\n";
+            } elseif (in_array($colType, ['float', 'double', 'decimal'], true)) {
+                $saveContent .= "        \$model->{$colName} = (float) \$request->get('{$colName}', '', 'post');\n";
+            } elseif ($colType === 'boolean') {
+                $saveContent .= "        \$model->{$colName} = (bool) \$request->get('{$colName}', '', 'post');\n";
+            } else {
+                $saveContent .= "        \$model->{$colName} = trim(strip_tags(\$request->get('{$colName}', '', 'post')));\n";
+            }
+
+            if (isset($fkByColumn[$colName])) {
+                $fk = $fkByColumn[$colName];
+                $refTable      = $fk['on'];
+                $isUserFk      = ($refTable === 'users' || $refTable === '#PREFIX#users');
+                if ($isUserFk) {
+                    $loadForeignContent .= "        \$view->userList = \\Pramnos\\User\\User::getUsers();\n";
+                } else {
+                    $foreignModel = self::getProperClassName($refTable, true);
+                    $varName      = lcfirst($foreignModel) . 'List';
+                    $loadForeignContent .= "        \${$varName} = new \\{$modelNameSpace}\\{$foreignModel}(\$this);\n";
+                    $loadForeignContent .= "        \$view->{$varName} = \${$varName}->getList();\n";
+                }
+            }
+        }
+
+        if (empty($firstNonPkField)) {
+            $firstNonPkField = $primaryKey;
+        }
+
+        // ── Controller source ────────────────────────────────────────────────
+        $fileContent = <<<PHP
+<?php
+namespace {$namespace};
+
+/**
+ * {$className} Controller
+ * Auto generated at: {$date}
+ */
+class {$className} extends \Pramnos\Application\Controller
+{
+
+    /**
+     * {$className} controller constructor
+     */
+    public function __construct(?\Pramnos\Application\Application \$application = null)
+    {
+        \$this->addAuthAction(['edit', 'save', 'delete', 'show']);
+        parent::__construct(\$application);
+    }
+
+    /**
+     * Display a listing of the resource
+     */
+    public function display(): string
+    {
+        \$view  = \$this->getView('{$viewName}');
+        \$model = new \\{$modelNameSpace}\\{$modelClass}(\$this);
+        \$view->items = \$model->getList();
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = '{$className}';
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        return \$view->display();
+    }
+
+    /**
+     * Display the specified resource
+     */
+    public function show(): string
+    {
+        \$view    = \$this->getView('{$viewName}');
+        \$model   = new \\{$modelNameSpace}\\{$modelClass}(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+        \$view->addModel(\$model);
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = \$model->{$firstNonPkField} . ' | {$className}';
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        \$this->application->addbreadcrumb((string)\$model->{$firstNonPkField}, sURL . '{$className}/show/' . \$model->{$primaryKey});
+        return \$view->display('show');
+    }
+
+    /**
+     * Show the form for creating or editing a resource
+     */
+    public function edit(): string
+    {
+        \$view    = \$this->getView('{$viewName}');
+        \$model   = new \\{$modelNameSpace}\\{$modelClass}(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+        \$view->addModel(\$model);
+{$loadForeignContent}
+        \$doc = \Pramnos\Framework\Factory::getDocument();
+        \$doc->title = (\$model->{$primaryKey} > 0 ? 'Edit' : 'Create') . ' | {$className}';
+        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+        if (\$model->{$primaryKey} > 0) {
+            \$this->application->addbreadcrumb((string)\$model->{$firstNonPkField}, sURL . '{$className}/show/' . \$model->{$primaryKey});
+            \$this->application->addbreadcrumb('Edit', sURL . '{$className}/edit/' . \$model->{$primaryKey});
+        } else {
+            \$this->application->addbreadcrumb('Create', sURL . '{$className}/edit/0');
+        }
+        return \$view->display('edit');
+    }
+
+    /**
+     * Store a newly created or updated resource in storage
+     */
+    public function save(): void
+    {
+        \$model   = new \\{$modelNameSpace}\\{$modelClass}(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->load(\$request->getOption());
+{$saveContent}
+        \$model->save();
+        \$this->redirect(sURL . '{$className}');
+    }
+
+    /**
+     * Remove the specified resource from storage
+     */
+    public function delete(): void
+    {
+        \$model   = new \\{$modelNameSpace}\\{$modelClass}(\$this);
+        \$request = new \Pramnos\Http\Request();
+        \$model->delete(\$request->getOption());
+        \$this->redirect(sURL . '{$className}');
+    }
+
+    /**
+     * Return an API list (REST format with optional DataTables wrapper)
+     */
+    public function getApiList(\$fields = [], \$search = '',
+        \$order = '', \$page = 0, \$itemsPerPage = 10,
+        \$debug = false, \$returnAsModels = false, \$useGetData = true,
+        \$format = '')
+    {
+        \Pramnos\Framework\Factory::getDocument('json');
+        \$model = new \\{$modelNameSpace}\\{$modelClass}(\$this);
+        return \$model->getApiList(
+            \$fields, \$search, \$order, \$page, \$itemsPerPage,
+            \$debug, \$returnAsModels, \$useGetData
+        );
+    }
+
+    /**
+     * DataTables serverSide endpoint (legacy DT 1.9 compatible)
+     */
+    public function get{$className}(): string
+    {
+        \$model = new \\{$modelNameSpace}\\{$modelClass}(\$this);
+        \Pramnos\Framework\Factory::getDocument('json');
+        return \$model->getJsonList();
+    }
+}
+PHP;
+
+        if (!is_dir($path)) {
+            mkdir($path, 0755, true);
+        }
+        if (file_exists($controllerFile)) {
+            throw new \Exception('Controller already exists: ' . $controllerFile);
+        }
+        if (file_put_contents($controllerFile, $fileContent) === false) {
+            throw new \Exception('Cannot write controller file.');
+        }
+
+        // ── Views ─────────────────────────────────────────────────────────────
+        $viewSummary = $this->createViewsFromWizard(
+            $name, $columns, $foreignKeys, $primaryKey, $ui
+        );
+
+        return "Controller created.\n" . $viewSummary;
+    }
+
+    /**
+     * Generate view HTML templates for a CRUD entity from wizard column definitions.
+     *
+     * Generates three files inside views/{entity}/:
+     *   - {entity}.html.php  (list view)
+     *   - edit.html.php      (create/edit form)
+     *   - show.html.php      (detail view)
+     *
+     * The templates adapt to the installed UI libraries (bootstrap, datatables, select2).
+     *
+     * @return string Summary line
+     */
+    protected function createViewsFromWizard(
+        string $name,
+        array  $columns,
+        array  $foreignKeys,
+        string $primaryKey,
+        array  $ui
+    ): string {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $viewBasePath = ROOT . DS . INCLUDES . DS;
+        if ($application->appName != '') {
+            $viewBasePath .= $application->appName . DS;
+        }
+        $viewBasePath .= 'Views';
+        $viewDir  = $viewBasePath . DS . strtolower($name);
+        $className = self::getProperClassName($name, false);
+        $objectName = ucfirst($name);
+
+        if (!is_dir($viewDir)) {
+            mkdir($viewDir, 0755, true);
+        }
+
+        $useBootstrap  = $ui['bootstrap'];
+        $useDatatables = $ui['datatables'];
+        $useSelect2    = $ui['select2'];
+
+        $fkByColumn = [];
+        foreach ($foreignKeys as $fk) {
+            $fkByColumn[$fk['column']] = $fk;
+        }
+
+        // ── List view ─────────────────────────────────────────────────────────
+        if ($useDatatables) {
+            $tableHeaders = '';
+            $tableData    = '';
+            foreach ($columns as $col) {
+                if ($col['name'] === $primaryKey) continue;
+                $display = $col['comment'] ?: ucfirst(str_replace('_', ' ', $col['name']));
+                $tableHeaders .= "                        <th>{$display}</th>\n";
+            }
+            $listContent = <<<HTML
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h1 class="h4 mb-0">{$objectName}</h1>
+        <a href="<?php echo sURL;?>{$className}/edit/0" class="btn btn-primary btn-sm">
+            <i class="fa fa-plus"></i> Create
+        </a>
+    </div>
+    <div class="card-body">
+        <table id="{$viewName}-table" class="table table-striped table-hover w-100">
+            <thead>
+                <tr>
+{$tableHeaders}                        <th>Actions</th>
+                </tr>
+            </thead>
+        </table>
+    </div>
+</div>
+<script>
+$(document).ready(function() {
+    $('#{$viewName}-table').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: '<?php echo sURL;?>{$className}/getApiList?format=datatables',
+        columns: [
+HTML;
+            foreach ($columns as $col) {
+                if ($col['name'] === $primaryKey) continue;
+                $listContent .= "            { data: '{$col['name']}' },\n";
+            }
+            $listContent .= <<<HTML
+            { data: null, orderable: false, render: function(data, type, row) {
+                return '<a href="<?php echo sURL;?>{$className}/show/' + row.{$primaryKey} + '" class="btn btn-sm btn-info"><i class="fa fa-eye"></i></a> '
+                     + '<a href="<?php echo sURL;?>{$className}/edit/' + row.{$primaryKey} + '" class="btn btn-sm btn-warning"><i class="fa fa-edit"></i></a> '
+                     + '<a href="<?php echo sURL;?>{$className}/delete/' + row.{$primaryKey} + '" class="btn btn-sm btn-danger" onclick="return confirm(\'Delete?\')"><i class="fa fa-trash"></i></a>';
+            }}
+        ]
+    });
+});
+</script>
+HTML;
+        } elseif ($useBootstrap) {
+            $tableHeaders = '';
+            foreach ($columns as $col) {
+                if ($col['name'] === $primaryKey) continue;
+                $display = $col['comment'] ?: ucfirst(str_replace('_', ' ', $col['name']));
+                $tableHeaders .= "                <th>{$display}</th>\n";
+            }
+            $listContent = <<<HTML
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h1 class="h4 mb-0">{$objectName}</h1>
+        <a href="<?php echo sURL;?>{$className}/edit/0" class="btn btn-primary btn-sm">
+            <i class="fa fa-plus"></i> Create
+        </a>
+    </div>
+    <div class="card-body table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+{$tableHeaders}                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (!empty(\$this->items)): foreach (\$this->items as \$item): ?>
+                <tr>
+HTML;
+            foreach ($columns as $col) {
+                if ($col['name'] === $primaryKey) continue;
+                $listContent .= "                    <td><?php echo htmlspecialchars((string)(\$item['{$col['name']}'] ?? '')); ?></td>\n";
+            }
+            $listContent .= <<<HTML
+                    <td>
+                        <a href="<?php echo sURL;?>{$className}/show/<?php echo \$item['{$primaryKey}']; ?>" class="btn btn-info btn-sm"><i class="fa fa-eye"></i></a>
+                        <a href="<?php echo sURL;?>{$className}/edit/<?php echo \$item['{$primaryKey}']; ?>" class="btn btn-warning btn-sm"><i class="fa fa-edit"></i></a>
+                        <a href="<?php echo sURL;?>{$className}/delete/<?php echo \$item['{$primaryKey}']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Delete?')"><i class="fa fa-trash"></i></a>
+                    </td>
+                </tr>
+                <?php endforeach; else: ?>
+                <tr><td colspan="<?php echo count([]) + 2; ?>" class="text-center text-muted">No records found.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+HTML;
+        } else {
+            $listContent = <<<HTML
+<h1>{$objectName}</h1>
+<p><a href="<?php echo sURL;?>{$className}/edit/0">Create New</a></p>
+<table border="1" cellpadding="5">
+    <thead><tr>
+HTML;
+            foreach ($columns as $col) {
+                if ($col['name'] === $primaryKey) continue;
+                $display = $col['comment'] ?: ucfirst(str_replace('_', ' ', $col['name']));
+                $listContent .= "        <th>{$display}</th>\n";
+            }
+            $listContent .= "        <th>Actions</th>\n    </tr></thead>\n    <tbody>\n";
+            $listContent .= "    <?php if (!empty(\$this->items)): foreach (\$this->items as \$item): ?>\n    <tr>\n";
+            foreach ($columns as $col) {
+                if ($col['name'] === $primaryKey) continue;
+                $listContent .= "        <td><?php echo htmlspecialchars((string)(\$item['{$col['name']}'] ?? '')); ?></td>\n";
+            }
+            $listContent .= <<<HTML
+        <td>
+            <a href="<?php echo sURL;?>{$className}/show/<?php echo \$item['{$primaryKey}']; ?>">View</a> |
+            <a href="<?php echo sURL;?>{$className}/edit/<?php echo \$item['{$primaryKey}']; ?>">Edit</a> |
+            <a href="<?php echo sURL;?>{$className}/delete/<?php echo \$item['{$primaryKey}']; ?>" onclick="return confirm('Delete?')">Delete</a>
+        </td>
+    </tr>
+    <?php endforeach; else: ?>
+    <tr><td colspan="2">No records found.</td></tr>
+    <?php endif; ?>
+    </tbody>
+</table>
+HTML;
+        }
+
+        // ── Edit/create form view ──────────────────────────────────────────────
+        $formFields = '';
+        foreach ($columns as $col) {
+            $colName  = $col['name'];
+            $colType  = $col['type'];
+            $display  = $col['comment'] ?: ucfirst(str_replace('_', ' ', $colName));
+            $nullable = !empty($col['nullable']);
+            $required = $nullable ? '' : ' required';
+            $isFk     = isset($fkByColumn[$colName]);
+
+            if ($useBootstrap) {
+                $formFields .= "<div class=\"form-group mb-3\">\n";
+                $formFields .= "    <label for=\"{$colName}\" class=\"form-label\">{$display}</label>\n";
+            } else {
+                $formFields .= "<div>\n    <label for=\"{$colName}\">{$display}</label>\n";
+            }
+
+            if ($isFk) {
+                $fk         = $fkByColumn[$colName];
+                $refTable   = $fk['on'];
+                $isUserFk   = ($refTable === 'users' || $refTable === '#PREFIX#users');
+                $listVar    = $isUserFk ? 'userList' : lcfirst(self::getProperClassName($refTable, true)) . 'List';
+                $select2Cls = $useSelect2 ? ' select2' : '';
+                $bsCls      = $useBootstrap ? ' form-select' : '';
+                $formFields .= "<select id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}{$select2Cls}\"{$required}>\n";
+                $formFields .= "    <option value=\"\">-- Select {$display} --</option>\n";
+                $formFields .= "    <?php if (is_array(\$this->{$listVar})): foreach (\$this->{$listVar} as \$opt): ?>\n";
+                $formFields .= "    <option value=\"<?php echo \$opt['id']; ?>\" <?php echo \$this->model->{$colName} == \$opt['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars((string)(\$opt['name'] ?? \$opt['id'])); ?></option>\n";
+                $formFields .= "    <?php endforeach; endif; ?>\n";
+                $formFields .= "</select>\n";
+                if ($useSelect2) {
+                    $formFields .= "<script>\$('#{$colName}').select2();</script>\n";
+                }
+            } elseif ($colType === 'boolean') {
+                $bsCls = $useBootstrap ? ' form-check-input' : '';
+                $formFields .= "<input type=\"checkbox\" id=\"{$colName}\" name=\"{$colName}\" value=\"1\" class=\"{$bsCls}\" <?php echo \$this->model->{$colName} ? 'checked' : ''; ?>>\n";
+            } elseif (in_array($colType, ['text', 'longtext'], true)) {
+                $bsCls = $useBootstrap ? ' form-control' : '';
+                $formFields .= "<textarea id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}\" rows=\"4\"{$required}><?php echo htmlspecialchars((string)(\$this->model->{$colName} ?? '')); ?></textarea>\n";
+            } elseif (in_array($colType, ['date', 'datetime', 'timestamp'], true)) {
+                $inputType = $colType === 'date' ? 'date' : 'datetime-local';
+                $bsCls = $useBootstrap ? ' form-control' : '';
+                $formFields .= "<input type=\"{$inputType}\" id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}\" value=\"<?php echo htmlspecialchars((string)(\$this->model->{$colName} ?? '')); ?>\"{$required}>\n";
+            } else {
+                $inputType = in_array($colType, ['integer', 'biginteger', 'tinyinteger', 'smallinteger', 'decimal', 'float', 'double'], true) ? 'number' : 'text';
+                $bsCls = $useBootstrap ? ' form-control' : '';
+                $formFields .= "<input type=\"{$inputType}\" id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}\" value=\"<?php echo htmlspecialchars((string)(\$this->model->{$colName} ?? '')); ?>\"{$required}>\n";
+            }
+            $formFields .= "</div>\n";
+        }
+
+        $submitCls = $useBootstrap ? ' btn btn-primary' : '';
+        $backCls   = $useBootstrap ? ' btn btn-secondary' : '';
+        $cardStart = $useBootstrap ? "<div class=\"card\">\n    <div class=\"card-header\"><h1 class=\"h4 mb-0\"><?php echo \$this->model->{$primaryKey} > 0 ? 'Edit' : 'Create'; ?> {$objectName}</h1></div>\n    <div class=\"card-body\">\n" : "<h1><?php echo \$this->model->{$primaryKey} > 0 ? 'Edit' : 'Create'; ?> {$objectName}</h1>\n";
+        $cardEnd   = $useBootstrap ? "    </div>\n</div>\n" : '';
+
+        $editContent = <<<HTML
+{$cardStart}<form method="post" action="<?php echo sURL;?>{$className}/save/<?php echo \$this->model->{$primaryKey}; ?>">
+{$formFields}
+    <a href="<?php echo sURL;?>{$className}" class="{$backCls}">Back</a>
+    <button type="submit" class="{$submitCls}">Save</button>
+</form>
+{$cardEnd}
+HTML;
+
+        // ── Show (detail) view ────────────────────────────────────────────────
+        $editBtn  = $useBootstrap ? "class=\"btn btn-primary\"" : '';
+        $delBtn   = $useBootstrap ? "class=\"btn btn-danger\" onclick=\"return confirm('Delete?')\"" : "onclick=\"return confirm('Delete?')\"";
+        $backBtn  = $useBootstrap ? "class=\"btn btn-secondary\"" : '';
+        $cardS    = $useBootstrap ? "<div class=\"card\">\n    <div class=\"card-header\">" : '';
+        $cardH    = $useBootstrap ? "</div>\n    <div class=\"card-body\">" : '';
+        $cardE    = $useBootstrap ? "\n    </div>\n</div>" : '';
+
+        $showContent = <<<HTML
+{$cardS}<h1 class="h4 mb-0">View {$objectName}</h1>{$cardH}
+<div class="mb-3">
+    <a href="<?php echo sURL;?>{$className}" {$backBtn}>&laquo; Back</a>
+    <a href="<?php echo sURL;?>{$className}/edit/<?php echo \$this->model->{$primaryKey}; ?>" {$editBtn}>Edit</a>
+    <a href="<?php echo sURL;?>{$className}/delete/<?php echo \$this->model->{$primaryKey}; ?>" {$delBtn}>Delete</a>
+</div>
+<table class="<?php echo '{$useBootstrap}' ? 'table table-bordered' : ''; ?>">
+    <tbody>
+        <?php \$data = \$this->model->getData(); foreach (\$data as \$field => \$value): ?>
+        <tr>
+            <th><?php echo ucwords(str_replace('_', ' ', htmlspecialchars(\$field))); ?></th>
+            <td><?php
+                if (is_bool(\$value)) { echo \$value ? 'Yes' : 'No'; }
+                elseif (\$value === null) { echo '<em>—</em>'; }
+                elseif (is_array(\$value)) { echo '<pre>' . htmlspecialchars(json_encode(\$value, JSON_PRETTY_PRINT)) . '</pre>'; }
+                else { echo htmlspecialchars((string)\$value); }
+            ?></td>
+        </tr>
+        <?php endforeach; ?>
+    </tbody>
+</table>{$cardE}
+HTML;
+
+        // ── Write view files ──────────────────────────────────────────────────
+        $viewTemplate = <<<'VPHP'
+<?php
+/**
+ * VIEW_REASON
+ * Auto generated
+ */
+defined('SP') or die('No startpoint defined...');
+?>
+VIEW_CONTENT
+VPHP;
+
+        $files = [
+            $viewDir . DS . strtolower($name) . '.html.php' => ['Index / List', $listContent],
+            $viewDir . DS . 'edit.html.php'                  => ['Edit / Create Form', $editContent],
+            $viewDir . DS . 'show.html.php'                  => ['Show / Detail', $showContent],
+        ];
+
+        $summary = "Views:\n";
+        foreach ($files as $file => [$reason, $content]) {
+            $out = str_replace(
+                ['VIEW_REASON', 'VIEW_CONTENT'],
+                [$reason, $content],
+                $viewTemplate
+            );
+            file_put_contents($file, $out);
+            $summary .= "  - {$file}\n";
+        }
+
+        return $summary;
+    }
+
+    /**
+     * Build a full model PHP file from wizard column definitions.
+     *
+     * Used when the table does not yet exist (schema-first workflow). Produces
+     * the same structure as when the table IS in the database — typed public
+     * properties, $primaryKey, $dbtable, load/save/delete/getData/getApiList.
+     *
+     * @param string $namespace
+     * @param string $className
+     * @param string $tableName
+     * @param array  $columns       Wizard column definitions
+     * @param array  $foreignKeys   Wizard FK definitions
+     * @return string PHP source
+     */
+    public function buildModelFromWizardColumns(
+        string $namespace,
+        string $className,
+        string $tableName,
+        array  $columns,
+        array  $foreignKeys = []
+    ): string {
+        $date          = date('d/m/Y H:i');
+        $primaryKey    = $this->getSingularPrimaryKey($tableName);
+        $arrayFix      = '';
+        $foreignFixes  = '';
+        $allFields     = [$primaryKey];
+
+        // Map wizard type → PHP type
+        $phpTypeMap = [
+            'integer'     => 'int',
+            'biginteger'  => 'int',
+            'tinyinteger' => 'int',
+            'smallinteger'=> 'int',
+            'decimal'     => 'float',
+            'float'       => 'float',
+            'double'      => 'float',
+            'boolean'     => 'bool',
+            'json'        => 'array',
+        ];
+
+        // Build FK lookup for cascade nulling
+        $fkColumns = [];
+        foreach ($foreignKeys as $fk) {
+            $fkColumns[$fk['column']] = $fk;
+        }
+
+        $props = "    /**\n     * (Primary Key)\n     * @var int\n     */\n    public \${$primaryKey};\n";
+
+        foreach ($columns as $col) {
+            $colName  = $col['name'];
+            $colType  = $col['type'];
+            $phpType  = $phpTypeMap[$colType] ?? 'string';
+            $comment  = $col['comment'] ?? '';
+            $allFields[] = $colName;
+
+            $props .= "    /**\n";
+            if ($comment !== '') {
+                $props .= "     * {$comment}\n";
+            }
+            $props .= "     * @var {$phpType}\n     */\n    public \${$colName};\n";
+
+            switch ($phpType) {
+                case 'int':
+                    if (isset($fkColumns[$colName]) && ($fkColumns[$colName]['onDelete'] ?? '') === 'SET NULL') {
+                        $foreignFixes .= "        if (\$this->{$colName} == 0) {\n";
+                        $foreignFixes .= "            \$this->{$colName} = null;\n        }\n";
+                    }
+                    $arrayFix .= "        if (isset(\$data['{$colName}']) && \$data['{$colName}'] !== null) {\n";
+                    $arrayFix .= "            \$data['{$colName}'] = (int) \$this->{$colName};\n        }\n";
+                    break;
+                case 'float':
+                    $arrayFix .= "        if (isset(\$data['{$colName}']) && \$data['{$colName}'] !== null) {\n";
+                    $arrayFix .= "            \$data['{$colName}'] = (float) \$this->{$colName};\n        }\n";
+                    break;
+                case 'bool':
+                    $arrayFix .= "        \$data['{$colName}'] = (bool) \$this->{$colName};\n";
+                    break;
+            }
+        }
+
+        $theFieldsTxt = '';
+        $last = end($allFields);
+        foreach ($allFields as $f) {
+            $theFieldsTxt .= "            '{$f}'" . ($f !== $last ? ',' : '') . "\n";
+        }
+
+        $controllerName = self::getProperClassName($tableName, false);
+        $primaryKeyVal  = "\${$primaryKey}";
+
+        $schemaBlock = $this->schema
+            ? "    /** @var string */\n    protected \$_dbschema = '{$this->schema}';\n\n"
+            : '';
+
+        return <<<PHP
+<?php
+namespace {$namespace};
+
+/**
+ * {$className} Model
+ * Auto generated at: {$date}
+ */
+class {$className} extends \Pramnos\Application\Model
+{
+
+{$props}
+{$schemaBlock}    /**
+     * Primary key in database
+     * @var string
+     */
+    protected \$_primaryKey = "{$primaryKey}";
+
+    /**
+     * Database table
+     * @var string
+     */
+    protected \$_dbtable = "{$tableName}";
+
+    /**
+     * Load from database
+     * @param string {$primaryKeyVal} ID to load
+     * @param string \$key Primary key on database
+     * @param boolean \$debug Show debug information
+     * @return \$this
+     */
+    public function load({$primaryKeyVal}, \$key = null, \$debug = false)
+    {
+        return parent::_load({$primaryKeyVal}, null, \$key, \$debug);
+    }
+
+    /**
+     * Save to database
+     * @param boolean \$autoGetValues If true, get all values from \$_REQUEST
+     * @param boolean \$debug Show debug information
+     * @return \$this
+     */
+    public function save(\$autoGetValues = false, \$debug = false)
+    {
+{$foreignFixes}
+        return parent::_save(null, null, \$autoGetValues, \$debug);
+    }
+
+    /**
+     * Delete from database
+     * @param integer {$primaryKeyVal} ID to delete
+     * @return \$this
+     */
+    public function delete({$primaryKeyVal})
+    {
+        return parent::_delete({$primaryKeyVal}, null, null);
+    }
+
+    /**
+     * Return all data as array
+     * @return array
+     */
+    public function getData()
+    {
+        \$data = parent::getData();
+{$arrayFix}
+        return \$data;
+    }
+
+    /**
+     * Return an API-formatted list with pagination, field selection, and search
+     * @param array  \$fields       Fields to include (empty = all)
+     * @param string \$search       Global search term
+     * @param string \$order        ORDER BY clause
+     * @param int    \$page         Page number (0 = no pagination)
+     * @param int    \$itemsPerPage Items per page
+     * @param bool   \$debug        Show debug info
+     * @param bool   \$returnAsModels Return model objects instead of arrays
+     * @param bool   \$useGetData   Use getData() to extract data
+     * @return array
+     */
+    public function getApiList(\$fields = [], \$search = '',
+        \$order = '', \$page = 0, \$itemsPerPage = 10,
+        \$debug = false, \$returnAsModels = false, \$useGetData = true)
+    {
+        return parent::_getApiList(
+            \$fields, \$search, \$order, '', '', '',
+            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
+        );
+    }
+}
+PHP;
+    }
+
+    /**
+     * Creates a model.
+     *
+     * When $wizardColumns is provided (from the migration wizard) the model is
+     * generated from those definitions even if the table does not yet exist in
+     * the database — no DB round-trip required.
+     *
+     * @param string $name           Entity name (PascalCase or as entered)
+     * @param array  $wizardColumns  Column definitions from runMigrationWizard()
+     * @param array  $wizardForeignKeys FK definitions from runMigrationWizard()
+     */
+    protected function createModel($name, array $wizardColumns = [], array $wizardForeignKeys = [])
     {
         $application = $this->getApplication()->internalApplication;
         $application->init();
@@ -2333,10 +3217,8 @@ content;
         } else {
             $tableName = self::getModelTableName($name);
         }
-        
 
-        // Compute namespace/path/className before the table check so the stub
-        // fallback path can use them without repeating the logic.
+        // Compute namespace/path/className before the table check.
         $path = ROOT . DS . INCLUDES . DS;
 
         if (isset($application->applicationInfo['namespace'])) {
@@ -2355,20 +3237,28 @@ content;
         $filename  = $path . DS . $className . '.php';
 
         if (!$database->tableExists($tableName)) {
-            // Table doesn't exist yet — generate a stub skeleton so schema-first
-            // workflows (write migration first, then model) work without a DB round-trip.
             if (!is_dir($path)) {
                 mkdir($path, 0755, true);
             }
             if (file_exists($filename)) {
                 throw new \Exception('Model already exists: ' . $filename);
             }
-            $content = $this->renderStub('model', [
-                'namespace'  => $namespace,
-                'class'      => $className,
-                'table'      => $tableName,
-                'primaryKey' => $this->getSingularPrimaryKey($tableName),
-            ]);
+
+            // If wizard columns were provided, generate a full model from them
+            // (schema-first: migration created but not yet run).
+            if (!empty($wizardColumns)) {
+                $content = $this->buildModelFromWizardColumns(
+                    $namespace, $className, $tableName,
+                    $wizardColumns, $wizardForeignKeys
+                );
+            } else {
+                $content = $this->renderStub('model', [
+                    'namespace'  => $namespace,
+                    'class'      => $className,
+                    'table'      => $tableName,
+                    'primaryKey' => $this->getSingularPrimaryKey($tableName),
+                ]);
+            }
             if (file_put_contents($filename, $content) === false) {
                 throw new \Exception('Cannot write model file.');
             }
@@ -2378,8 +3268,7 @@ content;
             return "Namespace: {$namespace}\n"
                  . "Class:     {$className}\n"
                  . "File:      {$filename}\n"
-                 . $testLine
-                 . "\nModel skeleton created (table '{$tableName}' not found — fill in properties after running the migration).";
+                 . $testLine;
         }
 
         $result = $database->getColumns($tableName, $this->schema);
