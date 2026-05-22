@@ -237,6 +237,85 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * www/.htaccess must route via r=$1 so that Pramnos\Http\Request::calcParams()
+     * is triggered for every request — the framework reads $_GET['r'] to determine
+     * the controller.  Using url=$1 (the wrong key) leaves self::$_controller
+     * unpopulated and every URL silently falls back to the default (home) controller.
+     */
+    public function testHtaccessUsesRParameterForRouting(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'TestApp',
+            '--namespace' => 'TestApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--rest-api'  => 'n',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'testapp_db',
+            '--db-user'   => 'testapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — the rewrite rule passes the path as ?r=, NOT ?url=
+        $htaccess = file_get_contents($this->tmpDir . '/www/.htaccess');
+        $this->assertStringContainsString('index.php?r=', $htaccess,
+            'www/.htaccess must route via r= parameter for Request::calcParams() to fire');
+        $this->assertStringNotContainsString('index.php?url=', $htaccess,
+            'www/.htaccess must not use url= parameter (not read by the Request class)');
+    }
+
+    /**
+     * www/index.php must bootstrap using a direct instantiation of the app's
+     * namespace-specific Application class, not the framework's getInstance().
+     *
+     * Direct instantiation ensures the namespace-derived Application subclass
+     * (with its registerVendorLibraries() override) is used from the first request.
+     */
+    public function testIndexPhpUsesDirectApplicationInstantiation(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'TestApp',
+            '--namespace' => 'MyVendor',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--rest-api'  => 'n',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'testapp_db',
+            '--db-user'   => 'testapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — uses namespace-specific Application class, not the generic getInstance()
+        $index = file_get_contents($this->tmpDir . '/www/index.php');
+        $this->assertStringContainsString('new \MyVendor\Application()', $index,
+            'www/index.php must instantiate the namespace-specific Application subclass');
+        $this->assertStringNotContainsString('getInstance()', $index,
+            'www/index.php must not use the generic getInstance() factory');
+    }
+
+    /**
      * app.php includes the requested features list so FeatureRegistry can
      * parse it at boot time.
      */
@@ -722,10 +801,12 @@ class InitCommandUnitTest extends TestCase
 
     /**
      * When --rest-api=y is passed, the scaffolder must create the
-     * src/Api/Controllers/ directory and write src/Api/routes.php.
+     * src/Api/Controllers/ directory, write src/Api/routes.php,
+     * generate a src/Api.php application class, and produce an API
+     * entry point at www/api/index.php with its own .htaccess.
      *
-     * These two artifacts form the minimal REST API entry-point that developers
-     * extend to register their own endpoints using Router::group().
+     * These artifacts form the complete REST API scaffold: the router
+     * file, the entry-point PHP file, and the URL rewriting config.
      */
     public function testRestApiOptionScaffoldsApiDirectoryAndRoutesFile(): void
     {
@@ -762,6 +843,22 @@ class InitCommandUnitTest extends TestCase
         $this->assertFileExists(
             $this->tmpDir . '/src/Api/routes.php',
             'src/Api/routes.php must be written when --rest-api=y'
+        );
+
+        // Assert — Api application class was generated
+        $this->assertFileExists(
+            $this->tmpDir . '/src/Api.php',
+            'src/Api.php must be written when --rest-api=y'
+        );
+
+        // Assert — API entry point and .htaccess were written
+        $this->assertFileExists(
+            $this->tmpDir . '/www/api/index.php',
+            'www/api/index.php must be written when --rest-api=y'
+        );
+        $this->assertFileExists(
+            $this->tmpDir . '/www/api/.htaccess',
+            'www/api/.htaccess must be written when --rest-api=y'
         );
     }
 
@@ -802,6 +899,10 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('declare(strict_types=1)', $routes,
             'routes.php must declare strict types');
 
+        // Assert — Router is instantiated inside routes.php (required for dispatch to work)
+        $this->assertStringContainsString('new \Pramnos\Routing\Router($this)', $routes,
+            'routes.php must create a Router instance bound to the Api application');
+
         // Assert — Router::group() call is present
         $this->assertStringContainsString('$router->group(', $routes,
             'routes.php must demonstrate Router::group() usage');
@@ -809,6 +910,10 @@ class InitCommandUnitTest extends TestCase
         // Assert — version prefix /v1 is present
         $this->assertStringContainsString("'prefix' => '/v1'", $routes,
             'routes.php group must define a /v1 prefix');
+
+        // Assert — dispatch call returns to _executeCore caller
+        $this->assertStringContainsString('return $router->dispatch($newRequest)', $routes,
+            'routes.php must return the dispatched result so _executeCore can process it');
 
         // Assert — namespace token was substituted with the actual namespace
         $this->assertStringContainsString('MyVendor', $routes,
@@ -877,7 +982,7 @@ class InitCommandUnitTest extends TestCase
         $app->add($this->command);
         $tester = new CommandTester($this->command);
 
-        // Act — omit --rest-api entirely (non-interactive defaults to false)
+        // Act — explicitly opt out of REST API scaffolding
         $tester->execute([
             '--app-name'  => 'NoApiApp',
             '--namespace' => 'NoApiApp',
@@ -891,6 +996,7 @@ class InitCommandUnitTest extends TestCase
             '--db-user'   => 'noapiapp',
             '--db-pass'   => 'pass',
             '--db-prefix' => '',
+            '--rest-api'  => 'n',
         ], ['interactive' => false]);
 
         // Assert — src/Api directory must not exist
