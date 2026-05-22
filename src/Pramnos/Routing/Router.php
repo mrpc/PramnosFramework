@@ -55,6 +55,13 @@ class Router extends Base implements RouterInterface
      */
     private array $namedRoutes = [];
 
+    /**
+     * Stack of active group attribute sets — nested groups push/pop here.
+     * Each entry: ['prefix'=>string, 'middleware'=>array, 'permissions'=>array, 'name'=>string]
+     * @var array<int, array>
+     */
+    private array $groupStack = [];
+
     private $_invalidScope = null;
 
     /**
@@ -264,6 +271,11 @@ class Router extends Base implements RouterInterface
     /**
      * Adds a single route to the router's route collection and returns it.
      *
+     * When called inside a Router::group() callback (or discovered inside a
+     * class with #[RouteGroup]), the active group stack is merged: URI prefixes
+     * are concatenated, middleware and permissions are prepended, and any name
+     * prefix is injected into the name-registration callback.
+     *
      * @param string $uri  The URI pattern for the route
      * @param string $method  The HTTP method for this route
      * @param \Closure|array|string $action  The action to be executed when the route is matched
@@ -272,23 +284,95 @@ class Router extends Base implements RouterInterface
      */
     protected function addSingleRoute($uri, $method, $action, $permissions = null): Route
     {
+        // Merge active group stack — outer groups first.
+        $groupPrefix      = '';
+        $groupMiddlewares = [];
+        $groupPermissions = [];
+        $namePrefix       = '';
+
+        foreach ($this->groupStack as $group) {
+            $groupPrefix      .= rtrim($group['prefix'] ?? '', '/');
+            $groupMiddlewares  = array_merge($groupMiddlewares, $group['middleware'] ?? []);
+            $groupPermissions  = array_merge($groupPermissions, $group['permissions'] ?? []);
+            $namePrefix       .= $group['name'] ?? '';
+        }
+
+        // Build the full URI: normalize so we always have a leading slash.
+        if ($groupPrefix !== '') {
+            $uri = '/' . ltrim($groupPrefix . '/' . ltrim($uri, '/'), '/');
+            // Collapse double slashes (e.g. prefix '/api' + uri '/' → '/api/')
+            $uri = preg_replace('#/{2,}#', '/', $uri);
+        }
+
         if (!isset($this->routes[$this->fixMethodName($method)])) {
             $this->routes[$this->fixMethodName($method)] = array();
         }
         $route = new Route($uri, $method, $action);
 
         // Inject callback so that Route::name() auto-registers in $namedRoutes.
-        $route->setNameRegistrationCallback(function(string $name, Route $r): void {
-            $this->namedRoutes[$name] = $r;
+        // If there is a group name prefix, prepend it transparently.
+        $route->setNameRegistrationCallback(function(string $name, Route $r) use ($namePrefix): void {
+            $this->namedRoutes[$namePrefix . $name] = $r;
         });
 
-        // Set permissions if provided
+        // Group middleware runs before per-route middleware (prepended at pipeline build time).
+        if (!empty($groupMiddlewares)) {
+            $route->prependMiddleware(...$groupMiddlewares);
+        }
+
+        // Merge group permissions with per-route permissions — no scope validation
+        // because the group may supply internal permission strings.
+        if (!empty($groupPermissions)) {
+            $route->addPermissions($groupPermissions, false);
+        }
+
+        // Set per-route permissions if provided
         if ($permissions !== null) {
             $route->requirePermissions($permissions);
         }
 
         $this->routes[$this->fixMethodName($method)][$uri] = $route;
         return $route;
+    }
+
+    /**
+     * Define a route group — apply shared attributes to all routes registered
+     * inside the callback.
+     *
+     * Supported keys in `$attributes`:
+     * - `prefix`      (string) — URI prefix prepended to every route URI.
+     * - `middleware`  (array)  — Middleware applied before each route's own middleware.
+     * - `permissions` (array)  — Permission scopes merged with each route's permissions.
+     * - `name`        (string) — Name prefix prepended to every named route's logical name.
+     *
+     * Groups can be nested; inner group attributes stack on top of outer ones.
+     *
+     * ```php
+     * $router->group(['prefix' => '/api/v1', 'middleware' => [ApiAuthMiddleware::class]], function($r) {
+     *     $r->get('/users', fn() => ...)->name('users.index');   // GET /api/v1/users
+     *
+     *     $r->group(['prefix' => '/admin', 'permissions' => ['admin']], function($r) {
+     *         $r->delete('/users/{id}', fn($id) => ...);         // DELETE /api/v1/admin/users/{id}
+     *     });
+     * });
+     * ```
+     *
+     * @param  array<string,mixed>  $attributes  Group options (see above).
+     * @param  \Closure             $callback    Routes defined inside this closure inherit the group.
+     * @return void
+     */
+    public function group(array $attributes, \Closure $callback): void
+    {
+        $this->groupStack[] = [
+            'prefix'      => $attributes['prefix']      ?? '',
+            'middleware'  => (array) ($attributes['middleware']  ?? []),
+            'permissions' => (array) ($attributes['permissions'] ?? []),
+            'name'        => $attributes['name'] ?? '',
+        ];
+
+        $callback($this);
+
+        array_pop($this->groupStack);
     }
 
     /**
