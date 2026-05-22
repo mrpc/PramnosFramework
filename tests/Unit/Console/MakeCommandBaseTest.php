@@ -1042,6 +1042,116 @@ class MakeCommandBaseTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // buildModelFromWizardColumns()
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * buildModelFromWizardColumns() emits typed public properties for each
+     * wizard column and sets the correct $_dbtable and $_primaryKey.
+     *
+     * Proves the schema-first model generation works without a DB connection.
+     */
+    public function testBuildModelFromWizardColumnsEmitsProperties(): void
+    {
+        // Arrange
+        $columns = [
+            ['name' => 'name',       'type' => 'string',  'options' => [], 'nullable' => false, 'default' => null, 'comment' => 'Full name', 'unique' => false, 'unsigned' => false],
+            ['name' => 'age',        'type' => 'integer', 'options' => [], 'nullable' => false, 'default' => null, 'comment' => '',          'unique' => false, 'unsigned' => false],
+            ['name' => 'is_active',  'type' => 'boolean', 'options' => [], 'nullable' => false, 'default' => '1',  'comment' => '',          'unique' => false, 'unsigned' => false],
+        ];
+
+        // Act
+        $source = $this->command->buildModelFromWizardColumns(
+            'App\\Models', 'User', '#PREFIX#users', $columns, []
+        );
+
+        // Assert — class declaration and namespace
+        $this->assertStringContainsString('namespace App\\Models;', $source,
+            'Generated model must use the provided namespace');
+        $this->assertStringContainsString('class User extends', $source,
+            'Generated model must declare the correct class name');
+
+        // Assert — typed properties for each column
+        $this->assertStringContainsString('@var string', $source,
+            'string column must produce @var string property');
+        $this->assertStringContainsString('@var int', $source,
+            'integer column must produce @var int property');
+        $this->assertStringContainsString('@var bool', $source,
+            'boolean column must produce @var bool property');
+
+        // Assert — comment appears as docblock when provided
+        $this->assertStringContainsString('Full name', $source,
+            'column comment must appear in the property docblock');
+
+        // Assert — infrastructure properties (model uses double-quoted string for $_dbtable)
+        $this->assertStringContainsString('#PREFIX#users', $source,
+            '$_dbtable must use the provided table name');
+        $this->assertStringContainsString('_primaryKey', $source,
+            'model must declare $_primaryKey');
+    }
+
+    /**
+     * buildModelFromWizardColumns() generates load/save/delete/getData/getApiList
+     * methods — the full Active Record contract.
+     *
+     * Proves the wizard-generated model is functionally equivalent to one
+     * generated from DB introspection.
+     */
+    public function testBuildModelFromWizardColumnsGeneratesCrudMethods(): void
+    {
+        // Arrange
+        $columns = [
+            ['name' => 'title', 'type' => 'string', 'options' => [], 'nullable' => false, 'default' => null, 'comment' => '', 'unique' => false, 'unsigned' => false],
+        ];
+
+        // Act
+        $source = $this->command->buildModelFromWizardColumns(
+            'App\\Models', 'Post', '#PREFIX#posts', $columns, []
+        );
+
+        // Assert — all required methods are present
+        $this->assertStringContainsString('public function load(', $source,
+            'wizard model must have a load() method');
+        $this->assertStringContainsString('public function save(', $source,
+            'wizard model must have a save() method');
+        $this->assertStringContainsString('public function delete(', $source,
+            'wizard model must have a delete() method');
+        $this->assertStringContainsString('public function getData(', $source,
+            'wizard model must have a getData() method');
+        $this->assertStringContainsString('public function getApiList(', $source,
+            'wizard model must have a getApiList() method');
+    }
+
+    /**
+     * buildModelFromWizardColumns() emits a getData() cast for integer columns
+     * and a null-guard for FK columns with SET NULL on-delete.
+     *
+     * Proves type coercion and FK null-guard are synthesized from wizard data.
+     */
+    public function testBuildModelFromWizardColumnsEmitsFkNullGuard(): void
+    {
+        // Arrange
+        $columns = [
+            ['name' => 'category_id', 'type' => 'biginteger', 'options' => [], 'nullable' => true, 'default' => null, 'comment' => '', 'unique' => false, 'unsigned' => true],
+        ];
+        $foreignKeys = [
+            ['column' => 'category_id', 'references' => 'id', 'on' => 'categories', 'onDelete' => 'SET NULL'],
+        ];
+
+        // Act
+        $source = $this->command->buildModelFromWizardColumns(
+            'App\\Models', 'Item', '#PREFIX#items', $columns, $foreignKeys
+        );
+
+        // Assert — null guard emitted for SET NULL FK
+        $this->assertStringContainsString('category_id == 0', $source,
+            'SET NULL FK must emit a null guard in save() (0 → null)');
+        // Assert — integer cast in getData()
+        $this->assertStringContainsString("(int) \$this->category_id", $source,
+            'integer column must be cast to int in getData()');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
