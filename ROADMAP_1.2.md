@@ -381,7 +381,7 @@
   - Property-level docblocks: περιγραφή του σκοπού της ιδιότητας και ο τύπος της (`@var`)
   - Inline comments μόνο για non-obvious λογική (π.χ. γιατί χρειάζεται special handling)
 
-- [ ] **Decompose MakeCommandBase.php:** Η κλάση `src/Pramnos/Console/Commands/MakeCommandBase.php` έχει ~3,000 γραμμές — απλώς μεταφέρθηκε η πολυπλοκότητα από την παλιά `Create.php`. Απαιτείται refactor σε focused service classes για να βελτιωθεί η testability και η maintainability:
+- [x] **Decompose MakeCommandBase.php:** Η κλάση `src/Pramnos/Console/Commands/MakeCommandBase.php` έχει ~3,000 γραμμές — απλώς μεταφέρθηκε η πολυπλοκότητα από την παλιά `Create.php`. Απαιτείται refactor σε focused service classes για να βελτιωθεί η testability και η maintainability:
   - `StubRenderer` — φορτώνει/renders τα `.stub` αρχεία με variable substitution
   - `FieldParser` / `BlueprintCompiler` — μετατρέπει field definitions σε DDL fragments (`blueprintCall`, `buildMigrationUpBody`)
   - `NamespaceResolver` — εντοπίζει namespace/path της εφαρμογής από το `applicationInfo`
@@ -880,7 +880,7 @@
 - [x] **Attribute-based Routing:** `#[Route]` PHP 8 attribute (`src/Pramnos/Routing/Attributes/Route.php`) — `IS_REPEATABLE`, parameters: `uri`, `methods` (string|array), `name`, `permissions`, `middleware`.
 - [x] **Route Discovery:** `RouteDiscovery::discover(string $dir, string $namespace)` (`src/Pramnos/Routing/RouteDiscovery.php`) — recursive `RecursiveIteratorIterator` scan; maps file path → FQCN; reads `#[Route]` via Reflection; registers with Router. `Router::loadFromDirectory()` convenience wrapper.
 - [x] **Named Routes & URL Generation:** `Route::name(string $n): static` + `Router::getByName(string $n): ?Route` + `Router::route(string $name, array $params = []): string` — replaces `{param}` / `{param?}` placeholders; rawurlencode values; strips unresolved optional segments. Callback-based registration (no circular dependency). 26 characterization tests.
-- [ ] **`Router::group()` + `#[RouteGroup]`** — βλ. Φάση 15.
+- [x] **`Router::group()` + `#[RouteGroup]`** — `Router::group(array $attributes, Closure $callback)`: pushes group context (prefix, middleware, permissions, name prefix) onto a stack; `addSingleRoute()` merges the active stack. `#[RouteGroup]` PHP 8 attribute (TARGET_CLASS) auto-detected by `RouteDiscovery`. `Route::prependMiddleware()` added for group middleware ordering. Nested groups stack. 15 unit tests in `RouteGroupTest`.
 
 ### 🛡️ Φάση 8: Security & Templating
 - [x] **View Auto-escaping:** Σύστημα προστασίας XSS με αυτόματο escaping των μεταβλητών στα templates (με δυνατότητα `raw` bypass). *`View::escape(mixed $value): string` + `View::e()` alias — delegates to global `e()` helper. Templates use `<?= $this->e($var) ?>`.*

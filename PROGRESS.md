@@ -1,7 +1,33 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 104) — MakeCommandBase decomposition + legacy Create command removal ✅
+## 📅 Last Updated: 2026-05-22 (session 105) — Router::group() + #[RouteGroup] (Φάση 7 complete) ✅
+
+## 🏁 Session 105 — Router::group() + #[RouteGroup] — Φάση 7 complete (2026-05-22)
+
+### ✅ `Router::group()` — programmatic route groups
+
+`Router::group(array $attributes, Closure $callback)`: pushes a group context (prefix, middleware, permissions, name prefix) onto a stack. Every route registered inside the callback inherits all active stack entries. `addSingleRoute()` merges the full stack before creating the `Route`.
+
+**Attributes:** `prefix` (string), `middleware` (array), `permissions` (array), `name` (string name prefix).
+
+**Nested groups:** inner groups stack on top of outer groups. Context is cleanly restored after each group closure exits.
+
+**Middleware ordering:** group middleware is prepended (runs before per-route middleware) via the new `Route::prependMiddleware()` method.
+
+### ✅ `#[RouteGroup]` attribute
+
+`src/Pramnos/Routing/Attributes/RouteGroup.php` — PHP 8 `TARGET_CLASS` attribute with the same parameters as `group()`. `RouteDiscovery::registerRoutesFromClass()` reads the class-level attribute and wraps the method scan in a `Router::group()` call automatically.
+
+### ✅ Tests
+
+`tests/Unit/Pramnos/Routing/RouteGroupTest.php` — 15 tests: prefix application, double-slash normalization, routes outside group unaffected, middleware ordering (group before route), permissions merge (deny partial / allow full), name prefix, `getByName()` with prefix, nested prefix/name stacking, context restoration, attribute data model, RouteDiscovery integration.
+
+### ✅ Fix: PostgreSQL FK test
+
+`testUserConsentsCreatedInAuthserverSchemaOnPostgreSQL` was missing `CreateUsersTable->up()` before `CreateUserPrivacySettingsTable->up()`. The FK `REFERENCES public.users(userid)` failed when `public.users` didn't exist. Added `CreateUsersTable->up()` to Arrange and both `->down()` calls to teardown. Commit `22af117`.
+
+---
 
 ## 🏁 Session 104 — MakeCommandBase service decomposition + legacy `create` removal (2026-05-22)
 
