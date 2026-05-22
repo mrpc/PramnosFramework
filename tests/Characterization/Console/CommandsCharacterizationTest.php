@@ -7,7 +7,7 @@ namespace Pramnos\Tests\Characterization\Console;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use Pramnos\Console\Commands\Create;
+use Pramnos\Console\Commands\MakeCommandBase;
 use Pramnos\Console\Commands\Serve;
 use Pramnos\Console\Commands\MigrateLogs;
 use Symfony\Component\Console\Application as SymfonyApp;
@@ -19,12 +19,11 @@ use Symfony\Component\Console\Output\BufferedOutput;
  * Characterization tests for Console Commands.
  *
  * Locks the pure-logic contracts:
- *   - Create::getProperClassName() and getModelTableName() naming helpers
- *   - Create command configuration metadata
+ *   - MakeCommandBase::getProperClassName() and getModelTableName() naming helpers
  *   - Serve command defaults (port/host)
  *   - MigrateLogs command configuration
  */
-#[CoversClass(Create::class)]
+#[CoversClass(MakeCommandBase::class)]
 #[CoversClass(Serve::class)]
 #[CoversClass(MigrateLogs::class)]
 class CommandsCharacterizationTest extends TestCase
@@ -53,7 +52,7 @@ class CommandsCharacterizationTest extends TestCase
     }
 
     // -----------------------------------------------------------------------
-    // Create::getProperClassName — singular/plural naming contract
+    // MakeCommandBase::getProperClassName — singular/plural naming contract
     // -----------------------------------------------------------------------
 
     /**
@@ -63,7 +62,7 @@ class CommandsCharacterizationTest extends TestCase
     public function testGetProperClassNameSingularInputStaysSingular(): void
     {
         // Act
-        $result = Create::getProperClassName('user', true);
+        $result = MakeCommandBase::getProperClassName('user', true);
 
         // Assert
         $this->assertSame('User', $result);
@@ -76,7 +75,7 @@ class CommandsCharacterizationTest extends TestCase
     public function testGetProperClassNamePluralIsSingularizedWhenForced(): void
     {
         // Act
-        $result = Create::getProperClassName('users', true);
+        $result = MakeCommandBase::getProperClassName('users', true);
 
         // Assert – should become "User"
         $this->assertSame('User', $result);
@@ -89,7 +88,7 @@ class CommandsCharacterizationTest extends TestCase
     public function testGetProperClassNameSingularIsPluralized(): void
     {
         // Act
-        $result = Create::getProperClassName('article', false);
+        $result = MakeCommandBase::getProperClassName('article', false);
 
         // Assert
         $this->assertSame('Articles', $result);
@@ -102,7 +101,7 @@ class CommandsCharacterizationTest extends TestCase
     public function testGetProperClassNamePluralStaysPluralWhenNotForced(): void
     {
         // Act
-        $result = Create::getProperClassName('articles', false);
+        $result = MakeCommandBase::getProperClassName('articles', false);
 
         // Assert
         $this->assertSame('Articles', $result);
@@ -112,7 +111,7 @@ class CommandsCharacterizationTest extends TestCase
     public function testGetProperClassNameVariousCases(
         string $input, bool $forceSingular, string $expected
     ): void {
-        $this->assertSame($expected, Create::getProperClassName($input, $forceSingular));
+        $this->assertSame($expected, MakeCommandBase::getProperClassName($input, $forceSingular));
     }
 
     /** @return array<string,array{0:string,1:bool,2:string}> */
@@ -127,7 +126,7 @@ class CommandsCharacterizationTest extends TestCase
     }
 
     // -----------------------------------------------------------------------
-    // Create::getModelTableName — table naming contract
+    // MakeCommandBase::getModelTableName — table naming contract
     // -----------------------------------------------------------------------
 
     /**
@@ -137,7 +136,7 @@ class CommandsCharacterizationTest extends TestCase
     public function testGetModelTableNameSingularIsPluralized(): void
     {
         // Act
-        $result = Create::getModelTableName('user');
+        $result = MakeCommandBase::getModelTableName('user');
 
         // Assert
         $this->assertSame('#PREFIX#users', $result);
@@ -150,7 +149,7 @@ class CommandsCharacterizationTest extends TestCase
     public function testGetModelTableNamePluralStaysPlural(): void
     {
         // Act
-        $result = Create::getModelTableName('articles');
+        $result = MakeCommandBase::getModelTableName('articles');
 
         // Assert
         $this->assertSame('#PREFIX#articles', $result);
@@ -163,72 +162,10 @@ class CommandsCharacterizationTest extends TestCase
     public function testGetModelTableNameInputIsLowercased(): void
     {
         // Act
-        $result = Create::getModelTableName('Order');
+        $result = MakeCommandBase::getModelTableName('Order');
 
         // Assert
         $this->assertSame('#PREFIX#orders', $result);
-    }
-
-    // -----------------------------------------------------------------------
-    // Create command configuration
-    // -----------------------------------------------------------------------
-
-    /**
-     * Create command is registered with name 'create' and has the expected
-     * 'entity' (required) and 'name' (optional) arguments.
-     *
-     * 'name' was changed from REQUIRED to OPTIONAL in v1.2 so that
-     * `create migration` (no name) enters the interactive wizard.  All other
-     * entity types still validate the name inside their create* method.
-     */
-    public function testCreateCommandConfigurationHasRequiredArguments(): void
-    {
-        // Arrange
-        $cmd = new Create();
-
-        // Act
-        $definition = $cmd->getDefinition();
-
-        // Assert — entity is required; name is optional (wizard mode for migration)
-        $this->assertTrue($definition->hasArgument('entity'));
-        $this->assertTrue($definition->hasArgument('name'));
-        $this->assertTrue($definition->getArgument('entity')->isRequired());
-        $this->assertFalse($definition->getArgument('name')->isRequired(),
-            "'name' must be optional so that create:migration enters the interactive wizard when omitted');");
-    }
-
-    /**
-     * Create command has --schema and --table options for overriding defaults.
-     */
-    public function testCreateCommandHasSchemaAndTableOptions(): void
-    {
-        // Arrange
-        $cmd = new Create();
-
-        // Assert
-        $definition = $cmd->getDefinition();
-        $this->assertTrue($definition->hasOption('schema'));
-        $this->assertTrue($definition->hasOption('table'));
-    }
-
-    /**
-     * An unknown entity type causes an InvalidArgumentException (not a crash).
-     * This guards against misuse of the command with an unsupported entity.
-     */
-    public function testCreateCommandThrowsForUnknownEntity(): void
-    {
-        // Arrange
-        $app = new SymfonyApp();
-        $app->add(new Create());
-        // Attach a stub internalApplication so getApplication() doesn't return null
-        $consoleApp = new \Pramnos\Console\Application();
-        $cmd = $consoleApp->find('create');
-
-        $tester = new CommandTester($cmd);
-
-        // Act + Assert
-        $this->expectException(\InvalidArgumentException::class);
-        $tester->execute(['entity' => 'unknown_entity_xyz', 'name' => 'test']);
     }
 
     // -----------------------------------------------------------------------
