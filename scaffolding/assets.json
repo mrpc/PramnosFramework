@@ -130,6 +130,18 @@
                 "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
             ],
             "local_path": "assets/vendor/bootstrap/5.3.3"
+        },
+        "pramnos-adapters": {
+            "version": "1.2.0",
+            "bundled": true,
+            "description": "Pramnos REST API adapters for DataTables 2.x and Grid.js 6.x",
+            "source_path": "resources/vendor/pramnos",
+            "css": [],
+            "js": [
+                "pramnos-datatable.js",
+                "pramnos-gridjs.js"
+            ],
+            "local_path": "assets/vendor/pramnos/1.2.0"
         }
     }
 }
