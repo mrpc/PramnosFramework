@@ -15,6 +15,18 @@
                     <li class="nav-item">
                         <a class="nav-link" href="<?php echo sURL; ?>">Home</a>
                     </li>
+                    <?php if (\Pramnos\Http\Session::staticIsLogged()): ?>
+                    <li class="nav-item">
+                        <a class="nav-link" href="<?php echo sURL; ?>account">My Account</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="<?php echo sURL; ?>login/logout">Logout (<?php echo htmlspecialchars((string) ($_SESSION['username'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>)</a>
+                    </li>
+                    <?php else: ?>
+                    <li class="nav-item">
+                        <a class="nav-link" href="<?php echo sURL; ?>login">Login</a>
+                    </li>
+                    <?php endif; ?>
                 </ul>
             </div>
         </div>
