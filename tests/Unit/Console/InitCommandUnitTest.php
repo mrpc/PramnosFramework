@@ -1058,6 +1058,15 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('public function dologin()', $login);
         $this->assertStringContainsString('public function logout()', $login);
 
+        // Constructor must register dologin and logout in addaction so that
+        // Controller::exec() can route POST requests to them.
+        $this->assertStringContainsString('addaction(', $login,
+            'Login controller must register dologin/logout via addaction() in constructor');
+        $this->assertStringContainsString("'dologin'", $login,
+            'dologin must be registered so exec() can dispatch the POST');
+        $this->assertStringContainsString("'logout'", $login,
+            'logout must be registered so exec() can dispatch the action');
+
         // Must use the framework Auth class for authentication
         $this->assertStringContainsString('Auth::getInstance()', $login);
         $this->assertStringContainsString('->auth(', $login);
