@@ -5,6 +5,15 @@
 
 ## 🏁 Session 105 — Router::group() + #[RouteGroup] — Φάση 7 complete (2026-05-22)
 
+### ✅ `JsonResponseMiddleware` + `ApiAuthMiddleware` + `Api::exec()` refactor
+
+- `JsonResponseMiddleware` — sets Content-Type header (JSON default, XML if Accept requested), always pass-through.
+- `ApiAuthMiddleware` — API key check via callable + JWT Bearer token auth; short-circuits with JSON 403/401 on failure; sets `$_SESSION['logged']`/`$_SESSION['user']` on success. configurable via `authKey` + `appNamespace`.
+- `Api::exec()` refactored: thin wrapper over `CorsMiddleware → JsonResponseMiddleware → ApiAuthMiddleware → _executeCore()` pipeline. Core logic in new `_executeCore()` method. `cors_origins` configurable via `applicationInfo`. 11 unit tests.
+- Phase 15 ROADMAP items: Router::group, #[RouteGroup], built-in API middleware, Api refactor — all marked ✅.
+
+---
+
 ### ✅ `Router::group()` — programmatic route groups
 
 `Router::group(array $attributes, Closure $callback)`: pushes a group context (prefix, middleware, permissions, name prefix) onto a stack. Every route registered inside the callback inherits all active stack entries. `addSingleRoute()` merges the full stack before creating the `Route`.
