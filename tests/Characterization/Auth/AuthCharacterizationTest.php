@@ -219,6 +219,43 @@ class AuthCharacterizationTest extends TestCase
     }
 
     /**
+     * When no auth addons are registered, auth() must still return false (unchanged
+     * behavior) AND write a warning to the 'auth' log file so operators can detect
+     * misconfigured apps quickly.
+     *
+     * This validates Phase 25.6: the silent-false return was a pain point in the
+     * original code because misconfigured apps showed no error at all.
+     */
+    public function testAuthWithNoAddonsReturnsFalseAndWritesWarningLog(): void
+    {
+        // Arrange — empty addon registry (set in setUp already)
+        $auth    = new Auth();
+        $logPath = defined('LOG_PATH') ? \LOG_PATH . \DS . 'logs' . \DS . 'auth.log' : null;
+
+        // Remove any pre-existing auth.log so we can detect a fresh write
+        if ($logPath !== null && file_exists($logPath)) {
+            unlink($logPath);
+        }
+
+        // Act
+        $result = $auth->auth('anyone', 'anything');
+
+        // Assert — still returns false; no regression to existing contract
+        $this->assertFalse($result, 'auth() must return false when no addons are registered.');
+
+        // Assert — warning was written to auth.log (Phase 25.6)
+        if ($logPath !== null) {
+            $this->assertFileExists($logPath, 'auth.log must be created when no auth handlers are registered.');
+            $contents = file_get_contents($logPath);
+            $this->assertStringContainsString(
+                'no auth handlers registered',
+                $contents,
+                'auth.log must contain the missing-handler warning.'
+            );
+        }
+    }
+
+    /**
      * setaccess() delegates permission writing to pramnos_factory::getPermissions().
      *
      * value=1 calls allow(), value=2 calls removePermission(), anything else calls deny().
