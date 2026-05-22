@@ -271,7 +271,7 @@ class Init extends Command
             }
         }
 
-        $this->printSummary($output, $useDocker, $dockerPort, $dbType, $dbUser, $dbPass, $dbRootPass, $cliName, (bool) $input->getOption('no-migrations'));
+        $this->printSummary($output, $useDocker, $dockerPort, $dbType, $dbUser, $dbPass, $dbRootPass, $cliName, (bool) $input->getOption('no-migrations'), $withRestApi);
 
         return 0;
     }
@@ -457,7 +457,7 @@ class Init extends Command
             return in_array(strtolower($option), ['y', 'yes', '1', 'true'], true);
         }
         $output->writeln("\n<comment>Step 2b — REST API</comment>");
-        return $helper->ask($input, $output, new ConfirmationQuestion('Scaffold a REST API layer? [y/N] ', false));
+        return $helper->ask($input, $output, new ConfirmationQuestion('Scaffold a REST API layer? [Y/n] ', true));
     }
 
     private function scaffoldRestApi(string $namespace): void
@@ -1037,8 +1037,19 @@ BASH;
         file_put_contents($composerPath, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
-    private function printSummary(OutputInterface $output, bool $useDocker, int $dockerPort, string $dbType, string $dbUser, string $dbPass, string $dbRootPass, string $cliName = '', bool $skipMigrations = false): void
-    {
+    private function printSummary(
+        OutputInterface $output,
+        bool            $useDocker,
+        int             $dockerPort,
+        string          $dbType,
+        string          $dbUser,
+        string          $dbPass,
+        string          $dbRootPass,
+        string          $cliName       = '',
+        bool            $skipMigrations = false,
+        bool            $withApi        = false,
+        string          $apiPrefix      = '/api/v1'
+    ): void {
         $output->writeln("\nNext steps:");
         $steps = [];
 
@@ -1046,7 +1057,11 @@ BASH;
             if (!$this->dockerSuccess && !$this->skipDockerRun) {
                 $steps[] = "Run <comment>docker-compose up -d --build</comment>";
             }
-            $steps[] = "Access your app at <comment>http://localhost:$dockerPort</comment>";
+            $appUrl = "http://localhost:$dockerPort";
+            $steps[] = "Access your app at <comment>$appUrl</comment>";
+            if ($withApi) {
+                $steps[] = "API base URL: <comment>{$appUrl}{$apiPrefix}</comment>";
+            }
             $toolPort = $dockerPort + 1;
             $toolName = ($dbType === 'mysql') ? 'PHPMyAdmin' : 'Adminer';
             $steps[] = "Access $toolName at <comment>http://localhost:$toolPort</comment>";
