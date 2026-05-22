@@ -225,6 +225,21 @@ class Route
     }
 
     /**
+     * Prepend one or more middleware before any already registered on this route.
+     *
+     * Used internally by Router::group() so group-level middleware runs
+     * before per-route middleware, regardless of registration order.
+     *
+     * @param  \Pramnos\Http\MiddlewareInterface|class-string ...$middlewares
+     * @return static
+     */
+    public function prependMiddleware(\Pramnos\Http\MiddlewareInterface|string ...$middlewares): static
+    {
+        $this->middlewares = array_merge(array_values($middlewares), $this->middlewares);
+        return $this;
+    }
+
+    /**
      * Return all middleware attached to this route.
      *
      * @return array<\Pramnos\Http\MiddlewareInterface|class-string>
