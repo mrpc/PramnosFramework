@@ -2323,7 +2323,7 @@ class {$className} extends \Pramnos\Application\Controller
     public function __construct(?\Pramnos\Application\Application \$application = null)
     {
         \$this->addAuthAction(
-            array('edit', 'save', 'delete', 'show', 'get{$className}')
+            array('save', 'delete')
         );
         parent::__construct(\$application);
     }
@@ -2749,6 +2749,9 @@ content;
         $viewName   = strtolower($name);
         $primaryKey = $this->getSingularPrimaryKey($tableName);
         $ui         = $this->detectUiSetup();
+        $enqueueScripts = $ui['datatables']
+            ? "        \$doc->enqueueScript('jquery');\n        \$doc->enqueueScript('datatables');\n        \$doc->enqueueScript('pramnos-adapters');\n"
+            : '';
 
         // ── Build $saveContent from wizard columns ──────────────────────────
         $saveContent        = '';
@@ -2811,7 +2814,7 @@ class {$className} extends \Pramnos\Application\Controller
      */
     public function __construct(?\Pramnos\Application\Application \$application = null)
     {
-        \$this->addAuthAction(['edit', 'save', 'delete', 'show']);
+        \$this->addAuthAction(['save', 'delete']);
         parent::__construct(\$application);
     }
 
@@ -2825,7 +2828,7 @@ class {$className} extends \Pramnos\Application\Controller
         \$view->items = \$model->getList();
         \$doc = \Pramnos\Framework\Factory::getDocument();
         \$doc->title = '{$className}';
-        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
+{$enqueueScripts}        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
         return \$view->display();
     }
 
@@ -2960,9 +2963,10 @@ PHP;
         }
         $viewBasePath .= 'Views';
         $viewDir  = $viewBasePath . DS . strtolower($name);
-        $className = self::getProperClassName($name, false);
-        $viewName  = strtolower($name);
-        $objectName = ucfirst($name);
+        $className        = self::getProperClassName($name, false);
+        $viewName         = strtolower($name);
+        $objectName       = ucfirst($name);
+        $objectNamePlural = $objectName . 's';
 
         if (!is_dir($viewDir)) {
             mkdir($viewDir, 0755, true);
@@ -2989,7 +2993,7 @@ PHP;
             $listContent = <<<HTML
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h1 class="h4 mb-0">{$objectName}</h1>
+        <h1 class="h4 mb-0">{$objectNamePlural}</h1>
         <a href="<?php echo sURL;?>{$className}/edit/0" class="btn btn-primary btn-sm">
             <i class="fa fa-plus"></i> Create
         </a>
@@ -3006,9 +3010,10 @@ PHP;
     </div>
 </div>
 <script>
-$(document).ready(function() {
-    PramnosDataTable.init('#{$viewName}-table', {
-        columns: [
+(function poll() {
+    if (typeof PramnosDataTable !== 'undefined') {
+        PramnosDataTable.init('#{$viewName}-table', {
+            columns: [
 HTML;
             foreach ($columns as $col) {
                 if ($col['name'] === $primaryKey) continue;
@@ -3021,8 +3026,11 @@ HTML;
                      + '<a href="<?php echo sURL;?>{$className}/delete/' + row.{$primaryKey} + '" class="btn btn-sm btn-danger" onclick="return confirm(\'Delete?\')"><i class="fa fa-trash"></i></a>';
             }}
         ]
-    });
-});
+        });
+    } else {
+        setTimeout(poll, 30);
+    }
+})();
 </script>
 HTML;
         } elseif ($useBootstrap) {
@@ -3035,7 +3043,7 @@ HTML;
             $listContent = <<<HTML
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h1 class="h4 mb-0">{$objectName}</h1>
+        <h1 class="h4 mb-0">{$objectNamePlural}</h1>
         <a href="<?php echo sURL;?>{$className}/edit/0" class="btn btn-primary btn-sm">
             <i class="fa fa-plus"></i> Create
         </a>
@@ -3072,7 +3080,7 @@ HTML;
 HTML;
         } else {
             $listContent = <<<HTML
-<h1>{$objectName}</h1>
+<h1>{$objectNamePlural}</h1>
 <p><a href="<?php echo sURL;?>{$className}/edit/0">Create New</a></p>
 <table border="1" cellpadding="5">
     <thead><tr>
