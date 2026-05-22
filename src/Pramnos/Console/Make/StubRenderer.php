@@ -95,7 +95,7 @@ class StubRenderer
                 . "use Pramnos\\Database\\SchemaBuilder;\n\n"
                 . "/**\n * {{ class }} Migration\n *\n * @package {{ namespace }}\n */\n"
                 . "final class {{ class }} extends Migration\n{\n"
-                . "    public string \$description = '{{ description }}';\n"
+                . "    public \$description = '{{ description }}';\n"
                 . "    public bool \$transactional = false;\n\n"
                 . "    public function up(): void\n    {\n{{ up_body }}\n    }\n\n"
                 . "    public function down(): void\n    {\n{{ down_body }}\n    }\n}\n",

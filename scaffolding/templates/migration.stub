@@ -11,7 +11,7 @@ use Pramnos\Database\SchemaBuilder;
  */
 final class {{ class }} extends Migration
 {
-    public string $description = '{{ description }}';
+    public $description = '{{ description }}';
 
     /**
      * Set true to wrap up() in BEGIN/COMMIT/ROLLBACK on PostgreSQL.
