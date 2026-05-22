@@ -457,7 +457,13 @@ class Init extends Command
             ? "    'api' => [\n        'prefix'       => '$apiPrefix',\n        'cors_origins' => ['*'],\n        'version'      => 'v1',\n    ],\n"
             : '';
 
-        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}{$apiSection}    'csp' => [\n        'script-src' => [],\n        'style-src'  => []\n    ]\n];\n";
+        // Register the database auth addon when the auth feature is enabled.
+        // Without this, Auth::auth() finds no onAuth handlers and always returns false.
+        $addonsSection = in_array('auth', $features, true)
+            ? "    'addons' => [\n        ['addon' => 'Pramnos\\\\Addon\\\\Auth\\\\UserDatabase', 'type' => 'auth'],\n    ],\n"
+            : '';
+
+        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}{$addonsSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n        'style-src'  => []\n    ]\n];\n";
         $this->writeFile($path, $content);
     }
 
@@ -1919,9 +1925,9 @@ HTML;
     private function buildPlainLoginView(): string
     {
         return <<<'HTML'
-<?php /** @var \Pramnos\View\View $this */ ?>
-<div class="container">
-    <h1>Login</h1>
+<?php /** @var \Pramnos\Application\View $this */ ?>
+<div class="form-card">
+    <h2>Login</h2>
     <?php if (!empty($this->error)): ?>
     <p class="error"><?php echo htmlspecialchars($this->error, ENT_QUOTES, 'UTF-8'); ?></p>
     <?php endif; ?>
@@ -1934,12 +1940,11 @@ HTML;
             <label for="password">Password</label>
             <input type="password" id="password" name="password" required>
         </div>
-        <div class="form-group">
-            <label>
-                <input type="checkbox" name="remember" value="1"> Remember me
-            </label>
+        <div class="form-group-check">
+            <input type="checkbox" id="remember" name="remember" value="1">
+            <label for="remember">Remember me</label>
         </div>
-        <button type="submit">Login</button>
+        <button type="submit" class="btn btn-full">Login</button>
     </form>
 </div>
 HTML;
