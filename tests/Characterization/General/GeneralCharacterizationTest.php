@@ -66,14 +66,44 @@ class GeneralCharacterizationTest extends TestCase
     public static function singularizeProvider(): array
     {
         return [
-            'regular -s'        => ['cars',     'car'],
-            '-ies → -y'         => ['cities',   'city'],
-            '-es from -ch'      => ['churches', 'church'],
-            'irregular: children' => ['children', 'child'],
+            // Standard patterns
+            'regular -s'              => ['cars',       'car'],
+            '-ies → -y'               => ['cities',     'city'],
+            '-es from -ch'            => ['churches',   'church'],
+            '-es from -sh'            => ['dishes',     'dish'],
+            '-es from -ss'            => ['classes',    'class'],
+            '-xes → strip es'         => ['foxes',      'fox'],
+            'irregular: children'     => ['children',   'child'],
             'irregular: people (known limitation – unchanged)' => ['people', 'people'],
-            'irregular: data'   => ['data',     'datum'],
-            'already singular'  => ['car',      'car'],
-            'singular with s: news' => ['news', 'news'],
+            'irregular: data'         => ['data',       'datum'],
+            'already singular'        => ['car',        'car'],
+            'singular with s: news'   => ['news',       'news'],
+            // Silent-e root (consonant before final e): strip only 's'
+            '-les: articles'          => ['articles',   'article'],
+            '-les: modules'           => ['modules',    'module'],
+            '-les: files'             => ['files',      'file'],
+            '-les: roles'             => ['roles',      'role'],
+            '-les: tables'            => ['tables',     'table'],
+            '-res: whores'            => ['whores',     'whore'],
+            '-res: horses'            => ['horses',     'horse'],
+            '-res: structures'        => ['structures', 'structure'],
+            '-res: procedures'        => ['procedures', 'procedure'],
+            '-ges: images'            => ['images',     'image'],
+            '-ges: pages'             => ['pages',      'page'],
+            '-ces: services'          => ['services',   'service'],
+            '-ces: devices'           => ['devices',    'device'],
+            '-ces: resources'         => ['resources',  'resource'],
+            '-nes: machines'          => ['machines',   'machine'],
+            '-tes: templates'         => ['templates',  'template'],
+            '-des: modes'             => ['modes',      'mode'],
+            '-mes: names'             => ['names',      'name'],
+            '-zes: mazes'             => ['mazes',      'maze'],
+            '-ses: courses'           => ['courses',    'course'],
+            '-ses: responses'         => ['responses',  'response'],
+            // Vowel before 'e' → strip 'es' (not a silent-e root)
+            '-oes: tomatoes'          => ['tomatoes',   'tomato'],
+            '-oes: potatoes'          => ['potatoes',   'potato'],
+            '-oes: heroes'            => ['heroes',     'hero'],
         ];
     }
 
