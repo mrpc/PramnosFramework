@@ -2685,15 +2685,6 @@ class {$className} extends \Pramnos\Application\Controller
         );
     }
 
-    /**
-     * DataTables serverSide endpoint (legacy DT 1.9 compatible)
-     */
-    public function get{$className}(): string
-    {
-        \$model = new \\{$modelNameSpace}\\{$modelClass}(\$this);
-        \Pramnos\Framework\Factory::getDocument('json');
-        return \$model->getJsonList();
-    }
 }
 PHP;
 
@@ -2777,7 +2768,8 @@ PHP;
         </a>
     </div>
     <div class="card-body">
-        <table id="{$viewName}-table" class="table table-striped table-hover w-100">
+        <table id="{$viewName}-table" class="table table-striped table-hover w-100"
+               data-dt-api="<?php echo sURL;?>{$className}/getApiList?format=datatables">
             <thead>
                 <tr>
 {$tableHeaders}                        <th>Actions</th>
@@ -2788,10 +2780,7 @@ PHP;
 </div>
 <script>
 $(document).ready(function() {
-    $('#{$viewName}-table').DataTable({
-        processing: true,
-        serverSide: true,
-        ajax: '<?php echo sURL;?>{$className}/getApiList?format=datatables',
+    PramnosDataTable.init('#{$viewName}-table', {
         columns: [
 HTML;
             foreach ($columns as $col) {
@@ -3557,72 +3546,6 @@ $foreignFixes
         \$data = parent::getData();
 $arrayFix
         return \$data;
-    }
-
-/**
-     * Return data in JSON format for datatables
-     * @return string
-     */
-    public function getJsonList()
-    {
-        // Define all fields to be included in the query
-        \$fields = array(
-            $theFieldsTxt
-        );
-
-        // Get database instance
-        \$database = \Pramnos\Database\Database::getInstance();
-        
-        // Make sure to use the actual table name with prefix instead of the placeholder
-        \$actualTableName = str_replace('#PREFIX#', \$database->prefix, '{$tableName}');
-        
-        // Add schema if specified in the model and using PostgreSQL
-        if (\$database->type == 'postgresql' && !empty(\$this->_dbschema)) {
-            \$actualTableName = \$this->_dbschema . '.' . \$actualTableName;
-        } elseif (\$database->type == 'postgresql' && !empty(\$database->schema)) {
-            \$actualTableName = \$database->schema . '.' . \$actualTableName;
-        }
-
-        
-
-        \$items = \Pramnos\Html\Datatable\Datasource::getList(
-            \$actualTableName,
-            \$fields,
-            false,
-            ''
-        );
-
-        \$loopCounter = 0;
-        if (isset(\$items['aaData']) && is_array(\$items['aaData'])) {
-            foreach (\$items['aaData'] as \$data) {
-                \${$primaryKey} = \$data[0];
-
-                \$link = '<a href="' . sURL . '{$controllerName}/show/' . \${$primaryKey} . '">';
-                foreach (\$data as \$key => \$value) {
-                    \$data[\$key] = \$link . \$value . '</a>';    
-                }
-                
-
-                // Add action buttons at the end
-                \$actions = '<a href="'
-                    . sURL
-                    . '{$controllerName}/edit/'
-                    . \${$primaryKey}
-                    . '">Edit</a> '
-                    . '<a onclick="return confirm'
-                    . '(\'Are you sure?\');"'
-                    . ' href="'
-                    . sURL
-                    . '{$controllerName}/delete/'
-                    . \${$primaryKey}
-                    . '">Delete</a>';
-
-                \$data[] = \$actions;
-                \$items['aaData'][\$loopCounter] = \$data;
-                \$loopCounter += 1;
-            }
-        }
-        return json_encode(\$items);
     }
 
     /**
