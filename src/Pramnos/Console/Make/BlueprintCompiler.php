@@ -80,9 +80,11 @@ class BlueprintCompiler
         if (!empty($col['nullable'])) {
             $call .= '->nullable()';
         }
-        if (isset($col['default']) && $col['default'] !== null && $col['default'] !== '') {
+        if (isset($col['default']) && $col['default'] !== null) {
             $d = (string) $col['default'];
-            if (is_numeric($d)) {
+            if ($d === '') {
+                $call .= "->default('')";
+            } elseif (is_numeric($d)) {
                 $call .= "->default({$d})";
             } elseif (in_array(strtolower($d), ['true', 'false', 'null'], true)) {
                 $call .= '->default(' . strtolower($d) . ')';
