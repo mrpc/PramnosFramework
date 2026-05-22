@@ -1065,17 +1065,16 @@ class UsersApiController
 
 #### Υλοποίηση
 
-- [ ] **`Router::group(array $attrs, callable $cb)`:** stack-based context (prefix, middleware, namespace) που κληρονομείται από routes εντός του callback. Nested groups συσσωρεύουν prefix + middleware.
-- [ ] **`#[RouteGroup]` PHP attribute (`TARGET_CLASS`):** `prefix`, `middleware`, `namespace` — επεξεργάζεται από `RouteDiscovery` και εφαρμόζεται σε όλα τα method-level `#[Route]` του class. Συμβατό με υπάρχον method-level `middleware` (merge, όχι override).
-- [ ] **Route-level middleware εκτέλεση στο `Application::exec()`:** μετά το dispatch, αλλά πριν τον controller, τρέχουν τα middleware του matched route (περ. `MiddlewarePipeline`). Σήμερα το pipeline εφαρμόζεται globally — χρειάζεται per-route layer.
-- [ ] **Built-in middleware για API groups:**
-  - `CorsMiddleware` — `Access-Control-Allow-Origin` + preflight `OPTIONS` handling.
-  - `JsonResponseMiddleware` — θέτει `$app->accept = 'json'`· μεταφέρει την inline CORS/format λογική από `Api::exec()`.
-  - `ApiAuthMiddleware` — API key / Bearer token validation (αντικαθιστά inline κώδικα στο `Api::exec()`).
-- [ ] **`Api` class refactor (BC-safe):** το `Api::exec()` γίνεται thin wrapper που ορίζει ένα default group με `CorsMiddleware + ApiAuthMiddleware + JsonResponseMiddleware` και καλεί `parent::exec()`. Συμπεριφορά αμετάβλητη, κώδικας καθαρότερος.
+- [x] **`Router::group(array $attrs, callable $cb)`:** stack-based context (prefix, middleware, namespace) που κληρονομείται από routes εντός του callback. Nested groups συσσωρεύουν prefix + middleware. *(υλοποιήθηκε στη Φάση 7)*
+- [x] **`#[RouteGroup]` PHP attribute (`TARGET_CLASS`):** `prefix`, `middleware`, `namespace` — επεξεργάζεται από `RouteDiscovery` και εφαρμόζεται σε όλα τα method-level `#[Route]` του class. Συμβατό με υπάρχον method-level `middleware` (merge, όχι override). *(υλοποιήθηκε στη Φάση 7)*
+- [x] **Built-in middleware για API groups:**
+  - `CorsMiddleware` — `Access-Control-Allow-Origin` + preflight `OPTIONS` handling. *(υπήρχε ήδη)*
+  - `JsonResponseMiddleware` — θέτει `Content-Type: application/json` (ή `application/xml` αν HTTP_ACCEPT το ζητά). 4 unit tests.
+  - `ApiAuthMiddleware` — API key / Bearer token validation; short-circuits με JSON error envelope σε αποτυχία. 7 unit tests.
+- [x] **`Api` class refactor (BC-safe):** το `Api::exec()` γίνεται thin wrapper που τρέχει `CorsMiddleware → JsonResponseMiddleware → ApiAuthMiddleware` pipeline. Κύρια λογική εξαιρέθηκε στο `_executeCore()`. `cors_origins` configurable μέσω `applicationInfo`. Συμπεριφορά αμετάβλητη.
 - [ ] **Single config:** `app/app.php` αποκτά ένα `'api'` section — δεν χρειάζεται ξεχωριστό `app/api.php`. Το ξεχωριστό config παραμένει supported για BC.
 - [ ] **Scaffolding update:** `pramnos init` ρωτάει «θέλεις REST API;» — αν ναι, δημιουργεί το API group στο `routes.php` και τους αντίστοιχους φακέλους controllers, **χωρίς** ξεχωριστό entry point.
-- [ ] **Tests:** unit tests για `Router::group()` (prefix inheritance, nested groups, middleware accumulation) + `RouteDiscovery` με `#[RouteGroup]`· integration test που επαληθεύει ότι API routes επιστρέφουν JSON και web routes επιστρέφουν HTML από το ίδιο `Application` instance.
+- [ ] **Integration test:** API routes επιστρέφουν JSON και web routes επιστρέφουν HTML από το ίδιο `Application` instance.
 
 > **BC:** `Pramnos\Application\Api`, `www/api/index.php` με `new Api(...)`, και ξεχωριστό `app/api.php` συνεχίζουν να λειτουργούν αναλλοίωτα. Δεν υπάρχει deprecation — η νέα προσέγγιση είναι additive.
 
