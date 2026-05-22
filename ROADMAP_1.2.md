@@ -1547,7 +1547,119 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 - [ ] Ο `init app` scaffolds wrapper controllers στο `src/Controllers/` ανάλογα feature
 - [ ] Navbar links προστίθενται δυναμικά στο `buildThemeHeader()` βάσει enabled features — **Admin dropdown menu** όταν υπάρχουν πολλά admin controllers
 - [ ] Κάθε controller έχει unit tests + integration tests (MySQL + PostgreSQL)
+- [ ] **Προαπαιτούμενο: Φάση 24 (NavRegistry)** — η σειρά υλοποίησης εντός φάσης ξεκινά μόνο αφού υλοποιηθεί το NavRegistry
 - [ ] Η σειρά υλοποίησης εντός φάσης: 23.11 → 23.1 → 23.5 → 23.8 → 23.9 → 23.2 → 23.3 → 23.10 → 23.6 → 23.4 → 23.7
   - Πρώτα services (Statistics + Services) — universal, χωρίς feature dependencies
   - Μετά auth-dependent (Users, Settings, Organizations, Applications, Tokens, TokenActions, Emails)
   - Τελευταία τα feature-specific (Permissions RBAC, Queue)
+
+---
+
+### 🧭 Φάση 24: Navigation Registry
+
+*Αντικαθιστά τα hardcoded navbar links με ένα κεντρικό registry που εκδίδει nav items δυναμικά βάσει login state, permission level και enabled features. Κάθε νέος controller εγγράφεται μόνος του — το theme header δεν αγγίζεται ποτέ ξανά.*
+
+#### Κίνητρο
+
+Η τωρινή προσέγγιση (`buildThemeHeader()` με hardcoded PHP conditionals) έχει τρία προβλήματα:
+1. Κάθε νέος admin controller απαιτεί αλλαγή στο template — δεν κλιμακώνεται
+2. Δεν υπάρχει έλεγχος permission level (μόνο login/not-login)
+3. Το scaffolded `header.php` είναι static — αν μπει νέος controller μετά το `init app`, η navbar δεν ενημερώνεται
+
+#### Αρχιτεκτονική: `NavRegistry`
+
+- [ ] **`\Pramnos\Application\NavRegistry`** — static registry (pattern ίδιο με `HealthRegistry`):
+
+```php
+NavRegistry::register(new NavItem(
+    id:          'admin.logs',
+    label:       'Logs',
+    url:         sURL . 'logs',
+    section:     NavSection::Admin,   // Main | User | Admin | Feature
+    position:    10,
+    requireAuth: true,
+    minUserType: 80,                  // 0=all, 50=user, 80=manager, 90=admin, 99=superadmin
+    feature:     null,                // null=always, 'auth', 'queue', 'authserver', ...
+    icon:        'bi-journal-text',   // Bootstrap Icons handle (optional)
+));
+```
+
+- [ ] **`NavItem`** value object — immutable, readonly properties: `id`, `label`, `url`, `section`, `position`, `requireAuth`, `minUserType`, `feature`, `icon`
+- [ ] **`NavSection`** enum — `Main`, `User`, `Admin`, `Feature` (για ομαδοποίηση στη navbar)
+- [ ] **`NavRegistry::getForUser(?User $user, array $enabledFeatures): array`** — επιστρέφει filtered + sorted items ανά section:
+  - Αφαιρεί items με `requireAuth=true` αν ο χρήστης δεν είναι logged in
+  - Αφαιρεί items με `minUserType > $user->usertype`
+  - Αφαιρεί items με `feature` που δεν είναι στα `$enabledFeatures`
+  - Ταξινομεί ανά `position`
+- [ ] **`NavRegistry::reset()`** — για test isolation (ίδιο pattern με `HealthRegistry::reset()`)
+
+#### Εγγραφή nav items
+
+Κάθε framework controller εγγράφει το nav item του σε **static initializer** ή μέσω του `Application::init()` bootstrapping. Δεν χρειάζεται instance — η εγγραφή γίνεται μία φορά κατά το boot:
+
+```php
+// Στο Application::init() ή σε ServiceProvider::boot():
+NavRegistry::register(new NavItem('main.home',  'Home',   sURL,          NavSection::Main,  0));
+NavRegistry::register(new NavItem('admin.logs', 'Logs',   sURL.'logs',   NavSection::Admin, 10, requireAuth: true, minUserType: 80));
+NavRegistry::register(new NavItem('admin.health','Health',sURL.'health', NavSection::Admin, 20, requireAuth: true, minUserType: 80));
+// κ.ο.κ. — κάθε φάση 23 controller προσθέτει τη δική του εγγραφή
+```
+
+Η εφαρμογή μπορεί να προσθέσει δικά της items ή να αφαιρέσει/αντικαταστήσει framework items (override by id).
+
+#### Scaffolded `header.php`
+
+Το `buildThemeHeader()` δεν παράγει πλέον hardcoded links. Παράγει αντ' αυτού ένα **μικρό PHP snippet** που καλεί το registry:
+
+```php
+// app/themes/default/header.php — γεννιέται μία φορά, δεν ξαναγγίζεται
+<?php
+$_navUser  = \Pramnos\User\User::getCurrentUser();
+$_navFeatures = \Pramnos\Application\Application::getInstance()->applicationInfo['features'] ?? [];
+$_nav = \Pramnos\Application\NavRegistry::getForUser($_navUser, $_navFeatures);
+?>
+<nav ...>
+  <!-- Main items -->
+  <?php foreach ($_nav[\Pramnos\Application\NavSection::Main->value] ?? [] as $_item): ?>
+    <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES); ?></a></li>
+  <?php endforeach; ?>
+
+  <!-- User items (Account / Logout / Login) -->
+  <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
+    <li><a href="..."><?php echo htmlspecialchars($_item->label, ENT_QUOTES); ?></a></li>
+  <?php endforeach; ?>
+
+  <!-- Admin dropdown — εμφανίζεται μόνο αν υπάρχουν items -->
+  <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
+    <li class="dropdown">
+      <a href="#" class="dropdown-toggle">Admin</a>
+      <ul>
+        <?php foreach ($_nav[\Pramnos\Application\NavSection::Admin->value] as $_item): ?>
+          <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES); ?></a></li>
+        <?php endforeach; ?>
+      </ul>
+    </li>
+  <?php endif; ?>
+</nav>
+```
+
+Η Bootstrap και plain-css variants διαφέρουν μόνο στα CSS classes — η λογική είναι ίδια.
+
+#### Migration από hardcoded navbar (Φάσεις 22-23 → 24)
+
+- [ ] Τα hardcoded links που προστέθηκαν στις Φάσεις 22-23 (`logs`, `health`, `oauth`, auth conditionals) **αντικαθίστανται** από `NavRegistry::register()` calls στο `Application::init()`
+- [ ] Το `buildThemeHeader()` απλοποιείται — παράγει μόνο CSS/meta + το dynamic nav snippet
+- [ ] Η `scaffoldAuthWiring()` και `scaffoldLogsWiring()` παύουν να τροποποιούν το header — απλώς εγγράφουν controllers που κάνουν `NavRegistry::register()` στο constructor τους
+
+#### Σειρά εξάρτησης
+
+> **Φάση 24 υλοποιείται πριν τη Φάση 23.** Κάθε controller της Φάσης 23 εγγράφει το nav item του μέσω `NavRegistry` — δεν αγγίζει το `header.php`.
+
+#### Tests
+
+- [ ] Unit tests για `NavRegistry`: register/getForUser, permission filtering, feature filtering, section grouping, position sorting, reset isolation
+- [ ] Unit tests για `NavItem` immutability και `NavSection` enum values
+- [ ] Test: anonymous user βλέπει μόνο `requireAuth=false` items
+- [ ] Test: `usertype=50` δεν βλέπει `minUserType=80` admin items
+- [ ] Test: disabled feature items φιλτράρονται από `getForUser()`
+- [ ] Test: `buildThemeHeader()` παράγει nav snippet που καλεί `NavRegistry::getForUser()` (string assertion)
