@@ -669,8 +669,9 @@ abstract class MakeCommandBase extends Command
         $tableName = $helper->ask($input, $output, $q);
 
         // ── Primary key ───────────────────────────────────────────────────────
+        $pkName = $this->getBlueprintCompiler()->getSingularPrimaryKey($tableName);
         $q = new ConfirmationQuestion(
-            ' Add auto-increment primary key <info>id</info>? [<comment>yes</comment>] ', true
+            " Add auto-increment primary key <info>{$pkName}</info>? [<comment>yes</comment>] ", true
         );
         $hasPk = $helper->ask($input, $output, $q);
 
@@ -712,8 +713,9 @@ abstract class MakeCommandBase extends Command
                 });
                 $tableName = $helper->ask($input, $output, $q);
 
+                $pkName = $this->getBlueprintCompiler()->getSingularPrimaryKey($tableName);
                 $q = new ConfirmationQuestion(
-                    ' Add auto-increment primary key <info>id</info>? [<comment>yes</comment>] ', true
+                    " Add auto-increment primary key <info>{$pkName}</info>? [<comment>yes</comment>] ", true
                 );
                 $hasPk = $helper->ask($input, $output, $q);
             }
