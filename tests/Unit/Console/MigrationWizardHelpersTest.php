@@ -201,7 +201,7 @@ class MigrationWizardHelpersTest extends TestCase
         );
 
         // Assert — table wrapper present and auto-PK uses derived name 'userid'
-        $this->assertStringContainsString("SchemaBuilder::create('#PREFIX#users'", $body);
+        $this->assertStringContainsString("\$schema->createTable('#PREFIX#users'", $body);
         $this->assertStringContainsString("\$table->increments('userid');", $body);
     }
 
@@ -265,7 +265,7 @@ class MigrationWizardHelpersTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * The down() body must call SchemaBuilder::dropIfExists() with exactly the
+     * The down() body must call ->schema()->dropIfExists() with exactly the
      * same table name used in up() — otherwise a rollback would target the wrong
      * table or fail silently.
      */
@@ -274,8 +274,8 @@ class MigrationWizardHelpersTest extends TestCase
         // Act
         $body = $this->cmd->buildMigrationDownBody('#PREFIX#products');
 
-        // Assert
-        $this->assertStringContainsString("SchemaBuilder::dropIfExists('#PREFIX#products')", $body);
+        // Assert — uses instance method (not static SchemaBuilder::dropIfExists)
+        $this->assertStringContainsString("->schema()->dropIfExists('#PREFIX#products')", $body);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
