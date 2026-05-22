@@ -1170,6 +1170,32 @@ class MakeCommandBaseTest extends TestCase
             'integer column must be cast to int in getData()');
     }
 
+    /**
+     * buildModelFromWizardColumns() must NOT generate a getJsonList() method.
+     *
+     * Phase 17 scaffolding update: new models expose getApiList() only.
+     * getJsonList() is deprecated on the base Model class and must not be
+     * regenerated in new scaffolded files (it would shadow the parent delegate).
+     */
+    public function testBuildModelFromWizardColumnsDoesNotEmitGetJsonList(): void
+    {
+        // Arrange
+        $columns = [
+            ['name' => 'title', 'type' => 'string', 'options' => [], 'nullable' => false, 'default' => null, 'comment' => '', 'unique' => false, 'unsigned' => false],
+        ];
+
+        // Act
+        $source = $this->command->buildModelFromWizardColumns(
+            'App\\Models', 'Post', '#PREFIX#posts', $columns, []
+        );
+
+        // Assert — getJsonList must be absent; getApiList must be present
+        $this->assertStringNotContainsString('getJsonList', $source,
+            'wizard model must NOT contain getJsonList() — Phase 17 deprecates it in generated code');
+        $this->assertStringContainsString('getApiList', $source,
+            'wizard model must contain getApiList() as the single list endpoint');
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
