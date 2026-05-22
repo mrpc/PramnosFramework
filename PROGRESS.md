@@ -1,7 +1,22 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 110) — Phase 17 client-side complete ✅
+## 📅 Last Updated: 2026-05-22 (session 111) — FK wizard improvements ✅
+
+## 🏁 Session 111 — FK wizard autocomplete & column selection (2026-05-22)
+
+### ✅ create:migration — FK wizard improvements
+
+Commit: `a88f7a9`
+
+- **References table**: autocomplete (Tab) από DB tables + tables που δημιουργούνται στο ίδιο migration. Validator απορρίπτει άγνωστα tables με σαφές μήνυμα.
+- **References column**: `ChoiceQuestion` με τις πραγματικές στήλες του referenced table (wizard state → `getColumns()` από DB). Fallback σε text input αν οι στήλες δεν είναι γνωστές.
+- **Column name**: autocomplete από τις ήδη ορισμένες στήλες του τρέχοντος table.
+- Graceful degradation όταν η DB δεν είναι διαθέσιμη κατά τον wizard.
+- Δύο νέα private methods: `fetchTableNames()`, `getColumnsForFKTable()`.
+- **Tests:** 73/73 pass.
+
+---
 
 ## 🏁 Session 110 — Phase 17 client-side complete (2026-05-22)
 
