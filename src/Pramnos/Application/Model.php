@@ -796,13 +796,11 @@ class Model extends \Pramnos\Framework\Base
      */
     public function _getJsonList($filter = NULL, $table = NULL, $key = NULL)
     {
-        $lang = \Pramnos\Translator\Language::getInstance();
+        $lang     = \Pramnos\Translator\Language::getInstance();
         $database = \Pramnos\Database\Database::getInstance();
-        $objects = array();
+
         if ($table !== NULL && $table != "") {
-            $this->_dbtable = str_replace(
-                "#PREFIX#", $database->prefix, $table
-            );
+            $this->_dbtable = str_replace('#PREFIX#', $database->prefix, $table);
         }
         if ($key !== NULL && $key != "") {
             $this->_primaryKey = $key;
@@ -810,96 +808,87 @@ class Model extends \Pramnos\Framework\Base
         if ($this->_dbtable === NULL) {
             $this->load(0);
         }
-        if ($this->_dbtable != NULL) {
-            if ($this->_cacheKey === NULL) {
-                $this->_fixDb();
+        if ($this->_dbtable == NULL) {
+            return [];
+        }
+        if ($this->_cacheKey === NULL) {
+            $this->_fixDb();
+        }
+
+        $filter = ($filter === NULL) ? '' : $filter;
+
+        // Delegate to _getApiList() (clean REST format) to unify code path.
+        // Then wrap in DataTables 1.9 aaData/sEcho envelope for BC.
+        $apiResult = $this->_getApiList([], '', '', $filter);
+
+        $fields = $apiResult['fields'] ?? [];
+        $rows   = $apiResult['data']   ?? [];
+
+        // Convert associative rows → positional arrays (DT 1.9 aaData format).
+        $aaData = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
             }
-
-            if ($filter === NULL) {
-                $filter = "";
+            $positional = [];
+            foreach ($fields as $field) {
+                $positional[] = $row[$field] ?? null;
             }
+            $aaData[] = $positional;
+        }
 
-            // Use _getAllTableFields() for cross-DB column introspection
-            // (MySQL: SHOW COLUMNS, PostgreSQL/TimescaleDB: information_schema).
-            $fields = $this->_getAllTableFields();
+        $total   = count($aaData);
+        $request = \Pramnos\Http\Request::getInstance();
 
-            $objects = \Pramnos\Html\Datatable\Datasource::getList(
-                $this->getFullTableName(), $fields, false, $filter
-            );
+        $objects = [
+            'aaData'               => $aaData,
+            'sEcho'                => intval($request->get('sEcho') ?? 0),
+            'iTotalRecords'        => $total,
+            'iTotalDisplayRecords' => $total,
+        ];
 
-            if (is_array($this->_jsonactions)
-                && count($this->_jsonactions) != 0) {
+        // Apply legacy _jsonactions (Urbanwater BC — action links appended to rows).
+        if (is_array($this->_jsonactions) && count($this->_jsonactions) !== 0
+            && is_array($objects['aaData'])
+        ) {
+            $loop = 0;
+            foreach ($objects['aaData'] as $data) {
+                foreach ($this->_jsonactions as $action) {
+                    $targetfield = 0;
+                    foreach ($fields as $fieldcount => $field) {
+                        if ($field == $action['field']) {
+                            $targetfield = $fieldcount;
+                        }
+                    }
 
-                if (isset($objects['aaData'])) {
-                    if (is_array($objects['aaData'])) {
-                        $loop = 0;
+                    if (strpos($action['action'], 'http') === false) {
+                        $url = sURL . $this->prefix . '/' . $action['action'] . '/' . $data[$targetfield];
+                    } else {
+                        $url = $action['action'] . '/' . $data[$targetfield];
+                    }
 
+                    $confirm = '';
+                    if ($action['confirm'] == true) {
+                        $confirm = " onclick=\"return confirm('" . $lang->_('Are you sure?') . "');\" ";
+                    }
 
-                        foreach ($objects['aaData'] as $data) {
-
-                            foreach ($this->_jsonactions as $action) {
-                                $targetfield=0;
-                                foreach ($fields as $fieldcount=>$field) {
-                                    if ($field == $action['field']) {
-                                        $targetfield=$fieldcount;
-                                    }
-                                }
-
-                                if (strpos(
-                                    $action['action'], 'http'
-                                ) === false) {
-                                    $url = sURL .$this->prefix
-                                        . '/' . $action['action']
-                                        . '/' . $data[$targetfield];
-                                } else {
-                                    $url = $action['action'] . '/'
-                                        . $data[$targetfield];
-                                }
-
-                                $confirm = '';
-                                if ($action['confirm'] == true) {
-                                    $confirm=" onclick=\"return "
-                                        . "confirm("
-                                        . "'".$lang->_('Are you sure?')
-                                        ."');\" ";
-                                }
-                                if ($action['column'] == '') {
-                                    if ($action['title'] == '') {
-                                        $a= '<a '.$confirm.' href="'.$url.'">'
-                                            . $action['action'].'</a>';
-                                    } else {
-                                        $a= '<a '.$confirm.' href="'.$url.'">'
-                                            . $action['title'].'</a>';
-                                    }
-
-                                    $data[]=$a;
-                                } else {
-
-                                    foreach ($fields as $fieldcount=>$field) {
-                                        if ($field == $action['column']) {
-                                            $a= '<a '.$confirm.' href="'
-                                                . $url.'">'
-                                                . $data[$fieldcount].'</a>';
-                                            $data[$fieldcount]=$a;
-                                        }
-                                    }
-                                }
+                    if ($action['column'] == '') {
+                        $title  = ($action['title'] !== '') ? $action['title'] : $action['action'];
+                        $data[] = '<a ' . $confirm . ' href="' . $url . '">' . $title . '</a>';
+                    } else {
+                        foreach ($fields as $fieldcount => $field) {
+                            if ($field == $action['column']) {
+                                $data[$fieldcount] = '<a ' . $confirm . ' href="' . $url . '">' . $data[$fieldcount] . '</a>';
                             }
-
-
-                            $objects['aaData'][$loop] = $data;
-                            $loop+=1;
                         }
                     }
                 }
+                $objects['aaData'][$loop] = $data;
+                $loop++;
             }
-
-
-
-            return json_encode($objects);
-
         }
-        return $objects;
+
+        return json_encode($objects);
     }
 
     /**
