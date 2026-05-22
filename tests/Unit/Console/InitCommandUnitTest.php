@@ -1275,6 +1275,211 @@ class InitCommandUnitTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // authserver feature wiring
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * When 'authserver' is enabled, the scaffolder must create src/Controllers/Oauth.php
+     * extending the framework Oauth controller so that /oauth/authorize etc. route correctly.
+     * The OAuth2 consent views are served via the framework's scaffolding fallback mechanism
+     * and do not need to be copied into the app.
+     */
+    public function testAuthserverFeatureScaffoldsOauthControllerWrapper(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — enable both auth (required for authserver) and authserver
+        $tester->execute([
+            '--app-name'  => 'OAuthApp',
+            '--namespace' => 'OAuthApp',
+            '--features'  => 'auth,authserver',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'oauthapp_db',
+            '--db-user'   => 'oauthapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — Oauth controller wrapper must exist
+        $oauthPath = $this->tmpDir . '/src/Controllers/Oauth.php';
+        $this->assertFileExists($oauthPath, 'src/Controllers/Oauth.php must be scaffolded when authserver feature is enabled');
+
+        $oauth = file_get_contents($oauthPath);
+
+        // Must declare the correct namespace
+        $this->assertStringContainsString('namespace OAuthApp\\Controllers;', $oauth);
+
+        // Must extend the framework Oauth controller
+        $this->assertStringContainsString('extends \\Pramnos\\Auth\\Controllers\\Oauth', $oauth);
+    }
+
+    /**
+     * When 'authserver' is NOT enabled, Oauth.php must not be scaffolded.
+     */
+    public function testNoAuthserverFeatureSkipsOauthController(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — auth only, no authserver
+        $tester->execute([
+            '--app-name'  => 'AuthOnlyApp',
+            '--namespace' => 'AuthOnlyApp',
+            '--features'  => 'auth',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'authonly_db',
+            '--db-user'   => 'authonly',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — Oauth controller must not be created when authserver is not enabled
+        $this->assertFileDoesNotExist(
+            $this->tmpDir . '/src/Controllers/Oauth.php',
+            'Oauth.php must not be scaffolded without the authserver feature'
+        );
+    }
+
+    /**
+     * When 'authserver' is enabled, the Bootstrap navbar must include an 'OAuth Apps'
+     * admin link so administrators can reach the OAuth2 management UI.
+     */
+    public function testAuthserverFeatureAddsOauthLinkToNavbar(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'OAuthApp',
+            '--namespace' => 'OAuthApp',
+            '--features'  => 'auth,authserver',
+            '--ui-system' => 'bootstrap',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'oauthapp_db',
+            '--db-user'   => 'oauthapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+
+        // Must contain an oauth link
+        $this->assertStringContainsString('href="<?php echo sURL; ?>oauth"', $header);
+        $this->assertStringContainsString('OAuth Apps', $header);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Logs controller wiring (always created)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Every new application must receive src/Controllers/Logs.php extending
+     * the framework LogController. This makes /logs available in every app and
+     * follows the Urbanwater pattern (thin wrapper, customize whitelist/blacklist).
+     * Authentication is enforced by the framework controller via addAuthAction().
+     */
+    public function testLogsControllerIsAlwaysScaffolded(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no features, plain-css
+        $tester->execute([
+            '--app-name'  => 'MinimalApp',
+            '--namespace' => 'MinimalApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'minimal_db',
+            '--db-user'   => 'minimal',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — Logs controller must always exist
+        $logsPath = $this->tmpDir . '/src/Controllers/Logs.php';
+        $this->assertFileExists($logsPath, 'src/Controllers/Logs.php must be scaffolded in every new application');
+
+        $logs = file_get_contents($logsPath);
+
+        // Must declare the correct namespace
+        $this->assertStringContainsString('namespace MinimalApp\\Controllers;', $logs);
+
+        // Must extend the framework LogController
+        $this->assertStringContainsString('extends LogController', $logs);
+        $this->assertStringContainsString('use Pramnos\\Application\\Controllers\\LogController', $logs);
+    }
+
+    /**
+     * The theme navbar must always contain a Logs link so administrators can reach
+     * the log viewer at /logs regardless of which features are enabled.
+     * The LogController itself gates access via addAuthAction.
+     */
+    public function testLogsLinkAlwaysInNavbar(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no features
+        $tester->execute([
+            '--app-name'  => 'MinimalApp',
+            '--namespace' => 'MinimalApp',
+            '--features'  => '',
+            '--ui-system' => 'bootstrap',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'minimal_db',
+            '--db-user'   => 'minimal',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+
+        // Logs link must always be present
+        $this->assertStringContainsString('href="<?php echo sURL; ?>logs"', $header,
+            'Logs link must always be present in the navbar');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 

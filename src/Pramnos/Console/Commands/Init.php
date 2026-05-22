@@ -209,6 +209,12 @@ class Init extends Command
             $this->scaffoldAuthWiring($namespace, $uiSystem);
         }
 
+        if (in_array('authserver', $enabledFeatures, true)) {
+            $this->scaffoldAuthServerWiring($namespace);
+        }
+
+        $this->scaffoldLogsWiring($namespace);
+
         if (!empty($selectedLibraries)) {
             $skipDownload = (bool) $input->getOption('no-download');
             $this->scaffoldLibraries($selectedLibraries, $uiSystem, $skipDownload, $output);
@@ -576,8 +582,10 @@ PHP;
             }
         }
 
-        $withAuth = in_array('auth', $features, true);
+        $withAuth       = in_array('auth', $features, true);
+        $withAuthServer = in_array('authserver', $features, true);
 
+        // Auth nav items (login/logout/account) — conditional on session state
         $authNavBootstrap = $withAuth ? <<<'HTML'
 
                     <?php if (\Pramnos\Http\Session::staticIsLogged()): ?>
@@ -600,6 +608,26 @@ HTML
 HTML
             : '';
 
+        // Admin nav items (logs + oauth) — always shown to authenticated admins;
+        // the controllers themselves enforce addAuthAction so unauthenticated access is blocked.
+        $oauthAdminBootstrap = $withAuthServer
+            ? "\n                    <li class=\"nav-item\"><a class=\"nav-link\" href=\"<?php echo sURL; ?>oauth\">OAuth Apps</a></li>"
+            : '';
+
+        $oauthAdminPlain = $withAuthServer
+            ? "\n                    <li><a href=\"<?php echo sURL; ?>oauth\">OAuth Apps</a></li>"
+            : '';
+
+        $adminNavBootstrap = <<<HTML
+
+                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>logs">Logs</a></li>{$oauthAdminBootstrap}
+HTML;
+
+        $adminNavPlain = <<<HTML
+
+                    <li><a href="<?php echo sURL; ?>logs">Logs</a></li>{$oauthAdminPlain}
+HTML;
+
         $nav = match ($uiSystem) {
             'bootstrap' => <<<HTML
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -612,7 +640,7 @@ HTML
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>">Home</a></li>{$authNavBootstrap}
+                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>">Home</a></li>{$authNavBootstrap}{$adminNavBootstrap}
                 </ul>
             </div>
         </div>
@@ -626,7 +654,7 @@ HTML,
             </a>
             <nav class="main-nav">
                 <ul>
-                    <li><a href="<?php echo sURL; ?>">Home</a></li>{$authNavPlain}
+                    <li><a href="<?php echo sURL; ?>">Home</a></li>{$authNavPlain}{$adminNavPlain}
                 </ul>
             </nav>
         </div>
@@ -1909,5 +1937,79 @@ HTML;
     </form>
 </div>
 HTML;
+    }
+
+    /**
+     * Scaffold the OAuth2 authorization server wiring when 'authserver' feature is enabled.
+     *
+     * Creates src/Controllers/Oauth.php — a thin wrapper around the framework's
+     * OAuth2 controller so that /oauth/authorize, /oauth/token etc. route correctly.
+     * All OAuth2 views are already provided as scaffolding fallbacks and do not need
+     * to be copied into the app.
+     */
+    private function scaffoldAuthServerWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $oauthController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+/**
+ * OAuth2 / OpenID Connect authorization server controller.
+ *
+ * Delegates all endpoint logic to the framework Oauth controller.
+ * Routes: /oauth/authorize, /oauth/token, /oauth/revoke, /oauth/introspect,
+ *         /oauth/userinfo, /oauth/logout, /oauth/deviceauthorization
+ */
+class Oauth extends \\Pramnos\\Auth\\Controllers\\Oauth
+{
+    // Extend or override endpoints here as needed for this application.
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Oauth.php', $oauthController);
+    }
+
+    /**
+     * Scaffold the application logs controller (always created for every new app).
+     *
+     * Creates src/Controllers/Logs.php — a thin wrapper around the framework's
+     * LogController so that /logs provides the log viewer.
+     * All authentication for this controller is enforced by LogController::addAuthAction().
+     */
+    private function scaffoldLogsWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $logsController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\LogController;
+
+/**
+ * Application log viewer — delegates to the framework LogController.
+ *
+ * Routes: /logs (display), /logs/stats, /logs/search, /logs/archive, etc.
+ * All actions require authentication (inherited from LogController).
+ *
+ * Override \$whitelist and \$blacklist to control which log files are visible.
+ */
+class Logs extends LogController
+{
+    // Override whitelist/blacklist to restrict or expand visible log files:
+    // protected \$whitelist = ['app.log', 'php_error.log'];
+    // protected \$blacklist = ['general-log.log'];
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Logs.php', $logsController);
     }
 }

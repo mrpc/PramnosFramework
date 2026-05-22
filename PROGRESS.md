@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 113) — Auth feature wiring in init app ✅
+## 📅 Last Updated: 2026-05-22 (session 113) — Auth/authserver/logs wiring in init app ✅
 
 ## 🏁 Session 113 — Auth feature wiring + CRUD scaffold fixes (2026-05-22)
 
@@ -17,6 +17,16 @@ Commit: (pending)
 - **`src/Views/account/dashboard.html.php`:** Minimal account overview view.
 - **Theme navbar:** `buildThemeHeader()` δέχεται τώρα `$features` array. Όταν `auth` είναι ενεργό, generates PHP conditional block: Login link (αν δεν είναι logged in) ή Account + Logout links (αν είναι logged in). Χρησιμοποιεί `\Pramnos\Http\Session::staticIsLogged()`.
 - **6 νέα tests** στο `InitCommandUnitTest`: scaffolding Login/Account controllers, login view, navbar auth links (present/absent ανάλογα με feature).
+
+### ✅ AuthServer + Logs wiring in `init app`
+
+Commit: (pending)
+
+- **`authserver` feature → `src/Controllers/Oauth.php`**: Thin wrapper extending `\Pramnos\Auth\Controllers\Oauth`. Routes `/oauth/authorize`, `/oauth/token`, κτλ. Οι OAuth2 views ήδη υπάρχουν ως scaffolding fallback για όλα τα themes — δεν χρειάζεται copy στην εφαρμογή.
+- **Πάντα → `src/Controllers/Logs.php`**: Ακολουθεί το Urbanwater pattern (`class Logs extends LogController`). Scaffolds σε κάθε νέα εφαρμογή. URL: `/logs`. Developers override `$whitelist`/`$blacklist` για control των log files.
+- **Navbar**: Logs link πάντα present. OAuth Apps link εμφανίζεται μόνο όταν `authserver` είναι ενεργό.
+- **Σημείωση**: `_getScaffoldingFallbackDirs()` στο Controller αναλύει views από το `scaffolding/themes/{uiSystem}/views/`. Τα auth/OAuth2 views (login, 2FA, forgot password, consent form κτλ.) δουλεύουν out-of-the-box χωρίς να αντιγραφούν στην εφαρμογή.
+- **5 νέα tests**: Oauth.php wrapper, αν απουσιάζει χωρίς authserver, navbar link, Logs.php πάντα, logs navbar link πάντα. **Σύνολο: 35/35 tests.**
 
 ### ✅ CRUD scaffold fixes (commit `7edccb7`)
 
