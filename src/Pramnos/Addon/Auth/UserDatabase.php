@@ -23,6 +23,10 @@ class UserDatabase extends \Pramnos\Addon\Addon
         $remember = true, $encryptedPassword = false)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
+        $app = \Pramnos\Application\Application::getInstance();
+        $authConfig  = ($app !== null) ? ($app->applicationInfo['auth'] ?? []) : [];
+        $legacyMd5   = (bool) ($authConfig['legacy_md5']  ?? false);
+        $autoUpgrade = (bool) ($authConfig['auto_upgrade'] ?? true);
         $return = array();
         $return['status'] = false;
         $return['statusCode'] = 0;
@@ -80,7 +84,29 @@ class UserDatabase extends \Pramnos\Addon\Addon
             $return['email'] = $result->fields['email'];
             $return['auth'] = $result->fields['password'];
             return $return;
-        } elseif (md5($password) == $result->fields['password']) {
+        } elseif ($legacyMd5 && !$encryptedPassword
+            && md5($password) == $result->fields['password']) {
+            // Legacy MD5 password matched — upgrade to bcrypt if auto_upgrade is enabled.
+            // Uses the same salting formula as User::setPassword() for userid > 1.
+            // For userid = 1 we also use bcrypt here because the upgrade context
+            // has a known real userid, unlike the "new user before save" context
+            // where setPassword() correctly defers to MD5.
+            if ($autoUpgrade) {
+                $uid     = (int) $result->fields['userid'];
+                $newHash = password_hash(
+                    $password . md5(
+                        \Pramnos\Application\Settings::getSetting('securitySalt') . $uid
+                    ),
+                    PASSWORD_DEFAULT
+                );
+                $updateSql = $database->prepareQuery(
+                    "UPDATE `#PREFIX#users` SET `password` = %s WHERE `userid` = %d",
+                    $newHash,
+                    $uid
+                );
+                $database->query($updateSql);
+                $result->fields['password'] = $newHash;
+            }
             $return['status'] = true;
             $return['statusCode'] = $result->fields['active'];
             $return['username'] = $result->fields['username'];
