@@ -52,6 +52,103 @@ abstract class MakeCommandBase extends Command
     }
 
     /**
+     * Return all table names currently visible in the database.
+     *
+     * Cross-DB: MySQL uses SHOW TABLES, PostgreSQL queries information_schema.
+     * Returns bare table names (no schema prefix). Silently returns [] on error
+     * so FK autocomplete degrades gracefully when the DB is unreachable.
+     *
+     * @return string[]
+     */
+    private function fetchTableNames(\Pramnos\Database\Database $db): array
+    {
+        try {
+            if ($db->type === 'postgresql') {
+                $schema = $db->schema ?: 'public';
+                $sql    = "SELECT table_name FROM information_schema.tables "
+                        . "WHERE table_schema = " . $db->escape($schema)
+                        . " AND table_type = 'BASE TABLE' ORDER BY table_name";
+            } else {
+                $sql = "SHOW TABLES";
+            }
+            $result = $db->query($sql);
+            $names  = [];
+            while ($result->fetch()) {
+                $row = array_values($result->fields);
+                if (!empty($row[0])) {
+                    $names[] = (string) $row[0];
+                }
+            }
+            return $names;
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Return column names for a table, consulting wizard state first, then the DB.
+     *
+     * Resolution order:
+     *   1. The table currently being defined in the wizard ($currentTable / $currentCols)
+     *   2. A previously defined table in this wizard run ($tables array)
+     *   3. An existing table in the database (via getColumns())
+     *
+     * @param string   $fkTable       The referenced table name (may contain #PREFIX#)
+     * @param array    $tables        Tables already collected in this wizard run
+     * @param string   $currentTable  The table being defined right now
+     * @param array    $currentCols   Columns defined so far for $currentTable
+     * @param bool     $currentHasPk  Whether $currentTable has an auto-increment PK
+     * @param \Pramnos\Database\Database $db
+     * @return string[]  Column names, or [] if unknown
+     */
+    private function getColumnsForFKTable(
+        string                         $fkTable,
+        array                          $tables,
+        string                         $currentTable,
+        array                          $currentCols,
+        bool                           $currentHasPk,
+        \Pramnos\Database\Database     $db
+    ): array {
+        // Helper: build column list from wizard column definitions
+        $fromWizard = function(string $tbl, array $cols, bool $hasPk): array {
+            $result = [];
+            if ($hasPk) {
+                $result[] = $this->getBlueprintCompiler()->getSingularPrimaryKey($tbl);
+            }
+            foreach ($cols as $col) {
+                $result[] = $col['name'];
+            }
+            return $result;
+        };
+
+        // 1. Current table being defined
+        if ($fkTable === $currentTable) {
+            return $fromWizard($currentTable, $currentCols, $currentHasPk);
+        }
+
+        // 2. Previously defined tables in this wizard run
+        foreach ($tables as $tbl) {
+            if ($tbl['tableName'] === $fkTable) {
+                return $fromWizard($tbl['tableName'], $tbl['columns'], $tbl['hasPk']);
+            }
+        }
+
+        // 3. Existing DB table — getColumns() handles #PREFIX# and schema
+        try {
+            $result = $db->getColumns($fkTable, null, true);
+            $cols   = [];
+            while ($result->fetch()) {
+                if (!empty($result->fields['Field'])) {
+                    $cols[] = $result->fields['Field'];
+                }
+            }
+            return $cols;
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
      * Command configuration
      */
     /**
@@ -709,22 +806,98 @@ abstract class MakeCommandBase extends Command
             $output->writeln('');
             $output->writeln(' <comment>── Foreign keys ─────────────────────────────────────────────────────</comment>');
 
+            // Build the combined table list (DB tables + migration tables defined so far)
+            // used for autocomplete and validation. Gracefully degrade if DB is unavailable.
+            $fkDb = null;
+            $existingDbTables = [];
+            try {
+                $fkDb = \Pramnos\Database\Database::getInstance();
+                if (!$fkDb->connected) {
+                    $fkDb->connect();
+                }
+                $existingDbTables = $this->fetchTableNames($fkDb);
+            } catch (\Throwable $e) {
+                // DB not available during wizard — FK validation will be lenient
+            }
+            $migrationTableNames  = array_column($tables, 'tableName');
+            $migrationTableNames[] = $tableName; // current table being defined
+            $allTableNames = array_unique(array_merge($existingDbTables, $migrationTableNames));
+            sort($allTableNames);
+
             while (true) {
                 $q = new ConfirmationQuestion(' Add a foreign key? [<comment>no</comment>] ', false);
                 if (!$helper->ask($input, $output, $q)) {
                     break;
                 }
 
+                // Column name — autocomplete from columns defined in this table so far
+                $definedColNames = array_column($columns, 'name');
+                if ($hasPk) {
+                    array_unshift($definedColNames,
+                        $this->getBlueprintCompiler()->getSingularPrimaryKey($tableName));
+                }
                 $q = new Question('   Column name (e.g. user_id): ');
-                $q->setValidator(fn($v) => trim((string)$v) !== '' ? trim($v) : throw new \RuntimeException('Column name required.'));
+                $q->setValidator(fn($v) => trim((string)$v) !== ''
+                    ? trim($v)
+                    : throw new \RuntimeException('Column name required.'));
+                if (!empty($definedColNames)) {
+                    $q->setAutocompleterValues($definedColNames);
+                }
                 $fkCol = $helper->ask($input, $output, $q);
 
+                // References table — autocomplete + validation against known tables
                 $q = new Question('   References table: ');
-                $q->setValidator(fn($v) => trim((string)$v) !== '' ? trim($v) : throw new \RuntimeException('Table required.'));
+                if (!empty($allTableNames)) {
+                    $q->setAutocompleterValues($allTableNames);
+                }
+                $q->setValidator(function ($v) use ($allTableNames, $fkDb) {
+                    $v = trim((string) $v);
+                    if ($v === '') {
+                        throw new \RuntimeException('Table name required.');
+                    }
+                    if (empty($allTableNames)) {
+                        // DB unreachable — accept any non-empty value
+                        return $v;
+                    }
+                    if (in_array($v, $allTableNames, true)) {
+                        return $v;
+                    }
+                    // Try resolving #PREFIX# against the DB prefix
+                    if ($fkDb !== null && $fkDb->prefix !== '') {
+                        $resolved = str_replace('#PREFIX#', $fkDb->prefix, $v);
+                        if (in_array($resolved, $allTableNames, true)) {
+                            return $v;
+                        }
+                        if ($fkDb->tableExists($resolved)) {
+                            return $v;
+                        }
+                    }
+                    throw new \RuntimeException(
+                        "Table '{$v}' not found in the database or this migration. "
+                        . "Use Tab to autocomplete from known tables."
+                    );
+                });
                 $fkTable = $helper->ask($input, $output, $q);
 
-                $q = new Question('   References column [<comment>id</comment>]: ', 'id');
-                $fkRef = trim((string) $helper->ask($input, $output, $q)) ?: 'id';
+                // References column — ChoiceQuestion from known columns, fallback to text
+                $refColumns = ($fkDb !== null)
+                    ? $this->getColumnsForFKTable(
+                        $fkTable, $tables, $tableName, $columns, $hasPk, $fkDb
+                      )
+                    : [];
+                if (!empty($refColumns)) {
+                    $defaultIdx = array_search('id', $refColumns);
+                    $defaultIdx = $defaultIdx !== false ? $defaultIdx : 0;
+                    $q = new ChoiceQuestion(
+                        '   References column [<comment>' . $refColumns[$defaultIdx] . '</comment>]: ',
+                        $refColumns,
+                        $defaultIdx
+                    );
+                    $fkRef = $helper->ask($input, $output, $q);
+                } else {
+                    $q = new Question('   References column [<comment>id</comment>]: ', 'id');
+                    $fkRef = trim((string) $helper->ask($input, $output, $q)) ?: 'id';
+                }
 
                 $q = new ChoiceQuestion(
                     '   On delete [<comment>RESTRICT</comment>]: ',
