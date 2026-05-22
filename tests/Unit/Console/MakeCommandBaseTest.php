@@ -683,37 +683,66 @@ class MakeCommandBaseTest extends TestCase
     }
 
     /**
-     * buildMigrationUpBody() with foreign keys emits a foreign() chain.
+     * buildMigrationUpBody() with foreign keys emits a foreign() chain including
+     * onDelete and onUpdate clauses.
      */
     public function testBuildMigrationUpBodyWithForeignKeys(): void
     {
-        // Arrange — FK definition
+        // Arrange — FK with both onDelete and onUpdate
         $fks = [
-            ['column' => 'user_id', 'references' => 'id', 'on' => 'users', 'onDelete' => 'CASCADE'],
+            ['column' => 'user_id', 'references' => 'id', 'on' => 'users',
+             'onDelete' => 'CASCADE', 'onUpdate' => 'RESTRICT'],
         ];
 
         // Act
         $result = $this->command->buildMigrationUpBody('posts', false, [], false, false, $fks);
 
-        // Assert — foreign key chain present
+        // Assert — full foreign key chain including both action clauses
         $this->assertStringContainsString("\$table->foreign('user_id')", $result);
         $this->assertStringContainsString("->references('id')", $result);
         $this->assertStringContainsString("->on('users')", $result);
         $this->assertStringContainsString("->onDelete('CASCADE')", $result);
+        $this->assertStringContainsString("->onUpdate('RESTRICT')", $result);
     }
 
     /**
-     * buildMigrationUpBody() without onDelete omits the ->onDelete() call.
+     * buildMigrationUpBody() omits ->onDelete() and ->onUpdate() when both are empty.
+     *
+     * Both clauses are optional: if the wizard produces empty strings (e.g. RESTRICT
+     * is the DB default and can be omitted), neither call should appear in the output.
      */
-    public function testBuildMigrationUpBodyForeignKeyWithoutOnDelete(): void
+    public function testBuildMigrationUpBodyForeignKeyWithoutOnDeleteOrOnUpdate(): void
     {
-        // Arrange — FK without onDelete
-        $fks = [['column' => 'cat_id', 'references' => 'id', 'on' => 'categories', 'onDelete' => '']];
+        // Arrange — FK without either action clause
+        $fks = [['column' => 'cat_id', 'references' => 'id', 'on' => 'categories',
+                  'onDelete' => '', 'onUpdate' => '']];
 
         // Act
         $result = $this->command->buildMigrationUpBody('articles', false, [], false, false, $fks);
 
-        // Assert — no onDelete clause in the foreign key chain
+        // Assert — neither action clause emitted
+        $this->assertStringNotContainsString('->onDelete', $result);
+        $this->assertStringNotContainsString('->onUpdate', $result);
+    }
+
+    /**
+     * buildMigrationUpBody() emits ->onUpdate() independently of ->onDelete().
+     *
+     * onUpdate is a separate concern from onDelete: a FK can CASCADE on update
+     * while RESTRICTing on delete (or vice versa). Verifies the two clauses are
+     * generated independently.
+     */
+    public function testBuildMigrationUpBodyForeignKeyOnUpdateWithoutOnDelete(): void
+    {
+        // Arrange — onUpdate set, onDelete empty
+        $fks = [['column' => 'cat_id', 'references' => 'id', 'on' => 'categories',
+                  'onDelete' => '', 'onUpdate' => 'CASCADE']];
+
+        // Act
+        $result = $this->command->buildMigrationUpBody('articles', false, [], false, false, $fks);
+
+        // Assert — onUpdate emitted, onDelete absent
+        $this->assertStringContainsString("->onUpdate('CASCADE')", $result);
         $this->assertStringNotContainsString('->onDelete', $result);
     }
 
