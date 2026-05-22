@@ -3,7 +3,6 @@ namespace {{ namespace }};
 
 use Pramnos\Database\Blueprint;
 use Pramnos\Database\Migration;
-use Pramnos\Database\SchemaBuilder;
 
 /**
  * {{ description }}
