@@ -1,7 +1,25 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 111) — FK wizard improvements ✅
+## 📅 Last Updated: 2026-05-22 (session 112) — Init routing & API scaffold fixes ✅
+
+## 🏁 Session 112 — Init routing fix + full REST API scaffold (2026-05-22)
+
+### ✅ `init app` — routing & API scaffolding fixes
+
+Commit: `7668042`
+
+- **Routing fix (`www/.htaccess`):** `url=$1` → `r=$1`. Root αιτία: `Request::calcParams()` διαβάζει `$_GET['r']`, όχι `$_GET['url']`. Με λάθος key, ο controller δεν γνωρίζεται ποτέ και κάθε URL οδηγούσε στο default `home` controller.
+- **`www/index.php`:** Αντικατάσταση `Application::getInstance()` με `new \{Namespace}\Application()` (direct instantiation, όπως στο Urbanwater). Σωστή χρήση `exec()` χωρίς `echo`.
+- **REST API scaffold (πλήρης):**
+  - `src/Api.php`: namespace-specific Api class (extends `\Pramnos\Application\Api`)
+  - `www/api/index.php`: API entry point (`new \{Namespace}\Api()`)
+  - `www/api/.htaccess`: URL rewriting με `r=$1`
+  - `src/Api/routes.php`: διορθώθηκε stub — δημιουργεί `$router = new Router($this)`, `$newRequest`, και επιστρέφει `$router->dispatch($newRequest)` (ήταν εντελώς λανθασμένο — έλειπε η δημιουργία router και το dispatch)
+- **Homepage:** API URL εμφανίζεται στο "Quick Links" section όταν REST API είναι ενεργοποιημένο.
+- **Tests:** Fix stale assertions σε `BlueprintCompilerTest` (SchemaBuilder static → instance calls). Fix `testNoRestApiOptionSkipsApiScaffolding` (τώρα περνά `--rest-api=n` ρητά). 2 νέα tests για htaccess routing και index.php instantiation.
+
+---
 
 ## 🏁 Session 111 — FK wizard autocomplete & column selection (2026-05-22)
 
