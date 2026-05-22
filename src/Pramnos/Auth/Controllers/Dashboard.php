@@ -43,7 +43,7 @@ class Dashboard extends Controller
     /**
      * Dashboard overview — authorized applications + recent activity summary.
      */
-    public function display(): void
+    public function display()
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === null || !isset($currentUser->userid)) {
@@ -61,7 +61,7 @@ class Dashboard extends Controller
         $view->recentActivity    = $this->getActivityLog((int) $currentUser->userid, 5);
         $view->twoFactorEnabled  = $this->isTwoFactorEnabled((int) $currentUser->userid);
 
-        $view->display();
+        return $view->display();
     }
 
     // ── Authorized applications ───────────────────────────────────────────────
@@ -69,7 +69,7 @@ class Dashboard extends Controller
     /**
      * List all applications that have active OAuth2 tokens for the current user.
      */
-    public function applications(): void
+    public function applications()
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         $view        = $this->getView('OAuth2');
@@ -79,7 +79,7 @@ class Dashboard extends Controller
 
         $view->authorizedApps = $this->getAuthorizedApplications((int) $currentUser->userid);
 
-        $view->display('authorized_applications');
+        return $view->display('authorized_applications');
     }
 
     /**
@@ -184,7 +184,7 @@ class Dashboard extends Controller
      * GET: show confirmation form.
      * POST: verify password + "DELETE" confirmation, then delete all user data.
      */
-    public function deleteaccount(): void
+    public function deleteaccount()
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
 
@@ -221,7 +221,7 @@ class Dashboard extends Controller
         $doc->title = 'Delete Account';
 
         $view = $this->getView('OAuth2');
-        $view->display('delete_account');
+        return $view->display('delete_account');
     }
 
     // ── Privacy settings ──────────────────────────────────────────────────────
@@ -231,7 +231,7 @@ class Dashboard extends Controller
      * GET: show current settings.
      * POST: save updated settings.
      */
-    public function privacy(): void
+    public function privacy()
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
 
@@ -260,7 +260,7 @@ class Dashboard extends Controller
         $view                   = $this->getView('OAuth2');
         $view->privacySettings  = $this->getPrivacySettings((int) $currentUser->userid);
 
-        $view->display('privacy_settings');
+        return $view->display('privacy_settings');
     }
 
     // ── Security overview ─────────────────────────────────────────────────────
@@ -268,7 +268,7 @@ class Dashboard extends Controller
     /**
      * Security overview — recent logins, active sessions, 2FA status.
      */
-    public function security(): void
+    public function security()
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         $view        = $this->getView('OAuth2');
@@ -279,7 +279,7 @@ class Dashboard extends Controller
         $view->recentActivity   = $this->getActivityLog((int) $currentUser->userid, 20);
         $view->twoFactorEnabled = $this->isTwoFactorEnabled((int) $currentUser->userid);
 
-        $view->display('security');
+        return $view->display('security');
     }
 
     // ── Change password ───────────────────────────────────────────────────────
@@ -291,7 +291,7 @@ class Dashboard extends Controller
      *
      * Password policy: ≥ 8 chars, at least one digit, at least one non-alphanumeric.
      */
-    public function changepassword(): void
+    public function changepassword()
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
 
@@ -326,7 +326,7 @@ class Dashboard extends Controller
         $doc->title = 'Change Password';
 
         $view = $this->getView('OAuth2');
-        $view->display('change_password');
+        return $view->display('change_password');
     }
 
     // ── Private — DB helpers ──────────────────────────────────────────────────

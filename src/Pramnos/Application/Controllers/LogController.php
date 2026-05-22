@@ -57,8 +57,10 @@ class LogController extends Controller
      */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        // Default auth actions
+        // Default auth actions — display is included because the viewer
+        // renders an iframe pointing to `raw`, which is also auth-protected.
         $this->addAuthAction([
+            'display',
             'clear',
             'raw',
             'stats',
