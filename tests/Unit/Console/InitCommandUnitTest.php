@@ -717,6 +717,195 @@ class InitCommandUnitTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // REST API scaffolding (--rest-api option)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * When --rest-api=y is passed, the scaffolder must create the
+     * src/Api/Controllers/ directory and write src/Api/routes.php.
+     *
+     * These two artifacts form the minimal REST API entry-point that developers
+     * extend to register their own endpoints using Router::group().
+     */
+    public function testRestApiOptionScaffoldsApiDirectoryAndRoutesFile(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'ApiApp',
+            '--namespace' => 'ApiApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--rest-api'  => 'y',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'apiapp_db',
+            '--db-user'   => 'apiapp',
+            '--db-pass'   => 'secret',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — directory for API controllers was created
+        $this->assertDirectoryExists(
+            $this->tmpDir . '/src/Api/Controllers',
+            'src/Api/Controllers must be created when --rest-api=y'
+        );
+
+        // Assert — routes file was written
+        $this->assertFileExists(
+            $this->tmpDir . '/src/Api/routes.php',
+            'src/Api/routes.php must be written when --rest-api=y'
+        );
+    }
+
+    /**
+     * src/Api/routes.php must demonstrate Router::group() usage so developers
+     * have a working template to extend.
+     *
+     * The group call is the canonical way to apply a shared prefix (e.g. /v1)
+     * and middleware to a set of API routes.
+     */
+    public function testRestApiRoutesFileContainsRouterGroupAndNamespaceComment(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'ApiApp',
+            '--namespace' => 'MyVendor',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--rest-api'  => 'y',
+            '--db-type'   => 'postgresql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'apiapp_db',
+            '--db-user'   => 'apiapp',
+            '--db-pass'   => 'secret',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — routes.php opens with strict types
+        $routes = file_get_contents($this->tmpDir . '/src/Api/routes.php');
+        $this->assertStringContainsString('declare(strict_types=1)', $routes,
+            'routes.php must declare strict types');
+
+        // Assert — Router::group() call is present
+        $this->assertStringContainsString('$router->group(', $routes,
+            'routes.php must demonstrate Router::group() usage');
+
+        // Assert — version prefix /v1 is present
+        $this->assertStringContainsString("'prefix' => '/v1'", $routes,
+            'routes.php group must define a /v1 prefix');
+
+        // Assert — namespace token was substituted with the actual namespace
+        $this->assertStringContainsString('MyVendor', $routes,
+            'routes.php must contain the application namespace in the example comment');
+        $this->assertStringNotContainsString('{{ namespace }}', $routes,
+            'No unresolved {{ namespace }} placeholder must remain');
+    }
+
+    /**
+     * When --rest-api=y, app.php must include an 'api' key with 'prefix',
+     * 'cors_origins', and 'version' sub-keys.
+     *
+     * This config block is read by Api::exec() to configure CORS and routing,
+     * so it must be present whenever the REST API layer is scaffolded.
+     */
+    public function testRestApiOptionAddsApiSectionToAppPhp(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'ApiApp',
+            '--namespace' => 'ApiApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--rest-api'  => 'y',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'apiapp_db',
+            '--db-user'   => 'apiapp',
+            '--db-pass'   => 'secret',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — app.php contains 'api' section
+        $appConfig = file_get_contents($this->tmpDir . '/app/app.php');
+        $this->assertStringContainsString("'api'", $appConfig,
+            "app.php must contain 'api' key when --rest-api=y");
+        $this->assertStringContainsString("'prefix'", $appConfig,
+            "api section must contain 'prefix' key");
+        $this->assertStringContainsString('/api/v1', $appConfig,
+            "api prefix must default to /api/v1");
+        $this->assertStringContainsString("'cors_origins'", $appConfig,
+            "api section must contain 'cors_origins' key");
+        $this->assertStringContainsString("'version'", $appConfig,
+            "api section must contain 'version' key");
+    }
+
+    /**
+     * When --rest-api is not set (or set to 'n'), no API scaffolding must occur.
+     *
+     * The src/Api/ directory must not be created and app.php must not contain
+     * an 'api' section, keeping the config minimal for non-API projects.
+     */
+    public function testNoRestApiOptionSkipsApiScaffolding(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — omit --rest-api entirely (non-interactive defaults to false)
+        $tester->execute([
+            '--app-name'  => 'NoApiApp',
+            '--namespace' => 'NoApiApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'noapiapp_db',
+            '--db-user'   => 'noapiapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — src/Api directory must not exist
+        $this->assertDirectoryDoesNotExist(
+            $this->tmpDir . '/src/Api',
+            'src/Api must not be created when --rest-api is not requested'
+        );
+
+        // Assert — app.php must not contain 'api' section
+        $appConfig = file_get_contents($this->tmpDir . '/app/app.php');
+        $this->assertStringNotContainsString("'api' =>", $appConfig,
+            "app.php must not contain 'api' section when REST API is not requested");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 

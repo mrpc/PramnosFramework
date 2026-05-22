@@ -1072,8 +1072,8 @@ class UsersApiController
   - `JsonResponseMiddleware` — θέτει `Content-Type: application/json` (ή `application/xml` αν HTTP_ACCEPT το ζητά). 4 unit tests.
   - `ApiAuthMiddleware` — API key / Bearer token validation; short-circuits με JSON error envelope σε αποτυχία. 7 unit tests.
 - [x] **`Api` class refactor (BC-safe):** το `Api::exec()` γίνεται thin wrapper που τρέχει `CorsMiddleware → JsonResponseMiddleware → ApiAuthMiddleware` pipeline. Κύρια λογική εξαιρέθηκε στο `_executeCore()`. `cors_origins` configurable μέσω `applicationInfo`. Συμπεριφορά αμετάβλητη.
-- [ ] **Single config:** `app/app.php` αποκτά ένα `'api'` section — δεν χρειάζεται ξεχωριστό `app/api.php`. Το ξεχωριστό config παραμένει supported για BC.
-- [ ] **Scaffolding update:** `pramnos init` ρωτάει «θέλεις REST API;» — αν ναι, δημιουργεί το API group στο `routes.php` και τους αντίστοιχους φακέλους controllers, **χωρίς** ξεχωριστό entry point.
+- [x] **Single config:** `app/app.php` αποκτά ένα `'api'` section (`prefix`, `cors_origins`, `version`) — δεν χρειάζεται ξεχωριστό `app/api.php`. Το ξεχωριστό config παραμένει supported για BC. Παράγεται μόνο αν `--rest-api=y`.
+- [x] **Scaffolding update:** `pramnos init` ρωτάει «Scaffold a REST API layer? [y/N]» (Step 2b) — αν ναι, δημιουργεί `src/Api/Controllers/` + `src/Api/routes.php` με Router::group() παράδειγμα, **χωρίς** ξεχωριστό entry point. 4 unit tests στο `InitCommandUnitTest.php`.
 - [ ] **Integration test:** API routes επιστρέφουν JSON και web routes επιστρέφουν HTML από το ίδιο `Application` instance.
 
 > **BC:** `Pramnos\Application\Api`, `www/api/index.php` με `new Api(...)`, και ξεχωριστό `app/api.php` συνεχίζουν να λειτουργούν αναλλοίωτα. Δεν υπάρχει deprecation — η νέα προσέγγιση είναι additive.
