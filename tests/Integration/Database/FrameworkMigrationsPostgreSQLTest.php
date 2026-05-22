@@ -2342,11 +2342,14 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     /**
      * Migration 000023 (user_consents) creates authserver.user_consents.
      * On plain PostgreSQL: plain table (no TimescaleDB hypertable).
+     * CreateUserPrivacySettingsTable has a FK to public.users(userid), so
+     * CreateUsersTable must be loaded first.
      */
     public function testUserConsentsCreatedInAuthserverSchemaOnPostgreSQL(): void
     {
         // Arrange
         $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up(); // required: FK public.users(userid)
         $this->loadMigration('auth', 'CreateUserPrivacySettingsTable')->up();
         $m = $this->loadMigration('auth', 'CreateUserConsentsTable');
 
@@ -2367,6 +2370,8 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
 
         $m->down();
         $this->assertFalse($this->tableExists('user_consents', 'authserver'));
+        $this->loadMigration('auth', 'CreateUserPrivacySettingsTable')->down();
+        $this->loadMigration('auth', 'CreateUsersTable')->down();
     }
 
     /**
