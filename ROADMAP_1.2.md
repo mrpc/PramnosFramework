@@ -1128,7 +1128,7 @@ API client → usertokens (api/mobile)  + Bearer token    → cross-origin AJAX 
 
 #### Υλοποίηση
 
-- [ ] **`UnifiedAuthMiddleware`:** Εφαρμόζεται στο API route group (Φάση 15). Ελέγχει με σειρά:
+- [x] **`UnifiedAuthMiddleware`:** Εφαρμόζεται στο API route group (Φάση 15). Ελέγχει με σειρά:
   1. `Authorization: Bearer <value>` → φορτώνει token από `usertokens`, χρησιμοποιεί τα explicit scopes του token
   2. Session cookie + `X-CSRF-Token` header → αναγνωρίζει `$_SESSION['usertoken']`, περνάει `['*']` ως `$userPermissions`
   - Ο `Router::hasScope()` ήδη υποστηρίζει `'*'` wildcard (→ `return true` για οποιοδήποτε scope check). Καμία αλλαγή στο Router δεν χρειάζεται.
@@ -1139,13 +1139,13 @@ API client → usertokens (api/mobile)  + Bearer token    → cross-origin AJAX 
   | Scope check (`Router`) | explicit scopes του token | `*` → πάντα true |
   | App auth (controller) | `$user->usertype`, policy | ← αμετάβλητο |
 
-- [ ] **`tokentype` constants στο `Token`:** `Token::TYPE_WEB_SESSION`, `TYPE_API`, `TYPE_MOBILE` — αντικαθιστούν τα arbitrary strings.
-- [ ] **Web login → token creation:** `User::login()` δημιουργεί `Token` (`TYPE_WEB_SESSION`), αποθηκεύει στη session. `$_SESSION['auth']` παραμένει για BC αλλά παύει να χρησιμοποιείται ως auth header.
-- [ ] **Web logout → token invalidation:** `User::logout()` αδρανοποιεί το token στη βάση + destroy session.
-- [ ] **`Application::exec()` → `addAction()`:** Αν `$_SESSION['usertoken']` υπάρχει, καλεί `addAction()` — web requests καταγράφονται στο `tokenactions` ακριβώς όπως API requests.
-- [ ] **CSRF meta tag helper:** `View` helper `csrf_meta()` → `<meta name="csrf" content="...">` — τυπικό Sanctum/Rails pattern για JS.
-- [ ] **Deprecation:** `HTTP_USERAUTH` + password-hash bridge marked `@deprecated` στο `Api::exec()`.
-- [ ] **Tests:** `UnifiedAuthMiddleware` × session path (scope `*`) + Bearer path (explicit scopes); web login → `tokenactions` entry; AJAX call με session cookie → ίδιο αποτέλεσμα με Bearer call.
+- [x] **`tokentype` constants στο `Token`:** `Token::TYPE_WEB_SESSION`, `TYPE_API`, `TYPE_ACCESS_TOKEN`, `TYPE_REFRESH_TOKEN`, `TYPE_AUTH_CODE`, `TYPE_APNS`, `TYPE_GCM` — αντικαθιστούν τα arbitrary strings (TYPE_MOBILE αφαιρέθηκε — mobile apps χρησιμοποιούν OAuth2).
+- [x] **Web login → token creation:** `User::createWebSessionToken()` δημιουργεί `Token` (`TYPE_WEB_SESSION`), αποθηκεύει στη session. `$_SESSION['auth']` παραμένει για BC.
+- [x] **Web logout → token invalidation:** `User::invalidateWebSessionToken()` αδρανοποιεί το token στη βάση + αφαιρεί από session.
+- [x] **`Application::exec()` → `addAction()`:** Αν `$_SESSION['usertoken']` υπάρχει με `TYPE_WEB_SESSION`, καλεί `addAction()` — web requests καταγράφονται στο `tokenactions`.
+- [x] **CSRF meta tag helper:** `CsrfMiddleware::csrfMeta()` → `<meta name="csrf" content="...">` — τυπικό Sanctum/Rails pattern για JS.
+- [x] **Deprecation:** `HTTP_USERAUTH` + password-hash bridge marked `@deprecated since v1.2` στο `ApiAuthMiddleware`.
+- [x] **Tests:** 12 unit tests (`UnifiedAuthMiddlewareTest`) — no-credentials, session cookie + CSRF, Bearer path, X-XSRF-TOKEN alias, token type constants. Όλα pass.
 
 > **Εξάρτηση:** Φάση 16 εξαρτάται από Φάση 15 (`UnifiedAuthMiddleware` ενσωματώνεται στο API route group). Η cookie SPA auth **δεν απαιτεί** OAuth — συνυπάρχει με το authserver (Φάση 2).
 
@@ -1176,10 +1176,10 @@ JS AJAX → API controller → _getApiList() → {items, pagination} (clean REST
 
 #### Υλοποίηση — Server side
 
-- [ ] **`_getApiList(format: 'datatables')`:** νέο optional parameter — wraps την `{items, pagination}` απόκριση στο DataTables 2.x format (`{draw, data, recordsTotal, recordsFiltered}`). Εσωτερική λεπτομέρεια, χωρίς αλλαγή στη δημόσια API.
+- [x] **`_getApiList(format: 'datatables')`:** νέο optional parameter — wraps την `{items, pagination}` απόκριση στο DataTables 2.x format (`{draw, data, recordsTotal, recordsFiltered}`). Εσωτερική λεπτομέρεια, χωρίς αλλαγή στη δημόσια API.
 - [ ] **`_getJsonList()` → delegate:** `_getJsonList()` καλεί εσωτερικά `_getApiList(format: 'datatables')` και αποδίδει το ίδιο αποτέλεσμα. Κανένα υπάρχον `getJsonList()` override στο Urbanwater δεν σπάει — BC αποδεδειγμένα διατηρείται.
-- [ ] **Ενοποίηση column introspection:** `_getJsonList()` μεταβαίνει στο `_getAllTableFields()` αντί για inline `SHOW COLUMNS` / `information_schema` query — εξαλείφει τον duplicated κώδικα και ενοποιεί τη λογική introspection σε ένα σημείο.
-- [ ] **`_getJsonList()` marked `@deprecated`** στο docblock — δεν αφαιρείται, αλλά η τεκμηρίωση κατευθύνει τους νέους developers στο `_getApiList()`.
+- [x] **Ενοποίηση column introspection:** `_getJsonList()` μεταβαίνει στο `_getAllTableFields()` αντί για inline `SHOW COLUMNS` / `information_schema` query — εξαλείφει τον duplicated κώδικα και ενοποιεί τη λογική introspection σε ένα σημείο.
+- [x] **`_getJsonList()` marked `@deprecated`** στο docblock — δεν αφαιρείται, αλλά η τεκμηρίωση κατευθύνει τους νέους developers στο `_getApiList()`.
 
 #### Υλοποίηση — Client side (JS adapters)
 
@@ -1203,7 +1203,7 @@ public function getUsersJson() {
 ```
 
 - [ ] **Scaffolding:** `create:model` παράγει `getApiList()` override αντί για `getJsonList()`. Η view template για list pages χρησιμοποιεί το adapter αντί για inline DataTables config.
-- [ ] **Tests:** server-side: `_getApiList(format: 'datatables')` output format validation; `_getJsonList()` delegate equivalence test. Client-side: adapter unit tests (mock fetch).
+- [x] **Tests:** server-side: `_getApiList(format: 'datatables')` output format validation × MySQL + PostgreSQL; `_getJsonList()` introspection unification tests × MySQL + PostgreSQL. Client-side: adapter unit tests (mock fetch) — pending.
 - [ ] **UrbanWater migration:** βλ. `UrbanWater-Cleanup-Guide.md` Phase 8 — custom `getJsonList()` overrides μεταφέρονται σταδιακά.
 
 > **BC:** `_getJsonList()` και όλα τα custom `getJsonList()` overrides στο Urbanwater συνεχίζουν να λειτουργούν αναλλοίωτα. Η μετάβαση γίνεται model-by-model, view-by-view.
