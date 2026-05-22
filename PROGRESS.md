@@ -1,7 +1,38 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 103) — Urbanwater DB sync: oauth2_client_auth_methods, loginlockouts, user_privacy_settings ✅
+## 📅 Last Updated: 2026-05-22 (session 104) — MakeCommandBase decomposition + legacy Create command removal ✅
+
+## 🏁 Session 104 — MakeCommandBase service decomposition + legacy `create` removal (2026-05-22)
+
+### ✅ MakeCommandBase decomposed into 4 focused service classes
+
+Extracted from the 3161-line God class:
+
+- **`Pramnos\Console\Make\BlueprintCompiler`** — pure DDL string generation
+  (`getSingularPrimaryKey`, `blueprintCall`, `buildMigrationUpBody`, `buildMigrationDownBody`)
+- **`Pramnos\Console\Make\FakeDataGenerator`** — pure seeder fake-value heuristics
+  (`generateFakeValue`, `buildSeederFields`)
+- **`Pramnos\Console\Make\NamespaceResolver`** — static class name / namespace / path derivation
+  (`getProperClassName`, `getModelTableName`, `resolveBaseNamespace`, `resolveBasePath`)
+- **`Pramnos\Console\Make\StubRenderer`** — stub file loading + `{{ token }}` substitution
+  (delegates to `ScaffoldingHelper::resolveScaffoldingDir()`)
+
+`MakeCommandBase` retains all public methods as thin delegates. MakeCommandBase: 3161 → 2966 lines.
+
+Unit tests for all 4 service classes added (`tests/Unit/Console/Make/`): 64 new tests.
+
+### ✅ Legacy `create` command removed
+
+Deleted `src/Pramnos/Console/Commands/Create.php` and its 3 test files.
+Removed from `Application::registerCommands()`.
+Updated `CommandsCharacterizationTest` and `ConsoleApplicationCoverageTest`.
+
+Suite result: **4734 tests, 11431 assertions, 1 pre-existing error** (unrelated PostgreSQL FK dependency).
+
+- Commit: `77a94ec`
+
+---
 
 ## 🏁 Session 103 — Urbanwater DB sync: continued schema alignment (2026-05-22)
 
