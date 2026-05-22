@@ -1491,16 +1491,63 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 #### 23.8 Διαχείριση Services / Workers
 
-- [ ] **`ServicesController`** στο `\Pramnos\Application\Controllers\` (όταν feature `queue` ή `messaging`):
-  - `display()` — λίστα registered daemon/worker services με status (running/stopped/error)
+- [ ] **`ServicesController`** στο `\Pramnos\Application\Controllers\` (**πάντα** — ο χρήστης μπορεί να ορίσει custom daemons ανεξάρτητα από queue/messaging):
+  - `display()` — λίστα registered daemon/worker services με status (running/stopped/error), PID, uptime, memory
   - `start($name)` / `stop($name)` / `restart($name)` — έλεγχος lifecycle μέσω `DaemonOrchestrator`
   - `logs($name)` — tail τελευταίων N γραμμών log για service
-  - Wrapper: `src/Controllers/Services.php` — scaffolded όταν feature `queue` ή `messaging`
+  - `status()` — JSON endpoint: σύνοψη status όλων services (κατάλληλο για monitoring)
+  - Wrapper: `src/Controllers/Services.php` — scaffolded **πάντα**
+
+#### 23.9 Διαχείριση Organizations
+
+- [ ] **`OrganizationsController`** στο `\Pramnos\Application\Controllers\` (πάντα — εφόσον ολοκληρωθεί το `public.organizations` migration από Φάση UrbanWater Schema Backport):
+  - `display()` — DataTable λίστα organizations (name, description, members count, created_at)
+  - `edit($id)` — φόρμα δημιουργίας/επεξεργασίας organization
+  - `save()` / `delete($id)`
+  - `members($id)` — λίστα χρηστών που ανήκουν στο organization (`authserver.user_organizations`)
+  - `addmember($orgId)` / `removemember($orgId, $userId)` — διαχείριση membership
+  - Wrapper: `src/Controllers/Organizations.php` — scaffolded πάντα
+
+#### 23.10 Προβολή Token Actions (Audit Log)
+
+- [ ] **`TokenActionsController`** στο `\Pramnos\Auth\Controllers\` (πάντα — `#PREFIX#tokenactions` table δημιουργείται αυτόματα από `Token.php`):
+  - Read-only audit log — δεν επιτρέπεται εγγραφή/διαγραφή μέσω UI
+  - `display()` — DataTable με φίλτρα: token, user, endpoint, HTTP status, execution time, date range
+  - `show($id)` — αναλυτική προβολή μιας εγγραφής (request params, response data, headers)
+  - `stats()` — JSON/HTML dashboard: top endpoints, error rate, average execution time, p95/p99 latency
+  - `export()` — CSV export με φίλτρα (για compliance/auditing)
+  - Wrapper: `src/Controllers/TokenActions.php` — scaffolded όταν feature `auth`
+
+#### 23.11 Statistics & Analytics Dashboard
+
+*Backport της λογικής `getActiveUsers()` / `getPerformanceSummary()` από το Urbanwater Home controller σε επαναχρησιμοποιήσιμους framework services.*
+
+- [ ] **`\Pramnos\Application\Statistics\ActiveUsersService`** — query στο `#PREFIX#sessions` για: ενεργοί χρήστες τώρα, last 1h, last 24h, last 7d, last 30d. Backend-agnostic (MySQL + PostgreSQL).
+
+- [ ] **`\Pramnos\Application\Statistics\DatabaseStatsService`** — DB server metrics:
+  - PostgreSQL: `pg_database_size`, `pg_stat_activity` (connections, active), `pg_stat_database` (cache hit ratio, transactions, disk reads)
+  - MySQL: `information_schema`, `SHOW STATUS` (connections, queries, cache hits)
+
+- [ ] **`\Pramnos\Application\Statistics\ApiPerformanceService`** — query στο `#PREFIX#tokenactions`:
+  - Throughput (requests/hour), error rate ανά status code, average/p95/p99 execution time
+  - Top N slowest endpoints, top N most-called endpoints
+  - Configurable time window (last 1h, 24h, 7d)
+
+- [ ] **`DashboardController`** στο `\Pramnos\Application\Controllers\` (πάντα):
+  - `display()` — overview dashboard: active users widget + DB stats widget + API performance summary + health check badges (re-uses `HealthRegistry::runAll()`)
+  - `activeusers()` — JSON: αριθμοί ανά time window — κατάλληλο για AJAX refresh
+  - `apistats()` — JSON: performance summary για charts
+  - `dbstats()` — JSON: DB metrics
+  - Wrapper: `src/Controllers/Dashboard.php` — scaffolded πάντα, αντικαθιστά το default `Home` controller ή co-exists ως admin view
+  - **Σημείωση:** Το `Dashboard` controller είναι διαφορετικό από το `\Pramnos\Auth\Controllers\Dashboard` (που χειρίζεται τον λογαριασμό χρήστη). Το εδώ `DashboardController` είναι admin/ops overview.
 
 #### Κοινές Απαιτήσεις Φάσης 23
 
 - [ ] Κάθε controller έχει **views ως scaffolding fallback** για όλα τα themes (bootstrap, plain-css, tailwind) — χρησιμοποιούν DataTable όπου υπάρχει λίστα
 - [ ] Ο `init app` scaffolds wrapper controllers στο `src/Controllers/` ανάλογα feature
-- [ ] Navbar links προστίθενται δυναμικά στο `buildThemeHeader()` βάσει enabled features
+- [ ] Navbar links προστίθενται δυναμικά στο `buildThemeHeader()` βάσει enabled features — **Admin dropdown menu** όταν υπάρχουν πολλά admin controllers
 - [ ] Κάθε controller έχει unit tests + integration tests (MySQL + PostgreSQL)
-- [ ] Η σειρά υλοποίησης εντός φάσης: 23.1 → 23.5 → 23.2 → 23.3 → 23.6 → 23.4 → 23.7 → 23.8 (από πιο απλό/universal σε πιο complex/feature-specific)
+- [ ] Η σειρά υλοποίησης εντός φάσης: 23.11 → 23.1 → 23.5 → 23.8 → 23.9 → 23.2 → 23.3 → 23.10 → 23.6 → 23.4 → 23.7
+  - Πρώτα services (Statistics + Services) — universal, χωρίς feature dependencies
+  - Μετά auth-dependent (Users, Settings, Organizations, Applications, Tokens, TokenActions, Emails)
+  - Τελευταία τα feature-specific (Permissions RBAC, Queue)
