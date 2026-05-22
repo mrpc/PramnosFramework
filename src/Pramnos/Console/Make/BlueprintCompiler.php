@@ -153,11 +153,13 @@ class BlueprintCompiler
             $lines[] = '';
             foreach ($foreignKeys as $fk) {
                 $onDelete = !empty($fk['onDelete']) ? "->onDelete('{$fk['onDelete']}')" : '';
+                $onUpdate = !empty($fk['onUpdate']) ? "->onUpdate('{$fk['onUpdate']}')" : '';
                 $lines[] = $ipad
                     . "\$table->foreign('{$fk['column']}')"
                     . "->references('{$fk['references']}')"
                     . "->on('{$fk['on']}')"
-                    . $onDelete . ';';
+                    . $onDelete
+                    . $onUpdate . ';';
             }
         }
 

@@ -835,22 +835,7 @@ abstract class MakeCommandBase extends Command
                     break;
                 }
 
-                // Column name — autocomplete from columns defined in this table so far
-                $definedColNames = array_column($columns, 'name');
-                if ($hasPk) {
-                    array_unshift($definedColNames,
-                        $this->getBlueprintCompiler()->getSingularPrimaryKey($tableName));
-                }
-                $q = new Question('   Column name (e.g. user_id): ');
-                $q->setValidator(fn($v) => trim((string)$v) !== ''
-                    ? trim($v)
-                    : throw new \RuntimeException('Column name required.'));
-                if (!empty($definedColNames)) {
-                    $q->setAutocompleterValues($definedColNames);
-                }
-                $fkCol = $helper->ask($input, $output, $q);
-
-                // References table — autocomplete + validation against known tables
+                // Step 1 — References table (autocomplete + validation)
                 $q = new Question('   References table: ');
                 if (!empty($allTableNames)) {
                     $q->setAutocompleterValues($allTableNames);
@@ -860,30 +845,24 @@ abstract class MakeCommandBase extends Command
                     if ($v === '') {
                         throw new \RuntimeException('Table name required.');
                     }
-                    // DB was unreachable when we built the list — accept anything non-empty
                     if (!$dbAvailable) {
                         return $v;
                     }
-                    // Direct match in combined list (migration tables + DB tables)
                     if (in_array($v, $allTableNames, true)) {
                         return $v;
                     }
-                    // Resolve #PREFIX# placeholder and retry
                     if ($fkDb !== null && $fkDb->prefix !== '') {
                         $resolved = str_replace('#PREFIX#', $fkDb->prefix, $v);
                         if (in_array($resolved, $allTableNames, true)) {
                             return $v;
                         }
                     }
-                    // Final fallback: ask the DB directly (handles schema differences,
-                    // prefixed table names not in the autocomplete list, etc.)
                     if ($fkDb !== null) {
                         try {
                             if ($fkDb->tableExists($v)) {
                                 return $v;
                             }
                         } catch (\Throwable $e) {
-                            // tableExists() failed — be lenient rather than blocking the user
                             return $v;
                         }
                     }
@@ -894,15 +873,16 @@ abstract class MakeCommandBase extends Command
                 });
                 $fkTable = $helper->ask($input, $output, $q);
 
-                // References column — ChoiceQuestion from known columns, fallback to text
+                // Step 2 — References column (default = PK of the referenced table)
                 $refColumns = ($fkDb !== null)
                     ? $this->getColumnsForFKTable(
                         $fkTable, $tables, $tableName, $columns, $hasPk, $fkDb
                       )
                     : [];
                 if (!empty($refColumns)) {
-                    $defaultIdx = array_search('id', $refColumns);
-                    $defaultIdx = $defaultIdx !== false ? $defaultIdx : 0;
+                    $expectedPk = $this->getBlueprintCompiler()->getSingularPrimaryKey($fkTable);
+                    $defaultIdx = array_search($expectedPk, $refColumns);
+                    $defaultIdx = $defaultIdx !== false ? (int) $defaultIdx : 0;
                     $q = new ChoiceQuestion(
                         '   References column [<comment>' . $refColumns[$defaultIdx] . '</comment>]: ',
                         $refColumns,
@@ -910,16 +890,44 @@ abstract class MakeCommandBase extends Command
                     );
                     $fkRef = $helper->ask($input, $output, $q);
                 } else {
-                    $q = new Question('   References column [<comment>id</comment>]: ', 'id');
-                    $fkRef = trim((string) $helper->ask($input, $output, $q)) ?: 'id';
+                    $expectedPk = $this->getBlueprintCompiler()->getSingularPrimaryKey($fkTable);
+                    $q = new Question(
+                        "   References column [<comment>{$expectedPk}</comment>]: ", $expectedPk
+                    );
+                    $fkRef = trim((string) $helper->ask($input, $output, $q)) ?: $expectedPk;
                 }
 
+                // Step 3 — Column name in this table (default = references column)
+                $definedColNames = array_column($columns, 'name');
+                if ($hasPk) {
+                    array_unshift($definedColNames,
+                        $this->getBlueprintCompiler()->getSingularPrimaryKey($tableName));
+                }
+                $q = new Question(
+                    "   Column name in this table [<comment>{$fkRef}</comment>]: ", $fkRef
+                );
+                $q->setValidator(fn($v) => trim((string)$v) !== ''
+                    ? trim($v)
+                    : throw new \RuntimeException('Column name required.'));
+                if (!empty($definedColNames)) {
+                    $q->setAutocompleterValues($definedColNames);
+                }
+                $fkCol = $helper->ask($input, $output, $q);
+
+                // Step 4 — On delete / On update
                 $q = new ChoiceQuestion(
                     '   On delete [<comment>RESTRICT</comment>]: ',
                     ['RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION'],
                     0
                 );
                 $fkOnDelete = $helper->ask($input, $output, $q);
+
+                $q = new ChoiceQuestion(
+                    '   On update [<comment>RESTRICT</comment>]: ',
+                    ['RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION'],
+                    0
+                );
+                $fkOnUpdate = $helper->ask($input, $output, $q);
 
                 // Add the FK column to the column list if not already defined
                 $alreadyDefined = !empty(array_filter($columns, fn($c) => $c['name'] === $fkCol));
@@ -941,6 +949,7 @@ abstract class MakeCommandBase extends Command
                     'references' => $fkRef,
                     'on'         => $fkTable,
                     'onDelete'   => $fkOnDelete,
+                    'onUpdate'   => $fkOnUpdate,
                 ];
                 $output->writeln('');
             }
