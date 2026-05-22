@@ -144,12 +144,31 @@ class StringHelper
             return substr($plural, 0, -3) . 'y';
         }
         
-        // Words ending in -es: remove -es
+        // Words ending in -es: strip -es or just -s depending on the root.
         if (substr($plural, -2) === 'es') {
-            // Special cases like -xes, -ches, -sses
-            if (preg_match('/(ch|sh|ss|x|z|o)es$/i', $plural)) {
+            // Hard sibilant endings always strip 'es' (no silent-e root possible):
+            //   watches→watch, dishes→dish, classes→class
+            if (preg_match('/(ch|sh|ss)es$/i', $plural)) {
                 return substr($plural, 0, -2);
             }
+            // -xes always strips 'es': fox→foxes, box→boxes
+            if (substr($plural, -3) === 'xes') {
+                return substr($plural, 0, -2);
+            }
+            // Silent-e root detection: if stripping only 's' gives a word ending in
+            // [consonant]e, the 'e' belongs to the root — strip 's' only.
+            // Covers: articles→article, images→image, whores→whore, horses→horse,
+            //         services→service, modules→module, mazes→maze, pages→page, etc.
+            // (vowels before 'e' signal a different plural pattern, e.g. tomatoes→potato)
+            $withoutS = substr($plural, 0, -1);
+            $beforeE  = substr($withoutS, -2, 1);
+            if (substr($withoutS, -1) === 'e'
+                && $beforeE !== ''
+                && !in_array($beforeE, ['a', 'e', 'i', 'o', 'u'], true)
+            ) {
+                return $withoutS;
+            }
+            // Default: strip 'es' (e.g. tomatoes→tomato, potatoes→potato)
             return substr($plural, 0, -2);
         }
         
