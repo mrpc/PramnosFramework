@@ -2255,7 +2255,9 @@ content;
 
         return "Namespace: {$namespace}\n"
             . "Class: {$className}\n"
-            . "File: {$filename}\n\nController created. \n";
+            . "File: {$filename}\n"
+            . "API URL: sURL . 'api/v1/{$className}'\n\n"
+            . "Controller created. \n";
     }
 
     /**
@@ -2925,7 +2927,9 @@ PHP;
             $name, $columns, $foreignKeys, $primaryKey, $ui
         );
 
-        return "Controller created.\n" . $viewSummary;
+        return "Controller created.\n"
+            . "URL: sURL . '{$className}'\n"
+            . $viewSummary;
     }
 
     /**
