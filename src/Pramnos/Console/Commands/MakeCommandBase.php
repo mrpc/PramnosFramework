@@ -804,7 +804,9 @@ abstract class MakeCommandBase extends Command
             // down() drops in reverse order
             array_unshift($downBodyParts, $this->buildMigrationDownBody($tbl['tableName']));
         }
-        $upBody   = implode("\n\n", $upBodyParts);
+        // Prefix with a single $schema instance — createTable() calls reuse it.
+        $upBody   = "        \$schema = \$this->application->database->schema();\n\n"
+                  . implode("\n\n", $upBodyParts);
         $downBody = implode("\n", $downBodyParts);
 
         $content = $this->renderStub('migration', [

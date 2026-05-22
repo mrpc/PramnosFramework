@@ -162,7 +162,9 @@ class BlueprintCompiler
         }
 
         $body = implode("\n", $lines);
-        return "{$pad}SchemaBuilder::create('{$tableName}', function (Blueprint \$table) {\n"
+        // Uses $schema instance variable — the caller (MakeCommandBase) prepends
+        // "$schema = $this->application->database->schema();" once before all tables.
+        return "{$pad}\$schema->createTable('{$tableName}', function (Blueprint \$table) {\n"
              . "{$body}\n"
              . "{$pad}});";
     }
@@ -174,6 +176,6 @@ class BlueprintCompiler
      */
     public function buildMigrationDownBody(string $tableName): string
     {
-        return "        SchemaBuilder::dropIfExists('{$tableName}');";
+        return "        \$this->application->database->schema()->dropIfExists('{$tableName}');";
     }
 }

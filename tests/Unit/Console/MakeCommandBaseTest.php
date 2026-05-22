@@ -584,19 +584,23 @@ class MakeCommandBaseTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * buildMigrationDownBody() always produces a single SchemaBuilder::dropIfExists()
-     * call, indented with 8 spaces (method-body level).
+     * buildMigrationDownBody() produces a single instance-method dropIfExists()
+     * call on the SchemaBuilder obtained from $this->application->database->schema().
+     * Indented at 8 spaces (method-body level).
      *
-     * This is a pure single-line generator — no input-dependent branching.
+     * The static SchemaBuilder::dropIfExists() form was removed in favour of the
+     * instance method to match the pattern used by all framework migrations.
      */
     public function testBuildMigrationDownBodyProducesDropStatement(): void
     {
         // Act
         $result = $this->command->buildMigrationDownBody('#PREFIX#users');
 
-        // Assert — correct method, correct indentation, table name present
-        $this->assertStringContainsString("SchemaBuilder::dropIfExists('#PREFIX#users')", $result);
+        // Assert — instance-method form, table name present, correct indentation
+        $this->assertStringContainsString("->schema()->dropIfExists('#PREFIX#users')", $result);
         $this->assertStringStartsWith('        ', $result);
+        // Static form must be absent
+        $this->assertStringNotContainsString('SchemaBuilder::dropIfExists', $result);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -607,6 +611,9 @@ class MakeCommandBaseTest extends TestCase
      * buildMigrationUpBody() with hasPk=true prepends an auto-increment PK.
      * Advanced Primary Key Naming derives the column name from the singular
      * of the table (e.g. '#PREFIX#orders' → 'order' → 'orderid').
+     *
+     * Uses $schema->createTable() (instance method) — not the deprecated
+     * static SchemaBuilder::create() form.
      */
     public function testBuildMigrationUpBodyWithPrimaryKey(): void
     {
@@ -615,7 +622,9 @@ class MakeCommandBaseTest extends TestCase
 
         // Assert — table wrapper and derived PK name present
         $this->assertStringContainsString("\$table->increments('orderid')", $result);
-        $this->assertStringContainsString("SchemaBuilder::create('#PREFIX#orders'", $result);
+        $this->assertStringContainsString("\$schema->createTable('#PREFIX#orders'", $result);
+        // Static form must be absent
+        $this->assertStringNotContainsString('SchemaBuilder::create', $result);
     }
 
     /**
