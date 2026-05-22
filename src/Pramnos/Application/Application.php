@@ -603,6 +603,19 @@ class Application extends Base
             $doc->loadtheme($this->applicationInfo['theme'], '', $this);
         }
 
+        // Track the web request in tokenactions when a web-session token is present.
+        // This mirrors Api::_executeCore() so that both web and API paths appear
+        // in the same audit log.
+        if (isset($_SESSION['usertoken']) && is_object($_SESSION['usertoken'])
+            && $_SESSION['usertoken']->tokentype === \Pramnos\User\Token::TYPE_WEB_SESSION) {
+            try {
+                $_SESSION['usertoken']->addAction();
+            } catch (\Exception $ex) {
+                unset($_SESSION['usertoken']);
+                \Pramnos\Logs\Logger::log($ex->getMessage());
+            }
+        }
+
         /*
          * Execute the controller and add content to the document
          */

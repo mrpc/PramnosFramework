@@ -85,4 +85,20 @@ class CsrfMiddleware implements MiddlewareInterface
         $value = htmlspecialchars($token, ENT_QUOTES, 'UTF-8');
         return '<input type="hidden" name="' . $name . '" value="' . $value . '" />';
     }
+
+    /**
+     * Return an HTML <meta> tag with the CSRF token.
+     *
+     * Place this inside <head>. JavaScript reads it via:
+     *   document.querySelector('meta[name="csrf"]').content
+     * and sends it as the X-CSRF-Token header on AJAX requests.
+     *
+     * Compatible with UnifiedAuthMiddleware session-cookie auth path (Phase 16).
+     */
+    public static function csrfMeta(string $metaName = 'csrf'): string
+    {
+        $name  = htmlspecialchars($metaName, ENT_QUOTES, 'UTF-8');
+        $value = htmlspecialchars(static::token(), ENT_QUOTES, 'UTF-8');
+        return '<meta name="' . $name . '" content="' . $value . '" />';
+    }
 }

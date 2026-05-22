@@ -1150,12 +1150,12 @@ API client → usertokens (api/mobile)  + Bearer token    → cross-origin AJAX 
 > **Εξάρτηση:** Φάση 16 εξαρτάται από Φάση 15 (`UnifiedAuthMiddleware` ενσωματώνεται στο API route group). Η cookie SPA auth **δεν απαιτεί** OAuth — συνυπάρχει με το authserver (Φάση 2).
 
 ### 📊 Φάση 17: Universal List API & Widget-agnostic Data Grid
-*Σήμερα `_getJsonList()` επιστρέφει DataTables 1.9 legacy format (`aaData`/`sEcho`) hardcoded — μόνο για jQuery DataTables, μόνο για MySQL (`SHOW COLUMNS`). Η `_getApiList()` επιστρέφει clean REST format αλλά το DataTables widget δεν το διαβάζει. Αυτή η φάση ενώνει τα δύο και κάνει τον server widget-agnostic: DataTables και Grid.js καταναλώνουν το ίδιο API endpoint μέσω thin adapters (πρώτη φάση).*
+*Σήμερα `_getJsonList()` επιστρέφει DataTables 1.9 legacy format (`aaData`/`sEcho`) hardcoded — μόνο για jQuery DataTables. Λειτουργεί cross-DB (MySQL μέσω `SHOW COLUMNS`, PostgreSQL/TimescaleDB μέσω `information_schema`) αλλά ο format εξόδου είναι locked στο DataTables 1.9 API. Η `_getApiList()` επιστρέφει clean REST format αλλά το DataTables widget δεν το διαβάζει. Αυτή η φάση ενώνει τα δύο και κάνει τον server widget-agnostic: DataTables και Grid.js καταναλώνουν το ίδιο API endpoint μέσω thin adapters (πρώτη φάση).*
 
 #### Πρόβλημα σήμερα
 
 ```
-DataTables widget → web controller method → _getJsonList() → aaData/sEcho (DT 1.9, MySQL-only)
+DataTables widget → web controller method → _getJsonList() → aaData/sEcho (DT 1.9 format)
 Grid.js → ✗ δεν υποστηρίζεται
 JS AJAX → API controller → _getApiList() → {items, pagination} (clean REST)
 ```
@@ -1178,7 +1178,7 @@ JS AJAX → API controller → _getApiList() → {items, pagination} (clean REST
 
 - [ ] **`_getApiList(format: 'datatables')`:** νέο optional parameter — wraps την `{items, pagination}` απόκριση στο DataTables 2.x format (`{draw, data, recordsTotal, recordsFiltered}`). Εσωτερική λεπτομέρεια, χωρίς αλλαγή στη δημόσια API.
 - [ ] **`_getJsonList()` → delegate:** `_getJsonList()` καλεί εσωτερικά `_getApiList(format: 'datatables')` και αποδίδει το ίδιο αποτέλεσμα. Κανένα υπάρχον `getJsonList()` override στο Urbanwater δεν σπάει — BC αποδεδειγμένα διατηρείται.
-- [ ] **Αφαίρεση `SHOW COLUMNS`:** `_getJsonList()` σταματά να χρησιμοποιεί `SHOW COLUMNS` (MySQL-only). Τα fields προέρχονται από `_getAllTableFields()` που ήδη λειτουργεί cross-database.
+- [ ] **Ενοποίηση column introspection:** `_getJsonList()` μεταβαίνει στο `_getAllTableFields()` αντί για inline `SHOW COLUMNS` / `information_schema` query — εξαλείφει τον duplicated κώδικα και ενοποιεί τη λογική introspection σε ένα σημείο.
 - [ ] **`_getJsonList()` marked `@deprecated`** στο docblock — δεν αφαιρείται, αλλά η τεκμηρίωση κατευθύνει τους νέους developers στο `_getApiList()`.
 
 #### Υλοποίηση — Client side (JS adapters)
@@ -1194,7 +1194,7 @@ JS AJAX → API controller → _getApiList() → {items, pagination} (clean REST
 ```php
 // Πριν: ξεχωριστή μέθοδος στον controller για κάθε datatable
 public function getUsersJson() {
-    return (new User)->getJsonList();   // MySQL-only, DT 1.9
+    return (new User)->getJsonList();   // DT 1.9 format, non-REST
 }
 
 // Μετά: το DataTables widget καλεί απευθείας το API

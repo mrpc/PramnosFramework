@@ -118,7 +118,8 @@ class ApiAuthMiddleware implements MiddlewareInterface
             }
 
         } elseif (!empty($_SERVER['HTTP_USERAUTH'])) {
-            // Session-cookie auth path
+            // @deprecated since v1.2 — sending the password hash as HTTP_USERAUTH is insecure.
+            // Use UnifiedAuthMiddleware with session-cookie + X-CSRF-Token instead (Phase 16).
             if (isset($_SESSION['logged'], $_SESSION['auth'], $_SESSION['uid'])
                 && $_SESSION['logged'] === true
                 && $_SESSION['auth'] === $_SERVER['HTTP_USERAUTH']) {
