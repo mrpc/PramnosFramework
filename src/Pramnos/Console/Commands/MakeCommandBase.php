@@ -65,9 +65,10 @@ abstract class MakeCommandBase extends Command
         try {
             if ($db->type === 'postgresql') {
                 $schema = $db->schema ?: 'public';
-                $sql    = "SELECT table_name FROM information_schema.tables "
-                        . "WHERE table_schema = " . $db->escape($schema)
-                        . " AND table_type = 'BASE TABLE' ORDER BY table_name";
+                // Single-quote the schema literal directly — Database has no escape() method
+                $sql = "SELECT table_name FROM information_schema.tables "
+                     . "WHERE table_schema = '" . addslashes($schema) . "'"
+                     . " AND table_type = 'BASE TABLE' ORDER BY table_name";
             } else {
                 $sql = "SHOW TABLES";
             }
@@ -808,7 +809,8 @@ abstract class MakeCommandBase extends Command
 
             // Build the combined table list (DB tables + migration tables defined so far)
             // used for autocomplete and validation. Gracefully degrade if DB is unavailable.
-            $fkDb = null;
+            $fkDb        = null;
+            $dbAvailable = false;   // tracks whether we successfully queried the DB
             $existingDbTables = [];
             try {
                 $fkDb = \Pramnos\Database\Database::getInstance();
@@ -816,6 +818,7 @@ abstract class MakeCommandBase extends Command
                     $fkDb->connect();
                 }
                 $existingDbTables = $this->fetchTableNames($fkDb);
+                $dbAvailable      = true;
             } catch (\Throwable $e) {
                 // DB not available during wizard — FK validation will be lenient
             }
@@ -850,25 +853,35 @@ abstract class MakeCommandBase extends Command
                 if (!empty($allTableNames)) {
                     $q->setAutocompleterValues($allTableNames);
                 }
-                $q->setValidator(function ($v) use ($allTableNames, $fkDb) {
+                $q->setValidator(function ($v) use ($allTableNames, $dbAvailable, $fkDb) {
                     $v = trim((string) $v);
                     if ($v === '') {
                         throw new \RuntimeException('Table name required.');
                     }
-                    if (empty($allTableNames)) {
-                        // DB unreachable — accept any non-empty value
+                    // DB was unreachable when we built the list — accept anything non-empty
+                    if (!$dbAvailable) {
                         return $v;
                     }
+                    // Direct match in combined list (migration tables + DB tables)
                     if (in_array($v, $allTableNames, true)) {
                         return $v;
                     }
-                    // Try resolving #PREFIX# against the DB prefix
+                    // Resolve #PREFIX# placeholder and retry
                     if ($fkDb !== null && $fkDb->prefix !== '') {
                         $resolved = str_replace('#PREFIX#', $fkDb->prefix, $v);
                         if (in_array($resolved, $allTableNames, true)) {
                             return $v;
                         }
-                        if ($fkDb->tableExists($resolved)) {
+                    }
+                    // Final fallback: ask the DB directly (handles schema differences,
+                    // prefixed table names not in the autocomplete list, etc.)
+                    if ($fkDb !== null) {
+                        try {
+                            if ($fkDb->tableExists($v)) {
+                                return $v;
+                            }
+                        } catch (\Throwable $e) {
+                            // tableExists() failed — be lenient rather than blocking the user
                             return $v;
                         }
                     }

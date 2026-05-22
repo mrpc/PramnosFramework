@@ -1324,6 +1324,45 @@ class MakeCommandBaseTest extends TestCase
             'fetchTableNames() must return [] when the DB is unavailable, not throw');
     }
 
+    /**
+     * fetchTableNames() must produce properly single-quoted schema in the SQL it
+     * sends to the database (PostgreSQL branch).
+     *
+     * Regression test: the original code used $db->escape($schema) which does not
+     * exist on Database, silently returning [] via the catch block and breaking the
+     * FK autocomplete list entirely.  The fix uses addslashes() directly.
+     *
+     * We capture the SQL string passed to query() and assert it contains the schema
+     * in single quotes.  If the old bug were reintroduced, $db->escape() would throw
+     * BadMethodCallException before reaching query(), so $capturedSql would remain
+     * null and the test would fail.
+     */
+    public function testFetchTableNamesPostgreSqlProducesProperlyQuotedSql(): void
+    {
+        // Arrange
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $db->type   = 'postgresql';
+        $db->schema = 'public';
+
+        $capturedSql = null;
+        $db->method('query')
+           ->willReturnCallback(function (string $sql) use (&$capturedSql): never {
+               $capturedSql = $sql;
+               // Throw so we skip result iteration — we only need the SQL string
+               throw new \RuntimeException('Simulated');
+           });
+
+        // Act
+        $this->callPrivate('fetchTableNames', [$db]);
+
+        // Assert — query() was reached (no crash before it) and SQL is properly quoted
+        $this->assertNotNull($capturedSql,
+            'query() must be called — if $db->escape() were invoked instead it would '
+            . 'throw BadMethodCallException before reaching query()');
+        $this->assertStringContainsString("'public'", $capturedSql,
+            "Schema literal must be wrapped in single quotes in the SQL string");
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
