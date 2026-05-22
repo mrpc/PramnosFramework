@@ -91,8 +91,7 @@ class StubRenderer
             'migration' =>
                 "<?php\nnamespace {{ namespace }};\n\n"
                 . "use Pramnos\\Database\\Blueprint;\n"
-                . "use Pramnos\\Database\\Migration;\n"
-                . "use Pramnos\\Database\\SchemaBuilder;\n\n"
+                . "use Pramnos\\Database\\Migration;\n\n"
                 . "/**\n * {{ class }} Migration\n *\n * @package {{ namespace }}\n */\n"
                 . "final class {{ class }} extends Migration\n{\n"
                 . "    public \$description = '{{ description }}';\n"
