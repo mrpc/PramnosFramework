@@ -1,7 +1,32 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 108) — Phase 17 server-side complete ✅
+## 📅 Last Updated: 2026-05-22 (session 109) — create:migration wizard enhancements ✅
+
+## 🏁 Session 109 — create:migration wizard enhancements (2026-05-22)
+
+### ✅ create:migration wizard — 8 improvements
+
+Commit: `a730f35`
+
+**Αλλαγές στο `src/Pramnos/Console/Commands/MakeCommandBase.php`:**
+
+1. **Type labels**: τύποι εμφανίζουν SQL equivalents (`string (VARCHAR)`, `integer (INT)` κλπ)
+2. **Empty string default**: `''` (two single quotes) = κενό string, blank = no default
+3. **Multi-table migrations**: "Add another table?" loop μετά τα FK
+4. **Schema-first model**: `buildModelFromWizardColumns()` — full model με typed properties, χωρίς DB round-trip
+5. **Run now? prompt**: εκτελεί το migration αμέσως μέσω `MigrationRunner`
+6. **API Controller default → yes**
+7. **Full CRUD controller + views**: `createControllerAndViewsFromWizard()` + `createViewsFromWizard()` — UI-aware (Bootstrap/DataTables/Select2)
+8. **`detectUiSetup()`**: διαβάζει `scaffold_theme` + ελέγχει `www/assets/vendor/` για datatables/select2/bootstrap
+
+**Νέα tests** στο `MakeCommandBaseTest.php`:
+- `testBuildModelFromWizardColumnsEmitsProperties`
+- `testBuildModelFromWizardColumnsGeneratesCrudMethods`
+- `testBuildModelFromWizardColumnsEmitsFkNullGuard`
+- 71/71 tests pass
+
+---
 
 ## 🏁 Session 108 — Phase 17 server-side complete (2026-05-22)
 
