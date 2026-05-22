@@ -267,10 +267,7 @@ class Controller extends \Pramnos\Framework\Base
                     fn() => $this->$action($args)
                 );
             } else {
-                throw new \Exception(
-                    'Not authenticated users cannot do that.',
-                    403
-                );
+                $this->_throwAuthFailure();
             }
         } elseif (array_search('display', $this->actions) !== false) {
             if ($this->auth('display')) {
@@ -279,10 +276,7 @@ class Controller extends \Pramnos\Framework\Base
                     fn() => $this->display($args)
                 );
             } else {
-                throw new \Exception(
-                    'Not authenticated users cannot do that.',
-                    403
-                );
+                $this->_throwAuthFailure();
             }
         }
     }
@@ -293,6 +287,30 @@ class Controller extends \Pramnos\Framework\Base
     function display()
     {
 
+    }
+
+    /**
+     * Throw the appropriate exception when an auth check fails.
+     *
+     * Unauthenticated users (not logged in) are redirected to the login page
+     * so they get a useful response instead of a bare 403.
+     * Authenticated users who lack the required permission still get 403.
+     *
+     * @throws \Pramnos\Http\RedirectException when the session is not logged in
+     * @throws \Exception (403) when the user is logged in but lacks permission
+     */
+    private function _throwAuthFailure(): never
+    {
+        $session = \Pramnos\Http\Session::getInstance();
+        if (!$session->isLogged() && defined('sURL')) {
+            $loginUrl = sURL . 'login';
+            $current  = \Pramnos\Http\Request::$requestUri ?? '';
+            if ($current !== '' && $current !== '/') {
+                $loginUrl .= '?return=' . urlencode($current);
+            }
+            throw new \Pramnos\Http\RedirectException($loginUrl);
+        }
+        throw new \Exception('Not authenticated users cannot do that.', 403);
     }
 
     /**

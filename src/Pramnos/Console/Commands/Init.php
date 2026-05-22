@@ -1780,6 +1780,12 @@ use Pramnos\\Auth\\Auth;
  */
 class Login extends Controller
 {
+    public function __construct(?\\Pramnos\\Application\\Application \$application = null)
+    {
+        \$this->addaction(['dologin', 'logout']);
+        parent::__construct(\$application);
+    }
+
     /** Show the login form. */
     public function display()
     {

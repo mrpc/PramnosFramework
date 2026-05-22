@@ -148,7 +148,7 @@ class OAuth2ServerFactory
 
         openssl_pkey_export($privateKey, $privateKeyPem);
 
-        if (file_put_contents($this->privateKeyPath, $privateKeyPem) === false) {
+        if (@file_put_contents($this->privateKeyPath, $privateKeyPem) === false) {
             \Pramnos\Logs\Logger::log(
                 'OAuth2: cannot write private key to ' . $this->privateKeyPath
                 . '. Check directory permissions.'
@@ -158,7 +158,7 @@ class OAuth2ServerFactory
         @chmod($this->privateKeyPath, 0600);
 
         $details = openssl_pkey_get_details($privateKey);
-        if (file_put_contents($this->publicKeyPath, $details['key']) === false) {
+        if (@file_put_contents($this->publicKeyPath, $details['key']) === false) {
             \Pramnos\Logs\Logger::log(
                 'OAuth2: cannot write public key to ' . $this->publicKeyPath
                 . '. Check directory permissions.'
@@ -218,10 +218,16 @@ class OAuth2ServerFactory
         $key = base64_encode(random_bytes(32));
         $dir = dirname($keyFile);
         if (!is_dir($dir)) {
-            mkdir($dir, 0700, true);
+            @mkdir($dir, 0750, true);
         }
-        file_put_contents($keyFile, $key);
-        chmod($keyFile, 0600);
+        if (@file_put_contents($keyFile, $key) === false) {
+            \Pramnos\Logs\Logger::log(
+                'OAuth2: cannot write encryption key to ' . $keyFile
+                . '. Check directory permissions.'
+            );
+            return $key;
+        }
+        @chmod($keyFile, 0600);
 
         return $key;
     }
