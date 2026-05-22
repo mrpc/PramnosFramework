@@ -1371,3 +1371,136 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 - [ ] **Form Requests (Advanced Validation):** Επέκταση του `Pramnos\Validation\Validator`. Αντί για χειροκίνητο validation στους controllers, δημιουργία κλάσεων Request (π.χ. `StoreUserRequest`) που εκτελούνται αυτόματα πριν τον controller και κάνουν αυτόματο redirect σε περίπτωση λάθους.
 - [ ] **Model Factories:** Δημιουργία συστήματος Factories (π.χ. `UserFactory`) που θα συνδέει το ORM με το `Pramnos\Support\Faker`. Έτσι, με μία εντολή όπως `User::factory()->count(50)->create()`, θα δημιουργούνται μαζικά test data απευθείας στη βάση, ιδανικό για Seeding και Unit Testing.
 - [ ] **Notification Channels:** Δημιουργία ενός ενοποιημένου Notification Component (πέραν του απλού Email και Messaging). Έτσι, θα ορίζουμε μια κλάση `InvoicePaidNotification` και το σύστημα θα την κάνει dispatch ταυτόχρονα σε πολλαπλά κανάλια (Email, SMS, WebSockets, Database Logs) ανάλογα με τα preferences του χρήστη.
+
+---
+
+### 🩺 Φάση 22: Health & Monitoring Dashboard
+
+*Παρέχει σε κάθε εφαρμογή έτοιμο HTTP dashboard για παρακολούθηση της υγείας του συστήματος — χωρίς να χρειάζεται να γραφεί κώδικας στην εφαρμογή.*
+
+#### Υποδομή (framework-level)
+
+- [ ] **`HealthController`** στο `\Pramnos\Application\Controllers\` με:
+  - `display()` — overview dashboard: αποτελέσματα `HealthRegistry::runAll()` + DB server info (type/version/size) + cache stats (`Cache::getStats()`) + active users count (από sessions table) + PHP version/extensions
+  - `check()` — JSON endpoint: `{"status":"ok|degraded|down","checks":{...}}` — κατάλληλο για monitoring systems (uptime robot, Grafana κτλ.)
+  - `phpinfo()` — πλήρης `phpinfo()` σελίδα (μόνο για superadmin, υψηλό permission level)
+  - Όλα τα actions `addAuthAction` — απαιτείται authentication. `phpinfo` ξεχωριστό permission check.
+
+- [ ] **Views** (scaffolding fallback για όλα τα themes: bootstrap, plain-css, tailwind):
+  - `health/health.html.php` — summary dashboard με color-coded status badges (ok/degraded/down) ανά check, DB info table, cache stats, active users counter
+  - `health/check.html.php` — αποτελέσματα individual checks σε table format (χρησιμοποιείται και για JSON via `check()` endpoint)
+
+- [ ] **Built-in checks registration** στο `Application::init()` όταν feature `core` (πάντα):
+  - `DatabaseConnectivityCheck` — ήδη υπάρχει στο framework
+  - `DiskSpaceCheck` — ήδη υπάρχει
+  - `MemoryLimitCheck` — ήδη υπάρχει
+  - Τα checks είναι idempotent: `HealthRegistry::register()` κάνει replace αν ο ίδιος name υπάρχει
+
+#### Scaffolding (init app)
+
+- [ ] **`src/Controllers/Health.php`** — thin wrapper extending `\Pramnos\Application\Controllers\HealthController`, scaffolded σε κάθε νέα εφαρμογή (πάντα, ανεξάρτητα features). Ίδιο pattern με `Logs.php`.
+- [ ] **Navbar link "Health"** — προστέθηκε πάντα στο `buildThemeHeader()`, δίπλα στο "Logs"
+- [ ] **JSON endpoint documentation** — το `GET /health/check` τεκμηριώνεται στο `CLAUDE.md` του scaffolded project ως monitoring endpoint
+
+#### Tests
+
+- [ ] Unit tests για `HealthController::display()` και `HealthController::check()` — mock `HealthRegistry`, DB queries, cache
+- [ ] Integration tests (MySQL + PostgreSQL) — επαλήθευση ότι το DB info query δουλεύει σωστά και στα δύο backends
+- [ ] Scaffolding tests στο `InitCommandUnitTest` — `Health.php` wrapper δημιουργείται, navbar link παρών
+
+---
+
+### 🗂️ Φάση 23: Framework Admin CRUD Controllers
+
+*Backport και βελτίωση όλων των admin management controllers που υπάρχουν στο Urbanwater — ώστε κάθε νέα εφαρμογή να τα κληρονομεί out-of-the-box μέσω wrappers.*
+
+Κάθε controller που υλοποιείται εδώ:
+- Ζει στο `\Pramnos\Application\Controllers\` ή `\Pramnos\Auth\Controllers\` (framework namespace)
+- Scaffolds ως thin wrapper στo `src/Controllers/` κατά το `init app` (ανάλογα feature)
+- Απαιτεί authentication (`addAuthAction`) — η εφαρμογή μπορεί να προσθέσει permission level
+- Έχει views ως scaffolding fallback (όλα τα themes)
+
+#### 23.1 Διαχείριση Χρηστών
+
+- [ ] **`UsersController`** στο `\Pramnos\Application\Controllers\` (πάντα διαθέσιμο):
+  - `display()` — DataTable λίστα χρηστών (username, email, usertype, status, last login)
+  - `edit($id)` — φόρμα επεξεργασίας χρήστη (username, email, usertype, active/validated flags)
+  - `save()` — POST handler για create/update
+  - `delete($id)` — διαγραφή (soft delete αν `deleted_at` υπάρχει)
+  - `lock($id)` / `unlock($id)` — αλλαγή `active` flag
+  - `resetpassword($id)` — send password reset email
+  - `sessions($id)` — λίστα ενεργών sessions για χρήστη
+  - Wrapper: `src/Controllers/Users.php` — scaffolded όταν feature `auth`
+
+#### 23.2 Διαχείριση OAuth2 Applications (Clients)
+
+- [ ] **`ApplicationsController`** στο `\Pramnos\Auth\Controllers\` (όταν feature `authserver`):
+  - `display()` — DataTable λίστα registered OAuth2 applications
+  - `edit($id)` — φόρμα: name, description, redirect URIs, allowed grant types, allowed scopes
+  - `save()` — δημιουργία/ενημέρωση client (generate client_id/client_secret)
+  - `delete($id)` — διαγραφή application + ανάκληση tokens
+  - `tokens($id)` — λίστα ενεργών tokens για application
+  - `rotate($id)` — rotate client_secret
+  - Wrapper: `src/Controllers/Applications.php` — scaffolded όταν feature `authserver`
+
+#### 23.3 Διαχείριση OAuth2 Tokens
+
+- [ ] **`TokensController`** στο `\Pramnos\Auth\Controllers\` (όταν feature `authserver`):
+  - `display()` — DataTable λίστα ενεργών tokens (user, application, scope, expires_at, issued_at)
+  - `revoke($id)` — ανάκληση token
+  - `revokeall()` — ανάκληση όλων των tokens χρήστη ή application (POST με filters)
+  - Wrapper: `src/Controllers/Tokens.php` — scaffolded όταν feature `authserver`
+
+#### 23.4 Διαχείριση Permissions & Roles (RBAC)
+
+- [ ] **`PermissionsController`** στο `\Pramnos\Auth\Controllers\` (όταν feature `authserver` + αν `authserver.permissions` schema υπάρχει — Φάση UrbanWater Schema Backport):
+  - `display()` — DataTable λίστα permissions
+  - `edit($id)` — φόρμα permission (name, description, resource, action)
+  - `save()` / `delete($id)`
+  - `assign($userId)` — εκχώρηση permissions σε χρήστη
+  - Wrapper: `src/Controllers/Permissions.php`
+
+#### 23.5 Application Settings (Key-Value Store)
+
+- [ ] **`SettingsController`** στο `\Pramnos\Application\Controllers\` (πάντα):
+  - `display()` — DataTable λίστα settings (key, value, category, description)
+  - `edit($key)` — φόρμα επεξεργασίας setting
+  - `save()` — POST handler
+  - `delete($key)` — διαγραφή setting
+  - Βασίζεται στο `\Pramnos\Application\Settings` class (ήδη υπάρχει)
+  - Wrapper: `src/Controllers/Settings.php` — scaffolded πάντα
+
+#### 23.6 Ιστορικό Emails
+
+- [ ] **`EmailsController`** στο `\Pramnos\Application\Controllers\` (πάντα — αν υπάρχει email log table):
+  - `display()` — DataTable λίστα αποσταλμένων emails (recipient, subject, sent_at, status)
+  - `show($id)` — εμφάνιση περιεχομένου email (HTML preview)
+  - `resend($id)` — επαναποστολή
+  - Απαιτεί migration για `email_log` table (ή εντοπισμό υπάρχοντος equivalent)
+  - Wrapper: `src/Controllers/Emails.php` — scaffolded πάντα
+
+#### 23.7 Διαχείριση Queue
+
+- [ ] **`QueueController`** στο `\Pramnos\Queue\Controllers\` (όταν feature `queue`):
+  - `display()` — DataTable λίστα jobs ανά status (pending/running/failed/completed) με φίλτρα
+  - `retry($id)` — επαναπρογραμματισμός failed job
+  - `retryall()` — μαζικό retry όλων failed
+  - `delete($id)` / `clear()` — καθαρισμός queue ανά status
+  - `stats()` — JSON endpoint: counts ανά status, throughput, average processing time
+  - Wrapper: `src/Controllers/Queue.php` — scaffolded όταν feature `queue`
+
+#### 23.8 Διαχείριση Services / Workers
+
+- [ ] **`ServicesController`** στο `\Pramnos\Application\Controllers\` (όταν feature `queue` ή `messaging`):
+  - `display()` — λίστα registered daemon/worker services με status (running/stopped/error)
+  - `start($name)` / `stop($name)` / `restart($name)` — έλεγχος lifecycle μέσω `DaemonOrchestrator`
+  - `logs($name)` — tail τελευταίων N γραμμών log για service
+  - Wrapper: `src/Controllers/Services.php` — scaffolded όταν feature `queue` ή `messaging`
+
+#### Κοινές Απαιτήσεις Φάσης 23
+
+- [ ] Κάθε controller έχει **views ως scaffolding fallback** για όλα τα themes (bootstrap, plain-css, tailwind) — χρησιμοποιούν DataTable όπου υπάρχει λίστα
+- [ ] Ο `init app` scaffolds wrapper controllers στο `src/Controllers/` ανάλογα feature
+- [ ] Navbar links προστίθενται δυναμικά στο `buildThemeHeader()` βάσει enabled features
+- [ ] Κάθε controller έχει unit tests + integration tests (MySQL + PostgreSQL)
+- [ ] Η σειρά υλοποίησης εντός φάσης: 23.1 → 23.5 → 23.2 → 23.3 → 23.6 → 23.4 → 23.7 → 23.8 (από πιο απλό/universal σε πιο complex/feature-specific)
