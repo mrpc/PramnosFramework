@@ -9,6 +9,10 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
+use Pramnos\Console\Make\BlueprintCompiler;
+use Pramnos\Console\Make\FakeDataGenerator;
+use Pramnos\Console\Make\NamespaceResolver;
+use Pramnos\Console\Make\StubRenderer;
 
 /**
  * Create something related to the application
@@ -27,6 +31,25 @@ abstract class MakeCommandBase extends Command
     protected $dbtable = null;
 
     protected OutputInterface $output;
+
+    private ?BlueprintCompiler $blueprintCompiler = null;
+    private ?FakeDataGenerator $fakeDataGenerator = null;
+    private ?StubRenderer      $stubRenderer      = null;
+
+    private function getBlueprintCompiler(): BlueprintCompiler
+    {
+        return $this->blueprintCompiler ??= new BlueprintCompiler();
+    }
+
+    private function getFakeDataGenerator(): FakeDataGenerator
+    {
+        return $this->fakeDataGenerator ??= new FakeDataGenerator();
+    }
+
+    private function getStubRenderer(): StubRenderer
+    {
+        return $this->stubRenderer ??= new StubRenderer();
+    }
 
     /**
      * Command configuration
@@ -297,34 +320,7 @@ abstract class MakeCommandBase extends Command
      */
     public function renderStub(string $stubName, array $tokens): string
     {
-        $dir  = $this->resolveScaffoldingDir();
-        $file = $dir . '/templates/' . $stubName . '.stub';
-        if (file_exists($file)) {
-            $content = file_get_contents($file);
-        } else {
-            $content = $this->getFallbackStub($stubName);
-        }
-
-        foreach ($tokens as $key => $value) {
-            $content = str_replace('{{ ' . $key . ' }}', $value, $content);
-        }
-        return $content;
-    }
-
-    private function getFallbackStub(string $name): string
-    {
-        return match ($name) {
-            'middleware'  => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Http\\MiddlewareInterface;\nuse Pramnos\\Http\\Request;\n\n/**\n * {{ class }} Middleware\n *\n * @package {{ namespace }}\n */\nclass {{ class }} implements MiddlewareInterface\n{\n    /**\n     * Handle an incoming request.\n     *\n     * @param Request \$request\n     * @param callable \$next\n     * @return mixed\n     */\n    public function handle(Request \$request, callable \$next): mixed\n    {\n        // Perform action before route\n        \$response = \$next(\$request);\n        // Perform action after route\n        return \$response;\n    }\n}\n",
-            'event'       => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\n/**\n * {{ class }} Event\n *\n * @package {{ namespace }}\n */\nclass {{ class }}\n{\n    /**\n     * Create a new event instance.\n     */\n    public function __construct(\n        // TODO: add public readonly properties for event payload\n    ) {}\n}\n",
-            'listener'    => "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\nuse Pramnos\\Event\\ListenerInterface;\n\n/**\n * {{ class }} Listener\n *\n * @package {{ namespace }}\n */\nclass {{ class }} implements ListenerInterface\n{\n    /**\n     * Handle the event.\n     *\n     * @param mixed ...\$args Event arguments\n     * @return mixed\n     */\n    public function handle(mixed ...\$args): mixed\n    {\n        // TODO: implement listener logic\n        return null;\n    }\n}\n",
-            'migration'   => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Database\\Blueprint;\nuse Pramnos\\Database\\Migration;\nuse Pramnos\\Database\\SchemaBuilder;\n\n/**\n * {{ class }} Migration\n *\n * @package {{ namespace }}\n */\nfinal class {{ class }} extends Migration\n{\n    /**\n     * Migration description.\n     * @var string\n     */\n    public string \$description = '{{ description }}';\n\n    /**\n     * Whether the migration should run in a transaction.\n     * @var bool\n     */\n    public bool \$transactional = false;\n\n    /**\n     * Run the migrations.\n     *\n     * @return void\n     */\n    public function up(): void\n    {\n{{ up_body }}\n    }\n\n    /**\n     * Reverse the migrations.\n     *\n     * @return void\n     */\n    public function down(): void\n    {\n{{ down_body }}\n    }\n}\n",
-            'seeder'      => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Database\\Seeder;\n\n/**\n * {{ class }} Seeder\n *\n * @package {{ namespace }}\n */\nclass {{ class }} extends Seeder\n{\n    /**\n     * The table associated with the seeder.\n     * @var string\n     */\n    protected string \$table = '{{ table }}';\n\n    /**\n     * Run the database seeds.\n     *\n     * @return void\n     */\n    public function run(): void\n    {\n        for (\$i = 1; \$i <= {{ count }}; \$i++) {\n            \$this->insert(\$this->table, [\n{{ fields }}\n            ]);\n        }\n    }\n}\n",
-            'controller'  => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Application\\Controller;\n\n/**\n * {{ class }} Controller\n *\n * @package {{ namespace }}\n */\nclass {{ class }} extends Controller\n{\n    /**\n     * Controller constructor.\n     *\n     * @param \\Pramnos\\Application\\Application|null \$application\n     */\n    public function __construct(?\\Pramnos\\Application\\Application \$application = null)\n    {\n        \$this->addAuthAction(['edit', 'save', 'delete']);\n        parent::__construct(\$application);\n    }\n\n    /**\n     * Display the index view.\n     *\n     * @return string\n     */\n    public function display(): string\n    {\n        \$view = \$this->getView('{{ view }}');\n        return \$view->display();\n    }\n}\n",
-            'model'       => "<?php\nnamespace {{ namespace }};\n\nuse Pramnos\\Application\\Model;\n\n/**\n * {{ class }} Model\n *\n * @package {{ namespace }}\n */\nclass {{ class }} extends Model\n{\n    /**\n     * The database table used by the model.\n     * @var string\n     */\n    protected \$_dbtable = '{{ table }}';\n\n    /**\n     * The primary key for the model.\n     * @var string\n     */\n    protected \$_primaryKey = '{{ primaryKey }}';\n}\n",
-            'test'        => "<?php\nnamespace Tests\\Unit;\n\nuse PHPUnit\\Framework\\TestCase;\n\n/**\n * {{ class }}Test\n *\n * @package Tests\\Unit\n */\nclass {{ class }}Test extends TestCase\n{\n    /**\n     * Test successful instantiation.\n     *\n     * @return void\n     */\n    public function testInstantiation(): void\n    {\n        \$instance = new \\{{ namespace }}\\{{ class }}();\n        \$this->assertInstanceOf(\\{{ namespace }}\\{{ class }}::class, \$instance);\n    }\n}\n",
-            'controller_test' => "<?php\nnamespace Tests\\Feature;\n\nuse PHPUnit\\Framework\\TestCase;\nuse Pramnos\\Testing\\TestClient;\n\n/**\n * {{ class }}Test Feature Test\n *\n * @package Tests\\Feature\n */\nclass {{ class }}Test extends TestCase\n{\n    /**\n     * Test that the default display route works.\n     *\n     * @return void\n     */\n    public function testDisplayRouteReturnsSuccessfulResponse(): void\n    {\n        \$client = new TestClient();\n        \$response = \$client->get('/{{ route }}');\n        \n        \$response->assertSuccessful();\n        \$response->assertSelectorExists('body');\n    }\n}\n",
-            default       => '',
-        };
+        return $this->getStubRenderer()->render($stubName, $tokens);
     }
 
     /**
@@ -373,11 +369,7 @@ abstract class MakeCommandBase extends Command
      */
     protected function getSingularPrimaryKey(string $tableName): string
     {
-        $clean = str_replace('#PREFIX#', '', $tableName);
-        if (substr($clean, -1) === 's') {
-            $clean = substr($clean, 0, -1);
-        }
-        return strtolower($clean) . 'id';
+        return $this->getBlueprintCompiler()->getSingularPrimaryKey($tableName);
     }
 
     /**
@@ -402,40 +394,9 @@ abstract class MakeCommandBase extends Command
         bool $softDeletes,
         array $foreignKeys
     ): string {
-        $pad    = '        ';  // 8 spaces — method body
-        $ipad   = '            ';  // 12 spaces — closure body
-
-        $lines = [];
-
-        if ($hasPk) {
-            $pkName = $this->getSingularPrimaryKey($tableName);
-            $lines[] = $ipad . "\$table->increments('{$pkName}');";
-        }
-
-        foreach ($columns as $col) {
-            $lines[] = $ipad . $this->blueprintCall($col);
-        }
-
-        if ($timestamps) {
-            $lines[] = $ipad . "\$table->timestamps();";
-        }
-        if ($softDeletes) {
-            $lines[] = $ipad . "\$table->softDeletes();";
-        }
-
-        if (!empty($foreignKeys)) {
-            $lines[] = '';
-            foreach ($foreignKeys as $fk) {
-                $onDelete = !empty($fk['onDelete']) ? "->onDelete('{$fk['onDelete']}')" : '';
-                $lines[] = $ipad . "\$table->foreign('{$fk['column']}')"
-                         . "->references('{$fk['references']}')"
-                         . "->on('{$fk['on']}')"
-                         . $onDelete . ';';
-            }
-        }
-
-        $body = implode("\n", $lines);
-        return "{$pad}SchemaBuilder::create('{$tableName}', function (Blueprint \$table) {\n{$body}\n{$pad}});";
+        return $this->getBlueprintCompiler()->buildMigrationUpBody(
+            $tableName, $hasPk, $columns, $timestamps, $softDeletes, $foreignKeys
+        );
     }
 
     /**
@@ -446,15 +407,11 @@ abstract class MakeCommandBase extends Command
      */
     public function buildMigrationDownBody(string $tableName): string
     {
-        return "        SchemaBuilder::dropIfExists('{$tableName}');";
+        return $this->getBlueprintCompiler()->buildMigrationDownBody($tableName);
     }
 
     /**
      * Convert a single column definition array to a Blueprint method call string.
-     *
-     * The returned string ends with `;` and is ready to be placed inside a
-     * SchemaBuilder closure. Handles type-specific constructor arguments and
-     * the full chain of fluent modifiers (nullable, default, unique, comment).
      *
      * @param array $col {
      *   name: string, type: string, options: array,
@@ -464,61 +421,7 @@ abstract class MakeCommandBase extends Command
      */
     public function blueprintCall(array $col): string
     {
-        $name      = $col['name'];
-        $type      = strtolower($col['type']);
-        $opts      = $col['options'] ?? [];
-        $isUnsigned = !empty($col['unsigned']) || !empty($opts['unsigned']);
-        $len        = (int) ($opts['length'] ?? 255);
-
-        $call = match ($type) {
-            'string'       => "\$table->string('{$name}'" . ($len !== 255 ? ", {$len}" : '') . ")",
-            'char'         => "\$table->char('{$name}', " . ($opts['length'] ?? 1) . ")",
-            'integer'      => $isUnsigned ? "\$table->unsignedInteger('{$name}')" : "\$table->integer('{$name}')",
-            'biginteger'   => $isUnsigned ? "\$table->unsignedBigInteger('{$name}')" : "\$table->bigInteger('{$name}')",
-            'tinyinteger'  => "\$table->tinyInteger('{$name}')",
-            'smallinteger' => "\$table->smallInteger('{$name}')",
-            'decimal'      => "\$table->decimal('{$name}', " . ($opts['total'] ?? 8) . ", " . ($opts['places'] ?? 2) . ")",
-            'float'        => "\$table->float('{$name}', " . ($opts['total'] ?? 8) . ", " . ($opts['places'] ?? 2) . ")",
-            'double'       => "\$table->double('{$name}')",
-            'boolean'      => "\$table->boolean('{$name}')",
-            'text'         => "\$table->text('{$name}')",
-            'mediumtext'   => "\$table->mediumText('{$name}')",
-            'longtext'     => "\$table->longText('{$name}')",
-            'date'         => "\$table->date('{$name}')",
-            'time'         => "\$table->time('{$name}')",
-            'datetime'     => "\$table->dateTime('{$name}')",
-            'timestamp'    => "\$table->timestamp('{$name}')",
-            'json'         => "\$table->json('{$name}')",
-            'jsonb'        => "\$table->jsonb('{$name}')",
-            'uuid'         => "\$table->uuid('{$name}')",
-            'binary'       => "\$table->binary('{$name}')",
-            default        => "\$table->string('{$name}')",
-        };
-
-        if (!empty($col['nullable'])) {
-            $call .= '->nullable()';
-        }
-        if (isset($col['default']) && $col['default'] !== null && $col['default'] !== '') {
-            $d = (string) $col['default'];
-            if (is_numeric($d)) {
-                $call .= "->default({$d})";
-            } elseif (in_array(strtolower($d), ['true', 'false', 'null'], true)) {
-                $call .= '->default(' . strtolower($d) . ')';
-            } else {
-                $call .= "->default('" . addslashes($d) . "')";
-            }
-        }
-        if (!empty($col['unique'])) {
-            $call .= '->unique()';
-        }
-        if ($isUnsigned && !in_array($type, ['integer', 'biginteger', 'tinyinteger', 'smallinteger'], true)) {
-            $call .= '->unsigned()';
-        }
-        if (!empty($col['comment'])) {
-            $call .= "->comment('" . addslashes($col['comment']) . "')";
-        }
-
-        return $call . ';';
+        return $this->getBlueprintCompiler()->blueprintCall($col);
     }
 
     /**
@@ -535,92 +438,20 @@ abstract class MakeCommandBase extends Command
      */
     public function generateFakeValue(string $colName, string $colType, array $options = []): string
     {
-        $lower = strtolower($colName);
-
-        // Name-based heuristics take precedence over type
-        $hints = [
-            'email'       => "'user' . \$i . '@example.com'",
-            'first_name'  => "['Alice','Bob','Charlie','Diana','Eva'][\$i % 5]",
-            'last_name'   => "['Smith','Jones','Taylor','Brown','Wilson'][\$i % 5]",
-            'username'    => "'user_' . \$i",
-            'login'       => "'user_' . \$i",
-            'name'        => "'Name ' . \$i",
-            'title'       => "'Title ' . \$i",
-            'phone'       => "'+30210' . str_pad(\$i, 7, '0', STR_PAD_LEFT)",
-            'mobile'      => "'+306900' . str_pad(\$i, 6, '0', STR_PAD_LEFT)",
-            'address'     => "\$i . ' Main Street'",
-            'city'        => "['Athens','Thessaloniki','Patras','Heraklion','Larissa'][\$i % 5]",
-            'country'     => "'Greece'",
-            'description' => "'Sample description ' . \$i",
-            'body'        => "'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Record ' . \$i",
-            'content'     => "'Content for record ' . \$i",
-            'slug'        => "'record-' . \$i",
-            'url'         => "'https://example.com/item-' . \$i",
-            'ip'          => "'192.168.' . rand(0, 255) . '.' . rand(1, 254)",
-            'password'    => "password_hash('password' . \$i, PASSWORD_DEFAULT)",
-            'token'       => "bin2hex(random_bytes(16))",
-            'status'      => "['active','inactive','pending'][\$i % 3]",
-            'type'        => "['type_a','type_b','type_c'][\$i % 3]",
-            'color'       => "['#FF5733','#33FF57','#3357FF','#F3FF33','#FF33F3'][\$i % 5]",
-            'lat'         => "37.97 + (\$i * 0.001)",
-            'lon'         => "23.73 + (\$i * 0.001)",
-            'lng'         => "23.73 + (\$i * 0.001)",
-            'longitude'   => "23.73 + (\$i * 0.001)",
-            'latitude'    => "37.97 + (\$i * 0.001)",
-            'price'       => "round(\$i * 9.99, 2)",
-            'amount'      => "round(\$i * 100.0, 2)",
-            'score'       => "\$i * 10",
-            'sort'        => "\$i",
-            'order'       => "\$i",
-            'position'    => "\$i",
-            'weight'      => "\$i * 0.5",
-        ];
-
-        foreach ($hints as $hint => $code) {
-            if (str_contains($lower, $hint)) {
-                return $code;
-            }
-        }
-
-        // Type-based fallback
-        return match (strtolower($colType)) {
-            'integer', 'tinyinteger', 'smallinteger', 'biginteger' => "\$i",
-            'decimal', 'float', 'double' => "round(\$i * 9.99, 2)",
-            'boolean'   => "(\$i % 2 === 0)",
-            'date'      => "date('Y-m-d', strtotime('-' . \$i . ' days'))",
-            'datetime', 'timestamp' => "date('Y-m-d H:i:s', strtotime('-' . \$i . ' hours'))",
-            'text', 'mediumtext', 'longtext' => "'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Row ' . \$i",
-            'json', 'jsonb' => "json_encode(['item' => \$i, 'active' => true])",
-            'uuid'      => "sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff))",
-            default     => "'value_' . \$i",
-        };
+        return $this->getFakeDataGenerator()->generateFakeValue($colName, $colType, $options);
     }
 
     /**
      * Build the fields block for a seeder template ({{ fields }} token).
      *
      * Skips auto-managed columns (id, created_at, updated_at, deleted_at).
-     * Each line is indented to 16 spaces so it lands correctly inside the
-     * `$this->insert(...)` call in the seeder template.
      *
      * @param array $columns Column definitions (same shape as used by blueprintCall)
      * @return string Multi-line PHP key => value pairs, no surrounding braces
      */
     public function buildSeederFields(array $columns): string
     {
-        $skip  = ['id', 'created_at', 'updated_at', 'deleted_at'];
-        $ipad  = '                '; // 16 spaces
-        $lines = [];
-
-        foreach ($columns as $col) {
-            if (in_array($col['name'], $skip, true)) {
-                continue;
-            }
-            $fake  = $this->generateFakeValue($col['name'], $col['type'], $col['options'] ?? []);
-            $lines[] = $ipad . "'{$col['name']}' => {$fake},";
-        }
-
-        return implode("\n", $lines);
+        return $this->getFakeDataGenerator()->buildSeederFields($columns);
     }
 
     // ── Seeder creator ────────────────────────────────────────────────────────
@@ -976,18 +807,6 @@ abstract class MakeCommandBase extends Command
         return $summary . "\nRun the migration with: php bin/pramnos migrate";
     }
 
-    private function resolveScaffoldingDir(): string
-    {
-        $dir = __DIR__;
-        for ($i = 0; $i < 6; $i++) {
-            $candidate = $dir . '/scaffolding';
-            if (is_dir($candidate . '/templates')) {
-                return $candidate;
-            }
-            $dir = dirname($dir);
-        }
-        return (defined('ROOT') ? ROOT : getcwd()) . '/vendor/mrpc/pramnosframework/scaffolding';
-    }
 
     // ── Entity creators ───────────────────────────────────────────────────────
 
@@ -3122,41 +2941,27 @@ METHOD;
     }
 
 
-     /**
-     * Get proper class name for a model based on naming conventions
-     * 
+    /**
+     * Get proper class name for a model based on naming conventions.
+     *
      * @param string $name The input name
      * @param bool $forceSingular Force return in singular form
      * @return string Proper class name
      */
     public static function getProperClassName($name, $forceSingular = true)
     {
-        if ($forceSingular) {
-            if (\Pramnos\General\StringHelper::isPlural($name)) {
-                return ucfirst(\Pramnos\General\StringHelper::singularize($name));
-            }
-            return ucfirst($name);
-        } else {
-            if (\Pramnos\General\StringHelper::isPlural($name)) {
-                return ucfirst($name);
-            }
-            return ucfirst(\Pramnos\General\StringHelper::pluralize($name));
-        }
+        return NamespaceResolver::getProperClassName($name, $forceSingular);
     }
-    
+
     /**
-     * Get model table name from a model name
-     * 
+     * Get model table name from a model name.
+     *
      * @param string $name Model name
      * @return string Table name with prefix placeholder
      */
     public static function getModelTableName($name)
     {
-        $name = strtolower($name);
-        if (\Pramnos\General\StringHelper::isPlural($name)) {
-            return '#PREFIX#' . $name;
-        }
-        return '#PREFIX#' . \Pramnos\General\StringHelper::pluralize($name);
+        return NamespaceResolver::getModelTableName($name);
     }
 
 }

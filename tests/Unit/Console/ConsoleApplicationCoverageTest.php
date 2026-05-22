@@ -20,7 +20,6 @@ use Pramnos\Console\Commands\MigrateRefresh;
 use Pramnos\Console\Commands\ProcessQueue;
 use Pramnos\Console\Commands\CleanupQueue;
 use Pramnos\Console\Commands\Serve;
-use Pramnos\Console\Commands\Create;
 use Pramnos\Console\Commands\PolicyEngine;
 use Pramnos\Scheduling\Scheduler;
 use Pramnos\Health\HealthRegistry;
@@ -48,7 +47,6 @@ use Pramnos\Health\HealthRegistry;
 #[CoversClass(ProcessQueue::class)]
 #[CoversClass(CleanupQueue::class)]
 #[CoversClass(Serve::class)]
-#[CoversClass(Create::class)]
 #[CoversClass(PolicyEngine::class)]
 class ConsoleApplicationCoverageTest extends TestCase
 {
@@ -841,174 +839,6 @@ class ConsoleApplicationCoverageTest extends TestCase
         $this->assertSame('serve', $registered->getName());
         $this->assertTrue($registered->getDefinition()->hasOption('port'));
         $this->assertTrue($registered->getDefinition()->hasOption('host'));
-    }
-
-    // =========================================================================
-    // Create (execute() exception paths)
-    // =========================================================================
-
-    /**
-     * Create::execute() must throw InvalidArgumentException when an unknown
-     * entity type is supplied.  The default: case in the switch must be reached.
-     */
-    public function testCreateExecuteThrowsForUnknownEntity(): void
-    {
-        // Arrange
-        $app = new \Symfony\Component\Console\Application();
-        $cmd = new Create();
-        $app->add($cmd);
-        $tester = new CommandTester($cmd);
-
-        // Assert — the exception propagates through CommandTester
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessageMatches('/Invalid type of entity/i');
-
-        // Act
-        $tester->execute(['entity' => 'frobnicator']);
-    }
-
-    /**
-     * Create::execute() must throw InvalidArgumentException when entity is 'model'
-     * but no name argument is given.  This tests the guard: if (!$name) throw ...
-     */
-    public function testCreateExecuteThrowsWhenModelNameMissing(): void
-    {
-        // Arrange
-        $app = new \Symfony\Component\Console\Application();
-        $cmd = new Create();
-        $app->add($cmd);
-        $tester = new CommandTester($cmd);
-
-        // Assert
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessageMatches('/Name is required for: model/i');
-
-        // Act — entity=model, no name provided
-        $tester->execute(['entity' => 'model']);
-    }
-
-    /**
-     * Create::execute() must throw InvalidArgumentException when entity is
-     * 'controller' but no name argument is given.
-     */
-    public function testCreateExecuteThrowsWhenControllerNameMissing(): void
-    {
-        // Arrange
-        $app = new \Symfony\Component\Console\Application();
-        $cmd = new Create();
-        $app->add($cmd);
-        $tester = new CommandTester($cmd);
-
-        // Assert
-        $this->expectException(\InvalidArgumentException::class);
-
-        // Act
-        $tester->execute(['entity' => 'controller']);
-    }
-
-    /**
-     * Create::execute() must throw when entity is 'view' with no name.
-     */
-    public function testCreateExecuteThrowsWhenViewNameMissing(): void
-    {
-        // Arrange
-        $app = new \Symfony\Component\Console\Application();
-        $cmd = new Create();
-        $app->add($cmd);
-        $tester = new CommandTester($cmd);
-
-        $this->expectException(\InvalidArgumentException::class);
-        $tester->execute(['entity' => 'view']);
-    }
-
-    /**
-     * Create::execute() must throw when entity is 'crud' with no name.
-     */
-    public function testCreateExecuteThrowsWhenCrudNameMissing(): void
-    {
-        // Arrange
-        $app = new \Symfony\Component\Console\Application();
-        $cmd = new Create();
-        $app->add($cmd);
-        $tester = new CommandTester($cmd);
-
-        $this->expectException(\InvalidArgumentException::class);
-        $tester->execute(['entity' => 'crud']);
-    }
-
-    /**
-     * Create::execute() must throw when entity is 'api' with no name.
-     */
-    public function testCreateExecuteThrowsWhenApiNameMissing(): void
-    {
-        // Arrange
-        $app = new \Symfony\Component\Console\Application();
-        $cmd = new Create();
-        $app->add($cmd);
-        $tester = new CommandTester($cmd);
-
-        $this->expectException(\InvalidArgumentException::class);
-        $tester->execute(['entity' => 'api']);
-    }
-
-    /**
-     * Create::execute() must throw when entity is 'seeder' with no name.
-     */
-    public function testCreateExecuteThrowsWhenSeederNameMissing(): void
-    {
-        // Arrange
-        $app = new \Symfony\Component\Console\Application();
-        $cmd = new Create();
-        $app->add($cmd);
-        $tester = new CommandTester($cmd);
-
-        $this->expectException(\InvalidArgumentException::class);
-        $tester->execute(['entity' => 'seeder']);
-    }
-
-    /**
-     * Create::execute() must throw when entity is 'middleware' with no name.
-     */
-    public function testCreateExecuteThrowsWhenMiddlewareNameMissing(): void
-    {
-        // Arrange
-        $app = new \Symfony\Component\Console\Application();
-        $cmd = new Create();
-        $app->add($cmd);
-        $tester = new CommandTester($cmd);
-
-        $this->expectException(\InvalidArgumentException::class);
-        $tester->execute(['entity' => 'middleware']);
-    }
-
-    /**
-     * Create::execute() must throw when entity is 'event' with no name.
-     */
-    public function testCreateExecuteThrowsWhenEventNameMissing(): void
-    {
-        // Arrange
-        $app = new \Symfony\Component\Console\Application();
-        $cmd = new Create();
-        $app->add($cmd);
-        $tester = new CommandTester($cmd);
-
-        $this->expectException(\InvalidArgumentException::class);
-        $tester->execute(['entity' => 'event']);
-    }
-
-    /**
-     * Create::execute() must throw when entity is 'listener' with no name.
-     */
-    public function testCreateExecuteThrowsWhenListenerNameMissing(): void
-    {
-        // Arrange
-        $app = new \Symfony\Component\Console\Application();
-        $cmd = new Create();
-        $app->add($cmd);
-        $tester = new CommandTester($cmd);
-
-        $this->expectException(\InvalidArgumentException::class);
-        $tester->execute(['entity' => 'listener']);
     }
 
     // =========================================================================
