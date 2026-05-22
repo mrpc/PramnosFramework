@@ -1,7 +1,35 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-22 (session 107) — Phase 16 complete (SPA-style auth) + ROADMAP Phase 17 fix ✅
+## 📅 Last Updated: 2026-05-22 (session 108) — Phase 17 server-side complete ✅
+
+## 🏁 Session 108 — Phase 17 server-side complete (2026-05-22)
+
+### ✅ Phase 17 — Universal List API (server-side)
+
+**Αλλαγές σε `src/Pramnos/Application/Model.php`:**
+- `_getApiList()`: νέο 16ο parameter `$format = ''` — όταν `'datatables'`, επιστρέφει DataTables 2.x envelope `{draw, data, recordsTotal, recordsFiltered}`. BC-safe (additive, default `''`).
+- `_getJsonList()`: αντικαταστάθηκε inline `SHOW COLUMNS` με `$this->_getAllTableFields()` — cross-DB introspection. Marked `@deprecated since v1.2`.
+- **Bug fix:** αφαιρέθηκε το spurious leading space στο `$finalFilter = ' ' . _combineFilters(...)` → `$finalFilter = _combineFilters(...)`. Το paginated path πλέον λειτουργεί σωστά χωρίς filter.
+
+**Νέα / ενημερωμένα tests:**
+- `ModelListApiCharacterizationTest.php` (MySQL) — 10 tests:
+  - `testGetApiListDataTablesFormatReturnsDrawDataRecordsOnMysql`
+  - `testGetApiListDataTablesFormatNoPaginationOnMysql`
+  - `testGetJsonListUsesAllTableFieldsAndReturnsAaDataOnMysql`
+  - `testGetApiListWithPaginationReturnsPaginatedRows` (updated — επαληθεύει την επίλυση του empty-WHERE bug)
+- `ModelListApiPostgreSQLCharacterizationTest.php` (PostgreSQL) — 9 tests:
+  - `testGetApiListDataTablesFormatOnPostgresql`
+  - `testGetJsonListWorksOnPostgresqlAfterIntrospectionUnification`
+  - `testGetApiListWithPaginationReturnsPaginatedRows` (updated — επαληθεύει dialect-neutrality της επίλυσης)
+
+**Docs:** §69 "Universal List API & Widget-agnostic Data Grid (Phase 17)" στο `docs/1.2-new-features.md`.
+
+**Test suite:** MySQL 10/10, PostgreSQL 9/9 — OK.
+
+**Εκκρεμεί (Phase 17):** Client-side JS adapters (`PramnosDataTable`, `PramnosGridJS`), `_getJsonList()` → delegate σε `_getApiList(format:'datatables')`, Scaffolding update.
+
+---
 
 ## 🏁 Session 107 — Phase 16 complete + ROADMAP Phase 17 fix (2026-05-22)
 

@@ -783,7 +783,12 @@ class Model extends \Pramnos\Framework\Base
     }
 
     /**
-     * Get a list of objects as a json encoded string
+     * Get a list of objects as a json encoded string (DataTables 1.9 legacy format).
+     *
+     * @deprecated since v1.2 — returns DataTables 1.9 aaData/sEcho format; use
+     *             _getApiList() for new code. The PramnosDataTable JS adapter (Phase 17)
+     *             consumes _getApiList() output and does not need this method.
+     *
      * @param string $filter Filter for sql statement (where)
      * @param string $table Database table
      * @param string $key Primary key in database
@@ -809,23 +814,14 @@ class Model extends \Pramnos\Framework\Base
             if ($this->_cacheKey === NULL) {
                 $this->_fixDb();
             }
-            #$primarykey = $this->_primaryKey;
-
 
             if ($filter === NULL) {
                 $filter = "";
             }
 
-            $fields = array();
-
-            $tableName = $this->getFullTableName();
-            $sql    = "SHOW COLUMNS FROM `" . $tableName . "`";
-            $cacheKey = "schema_columns_{$tableName}";
-            $result = $database->query($sql, true, 3600, $cacheKey);
-
-            while ($result->fetch()) {
-                $fields[] = $result->fields['Field'];
-            }
+            // Use _getAllTableFields() for cross-DB column introspection
+            // (MySQL: SHOW COLUMNS, PostgreSQL/TimescaleDB: information_schema).
+            $fields = $this->_getAllTableFields();
 
             $objects = \Pramnos\Html\Datatable\Datasource::getList(
                 $this->getFullTableName(), $fields, false, $filter
@@ -1281,11 +1277,17 @@ class Model extends \Pramnos\Framework\Base
      * @param array $addedfields If is set, these fields will not be filtered out
      * @return array API response with pagination info and data
      */
-    public function _getApiList($fields = array(), $search = '', 
-        $order = '', $filter = '', $join = '', $group = '', 
+    /**
+     * @param string $format Optional output format. Pass 'datatables' to wrap the response
+     *                       in DataTables 2.x format: {draw, data, recordsTotal, recordsFiltered}.
+     *                       The JS PramnosDataTable adapter uses this format (Phase 17).
+     *                       Default '' returns the standard {data, pagination, fields, debug} envelope.
+     */
+    public function _getApiList($fields = array(), $search = '',
+        $order = '', $filter = '', $join = '', $group = '',
         $table = null, $key = null,
         $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, $useGetData = false,
-        $customGetListMethod = false, $addedfields = false)
+        $customGetListMethod = false, $addedfields = false, $format = '')
     {
         // Handle unified search parameter
         $globalSearch = '';
@@ -1393,8 +1395,11 @@ class Model extends \Pramnos\Framework\Base
             $filter = $this->_buildFilterFromConditions($filter, $availableFields, $join);
         }
 
-        // Combine filter and search conditions
-        $finalFilter = ' ' . $this->_combineFilters($filter, $searchConditions);
+        // Combine filter and search conditions.
+        // _combineFilters returns '' when both inputs are empty, or 'where ...' otherwise.
+        // The leading space was historically added here but caused empty WHERE clauses
+        // ('WHERE ') when the filter was empty, which is a MySQL syntax error.
+        $finalFilter = $this->_combineFilters($filter, $searchConditions);
         
         // Check if pagination is requested
         if ($page > 0) {
@@ -1437,7 +1442,7 @@ class Model extends \Pramnos\Framework\Base
             
 
 
-            return array(
+            $standardResponse = array(
                 'data' => $result['items'],
                 'pagination' => array(
                     'currentpage' => $page,
@@ -1454,6 +1459,17 @@ class Model extends \Pramnos\Framework\Base
                     'selectFields' => $selectFields
                 )
             );
+
+            if ($format === 'datatables') {
+                return array(
+                    'draw'            => (int)($_REQUEST['draw'] ?? 0),
+                    'data'            => $standardResponse['data'] ?? [],
+                    'recordsTotal'    => $result['total'],
+                    'recordsFiltered' => $result['total'],
+                );
+            }
+
+            return $standardResponse;
         } else {
             // Get all results without pagination
             
@@ -1488,7 +1504,7 @@ class Model extends \Pramnos\Framework\Base
             }
             
             // Format response for API without pagination
-            return array(
+            $standardResponse = array(
                 'data' => $result,
                 'pagination' => null,
                 'fields' => $returnedFields,
@@ -1498,6 +1514,18 @@ class Model extends \Pramnos\Framework\Base
                     'selectFields' => $selectFields
                 )
             );
+
+            if ($format === 'datatables') {
+                $data = $standardResponse['data'] ?? [];
+                return array(
+                    'draw'            => (int)($_REQUEST['draw'] ?? 0),
+                    'data'            => is_array($data) ? $data : [],
+                    'recordsTotal'    => is_array($data) ? count($data) : 0,
+                    'recordsFiltered' => is_array($data) ? count($data) : 0,
+                );
+            }
+
+            return $standardResponse;
         }
     }
     

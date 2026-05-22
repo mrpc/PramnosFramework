@@ -262,18 +262,21 @@ class ModelListApiCharacterizationTest extends TestCase
     }
 
     /**
-     * _getApiList() paginated path currently returns an error envelope (with
-     * pagination=null) for this field-selection configuration.
+     * _getApiList() paginated path must return the correct pagination envelope
+     * with actual data rows (page=1, limit=2 from 5 seeded rows).
      *
-     * This locks the current behavior so future fixes can be made explicitly.
+     * Phase 17 fix: the pre-existing empty-WHERE-clause bug (a leading space in
+     * $finalFilter caused `WHERE ` to be emitted) has been resolved by removing
+     * the spurious leading space from the _combineFilters() call. The paginated
+     * path now works correctly when no filter/search is specified.
      */
-    public function testGetApiListWithPaginationReturnsErrorEnvelopeInCurrentImplementation(): void
+    public function testGetApiListWithPaginationReturnsPaginatedRows(): void
     {
         // Arrange
         $model = $this->makeModel();
         $this->forceModelTable($model);
 
-        // Act
+        // Act — page 1, 2 items per page, 5 total seeded rows
         $result = $model->_getApiList(
             ['id', 'name'],
             '',
@@ -290,12 +293,20 @@ class ModelListApiCharacterizationTest extends TestCase
             false
         );
 
-        // Assert
-        $this->assertArrayHasKey('error', $result);
-        $this->assertArrayHasKey('pagination', $result);
-        $this->assertNull($result['pagination']);
-        $this->assertArrayHasKey('data', $result);
-        $this->assertSame([], $result['data']);
+        // Assert — must have the standard API envelope keys
+        $this->assertArrayHasKey('data', $result,
+            'paginated _getApiList must return the data key');
+        $this->assertArrayHasKey('pagination', $result,
+            'paginated _getApiList must return the pagination key');
+        $this->assertArrayNotHasKey('error', $result,
+            'paginated _getApiList must not return an error when filter is empty');
+        $this->assertCount(2, $result['data'],
+            'page=1, limit=2 must return exactly 2 rows');
+        $this->assertSame(5, $result['pagination']['totalitems'],
+            'pagination.totalitems must reflect all 5 seeded rows');
+        $this->assertSame(1, $result['pagination']['currentpage']);
+        $this->assertSame(3, (int) $result['pagination']['totalpages'],
+            'ceil(5/2) = 3 total pages');
     }
 
     /**
@@ -338,5 +349,146 @@ class ModelListApiCharacterizationTest extends TestCase
         $this->assertCount(2, $result['data']);
         $this->assertSame('gamma', $result['data'][0]['name']);
         $this->assertSame('alpha', $result['data'][1]['name']);
+    }
+
+    // ── Phase 17 — DataTables 2.x format wrapper ──────────────────────────────
+
+    /**
+     * _getApiList(format: 'datatables') must return the DataTables 2.x envelope
+     * {draw, data, recordsTotal, recordsFiltered} on MySQL.
+     *
+     * DataTables 2.x serverSide expects these exact keys so that the JS plugin
+     * knows how many total/filtered rows exist for the pagination control.
+     * The `draw` value echoes back whatever was sent in $_REQUEST['draw']
+     * (anti-CSRF counter used by DataTables).
+     */
+    public function testGetApiListDataTablesFormatReturnsDrawDataRecordsOnMysql(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+        $_REQUEST['draw'] = '7';
+
+        // Act — paginated path (page > 0) with datatables format
+        $result = $model->_getApiList(
+            [],        // fields — all
+            '',        // search
+            '',        // order
+            '',        // filter
+            '',        // join
+            '',        // group
+            $this->table,
+            'id',
+            1,         // page
+            10,        // itemsPerPage
+            false,
+            false,
+            false,
+            false,
+            false,
+            'datatables'  // $format
+        );
+
+        // Assert — must have exactly the DT 2.x keys
+        $this->assertArrayHasKey('draw', $result,
+            'DataTables 2.x format must include draw key');
+        $this->assertArrayHasKey('data', $result,
+            'DataTables 2.x format must include data key');
+        $this->assertArrayHasKey('recordsTotal', $result,
+            'DataTables 2.x format must include recordsTotal key');
+        $this->assertArrayHasKey('recordsFiltered', $result,
+            'DataTables 2.x format must include recordsFiltered key');
+
+        // draw echoes the request value back as int
+        $this->assertSame(7, $result['draw'],
+            'draw must echo back the $_REQUEST[draw] value as int');
+
+        // 5 seeded rows — all visible
+        $this->assertSame(5, $result['recordsTotal'],
+            'recordsTotal must reflect the full unseeded count');
+        $this->assertCount(5, $result['data'],
+            'data must contain all 5 seeded rows on page 1 with limit 10');
+
+        // Must NOT have the standard envelope keys
+        $this->assertArrayNotHasKey('pagination', $result,
+            'datatables format must not include the standard pagination sub-object');
+        $this->assertArrayNotHasKey('fields', $result,
+            'datatables format must not include the fields key');
+
+        unset($_REQUEST['draw']);
+    }
+
+    /**
+     * _getApiList(format: 'datatables') without pagination (page = 0) must still
+     * return the DT 2.x envelope, deriving recordsTotal from count(data).
+     *
+     * Needed for endpoints that return all rows at once (small lookup tables).
+     */
+    public function testGetApiListDataTablesFormatNoPaginationOnMysql(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+        unset($_REQUEST['draw']);
+
+        // Act — non-paginated path (page = 0) with datatables format
+        $result = $model->_getApiList(
+            [],
+            '',
+            '',
+            '',
+            '',
+            '',
+            $this->table,
+            'id',
+            0,   // page = 0 → no pagination
+            10,
+            false, false, false, false, false,
+            'datatables'
+        );
+
+        // Assert
+        $this->assertArrayHasKey('draw', $result);
+        $this->assertSame(0, $result['draw'],
+            'draw defaults to 0 when $_REQUEST[draw] is absent');
+        $this->assertSame($result['recordsTotal'], count($result['data']),
+            'recordsTotal must equal count(data) for the unpaginated path');
+        $this->assertCount(5, $result['data'],
+            'all 5 seeded rows must be returned without pagination');
+    }
+
+    // ── Phase 17 — _getJsonList() introspection unification ───────────────────
+
+    /**
+     * After replacing SHOW COLUMNS with _getAllTableFields(), _getJsonList() must
+     * still return an aaData array — the DataTables 1.9 legacy response.
+     *
+     * The key regression-guard: the column list comes from _getAllTableFields()
+     * (which works on both MySQL and PostgreSQL) instead of a raw SHOW COLUMNS.
+     * On MySQL the result set must be identical; on PostgreSQL it no longer throws.
+     */
+    public function testGetJsonListUsesAllTableFieldsAndReturnsAaDataOnMysql(): void
+    {
+        // Arrange — ensure no DT 1.9 request vars bleed in from other tests
+        unset($_POST['sEcho'], $_POST['iDisplayStart'], $_POST['iDisplayLength']);
+        unset($_GET['sEcho'], $_GET['iDisplayStart'], $_GET['iDisplayLength']);
+
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act — _getJsonList() returns a JSON-encoded string (Datasource::getList() contract)
+        $raw = $model->_getJsonList('', $this->table, 'id');
+        $result = json_decode($raw, true);
+
+        // Assert — DT 1.9 legacy keys still present after introspection change
+        $this->assertIsArray($result, '_getJsonList must return valid JSON that decodes to an array');
+        $this->assertArrayHasKey('aaData', $result,
+            '_getJsonList must still return the aaData key (DataTables 1.9 BC)');
+        $this->assertArrayHasKey('iTotalRecords', $result,
+            '_getJsonList must still return iTotalRecords (DataTables 1.9 BC)');
+
+        // All 5 seeded rows must be visible (no pagination requested)
+        $this->assertCount(5, $result['aaData'],
+            '_getJsonList must return all 5 seeded rows when no DT paging params set');
     }
 }
