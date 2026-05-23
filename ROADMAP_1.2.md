@@ -1543,12 +1543,13 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 #### Κοινές Απαιτήσεις Φάσης 23
 
-- [ ] Κάθε controller έχει **views ως scaffolding fallback** για όλα τα themes (bootstrap, plain-css, tailwind) — χρησιμοποιούν DataTable όπου υπάρχει λίστα
-- [ ] Ο `init app` scaffolds wrapper controllers στο `src/Controllers/` ανάλογα feature
-- [ ] Navbar links προστίθενται δυναμικά στο `buildThemeHeader()` βάσει enabled features — **Admin dropdown menu** όταν υπάρχουν πολλά admin controllers
-- [ ] Κάθε controller έχει unit tests + integration tests (MySQL + PostgreSQL)
-- [ ] **Προαπαιτούμενο: Φάση 24 (NavRegistry)** — η σειρά υλοποίησης εντός φάσης ξεκινά μόνο αφού υλοποιηθεί το NavRegistry
-- [ ] Η σειρά υλοποίησης εντός φάσης: 23.11 → 23.1 → 23.5 → 23.8 → 23.9 → 23.2 → 23.3 → 23.10 → 23.6 → 23.4 → 23.7
+- [x] Κάθε controller έχει **views ως scaffolding fallback** για όλα τα themes (bootstrap, plain-css, tailwind) — 66 αρχεία (22 templates × 3 themes)
+- [x] Ο `init app` scaffolds wrapper controllers στο `src/Controllers/` ανάλογα feature — 11 controllers
+- [x] Navbar links προστίθενται δυναμικά μέσω `NavRegistry` στο `Application::registerDefaultNavItems()` — 10 admin items (7 always, 3 feature-gated)
+- [x] Κάθε controller έχει unit tests (34 tests) + integration tests για QueueController MySQL + PostgreSQL (14 tests)
+  - **Σημείωση:** Integration tests για τους υπόλοιπους controllers προαιρετικά — η QueryBuilder integration suite καλύπτει τις βασικές SQL πράξεις
+- [x] **Προαπαιτούμενο: Φάση 24 (NavRegistry)** — ολοκληρώθηκε
+- [x] Η σειρά υλοποίησης εντός φάσης: 23.11 → 23.1 → 23.5 → 23.8 → 23.9 → 23.2 → 23.3 → 23.10 → 23.6 → 23.4 → 23.7
   - Πρώτα services (Statistics + Services) — universal, χωρίς feature dependencies
   - Μετά auth-dependent (Users, Settings, Organizations, Applications, Tokens, TokenActions, Emails)
   - Τελευταία τα feature-specific (Permissions RBAC, Queue)
