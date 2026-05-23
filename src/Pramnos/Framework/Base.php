@@ -63,6 +63,18 @@ class Base
     }
 
     /**
+     * Magic isset — makes empty() and isset() work correctly for properties
+     * stored via __set() (in _data).  Without this, empty($obj->magicProp)
+     * always returns true even when the property has a non-empty value.
+     * @param string $name
+     * @return bool
+     */
+    public function __isset($name)
+    {
+        return isset($this->_data[$name]);
+    }
+
+    /**
      * Magic method to give build-in protection against direct calls to all
      * classes.
      */
