@@ -58,6 +58,7 @@ class Init extends Command
         $this->addOption('no-download',   null, InputOption::VALUE_NONE,     'Skip asset download (record in assets.json only)');
         $this->addOption('no-migrations', null, InputOption::VALUE_NONE,     'Skip migrate --scope=framework after Docker startup');
         $this->addOption('rest-api',      null, InputOption::VALUE_OPTIONAL, 'Scaffold REST API layer (y/n)');
+        $this->addOption('webhook',       null, InputOption::VALUE_OPTIONAL, 'Generate www/webhook.php git webhook receiver (y/n)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -92,6 +93,7 @@ class Init extends Command
         // ── Step 2: Framework features ────────────────────────────────────────
         $enabledFeatures = $this->askFeatures($input, $output, $helper);
         $withRestApi     = $this->askRestApi($input, $output, $helper);
+        $withWebhook     = $this->askWebhook($input, $output, $helper);
 
         // ── Step 3: UI system ─────────────────────────────────────────────────
         $uiSystem = $this->askUiSystem($input, $output, $helper);
@@ -221,6 +223,10 @@ class Init extends Command
         $this->scaffoldServicesWiring($namespace);
         $this->scaffoldOrganizationsWiring($namespace);
         $this->scaffoldEmailsWiring($namespace);
+
+        if ($withWebhook) {
+            $this->scaffoldWebhookWiring($cliName);
+        }
 
         if (in_array('auth', $enabledFeatures, true)) {
             $this->scaffoldTokenActionsWiring($namespace);
@@ -502,6 +508,76 @@ class Init extends Command
         }
         $output->writeln("\n<comment>Step 2b — REST API</comment>");
         return $helper->ask($input, $output, new ConfirmationQuestion('Scaffold a REST API layer? [Y/n] ', true));
+    }
+
+    private function askWebhook(InputInterface $input, OutputInterface $output, mixed $helper): bool
+    {
+        $option = $input->getOption('webhook');
+        if ($option !== null) {
+            return in_array(strtolower($option), ['y', 'yes', '1', 'true'], true);
+        }
+        $output->writeln("\n<comment>Step 2c — Git webhook</comment>");
+        return $helper->ask($input, $output, new ConfirmationQuestion('Generate git webhook receiver (www/webhook.php)? [y/N] ', false));
+    }
+
+    /**
+     * Creates www/webhook.php and adds WEBHOOK_SECRET to .env.example.
+     *
+     * The generated file uses Dotenv for environment loading and WebhookHandler
+     * for HMAC verification — exactly as the `make:webhook` command produces.
+     */
+    private function scaffoldWebhookWiring(string $cliName): void
+    {
+        $content = <<<PHP
+<?php
+
+/**
+ * Git webhook receiver.
+ *
+ * Point your GitHub / Bitbucket webhook at:
+ *   https://yourapp.example.com/webhook.php
+ *
+ * Set WEBHOOK_SECRET in .env to match the secret configured in your webhook provider.
+ */
+
+define('ROOT', dirname(__DIR__));
+require ROOT . '/vendor/autoload.php';
+
+\$dotenv = \\Dotenv\\Dotenv::createImmutable(ROOT);
+\$dotenv->safeLoad();
+
+\$handler = new \\Pramnos\\Webhook\\WebhookHandler(
+    secret:     \$_ENV['WEBHOOK_SECRET'] ?? '',
+    repoDir:    ROOT,
+    logChannel: 'webhook',
+);
+
+\$handler->onBranch('main', [
+    'git fetch --all',
+    'git reset --hard origin/main',
+    'composer install --no-dev --optimize-autoloader',
+    'php {$cliName} migrate',
+]);
+
+// Add more branches as needed:
+// \$handler->onBranch('develop', [
+//     'git fetch --all',
+//     'git reset --hard origin/develop',
+// ]);
+
+\$handler->handle();
+PHP;
+
+        $this->writeFile('www/webhook.php', $content);
+
+        // Append WEBHOOK_SECRET to .env.example if it exists
+        $envExample = $this->targetBaseDir . '/.env.example';
+        if (file_exists($envExample)) {
+            $envContents = (string) file_get_contents($envExample);
+            if (!str_contains($envContents, 'WEBHOOK_SECRET')) {
+                file_put_contents($envExample, "\n# Git webhook HMAC secret\nWEBHOOK_SECRET=\n", FILE_APPEND);
+            }
+        }
     }
 
     private function scaffoldRestApi(string $namespace): void

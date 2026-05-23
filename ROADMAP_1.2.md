@@ -1296,7 +1296,7 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
     $handler->onBranch('develop', ['git fetch --all', 'git reset --hard origin/develop']);
     $handler->handle();
     ```
-- [ ] **Scaffolding (init):** `pramnos init` wizard — "Configure Git webhook? [y/N]" → παράγει `www/webhook.php` + προσθέτει `WEBHOOK_SECRET=` στο `.env.example`
+- [x] **Scaffolding (init):** `pramnos init` wizard — `--webhook=y` / "Configure Git webhook? [y/N]" → παράγει `www/webhook.php` + προσθέτει `WEBHOOK_SECRET=` στο `.env.example`
 - [x] **Tests:** 21 unit tests — HMAC verification (valid/invalid/missing/priority); provider detection; branch mapping; event filtering; executeCommands fail-fast
 
 > **BC:** Τα υπάρχοντα `githook.php` / `githook-dev.php` αντικαθίστανται εθελοντικά. Το `WebhookHandler` μπορεί να χρησιμοποιηθεί ως standalone script ή ως `#[Route]` endpoint μέσα στο framework app (Φάση 15).
@@ -1397,7 +1397,7 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 - [x] **`src/Controllers/Health.php`** — thin wrapper extending `\Pramnos\Application\Controllers\Health`, scaffolded σε κάθε νέα εφαρμογή μέσω `scaffoldHealthWiring()`. Ίδιο pattern με `Logs.php`.
 - [x] **Navbar link "Health"** — registered στο `registerDefaultNavItems()` (Admin section, position 11, δίπλα στο Logs)
-- [ ] **JSON endpoint documentation** — το `GET /health/check` τεκμηριώνεται στο `CLAUDE.md` του scaffolded project ως monitoring endpoint
+- [x] **JSON endpoint documentation** — το `GET /health/check` τεκμηριώνεται στο `CLAUDE.md.stub` ως monitoring endpoint (added with Health scaffold)
 
 #### Tests
 
