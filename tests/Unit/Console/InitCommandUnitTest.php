@@ -1016,6 +1016,99 @@ class InitCommandUnitTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
+     * When the 'auth' feature is enabled, app.php must contain BOTH the
+     * UserDatabase addon (password verification) and the User addon (session
+     * management). Missing the User addon causes Auth::triger('Login','user')
+     * to have no handler, so $_SESSION['logged'] is never set and every login
+     * silently redirects back to the homepage.
+     */
+    public function testAuthFeatureScaffoldsAppPhpWithBothAuthAddons(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'AuthApp',
+            '--namespace' => 'AuthApp',
+            '--features'  => 'auth',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'authapp_db',
+            '--db-user'   => 'authapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        $appConfig = file_get_contents($this->tmpDir . '/app/app.php');
+
+        // UserDatabase handles password verification
+        $this->assertStringContainsString("Pramnos\\\\Addon\\\\Auth\\\\UserDatabase", $appConfig,
+            'app.php must include UserDatabase addon for password verification');
+
+        // User addon sets $_SESSION[logged|uid|username] after successful login
+        $this->assertStringContainsString("Pramnos\\\\Addon\\\\User\\\\User", $appConfig,
+            'app.php must include User addon to set session state after login');
+
+        // UserDatabase must be type=auth
+        $this->assertMatchesRegularExpression(
+            "/'addon'\s*=>\s*'Pramnos\\\\\\\\Addon\\\\\\\\Auth\\\\\\\\UserDatabase'.*'type'\s*=>\s*'auth'/s",
+            $appConfig,
+            'UserDatabase must have type=auth'
+        );
+
+        // User must be type=user
+        $this->assertMatchesRegularExpression(
+            "/'addon'\s*=>\s*'Pramnos\\\\\\\\Addon\\\\\\\\User\\\\\\\\User'.*'type'\s*=>\s*'user'/s",
+            $appConfig,
+            'User addon must have type=user'
+        );
+    }
+
+    /**
+     * When the 'auth' feature is NOT requested, no addons section must appear
+     * in app.php — the addons key is only written when auth is enabled.
+     */
+    public function testNoAuthFeatureOmitsAddonsFromAppPhp(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no features
+        $tester->execute([
+            '--app-name'  => 'PlainApp',
+            '--namespace' => 'PlainApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'plainapp_db',
+            '--db-user'   => 'plainapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        $appConfig = file_get_contents($this->tmpDir . '/app/app.php');
+
+        // No addons key when auth is not requested
+        $this->assertStringNotContainsString("'addons'", $appConfig,
+            "app.php must not contain 'addons' when auth feature is not selected");
+    }
+
+    /**
      * When the 'auth' feature is requested, the scaffolder must create
      * src/Controllers/Login.php so that /login routes to a login form.
      */
@@ -1163,11 +1256,16 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
-     * When the 'auth' feature is requested the Bootstrap theme header must include
-     * conditional PHP that renders Login/Logout/Account links depending on session state.
-     * This allows the navbar to reflect authentication status without a page refresh.
+     * The scaffolded theme header uses NavRegistry::getForUser() to render
+     * navigation — no hardcoded URLs in the header file itself.
+     *
+     * Phase 24: all nav items (Login, Logout, Account, Logs, OAuth) are
+     * registered by Application::registerDefaultNavItems() at runtime based on
+     * enabled features. The header is a generic template that iterates over the
+     * registry result; the features flag in app.php is what controls which links
+     * appear, not conditional PHP in the header file.
      */
-    public function testAuthFeatureAddsAuthLinksToBootstrapNavbar(): void
+    public function testHeaderUsesNavRegistryForNavigation(): void
     {
         // Arrange
         file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
@@ -1194,22 +1292,29 @@ class InitCommandUnitTest extends TestCase
 
         $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
 
-        // Must check session state for login detection
-        $this->assertStringContainsString('staticIsLogged()', $header);
+        // Must use NavRegistry::getForUser() to obtain nav items — not raw session checks
+        $this->assertStringContainsString('NavRegistry::getForUser', $header,
+            'Header must delegate nav rendering to NavRegistry::getForUser()');
 
-        // Must have a login link
-        $this->assertStringContainsString('login/logout', $header);
-        $this->assertStringContainsString('href="<?php echo sURL; ?>login"', $header);
+        // Must iterate over sections returned by the registry
+        $this->assertStringContainsString('NavSection::Main->value', $header,
+            'Header must iterate over NavSection::Main items');
+        $this->assertStringContainsString('NavSection::User->value', $header,
+            'Header must iterate over NavSection::User items (Login/Account/Logout)');
+        $this->assertStringContainsString('NavSection::Admin->value', $header,
+            'Header must iterate over NavSection::Admin items (Logs, OAuth)');
 
-        // Must have account link for logged-in users
-        $this->assertStringContainsString('href="<?php echo sURL; ?>account"', $header);
+        // Must NOT contain hardcoded auth session check — the registry handles visibility
+        $this->assertStringNotContainsString('staticIsLogged()', $header,
+            'Header must not contain hardcoded staticIsLogged() — NavRegistry handles visibility');
     }
 
     /**
-     * When the 'auth' feature is NOT requested, the theme header must NOT contain
-     * auth-related conditional PHP. The nav should remain static.
+     * The NavRegistry-based header template is identical regardless of which
+     * features are enabled — feature differences are handled at runtime by
+     * Application::registerDefaultNavItems(), not by different header templates.
      */
-    public function testNoAuthFeatureOmitsAuthLinksFromNavbar(): void
+    public function testHeaderTemplateIsFeatureAgnostic(): void
     {
         // Arrange
         file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
@@ -1236,11 +1341,12 @@ class InitCommandUnitTest extends TestCase
 
         $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
 
-        // Auth nav conditional must not be present
-        $this->assertStringNotContainsString('staticIsLogged()', $header,
-            'Auth session check must not appear in navbar when auth feature is disabled');
-        $this->assertStringNotContainsString('login/logout', $header,
-            'Logout link must not appear in navbar when auth feature is disabled');
+        // The header must use NavRegistry — same template regardless of features
+        $this->assertStringContainsString('NavRegistry::getForUser', $header,
+            'Header must always use NavRegistry, regardless of features');
+        // No hardcoded auth URLs baked into the template
+        $this->assertStringNotContainsString("href=\"<?php echo sURL; ?>login\"", $header,
+            'Hardcoded login URL must not be in header — NavRegistry provides it at runtime');
     }
 
     /**
@@ -1367,10 +1473,14 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
-     * When 'authserver' is enabled, the Bootstrap navbar must include an 'OAuth Apps'
-     * admin link so administrators can reach the OAuth2 management UI.
+     * When 'authserver' is enabled, the scaffolded app.php must include
+     * 'authserver' in the features array so that Application::registerDefaultNavItems()
+     * registers the OAuth Apps nav item at runtime.
+     *
+     * Phase 24: the header itself is feature-agnostic (uses NavRegistry); the
+     * features array in app.php is the sole control for which admin links appear.
      */
-    public function testAuthserverFeatureAddsOauthLinkToNavbar(): void
+    public function testAuthserverFeatureIsInAppPhpFeaturesList(): void
     {
         // Arrange
         file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
@@ -1395,11 +1505,15 @@ class InitCommandUnitTest extends TestCase
             '--rest-api'  => 'n',
         ], ['interactive' => false]);
 
-        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+        // Assert — authserver in features list; registerDefaultNavItems() will register admin.oauth
+        $appConfig = file_get_contents($this->tmpDir . '/app/app.php');
+        $this->assertStringContainsString("'authserver'", $appConfig,
+            "app.php must contain 'authserver' feature so OAuth Apps nav item is registered at runtime");
 
-        // Must contain an oauth link
-        $this->assertStringContainsString('href="<?php echo sURL; ?>oauth"', $header);
-        $this->assertStringContainsString('OAuth Apps', $header);
+        // Assert — header uses NavRegistry (runtime nav, not hardcoded links)
+        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+        $this->assertStringContainsString('NavRegistry::getForUser', $header,
+            'Header must use NavRegistry — OAuth Apps link appears via registry, not hardcoded');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1452,11 +1566,16 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
-     * The theme navbar must always contain a Logs link so administrators can reach
-     * the log viewer at /logs regardless of which features are enabled.
-     * The LogController itself gates access via addAuthAction.
+     * Every scaffolded app receives the NavRegistry-based header which renders
+     * the Admin section, including the Logs link registered by
+     * Application::registerDefaultNavItems().  The header always contains the
+     * NavSection::Admin iteration snippet — the actual link appears at runtime
+     * once NavRegistry is populated.
+     *
+     * Phase 24: the Logs link is no longer hardcoded in the header; it is
+     * registered via NavRegistry::register('admin.logs', ...) in registerDefaultNavItems().
      */
-    public function testLogsLinkAlwaysInNavbar(): void
+    public function testNavRegistryAdminSectionAlwaysInHeader(): void
     {
         // Arrange
         file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
@@ -1464,7 +1583,7 @@ class InitCommandUnitTest extends TestCase
         $app->add($this->command);
         $tester = new CommandTester($this->command);
 
-        // Act — no features
+        // Act — no features, bootstrap
         $tester->execute([
             '--app-name'  => 'MinimalApp',
             '--namespace' => 'MinimalApp',
@@ -1483,9 +1602,199 @@ class InitCommandUnitTest extends TestCase
 
         $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
 
-        // Logs link must always be present
-        $this->assertStringContainsString('href="<?php echo sURL; ?>logs"', $header,
-            'Logs link must always be present in the navbar');
+        // The Admin section iteration snippet must always be present in the header
+        $this->assertStringContainsString('NavSection::Admin->value', $header,
+            'Header must always iterate NavSection::Admin — Logs and other admin items registered at runtime');
+
+        // The header itself must not hardcode /logs — the URL comes from NavRegistry
+        $this->assertStringNotContainsString('href="<?php echo sURL; ?>logs"', $header,
+            'Hardcoded /logs URL must not be in header — the URL is provided by NavRegistry at runtime');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 23 — admin CRUD controller scaffolding
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Every new application receives src/Controllers/Users.php extending
+     * the framework UsersController. This makes /users available in every app.
+     * Authentication and permission gates are handled by the framework controller.
+     */
+    public function testUsersControllerIsAlwaysScaffolded(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no features, minimal scaffold
+        $tester->execute([
+            '--app-name'  => 'AdminApp',
+            '--namespace' => 'AdminApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'adminapp_db',
+            '--db-user'   => 'adminapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — Users controller must exist and extend framework class
+        $usersPath = $this->tmpDir . '/src/Controllers/Users.php';
+        $this->assertFileExists($usersPath, 'src/Controllers/Users.php must be scaffolded in every new application');
+
+        $users = file_get_contents($usersPath);
+        $this->assertStringContainsString('namespace AdminApp\\Controllers;', $users);
+        $this->assertStringContainsString('UsersController', $users,
+            'Users wrapper must extend the framework UsersController');
+    }
+
+    /**
+     * Every new application receives src/Controllers/Settings.php extending
+     * the framework SettingsController. This makes /settings available in every app.
+     */
+    public function testSettingsControllerIsAlwaysScaffolded(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'AdminApp',
+            '--namespace' => 'AdminApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'adminapp_db',
+            '--db-user'   => 'adminapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        $settingsPath = $this->tmpDir . '/src/Controllers/Settings.php';
+        $this->assertFileExists($settingsPath, 'src/Controllers/Settings.php must be scaffolded in every new application');
+
+        $settings = file_get_contents($settingsPath);
+        $this->assertStringContainsString('namespace AdminApp\\Controllers;', $settings);
+        $this->assertStringContainsString('SettingsController', $settings,
+            'Settings wrapper must extend the framework SettingsController');
+    }
+
+    /**
+     * When auth feature is enabled, the scaffolded tests/Unit/Controllers/ must
+     * contain meaningful test files — not just placeholder assertTrue(true).
+     *
+     * Adequate scaffolded tests verify controller structure and prevent "it builds
+     * but breaks on the first request" issues that placeholders cannot catch.
+     */
+    public function testAuthFeatureScaffoldsRealControllerTests(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'TestApp',
+            '--namespace' => 'TestApp',
+            '--features'  => 'auth',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'testapp_db',
+            '--db-user'   => 'testapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — LoginControllerTest exists and has real assertions
+        $loginTestPath = $this->tmpDir . '/tests/Unit/Controllers/LoginControllerTest.php';
+        $this->assertFileExists($loginTestPath,
+            'tests/Unit/Controllers/LoginControllerTest.php must be scaffolded when auth is enabled');
+
+        $loginTest = file_get_contents($loginTestPath);
+
+        // Must not be a pure placeholder (assertTrue(true) is useless)
+        $this->assertStringNotContainsString('assertTrue(true)', $loginTest,
+            'LoginControllerTest must not be a placeholder — it must verify real behaviour');
+
+        // Must test action registration (the most common scaffold wiring bug)
+        $this->assertStringContainsString('addaction', $loginTest,
+            'LoginControllerTest must verify that dologin/logout are registered via addaction()');
+
+        // Assert — HomeControllerTest also exists
+        $homeTestPath = $this->tmpDir . '/tests/Unit/Controllers/HomeControllerTest.php';
+        $this->assertFileExists($homeTestPath,
+            'tests/Unit/Controllers/HomeControllerTest.php must be scaffolded in every new application');
+
+        // Assert — integration test skeleton exists
+        $integrationTestPath = $this->tmpDir . '/tests/Integration/AuthFlowTest.php';
+        $this->assertFileExists($integrationTestPath,
+            'tests/Integration/AuthFlowTest.php must be scaffolded when auth is enabled');
+    }
+
+    /**
+     * Without auth feature, no auth-specific tests are scaffolded, but the
+     * HomeControllerTest is still present (always scaffolded).
+     */
+    public function testNoAuthFeatureSkipsAuthTests(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no features
+        $tester->execute([
+            '--app-name'  => 'PlainApp',
+            '--namespace' => 'PlainApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'plainapp_db',
+            '--db-user'   => 'plainapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        // HomeControllerTest is always present
+        $this->assertFileExists(
+            $this->tmpDir . '/tests/Unit/Controllers/HomeControllerTest.php',
+            'HomeControllerTest must be present in every scaffolded app'
+        );
+
+        // Auth-specific tests must not exist when auth is not enabled
+        $this->assertFileDoesNotExist(
+            $this->tmpDir . '/tests/Unit/Controllers/LoginControllerTest.php',
+            'LoginControllerTest must not be created when auth feature is not selected'
+        );
+        $this->assertFileDoesNotExist(
+            $this->tmpDir . '/tests/Integration/AuthFlowTest.php',
+            'AuthFlowTest must not be created when auth feature is not selected'
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────

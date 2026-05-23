@@ -214,6 +214,8 @@ class Init extends Command
         }
 
         $this->scaffoldLogsWiring($namespace);
+        $this->scaffoldUsersWiring($namespace);
+        $this->scaffoldSettingsWiring($namespace);
 
         if (!empty($selectedLibraries)) {
             $skipDownload = (bool) $input->getOption('no-download');
@@ -224,7 +226,7 @@ class Init extends Command
             $this->scaffoldDocker($namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem, $dbRootPass, $cliName);
         }
 
-        $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker);
+        $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker, $enabledFeatures);
         $this->scaffoldGitignore($enabledFeatures);
 
         if ($withRestApi) {
@@ -596,54 +598,20 @@ PHP;
             }
         }
 
-        $withAuth       = in_array('auth', $features, true);
-        $withAuthServer = in_array('authserver', $features, true);
-
-        // Auth nav items (login/logout/account) — conditional on session state
-        $authNavBootstrap = $withAuth ? <<<'HTML'
-
-                    <?php if (\Pramnos\Http\Session::staticIsLogged()): ?>
-                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>account">Account</a></li>
-                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>login/logout">Logout</a></li>
-                    <?php else: ?>
-                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>login">Login</a></li>
-                    <?php endif; ?>
-HTML
-            : '';
-
-        $authNavPlain = $withAuth ? <<<'HTML'
-
-                    <?php if (\Pramnos\Http\Session::staticIsLogged()): ?>
-                    <li><a href="<?php echo sURL; ?>account">Account</a></li>
-                    <li><a href="<?php echo sURL; ?>login/logout">Logout</a></li>
-                    <?php else: ?>
-                    <li><a href="<?php echo sURL; ?>login">Login</a></li>
-                    <?php endif; ?>
-HTML
-            : '';
-
-        // Admin nav items (logs + oauth) — always shown to authenticated admins;
-        // the controllers themselves enforce addAuthAction so unauthenticated access is blocked.
-        $oauthAdminBootstrap = $withAuthServer
-            ? "\n                    <li class=\"nav-item\"><a class=\"nav-link\" href=\"<?php echo sURL; ?>oauth\">OAuth Apps</a></li>"
-            : '';
-
-        $oauthAdminPlain = $withAuthServer
-            ? "\n                    <li><a href=\"<?php echo sURL; ?>oauth\">OAuth Apps</a></li>"
-            : '';
-
-        $adminNavBootstrap = <<<HTML
-
-                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>logs">Logs</a></li>{$oauthAdminBootstrap}
-HTML;
-
-        $adminNavPlain = <<<HTML
-
-                    <li><a href="<?php echo sURL; ?>logs">Logs</a></li>{$oauthAdminPlain}
-HTML;
+        // NavRegistry snippet — identical for all features/themes.
+        // Application::init() calls registerDefaultNavItems() which registers
+        // Login/Logout/Account/Logs/OAuth items based on enabled features.
+        // The header just iterates over the filtered result — no hardcoded URLs.
+        $navSetup = <<<'PHP'
+    <?php
+    $_navUser     = \Pramnos\User\User::getCurrentUser();
+    $_navFeatures = \Pramnos\Application\Application::getInstance()->applicationInfo['features'] ?? [];
+    $_nav         = \Pramnos\Application\NavRegistry::getForUser($_navUser, $_navFeatures);
+    ?>
+PHP;
 
         $nav = match ($uiSystem) {
-            'bootstrap' => <<<HTML
+            'bootstrap' => <<<'HTML'
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand fw-bold" href="<?php echo sURL; ?>">
@@ -653,14 +621,34 @@ HTML;
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <?php foreach ($_nav[\Pramnos\Application\NavSection::Main->value] ?? [] as $_item): ?>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                    <?php endforeach; ?>
+                    <?php foreach ($_nav[\Pramnos\Application\NavSection::Feature->value] ?? [] as $_item): ?>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                    <?php endforeach; ?>
+                </ul>
                 <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="<?php echo sURL; ?>">Home</a></li>{$authNavBootstrap}{$adminNavBootstrap}
+                    <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                    <?php endforeach; ?>
+                    <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Admin</a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <?php foreach ($_nav[\Pramnos\Application\NavSection::Admin->value] as $_item): ?>
+                            <li><a class="dropdown-item" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </li>
+                    <?php endif; ?>
                 </ul>
             </div>
         </div>
     </nav>
 HTML,
-            default => <<<HTML
+            default => <<<'HTML'
     <header class="main-header">
         <div class="container">
             <a href="<?php echo sURL; ?>" class="logo">
@@ -668,7 +656,25 @@ HTML,
             </a>
             <nav class="main-nav">
                 <ul>
-                    <li><a href="<?php echo sURL; ?>">Home</a></li>{$authNavPlain}{$adminNavPlain}
+                    <?php foreach ($_nav[\Pramnos\Application\NavSection::Main->value] ?? [] as $_item): ?>
+                    <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                    <?php endforeach; ?>
+                    <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
+                    <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                    <?php endforeach; ?>
+                    <?php foreach ($_nav[\Pramnos\Application\NavSection::Feature->value] ?? [] as $_item): ?>
+                    <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                    <?php endforeach; ?>
+                    <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
+                    <li class="nav-admin">
+                        <span>Admin</span>
+                        <ul>
+                            <?php foreach ($_nav[\Pramnos\Application\NavSection::Admin->value] as $_item): ?>
+                            <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </li>
+                    <?php endif; ?>
                 </ul>
             </nav>
         </div>
@@ -680,6 +686,7 @@ HTML,
             . $themeCss
             . "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>assets/css/style.css\">\n"
             . "    <?php \$this->document->renderCss(); ?>\n"
+            . $navSetup . "\n"
             . $nav . "\n";
     }
 
@@ -868,9 +875,9 @@ HTML,
         return json_decode(file_get_contents($file), true) ?? ['libraries' => []];
     }
 
-    private function scaffoldTests(string $namespace, string $dbType, string $dbHost, string $dbName, string $dbUser, string $dbPass, string $dbPrefix, bool $useDocker): void
+    private function scaffoldTests(string $namespace, string $dbType, string $dbHost, string $dbName, string $dbUser, string $dbPass, string $dbPrefix, bool $useDocker, array $features = []): void
     {
-        $this->mkdir('tests/Unit');
+        $this->mkdir('tests/Unit/Controllers');
         $this->mkdir('tests/Integration');
 
         $testDbName = $dbName . '_test';
@@ -879,7 +886,240 @@ HTML,
         $this->writeFile('tests/bootstrap.php', "<?php\ndefine('ROOT', dirname(__DIR__));\nrequire ROOT . '/vendor/autoload.php';\n\n\\Pramnos\\Framework\\Testing\\TestEnvironment::setup(\n    ROOT . '/app/config/testsettings.php'\n);\n");
         $this->writeFile('tests/BaseTestCase.php', "<?php\nnamespace Tests;\n\nclass BaseTestCase extends \\Pramnos\\Framework\\Testing\\BaseTestCase\n{\n}\n");
         $this->writeFile('phpunit.xml', $this->getPhpunitXml());
-        $this->writeFile('tests/Unit/ExampleTest.php', $this->renderStub('test', ['class' => 'Example']));
+
+        $this->writeFile('tests/Unit/Controllers/HomeControllerTest.php',
+            $this->buildHomeControllerTest($namespace));
+
+        if (in_array('auth', $features, true)) {
+            $this->writeFile('tests/Unit/Controllers/LoginControllerTest.php',
+                $this->buildLoginControllerTest($namespace));
+            $this->writeFile('tests/Integration/AuthFlowTest.php',
+                $this->buildAuthFlowIntegrationTest($namespace));
+        }
+    }
+
+    private function buildHomeControllerTest(string $namespace): string
+    {
+        return <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\\Unit\\Controllers;
+
+use PHPUnit\\Framework\\TestCase;
+use {$namespace}\\Controllers\\Home;
+
+/**
+ * Unit tests for the Home controller.
+ *
+ * These tests verify that the controller class is loadable and correctly
+ * configured — they do NOT require a running database or web server.
+ */
+class HomeControllerTest extends TestCase
+{
+    /**
+     * The Home controller class must exist and be instantiable.
+     *
+     * A missing or broken autoload entry is the most common reason a newly
+     * scaffolded controller silently returns a 404.
+     */
+    public function testHomeControllerClassExists(): void
+    {
+        // Assert — the class is loadable (autoload works)
+        \$this->assertTrue(
+            class_exists({$namespace}\\Controllers\\Home::class),
+            '{$namespace}\\Controllers\\Home must be loadable via autoload'
+        );
+    }
+
+    /**
+     * Home extends \\Pramnos\\Application\\Controller so that exec() and
+     * addaction() are available. If the inheritance chain breaks, /home
+     * will throw a fatal error on the first request.
+     */
+    public function testHomeControllerExtendsFrameworkController(): void
+    {
+        // Arrange
+        \$home = new Home(null);
+
+        // Assert
+        \$this->assertInstanceOf(
+            \\Pramnos\\Application\\Controller::class,
+            \$home,
+            'Home must extend \\Pramnos\\Application\\Controller'
+        );
+    }
+}
+PHP;
+    }
+
+    private function buildLoginControllerTest(string $namespace): string
+    {
+        return <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\\Unit\\Controllers;
+
+use PHPUnit\\Framework\\TestCase;
+use {$namespace}\\Controllers\\Login;
+
+/**
+ * Unit tests for the Login controller.
+ *
+ * These tests verify the structural contract of the Login controller
+ * (class hierarchy, action registration) without requiring a database or
+ * active HTTP request.
+ */
+class LoginControllerTest extends TestCase
+{
+    /**
+     * Login extends \\Pramnos\\Application\\Controller and has the three
+     * public action methods (display, dologin, logout).
+     *
+     * Missing methods mean the router cannot dispatch /login/dologin or
+     * /login/logout, causing silent redirects to the homepage.
+     */
+    public function testLoginControllerHasRequiredActions(): void
+    {
+        // Arrange
+        \$login = new Login(null);
+
+        // Assert — class hierarchy
+        \$this->assertInstanceOf(
+            \\Pramnos\\Application\\Controller::class,
+            \$login,
+            'Login must extend \\Pramnos\\Application\\Controller'
+        );
+
+        // Assert — action methods exist
+        \$this->assertTrue(method_exists(\$login, 'display'),  'Login::display() must exist');
+        \$this->assertTrue(method_exists(\$login, 'dologin'),  'Login::dologin() must exist');
+        \$this->assertTrue(method_exists(\$login, 'logout'),   'Login::logout() must exist');
+    }
+
+    /**
+     * The Login constructor must register 'dologin' and 'logout' via addaction()
+     * so that Controller::exec() can dispatch POST requests to those actions.
+     *
+     * Without this registration, the controller only exposes display() and
+     * silently falls back to it for every URL, making login and logout unreachable.
+     */
+    public function testLoginControllerRegistersActionsInConstructor(): void
+    {
+        // Arrange
+        \$login = new Login(null);
+
+        // Act — read the registered actions via reflection (they are protected)
+        \$ref     = new \\ReflectionClass(\$login);
+        \$prop    = \$ref->getProperty('_actions');
+        \$prop->setAccessible(true);
+        \$actions = \$prop->getValue(\$login);
+
+        // Assert — both actions are registered
+        \$this->assertContains('dologin', \$actions,
+            "dologin must be registered via addaction() so exec() can dispatch POST /login/dologin");
+        \$this->assertContains('logout',  \$actions,
+            "logout must be registered via addaction() so exec() can dispatch /login/logout");
+    }
+}
+PHP;
+    }
+
+    private function buildAuthFlowIntegrationTest(string $namespace): string
+    {
+        return <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\\Integration;
+
+use Tests\\BaseTestCase;
+
+/**
+ * Integration test for the authentication flow.
+ *
+ * These tests run against the real test database (configured in
+ * app/config/testsettings.php) and verify that the full login/logout
+ * lifecycle works end-to-end.
+ *
+ * To run these tests you need the test database to be migrated first:
+ *   php pramnos migrate:framework --env=test
+ *
+ * Then run:
+ *   ./dockertest --testsuite Integration
+ */
+class AuthFlowTest extends BaseTestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+        \$this->setUpDatabase();
+    }
+
+    /**
+     * Auth::auth() returns false for a non-existent user.
+     *
+     * This is the baseline check: the auth system must be wired up and
+     * the users table must exist. A misconfigured addon stack or missing
+     * migration will throw an exception instead of returning false.
+     */
+    public function testAuthReturnsFalseForUnknownUser(): void
+    {
+        // Arrange
+        \$auth = \\Pramnos\\Auth\\Auth::getInstance();
+
+        // Act
+        \$result = \$auth->auth('no_such_user_' . bin2hex(random_bytes(4)), 'wrongpassword');
+
+        // Assert — must return false, not throw
+        \$this->assertFalse(\$result, 'auth() must return false for unknown users, not throw an exception');
+    }
+
+    /**
+     * Auth::auth() returns true and sets \$_SESSION['logged'] for a valid user.
+     *
+     * This is the golden path: correct credentials → authenticated session.
+     * The User addon must be registered (type=user) — without it, auth() returns
+     * true from UserDatabase but \$_SESSION['logged'] is never set.
+     */
+    public function testAuthReturnsTrueAndSetsSessionForValidUser(): void
+    {
+        // Arrange — create a test user directly in the database
+        \$db       = \\Pramnos\\Database\\Database::getInstance();
+        \$password = password_hash(
+            'testpass123' . md5(
+                \\Pramnos\\Application\\Settings::getSetting('securitySalt') . 2
+            ),
+            PASSWORD_DEFAULT
+        );
+        \$db->query(\$db->prepareQuery(
+            "INSERT INTO `#PREFIX#users` (userid, username, email, password, usertype, validated, active)
+             VALUES (2, 'testuser_auth', 'testuser@example.com', %s, 50, 1, 1)",
+            \$password
+        ));
+
+        \$auth = \\Pramnos\\Auth\\Auth::getInstance();
+        unset(\$_SESSION['logged']);
+
+        // Act
+        \$result = \$auth->auth('testuser_auth', 'testpass123');
+
+        // Assert — authentication must succeed
+        \$this->assertTrue(\$result, 'auth() must return true for valid credentials');
+
+        // Assert — session must be marked as logged in (requires User addon to be registered)
+        \$this->assertNotEmpty(\$_SESSION['logged'] ?? null,
+            '\$_SESSION[logged] must be set after successful auth — check that Addon\\\\User\\\\User is registered in app.php');
+
+        // Cleanup
+        \$db->query(\$db->prepareQuery("DELETE FROM `#PREFIX#users` WHERE userid = 2"));
+    }
+}
+PHP;
     }
 
     private function getPhpunitXml(): string
@@ -2030,5 +2270,61 @@ class Logs extends LogController
 PHP;
 
         $this->writeFile('src/Controllers/Logs.php', $logsController);
+    }
+
+    private function scaffoldUsersWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $usersController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\UsersController as FrameworkUsersController;
+
+/**
+ * User management controller.
+ *
+ * Delegates all actions to the framework UsersController.
+ * Override \$requiredUserType or individual action methods here to customise
+ * access control or behaviour for this application.
+ */
+class Users extends FrameworkUsersController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Users.php', $usersController);
+    }
+
+    private function scaffoldSettingsWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $settingsController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\SettingsController as FrameworkSettingsController;
+
+/**
+ * Application settings management controller.
+ *
+ * Delegates all actions to the framework SettingsController.
+ * Override \$readonlyKeys here to protect additional application-specific
+ * setting keys from UI modification.
+ */
+class Settings extends FrameworkSettingsController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Settings.php', $settingsController);
     }
 }
