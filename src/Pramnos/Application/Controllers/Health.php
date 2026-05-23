@@ -48,6 +48,10 @@ class Health extends Controller
      * Shows all registered health checks with colour-coded status badges
      * (ok=green, degraded=yellow, down=red), DB info (type/version), cache
      * adapter, active user count, and PHP version.
+     *
+     * Renders via the view system (theme-aware scaffolding fallback at
+     * scaffolding/themes/{theme}/views/health/health.html.php) so applications
+     * can override the layout by publishing the view.
      */
     public function display(): mixed
     {
@@ -94,55 +98,17 @@ class Health extends Controller
 
         $overallStatus = $report['status'];
         $checks        = $report['checks'] ?? [];
+        $peakMemory    = $this->humanBytes(memory_get_peak_usage(true));
 
-        // Build HTML
-        ob_start();
-        ?>
-        <div class="health-dashboard">
-          <h2>System Health
-            <span class="status-badge status-<?php echo htmlspecialchars($overallStatus); ?>">
-              <?php echo strtoupper(htmlspecialchars($overallStatus)); ?>
-            </span>
-          </h2>
-
-          <table class="health-table table table-bordered">
-            <thead>
-              <tr>
-                <th>Check</th>
-                <th>Status</th>
-                <th>Message</th>
-              </tr>
-            </thead>
-            <tbody>
-            <?php if (empty($checks)): ?>
-              <tr><td colspan="3" class="text-muted">No health checks registered.</td></tr>
-            <?php else: ?>
-              <?php foreach ($checks as $name => $check): ?>
-              <tr>
-                <td><strong><?php echo htmlspecialchars($name); ?></strong></td>
-                <td>
-                  <span class="status-badge status-<?php echo htmlspecialchars($check['status']); ?>">
-                    <?php echo strtoupper(htmlspecialchars($check['status'])); ?>
-                  </span>
-                </td>
-                <td><?php echo htmlspecialchars($check['message'] ?? ''); ?></td>
-              </tr>
-              <?php endforeach; ?>
-            <?php endif; ?>
-            </tbody>
-          </table>
-
-          <h3>System Info</h3>
-          <table class="health-info-table table table-bordered">
-            <tr><th>PHP Version</th><td><?php echo htmlspecialchars(PHP_VERSION); ?></td></tr>
-            <tr><th>Database</th><td><?php echo htmlspecialchars($dbType); ?> <?php echo htmlspecialchars($dbVersion); ?></td></tr>
-            <tr><th>Cache Adapter</th><td><?php echo htmlspecialchars($cacheAdapter); ?></td></tr>
-            <tr><th>Active Sessions</th><td><?php echo htmlspecialchars($activeUsers); ?></td></tr>
-            <tr><th>Memory (peak)</th><td><?php echo $this->humanBytes(memory_get_peak_usage(true)); ?></td></tr>
-          </table>
-        </div>
-        <?php
-        return ob_get_clean();
+        $view                = $this->getView('health');
+        $view->overallStatus = $overallStatus;
+        $view->checks        = $checks;
+        $view->dbType        = $dbType;
+        $view->dbVersion     = $dbVersion;
+        $view->cacheAdapter  = $cacheAdapter;
+        $view->activeUsers   = $activeUsers;
+        $view->peakMemory    = $peakMemory;
+        return $view->display();
     }
 
     /**
