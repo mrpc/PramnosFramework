@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Generate API documentation (OpenAPI JSON + RapiDoc HTML viewer).
+# Run from the project root: bash scripts/doc.sh
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+cd "${PROJECT_ROOT}"
+
+# Install Node deps if needed
+if [ ! -d node_modules ]; then
+  echo "Installing Node dependencies..."
+  npm install
+fi
+
+echo "Generating OpenAPI spec..."
+node scripts/apidoc-to-openapi.js
+
+echo "Done. Documentation available at www/api/docs/index.html"

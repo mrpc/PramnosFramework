@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 123) — WebhookHandler ✅ + Health scaffold ✅ + DevPanel pluggable panels ✅
+## 📅 Last Updated: 2026-05-23 (session 127) — Health views scaffolding ✅ + apidoc scaffolding ✅
 
 ## 🏁 Session 123 — WebhookHandler + Health scaffold + DevPanel pluggable panels + built-in health checks (2026-05-23)
 
@@ -3213,6 +3213,26 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 ### Test results
 - OrmModelCharacterizationTest: **43/43** ✓
 - Full suite: **1996/1996** ✓ (up from 1953 — 43 new tests)
+
+---
+
+## 📌 Session 127 (2026-05-23) — Health views scaffolding + apidoc scaffolding
+
+### Completed
+- **Health views scaffolding fallback (all 3 themes):** `scaffolding/themes/{plain-css,bootstrap,tailwind}/views/health/health.html.php` + `check.html.php` — 6 view files. `Health::display()` refactored από inline HTML σε view system (`getView('health')`). `Base::__isset()` magic method προστέθηκε για σωστή λειτουργία `empty()` σε magic properties.
+- **`Controller::getView()` null guard:** null check για `$this->application` ώστε το view system να λειτουργεί σε unit test context (χωρίς Application singleton).
+- **apidoc scaffolding (Φάση 18):** `scaffolding/scripts/apidoc-to-openapi.js` — αφαίρεση hardcoded Urbanwater τιμών, `initOpenAPISpec()` + `generateRapiDocHtml()` διαβάζουν από `apidoc.json`. Template stubs: `api-doc.json.stub`, `openapi-overrides.json.stub`, `doc.sh.stub`. `pramnos init` wizard: νέο Step 2d με `--api-docs`/`--api-url`/`--api-color` options + `scaffoldApiDocs()` method που δημιουργεί `src/Api/apidoc.json`, `src/Api/openapi-overrides.json`, `scripts/apidoc-to-openapi.js`, `scripts/doc.sh`, npm scripts σε `package.json`, .gitignore entries.
+- All tests green: 15/15 HealthController, 15/15 InitCommand, 5135/5135 full suite.
+
+### ROADMAP items closed
+- `[x]` Health views scaffolding fallback (bootstrap, plain-css, tailwind) — ROADMAP line 1386
+- `[x]` apidoc hardcoded values removal — ROADMAP line 1221
+- `[x]` api-doc.json enrichment — ROADMAP line 1222
+- `[x]` `scaffolding/scripts/apidoc-to-openapi.js` — ROADMAP line 1240
+- `[x]` `scaffolding/templates/api-doc.json.stub` — ROADMAP line 1241
+- `[x]` `scaffolding/templates/openapi-overrides.json.stub` — ROADMAP line 1242
+- `[x]` `scaffolding/templates/doc.sh.stub` — ROADMAP line 1243
+- `[x]` `pramnos init` wizard Step 2d — ROADMAP line 1244
 
 ---
 

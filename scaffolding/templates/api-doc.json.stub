@@ -1,0 +1,12 @@
+{
+    "name": "{{ APP_NAME }} REST API",
+    "description": "{{ APP_NAME }} API Documentation",
+    "version": "1.0.0",
+    "url": "{{ API_URL }}",
+
+    "primaryColor": "{{ PRIMARY_COLOR }}",
+    "theme": "dark",
+    "prefsKey": "{{ APP_KEY }}-api-prefs",
+
+    "additionalServers": []
+}

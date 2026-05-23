@@ -1218,8 +1218,8 @@ $(function() { PramnosDataTable.init('#users-table', { columns: [...] }); });
 
 #### Τι γίνεται
 
-- [ ] **Αφαίρεση hardcoded τιμών** από το `apidoc-to-openapi.js`: όλα τα Urbanwater-specific στοιχεία (`hydrigital.com`, `Hydrigital REST API`, `#4CAF50`, server URLs) μπαίνουν στο `api-doc.json` config
-- [ ] **Εμπλουτισμός `api-doc.json`** με τα νέα πεδία:
+- [x] **Αφαίρεση hardcoded τιμών** από το `apidoc-to-openapi.js`: όλα τα Urbanwater-specific στοιχεία (`hydrigital.com`, `Hydrigital REST API`, `#4CAF50`, server URLs) μπαίνουν στο `api-doc.json` config
+- [x] **Εμπλουτισμός `api-doc.json`** με τα νέα πεδία:
   ```json
   {
     "name": "My App REST API",
@@ -1237,15 +1237,15 @@ $(function() { PramnosDataTable.init('#users-table', { columns: [...] }); });
     ]
   }
   ```
-- [ ] **`scaffolding/scripts/apidoc-to-openapi.js`:** το βελτιωμένο script μπαίνει στο framework scaffolding
-- [ ] **`scaffolding/templates/api-doc.json.stub`:** template config με placeholders (`{{APP_NAME}}`, `{{API_URL}}`, `{{PRIMARY_COLOR}}`)
-- [ ] **`scaffolding/templates/openapi-overrides.json.stub`:** κενό override file με οδηγίες σε comments
-- [ ] **`scaffolding/templates/doc.sh.stub`:** shell script wrapper (αντίστοιχο του `src/Api/doc.sh`)
-- [ ] **`pramnos init` wizard:** νέο βήμα "Configure API documentation? [y/N]" — αν yes:
-  - Παράγει `src/Api/api-doc.json` από stub (με APP_NAME, API_URL κλπ από τα προηγούμενα βήματα)
+- [x] **`scaffolding/scripts/apidoc-to-openapi.js`:** το βελτιωμένο script μπαίνει στο framework scaffolding
+- [x] **`scaffolding/templates/api-doc.json.stub`:** template config με placeholders (`{{ APP_NAME }}`, `{{ API_URL }}`, `{{ PRIMARY_COLOR }}`)
+- [x] **`scaffolding/templates/openapi-overrides.json.stub`:** κενό override file με οδηγίες σε comments
+- [x] **`scaffolding/templates/doc.sh.stub`:** shell script wrapper
+- [x] **`pramnos init` wizard:** νέο βήμα "Configure API documentation? [y/N]" (Step 2d) — αν yes:
+  - Παράγει `src/Api/apidoc.json` από stub (με APP_NAME, API_URL κλπ από τα προηγούμενα βήματα)
   - Παράγει `src/Api/openapi-overrides.json`
   - Παράγει `scripts/apidoc-to-openapi.js`
-  - Προσθέτει scripts στο `package.json` (`docs:generate`, `docs:validate`)
+  - Προσθέτει `apidoc` + `docs` scripts στο `package.json`
   - Προσθέτει `www/api/openapi*.json` και `www/api/docs/` στο `.gitignore`
 - [ ] **Urbanwater migration:** αντικαθιστήσει `src/Api/apidoc.json` + `scripts/apidoc-to-openapi.js` με τις νέες εκδόσεις — output identικό, χωρίς αλλαγές στα controllers
 
@@ -1383,7 +1383,7 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
   - `phpinfo()` — phpinfo() page (usertype >= 90 check, strips html/head/body wrappers).
   - `display` + `phpinfo` in `actions_auth`; `check` in `actions` (public).
 
-- [ ] **Views** (scaffolding fallback για όλα τα themes: bootstrap, plain-css, tailwind):
+- [x] **Views** (scaffolding fallback για όλα τα themes: bootstrap, plain-css, tailwind):
   - `health/health.html.php` — summary dashboard με color-coded status badges (ok/degraded/down) ανά check, DB info table, cache stats, active users counter
   - `health/check.html.php` — αποτελέσματα individual checks σε table format (χρησιμοποιείται και για JSON via `check()` endpoint)
 
