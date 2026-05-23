@@ -162,6 +162,14 @@ class Database extends \Pramnos\Framework\Base
     private $_numSlowqueries = 0;
 
     /**
+     * In-memory query log for DebugBar / profiling tools.
+     * Populated only when enableQueryLog() has been called.
+     * Each entry: ['sql' => string, 'time' => float, 'at' => float]
+     */
+    private array $_inMemoryQueryLog = [];
+    private bool  $_inMemoryLogEnabled = false;
+
+    /**
      * Read connection link
      * @var \mysqli|\PgSql\Connection
      */
@@ -781,6 +789,33 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
+     * Enable in-memory query logging (used by DebugBar / profiling tools).
+     * Has no effect when already enabled.
+     */
+    public function enableQueryLog(): static
+    {
+        $this->_inMemoryLogEnabled = true;
+        return $this;
+    }
+
+    /**
+     * Return all queries recorded since enableQueryLog() was called.
+     *
+     * @return list<array{sql: string, time: float, at: float}>
+     */
+    public function getQueryLog(): array
+    {
+        return $this->_inMemoryQueryLog;
+    }
+
+    /** Clear the in-memory query log without disabling it. */
+    public function clearQueryLog(): static
+    {
+        $this->_inMemoryQueryLog = [];
+        return $this;
+    }
+
+    /**
      * Close the database connection
      * @return boolean
      */
@@ -865,6 +900,9 @@ class Database extends \Pramnos\Framework\Base
             }
             
             $time += microtime(true);
+            if ($this->_inMemoryLogEnabled) {
+                $this->_inMemoryQueryLog[] = ['sql' => $query, 'time' => $time, 'at' => microtime(true)];
+            }
             if ($this->_customLogSlowQueries == true
                     && $this->_slowQueryLogHandler !== NULL
                     && $time > $this->longQueryTime) {

@@ -1,7 +1,34 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 121) — Phase 13: MCP Server ✅
+## 📅 Last Updated: 2026-05-23 (session 122) — Phase 13: Debug Toolbar ✅
+
+## 🏁 Session 122 — Phase 13: Debug Toolbar + Database Query Logging (2026-05-23)
+
+### ✅ Phase 13 (Debug) — DebugBar HTML Toolbar
+
+**New files:**
+- `src/Pramnos/Debug/Collectors/CollectorInterface.php` — contract: `name()` + `collect(): array`
+- `src/Pramnos/Debug/Collectors/QueryCollector.php` — reads `Database::getQueryLog()`; SQL, time, totals
+- `src/Pramnos/Debug/Collectors/TimeCollector.php` — wall-clock + named timers
+- `src/Pramnos/Debug/Collectors/MemoryCollector.php` — peak + current memory
+- `src/Pramnos/Debug/Collectors/RouteCollector.php` — route URI/method/action
+- `src/Pramnos/Debug/Collectors/LogCollector.php` — ring-buffer log entries
+- `src/Pramnos/Debug/Collectors/SessionCollector.php` — session data; sensitive keys masked with `***`
+- `src/Pramnos/Debug/DebugBar.php` — singleton; registers collectors; renders HTML widget (Catppuccin Mocha)
+- `src/Pramnos/Debug/DebugBarMiddleware.php` — injects toolbar before `</body>`; non-HTML passes through
+- `src/Pramnos/Debug/DebugBarServiceProvider.php` — `APP_DEBUG=true` guard; `ob_start()` injection; enables query log
+- `src/Pramnos/Console/Commands/DebugStatus.php` — `pramnos debug:status` command (APP_DEBUG, Xdebug)
+
+**Modified:**
+- `src/Pramnos/Database/Database.php` — added `enableQueryLog()`, `getQueryLog()`, `clearQueryLog()` + recording in exec loop
+- `src/Pramnos/Console/Application.php` — registered `DebugStatus` command
+- `src/Pramnos/Application/FeatureRegistry.php` — registered `'debug'` feature key + `DebugBarServiceProvider`
+
+**Tests (14/14 ✓):**
+- `tests/Unit/Debug/DebugBarTest.php` — singleton, addCollector, render HTML/empty, timers, all 6 collectors, middleware injection, non-HTML passthrough
+
+---
 
 ## 🏁 Session 121 — Phase 13: MCP Server + AI Developer Tooling (2026-05-23)
 
