@@ -1002,7 +1002,7 @@ HTML toolbar που εγχέεται αυτόματα στο κάτω μέρος
 #### Performance Report
 - [x] **Slowest endpoints:** URL + method, call count, avg/max ms — time range selector (1h / 6h / 24h / 7d / 30d) from `tokenactions`.
 - [ ] **Slowest users/applications:** userid, username, app name, call count, avg/max/p95 ms.
-- [ ] **Pluggable panels:** `DevPanel::registerPanel(string $slug, callable $renderer)`.
+- [x] **Pluggable panels:** `DevPanel::registerPanel(string $slug, callable $renderer)` — apps προσθέτουν custom tabs. `__call()` dispatch + nav integration.
 
 #### Git Info Widget
 *Reads `.git/HEAD` / `.git/objects/` directly — zero `exec()`.*

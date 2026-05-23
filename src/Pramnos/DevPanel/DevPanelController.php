@@ -40,9 +40,58 @@ class DevPanelController extends Controller
     /** Optional policy callback — when set, replaces the usertype check. */
     protected ?\Closure $policyCallback = null;
 
+    /**
+     * Registered pluggable panels.
+     *
+     * @var array<string, array{label: string, renderer: callable}>
+     */
+    private static array $customPanels = [];
+
+    /**
+     * Registers a custom panel tab.
+     *
+     * ```php
+     * DevPanelController::registerPanel('myapp', 'My App', function(): string {
+     *     return '<p>Custom panel content.</p>';
+     * });
+     * ```
+     *
+     * @param string   $slug     URL-safe identifier (used as action name).
+     * @param string   $label    Tab label shown in the navigation bar.
+     * @param callable $renderer Returns the HTML string for the panel body.
+     */
+    public static function registerPanel(string $slug, string $label, callable $renderer): void
+    {
+        static::$customPanels[$slug] = ['label' => $label, 'renderer' => $renderer];
+    }
+
+    /**
+     * Returns all registered custom panels (for testing and inspection).
+     *
+     * @return array<string, array{label: string, renderer: callable}>
+     */
+    public static function getCustomPanels(): array
+    {
+        return static::$customPanels;
+    }
+
+    /**
+     * Resets the custom panel registry.  For tests only.
+     */
+    public static function resetCustomPanels(): void
+    {
+        static::$customPanels = [];
+    }
+
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'db', 'cache', 'users', 'performance', 'git', 'phpinfo']);
+
+        // Register custom panel slugs as auth actions so Controller::exec() dispatches them.
+        foreach (array_keys(static::$customPanels) as $slug) {
+            $this->addAuthAction($slug);
+        }
+
         parent::__construct($application);
 
         // Allow app to set a higher minimum via app.php devpanel.min_usertype
@@ -50,6 +99,29 @@ class DevPanelController extends Controller
         if ($min !== false && $min !== null && (int) $min > 0) {
             $this->minUserType = (int) $min;
         }
+    }
+
+    /**
+     * Dispatches calls to registered custom panel slugs.
+     *
+     * Controller::exec() calls $this->$action($args). Custom panel slugs are not
+     * real methods, so PHP routes them here. We look up the renderer in the static
+     * registry and output it through renderLayout().
+     */
+    public function __call(string $name, array $args): mixed
+    {
+        if (isset(static::$customPanels[$name])) {
+            if (!FeatureRegistry::isEnabled('devpanel')) {
+                $this->renderError(404, 'DevPanel feature is not enabled.');
+            }
+            if ($this->guardUserType()) {
+                return null;
+            }
+            $panel   = static::$customPanels[$name];
+            $content = (string) ($panel['renderer'])();
+            $this->renderLayout($name, $content);
+        }
+        return null;
     }
 
     // =========================================================================
@@ -185,7 +257,7 @@ class DevPanelController extends Controller
         $db        = \Pramnos\Framework\Factory::getDatabase();
         $dbType    = $db ? ucfirst($db->type ?? 'unknown') : 'Not connected';
         $dbVersion = 'unknown';
-        if ($db && $db->isConnected()) {
+        if ($db && $db->connected) {
             try {
                 $res = $db->execute("SELECT VERSION() AS v");
                 $dbVersion = $res ? $res->fields['v'] ?? 'unknown' : 'unknown';
@@ -286,7 +358,7 @@ class DevPanelController extends Controller
     private function renderDb(): string
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
-        if (!$db || !$db->isConnected()) {
+        if (!$db || !$db->connected) {
             return $this->alert('Database not connected.', 'warning');
         }
 
@@ -437,7 +509,7 @@ class DevPanelController extends Controller
     private function renderUsers(): string
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
-        if (!$db || !$db->isConnected()) {
+        if (!$db || !$db->connected) {
             return $this->alert('Database not connected.', 'warning');
         }
 
@@ -517,7 +589,7 @@ class DevPanelController extends Controller
     private function renderPerformance(): string
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
-        if (!$db || !$db->isConnected()) {
+        if (!$db || !$db->connected) {
             return $this->alert('Database not connected.', 'warning');
         }
 
@@ -753,11 +825,16 @@ class DevPanelController extends Controller
             'phpinfo'     => ['PHP Info',    'action=phpinfo'],
         ];
 
+        // Append registered custom panels to the navigation.
+        foreach (static::$customPanels as $slug => $panel) {
+            $tabs[$slug] = [$panel['label'], 'action=' . $slug];
+        }
+
         $tabHtml = '';
         foreach ($tabs as $key => [$label, $qs]) {
             $active = $key === $activeTab ? ' class="active"' : '';
             $href   = $baseUrl . '/' . $mountPoint . ($qs ? '?' . $qs : '');
-            $tabHtml .= "<a href=\"{$href}\"{$active}>{$label}</a>";
+            $tabHtml .= "<a href=\"{$href}\"{$active}>" . htmlspecialchars($label) . "</a>";
         }
 
         $css  = $this->panelCss();

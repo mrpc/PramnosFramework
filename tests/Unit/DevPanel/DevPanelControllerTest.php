@@ -30,6 +30,7 @@ class DevPanelControllerTest extends TestCase
     protected function tearDown(): void
     {
         FeatureRegistry::reset();
+        DevPanelController::resetCustomPanels();
     }
 
     // ── FeatureRegistry ───────────────────────────────────────────────────────
@@ -143,6 +144,106 @@ class DevPanelControllerTest extends TestCase
                 \Pramnos\Application\ServiceProvider::class,
             ),
         );
+    }
+
+    // ── Pluggable panels registry ─────────────────────────────────────────────
+
+    /**
+     * registerPanel() must store the slug, label, and renderer callable in the
+     * static registry returned by getCustomPanels().
+     */
+    public function testRegisterPanelStoresInRegistry(): void
+    {
+        // Arrange
+        DevPanelController::resetCustomPanels();
+        $renderer = fn() => '<p>hello</p>';
+
+        // Act
+        DevPanelController::registerPanel('mypanel', 'My Panel', $renderer);
+
+        // Assert
+        $panels = DevPanelController::getCustomPanels();
+        $this->assertArrayHasKey('mypanel', $panels);
+        $this->assertSame('My Panel', $panels['mypanel']['label']);
+        $this->assertSame($renderer, $panels['mypanel']['renderer']);
+    }
+
+    /**
+     * resetCustomPanels() must clear all previously registered panels.
+     *
+     * This invariant is critical for test isolation — each test should start
+     * with an empty registry rather than inheriting state from prior tests.
+     */
+    public function testResetCustomPanelsEmptiesRegistry(): void
+    {
+        // Arrange
+        DevPanelController::registerPanel('panel1', 'Panel 1', fn() => '');
+        DevPanelController::registerPanel('panel2', 'Panel 2', fn() => '');
+
+        // Act
+        DevPanelController::resetCustomPanels();
+
+        // Assert
+        $this->assertSame([], DevPanelController::getCustomPanels());
+    }
+
+    /**
+     * Multiple panels registered under different slugs must all be retained.
+     */
+    public function testMultiplePanelsCanBeRegistered(): void
+    {
+        // Arrange
+        DevPanelController::resetCustomPanels();
+
+        // Act
+        DevPanelController::registerPanel('alpha', 'Alpha', fn() => 'a');
+        DevPanelController::registerPanel('beta',  'Beta',  fn() => 'b');
+        DevPanelController::registerPanel('gamma', 'Gamma', fn() => 'c');
+
+        // Assert — all three slugs present
+        $panels = DevPanelController::getCustomPanels();
+        $this->assertCount(3, $panels);
+        $this->assertArrayHasKey('alpha', $panels);
+        $this->assertArrayHasKey('beta',  $panels);
+        $this->assertArrayHasKey('gamma', $panels);
+
+        // Cleanup
+        DevPanelController::resetCustomPanels();
+    }
+
+    /**
+     * Registering a panel before controller instantiation must cause the slug
+     * to appear in actions_auth so Controller::exec() requires authentication.
+     *
+     * This is the critical integration point between the static registry and
+     * the per-instance auth system.
+     */
+    public function testCustomPanelSlugAppearsInAuthActionsWhenRegisteredBeforeInstantiation(): void
+    {
+        // Arrange — register a panel, then create a partial mock (no real constructor)
+        DevPanelController::resetCustomPanels();
+        DevPanelController::registerPanel('myslug', 'My Slug', fn() => '');
+
+        $ctrl = $this->getMockBuilder(DevPanelController::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods([])
+            ->getMock();
+
+        // Simulate the auth registration that __construct() performs.
+        $ctrl->addAuthAction(['display', 'db', 'cache', 'users', 'performance', 'git', 'phpinfo']);
+        foreach (array_keys(DevPanelController::getCustomPanels()) as $slug) {
+            $ctrl->addAuthAction($slug);
+        }
+
+        // Act
+        $ref         = new \ReflectionProperty(\Pramnos\Application\Controller::class, 'actions_auth');
+        $authActions = $ref->getValue($ctrl);
+
+        // Assert — custom slug is auth-guarded
+        $this->assertContains('myslug', $authActions);
+
+        // Cleanup
+        DevPanelController::resetCustomPanels();
     }
 
     // ── Auth action registration ───────────────────────────────────────────────
