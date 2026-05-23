@@ -12,12 +12,13 @@ use Pramnos\Database\Migration;
  * identity in lockedby. Lock expiry (lockexpires) allows stalled workers to
  * be detected and their tasks reclaimed.
  *
- * Status values (PostgreSQL ENUM / MySQL TINYINT):
- *   pending    (0) — ready to be claimed by a worker
- *   processing (1) — currently held by a worker
- *   completed  (2) — finished successfully
- *   failed     (3) — exhausted all retry attempts
- *   warning    (4) — completed with non-fatal issues
+ * Status values:
+ *   pending    — ready to be claimed by a worker
+ *   processing — currently held by a worker
+ *   completed  — finished successfully
+ *   failed     — exhausted all retry attempts
+ *   warning    — completed with non-fatal issues
+ *   deleted    — soft-deleted by admin (QueueController); skipped by workers
  *
  * The task_hash column enables deduplication: a task with the same hash that
  * is already pending or processing will be rejected by QueueManager::addTask()
@@ -47,7 +48,7 @@ class CreateQueueitemsTable extends Migration
                 "DO \$\$
                 BEGIN
                     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'queue_status') THEN
-                        CREATE TYPE queue_status AS ENUM ('pending','processing','completed','failed','warning');
+                        CREATE TYPE queue_status AS ENUM ('pending','processing','completed','failed','warning','deleted');
                     END IF;
                 END
                 \$\$"
@@ -69,7 +70,7 @@ class CreateQueueitemsTable extends Migration
             // 'failed','warning') in all WHERE clauses, so a numeric type would
             // silently mis-coerce comparisons on MySQL and break the queue.
             $table->string('status', 20)->default('pending')
-                ->comment('Task lifecycle state: pending | processing | completed | failed | warning');
+                ->comment('Task lifecycle state: pending | processing | completed | failed | warning | deleted (soft-deleted by admin)');
 
             $table->smallInteger('priority')->default(10)
                 ->comment('Dispatch priority — lower number = higher priority; tasks with priority <=10 are treated as urgent');
@@ -109,7 +110,7 @@ class CreateQueueitemsTable extends Migration
         if ($caps->isPostgreSQL()) {
             $this->application->database->query(
                 "ALTER TABLE \"queueitems\" ADD CONSTRAINT chk_queueitems_status
-                 CHECK (\"status\" IN ('pending','processing','completed','failed','warning'))"
+                 CHECK (\"status\" IN ('pending','processing','completed','failed','warning','deleted'))"
             );
         }
     }
