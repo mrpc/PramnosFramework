@@ -269,6 +269,10 @@ class FeatureRegistry
             'description' => 'MCP Server (AI assistant integration via stdio)',
             'provider'    => \Pramnos\Mcp\McpServiceProvider::class,
         ]);
+        static::register('debug', [
+            'description' => 'DebugBar — HTML toolbar injected when APP_DEBUG=true',
+            'provider'    => \Pramnos\Debug\DebugBarServiceProvider::class,
+        ]);
     }
 
     /**
