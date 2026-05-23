@@ -217,6 +217,21 @@ class Init extends Command
         $this->scaffoldUsersWiring($namespace);
         $this->scaffoldSettingsWiring($namespace);
         $this->scaffoldDashboardWiring($namespace);
+        $this->scaffoldServicesWiring($namespace);
+        $this->scaffoldOrganizationsWiring($namespace);
+        $this->scaffoldEmailsWiring($namespace);
+
+        if (in_array('auth', $enabledFeatures, true)) {
+            $this->scaffoldTokenActionsWiring($namespace);
+        }
+
+        if (in_array('authserver', $enabledFeatures, true)) {
+            $this->scaffoldPermissionsWiring($namespace);
+        }
+
+        if (in_array('queue', $enabledFeatures, true)) {
+            $this->scaffoldQueueWiring($namespace);
+        }
 
         if (!empty($selectedLibraries)) {
             $skipDownload = (bool) $input->getOption('no-download');
@@ -2232,6 +2247,50 @@ class Oauth extends \\Pramnos\\Auth\\Controllers\\Oauth
 PHP;
 
         $this->writeFile('src/Controllers/Oauth.php', $oauthController);
+
+        $applicationsController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Auth\\Controllers\\ApplicationsController as FrameworkApplicationsController;
+
+/**
+ * OAuth2 application (client) management controller.
+ *
+ * Delegates all actions to the framework ApplicationsController.
+ * Override \$requiredUserType here if this application's admin hierarchy
+ * uses a different threshold for OAuth2 management.
+ */
+class Applications extends FrameworkApplicationsController
+{
+}
+PHP;
+        $this->writeFile('src/Controllers/Applications.php', $applicationsController);
+
+        $tokensController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Auth\\Controllers\\TokensController as FrameworkTokensController;
+
+/**
+ * OAuth2 token management controller.
+ *
+ * Delegates all actions to the framework TokensController.
+ * Override \$requiredUserType here if this application's admin hierarchy
+ * uses a different threshold for token revocation.
+ */
+class Tokens extends FrameworkTokensController
+{
+}
+PHP;
+        $this->writeFile('src/Controllers/Tokens.php', $tokensController);
     }
 
     /**
@@ -2355,5 +2414,171 @@ class Dashboard extends FrameworkDashboardController
 PHP;
 
         $this->writeFile('src/Controllers/Dashboard.php', $dashboardController);
+    }
+
+    private function scaffoldServicesWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $servicesController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\ServicesController as FrameworkServicesController;
+
+/**
+ * Daemon/worker services management controller.
+ *
+ * Delegates all actions to the framework ServicesController.
+ * Override \$requiredUserType or \$maxLogLines here to customise
+ * access requirements and log output limits for this application.
+ */
+class Services extends FrameworkServicesController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Services.php', $servicesController);
+    }
+
+    private function scaffoldOrganizationsWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $organizationsController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\OrganizationsController as FrameworkOrganizationsController;
+
+/**
+ * Organizations management controller.
+ *
+ * Delegates all actions to the framework OrganizationsController.
+ * Override \$requiredUserType here to adjust the minimum access level
+ * for this application.
+ */
+class Organizations extends FrameworkOrganizationsController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Organizations.php', $organizationsController);
+    }
+
+    private function scaffoldEmailsWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $emailsController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\EmailsController as FrameworkEmailsController;
+
+/**
+ * Email history controller.
+ *
+ * Delegates all actions to the framework EmailsController.
+ */
+class Emails extends FrameworkEmailsController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Emails.php', $emailsController);
+    }
+
+    private function scaffoldTokenActionsWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $tokenActionsController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Auth\\Controllers\\TokenActionsController as FrameworkTokenActionsController;
+
+/**
+ * Token actions audit log controller.
+ *
+ * Delegates all actions to the framework TokenActionsController.
+ * Override \$requiredUserType or \$maxExportRows here to customise
+ * access requirements and export limits for this application.
+ */
+class TokenActions extends FrameworkTokenActionsController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/TokenActions.php', $tokenActionsController);
+    }
+
+    private function scaffoldPermissionsWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $permissionsController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Auth\\Controllers\\PermissionsController as FrameworkPermissionsController;
+
+/**
+ * RBAC permissions management controller.
+ *
+ * Delegates all actions to the framework PermissionsController.
+ * Override \$requiredUserType here if this application's admin hierarchy
+ * uses a different threshold for RBAC management.
+ */
+class Permissions extends FrameworkPermissionsController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Permissions.php', $permissionsController);
+    }
+
+    private function scaffoldQueueWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $queueController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Queue\\Controllers\\QueueController as FrameworkQueueController;
+
+/**
+ * Background job queue management controller.
+ *
+ * Delegates all actions to the framework QueueController.
+ * Override \$requiredUserType here if this application's admin hierarchy
+ * uses a different threshold for queue management.
+ */
+class Queue extends FrameworkQueueController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Queue.php', $queueController);
     }
 }

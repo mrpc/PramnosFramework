@@ -1434,31 +1434,31 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 #### 23.2 Διαχείριση OAuth2 Applications (Clients)
 
-- [ ] **`ApplicationsController`** στο `\Pramnos\Auth\Controllers\` (όταν feature `authserver`):
-  - `display()` — DataTable λίστα registered OAuth2 applications
-  - `edit($id)` — φόρμα: name, description, redirect URIs, allowed grant types, allowed scopes
-  - `save()` — δημιουργία/ενημέρωση client (generate client_id/client_secret)
-  - `delete($id)` — διαγραφή application + ανάκληση tokens
-  - `tokens($id)` — λίστα ενεργών tokens για application
-  - `rotate($id)` — rotate client_secret
-  - Wrapper: `src/Controllers/Applications.php` — scaffolded όταν feature `authserver`
+- [x] **`ApplicationsController`** στο `\Pramnos\Auth\Controllers\` (όταν feature `authserver`):
+  - [x] `display()` — DataTable λίστα registered OAuth2 applications
+  - [x] `edit($id)` — φόρμα: name, description, redirect URIs, allowed scopes
+  - [x] `save()` — δημιουργία/ενημέρωση client (generate client_id/client_secret)
+  - [x] `delete($id)` — soft-delete + ανάκληση tokens
+  - [x] `tokens($id)` — λίστα ενεργών tokens για application
+  - [x] `rotate($id)` — rotate client_secret
+  - [x] Wrapper: `src/Controllers/Applications.php` — scaffolded όταν feature `authserver`
 
 #### 23.3 Διαχείριση OAuth2 Tokens
 
-- [ ] **`TokensController`** στο `\Pramnos\Auth\Controllers\` (όταν feature `authserver`):
-  - `display()` — DataTable λίστα ενεργών tokens (user, application, scope, expires_at, issued_at)
-  - `revoke($id)` — ανάκληση token
-  - `revokeall()` — ανάκληση όλων των tokens χρήστη ή application (POST με filters)
-  - Wrapper: `src/Controllers/Tokens.php` — scaffolded όταν feature `authserver`
+- [x] **`TokensController`** στο `\Pramnos\Auth\Controllers\` (όταν feature `authserver`):
+  - [x] `display()` — DataTable λίστα ενεργών tokens (user, application, scope, expires_at, issued_at)
+  - [x] `revoke($id)` — ανάκληση token
+  - [x] `revokeall()` — ανάκληση όλων των tokens χρήστη ή application (POST με filters)
+  - [x] Wrapper: `src/Controllers/Tokens.php` — scaffolded όταν feature `authserver`
 
 #### 23.4 Διαχείριση Permissions & Roles (RBAC)
 
-- [ ] **`PermissionsController`** στο `\Pramnos\Auth\Controllers\` (όταν feature `authserver` + αν `authserver.permissions` schema υπάρχει — Φάση UrbanWater Schema Backport):
-  - `display()` — DataTable λίστα permissions
-  - `edit($id)` — φόρμα permission (name, description, resource, action)
-  - `save()` / `delete($id)`
-  - `assign($userId)` — εκχώρηση permissions σε χρήστη
-  - Wrapper: `src/Controllers/Permissions.php`
+- [x] **`PermissionsController`** στο `\Pramnos\Auth\Controllers\` (όταν feature `authserver`):
+  - [x] `display()` — DataTable λίστα permissions
+  - [x] `edit($id)` — φόρμα permission (subject_type, object_type, action, grant_type)
+  - [x] `save()` / `delete($id)`
+  - [x] `assign($userId)` — εκχώρηση permissions σε χρήστη
+  - [x] Wrapper: `src/Controllers/Permissions.php`
 
 #### 23.5 Application Settings (Key-Value Store)
 
@@ -1472,51 +1472,51 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 #### 23.6 Ιστορικό Emails
 
-- [ ] **`EmailsController`** στο `\Pramnos\Application\Controllers\` (πάντα — αν υπάρχει email log table):
-  - `display()` — DataTable λίστα αποσταλμένων emails (recipient, subject, sent_at, status)
-  - `show($id)` — εμφάνιση περιεχομένου email (HTML preview)
-  - `resend($id)` — επαναποστολή
-  - Απαιτεί migration για `email_log` table (ή εντοπισμό υπάρχοντος equivalent)
-  - Wrapper: `src/Controllers/Emails.php` — scaffolded πάντα
+- [x] **`EmailsController`** στο `\Pramnos\Application\Controllers\` (πάντα — αν υπάρχει email log table):
+  - [x] `display()` — DataTable λίστα αποσταλμένων emails (recipient, subject, sent_at, status)
+  - [x] `show($id)` — εμφάνιση περιεχομένου email (HTML preview)
+  - [x] `resend($id)` — επαναποστολή
+  - [x] Χρησιμοποιεί `mails` table (messaging feature migration)
+  - [x] Wrapper: `src/Controllers/Emails.php` — scaffolded πάντα
 
 #### 23.7 Διαχείριση Queue
 
-- [ ] **`QueueController`** στο `\Pramnos\Queue\Controllers\` (όταν feature `queue`):
-  - `display()` — DataTable λίστα jobs ανά status (pending/running/failed/completed) με φίλτρα
-  - `retry($id)` — επαναπρογραμματισμός failed job
-  - `retryall()` — μαζικό retry όλων failed
-  - `delete($id)` / `clear()` — καθαρισμός queue ανά status
-  - `stats()` — JSON endpoint: counts ανά status, throughput, average processing time
-  - Wrapper: `src/Controllers/Queue.php` — scaffolded όταν feature `queue`
+- [x] **`QueueController`** στο `\Pramnos\Queue\Controllers\` (όταν feature `queue`):
+  - [x] `display()` — DataTable λίστα jobs ανά status (pending/running/failed/completed) με φίλτρα
+  - [x] `retry($id)` — επαναπρογραμματισμός failed job
+  - [x] `retryall()` — μαζικό retry όλων failed
+  - [x] `delete($id)` / `clear()` — καθαρισμός queue ανά status (soft-delete: status='deleted')
+  - [x] `stats()` — JSON endpoint: counts ανά status, throughput, average processing time
+  - [x] Wrapper: `src/Controllers/Queue.php` — scaffolded όταν feature `queue`
 
 #### 23.8 Διαχείριση Services / Workers
 
-- [ ] **`ServicesController`** στο `\Pramnos\Application\Controllers\` (**πάντα** — ο χρήστης μπορεί να ορίσει custom daemons ανεξάρτητα από queue/messaging):
-  - `display()` — λίστα registered daemon/worker services με status (running/stopped/error), PID, uptime, memory
-  - `start($name)` / `stop($name)` / `restart($name)` — έλεγχος lifecycle μέσω `DaemonOrchestrator`
-  - `logs($name)` — tail τελευταίων N γραμμών log για service
-  - `status()` — JSON endpoint: σύνοψη status όλων services (κατάλληλο για monitoring)
-  - Wrapper: `src/Controllers/Services.php` — scaffolded **πάντα**
+- [x] **`ServicesController`** στο `\Pramnos\Application\Controllers\` (**πάντα** — ο χρήστης μπορεί να ορίσει custom daemons ανεξάρτητα από queue/messaging):
+  - [x] `display()` — λίστα registered daemon/worker services με status (running/stopped/error), PID, uptime
+  - [x] `start($name)` / `stop($name)` / `restart($name)` — έλεγχος lifecycle μέσω stop-file sentinel
+  - [x] `logs($name)` — tail τελευταίων N γραμμών log για service
+  - [x] `status()` — JSON endpoint: σύνοψη status όλων services (κατάλληλο για monitoring)
+  - [x] Wrapper: `src/Controllers/Services.php` — scaffolded **πάντα**
 
 #### 23.9 Διαχείριση Organizations
 
-- [ ] **`OrganizationsController`** στο `\Pramnos\Application\Controllers\` (πάντα — εφόσον ολοκληρωθεί το `public.organizations` migration από Φάση UrbanWater Schema Backport):
-  - `display()` — DataTable λίστα organizations (name, description, members count, created_at)
-  - `edit($id)` — φόρμα δημιουργίας/επεξεργασίας organization
-  - `save()` / `delete($id)`
-  - `members($id)` — λίστα χρηστών που ανήκουν στο organization (`authserver.user_organizations`)
-  - `addmember($orgId)` / `removemember($orgId, $userId)` — διαχείριση membership
-  - Wrapper: `src/Controllers/Organizations.php` — scaffolded πάντα
+- [x] **`OrganizationsController`** στο `\Pramnos\Application\Controllers\` (πάντα — χρησιμοποιεί υπάρχον `organizations` migration):
+  - [x] `display()` — DataTable λίστα organizations (name, description, members count, created_at)
+  - [x] `edit($id)` — φόρμα δημιουργίας/επεξεργασίας organization
+  - [x] `save()` / `delete($id)` — soft-delete: `is_active = 0`
+  - [x] `members($id)` — λίστα χρηστών που ανήκουν στο organization (`authserver.user_organizations`)
+  - [x] `addmember($orgId)` / `removemember($orgId, $userId)` — διαχείριση membership
+  - [x] Wrapper: `src/Controllers/Organizations.php` — scaffolded πάντα
 
 #### 23.10 Προβολή Token Actions (Audit Log)
 
-- [ ] **`TokenActionsController`** στο `\Pramnos\Auth\Controllers\` (πάντα — `#PREFIX#tokenactions` table δημιουργείται αυτόματα από `Token.php`):
-  - Read-only audit log — δεν επιτρέπεται εγγραφή/διαγραφή μέσω UI
-  - `display()` — DataTable με φίλτρα: token, user, endpoint, HTTP status, execution time, date range
-  - `show($id)` — αναλυτική προβολή μιας εγγραφής (request params, response data, headers)
-  - `stats()` — JSON/HTML dashboard: top endpoints, error rate, average execution time, p95/p99 latency
-  - `export()` — CSV export με φίλτρα (για compliance/auditing)
-  - Wrapper: `src/Controllers/TokenActions.php` — scaffolded όταν feature `auth`
+- [x] **`TokenActionsController`** στο `\Pramnos\Auth\Controllers\` (πάντα — `#PREFIX#tokenactions` table δημιουργείται αυτόματα από `Token.php`):
+  - [x] Read-only audit log — δεν επιτρέπεται εγγραφή/διαγραφή μέσω UI
+  - [x] `display()` — DataTable με φίλτρα: token, user, endpoint, HTTP status, execution time, date range
+  - [x] `show($id)` — αναλυτική προβολή μιας εγγραφής (request params, response data, headers)
+  - [x] `stats()` — JSON/HTML dashboard: top endpoints, error rate, average execution time, p95/p99 latency
+  - [x] `export()` — CSV export με φίλτρα (για compliance/auditing), max 10 000 rows
+  - [x] Wrapper: `src/Controllers/TokenActions.php` — scaffolded όταν feature `auth`
 
 #### 23.11 Statistics & Analytics Dashboard
 

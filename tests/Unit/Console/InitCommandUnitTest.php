@@ -1798,6 +1798,45 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * The ServicesController wrapper must be scaffolded in every new application,
+     * regardless of features. It extends the framework ServicesController so the
+     * app can customise requiredUserType or maxLogLines without touching the framework.
+     */
+    public function testServicesControllerIsAlwaysScaffolded(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no features
+        $tester->execute([
+            '--app-name'  => 'SvcApp',
+            '--namespace' => 'SvcApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'svcapp_db',
+            '--db-user'   => 'svcapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        $path = $this->tmpDir . '/src/Controllers/Services.php';
+        $this->assertFileExists($path, 'src/Controllers/Services.php must be scaffolded in every new application');
+
+        $content = file_get_contents($path);
+        $this->assertStringContainsString('namespace SvcApp\\Controllers;', $content);
+        $this->assertStringContainsString('ServicesController', $content,
+            'Services wrapper must extend the framework ServicesController');
+    }
+
+    /**
      * The admin/ops DashboardController wrapper must be scaffolded in every
      * new application, regardless of features. It extends the framework
      * DashboardController so the app can customise requiredUserType without
