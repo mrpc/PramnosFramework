@@ -362,12 +362,64 @@ class Application extends Base
             NavSection::Admin, 10, requireAuth: true, minUserType: 80,
         ));
 
-        // OAuth Apps — only when authserver feature is enabled
+        // Admin ops dashboard — always
+        NavRegistry::register(new NavItem(
+            'admin.dashboard', 'Dashboard', $base . 'Dashboard',
+            NavSection::Admin, 1, requireAuth: true, minUserType: 80,
+        ));
+
+        // Services / Workers — always
+        NavRegistry::register(new NavItem(
+            'admin.services', 'Services', $base . 'Services',
+            NavSection::Admin, 12, requireAuth: true, minUserType: 80,
+        ));
+
+        // Organizations — always
+        NavRegistry::register(new NavItem(
+            'admin.organizations', 'Organizations', $base . 'Organizations',
+            NavSection::Admin, 14, requireAuth: true, minUserType: 80,
+        ));
+
+        // Emails — always
+        NavRegistry::register(new NavItem(
+            'admin.emails', 'Emails', $base . 'Emails',
+            NavSection::Admin, 16, requireAuth: true, minUserType: 80,
+        ));
+
+        // OAuth Apps — authserver feature
         if (in_array('authserver', $features, true)) {
             NavRegistry::register(new NavItem(
-                'admin.oauth', 'OAuth Apps', $base . 'oauth',
-                NavSection::Admin, 20, requireAuth: true, minUserType: 80,
+                'admin.applications', 'Applications', $base . 'Applications',
+                NavSection::Admin, 20, requireAuth: true, minUserType: 90,
                 feature: 'authserver',
+            ));
+            NavRegistry::register(new NavItem(
+                'admin.tokens', 'Tokens', $base . 'Tokens',
+                NavSection::Admin, 22, requireAuth: true, minUserType: 90,
+                feature: 'authserver',
+            ));
+            NavRegistry::register(new NavItem(
+                'admin.permissions', 'Permissions', $base . 'Permissions',
+                NavSection::Admin, 24, requireAuth: true, minUserType: 90,
+                feature: 'authserver',
+            ));
+        }
+
+        // Token Actions audit log — auth feature
+        if (in_array('auth', $features, true)) {
+            NavRegistry::register(new NavItem(
+                'admin.tokenactions', 'Token Actions', $base . 'TokenActions',
+                NavSection::Admin, 26, requireAuth: true, minUserType: 80,
+                feature: 'auth',
+            ));
+        }
+
+        // Queue — queue feature
+        if (in_array('queue', $features, true)) {
+            NavRegistry::register(new NavItem(
+                'admin.queue', 'Queue', $base . 'Queue',
+                NavSection::Admin, 30, requireAuth: true, minUserType: 80,
+                feature: 'queue',
             ));
         }
     }

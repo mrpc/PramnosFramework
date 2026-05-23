@@ -352,16 +352,25 @@ class NavRegistryTest extends TestCase
         $this->assertContains('user.logout',  NavRegistry::getIds());
 
         // Assert — always-on admin items registered
-        $this->assertContains('admin.logs',     NavRegistry::getIds());
-        $this->assertContains('admin.users',    NavRegistry::getIds());
-        $this->assertContains('admin.settings', NavRegistry::getIds());
+        $this->assertContains('admin.dashboard',     NavRegistry::getIds());
+        $this->assertContains('admin.users',         NavRegistry::getIds());
+        $this->assertContains('admin.settings',      NavRegistry::getIds());
+        $this->assertContains('admin.logs',          NavRegistry::getIds());
+        $this->assertContains('admin.services',      NavRegistry::getIds());
+        $this->assertContains('admin.organizations', NavRegistry::getIds());
+        $this->assertContains('admin.emails',        NavRegistry::getIds());
 
-        // Assert — OAuth Apps NOT registered (no authserver feature)
-        $this->assertNotContains('admin.oauth', NavRegistry::getIds());
+        // Assert — feature-gated items NOT registered without features
+        $this->assertNotContains('admin.applications', NavRegistry::getIds());
+        $this->assertNotContains('admin.tokens',       NavRegistry::getIds());
+        $this->assertNotContains('admin.permissions',  NavRegistry::getIds());
+        $this->assertNotContains('admin.tokenactions', NavRegistry::getIds());
+        $this->assertNotContains('admin.queue',        NavRegistry::getIds());
     }
 
     /**
-     * registerDefaultNavItems() with 'authserver' also registers OAuth Apps.
+     * registerDefaultNavItems() with 'authserver' registers Applications, Tokens, Permissions.
+     * These are feature-gated because OAuth2 management requires admin-level access (>= 90).
      */
     public function testRegisterDefaultNavItemsWithAuthserver(): void
     {
@@ -371,8 +380,13 @@ class NavRegistryTest extends TestCase
         // Act
         $app->registerDefaultNavItems(['auth', 'authserver']);
 
-        // Assert — OAuth Apps item is registered
-        $this->assertContains('admin.oauth', NavRegistry::getIds());
+        // Assert — authserver-gated admin items are registered
+        $this->assertContains('admin.applications', NavRegistry::getIds());
+        $this->assertContains('admin.tokens',       NavRegistry::getIds());
+        $this->assertContains('admin.permissions',  NavRegistry::getIds());
+
+        // Assert — auth-gated token actions audit log is also registered
+        $this->assertContains('admin.tokenactions', NavRegistry::getIds());
     }
 
     /**
