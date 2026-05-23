@@ -1797,6 +1797,46 @@ class InitCommandUnitTest extends TestCase
         );
     }
 
+    /**
+     * The admin/ops DashboardController wrapper must be scaffolded in every
+     * new application, regardless of features. It extends the framework
+     * DashboardController so the app can customise requiredUserType without
+     * touching the framework class.
+     */
+    public function testDashboardControllerIsAlwaysScaffolded(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no features, so only universally-scaffolded controllers appear
+        $tester->execute([
+            '--app-name'  => 'AdminApp',
+            '--namespace' => 'AdminApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'adminapp_db',
+            '--db-user'   => 'adminapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        $dashboardPath = $this->tmpDir . '/src/Controllers/Dashboard.php';
+        $this->assertFileExists($dashboardPath, 'src/Controllers/Dashboard.php must be scaffolded in every new application');
+
+        $dashboard = file_get_contents($dashboardPath);
+        $this->assertStringContainsString('namespace AdminApp\\Controllers;', $dashboard);
+        $this->assertStringContainsString('DashboardController', $dashboard,
+            'Dashboard wrapper must extend the framework DashboardController');
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
