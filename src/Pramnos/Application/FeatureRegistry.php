@@ -273,6 +273,10 @@ class FeatureRegistry
             'description' => 'DebugBar — HTML toolbar injected when APP_DEBUG=true',
             'provider'    => \Pramnos\Debug\DebugBarServiceProvider::class,
         ]);
+        static::register('devpanel', [
+            'description' => 'DevPanel — web-accessible developer/admin dashboard',
+            'provider'    => \Pramnos\DevPanel\DevPanelServiceProvider::class,
+        ]);
     }
 
     /**
