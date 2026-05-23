@@ -1395,16 +1395,16 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
   - `health/health.html.php` — summary dashboard με color-coded status badges (ok/degraded/down) ανά check, DB info table, cache stats, active users counter
   - `health/check.html.php` — αποτελέσματα individual checks σε table format (χρησιμοποιείται και για JSON via `check()` endpoint)
 
-- [ ] **Built-in checks registration** στο `Application::init()` όταν feature `core` (πάντα):
-  - `DatabaseConnectivityCheck` — ήδη υπάρχει στο framework
-  - `DiskSpaceCheck` — ήδη υπάρχει
-  - `MemoryLimitCheck` — ήδη υπάρχει
+- [x] **Built-in checks registration** στο `Application::init()` (μέσω `registerBuiltInHealthChecks()`, πάντα):
+  - `DatabaseConnectivityCheck` — registered μόνο αν `$this->database->connected`
+  - `DiskSpaceCheck` — always
+  - `MemoryLimitCheck` — always
   - Τα checks είναι idempotent: `HealthRegistry::register()` κάνει replace αν ο ίδιος name υπάρχει
 
 #### Scaffolding (init app)
 
-- [ ] **`src/Controllers/Health.php`** — thin wrapper extending `\Pramnos\Application\Controllers\HealthController`, scaffolded σε κάθε νέα εφαρμογή (πάντα, ανεξάρτητα features). Ίδιο pattern με `Logs.php`.
-- [ ] **Navbar link "Health"** — προστέθηκε πάντα στο `buildThemeHeader()`, δίπλα στο "Logs"
+- [x] **`src/Controllers/Health.php`** — thin wrapper extending `\Pramnos\Application\Controllers\Health`, scaffolded σε κάθε νέα εφαρμογή μέσω `scaffoldHealthWiring()`. Ίδιο pattern με `Logs.php`.
+- [x] **Navbar link "Health"** — registered στο `registerDefaultNavItems()` (Admin section, position 11, δίπλα στο Logs)
 - [ ] **JSON endpoint documentation** — το `GET /health/check` τεκμηριώνεται στο `CLAUDE.md` του scaffolded project ως monitoring endpoint
 
 #### Tests

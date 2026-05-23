@@ -154,16 +154,18 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
-     * renderStub('mcp.json') substitutes {{ DB_MCP_NAME }}, {{ DB_MCP_PACKAGE }},
-     * and {{ DB_MCP_DSN }} — producing a valid JSON structure with actual values.
+     * renderStub('mcp.json') substitutes {{ APP_SLUG }} — producing a valid JSON
+     * structure where the server name is the app slug and the command is the
+     * framework's built-in MCP server (`php ./bin/pramnos mcp:serve`).
+     *
+     * The stub was updated in v1.2 to use the native PHP MCP server instead of
+     * the old npx-based database server approach.
      */
     public function testMcpJsonStubSubstitutesAllTokens(): void
     {
         // Act
         $result = $this->command->renderStub('mcp.json', [
-            'DB_MCP_NAME'    => 'postgres',
-            'DB_MCP_PACKAGE' => '@modelcontextprotocol/server-postgres',
-            'DB_MCP_DSN'     => 'postgresql://user:pass@localhost:5432/mydb',
+            'APP_SLUG' => 'myapp',
         ]);
 
         // Assert
@@ -171,15 +173,16 @@ class InitCommandUnitTest extends TestCase
         $this->assertIsArray($decoded, 'mcp.json stub must produce valid JSON');
         $this->assertArrayHasKey('mcpServers', $decoded,
             'mcp.json must contain mcpServers key');
-        $this->assertArrayHasKey('postgres', $decoded['mcpServers'],
-            'DB_MCP_NAME must be substituted as server key');
-        $this->assertStringContainsString(
-            '@modelcontextprotocol/server-postgres',
-            $result,
-            'DB_MCP_PACKAGE must be substituted'
-        );
-        $this->assertStringNotContainsString('{{ DB_MCP_NAME }}', $result,
-            'No unresolved {{ DB_MCP_NAME }} placeholders must remain');
+        $this->assertArrayHasKey('myapp', $decoded['mcpServers'],
+            'APP_SLUG must be substituted as the server name key');
+        $this->assertSame('php', $decoded['mcpServers']['myapp']['command'],
+            'command must be php (not npx)');
+        $this->assertContains('./bin/pramnos', $decoded['mcpServers']['myapp']['args'],
+            'args must include ./bin/pramnos');
+        $this->assertContains('mcp:serve', $decoded['mcpServers']['myapp']['args'],
+            'args must include mcp:serve');
+        $this->assertStringNotContainsString('{{ APP_SLUG }}', $result,
+            'No unresolved {{ APP_SLUG }} placeholders must remain');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1563,6 +1566,52 @@ class InitCommandUnitTest extends TestCase
         // Must extend the framework LogController
         $this->assertStringContainsString('extends LogController', $logs);
         $this->assertStringContainsString('use Pramnos\\Application\\Controllers\\LogController', $logs);
+    }
+
+    /**
+     * Every new application must receive src/Controllers/Health.php extending
+     * the framework Health controller.  This makes /health and the monitoring
+     * endpoint GET /health/check available in every scaffolded app.
+     * Authentication is enforced by the framework controller — the thin wrapper
+     * carries no logic of its own.
+     */
+    public function testHealthControllerIsAlwaysScaffolded(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no features (health controller is unconditional)
+        $tester->execute([
+            '--app-name'  => 'MinimalApp',
+            '--namespace' => 'MinimalApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'minimal_db',
+            '--db-user'   => 'minimal',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — Health controller must always be scaffolded
+        $healthPath = $this->tmpDir . '/src/Controllers/Health.php';
+        $this->assertFileExists($healthPath, 'src/Controllers/Health.php must be scaffolded in every new application');
+
+        $health = file_get_contents($healthPath);
+
+        // Must declare the correct namespace
+        $this->assertStringContainsString('namespace MinimalApp\\Controllers;', $health);
+
+        // Must extend the framework Health controller
+        $this->assertStringContainsString('extends FrameworkHealth', $health);
+        $this->assertStringContainsString('use Pramnos\\Application\\Controllers\\Health as FrameworkHealth', $health);
     }
 
     /**

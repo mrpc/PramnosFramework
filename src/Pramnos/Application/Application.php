@@ -362,6 +362,10 @@ class Application extends Base
             'admin.logs', 'Logs', $base . 'logs',
             NavSection::Admin, 10, requireAuth: true, minUserType: 80,
         ));
+        NavRegistry::register(new NavItem(
+            'admin.health', 'Health', $base . 'health',
+            NavSection::Admin, 11, requireAuth: true, minUserType: 80,
+        ));
 
         // Admin ops dashboard — always
         NavRegistry::register(new NavItem(

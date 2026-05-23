@@ -214,6 +214,7 @@ class Init extends Command
         }
 
         $this->scaffoldLogsWiring($namespace);
+        $this->scaffoldHealthWiring($namespace);
         $this->scaffoldUsersWiring($namespace);
         $this->scaffoldSettingsWiring($namespace);
         $this->scaffoldDashboardWiring($namespace);
@@ -2311,6 +2312,46 @@ class Logs extends LogController
 PHP;
 
         $this->writeFile('src/Controllers/Logs.php', $logsController);
+    }
+
+    /**
+     * Creates src/Controllers/Health.php — a thin wrapper around the framework's
+     * Health controller so that /health provides the health dashboard and the
+     * GET /health/check JSON endpoint is available to monitoring systems.
+     *
+     * Scaffolded in every application regardless of enabled features.
+     */
+    private function scaffoldHealthWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $healthController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\Health as FrameworkHealth;
+
+/**
+ * Application health dashboard — delegates to the framework Health controller.
+ *
+ * Routes:
+ *   GET /health          → display()  HTML dashboard (login required)
+ *   GET /health/check    → check()    JSON endpoint  (public — for monitoring)
+ *   GET /health/phpinfo  → phpinfo()  PHP Info page  (admin only)
+ *
+ * Register custom health checks in your Application::init() or a ServiceProvider:
+ *
+ *   \\Pramnos\\Health\\HealthRegistry::register(new MyCustomCheck());
+ */
+class Health extends FrameworkHealth
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Health.php', $healthController);
     }
 
     private function scaffoldUsersWiring(string $namespace): void
