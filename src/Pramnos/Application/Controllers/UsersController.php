@@ -245,7 +245,7 @@ class UsersController extends Controller
     /**
      * Redirect to homepage if the current user's usertype is below $minType.
      */
-    private function requireMinUserType(int $minType): void
+    protected function requireMinUserType(int $minType): void
     {
         $user = User::getCurrentUser();
         if ($user === null || (int) $user->usertype < $minType) {
