@@ -1299,6 +1299,11 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('NavRegistry::getForUser', $header,
             'Header must delegate nav rendering to NavRegistry::getForUser()');
 
+        // getCurrentUser() returns false for guests; must convert to null before
+        // passing to getForUser(?User) to avoid a TypeError at runtime.
+        $this->assertStringContainsString('getCurrentUser() ?: null', $header,
+            'Header must convert false→null: getCurrentUser() returns false for guests, getForUser() expects ?User');
+
         // Must iterate over sections returned by the registry
         $this->assertStringContainsString('NavSection::Main->value', $header,
             'Header must iterate over NavSection::Main items');
