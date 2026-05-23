@@ -276,6 +276,7 @@ class Application extends Base
         $this->initialized = true;
         FeatureRegistry::loadFromConfig($this->applicationInfo['features'] ?? []);
         $this->bootServiceProviders();
+        $this->registerBuiltInHealthChecks();
         /**
          * Start Session
          */
@@ -1080,6 +1081,29 @@ class Application extends Base
             $this->stopMaintenance();
         }
         //@codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Registers the framework's built-in health checks with HealthRegistry.
+     *
+     * Called once during init().  Uses HealthRegistry::register() which is
+     * idempotent — re-registering a check with the same name replaces it.
+     *
+     * Database connectivity check is skipped when the database failed to connect
+     * (to avoid a redundant "not connected" error on top of the real error).
+     */
+    protected function registerBuiltInHealthChecks(): void
+    {
+        $registry = \Pramnos\Health\HealthRegistry::class;
+
+        if ($this->database !== null && $this->database->connected) {
+            $registry::register(
+                new \Pramnos\Health\Checks\DatabaseConnectivityCheck($this->database),
+            );
+        }
+
+        $registry::register(new \Pramnos\Health\Checks\DiskSpaceCheck());
+        $registry::register(new \Pramnos\Health\Checks\MemoryLimitCheck());
     }
 
 
