@@ -48,11 +48,14 @@ class DatabaseConnectivityCheck implements HealthCheck
                 );
             }
 
-            return HealthCheckResult::ok(
-                $this->getName(),
-                'Reachable',
-                ['latency_ms' => $ms, 'driver' => $this->db->type ?? 'unknown']
-            );
+            $details = ['latency_ms' => $ms, 'driver' => $this->db->type ?? 'unknown'];
+            try {
+                $vr = $this->db->query('SELECT VERSION() AS v');
+                $details['version'] = $vr ? ($vr->fields['v'] ?? null) : null;
+            } catch (\Throwable) {
+            }
+
+            return HealthCheckResult::ok($this->getName(), 'Reachable', $details);
         } catch (\Throwable $e) {
             return HealthCheckResult::down(
                 $this->getName(),

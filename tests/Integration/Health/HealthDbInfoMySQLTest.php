@@ -9,6 +9,7 @@ use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
 use Pramnos\Application\Controllers\Health;
 use Pramnos\Database\Database;
+use Pramnos\Health\Checks\DatabaseConnectivityCheck;
 use Pramnos\Health\HealthRegistry;
 
 /**
@@ -60,6 +61,8 @@ class HealthDbInfoMySQLTest extends TestCase
         }
 
         HealthRegistry::reset();
+        // Health::display() reads DB type/version from DatabaseConnectivityCheck details.
+        HealthRegistry::register(new DatabaseConnectivityCheck($this->db));
     }
 
     protected function tearDown(): void
@@ -75,9 +78,9 @@ class HealthDbInfoMySQLTest extends TestCase
      * SELECT VERSION() AS v must return a non-empty string when executed against
      * the MySQL container.
      *
-     * This is the exact query used by Health::display() to populate the DB Version
-     * row in the System Info table.  If the query fails or returns an empty result
-     * the display() method silently shows "—", which is the bug this test prevents.
+     * DatabaseConnectivityCheck runs this query and stores the result in its
+     * details array.  Health::display() then reads from those details — no direct
+     * DB query in the controller.  This test verifies the underlying query works.
      */
     public function testSelectVersionQueryReturnsNonEmptyString(): void
     {
@@ -87,7 +90,7 @@ class HealthDbInfoMySQLTest extends TestCase
             'MySQL container must be reachable for this integration test'
         );
 
-        // Act — replicate the exact query used in Health::display()
+        // Act — verify the query that DatabaseConnectivityCheck runs internally
         $result = $this->db->execute('SELECT VERSION() AS v');
 
         // Assert — query must succeed and return a usable version string
@@ -149,8 +152,9 @@ class HealthDbInfoMySQLTest extends TestCase
     /**
      * display() must embed the real MySQL version string in the HTML output.
      *
-     * This verifies the full end-to-end path: DB connection → SELECT VERSION()
-     * → ucfirst($db->type) + version in <td> — no "—" placeholder when DB is up.
+     * End-to-end path: DatabaseConnectivityCheck::run() captures version in
+     * details['version'] → Health::display() reads details → rendered in System Info.
+     * No "—" placeholder when the check is registered and the DB is up.
      */
     public function testDisplayHtmlContainsMySqlVersion(): void
     {
@@ -178,8 +182,8 @@ class HealthDbInfoMySQLTest extends TestCase
      * display() must show the PHP_VERSION constant in the System Info table even
      * when connected to a real database.
      *
-     * Regression guard: ensures that adding DB-query logic inside display() did
-     * not accidentally break the PHP version row.
+     * Regression guard: ensures the Health controller integration does not
+     * accidentally break the PHP version row.
      */
     public function testDisplayHtmlContainsPhpVersionWithRealDb(): void
     {
