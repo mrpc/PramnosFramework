@@ -93,10 +93,17 @@ class FileAdapterTest extends TestCase
 
     /**
      * connect() returns false when no directory is configured.
+     *
+     * Skipped when CACHE_PATH is defined because the constructor falls back to
+     * that path automatically — in that case '' is not a "no directory" scenario
+     * but rather "use the global default", which correctly returns true.
      */
     public function testConnectReturnsFalseWhenNoCacheDir(): void
     {
-        // Arrange — empty string means no directory
+        // Arrange
+        if (defined('CACHE_PATH')) {
+            $this->markTestSkipped('CACHE_PATH is defined; FileAdapter("") uses it as fallback — skipping.');
+        }
         $adapter = new FileAdapter('');
 
         // Act

@@ -1880,7 +1880,7 @@ Logger::log('Auth::auth() called but no authentication driver is registered. '
 - [x] `legacy_md5=true` → MD5 password γίνεται δεκτό ΚΑΙ rehashed σε bcrypt στη DB
 - [x] Auto-upgrade: μετά το login, το stored password είναι πλέον bcrypt-verifiable
 - [x] `Auth::auth()` χωρίς driver → log warning, return false
-- [ ] `SessionTrackingMiddleware` γράφει session record στη DB
-- [ ] `BotDetector::isBot('Googlebot/2.1')` → true
-- [ ] `BotDetector::isBot('Mozilla/5.0 (Windows NT 10.0)')` → false
+- [x] `SessionTrackingMiddleware` γράφει session record στη DB
+- [x] `BotDetector::isBot('Googlebot/2.1')` → true
+- [x] `BotDetector::isBot('Mozilla/5.0 (Windows NT 10.0)')` → false
 - [x] BC: `app.php` με `addons: [UserDatabase]` συνεχίζει να δουλεύουν
