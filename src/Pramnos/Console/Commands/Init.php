@@ -1822,31 +1822,12 @@ PHP;
         ]));
 
         // ── .mcp.json ─────────────────────────────────────────────────────────
-        $isPostgres = in_array($dbType, ['postgresql', 'timescaledb'], true);
-        if ($isPostgres) {
-            $dsn        = "postgresql://{$dbUser}:{$dbPass}@localhost:5432/{$dbName}";
-            $mcpPackage = '@modelcontextprotocol/server-postgres';
-            $mcpName    = 'postgres';
-        } else {
-            $dsn        = "mysql://{$dbUser}:{$dbPass}@localhost:3306/{$dbName}";
-            $mcpPackage = '@modelcontextprotocol/server-mysql';
-            $mcpName    = 'mysql';
-        }
-
+        // Uses the framework's built-in MCP server (./bin/pramnos mcp:serve)
+        // instead of external npm packages — no credentials needed, safe to commit.
+        $appSlug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $appName) ?: 'app');
         $this->writeFile('.mcp.json', $this->renderStub('mcp.json', [
-            'DB_MCP_NAME'    => $mcpName,
-            'DB_MCP_PACKAGE' => $mcpPackage,
-            'DB_MCP_DSN'     => $dsn,
+            'APP_SLUG' => $appSlug,
         ]));
-
-        // .mcp.json contains credentials — exclude from git
-        $gitignorePath = $this->targetBaseDir . '/.gitignore';
-        if (file_exists($gitignorePath)) {
-            $gi = file_get_contents($gitignorePath);
-            if (strpos($gi, '.mcp.json') === false) {
-                file_put_contents($gitignorePath, $gi . ".mcp.json\n");
-            }
-        }
     }
 
     /**
