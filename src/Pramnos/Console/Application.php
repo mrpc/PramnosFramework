@@ -78,6 +78,8 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\DbSeed());
         // Scaffolding utilities
         $this->add(new \Pramnos\Console\Commands\ScaffoldViews());
+        // MCP server (Phase 13)
+        $this->add(new \Pramnos\Console\Commands\McpServe());
         // DaemonOrchestrator is abstract — apps register their own concrete subclass
     }
 
