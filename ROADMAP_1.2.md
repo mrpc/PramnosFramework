@@ -1422,15 +1422,15 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 #### 23.1 Διαχείριση Χρηστών
 
-- [ ] **`UsersController`** στο `\Pramnos\Application\Controllers\` (πάντα διαθέσιμο):
-  - `display()` — DataTable λίστα χρηστών (username, email, usertype, status, last login)
-  - `edit($id)` — φόρμα επεξεργασίας χρήστη (username, email, usertype, active/validated flags)
-  - `save()` — POST handler για create/update
-  - `delete($id)` — διαγραφή (soft delete αν `deleted_at` υπάρχει)
-  - `lock($id)` / `unlock($id)` — αλλαγή `active` flag
-  - `resetpassword($id)` — send password reset email
-  - `sessions($id)` — λίστα ενεργών sessions για χρήστη
-  - Wrapper: `src/Controllers/Users.php` — scaffolded όταν feature `auth`
+- [x] **`UsersController`** στο `\Pramnos\Application\Controllers\` (πάντα διαθέσιμο):
+  - [x] `display()` — DataTable λίστα χρηστών (username, email, usertype, status, last login)
+  - [x] `edit($id)` — φόρμα επεξεργασίας χρήστη (username, email, usertype, active/validated flags)
+  - [x] `save()` — POST handler για create/update
+  - [x] `delete($id)` — διαγραφή (soft delete αν `deleted_at` υπάρχει)
+  - [x] `lock($id)` / `unlock($id)` — αλλαγή `active` flag
+  - `resetpassword($id)` — send password reset email *(pending)*
+  - [x] `sessions($id)` — λίστα ενεργών sessions για χρήστη
+  - [x] Wrapper: `src/Controllers/Users.php` — scaffolded πάντα
 
 #### 23.2 Διαχείριση OAuth2 Applications (Clients)
 
@@ -1462,13 +1462,13 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 #### 23.5 Application Settings (Key-Value Store)
 
-- [ ] **`SettingsController`** στο `\Pramnos\Application\Controllers\` (πάντα):
-  - `display()` — DataTable λίστα settings (key, value, category, description)
-  - `edit($key)` — φόρμα επεξεργασίας setting
-  - `save()` — POST handler
-  - `delete($key)` — διαγραφή setting
-  - Βασίζεται στο `\Pramnos\Application\Settings` class (ήδη υπάρχει)
-  - Wrapper: `src/Controllers/Settings.php` — scaffolded πάντα
+- [x] **`SettingsController`** στο `\Pramnos\Application\Controllers\` (πάντα):
+  - [x] `display()` — DataTable λίστα settings (key, value, category, description)
+  - [x] `edit($key)` — φόρμα επεξεργασίας setting
+  - [x] `save()` — POST handler
+  - [x] `delete($key)` — διαγραφή setting
+  - [x] Βασίζεται στο `\Pramnos\Application\Settings` class (ήδη υπάρχει)
+  - [x] Wrapper: `src/Controllers/Settings.php` — scaffolded πάντα
 
 #### 23.6 Ιστορικό Emails
 
@@ -1579,7 +1579,7 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 Κανόνας: **και τα δύο πρέπει να περνούν** όταν είναι ορισμένα. Το `minUserType` λειτουργεί ως minimum bar — ακόμα κι αν ο χρήστης έχει το RBAC permission, αν ο `usertype` είναι κάτω από το minimum, δεν βλέπει το item. Αν δεν υπάρχει RBAC (authserver απενεργοποιημένο), μόνο το `minUserType` μετράει.
 
-- [ ] **`\Pramnos\Application\NavRegistry`** — static registry (pattern ίδιο με `HealthRegistry`):
+- [x] **`\Pramnos\Application\NavRegistry`** — static registry (pattern ίδιο με `HealthRegistry`):
 
 ```php
 NavRegistry::register(new NavItem(
@@ -1596,17 +1596,17 @@ NavRegistry::register(new NavItem(
 ));
 ```
 
-- [ ] **`NavItem`** value object — immutable, readonly properties: `id`, `label`, `url`, `section`, `position`, `requireAuth`, `minUserType`, `permission`, `feature`, `icon`
-- [ ] **`NavSection`** enum — `Main`, `User`, `Admin`, `Feature`
-- [ ] **`NavRegistry::getForUser(?User $user, array $enabledFeatures): array`** — επιστρέφει filtered + sorted items ανά section με **διπλό permission check**:
-  1. Αν `requireAuth=true` και χρήστης δεν είναι logged in → **αφαίρεση**
-  2. Αν `minUserType > 0` και `$user->usertype < minUserType` → **αφαίρεση**
-  3. Αν `permission !== null` ΚΑΙ RBAC είναι ενεργό (`authserver` + RBAC schema) → ελέγχει `PermissionEngine::userHas($user, $permission)` → αφαίρεση αν false
-  4. Αν `permission !== null` ΚΑΙ RBAC **δεν είναι** ενεργό → το permission check **παραλείπεται** (fallback στο minUserType)
-  5. Αν `feature !== null` και δεν είναι στα `$enabledFeatures` → **αφαίρεση**
-  6. Ταξινόμηση ανά `position`
-- [ ] **`NavRegistry::reset()`** — για test isolation
-- [ ] **`NavRegistry::remove(string $id)`** — για εφαρμογές που θέλουν να αφαιρέσουν framework items
+- [x] **`NavItem`** value object — immutable, readonly properties: `id`, `label`, `url`, `section`, `position`, `requireAuth`, `minUserType`, `permission`, `feature`, `icon`
+- [x] **`NavSection`** enum — `Main`, `User`, `Admin`, `Feature`
+- [x] **`NavRegistry::getForUser(?User $user, array $enabledFeatures): array`** — επιστρέφει filtered + sorted items ανά section με **διπλό permission check**:
+  1. [x] Αν `requireAuth=true` και χρήστης δεν είναι logged in → **αφαίρεση**
+  2. [x] Αν `minUserType > 0` και `$user->usertype < minUserType` → **αφαίρεση**
+  3. [x] Αν `permission !== null` ΚΑΙ RBAC είναι ενεργό (`authserver` + RBAC schema) → ελέγχει `PermissionEngine::userHas($user, $permission)` → αφαίρεση αν false
+  4. [x] Αν `permission !== null` ΚΑΙ RBAC **δεν είναι** ενεργό → το permission check **παραλείπεται** (fallback στο minUserType)
+  5. [x] Αν `feature !== null` και δεν είναι στα `$enabledFeatures` → **αφαίρεση**
+  6. [x] Ταξινόμηση ανά `position`
+- [x] **`NavRegistry::reset()`** — για test isolation
+- [x] **`NavRegistry::remove(string $id)`** — για εφαρμογές που θέλουν να αφαιρέσουν framework items
 
 #### Εγγραφή nav items
 
@@ -1673,9 +1673,9 @@ $_nav = \Pramnos\Application\NavRegistry::getForUser($_navUser, $_navFeatures);
 
 #### Migration από hardcoded navbar (Φάσεις 22-23 → 24)
 
-- [ ] Τα hardcoded links που προστέθηκαν στις Φάσεις 22-23 (`logs`, `health`, `oauth`, auth conditionals) **αντικαθίστανται** από `NavRegistry::register()` calls στο `Application::init()`
-- [ ] Το `buildThemeHeader()` απλοποιείται — παράγει μόνο CSS/meta + το dynamic nav snippet
-- [ ] Η `scaffoldAuthWiring()` και `scaffoldLogsWiring()` παύουν να τροποποιούν το header — απλώς εγγράφουν controllers που κάνουν `NavRegistry::register()` στο constructor τους
+- [x] Τα hardcoded links που προστέθηκαν στις Φάσεις 22-23 (`logs`, `health`, `oauth`, auth conditionals) **αντικαθίστανται** από `NavRegistry::register()` calls στο `Application::init()`
+- [x] Το `buildThemeHeader()` απλοποιείται — παράγει μόνο CSS/meta + το dynamic nav snippet
+- [x] Η `scaffoldAuthWiring()` και `scaffoldLogsWiring()` παύουν να τροποποιούν το header — απλώς εγγράφουν controllers που κάνουν `NavRegistry::register()` στο constructor τους
 
 #### Σειρά εξάρτησης
 
@@ -1684,26 +1684,26 @@ $_nav = \Pramnos\Application\NavRegistry::getForUser($_navUser, $_navFeatures);
 #### Tests
 
 **Απλό μοντέλο (usertype):**
-- [ ] Anonymous user βλέπει μόνο `requireAuth=false` items
-- [ ] `usertype=50` δεν βλέπει `minUserType=80` admin items
-- [ ] `usertype=90` βλέπει `minUserType=80` items
+- [x] Anonymous user βλέπει μόνο `requireAuth=false` items
+- [x] `usertype=50` δεν βλέπει `minUserType=80` admin items
+- [x] `usertype=90` βλέπει `minUserType=80` items
 
 **Σύνθετο μοντέλο (RBAC):**
-- [ ] Χρήστης με αρκετό `minUserType` αλλά χωρίς RBAC permission → **δεν βλέπει** το item (RBAC ενεργό)
-- [ ] Χρήστης με αρκετό `minUserType` και χωρίς RBAC (authserver ανενεργό) → **βλέπει** το item (fallback)
-- [ ] Χρήστης με RBAC permission αλλά ανεπαρκή `usertype` → **δεν βλέπει** (minUserType πάντα ισχύει)
-- [ ] Χρήστης με αρκετό `minUserType` ΚΑΙ RBAC permission → **βλέπει** (και τα δύο pass)
+- [x] Χρήστης με αρκετό `minUserType` αλλά χωρίς RBAC permission → **δεν βλέπει** το item (RBAC ενεργό)
+- [x] Χρήστης με αρκετό `minUserType` και χωρίς RBAC (authserver ανενεργό) → **βλέπει** το item (fallback)
+- [x] Χρήστης με RBAC permission αλλά ανεπαρκή `usertype` → **δεν βλέπει** (minUserType πάντα ισχύει)
+- [x] Χρήστης με αρκετό `minUserType` ΚΑΙ RBAC permission → **βλέπει** (και τα δύο pass)
 
 **Features & sections:**
-- [ ] Item με `feature: 'queue'` φιλτράρεται όταν το queue δεν είναι στα `$enabledFeatures`
-- [ ] Admin dropdown εμφανίζεται μόνο αν υπάρχουν ορατά admin items για τον χρήστη
-- [ ] `NavRegistry::remove()` αφαιρεί item, επόμενο `getForUser()` δεν το επιστρέφει
-- [ ] `NavRegistry::reset()` καθαρίζει όλα τα items (test isolation)
-- [ ] Items ταξινομούνται ανά `position` εντός κάθε section
+- [x] Item με `feature: 'queue'` φιλτράρεται όταν το queue δεν είναι στα `$enabledFeatures`
+- [x] Admin dropdown εμφανίζεται μόνο αν υπάρχουν ορατά admin items για τον χρήστη
+- [x] `NavRegistry::remove()` αφαιρεί item, επόμενο `getForUser()` δεν το επιστρέφει
+- [x] `NavRegistry::reset()` καθαρίζει όλα τα items (test isolation)
+- [x] Items ταξινομούνται ανά `position` εντός κάθε section
 
 **Scaffolding:**
-- [ ] `buildThemeHeader()` παράγει nav snippet που καλεί `NavRegistry::getForUser()` (string assertion)
-- [ ] `header.php` δεν περιέχει hardcoded controller URLs μετά τη Φάση 24
+- [x] `buildThemeHeader()` παράγει nav snippet που καλεί `NavRegistry::getForUser()` (string assertion)
+- [x] `header.php` δεν περιέχει hardcoded controller URLs μετά τη Φάση 24
 
 ---
 
