@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 117) — Phase 24 (NavRegistry) + Phase 23.1/23.5 (CRUD controllers) ✅
+## 📅 Last Updated: 2026-05-23 (session 118) — Phase 23.11 Statistics + DashboardController ✅
 
 ## 🏁 Session 114 — Real-world app bug fixes (2026-05-23)
 
@@ -277,6 +277,29 @@ Phase 15 ROADMAP items marked ✅: Single config + Scaffolding update. Remaining
 ### ✅ Fix: PostgreSQL FK test
 
 `testUserConsentsCreatedInAuthserverSchemaOnPostgreSQL` was missing `CreateUsersTable->up()` before `CreateUserPrivacySettingsTable->up()`. The FK `REFERENCES public.users(userid)` failed when `public.users` didn't exist. Added `CreateUsersTable->up()` to Arrange and both `->down()` calls to teardown. Commit `22af117`.
+
+---
+
+## 🏁 Session 118 — Phase 23.11 Statistics & Analytics Dashboard (2026-05-23)
+
+### ✅ Phase 23.11 — Statistics & Analytics Dashboard
+
+Three new service classes in `Pramnos\Application\Statistics\`:
+
+- **`ActiveUsersService`** — queries `#PREFIX#sessions`, counts authenticated users across 5 time windows (now/1h/24h/7d/30d). Methods: `getCounts()`, `countSince(int)`, `countAllSince(int)`.
+- **`DatabaseStatsService`** — collects DB metrics via backend-specific queries. PostgreSQL: pg_stat_database + pg_stat_activity. MySQL: information_schema + SHOW STATUS. Degrades gracefully on restricted users (returns null).
+- **`ApiPerformanceService`** — queries `#PREFIX#tokenactions` for throughput/error rate/latency. p95/p99 via native PERCENTILE_CONT on PostgreSQL, nearest-rank OFFSET on MySQL. `getSummary()`, `getTopSlowEndpoints()`, `getTopCalledEndpoints()`.
+
+New controller: **`DashboardController`** in `Pramnos\Application\Controllers\` — admin/ops overview (4 actions: display/activeusers/apistats/dbstats, all auth-protected, requiredUserType=80). Distinct from `Auth\Controllers\Dashboard` (user account management).
+
+`scaffoldDashboardWiring()` added to Init command — every new app gets `src/Controllers/Dashboard.php` wrapper. InitCommandUnitTest gets 1 new test (`testDashboardControllerIsAlwaysScaffolded`).
+
+### Test results
+- New tests: 27 (5 ActiveUsersServiceTest + 4 DatabaseStatsServiceTest + 6 ApiPerformanceServiceTest + 4 DashboardControllerTest + 1 InitCommandUnitTest scaffold test) — all pass
+- Full suite: **4891+27 = ~4918** tests
+
+### Commits
+- `feat(stats): Phase 23.11 — Statistics services + DashboardController + scaffold wiring`
 
 ---
 
