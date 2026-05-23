@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 120) — Phase 25.2 + 25.4: Auth driver system + built-in lifecycle ✅
+## 📅 Last Updated: 2026-05-23 (session 120) — Phase 25.2 + 25.4 + 25.5: Auth modernization complete ✅
 
 ## 🏁 Session 120 — Phase 25.2 + 25.4: DatabaseAuthDriver + built-in login/logout lifecycle (2026-05-23)
 
@@ -44,6 +44,22 @@ Authentication now works out of the box without `Addon\Auth\UserDatabase` in `ap
 
 **Characterization test updated:**
 - `testAuthWithNoAddonsReturnsFalseAndWritesWarningLog` → now calls `clearDrivers()` before `auth()` to explicitly test the "no handlers at all" scenario (Phase 25.6 invariant still holds)
+
+---
+
+### ✅ Phase 25.5 — SessionTrackingMiddleware + BotDetector
+
+**New files:**
+- `src/Pramnos/Http/Middleware/BotDetector.php` — standalone bot-detection service (100+ patterns), stateless; `isBot(string $ua): bool`, `botName(string $ua): string`
+- `src/Pramnos/Http/Middleware/SessionTrackingMiddleware.php` — opt-in middleware replacing `Addon\System\Session`; implements `MiddlewareInterface`; `track(Request $request): void` extracted from `Session::onAppInit()`
+- `tests/Unit/Http/BotDetectorTest.php` — 12 unit tests
+- `tests/Integration/Http/SessionTrackingMiddlewareMySQLTest.php` — 5 integration tests (real MySQL, `testst_` prefix)
+
+**Modified:** `src/Pramnos/Addon/System/Session.php` — added `@deprecated` docblock; fully functional for BC
+
+**Bug fix:** `SessionTrackingMiddleware` MySQL INSERT now includes `history` column with `''` to avoid MySQL strict-mode NOT NULL violation.
+
+**Tests (12/12 unit + 5/5 integration ✓)**
 
 ---
 
