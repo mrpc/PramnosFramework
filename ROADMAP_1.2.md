@@ -1274,23 +1274,15 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 #### Λύση: `Pramnos\Webhook\` namespace
 
-- [ ] **`WebhookHandler`:** core class (`src/Pramnos/Webhook/WebhookHandler.php`)
-  - **HMAC verification:** `X-Hub-Signature-256` (GitHub SHA-256), `X-Hub-Signature` (Bitbucket/GitHub SHA-1 legacy) — απορρίπτει requests χωρίς valid signature
+- [x] **`WebhookHandler`:** core class (`src/Pramnos/Webhook/WebhookHandler.php`)
+  - **HMAC verification:** `X-Hub-Signature-256` (GitHub SHA-256), `X-Hub-Signature` (Bitbucket/GitHub SHA-1 legacy) — hash_equals() timing-safe
   - **Provider detection:** GitHub (`x-github-event`) vs Bitbucket — auto-detect από headers
-  - **Branch-to-actions mapping:** config-driven:
-    ```php
-    $handler->onBranch('main', [
-        'git fetch --all',
-        'git reset --hard origin/main',
-        'composer install --no-dev --optimize-autoloader',
-        'php pramnos migrate:run',
-    ]);
-    $handler->onBranch('develop', [...]);
-    ```
-  - **Event filtering:** `push`, `release` (published), `workflow_run` (GitHub Actions completed) — αγνοεί irrelevant events
-  - **Structured logging:** χρησιμοποιεί `Pramnos\Logs` — κάθε deploy καταγράφεται με payload summary, executed commands, output, duration
-  - **Secret από `.env`:** `WEBHOOK_SECRET=...` — δεν hardcoded
-  - **Response:** `200 OK` με JSON `{status, branch, commands_run}` / `403 Forbidden` για invalid signature / `204 No Content` για ignored events
+  - **Branch-to-actions mapping:** config-driven via `onBranch(branch, commands[])`, fluent API
+  - **Event filtering:** `push`, `release` (published), `workflow_run` (completed+success) — ignores all others (204)
+  - **Structured logging:** Pramnos\Logs — best-effort, never breaks webhook response
+  - **Secret from .env:** empty secret throws InvalidArgumentException at construction
+  - **Response:** 200 OK `{status,branch,commands_run,elapsed_ms}` / 204 ignored / 403 bad sig / 500 command failed
+  - **Tests:** 17 unit tests in `tests/Unit/Webhook/WebhookHandlerTest.php`
 - [ ] **`WebhookServiceProvider`:** registers config + optionally mounts route
 - [ ] **`pramnos make:webhook` command** (ή μέσω `pramnos init`): παράγει `www/webhook.php` με config placeholders:
     ```php

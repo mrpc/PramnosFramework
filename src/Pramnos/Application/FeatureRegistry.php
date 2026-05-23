@@ -281,6 +281,10 @@ class FeatureRegistry
             'description' => 'Broadcasting — real-time event dispatch (null/log/pusher/reverb drivers)',
             'provider'    => \Pramnos\Broadcasting\BroadcastingServiceProvider::class,
         ]);
+        static::register('webhook', [
+            'description' => 'WebhookHandler — HMAC-verified git webhook receiver with branch-to-commands mapping',
+            'provider'    => \Pramnos\Webhook\WebhookServiceProvider::class,
+        ]);
     }
 
     /**
