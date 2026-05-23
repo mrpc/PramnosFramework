@@ -1615,6 +1615,92 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * When --webhook=y is passed, pramnos init must generate www/webhook.php.
+     *
+     * The file must contain a WebhookHandler instantiation with the HMAC secret
+     * from $_ENV and a default onBranch('main', [...]) mapping.  This is the
+     * git-deploy entry point that ship-day teams configure once and forget.
+     */
+    public function testWebhookScaffoldedWhenRequested(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — request webhook generation
+        $tester->execute([
+            '--app-name'  => 'MinimalApp',
+            '--namespace' => 'MinimalApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'minimal_db',
+            '--db-user'   => 'minimal',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+            '--webhook'   => 'y',
+        ], ['interactive' => false]);
+
+        // Assert — www/webhook.php must exist
+        $webhookPath = $this->tmpDir . '/www/webhook.php';
+        $this->assertFileExists($webhookPath, 'www/webhook.php must be generated when --webhook=y');
+
+        $webhook = file_get_contents($webhookPath);
+
+        // Must reference WebhookHandler
+        $this->assertStringContainsString('Pramnos\\Webhook\\WebhookHandler', $webhook,
+            'webhook.php must instantiate WebhookHandler');
+
+        // Must read secret from environment
+        $this->assertStringContainsString('WEBHOOK_SECRET', $webhook,
+            'webhook.php must read WEBHOOK_SECRET from environment');
+
+        // Must configure main branch
+        $this->assertStringContainsString("onBranch('main'", $webhook,
+            'webhook.php must configure at least a main branch');
+    }
+
+    /**
+     * When --webhook is not set (or set to 'n'), www/webhook.php must NOT be generated.
+     */
+    public function testWebhookNotScaffoldedByDefault(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no webhook option
+        $tester->execute([
+            '--app-name'  => 'MinimalApp',
+            '--namespace' => 'MinimalApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'minimal_db',
+            '--db-user'   => 'minimal',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+            '--webhook'   => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — webhook.php must NOT exist (opt-in only)
+        $webhookPath = $this->tmpDir . '/www/webhook.php';
+        $this->assertFileDoesNotExist($webhookPath, 'www/webhook.php must not be generated when --webhook=n');
+    }
+
+    /**
      * Every scaffolded app receives the NavRegistry-based header which renders
      * the Admin section, including the Logs link registered by
      * Application::registerDefaultNavItems().  The header always contains the
