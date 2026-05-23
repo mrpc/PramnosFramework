@@ -988,20 +988,20 @@ HTML toolbar που εγχέεται αυτόματα στο κάτω μέρος
 - [x] **TimescaleDB sub-panel:** auto-detected via `pg_extension` — hypertables with chunk count + compression_enabled.
 
 #### Cache Browser
-- [x] **Cache stats:** adapter type from `Cache::getCacheMethod()`.
+- [x] **Cache stats:** adapter type (`$cache->method`), total items, namespace count from `getStats()`.
 - [x] **Clear all (POST flush):** POST `action=flush` to `/devpanel?action=cache` — returns JSON `{ok: true/false}`.
-- [ ] **Item browser:** paginated λίστα με key, namespace, size, TTL, created — φιλτράρισμα per namespace.
-- [ ] **Item inspector (AJAX):** εμφάνιση serialized περιεχομένου cache item (truncated στα 50 KB).
+- [x] **Item browser:** top-100 items per namespace — key, type/NS, size, TTL, created — namespace filter bar from `getCategories()`.
+- [x] **Item inspector (AJAX):** GET `?action=cache&key=X` → JSON `{ok, key, content}` — `var_export()` truncated to 50 KB.
 
 #### User Activity & Security
 - [x] **Active sessions:** top 50 active tokens (web + API) with username, IP, application, last_used.
 - [x] **Login security monitor:** active lockouts — identifier, IP, failed attempts, lockout_until.
-- [ ] **Token detail page:** paginated action history per token.
-- [ ] **User log (per-user):** `itemlog` / `userlog` entries for a specific user.
+- [x] **Token detail page:** paginated action history per token — `?action=users&token=X`, 50/page, back link.
+- [x] **User log (per-user):** `userlog` entries for a specific user — `?action=users&user=X`, 50/page, unix-ts date formatted.
 
 #### Performance Report
 - [x] **Slowest endpoints:** URL + method, call count, avg/max ms — time range selector (1h / 6h / 24h / 7d / 30d) from `tokenactions`.
-- [ ] **Slowest users/applications:** userid, username, app name, call count, avg/max/p95 ms.
+- [x] **Slowest users/applications:** userid, username, app name, call count, avg/max ms (JOIN tokenactions→tokens→users→applications).
 - [x] **Pluggable panels:** `DevPanel::registerPanel(string $slug, callable $renderer)` — apps προσθέτουν custom tabs. `__call()` dispatch + nav integration.
 
 #### Git Info Widget

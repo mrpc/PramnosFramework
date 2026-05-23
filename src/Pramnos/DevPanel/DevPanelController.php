@@ -172,6 +172,11 @@ class DevPanelController extends Controller
             return null;
         }
 
+        // GET: item inspector (AJAX endpoint)
+        if (isset($_GET['key'])) {
+            $this->handleCacheItemInspect();
+        }
+
         // POST: flush cache (AJAX endpoint)
         if (isset($_POST['action']) && $_POST['action'] === 'flush') {
             $this->handleCacheFlush();
@@ -482,10 +487,18 @@ class DevPanelController extends Controller
 
         try {
             $cache  = \Pramnos\Cache\Cache::getInstance();
-            $method = $cache->getCacheMethod();
+            $method = htmlspecialchars($cache->method);
+            $stats  = $cache->getStats();
         } catch (\Throwable) {
             return $this->alert('Cache system not available.', 'warning');
         }
+
+        // Namespace filter from GET parameter
+        $ns = isset($_GET['ns']) ? (string) $_GET['ns'] : '';
+
+        // Categories and items
+        $categories = $cache->getCategories();
+        $items      = $cache->getAllItems($ns, 100);
 
         $flushButton = <<<HTML
             <form method="POST" onsubmit="return confirm('Flush entire cache?');">
@@ -494,15 +507,78 @@ class DevPanelController extends Controller
             </form>
         HTML;
 
+        $totalItems = (int) ($stats['items'] ?? 0);
+        $totalCats  = (int) ($stats['categories'] ?? 0);
+
+        // Namespace filter bar
+        $nsLinks = "<a href='?action=cache' class='tab-link" . ($ns === '' ? ' active' : '') . "'>All</a>";
+        foreach ($categories as $cat) {
+            $catEnc  = htmlspecialchars(urlencode((string) $cat));
+            $catDisp = htmlspecialchars((string) $cat);
+            $active  = $ns === (string) $cat ? ' active' : '';
+            $nsLinks .= "<a href='?action=cache&amp;ns={$catEnc}' class='tab-link{$active}'>{$catDisp}</a>";
+        }
+
+        // Item rows
+        $itemRows = '';
+        foreach ($items as $item) {
+            $key     = htmlspecialchars((string) ($item['key'] ?? ''));
+            $keyEnc  = htmlspecialchars(urlencode((string) ($item['key'] ?? '')));
+            $nsDisp  = htmlspecialchars((string) ($item['namespace'] ?? $item['type'] ?? ''));
+            $size    = number_format((int) ($item['size'] ?? 0));
+            $ttl     = isset($item['ttl']) ? ((int) $item['ttl'] === -1 ? 'no-expiry' : (int) $item['ttl'] . ' s') : '—';
+            if (isset($item['expired']) && $item['expired']) {
+                $ttl = '<span style="color:var(--danger)">expired</span>';
+            }
+            $created = htmlspecialchars((string) ($item['created_time'] ?? '—'));
+            $nsParam = $ns !== '' ? '&amp;ns=' . htmlspecialchars(urlencode($ns)) : '';
+            $inspectBtn = "<button class='btn-inspect' data-key='{$keyEnc}' data-ns='" . htmlspecialchars(urlencode($ns)) . "' onclick='inspectItem(this)' style='padding:2px 8px;cursor:pointer;font-size:0.8em'>Inspect</button>";
+            $itemRows .= "<tr><td><code style='font-size:0.85em'>{$key}</code></td><td>{$nsDisp}</td><td class='num'>{$size}</td><td>{$ttl}</td><td>{$created}</td><td>{$inspectBtn}</td></tr>";
+        }
+
+        $noItems = $itemRows === '' ? '<tr><td colspan="6" class="empty">No items found</td></tr>' : $itemRows;
+        $nsFilter = !empty($categories) ? "<div class='range-bar' style='margin-bottom:1rem'>{$nsLinks}</div>" : '';
+        $itemCount = count($items);
+        $limitNote = $itemCount >= 100 ? ' <em>(showing first 100)</em>' : '';
+
         return <<<HTML
             <div class="grid-2">
                 {$this->card('Cache Status', <<<INNER
                     <table class="info-table">
                         <tr><th>Adapter</th><td>{$method}</td></tr>
+                        <tr><th>Total items</th><td>{$totalItems}</td></tr>
+                        <tr><th>Namespaces</th><td>{$totalCats}</td></tr>
                     </table>
                     {$flushButton}
                 INNER)}
             </div>
+            <h3 style="margin-top:1.5rem">Item Browser{$limitNote}</h3>
+            {$nsFilter}
+            <table class="data-table">
+                <thead><tr><th>Key</th><th>Type / NS</th><th class="num">Size (B)</th><th>TTL</th><th>Created</th><th></th></tr></thead>
+                <tbody>{$noItems}</tbody>
+            </table>
+            <div id="inspect-modal" style="display:none;margin-top:1rem;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:1rem">
+                <strong id="inspect-title">Item content</strong>
+                <pre id="inspect-content" style="margin-top:0.5rem;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:0.8em"></pre>
+            </div>
+            <script>
+            function inspectItem(btn) {
+                var key = btn.dataset.key;
+                var ns  = btn.dataset.ns;
+                var url = '?action=cache&key=' + key + (ns ? '&ns=' + ns : '');
+                document.getElementById('inspect-modal').style.display = 'block';
+                document.getElementById('inspect-title').textContent = 'Loading …';
+                document.getElementById('inspect-content').textContent = '';
+                fetch(url).then(function(r){ return r.json(); }).then(function(d){
+                    document.getElementById('inspect-title').textContent = d.ok ? decodeURIComponent(key) : 'Error';
+                    document.getElementById('inspect-content').textContent = d.ok ? (d.content || '(empty)') : (d.error || 'unknown error');
+                }).catch(function(e){
+                    document.getElementById('inspect-title').textContent = 'Error';
+                    document.getElementById('inspect-content').textContent = String(e);
+                });
+            }
+            </script>
         HTML;
     }
 
@@ -513,12 +589,20 @@ class DevPanelController extends Controller
             return $this->alert('Database not connected.', 'warning');
         }
 
+        // Sub-views: token detail and per-user log
+        if (isset($_GET['token'])) {
+            return $this->renderTokenDetail((int) $_GET['token']);
+        }
+        if (isset($_GET['user'])) {
+            return $this->renderUserLog((int) $_GET['user']);
+        }
+
         // Active sessions (tokens)
         $sessions = [];
         try {
             $prefix = defined('PREFIX') ? PREFIX : '';
             $res    = $db->execute(
-                "SELECT t.tokenid, u.username, t.last_used, t.ip_address,
+                "SELECT t.tokenid, t.userid, u.username, t.last_used, t.ip_address,
                         t.application, t.tokentype
                  FROM {$prefix}tokens t
                  JOIN {$prefix}users u ON u.userid = t.userid
@@ -553,29 +637,33 @@ class DevPanelController extends Controller
 
         $sessionRows = '';
         foreach ($sessions as $s) {
-            $user    = htmlspecialchars($s['username'] ?? '');
-            $app     = htmlspecialchars($s['application'] ?? '—');
-            $ip      = htmlspecialchars($s['ip_address'] ?? '—');
-            $last    = $s['last_used'] ?? '—';
-            $sessionRows .= "<tr><td>{$user}</td><td>{$ip}</td><td>{$app}</td><td>{$last}</td></tr>";
+            $tid       = (int) ($s['tokenid'] ?? 0);
+            $uid       = (int) ($s['userid'] ?? 0);
+            $user      = htmlspecialchars($s['username'] ?? '');
+            $app       = htmlspecialchars($s['application'] ?? '—');
+            $ip        = htmlspecialchars($s['ip_address'] ?? '—');
+            $last      = $s['last_used'] ?? '—';
+            $tokenLink = "<a href='?action=users&amp;token={$tid}'>#{$tid}</a>";
+            $userLink  = "<a href='?action=users&amp;user={$uid}'>{$user}</a>";
+            $sessionRows .= "<tr><td>{$tokenLink}</td><td>{$userLink}</td><td>{$ip}</td><td>{$app}</td><td>{$last}</td></tr>";
         }
 
         $lockoutRows = '';
         foreach ($lockouts as $l) {
-            $id      = htmlspecialchars($l['identifier'] ?? '');
-            $ip      = htmlspecialchars($l['ip_address'] ?? '—');
-            $until   = htmlspecialchars($l['lockout_until'] ?? '');
-            $attempts= (int) ($l['failed_attempts'] ?? 0);
+            $id       = htmlspecialchars($l['identifier'] ?? '');
+            $ip       = htmlspecialchars($l['ip_address'] ?? '—');
+            $until    = htmlspecialchars($l['lockout_until'] ?? '');
+            $attempts = (int) ($l['failed_attempts'] ?? 0);
             $lockoutRows .= "<tr><td>{$id}</td><td>{$ip}</td><td>{$attempts}</td><td>{$until}</td></tr>";
         }
 
-        $noSessions  = $sessionRows  === '' ? '<tr><td colspan="4" class="empty">No active sessions</td></tr>' : $sessionRows;
-        $noLockouts  = $lockoutRows  === '' ? '<tr><td colspan="4" class="empty">No active lockouts</td></tr>' : $lockoutRows;
+        $noSessions = $sessionRows === '' ? '<tr><td colspan="5" class="empty">No active sessions</td></tr>' : $sessionRows;
+        $noLockouts = $lockoutRows === '' ? '<tr><td colspan="4" class="empty">No active lockouts</td></tr>' : $lockoutRows;
 
         return <<<HTML
             <h3>Active Sessions (web + API)</h3>
             <table class="data-table">
-                <thead><tr><th>User</th><th>IP</th><th>Application</th><th>Last seen</th></tr></thead>
+                <thead><tr><th>Token</th><th>User</th><th>IP</th><th>Application</th><th>Last seen</th></tr></thead>
                 <tbody>{$noSessions}</tbody>
             </table>
             <h3>Login Lockouts</h3>
@@ -583,6 +671,193 @@ class DevPanelController extends Controller
                 <thead><tr><th>Identifier</th><th>IP</th><th>Attempts</th><th>Locked until</th></tr></thead>
                 <tbody>{$noLockouts}</tbody>
             </table>
+        HTML;
+    }
+
+    /**
+     * Paginated action history for a specific token.
+     *
+     * Fetches tokenactions rows for the given tokenid, ordered newest-first,
+     * 50 per page.  Linked from the Active Sessions table via ?token=X.
+     */
+    private function renderTokenDetail(int $tokenId): string
+    {
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $prefix = defined('PREFIX') ? PREFIX : '';
+        $page   = max(1, (int) ($_GET['page'] ?? 1));
+        $perPage = 50;
+        $offset = ($page - 1) * $perPage;
+
+        $tokenInfo = null;
+        try {
+            $res = $db->execute(
+                "SELECT t.tokenid, t.userid, u.username, t.application
+                 FROM {$prefix}tokens t
+                 JOIN {$prefix}users u ON u.userid = t.userid
+                 WHERE t.tokenid = {$tokenId}
+                 LIMIT 1"
+            );
+            if ($res && !$res->EOF) {
+                $tokenInfo = $res->fields;
+            }
+        } catch (\Throwable) {
+        }
+
+        if ($tokenInfo === null) {
+            return $this->alert("Token #{$tokenId} not found.", 'warning')
+                . "<p><a href='?action=users'>← Back to Users</a></p>";
+        }
+
+        $actions = [];
+        $total   = 0;
+        try {
+            $countRes = $db->execute(
+                "SELECT COUNT(*) AS cnt FROM {$prefix}tokenactions WHERE tokenid = {$tokenId}"
+            );
+            if ($countRes && !$countRes->EOF) {
+                $total = (int) $countRes->fields['cnt'];
+            }
+
+            $res = $db->execute(
+                "SELECT urlid, method, servertime, execution_time_ms, return_status
+                 FROM {$prefix}tokenactions
+                 WHERE tokenid = {$tokenId}
+                 ORDER BY servertime DESC
+                 LIMIT {$perPage} OFFSET {$offset}"
+            );
+            while ($res && !$res->EOF) {
+                $actions[] = $res->fields;
+                $res->moveNext();
+            }
+        } catch (\Throwable) {
+        }
+
+        $uname = htmlspecialchars($tokenInfo['username'] ?? '');
+        $app   = htmlspecialchars($tokenInfo['application'] ?? '—');
+
+        $rows = '';
+        foreach ($actions as $a) {
+            $url    = htmlspecialchars($a['urlid'] ?? '');
+            $method = htmlspecialchars($a['method'] ?? '');
+            $time   = htmlspecialchars($a['servertime'] ?? '');
+            $ms     = number_format((float) ($a['execution_time_ms'] ?? 0), 1);
+            $status = (int) ($a['return_status'] ?? 0);
+            $statusStyle = $status >= 400 ? ' style="color:var(--danger)"' : '';
+            $rows .= "<tr><td>{$url}</td><td>{$method}</td><td>{$time}</td><td class='num'>{$ms} ms</td><td class='num'{$statusStyle}>{$status}</td></tr>";
+        }
+
+        $noData = $rows === '' ? '<tr><td colspan="5" class="empty">No actions recorded</td></tr>' : $rows;
+
+        $pages     = $total > 0 ? (int) ceil($total / $perPage) : 1;
+        $pager     = '';
+        for ($i = 1; $i <= $pages; $i++) {
+            $active = $i === $page ? ' active' : '';
+            $pager .= "<a href='?action=users&amp;token={$tokenId}&amp;page={$i}' class='tab-link{$active}'>{$i}</a>";
+        }
+        $pagerHtml = $pages > 1 ? "<div class='range-bar'>{$pager}</div>" : '';
+
+        return <<<HTML
+            <p><a href='?action=users'>← Back to Users</a></p>
+            <h3>Token #{$tokenId} — {$uname} ({$app})</h3>
+            <p>Total actions: {$total}</p>
+            {$pagerHtml}
+            <table class="data-table">
+                <thead><tr><th>URL</th><th>Method</th><th>Time</th><th class="num">ms</th><th class="num">Status</th></tr></thead>
+                <tbody>{$noData}</tbody>
+            </table>
+            {$pagerHtml}
+        HTML;
+    }
+
+    /**
+     * Paginated userlog entries for a specific user.
+     *
+     * Shows audit-log rows from the userlog table (logid, date unix-ts, logtype,
+     * log, details) ordered newest-first, 50 per page.
+     * Linked from the Active Sessions table via ?user=X.
+     */
+    private function renderUserLog(int $userId): string
+    {
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $prefix = defined('PREFIX') ? PREFIX : '';
+        $page   = max(1, (int) ($_GET['page'] ?? 1));
+        $perPage = 50;
+        $offset = ($page - 1) * $perPage;
+
+        $userInfo = null;
+        try {
+            $res = $db->execute(
+                "SELECT userid, username
+                 FROM {$prefix}users
+                 WHERE userid = {$userId}
+                 LIMIT 1"
+            );
+            if ($res && !$res->EOF) {
+                $userInfo = $res->fields;
+            }
+        } catch (\Throwable) {
+        }
+
+        if ($userInfo === null) {
+            return $this->alert("User #{$userId} not found.", 'warning')
+                . "<p><a href='?action=users'>← Back to Users</a></p>";
+        }
+
+        $logs  = [];
+        $total = 0;
+        try {
+            $countRes = $db->execute(
+                "SELECT COUNT(*) AS cnt FROM {$prefix}userlog WHERE userid = {$userId}"
+            );
+            if ($countRes && !$countRes->EOF) {
+                $total = (int) $countRes->fields['cnt'];
+            }
+
+            $res = $db->execute(
+                "SELECT logid, date, logtype, log, details
+                 FROM {$prefix}userlog
+                 WHERE userid = {$userId}
+                 ORDER BY date DESC, logid DESC
+                 LIMIT {$perPage} OFFSET {$offset}"
+            );
+            while ($res && !$res->EOF) {
+                $logs[] = $res->fields;
+                $res->moveNext();
+            }
+        } catch (\Throwable) {
+        }
+
+        $uname = htmlspecialchars($userInfo['username'] ?? '');
+
+        $rows = '';
+        foreach ($logs as $l) {
+            $date    = date('Y-m-d H:i:s', (int) ($l['date'] ?? 0));
+            $logtype = (int) ($l['logtype'] ?? 0);
+            $log     = htmlspecialchars($l['log'] ?? '—');
+            $details = htmlspecialchars(mb_strimwidth($l['details'] ?? '', 0, 120, '…'));
+            $rows .= "<tr><td>{$date}</td><td>{$logtype}</td><td>{$log}</td><td>{$details}</td></tr>";
+        }
+
+        $noData = $rows === '' ? '<tr><td colspan="4" class="empty">No log entries found</td></tr>' : $rows;
+
+        $pages     = $total > 0 ? (int) ceil($total / $perPage) : 1;
+        $pager     = '';
+        for ($i = 1; $i <= $pages; $i++) {
+            $active = $i === $page ? ' active' : '';
+            $pager .= "<a href='?action=users&amp;user={$userId}&amp;page={$i}' class='tab-link{$active}'>{$i}</a>";
+        }
+        $pagerHtml = $pages > 1 ? "<div class='range-bar'>{$pager}</div>" : '';
+
+        return <<<HTML
+            <p><a href='?action=users'>← Back to Users</a></p>
+            <h3>User Log — #{$userId} {$uname}</h3>
+            <p>Total entries: {$total}</p>
+            {$pagerHtml}
+            <table class="data-table">
+                <thead><tr><th>Date</th><th>Type</th><th>Log</th><th>Details</th></tr></thead>
+                <tbody>{$noData}</tbody>
+            </table>
+            {$pagerHtml}
         HTML;
     }
 
@@ -600,6 +875,7 @@ class DevPanelController extends Controller
         }
 
         $endpoints = [];
+        $slowUsers = [];
         try {
             $prefix = defined('PREFIX') ? PREFIX : '';
             $res    = $db->execute(
@@ -617,6 +893,27 @@ class DevPanelController extends Controller
                 $endpoints[] = $res->fields;
                 $res->moveNext();
             }
+
+            // Slowest users/applications: join tokenactions → tokens → users → applications
+            $res2 = $db->execute(
+                "SELECT t.userid, u.username,
+                        a.name AS app_name,
+                        COUNT(*) AS calls,
+                        ROUND(AVG(ta.execution_time_ms), 1) AS avg_ms,
+                        MAX(ta.execution_time_ms) AS max_ms
+                 FROM {$prefix}tokenactions ta
+                 JOIN {$prefix}tokens t ON t.tokenid = ta.tokenid
+                 JOIN {$prefix}users u ON u.userid = t.userid
+                 LEFT JOIN {$prefix}applications a ON a.appid = t.applicationid
+                 WHERE ta.servertime >= NOW() - INTERVAL {$range} HOUR
+                 GROUP BY t.userid, u.username, a.name
+                 ORDER BY avg_ms DESC
+                 LIMIT 20"
+            );
+            while ($res2 && !$res2->EOF) {
+                $slowUsers[] = $res2->fields;
+                $res2->moveNext();
+            }
         } catch (\Throwable) {
         }
 
@@ -632,6 +929,19 @@ class DevPanelController extends Controller
 
         $noData = $rows === '' ? '<tr><td colspan="5" class="empty">No data for this period</td></tr>' : $rows;
 
+        $userRows = '';
+        foreach ($slowUsers as $u) {
+            $uid  = (int) ($u['userid'] ?? 0);
+            $uname = htmlspecialchars($u['username'] ?? '—');
+            $app  = htmlspecialchars($u['app_name'] ?? '—');
+            $c    = number_format((int) ($u['calls'] ?? 0));
+            $avg  = number_format((float) ($u['avg_ms'] ?? 0), 1);
+            $max  = number_format((float) ($u['max_ms'] ?? 0), 1);
+            $userRows .= "<tr><td>{$uid}</td><td>{$uname}</td><td>{$app}</td><td class='num'>{$c}</td><td class='num'>{$avg} ms</td><td class='num'>{$max} ms</td></tr>";
+        }
+
+        $noUserData = $userRows === '' ? '<tr><td colspan="6" class="empty">No data for this period</td></tr>' : $userRows;
+
         $rangeLinks = '';
         foreach (['1' => '1h', '6' => '6h', '24' => '24h', '168' => '7d', '720' => '30d'] as $h => $label) {
             $active     = (int) $h === $range ? ' active' : '';
@@ -644,6 +954,11 @@ class DevPanelController extends Controller
             <table class="data-table">
                 <thead><tr><th>Endpoint</th><th>Method</th><th class="num">Calls</th><th class="num">Avg ms</th><th class="num">Max ms</th></tr></thead>
                 <tbody>{$noData}</tbody>
+            </table>
+            <h3 style="margin-top:2rem">Slowest Users / Applications (top 20 by avg ms)</h3>
+            <table class="data-table">
+                <thead><tr><th>User ID</th><th>Username</th><th>Application</th><th class="num">Calls</th><th class="num">Avg ms</th><th class="num">Max ms</th></tr></thead>
+                <tbody>{$noUserData}</tbody>
             </table>
         HTML;
     }
@@ -796,6 +1111,52 @@ class DevPanelController extends Controller
         try {
             \Pramnos\Cache\Cache::getInstance()->clear();
             echo json_encode(['ok' => true]);
+        } catch (\Throwable $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+
+    /**
+     * AJAX endpoint: returns serialized content of a specific cache item.
+     *
+     * Expects GET params: key (URL-encoded raw cache key from getAllItems()),
+     * optional ns (namespace/category).  Bypasses TTL so expired items are
+     * still inspectable.  Content is truncated to 50 KB.
+     */
+    private function handleCacheItemInspect(): void
+    {
+        header('Content-Type: application/json');
+        $rawKey = urldecode((string) ($_GET['key'] ?? ''));
+
+        if ($rawKey === '') {
+            echo json_encode(['ok' => false, 'error' => 'No key specified']);
+            exit;
+        }
+
+        try {
+            $cache   = \Pramnos\Cache\Cache::getInstance();
+            $adapter = $cache->getAdapter();
+
+            if ($adapter === null) {
+                echo json_encode(['ok' => false, 'error' => 'No cache adapter']);
+                exit;
+            }
+
+            // Redis stores keys with adapter prefix; getAllItems() strips it,
+            // so we must re-add it before calling load().
+            $loadKey = ($adapter instanceof \Pramnos\Cache\Adapter\RedisAdapter)
+                ? $adapter->getPrefix() . $rawKey
+                : $rawKey;
+
+            // timeout=0 bypasses the TTL expiry check — we always want to show
+            // the item content regardless of whether it has expired.
+            $data    = $adapter->load($loadKey, 0);
+            $content = $data !== false
+                ? substr(var_export($data, true), 0, 50 * 1024)
+                : null;
+
+            echo json_encode(['ok' => $data !== false, 'key' => $rawKey, 'content' => $content]);
         } catch (\Throwable $e) {
             echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
         }

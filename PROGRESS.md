@@ -3216,6 +3216,27 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 
 ---
 
+## 📌 Session 125 (2026-05-23) — DevPanel: Performance Users, Token Detail, User Log, Cache Browser
+
+### Completed
+- **DevPanel Performance — Slowest users/applications:** second table in `renderPerformance()` — JOIN tokenactions→tokens→users→applications, top 20 by avg ms, grouped by userid+username+app_name.
+- **DevPanel Users — Token detail page:** `?action=users&token=X` sub-view — paginated (50/page) tokenactions history for one token, newest-first, back link.
+- **DevPanel Users — User log (per-user):** `?action=users&user=X` sub-view — paginated (50/page) userlog entries, unix-ts date formatted, details truncated to 120 chars.
+- **DevPanel Users — Clickable session links:** Token column with `#tokenid` link and Username as user log link added to Active Sessions table.
+- **DevPanel Cache Browser — Item browser:** `getAllItems($ns, 100)` table with key, type/NS, size, TTL, created; namespace filter bar from `getCategories()`.
+- **DevPanel Cache Browser — AJAX item inspector:** GET `?action=cache&key=X` → JSON `{ok, key, content}` — `var_export()` truncated 50 KB; inline JS Inspect button.
+- **Cache getCacheMethod() fix:** corrected stale `getCacheMethod()` call to `$cache->method` (public property).
+- **ROADMAP:** closed all 6 above items; docs updated in parallel.
+
+### ROADMAP items closed
+- `[x]` DevPanel Performance: Slowest users/applications
+- `[x]` DevPanel Users: Token detail page
+- `[x]` DevPanel Users: User log (per-user)
+- `[x]` DevPanel Cache: Item browser
+- `[x]` DevPanel Cache: Item inspector (AJAX)
+
+---
+
 ## 📈 Quality Metrics
 - **Framework Test Pass Rate:** 2094/2094 pass (0 failures, 0 errors, 3 skipped per ext-gd) — includes unit, integration, and characterization suites.
 - **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.

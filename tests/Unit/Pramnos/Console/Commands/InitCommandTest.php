@@ -72,6 +72,7 @@ class InitCommandTest extends TestCase
             'n',               // Step 2: Enable queue?
             'n',               // Step 2: Enable messaging?
             'n',               // Step 2b: REST API?
+            'n',               // Step 2c: webhook?
             '',                // Step 3: UI system (Enter = plain-css default)
             'n',               // Step 4: Configure libraries?
             'n',               // Setup Docker? (n)
@@ -120,6 +121,7 @@ class InitCommandTest extends TestCase
             'n',                 // Step 2: queue
             'n',                 // Step 2: messaging
             'n',                 // Step 2b: REST API?
+            'n',                 // Step 2c: webhook?
             '',                  // Step 3: UI (plain-css)
             'n',                 // Step 4: libraries
             'y',                 // Setup Docker (y)
@@ -167,6 +169,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
             'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'n',            // No Docker
@@ -209,6 +212,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
             'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'y',            // Setup Docker
@@ -289,6 +293,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
             'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'y',            // Setup Docker
@@ -337,6 +342,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
             'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'n',            // Setup Docker (n)
@@ -395,6 +401,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
             'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'y',            // Setup Docker (y)
@@ -441,6 +448,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
             'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'n',            // No Docker
@@ -504,6 +512,7 @@ class InitCommandTest extends TestCase
             'My CLI App', 'MyCLIApp',
             'n', 'n', 'n', 'n',   // features
             'n',                   // REST API?
+            'n',                   // webhook?
             '',                    // UI plain-css
             'n',                   // no libraries
             'y', '8090', '0',      // Docker, port, no cache
@@ -650,6 +659,7 @@ class InitCommandTest extends TestCase
             'Migrate App', 'MigrateApp',
             'n', 'n', 'n', 'n',
             'n',            // REST API?
+            'n',            // webhook?
             '', 'n',
             'y', '8091', '0', '0',
             'localhost', 'migratedb', 'root', '', '',
@@ -687,6 +697,7 @@ class InitCommandTest extends TestCase
             'CDN Test App', 'CDNTestApp',
             'n', 'n', 'n', 'n',
             'n',            // REST API?
+            'n',            // webhook?
             '', 'n',
             'n', '0',
             'localhost', 'cdndb', 'root', '', '',
