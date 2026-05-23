@@ -804,7 +804,7 @@ PHP;
         // The header just iterates over the filtered result — no hardcoded URLs.
         $navSetup = <<<'PHP'
     <?php
-    $_navUser     = \Pramnos\User\User::getCurrentUser();
+    $_navUser     = \Pramnos\User\User::getCurrentUser() ?: null;
     $_navFeatures = \Pramnos\Application\Application::getInstance()->applicationInfo['features'] ?? [];
     $_nav         = \Pramnos\Application\NavRegistry::getForUser($_navUser, $_navFeatures);
     ?>
