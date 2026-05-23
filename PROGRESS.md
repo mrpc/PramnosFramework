@@ -1,7 +1,33 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 123) — DevPanel pluggable panels ✅ + Application built-in health checks ✅
+## 📅 Last Updated: 2026-05-23 (session 123) — WebhookHandler ✅ + Health scaffold ✅ + DevPanel pluggable panels ✅
+
+## 🏁 Session 123 — WebhookHandler + Health scaffold + DevPanel pluggable panels + built-in health checks (2026-05-23)
+
+### ✅ Phase 15 — WebhookHandler
+
+**New files:**
+- `src/Pramnos/Webhook/WebhookHandler.php` — HMAC-verified git webhook receiver; onBranch() mapping; GitHub push/release/workflow_run + Bitbucket push; fail-fast command execution; 200/204/403/500 responses; Logs integration
+- `tests/Unit/Webhook/WebhookHandlerTest.php` — 17 tests: constructor guard, onBranch fluent API, SHA-256/SHA-1 sig verification, event detection, branch extraction, executeCommands fail-fast
+
+### ✅ Health Scaffold
+
+**Modified:**
+- `src/Pramnos/Console/Commands/Init.php` — scaffoldHealthWiring() generates src/Controllers/Health.php in every new app
+- `src/Pramnos/Application/Application.php` — registerDefaultNavItems() adds 'admin.health' nav link (position 11, next to Logs)
+- `scaffolding/templates/CLAUDE.md.stub` — documented /health/check monitoring endpoint
+- `tests/Unit/Console/InitCommandUnitTest.php` — added testHealthControllerIsAlwaysScaffolded(); fixed testMcpJsonStubSubstitutesAllTokens() for new APP_SLUG token
+
+**Bug fixed:** testMcpJsonStubSubstitutesAllTokens() was testing the old npx/DB_MCP_NAME approach; updated to assert APP_SLUG + php mcp:serve
+
+### ROADMAP items closed
+- `[x] src/Controllers/Health.php` scaffolded in every new app
+- `[x] Navbar link "Health"` in registerDefaultNavItems()
+- `[x] Built-in health checks registration` in Application::init()
+- `[x] WebhookHandler core class` (17 tests)
+
+---
 
 ## 🏁 Session 123 — DevPanel pluggable panels + Application built-in health checks (2026-05-23)
 
