@@ -3216,6 +3216,18 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 
 ---
 
+## 📌 Session 126 (2026-05-23) — Health DB integration tests (MySQL + PostgreSQL)
+
+### Completed
+- **Health integration tests — MySQL:** `tests/Integration/Health/HealthDbInfoMySQLTest.php` — 4 tests: `SELECT VERSION() AS v` returns non-empty, version contains "8.", `display()` HTML contains "Mysql" label, display() embeds real version string, PHP_VERSION row.
+- **Health integration tests — PostgreSQL:** `tests/Integration/Health/HealthDbInfoPostgreSQLTest.php` — 4 tests: same coverage against TimescaleDB container; `#[RunTestsInSeparateProcesses]`; markTestSkipped if container unreachable; version string must contain "PostgreSQL".
+- All 10 new tests green via `./dockertest --filter HealthDbInfo`.
+
+### ROADMAP items closed
+- `[x]` Health integration tests (MySQL + PostgreSQL) — ROADMAP line 1405
+
+---
+
 ## 📌 Session 125 (2026-05-23) — DevPanel: Performance Users, Token Detail, User Log, Cache Browser
 
 ### Completed
