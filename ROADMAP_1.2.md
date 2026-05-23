@@ -943,7 +943,7 @@
   - `route-list` — λίστα registered routes.
 - [x] **`McpResource`:** expose αρχεία ως `file://` resources (CLAUDE.md, config, views).
 - [x] **`pramnos mcp:serve`** CLI command: εκκινεί τον MCP server σε stdio mode· κατάλληλο για `.mcp.json` `"command"` entry.
-- [ ] **`.mcp.json` upgrade:** αντί για εξωτερικό `@modelcontextprotocol/server-mysql`, χρησιμοποιεί `./{{CLI_NAME}} mcp:serve` — zero npm dependency.
+- [x] **`.mcp.json` upgrade:** `scaffolding/templates/mcp.json.stub` τώρα χρησιμοποιεί `php ./bin/pramnos mcp:serve` (zero npm); `Init.php` ενημερώθηκε — δεν προσθέτει πλέον `.mcp.json` στο `.gitignore`; `.mcp.json` προστέθηκε στο framework repo.
 - [x] **`McpServiceProvider`:** opt-in εγγραφή μέσω `app.php`; lazy boot (τρέχει μόνο όταν κληθεί `mcp:serve`).
 - [x] **Tests:** 25 unit tests — McpServer protocol handling (12), McpResource (4), built-in tools (9).
 
