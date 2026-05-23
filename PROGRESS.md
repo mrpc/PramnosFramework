@@ -3234,6 +3234,8 @@ Bug fixes required after verifying against the reference application PostgreSQL 
 - `[x]` DevPanel Users: User log (per-user)
 - `[x]` DevPanel Cache: Item browser
 - `[x]` DevPanel Cache: Item inspector (AJAX)
+- `[x]` Health controller unit tests: display() HTML, check() HTTP mapping, admin.health NavItem
+- `[x]` Health.php getCacheMethod() bug fix
 
 ---
 
