@@ -1,0 +1,17 @@
+{
+    "_comment": "Optional manual overrides applied on top of the auto-generated OpenAPI spec.",
+    "_usage": "Place schema, path, or component overrides here. They are deep-merged over the generated output.",
+
+    "info": {
+        "contact": {
+            "name": "{{ APP_NAME }} Support",
+            "email": "support@example.com"
+        }
+    },
+
+    "paths": {},
+
+    "components": {
+        "schemas": {}
+    }
+}

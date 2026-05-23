@@ -58,6 +58,9 @@ class Init extends Command
         $this->addOption('no-download',   null, InputOption::VALUE_NONE,     'Skip asset download (record in assets.json only)');
         $this->addOption('no-migrations', null, InputOption::VALUE_NONE,     'Skip migrate --scope=framework after Docker startup');
         $this->addOption('rest-api',      null, InputOption::VALUE_OPTIONAL, 'Scaffold REST API layer (y/n)');
+        $this->addOption('api-docs',      null, InputOption::VALUE_OPTIONAL, 'Generate API documentation tooling (apidoc → OpenAPI) (y/n)');
+        $this->addOption('api-url',       null, InputOption::VALUE_OPTIONAL, 'Production API base URL for documentation');
+        $this->addOption('api-color',     null, InputOption::VALUE_OPTIONAL, 'Primary color for API docs UI (hex, e.g. #4CAF50)');
         $this->addOption('webhook',       null, InputOption::VALUE_OPTIONAL, 'Generate www/webhook.php git webhook receiver (y/n)');
     }
 
@@ -94,6 +97,12 @@ class Init extends Command
         $enabledFeatures = $this->askFeatures($input, $output, $helper);
         $withRestApi     = $this->askRestApi($input, $output, $helper);
         $withWebhook     = $this->askWebhook($input, $output, $helper);
+        $withApiDocs     = false;
+        $apiUrl          = 'https://api.example.com';
+        $apiColor        = '#4CAF50';
+        if ($withRestApi) {
+            [$withApiDocs, $apiUrl, $apiColor] = $this->askApiDocs($input, $output, $helper, $appName);
+        }
 
         // ── Step 3: UI system ─────────────────────────────────────────────────
         $uiSystem = $this->askUiSystem($input, $output, $helper);
@@ -254,6 +263,9 @@ class Init extends Command
 
         if ($withRestApi) {
             $this->scaffoldRestApi($namespace);
+            if ($withApiDocs) {
+                $this->scaffoldApiDocs($appName, $namespace, $apiUrl, $apiColor);
+            }
         }
 
         $this->scaffoldAiGuidelines($appName, $namespace, $dbType, $dbName, $dbUser, $dbPass, $dockerPort, $cliName, $enabledFeatures);
@@ -518,6 +530,101 @@ class Init extends Command
         }
         $output->writeln("\n<comment>Step 2c — Git webhook</comment>");
         return $helper->ask($input, $output, new ConfirmationQuestion('Generate git webhook receiver (www/webhook.php)? [y/N] ', false));
+    }
+
+    /**
+     * @return array{0: bool, 1: string, 2: string}  [withApiDocs, apiUrl, apiColor]
+     */
+    private function askApiDocs(InputInterface $input, OutputInterface $output, mixed $helper, string $appName): array
+    {
+        $option = $input->getOption('api-docs');
+        if ($option !== null) {
+            $enabled  = in_array(strtolower($option), ['y', 'yes', '1', 'true'], true);
+            $apiUrl   = $input->getOption('api-url')   ?: 'https://api.example.com';
+            $apiColor = $input->getOption('api-color') ?: '#4CAF50';
+            return [$enabled, $apiUrl, $apiColor];
+        }
+        $output->writeln("\n<comment>Step 2d — API Documentation</comment>");
+        $enabled = $helper->ask($input, $output, new ConfirmationQuestion(
+            'Generate API documentation tooling (apidoc → OpenAPI + RapiDoc)? [y/N] ', false
+        ));
+        if (!$enabled) {
+            return [false, '', ''];
+        }
+        $defaultUrl   = 'https://api.example.com';
+        $defaultColor = '#4CAF50';
+        $apiUrl = $input->getOption('api-url')
+            ?: $helper->ask($input, $output, new Question("Production API base URL [$defaultUrl]: ", $defaultUrl));
+        $apiColor = $input->getOption('api-color')
+            ?: $helper->ask($input, $output, new Question("Primary color for docs UI [$defaultColor]: ", $defaultColor));
+        return [$enabled, $apiUrl, $apiColor];
+    }
+
+    private function scaffoldApiDocs(string $appName, string $namespace, string $apiUrl, string $apiColor): void
+    {
+        $this->mkdir('scripts');
+        $this->mkdir('www/api/docs');
+        $this->mkdir('www/api/docs/old');
+
+        $appKey = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $namespace));
+
+        $this->writeFile('src/Api/apidoc.json', $this->renderStub('api-doc.json', [
+            'APP_NAME'      => $appName,
+            'API_URL'       => rtrim($apiUrl, '/'),
+            'PRIMARY_COLOR' => $apiColor,
+            'APP_KEY'       => $appKey,
+        ]));
+
+        $this->writeFile('src/Api/openapi-overrides.json', $this->renderStub('openapi-overrides.json', [
+            'APP_NAME' => $appName,
+        ]));
+
+        $scriptSrc = $this->scaffoldingDir . '/scripts/apidoc-to-openapi.js';
+        if (file_exists($scriptSrc)) {
+            $this->writeFile('scripts/apidoc-to-openapi.js', (string) file_get_contents($scriptSrc));
+        }
+
+        $this->writeFile('scripts/doc.sh', $this->renderStub('doc.sh', []));
+        $docShPath = $this->targetBaseDir . '/scripts/doc.sh';
+        if (file_exists($docShPath)) {
+            chmod($docShPath, 0755);
+        }
+
+        $this->ensurePackageJsonApiScripts($namespace);
+
+        // Add generated output to .gitignore
+        $gitignorePath = $this->targetBaseDir . '/.gitignore';
+        if (file_exists($gitignorePath)) {
+            $existing = (string) file_get_contents($gitignorePath);
+            if (!str_contains($existing, 'www/api/docs')) {
+                file_put_contents($gitignorePath, "\n# API documentation output\nwww/api/openapi*.json\nwww/api/docs/\n", FILE_APPEND);
+            }
+        }
+    }
+
+    private function ensurePackageJsonApiScripts(string $namespace): void
+    {
+        $pkgPath = $this->targetBaseDir . '/package.json';
+        if (file_exists($pkgPath)) {
+            $pkg = json_decode((string) file_get_contents($pkgPath), true) ?: [];
+        } else {
+            $pkg = [
+                'name'        => strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $namespace)),
+                'version'     => '1.0.0',
+                'private'     => true,
+                'description' => 'Node tooling for ' . $namespace,
+            ];
+        }
+        $pkg['scripts'] = array_merge($pkg['scripts'] ?? [], [
+            'apidoc'   => 'node scripts/apidoc-to-openapi.js',
+            'docs'     => 'bash scripts/doc.sh',
+        ]);
+        if (!isset($pkg['dependencies']['rapidoc'])) {
+            $pkg['devDependencies'] = array_merge($pkg['devDependencies'] ?? [], [
+                'rapidoc' => '^9.3.4',
+            ]);
+        }
+        file_put_contents($pkgPath, json_encode($pkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
     }
 
     /**
