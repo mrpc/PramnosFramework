@@ -1,7 +1,31 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 122) — Phase 12: Broadcasting core ✅ + Phase 14: DevPanel + GitInfo ✅
+## 📅 Last Updated: 2026-05-23 (session 123) — DevPanel pluggable panels ✅ + Application built-in health checks ✅
+
+## 🏁 Session 123 — DevPanel pluggable panels + Application built-in health checks (2026-05-23)
+
+### ✅ DevPanel — Pluggable Panel Registry
+
+**Modified:**
+- `src/Pramnos/DevPanel/DevPanelController.php` — static registry (`registerPanel` / `getCustomPanels` / `resetCustomPanels`); `__call()` dispatch for custom slugs; `renderLayout()` includes custom tabs in nav bar
+- `tests/Unit/DevPanel/DevPanelControllerTest.php` — 4 new tests: registerPanel stores entry, resetCustomPanels clears registry, multiple panels, custom slug in actions_auth
+
+Custom panels API:
+```php
+DevPanelController::registerPanel('myapp', 'My App', fn() => '<p>content</p>');
+```
+
+### ✅ Application — Auto-register Built-in Health Checks
+
+**Modified:**
+- `src/Pramnos/Application/Application.php` — `registerBuiltInHealthChecks()` (protected, called from `init()`); auto-registers DatabaseConnectivityCheck (when connected), DiskSpaceCheck, MemoryLimitCheck
+- `src/Pramnos/Application/Controllers/Health.php` — fixed `isConnected()` → `$db->connected` (property, not method)
+
+### ROADMAP items closed
+- `[x] Pluggable panels: DevPanel::registerPanel(string $slug, callable $renderer)`
+
+---
 
 ## 🏁 Session 122 — Phase 12 (Broadcasting) + Phase 13 (Debug) + Phase 14 (DevPanel + GitInfo) + HealthController + .mcp.json (2026-05-23)
 
