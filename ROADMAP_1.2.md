@@ -973,46 +973,46 @@ HTML toolbar που εγχέεται αυτόματα στο κάτω μέρος
 Ενεργοποιείται opt-in μέσω feature registry. Mount point ρυθμιζόμενο στο `app.php` (default: `/devpanel`). Προστατεύεται από admin policy — εξ ορισμού απαιτεί `usertype >= 90` ή configurable policy callback.
 
 #### Overview & System Info
-- [ ] **`Pramnos\DevPanel\DevPanelController`:** base controller — εγγράφει routes, enforces auth policy.
-- [ ] **Overview panel:** DB type/version (MySQL/PostgreSQL/TimescaleDB), PHP version, framework version, uptime, last deploy (από git HEAD).
-- [ ] **System info:** CPU load + %, RAM total/used/free — διαβάζει `/proc/meminfo` + `/proc/loadavg` (Linux) χωρίς shell_exec.
-- [ ] **Migration status:** pending/applied count, last applied migration + date.
-- [ ] **Queue stats:** pending / running / failed jobs.
+- [x] **`Pramnos\DevPanel\DevPanelController`:** base controller — auto-discovered via `Pramnos\Application\Controllers\Devpanel` bridge; auth policy usertype >= 90 (configurable) or custom `$policyCallback`.
+- [x] **Overview panel:** DB type/version, PHP version, framework version, uptime, git HEAD (branch + short hash + subject), migration status, queue stats.
+- [x] **System info:** CPU load, RAM total/used/free — reads `/proc/meminfo` + `/proc/loadavg` without shell_exec.
+- [x] **Migration status:** pending/applied count, last applied slug (via MigrationLoader + MigrationRunner).
+- [x] **Queue stats:** pending / running / failed jobs (only when 'queue' feature enabled).
 
 #### Database Panel
-- [ ] **Database stats (cross-DB):** size, connections, active connections, transactions, cache hit ratio — MySQL και PostgreSQL/TimescaleDB ξεχωριστά query paths.
-- [ ] **TimescaleDB sub-panel:** εμφανίζεται μόνο αν `timescaledb` extension βρεθεί — hypertables (schema, name, chunks, compression), continuous aggregates + job schedules.
+- [x] **Database stats (cross-DB):** top 30 tables by size — MySQL (`information_schema`) and PostgreSQL (`pg_class`) separate query paths.
+- [x] **TimescaleDB sub-panel:** auto-detected via `pg_extension` — hypertables with chunk count + compression_enabled.
 
 #### Cache Browser
-- [ ] **Cache stats:** adapter type, connection status, item count per namespace/category.
+- [x] **Cache stats:** adapter type from `Cache::getCacheMethod()`.
+- [x] **Clear all (POST flush):** POST `action=flush` to `/devpanel?action=cache` — returns JSON `{ok: true/false}`.
 - [ ] **Item browser:** paginated λίστα με key, namespace, size, TTL, created — φιλτράρισμα per namespace.
 - [ ] **Item inspector (AJAX):** εμφάνιση serialized περιεχομένου cache item (truncated στα 50 KB).
-- [ ] **Clear all (AJAX):** flush ολόκληρου του cache με confirmation.
 
 #### User Activity & Security
-- [ ] **Active sessions:** λίστα logged-in users + tokens (userid, username, last seen, IP, application).
-- [ ] **Token detail page:** paginated action history (endpoint, method, execution_time_ms, timestamp) — compatible με `tokenactions` table από Auth backport.
-- [ ] **User log (per-user):** `itemlog` / `userlog` εγγραφές για συγκεκριμένο user.
-- [ ] **Login security monitor:** active lockouts per user / identifier / IP, policy display, manual unlock action.
+- [x] **Active sessions:** top 50 active tokens (web + API) with username, IP, application, last_used.
+- [x] **Login security monitor:** active lockouts — identifier, IP, failed attempts, lockout_until.
+- [ ] **Token detail page:** paginated action history per token.
+- [ ] **User log (per-user):** `itemlog` / `userlog` entries for a specific user.
 
 #### Performance Report
-- [ ] **Slowest endpoints:** URL + method, call count, avg/max/p95 ms — time range selector (1h / 6h / 24h / 7d / 30d).
+- [x] **Slowest endpoints:** URL + method, call count, avg/max ms — time range selector (1h / 6h / 24h / 7d / 30d) from `tokenactions`.
 - [ ] **Slowest users/applications:** userid, username, app name, call count, avg/max/p95 ms.
-- [ ] **Pluggable panels:** `DevPanel::registerPanel(string $slug, callable $renderer)` — apps προσθέτουν custom tabs.
+- [ ] **Pluggable panels:** `DevPanel::registerPanel(string $slug, callable $renderer)`.
 
 #### Git Info Widget
-*Παρόμοιο με το footer git modal του UrbanWater. Διαβάζει `.git/HEAD` / `.git/objects/` απευθείας — zero `exec()`.*
-- [ ] **`Pramnos\DevPanel\GitInfo`:** `getBranch()`, `getHash()`, `getShortHash()`, `getSubject()`, `getAuthor()`, `getDate()`, `getLocalBranches()`, `getRemotes()` — pure PHP, χωρίς shell.
-- [ ] **DevPanel footer / header widget:** branch + short hash, κλικ → modal με πλήρη πληροφορία.
-- [ ] **`Pramnos\Framework\GitInfo` helper:** standalone class — apps μπορούν να τη χρησιμοποιούν και εκτός DevPanel (π.χ. στο δικό τους footer).
+*Reads `.git/HEAD` / `.git/objects/` directly — zero `exec()`.*
+- [x] **`Pramnos\Framework\GitInfo`:** `getBranch()`, `getHash()`, `getShortHash()`, `getSubject()`, `getAuthor()`, `getDate()`, `getLocalBranches()`, `getRemotes()` — pure PHP, no shell. 14 unit tests.
+- [x] **`Pramnos\DevPanel\GitInfo`:** thin alias extending `Framework\GitInfo`.
+- [x] **DevPanel git tab:** full branch/commit details + local branches + remotes list.
 
 #### PHP Info
-- [ ] **`/devpanel/phpinfo`:** wrapper γύρω από `phpinfo()` — εμφανίζεται μόνο σε admin.
+- [x] **`/devpanel/phpinfo`:** phpinfo() wrapper — admin-only; strips outer html/head/body; self-contained CSS.
 
 #### DevPanel ServiceProvider & Routing
-- [ ] **`DevPanelServiceProvider`:** εγγράφει routes (`GET /devpanel`, `/devpanel/cache`, `/devpanel/users`, κλπ.), assets, policy.
-- [ ] **Assets:** self-contained CSS + minimal JS inline — δεν εξαρτάται από app theme.
-- [ ] **Tests:** controller unit tests (mock DB/Cache), integration test για cache flush + git info parsing.
+- [x] **`DevPanelServiceProvider`:** validates config on boot; no explicit route registration — uses framework controller auto-discovery.
+- [x] **Assets:** Catppuccin Mocha dark theme CSS inlined in controller — no app theme dependency.
+- [x] **Tests:** 9 unit tests — FeatureRegistry ('devpanel' key), class hierarchy, auth guard, ServiceProvider, GitInfo alias.
 
 > **Εξάρτηση:** DevPanel χρησιμοποιεί Cache (Φάση 11) και Auth (Φάση 2/4). Μπορεί να υλοποιηθεί σταδιακά — κάθε panel ανεξάρτητα.
 

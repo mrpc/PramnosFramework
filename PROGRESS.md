@@ -1,7 +1,27 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 122) — Phase 13: Debug Toolbar ✅
+## 📅 Last Updated: 2026-05-23 (session 122) — Phase 14: DevPanel + GitInfo ✅
+
+## 🏁 Session 122 — Phase 13 (Debug Toolbar) + Phase 14 (DevPanel + GitInfo) (2026-05-23)
+
+### ✅ Phase 14 — DevPanel Developer Dashboard + GitInfo
+
+**New files:**
+- `src/Pramnos/Framework/GitInfo.php` — pure-PHP git reader (no exec/shell); getBranch, getHash, getShortHash, getSubject, getAuthor, getDate, getLocalBranches, getRemotes; resolves loose refs + packed-refs; decompresses commit objects via gzuncompress
+- `src/Pramnos/DevPanel/GitInfo.php` — thin alias extending Framework\GitInfo
+- `src/Pramnos/DevPanel/DevPanelController.php` — self-contained admin dashboard; 7 actions (display, db, cache, users, performance, git, phpinfo); outputs full HTML + exit (Catppuccin Mocha dark theme, no app theme dependency)
+- `src/Pramnos/Application/Controllers/Devpanel.php` — framework routing bridge (auto-discovered by getFrameworkController())
+- `src/Pramnos/DevPanel/DevPanelServiceProvider.php` — opt-in; validates config on boot; no route registration needed
+- `tests/Unit/Framework/GitInfoTest.php` — 14 tests (13 pass + 1 skip real-repo smoke)
+- `tests/Unit/DevPanel/DevPanelControllerTest.php` — 9 tests: FeatureRegistry, hierarchy, auth guard
+
+**Modified:**
+- `src/Pramnos/Application/FeatureRegistry.php` — registered 'devpanel' feature + DevPanelServiceProvider
+
+**Panels implemented:** Overview (DB, PHP, memory, system info, git HEAD, migration status, queue stats), Database (table sizes + TimescaleDB hypertables), Cache browser (stats + flush), Users (active sessions + lockouts), Performance (slowest endpoints with time range), Git (full branch/commit/remotes), PHP Info
+
+---
 
 ## 🏁 Session 122 — Phase 13: Debug Toolbar + Database Query Logging (2026-05-23)
 
