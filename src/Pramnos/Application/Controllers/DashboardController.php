@@ -130,7 +130,7 @@ class DashboardController extends Controller
      * Redirects to sURL if the current user's usertype is below $minType.
      * Returns true if the redirect was issued (caller should return early).
      */
-    private function requireMinUserType(int $minType): bool
+    protected function requireMinUserType(int $minType): bool
     {
         $user = \Pramnos\User\User::getCurrentUser();
 
