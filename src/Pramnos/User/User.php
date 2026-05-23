@@ -1157,6 +1157,28 @@ class User extends \Pramnos\Framework\Base
      * @param int $days Number of days to keep tokens (default: 30)
      * @return bool Success status
      */
+    /**
+     * Count active web-session and API tokens (tokentype 1 and 3, status = 1).
+     * Returns null when no database connection is available.
+     */
+    public static function countActiveSessions(): ?int
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        if (!$database || !$database->connected) {
+            return null;
+        }
+        try {
+            $r = $database->queryBuilder()
+                ->table('usertokens')
+                ->where('status', '=', 1)
+                ->whereIn('tokentype', [1, 3])
+                ->count();
+            return (int) $r;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     public static function cleanupAllAuthTokens(int $days = 30)
     {
         $oneMonthAgo = time() - ($days * 24 * 60 * 60);

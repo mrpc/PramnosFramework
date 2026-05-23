@@ -10,6 +10,7 @@ use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
 use Pramnos\Application\Controllers\Health;
 use Pramnos\Database\Database;
+use Pramnos\Health\Checks\DatabaseConnectivityCheck;
 use Pramnos\Health\HealthRegistry;
 
 /**
@@ -63,6 +64,8 @@ class HealthDbInfoPostgreSQLTest extends TestCase
         }
 
         HealthRegistry::reset();
+        // Health::display() reads DB type/version from DatabaseConnectivityCheck details.
+        HealthRegistry::register(new DatabaseConnectivityCheck($this->db));
     }
 
     protected function tearDown(): void
