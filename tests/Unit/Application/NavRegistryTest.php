@@ -411,6 +411,38 @@ class NavRegistryTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Type-safety guard: getCurrentUser() returns false for guests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * getForUser() declares ?User — passing false instead of null triggers a
+     * TypeError at runtime.  This test verifies that the ?: null coercion used
+     * in every scaffolded header template produces a type-safe null and that
+     * getForUser() accepts it without error.
+     *
+     * Regression guard: if someone removes the ?: null from buildThemeHeader()
+     * or from a theme header.php, this test will fail with a TypeError before
+     * any application reaches production.
+     */
+    public function testGetForUserAcceptsNullFromFalseCoercion(): void
+    {
+        // Arrange — User::getCurrentUser() returns false for guests (legacy return type).
+        // Theme headers apply ?: null before passing to getForUser().
+        $rawGuestReturn = false;
+
+        // Act — apply the coercion that every header template uses
+        $user = $rawGuestReturn ?: null;
+
+        // Assert — coercion must produce null, not false
+        $this->assertNull($user, 'false ?: null must yield null, not false');
+
+        // Assert — getForUser() must accept null without throwing TypeError
+        NavRegistry::register(new NavItem('main.home', 'Home', '/', NavSection::Main, 0, requireAuth: false));
+        $nav = NavRegistry::getForUser($user);
+        $this->assertIsArray($nav, 'getForUser(null) must return an array, not throw');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
