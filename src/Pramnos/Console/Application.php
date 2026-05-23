@@ -56,6 +56,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\Make\MakeEvent());
         $this->add(new \Pramnos\Console\Commands\Make\MakeListener());
         $this->add(new \Pramnos\Console\Commands\Make\MakeSeeder());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeWebhook());
         $this->add(new \Pramnos\Console\Commands\Serve());
         $this->add(new \Pramnos\Console\Commands\MigrateLogs());
         // Migration CLI commands (Phase 4)
