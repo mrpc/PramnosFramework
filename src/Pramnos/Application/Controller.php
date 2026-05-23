@@ -505,7 +505,7 @@ class Controller extends \Pramnos\Framework\Base
          * Search for the right view class
          */
 
-        if (isset($this->application->applicationInfo['namespace'])) {
+        if ($this->application !== null && isset($this->application->applicationInfo['namespace'])) {
             if ($this->application->appName != '') {
                 $className = '\\'
                     . $this->application->applicationInfo['namespace']
@@ -520,7 +520,7 @@ class Controller extends \Pramnos\Framework\Base
                     . $name;
             }
         } else {
-            if ($this->application->appName != '') {
+            if ($this->application !== null && $this->application->appName != '') {
                 $className = '\\Pramnos\\'
                     . $this->application->appName
                     . '\\Views\\'
@@ -565,28 +565,30 @@ class Controller extends \Pramnos\Framework\Base
         }
         // In case we can't find the view, we search in Application path.
         // Check for app extra paths
-        if ($this->application->appName == '') {
-            $appPaths = array_merge(
-                array(
-                    ROOT . DS . INCLUDES
-                ),
-                $this->application->getExtraPaths(),
-                $this->_lastPaths
-            );
-        } else {
-            $appPaths = array_merge(
-                array(
-                    ROOT . DS . INCLUDES . DS . $this->application->appName
-                ),
-                $this->application->getExtraPaths(),
-                $this->_lastPaths
-            );
-        }
+        if ($this->application !== null) {
+            if ($this->application->appName == '') {
+                $appPaths = array_merge(
+                    array(
+                        ROOT . DS . INCLUDES
+                    ),
+                    $this->application->getExtraPaths(),
+                    $this->_lastPaths
+                );
+            } else {
+                $appPaths = array_merge(
+                    array(
+                        ROOT . DS . INCLUDES . DS . $this->application->appName
+                    ),
+                    $this->application->getExtraPaths(),
+                    $this->_lastPaths
+                );
+            }
 
-        foreach ($appPaths as $path) {
-            $view = $this->_getView($path, $name, $type, $args);
-            if ($view){
-                return $view;
+            foreach ($appPaths as $path) {
+                $view = $this->_getView($path, $name, $type, $args);
+                if ($view){
+                    return $view;
+                }
             }
         }
 
