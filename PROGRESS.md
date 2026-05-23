@@ -280,6 +280,47 @@ Phase 15 ROADMAP items marked ✅: Single config + Scaffolding update. Remaining
 
 ---
 
+## 🏁 Session 119 — Phase 23 complete: Admin CRUD controllers 23.2–23.10 (2026-05-23)
+
+### ✅ Phase 23.2–23.10 — All remaining admin CRUD controllers
+
+Eight new controllers implemented across three namespaces:
+
+**`Pramnos\Application\Controllers\`** (always scaffolded):
+- **`ServicesController`** — daemon lifecycle (display/stop/start/restart/logs/status). Reads `ROOT/var/daemon_orchestrator_state.json`, uses stop-file sentinel mechanism. `enrichServiceEntry()` computes running/stopped/error status. requiredUserType=80.
+- **`OrganizationsController`** — organization management with membership (display/edit/save/delete/members/addmember/removemember). Soft-delete: `is_active=0`. Respects configurable table/column settings. requiredUserType=80.
+- **`EmailsController`** — email log viewer (display/show/resend). `resend()` only re-queues failed emails (status=0→2). requiredUserType=80.
+
+**`Pramnos\Auth\Controllers\`** (authserver/auth feature-gated):
+- **`ApplicationsController`** — OAuth2 client apps (display/edit/save/delete/tokens/rotate). Creates `apikey`/`apisecret` via `random_bytes`. Soft-delete with token revocation. requiredUserType=90.
+- **`TokensController`** — token management (display/revoke/revokeall). `revokeall()` requires userid or applicationid filter. requiredUserType=90.
+- **`TokenActionsController`** — read-only audit log (display/show/stats/export). No write actions. CSV export up to 10 000 rows via `php://output`. requiredUserType=80.
+- **`PermissionsController`** — RBAC grant management (display/edit/save/delete/assign). requiredUserType=90 to prevent self-escalation.
+
+**`Pramnos\Queue\Controllers\`** (queue feature-gated):
+- **`QueueController`** — job queue management (display/retry/retryall/delete/clear/stats). `clear()` restricted to failed/completed/deleted statuses. Soft-delete only. requiredUserType=80.
+
+### Init command wiring
+`scaffoldServicesWiring`, `scaffoldOrganizationsWiring`, `scaffoldEmailsWiring` (always), plus `scaffoldTokenActionsWiring` (auth), `scaffoldPermissionsWiring` (authserver), `scaffoldQueueWiring` (queue) — all added to `Init.php`.
+
+### Unit tests
+32 new unit tests (4–5 per controller) across 8 new test files — all pass. Tests cover: class hierarchy, action auth registration, requiredUserType minimum, method existence.
+
+### ROADMAP items closed
+- `[x] Phase 23.2` — ApplicationsController
+- `[x] Phase 23.3` — TokensController
+- `[x] Phase 23.4` — PermissionsController
+- `[x] Phase 23.6` — EmailsController
+- `[x] Phase 23.7` — QueueController
+- `[x] Phase 23.8` — ServicesController
+- `[x] Phase 23.9` — OrganizationsController
+- `[x] Phase 23.10` — TokenActionsController
+
+### Commits
+- `feat(admin): Phase 23.2–23.10 — remaining admin CRUD controllers + unit tests + scaffold wiring`
+
+---
+
 ## 🏁 Session 118 — Phase 23.11 Statistics & Analytics Dashboard (2026-05-23)
 
 ### ✅ Phase 23.11 — Statistics & Analytics Dashboard
