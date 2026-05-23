@@ -1,11 +1,17 @@
 <?php
 namespace Pramnos\Addon\Auth;
 /**
- * Καταγράφει την τρέχουσα κίνηση του site και δημιουργεί logs για ότι
- * χρειάζεται
+ * Addon-based database authentication handler.
+ *
  * @package     PramnosFramework
  * @copyright   2005 - 2020 Yannis - Pastis Glaros, Pramnos Hosting
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ *
+ * @deprecated  Since v1.2 — the equivalent functionality is built into the
+ *              framework as Pramnos\Auth\Drivers\DatabaseAuthDriver, which is
+ *              used automatically by Auth::auth() when no addon is registered.
+ *              Applications that rely on this class continue to work unchanged
+ *              (backward-compatible); you may remove it from app.php when ready.
  */
 
 class UserDatabase extends \Pramnos\Addon\Addon

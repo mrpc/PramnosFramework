@@ -1,7 +1,51 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 118) — Phase 23.11 Statistics + DashboardController ✅
+## 📅 Last Updated: 2026-05-23 (session 120) — Phase 25.2 + 25.4: Auth driver system + built-in lifecycle ✅
+
+## 🏁 Session 120 — Phase 25.2 + 25.4: DatabaseAuthDriver + built-in login/logout lifecycle (2026-05-23)
+
+### ✅ Phase 25.4 — Built-in Login/Logout Lifecycle (no Addon\User\User addon required)
+
+**Modified:** `src/Pramnos/Auth/Auth.php`
+- `afterLogin(callable $callback): static` — register callback invoked after every successful login (after session/cookie/DB lifecycle)
+- `afterLogout(callable $callback): static` — register callback invoked after every logout
+- `triggerLogin(array $response)` (private) — orchestrates: addon system (BC) OR built-in lifecycle + afterLogin callbacks
+- `executeDefaultLogin(array $info)` (private) — sets session vars, writes auth cookies (uid>1 + $remember=true), updates sessions + users lastlogin tables
+- `executeDefaultLogout()` (private) — deletes session record, clears cookies, resets session
+- `logout()` updated to detect user addons; if none registered, uses built-in logout lifecycle
+
+**Modified:** `src/Pramnos/Addon/User/User.php` — added `@deprecated` docblock; fully functional for BC
+
+**Tests (13/13 ✓):**
+- Added 3 new characterization tests in `AuthCharacterizationTest.php`:
+  - `testAfterLoginCallbackIsInvokedWithResponseOnSuccess` — afterLogin fires with response array
+  - `testAfterLoginCallbackIsNotInvokedOnFailure` — afterLogin not fired on failed auth
+  - `testAfterLogoutCallbackIsInvokedAfterLogout` — afterLogout fires after session cleared
+
+---
+
+### ✅ Phase 25.2 — Native DatabaseAuthDriver (no addon required)
+
+Authentication now works out of the box without `Addon\Auth\UserDatabase` in `app.php`.
+
+**New files:**
+- `src/Pramnos/Auth/Drivers/AuthDriverInterface.php` — contract for pluggable auth drivers
+- `src/Pramnos/Auth/Drivers/AuthResult.php` — immutable value object with `success()`/`failure()` named constructors + `toArray()` for BC
+- `src/Pramnos/Auth/Drivers/DatabaseAuthDriver.php` — default driver; same logic as `UserDatabase::onAuth()`, injectable config, resolves from app.php `'auth'` key
+
+**Modified:**
+- `src/Pramnos/Auth/Auth.php` — added `setDriver()`, `addDriver()`, `clearDrivers()`; `auth()` now tries addons first (BC), then drivers (default: DatabaseAuthDriver), then warning+false
+- `src/Pramnos/Addon/Auth/UserDatabase.php` — added `@deprecated` docblock; still fully functional (BC)
+
+**Tests (26/26 ✓ MySQL + PostgreSQL):**
+- `tests/Integration/Database/DatabaseAuthDriverMySQLTest.php` — 13 tests: correct bcrypt, wrong password, unknown user, inactive/deleted/banned, legacy MD5 disabled/enabled, auto-upgrade MD5→bcrypt, auto-upgrade disabled, encrypted password (cookie re-auth), AuthResult::toArray() shape
+- `tests/Integration/Database/DatabaseAuthDriverPostgreSQLTest.php` — extends MySQL test, 13 skipped (PostgreSQL not required for this driver)
+
+**Characterization test updated:**
+- `testAuthWithNoAddonsReturnsFalseAndWritesWarningLog` → now calls `clearDrivers()` before `auth()` to explicitly test the "no handlers at all" scenario (Phase 25.6 invariant still holds)
+
+---
 
 ## 🏁 Session 114 — Real-world app bug fixes (2026-05-23)
 
