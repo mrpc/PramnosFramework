@@ -316,8 +316,25 @@ Eight new controllers implemented across three namespaces:
 - `[x] Phase 23.9` — OrganizationsController
 - `[x] Phase 23.10` — TokenActionsController
 
+### Scaffold views (Phase 23 common requirements)
+66 scaffolding fallback views (22 templates × 3 themes: bootstrap, plain-css, tailwind) for all admin controllers. All three themes get functional views with appropriate CSS (Bootstrap classes, inline styles, Tailwind utilities).
+
+### NavRegistry (Phase 23 common requirements)
+`Application::registerDefaultNavItems()` now registers 10 admin nav items:
+- Always: `admin.dashboard`, `admin.users`, `admin.settings`, `admin.logs`, `admin.services`, `admin.organizations`, `admin.emails`
+- Feature-gated (authserver): `admin.applications`, `admin.tokens`, `admin.permissions`
+- Feature-gated (auth): `admin.tokenactions`
+- Feature-gated (queue): `admin.queue`
+
+### Integration tests (Phase 23 common requirements)
+`QueueController` MySQL + PostgreSQL integration tests (14 tests, 18 assertions). Tests verify: retry, retryall, delete (soft-delete), clear operations against a real DB.
+
+Also fixed: queueitems migration missing 'deleted' from PostgreSQL CHECK constraint + ENUM type — QueueController's soft-delete semantics require this status value.
+
 ### Commits
 - `feat(admin): Phase 23.2–23.10 — remaining admin CRUD controllers + unit tests + scaffold wiring`
+- `feat(admin): Phase 23 views + NavRegistry items for all admin controllers`
+- `feat(admin): Phase 23 integration tests + QueueController soft-delete fix`
 
 ---
 
