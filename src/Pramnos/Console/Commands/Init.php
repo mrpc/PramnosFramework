@@ -216,6 +216,7 @@ class Init extends Command
         $this->scaffoldLogsWiring($namespace);
         $this->scaffoldUsersWiring($namespace);
         $this->scaffoldSettingsWiring($namespace);
+        $this->scaffoldDashboardWiring($namespace);
 
         if (!empty($selectedLibraries)) {
             $skipDownload = (bool) $input->getOption('no-download');
@@ -2326,5 +2327,33 @@ class Settings extends FrameworkSettingsController
 PHP;
 
         $this->writeFile('src/Controllers/Settings.php', $settingsController);
+    }
+
+    private function scaffoldDashboardWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $dashboardController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\DashboardController as FrameworkDashboardController;
+
+/**
+ * Admin/ops overview dashboard controller.
+ *
+ * Delegates all actions to the framework DashboardController.
+ * Override \$requiredUserType here to raise (or lower) the minimum
+ * usertype required to access the dashboard in this application.
+ */
+class Dashboard extends FrameworkDashboardController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Dashboard.php', $dashboardController);
     }
 }

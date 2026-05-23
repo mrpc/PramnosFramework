@@ -1522,23 +1522,23 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 *Backport της λογικής `getActiveUsers()` / `getPerformanceSummary()` από το Urbanwater Home controller σε επαναχρησιμοποιήσιμους framework services.*
 
-- [ ] **`\Pramnos\Application\Statistics\ActiveUsersService`** — query στο `#PREFIX#sessions` για: ενεργοί χρήστες τώρα, last 1h, last 24h, last 7d, last 30d. Backend-agnostic (MySQL + PostgreSQL).
+- [x] **`\Pramnos\Application\Statistics\ActiveUsersService`** — query στο `#PREFIX#sessions` για: ενεργοί χρήστες τώρα, last 1h, last 24h, last 7d, last 30d. Backend-agnostic (MySQL + PostgreSQL).
 
-- [ ] **`\Pramnos\Application\Statistics\DatabaseStatsService`** — DB server metrics:
-  - PostgreSQL: `pg_database_size`, `pg_stat_activity` (connections, active), `pg_stat_database` (cache hit ratio, transactions, disk reads)
-  - MySQL: `information_schema`, `SHOW STATUS` (connections, queries, cache hits)
+- [x] **`\Pramnos\Application\Statistics\DatabaseStatsService`** — DB server metrics:
+  - [x] PostgreSQL: `pg_database_size`, `pg_stat_activity` (connections, active), `pg_stat_database` (cache hit ratio, transactions, disk reads)
+  - [x] MySQL: `information_schema`, `SHOW STATUS` (connections, queries, cache hits)
 
-- [ ] **`\Pramnos\Application\Statistics\ApiPerformanceService`** — query στο `#PREFIX#tokenactions`:
-  - Throughput (requests/hour), error rate ανά status code, average/p95/p99 execution time
-  - Top N slowest endpoints, top N most-called endpoints
-  - Configurable time window (last 1h, 24h, 7d)
+- [x] **`\Pramnos\Application\Statistics\ApiPerformanceService`** — query στο `#PREFIX#tokenactions`:
+  - [x] Throughput (requests/hour), error rate ανά status code, average/p95/p99 execution time
+  - [x] Top N slowest endpoints, top N most-called endpoints
+  - [x] Configurable time window (last 1h, 24h, 7d)
 
-- [ ] **`DashboardController`** στο `\Pramnos\Application\Controllers\` (πάντα):
-  - `display()` — overview dashboard: active users widget + DB stats widget + API performance summary + health check badges (re-uses `HealthRegistry::runAll()`)
-  - `activeusers()` — JSON: αριθμοί ανά time window — κατάλληλο για AJAX refresh
-  - `apistats()` — JSON: performance summary για charts
-  - `dbstats()` — JSON: DB metrics
-  - Wrapper: `src/Controllers/Dashboard.php` — scaffolded πάντα, αντικαθιστά το default `Home` controller ή co-exists ως admin view
+- [x] **`DashboardController`** στο `\Pramnos\Application\Controllers\` (πάντα):
+  - [x] `display()` — overview dashboard: active users widget + DB stats widget + API performance summary + health check badges (re-uses `HealthRegistry::runAll()`)
+  - [x] `activeusers()` — JSON: αριθμοί ανά time window — κατάλληλο για AJAX refresh
+  - [x] `apistats()` — JSON: performance summary για charts
+  - [x] `dbstats()` — JSON: DB metrics
+  - [x] Wrapper: `src/Controllers/Dashboard.php` — scaffolded πάντα
   - **Σημείωση:** Το `Dashboard` controller είναι διαφορετικό από το `\Pramnos\Auth\Controllers\Dashboard` (που χειρίζεται τον λογαριασμό χρήστη). Το εδώ `DashboardController` είναι admin/ops overview.
 
 #### Κοινές Απαιτήσεις Φάσης 23
