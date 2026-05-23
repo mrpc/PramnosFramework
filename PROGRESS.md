@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 116) — Scaffold addon fix + auth-aware nav ✅
+## 📅 Last Updated: 2026-05-23 (session 117) — Phase 24 (NavRegistry) + Phase 23.1/23.5 (CRUD controllers) ✅
 
 ## 🏁 Session 114 — Real-world app bug fixes (2026-05-23)
 
@@ -277,6 +277,48 @@ Phase 15 ROADMAP items marked ✅: Single config + Scaffolding update. Remaining
 ### ✅ Fix: PostgreSQL FK test
 
 `testUserConsentsCreatedInAuthserverSchemaOnPostgreSQL` was missing `CreateUsersTable->up()` before `CreateUserPrivacySettingsTable->up()`. The FK `REFERENCES public.users(userid)` failed when `public.users` didn't exist. Added `CreateUsersTable->up()` to Arrange and both `->down()` calls to teardown. Commit `22af117`.
+
+---
+
+## 🏁 Session 117 — Phase 24 NavRegistry + Phase 23.1/23.5 admin controllers (2026-05-23)
+
+### ✅ Phase 24 — Navigation Registry
+
+Three new classes in `Pramnos\Application`:
+- **`NavSection`** (enum) — `Main`, `User`, `Admin`, `Feature`
+- **`NavItem`** (readonly class) — immutable nav entry with id, label, url, section, position, requireAuth, minUserType, permission, feature, icon
+- **`NavRegistry`** (static) — `register()`, `remove()`, `reset()`, `getForUser(?User, array $features)`
+
+**`Application::registerDefaultNavItems(array $features)`** — called at end of `init()`, registers Home, Login, Account, Logout, Users, Settings, Logs; OAuth Apps when `authserver` feature is enabled.
+
+All scaffold theme headers (`plain-css`, `bootstrap`, `tailwind`) replaced hardcoded nav with `NavRegistry::getForUser()` snippet. `Init.php::buildThemeHeader()` refactored accordingly.
+
+Tests: `NavRegistryTest` (17 tests) — filtering rules, sections, ordering, idempotency.
+`InitCommandUnitTest` updated: hardcoded-nav tests replaced with NavRegistry-oriented assertions.
+
+### ✅ Phase 23.1 — `UsersController`
+
+`\Pramnos\Application\Controllers\UsersController` — DataTable list + CRUD + lock/unlock/sessions for `#PREFIX#users`. Registered as `admin.users` in NavRegistry (minUserType=80). Scaffold wrapper: `src/Controllers/Users.php`.
+
+### ✅ Phase 23.5 — `SettingsController`
+
+`\Pramnos\Application\Controllers\SettingsController` — DataTable list + CRUD for `#PREFIX#settings`. Protected `$readonlyKeys` prevents credential keys from UI modification. Registered as `admin.settings` in NavRegistry. Scaffold wrapper: `src/Controllers/Settings.php`.
+
+### ✅ Scaffolded app tests — non-placeholder
+
+Replaced `assertTrue(true)` placeholder in scaffolded apps with real tests:
+- `tests/Unit/Controllers/HomeControllerTest.php` — always scaffolded; verifies class hierarchy
+- `tests/Unit/Controllers/LoginControllerTest.php` — auth feature; verifies action registration, addaction() wiring
+- `tests/Integration/AuthFlowTest.php` — auth feature; end-to-end login flow against real DB
+
+### Tests added (framework suite)
+- `tests/Unit/Application/NavRegistryTest.php` — 17 tests
+- `tests/Unit/Application/SettingsControllerTest.php` — 3 tests
+- `tests/Unit/Application/UsersControllerTest.php` — 4 tests
+- `tests/Unit/Console/InitCommandUnitTest.php` — 4 new tests (scaffold wiring for Phase 23 + test quality)
+
+### Test results
+- Full suite: **4891 tests** (was 4861) — 1 pre-existing FileAdapterTest failure (test-ordering side-effect, unrelated to these changes)
 
 ---
 
