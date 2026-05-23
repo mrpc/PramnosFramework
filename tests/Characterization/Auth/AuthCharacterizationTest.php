@@ -228,8 +228,11 @@ class AuthCharacterizationTest extends TestCase
      */
     public function testAuthWithNoAddonsReturnsFalseAndWritesWarningLog(): void
     {
-        // Arrange — empty addon registry (set in setUp already)
+        // Arrange — empty addon registry (set in setUp already) AND no drivers.
+        // clearDrivers() disables even the default DatabaseAuthDriver, reproducing
+        // a fully unconfigured auth setup (Phase 25.6 invariant: must log + fail).
         $auth    = new Auth();
+        $auth->clearDrivers();
         $logPath = defined('LOG_PATH') ? \LOG_PATH . \DS . 'logs' . \DS . 'auth.log' : null;
 
         // Remove any pre-existing auth.log so we can detect a fresh write
@@ -240,8 +243,8 @@ class AuthCharacterizationTest extends TestCase
         // Act
         $result = $auth->auth('anyone', 'anything');
 
-        // Assert — still returns false; no regression to existing contract
-        $this->assertFalse($result, 'auth() must return false when no addons are registered.');
+        // Assert — returns false when no auth handlers of any kind are registered
+        $this->assertFalse($result, 'auth() must return false when no addons or drivers are registered.');
 
         // Assert — warning was written to auth.log (Phase 25.6)
         if ($logPath !== null) {
@@ -308,6 +311,102 @@ class AuthCharacterizationTest extends TestCase
 
         // Assert
         $this->assertFalse($result, 'groupaccess must forward the result of isAllowed().');
+    }
+
+    // =========================================================================
+    // Phase 25.4 — afterLogin / afterLogout callbacks
+    // =========================================================================
+
+    /**
+     * afterLogin() callbacks are invoked after a successful login, receiving the
+     * login-response array as their only argument.
+     *
+     * This covers the primary use case: custom audit hooks, analytics, or side-effects
+     * that should run after every successful authentication without requiring an addon.
+     */
+    public function testAfterLoginCallbackIsInvokedWithResponseOnSuccess(): void
+    {
+        // Arrange — register an auth addon that returns success
+        $auth = new Auth();
+        $authAddon = new class {
+            public function onAuth(): array
+            {
+                return ['status' => true, 'uid' => 42, 'username' => 'alice'];
+            }
+        };
+        // Register a user addon so the built-in lifecycle doesn't run (no DB needed)
+        $userAddon = new class { public function onLogin(array $info): void {} };
+        $this->setAddonRegistry([
+            'auth' => ['a' => $authAddon],
+            'user' => ['u' => $userAddon],
+        ]);
+
+        $captured = [];
+        $auth->afterLogin(function (array $response) use (&$captured): void {
+            $captured[] = $response;
+        });
+
+        // Act
+        $result = $auth->auth('alice', 'secret');
+
+        // Assert — login succeeded and callback received the response array
+        $this->assertTrue($result);
+        $this->assertCount(1, $captured, 'afterLogin callback must be invoked exactly once');
+        $this->assertSame(42, $captured[0]['uid'] ?? ($captured[0]['userid'] ?? null));
+    }
+
+    /**
+     * afterLogin() callback must NOT be invoked when authentication fails.
+     *
+     * This is the negative case: unsuccessful logins must not trigger hooks.
+     */
+    public function testAfterLoginCallbackIsNotInvokedOnFailure(): void
+    {
+        // Arrange — auth addon that always fails
+        $auth = new Auth();
+        $authAddon = new class {
+            public function onAuth(): array { return ['status' => false, 'message' => 'bad']; }
+        };
+        $this->setAddonRegistry(['auth' => ['a' => $authAddon]]);
+
+        $callCount = 0;
+        $auth->afterLogin(function () use (&$callCount): void { $callCount++; });
+
+        // Act
+        $result = $auth->auth('eve', 'wrongpass');
+
+        // Assert
+        $this->assertFalse($result);
+        $this->assertSame(0, $callCount, 'afterLogin must not fire on failed authentication');
+    }
+
+    /**
+     * afterLogout() callbacks are invoked after Auth::logout(), after the session
+     * has already been marked as logged-out.
+     *
+     * This ensures callbacks always see a clean (logged-out) session state.
+     */
+    public function testAfterLogoutCallbackIsInvokedAfterLogout(): void
+    {
+        // Arrange
+        $auth = new Auth();
+        $_SESSION['logged'] = true;
+
+        // Register a user addon so the built-in logout doesn't run (no DB needed)
+        $userAddon = new class { public function onLogout(): void {} };
+        $this->setAddonRegistry(['user' => ['u' => $userAddon]]);
+
+        $sessionStateWhenCalled = null;
+        $auth->afterLogout(function () use (&$sessionStateWhenCalled): void {
+            $sessionStateWhenCalled = $_SESSION['logged'] ?? null;
+        });
+
+        // Act
+        $auth->logout();
+
+        // Assert — callback was invoked after session was cleared
+        $this->assertFalse($sessionStateWhenCalled,
+            'afterLogout callback must see session already marked as logged-out');
     }
 
     /**
