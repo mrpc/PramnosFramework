@@ -169,6 +169,26 @@ $queue->addTask('SendWelcomeEmail', ['user_id' => 42], priority: 5);
 
 Process queue: `./{{ CLI_NAME }} queue:process`
 
+### Health endpoint
+
+A ready-made health controller is scaffolded at `src/Controllers/Health.php`.
+
+```
+GET /health          → HTML dashboard (login required)
+GET /health/check    → JSON status  (public — use this for monitoring)
+GET /health/phpinfo  → PHP Info     (admin only, usertype ≥ 90)
+```
+
+`GET /health/check` returns HTTP 200 with `{"status":"ok","checks":{...}}` when healthy,
+or HTTP 503 with `{"status":"degraded"|"down",...}` when something is wrong.
+Point your uptime monitor (Uptime Robot, Grafana, etc.) at this URL.
+
+Register custom checks in `Application.php` or a ServiceProvider:
+
+```php
+\Pramnos\Health\HealthRegistry::register(new MyCustomCheck());
+```
+
 ## Testing conventions
 
 Every test method must have:
