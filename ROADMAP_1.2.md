@@ -1381,11 +1381,11 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 #### Υποδομή (framework-level)
 
-- [ ] **`HealthController`** στο `\Pramnos\Application\Controllers\` με:
-  - `display()` — overview dashboard: αποτελέσματα `HealthRegistry::runAll()` + DB server info (type/version/size) + cache stats (`Cache::getStats()`) + active users count (από sessions table) + PHP version/extensions
-  - `check()` — JSON endpoint: `{"status":"ok|degraded|down","checks":{...}}` — κατάλληλο για monitoring systems (uptime robot, Grafana κτλ.)
-  - `phpinfo()` — πλήρης `phpinfo()` σελίδα (μόνο για superadmin, υψηλό permission level)
-  - Όλα τα actions `addAuthAction` — απαιτείται authentication. `phpinfo` ξεχωριστό permission check.
+- [x] **`HealthController`** στο `\Pramnos\Application\Controllers\` με:
+  - `display()` — HTML dashboard: HealthRegistry::runAll() results + DB type/version + cache adapter + active sessions + PHP version + peak memory.
+  - `check()` — JSON endpoint (public, no auth): `{"status":"ok|degraded|down","checks":{...}}` — HTTP 200 for ok, 503 for degraded/down.
+  - `phpinfo()` — phpinfo() page (usertype >= 90 check, strips html/head/body wrappers).
+  - `display` + `phpinfo` in `actions_auth`; `check` in `actions` (public).
 
 - [ ] **Views** (scaffolding fallback για όλα τα themes: bootstrap, plain-css, tailwind):
   - `health/health.html.php` — summary dashboard με color-coded status badges (ok/degraded/down) ανά check, DB info table, cache stats, active users counter
