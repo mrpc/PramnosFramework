@@ -1401,9 +1401,9 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 #### Tests
 
-- [ ] Unit tests για `HealthController::display()` και `HealthController::check()` — mock `HealthRegistry`, DB queries, cache
+- [x] Unit tests για `HealthController::display()` και `HealthController::check()` — HTML output (ok/down badge, checks table, system info, empty state), HTTP code mapping test.
 - [ ] Integration tests (MySQL + PostgreSQL) — επαλήθευση ότι το DB info query δουλεύει σωστά και στα δύο backends
-- [ ] Scaffolding tests στο `InitCommandUnitTest` — `Health.php` wrapper δημιουργείται, navbar link παρών
+- [x] Scaffolding tests — `Health.php` wrapper δημιουργείται (InitCommandUnitTest), `admin.health` NavItem registered by `registerDefaultNavItems()` (HealthControllerTest).
 
 ---
 
