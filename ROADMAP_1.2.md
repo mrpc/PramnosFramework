@@ -950,19 +950,20 @@
 #### Debug Toolbar (Laravel Debugbar αντίστοιχο)
 HTML toolbar που εγχέεται αυτόματα στο κάτω μέρος κάθε HTML response όταν `APP_DEBUG=true`. Zero-dependency, pure PHP+CSS+JS — κανένα npm build step.
 
-- [ ] **`Pramnos\Debug\DebugBar`:** κεντρική κλάση — συλλέγει δεδομένα από collectors, αποδίδει HTML widget.
-- [ ] **Collectors:**
-  - `QueryCollector` — υποκλέπτει ερωτήματα από `Database`; εμφανίζει SQL, bindings, χρόνο, stack trace για slow queries.
-  - `TimeCollector` — wall-clock χρόνος request (start→end) + custom timers μέσω `DebugBar::startTimer('name')` / `stopTimer('name')`.
-  - `MemoryCollector` — peak memory usage (`memory_get_peak_usage`).
-  - `RouteCollector` — matched route, controller, action, middleware stack.
-  - `LogCollector` — τελευταία N log entries της τρέχουσας request.
-  - `SessionCollector` — session keys/values (masked για sensitive keys).
-- [ ] **HTML renderer:** self-contained `<div id="pramnos-debugbar">` με inlined CSS/JS — δεν εξαρτάται από assets pipeline. Collapsible tabs, syntax highlighting για SQL.
-- [ ] **Middleware integration:** `DebugBarMiddleware` ανιχνεύει HTML response (`Content-Type: text/html`) και εισάγει το widget πριν το `</body>`.
-- [ ] **`DebugBarServiceProvider`:** ενεργοποιείται μόνο αν `APP_DEBUG=true`; εγγράφει middleware αυτόματα.
-- [ ] **`pramnos debug:status`** command: εκτυπώνει config (debug on/off, Xdebug loaded, port 9003).
-- [ ] **Tests:** unit tests για κάθε collector + renderer output; integration test που επαληθεύει εγχύση στο HTML response.
+- [x] **`Pramnos\Debug\DebugBar`:** κεντρική κλάση — singleton με registered collectors, renders HTML widget; `startTimer()`/`stopTimer()` convenience statics.
+- [x] **Collectors:**
+  - `QueryCollector` — reads `Database::getQueryLog()` (enabled via `enableQueryLog()`); SQL, time in ms, total.
+  - `TimeCollector` — wall-clock request time + named timers via `DebugBar::startTimer('name')` / `stopTimer('name')`.
+  - `MemoryCollector` — peak + current memory usage (`memory_get_peak_usage`).
+  - `RouteCollector` — stores route data via `setRoute()`; returns matched URI, method, action.
+  - `LogCollector` — ring-buffer up to N entries; populated via `addEntry()`.
+  - `SessionCollector` — session keys/values; sensitive patterns masked with `***`.
+- [x] **HTML renderer:** self-contained `<div id="pramnos-debugbar">` με inlined CSS+JS (Catppuccin Mocha theme) — collapsible tabs, SQL table with slow-query highlighting.
+- [x] **Middleware integration:** `DebugBarMiddleware` injects widget before `</body>`; passes non-HTML responses through unchanged.
+- [x] **`DebugBarServiceProvider`:** only activates when `APP_DEBUG=true` or `debug` setting; uses `ob_start()` callback to inject toolbar — zero router dependency.
+- [x] **`pramnos debug:status`** command: prints APP_DEBUG, debug setting, Xdebug loaded/version/mode/port.
+- [x] **Database query logging:** `Database::enableQueryLog()`, `getQueryLog(): array`, `clearQueryLog()` — opt-in, zero overhead when disabled.
+- [x] **Tests:** 16 unit tests (DebugBar core, all 6 collectors, middleware injection, non-HTML passthrough).
 
 > **Εξάρτηση:** Φάση 13 είναι ανεξάρτητη — μπορεί να υλοποιηθεί παράλληλα με Φάση 11/12.
 
