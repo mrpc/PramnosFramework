@@ -60,7 +60,7 @@ class Health extends Controller
         // DB info
         $dbType    = $db ? ucfirst($db->type ?? 'unknown') : 'not connected';
         $dbVersion = '—';
-        if ($db && $db->isConnected()) {
+        if ($db && $db->connected) {
             try {
                 $r         = $db->execute('SELECT VERSION() AS v');
                 $dbVersion = $r ? ($r->fields['v'] ?? '—') : '—';
@@ -79,7 +79,7 @@ class Health extends Controller
 
         // Active users (from sessions table)
         $activeUsers = '—';
-        if ($db && $db->isConnected()) {
+        if ($db && $db->connected) {
             try {
                 $prefix = defined('PREFIX') ? PREFIX : '';
                 $r      = $db->execute(
