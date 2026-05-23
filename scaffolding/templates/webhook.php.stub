@@ -1,0 +1,38 @@
+<?php
+
+/**
+ * Git webhook receiver.
+ *
+ * Point your GitHub / Bitbucket webhook at:
+ *   https://{{ APP_URL }}/webhook.php
+ *
+ * Set WEBHOOK_SECRET in .env to match the secret configured in your webhook provider.
+ */
+
+// Load the application bootstrap (access to ROOT, autoloader, .env)
+define('ROOT', dirname(__DIR__));
+require ROOT . '/vendor/autoload.php';
+
+$dotenv = \Dotenv\Dotenv::createImmutable(ROOT);
+$dotenv->safeLoad();
+
+$handler = new \Pramnos\Webhook\WebhookHandler(
+    secret:     $_ENV['WEBHOOK_SECRET'] ?? '',
+    repoDir:    ROOT,
+    logChannel: 'webhook',
+);
+
+$handler->onBranch('main', [
+    'git fetch --all',
+    'git reset --hard origin/main',
+    'composer install --no-dev --optimize-autoloader',
+    'php {{ CLI_NAME }} migrate',
+]);
+
+// Add more branches as needed:
+// $handler->onBranch('develop', [
+//     'git fetch --all',
+//     'git reset --hard origin/develop',
+// ]);
+
+$handler->handle();
