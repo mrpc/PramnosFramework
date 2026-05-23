@@ -546,7 +546,7 @@ class Init extends Command
         }
         $output->writeln("\n<comment>Step 2d — API Documentation</comment>");
         $enabled = $helper->ask($input, $output, new ConfirmationQuestion(
-            'Generate API documentation tooling (apidoc → OpenAPI + RapiDoc)? [y/N] ', false
+            'Generate API documentation tooling (apidoc → OpenAPI + RapiDoc)? [Y/n] ', true
         ));
         if (!$enabled) {
             return [false, '', ''];
