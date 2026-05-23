@@ -1,7 +1,36 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 120) — Phase 25.2 + 25.4 + 25.5: Auth modernization complete ✅
+## 📅 Last Updated: 2026-05-23 (session 121) — Phase 13: MCP Server ✅
+
+## 🏁 Session 121 — Phase 13: MCP Server + AI Developer Tooling (2026-05-23)
+
+### ✅ Phase 13 (MCP) — MCP Server for AI Assistant Integration
+
+**New files:**
+- `src/Pramnos/Mcp/McpToolInterface.php` — contract for pluggable tools
+- `src/Pramnos/Mcp/McpResource.php` — readonly value object for file resources
+- `src/Pramnos/Mcp/McpServer.php` — JSON-RPC 2.0 stdio server (initialize, tools/list, tools/call, resources/list, resources/read, ping)
+- `src/Pramnos/Mcp/Tools/ListTablesTool.php` — list-tables built-in tool
+- `src/Pramnos/Mcp/Tools/QuerySchemaTool.php` — query-schema built-in tool
+- `src/Pramnos/Mcp/Tools/MigrationStatusTool.php` — migration-status built-in tool
+- `src/Pramnos/Mcp/Tools/ModelInspectTool.php` — model-inspect built-in tool (ReflectionClass)
+- `src/Pramnos/Mcp/Tools/RouteListTool.php` — route-list built-in tool
+- `src/Pramnos/Mcp/McpServiceProvider.php` — opt-in ServiceProvider, feature key `'mcp'`
+- `src/Pramnos/Console/Commands/McpServe.php` — `pramnos mcp:serve` CLI command
+
+**Modified:**
+- `src/Pramnos/Console/Application.php` — registered McpServe command
+- `src/Pramnos/Application/FeatureRegistry.php` — registered `'mcp'` feature key + McpServiceProvider
+
+**Tests (25/25 ✓):**
+- `tests/Unit/Mcp/McpServerTest.php` — 14 tests: protocol handling (initialize, tools/list, tools/call, resources, ping, errors, stdio run)
+- `tests/Unit/Mcp/McpResourceTest.php` — 4 tests: read, missing file, toListItem shape, default mimeType
+- `tests/Unit/Mcp/McpToolsTest.php` — 7 tests: tool metadata, graceful degradation (no DB, no router, unknown class, empty param)
+
+**ROADMAP cleanup:** marked all UrbanWater Schema Backport Tasks as `[x]` — migrations 000020–000048 cover all authserver/applications/public schema items.
+
+---
 
 ## 🏁 Session 120 — Phase 25.2 + 25.4: DatabaseAuthDriver + built-in login/logout lifecycle (2026-05-23)
 

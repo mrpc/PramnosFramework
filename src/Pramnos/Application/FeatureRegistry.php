@@ -265,6 +265,10 @@ class FeatureRegistry
             'description' => 'Cache System (PSR-16, adapters: array/file/redis/memcached)',
             'provider'    => \Pramnos\Cache\CacheServiceProvider::class,
         ]);
+        static::register('mcp', [
+            'description' => 'MCP Server (AI assistant integration via stdio)',
+            'provider'    => \Pramnos\Mcp\McpServiceProvider::class,
+        ]);
     }
 
     /**

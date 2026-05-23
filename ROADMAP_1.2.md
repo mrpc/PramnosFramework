@@ -933,19 +933,19 @@
 #### MCP Server (Model Context Protocol)
 Ένα stdio-based MCP server που εκθέτει την εφαρμογή στον AI assistant (Claude, Copilot κ.λπ.) μέσω εργαλείων και πόρων. Ο AI μπορεί να εξερευνήσει το σχήμα, να τρέξει queries, να ελέγξει migrations — χωρίς να χρειάζεται ξεχωριστό DB MCP server.
 
-- [ ] **`Pramnos\Mcp\McpServer`:** JSON-RPC 2.0 over stdio — υλοποιεί το MCP protocol (`initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`).
-- [ ] **`McpTool` interface:** `name()`, `description()`, `inputSchema(): array`, `execute(array $input): mixed` — apps εγγράφουν custom tools.
-- [ ] **Built-in tools:**
+- [x] **`Pramnos\Mcp\McpServer`:** JSON-RPC 2.0 over stdio — υλοποιεί το MCP protocol (`initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`).
+- [x] **`McpToolInterface`:** `name()`, `description()`, `inputSchema(): array`, `execute(array $input): mixed` — apps εγγράφουν custom tools.
+- [x] **Built-in tools:**
   - `list-tables` — λίστα πινάκων + row counts από live DB.
   - `query-schema` — πλήρες schema ενός πίνακα (columns, types, indexes, FK).
   - `migration-status` — pending / applied migrations (επιστρέφει ό,τι δείχνει `migrate:status`).
   - `model-inspect` — fillable, casts, relations ενός OrmModel class.
   - `route-list` — λίστα registered routes.
-- [ ] **`McpResource`:** expose αρχεία ως `file://` resources (CLAUDE.md, config, views).
-- [ ] **`pramnos mcp:serve`** CLI command: εκκινεί τον MCP server σε stdio mode· κατάλληλο για `.mcp.json` `"command"` entry.
+- [x] **`McpResource`:** expose αρχεία ως `file://` resources (CLAUDE.md, config, views).
+- [x] **`pramnos mcp:serve`** CLI command: εκκινεί τον MCP server σε stdio mode· κατάλληλο για `.mcp.json` `"command"` entry.
 - [ ] **`.mcp.json` upgrade:** αντί για εξωτερικό `@modelcontextprotocol/server-mysql`, χρησιμοποιεί `./{{CLI_NAME}} mcp:serve` — zero npm dependency.
-- [ ] **`McpServiceProvider`:** opt-in εγγραφή μέσω `app.php`; lazy boot (τρέχει μόνο όταν κληθεί `mcp:serve`).
-- [ ] **Tests:** unit tests για McpServer protocol handling + tool dispatch; integration test που εκκινεί server και επαληθεύει `tools/list` output.
+- [x] **`McpServiceProvider`:** opt-in εγγραφή μέσω `app.php`; lazy boot (τρέχει μόνο όταν κληθεί `mcp:serve`).
+- [x] **Tests:** 25 unit tests — McpServer protocol handling (12), McpResource (4), built-in tools (9).
 
 #### Debug Toolbar (Laravel Debugbar αντίστοιχο)
 HTML toolbar που εγχέεται αυτόματα στο κάτω μέρος κάθε HTML response όταν `APP_DEBUG=true`. Zero-dependency, pure PHP+CSS+JS — κανένα npm build step.
@@ -1337,31 +1337,31 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 ## UrbanWater Schema Backport Tasks
 
 ### AuthServer Schema
-- [ ] Create `authserver` schema namespace (PostgreSQL only).
-- [ ] Create `authserver.permissions` table for fine-grained RBAC permission grants.
-- [ ] Create `authserver.roles` table for RBAC role definitions.
-- [ ] Create `authserver.audit_log` table for permission change history.
-- [ ] Create `authserver.permission_templates` table for reusable permission blueprints.
-- [ ] Create `authserver.role_templates` table for role blueprints.
-- [ ] Create `authserver.permission_inheritance` table for hierarchical relationships.
-- [ ] Create `authserver.user_organizations` table for user membership in organizations.
-- [ ] Create `jwt_replay_prevention` table (public schema) to block token replay attacks.
-- [ ] Create `authserver.device_authorizations` table for RFC 8628 Device Authorization Grant.
-- [ ] Create `authserver.effective_permissions` view for deny-takes-priority logic.
-- [ ] Create `authserver.slow_api_calls` view for performance monitoring.
-- [ ] Create `authserver.rbac_functions` (PostgreSQL-specific).
+- [x] Create `authserver` schema namespace (PostgreSQL only). — migration 000020
+- [x] Create `authserver.permissions` table for fine-grained RBAC permission grants. — migration 000022
+- [x] Create `authserver.roles` table for RBAC role definitions. — migration 000021
+- [x] Create `authserver.audit_log` table for permission change history. — migration 000024
+- [x] Create `authserver.permission_templates` table for reusable permission blueprints. — migration 000032
+- [x] Create `authserver.role_templates` table for role blueprints. — migration 000033
+- [x] Create `authserver.permission_inheritance` table for hierarchical relationships. — migration 000034
+- [x] Create `authserver.user_organizations` table for user membership in organizations. — migration 000031
+- [x] Create `jwt_replay_prevention` table (public schema) to block token replay attacks. — migration 000027
+- [x] Create `authserver.device_authorizations` table for RFC 8628 Device Authorization Grant. — migration 000026
+- [x] Create `authserver.effective_permissions` view for deny-takes-priority logic. — migration 000035
+- [x] Create `authserver.slow_api_calls` view for performance monitoring. — migrations 000030 + 000048 (reposition)
+- [x] Create `authserver.rbac_functions` (PostgreSQL-specific). — migration 000036
 
 ### Applications Schema
-- [ ] Create `applications` schema namespace (PostgreSQL only).
-- [ ] Create `applications.oauth2_client_auth_methods` table for client authentication methods.
-- [ ] Create `applications.oauth2_webhook_endpoints` table for registered webhook URLs.
-- [ ] Create `applications.oauth2_webhook_events` table for delivery queue/audit log.
-- [ ] Create `applications.oauth2_user_consents` table for persisted user authorization decisions.
-- [ ] Create `applications.oauth2_device_codes` table for RFC 8628 Device Authorization Grant.
-- [ ] Create `applications.oauth2_helper_functions` (PostgreSQL-specific).
+- [x] Create `applications` schema namespace (PostgreSQL only). — migration 000037
+- [x] Create `applications.oauth2_client_auth_methods` table for client authentication methods. — migration 000028
+- [x] Create `applications.oauth2_webhook_endpoints` table for registered webhook URLs. — migration 000029
+- [x] Create `applications.oauth2_webhook_events` table for delivery queue/audit log. — migration 000029
+- [x] Create `applications.oauth2_user_consents` table for persisted user authorization decisions. — migration 000042
+- [x] Create `applications.oauth2_device_codes` table for RFC 8628 Device Authorization Grant. — migration 000041
+- [x] Create `applications.oauth2_helper_functions` (PostgreSQL-specific). — migration 000040
 
 ### Public Schema
-- [ ] Create `public.organizations` table for generic organization registry.
+- [x] Create `public.organizations` table for generic organization registry. — migration 000038
 
 ## Μελοντικές Φάσεις / DX Advanced Tooling
 
