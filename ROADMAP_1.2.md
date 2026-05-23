@@ -917,13 +917,17 @@
 ### 📡 Φάση 12: Broadcasting / WebSockets
 *Real-time events από server σε browser — αρχιτεκτονικά χωρισμένη από τα model events της Φάσης 9.*
 
-- [ ] **BroadcastingInterface:** `broadcast(string $channel, string $event, array $payload)`.
+- [x] **`DriverInterface`:** `broadcast(string $channel, string $event, array $payload)` + `name(): string`.
+- [x] **`BroadcastingManager`:** manages named drivers; `setDefault()`, `driver()`, `broadcast()`, `via()` — fan-out to specific driver.
+- [x] **`NullDriver`:** no-op driver (default) — safe fallback when no transport is configured.
+- [x] **`LogDriver`:** writes JSON lines to a log file; `getEntries()` + `clear()` for test assertions.
+- [x] **`Broadcastable` trait:** `broadcastCreated()`, `broadcastUpdated()`, `broadcastDeleted()`, `broadcastEvent()` — resolves BroadcastingManager from container; channel defaults to snake_case model name.
+- [x] **`BroadcastingServiceProvider`:** registers `'broadcasting'` singleton in container; reads `app.php` `broadcasting.default` + `broadcasting.log_path`; fallback to null driver on misconfiguration.
+- [x] **Feature key `'broadcasting'`** registered in FeatureRegistry.
+- [x] **Tests:** 15 unit tests — FeatureRegistry, manager defaults, driver registration, setDefault errors, via() routing, LogDriver I/O (write/read/clear), NullDriver.
 - [ ] **PusherDriver / ReverbDriver:** προαιρετική εξάρτηση — runtime guard αν δεν είναι εγκατεστημένο.
-- [ ] **LogDriver:** για testing — γράφει events σε log file αντί για WebSocket.
-- [ ] **`Broadcastable` trait:** `OrmModel` events fire αυτόματα broadcasting όταν configured.
 - [ ] **`pramnos broadcast:serve`** command: ελαφρύ WebSocket server για local dev (Ratchet/ReactPHP).
 - [ ] **Client-side helper:** `www/assets/vendor/pramnos-echo/` — minimal JS που κάνει subscribe σε channels.
-- [ ] **Tests:** unit tests για BroadcastingManager + LogDriver; integration smoke test.
 
 > **Εξάρτηση:** Φάση 12 εξαρτάται από Φάση 11 (Cache για channel presence/heartbeat tracking).
 
