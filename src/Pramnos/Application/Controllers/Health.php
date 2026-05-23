@@ -6,6 +6,7 @@ namespace Pramnos\Application\Controllers;
 
 use Pramnos\Application\Controller;
 use Pramnos\Health\HealthRegistry;
+use Pramnos\User\User;
 
 /**
  * Framework health-check controller.
@@ -56,21 +57,20 @@ class Health extends Controller
     public function display(): mixed
     {
         $report = HealthRegistry::runAll();
-        $db     = \Pramnos\Framework\Factory::getDatabase();
         $doc    = \Pramnos\Framework\Factory::getDocument();
 
         $doc->title = 'Health';
 
-        // DB info
-        $dbType    = $db ? ucfirst($db->type ?? 'unknown') : 'not connected';
-        $dbVersion = '—';
-        if ($db && $db->connected) {
-            try {
-                $r         = $db->execute('SELECT VERSION() AS v');
-                $dbVersion = $r ? ($r->fields['v'] ?? '—') : '—';
-            } catch (\Throwable) {
-            }
+        $checks = $report['checks'] ?? [];
+
+        // DB info — read from DatabaseConnectivityCheck details (no extra query)
+        $dbDetails = $checks['database']['details'] ?? [];
+        $db        = \Pramnos\Framework\Factory::getDatabase();
+        $dbType    = ucfirst((string) ($dbDetails['driver'] ?? $db?->type ?? 'unknown'));
+        if ($dbType === 'Unknown' && !$db) {
+            $dbType = 'not connected';
         }
+        $dbVersion = (string) ($dbDetails['version'] ?? '—');
 
         // Cache info
         $cacheAdapter = '—';
@@ -81,23 +81,11 @@ class Health extends Controller
             }
         }
 
-        // Active users (from sessions table)
-        $activeUsers = '—';
-        if ($db && $db->connected) {
-            try {
-                $prefix = defined('PREFIX') ? PREFIX : '';
-                $r      = $db->execute(
-                    "SELECT COUNT(*) AS cnt FROM {$prefix}tokens WHERE status = 1 AND tokentype IN (1,3)"
-                );
-                if ($r) {
-                    $activeUsers = (string) ($r->fields['cnt'] ?? '—');
-                }
-            } catch (\Throwable) {
-            }
-        }
+        // Active users — delegated to User model
+        $activeCount = User::countActiveSessions();
+        $activeUsers = $activeCount !== null ? (string) $activeCount : '—';
 
         $overallStatus = $report['status'];
-        $checks        = $report['checks'] ?? [];
         $peakMemory    = $this->humanBytes(memory_get_peak_usage(true));
 
         $view                = $this->getView('health');
