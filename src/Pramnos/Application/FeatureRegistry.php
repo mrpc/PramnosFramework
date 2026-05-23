@@ -277,6 +277,10 @@ class FeatureRegistry
             'description' => 'DevPanel — web-accessible developer/admin dashboard',
             'provider'    => \Pramnos\DevPanel\DevPanelServiceProvider::class,
         ]);
+        static::register('broadcasting', [
+            'description' => 'Broadcasting — real-time event dispatch (null/log/pusher/reverb drivers)',
+            'provider'    => \Pramnos\Broadcasting\BroadcastingServiceProvider::class,
+        ]);
     }
 
     /**

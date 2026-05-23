@@ -1,7 +1,38 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 122) — Phase 14: DevPanel + GitInfo ✅
+## 📅 Last Updated: 2026-05-23 (session 122) — Phase 12: Broadcasting core ✅ + Phase 14: DevPanel + GitInfo ✅
+
+## 🏁 Session 122 — Phase 12 (Broadcasting) + Phase 13 (Debug) + Phase 14 (DevPanel + GitInfo) + HealthController + .mcp.json (2026-05-23)
+
+### ✅ Phase 12 — Broadcasting Core
+
+**New files:**
+- `src/Pramnos/Broadcasting/Drivers/DriverInterface.php` — transport contract
+- `src/Pramnos/Broadcasting/Drivers/NullDriver.php` — no-op (safe default)
+- `src/Pramnos/Broadcasting/Drivers/LogDriver.php` — JSON-line log file driver with getEntries() + clear()
+- `src/Pramnos/Broadcasting/BroadcastingManager.php` — manages drivers; broadcast() / via() / setDefault()
+- `src/Pramnos/Broadcasting/Broadcastable.php` — OrmModel trait; broadcastCreated/Updated/Deleted/Event; resolves from container
+- `src/Pramnos/Broadcasting/BroadcastingServiceProvider.php` — container singleton; reads app.php config; fallback to null
+- `tests/Unit/Broadcasting/BroadcastingManagerTest.php` — 15 tests
+
+**Modified:**
+- `src/Pramnos/Application/FeatureRegistry.php` — registered 'broadcasting' feature key
+
+**Deferred (needs Ratchet/ReactPHP):** PusherDriver, ReverbDriver, pramnos broadcast:serve, JS client
+
+### ✅ HealthController
+
+- `src/Pramnos/Application/Controllers/Health.php` — display() HTML + check() JSON + phpinfo()
+- `tests/Unit/Health/HealthControllerTest.php` — 7 tests
+
+### ✅ .mcp.json upgrade
+
+- `.mcp.json` added for framework repo (php ./bin/pramnos mcp:serve)
+- `scaffolding/templates/mcp.json.stub` updated — APP_SLUG placeholder, no npx/credentials
+- `Init.php` updated — no longer adds .mcp.json to .gitignore
+
+---
 
 ## 🏁 Session 122 — Phase 13 (Debug Toolbar) + Phase 14 (DevPanel + GitInfo) (2026-05-23)
 
