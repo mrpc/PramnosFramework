@@ -1283,8 +1283,8 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
   - **Secret from .env:** empty secret throws InvalidArgumentException at construction
   - **Response:** 200 OK `{status,branch,commands_run,elapsed_ms}` / 204 ignored / 403 bad sig / 500 command failed
   - **Tests:** 17 unit tests in `tests/Unit/Webhook/WebhookHandlerTest.php`
-- [ ] **`WebhookServiceProvider`:** registers config + optionally mounts route
-- [ ] **`pramnos make:webhook` command** (ή μέσω `pramnos init`): παράγει `www/webhook.php` με config placeholders:
+- [x] **`WebhookServiceProvider`:** registers 'webhook' singleton; reads webhook.{secret,repo_dir,log_channel,timeout} from app.php
+- [x] **`pramnos make:webhook` command**: παράγει `www/webhook.php` με config placeholders:
     ```php
     // www/webhook.php
     $handler = new \Pramnos\Webhook\WebhookHandler(
@@ -1296,8 +1296,8 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
     $handler->onBranch('develop', ['git fetch --all', 'git reset --hard origin/develop']);
     $handler->handle();
     ```
-- [ ] **Scaffolding:** `pramnos init` wizard — "Configure Git webhook? [y/N]" → παράγει `www/webhook.php` + προσθέτει `WEBHOOK_SECRET=` στο `.env.example`
-- [ ] **Tests:** HMAC verification (valid/invalid/missing signature); provider detection (GitHub/Bitbucket headers); branch mapping execution; event filtering; logging output
+- [ ] **Scaffolding (init):** `pramnos init` wizard — "Configure Git webhook? [y/N]" → παράγει `www/webhook.php` + προσθέτει `WEBHOOK_SECRET=` στο `.env.example`
+- [x] **Tests:** 21 unit tests — HMAC verification (valid/invalid/missing/priority); provider detection; branch mapping; event filtering; executeCommands fail-fast
 
 > **BC:** Τα υπάρχοντα `githook.php` / `githook-dev.php` αντικαθίστανται εθελοντικά. Το `WebhookHandler` μπορεί να χρησιμοποιηθεί ως standalone script ή ως `#[Route]` endpoint μέσα στο framework app (Φάση 15).
 > **Security:** Το `WEBHOOK_SECRET` **πρέπει** να οριστεί στο GitHub repo settings → Webhooks → Secret. Χωρίς secret, ο handler αρνείται να ξεκινήσει (exception στο constructor).
