@@ -312,6 +312,64 @@ class Application extends Base
         $lang->load($this->language);
         \Pramnos\Addon\Addon::triger('AppInit', 'system');
         $this->database->setTrackingInfo();
+        $this->registerDefaultNavItems($this->applicationInfo['features'] ?? []);
+    }
+
+    /**
+     * Registers the framework's built-in navigation items into NavRegistry.
+     *
+     * Called automatically at the end of init().  Applications may call
+     * NavRegistry::remove() after init() to suppress unwanted items, or
+     * NavRegistry::register() to add their own.
+     *
+     * @param string[] $features Enabled feature keys from applicationInfo['features'].
+     */
+    public function registerDefaultNavItems(array $features): void
+    {
+        $base = defined('sURL') ? \sURL : '/';
+
+        // Home — always visible
+        NavRegistry::register(new NavItem(
+            'main.home', 'Home', $base,
+            NavSection::Main, 0,
+        ));
+
+        // User section — auth-aware links
+        NavRegistry::register(new NavItem(
+            'user.login', 'Login', $base . 'login',
+            NavSection::User, 0, requireAuth: false,
+        ));
+        NavRegistry::register(new NavItem(
+            'user.account', 'My Account', $base . 'account',
+            NavSection::User, 10, requireAuth: true, minUserType: 1,
+        ));
+        NavRegistry::register(new NavItem(
+            'user.logout', 'Logout', $base . 'login/logout',
+            NavSection::User, 99, requireAuth: true, minUserType: 1,
+        ));
+
+        // Admin section — these are always registered; visibility filtered by minUserType at runtime
+        NavRegistry::register(new NavItem(
+            'admin.users', 'Users', $base . 'users',
+            NavSection::Admin, 5, requireAuth: true, minUserType: 80,
+        ));
+        NavRegistry::register(new NavItem(
+            'admin.settings', 'Settings', $base . 'settings',
+            NavSection::Admin, 8, requireAuth: true, minUserType: 80,
+        ));
+        NavRegistry::register(new NavItem(
+            'admin.logs', 'Logs', $base . 'logs',
+            NavSection::Admin, 10, requireAuth: true, minUserType: 80,
+        ));
+
+        // OAuth Apps — only when authserver feature is enabled
+        if (in_array('authserver', $features, true)) {
+            NavRegistry::register(new NavItem(
+                'admin.oauth', 'OAuth Apps', $base . 'oauth',
+                NavSection::Admin, 20, requireAuth: true, minUserType: 80,
+                feature: 'authserver',
+            ));
+        }
     }
 
     /**
