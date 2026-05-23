@@ -72,7 +72,7 @@ class Health extends Controller
         $cacheAdapter = '—';
         if (\Pramnos\Application\FeatureRegistry::isEnabled('cache')) {
             try {
-                $cacheAdapter = \Pramnos\Cache\Cache::getInstance()->getCacheMethod();
+                $cacheAdapter = \Pramnos\Cache\Cache::getInstance()->method;
             } catch (\Throwable) {
             }
         }
