@@ -9,7 +9,7 @@ namespace Pramnos\Database;
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @copyright   2005 - 2014 Yannis - Pastis Glaros, Pramnos Hosting
  */
-class Result
+class Result implements \IteratorAggregate
 {
     /**
      * Number of result rows
@@ -90,12 +90,19 @@ class Result
     }
 
     /**
-     * Magic method to return a result field
+     * Magic method to return a result field or property alias.
+     *
+     * Case alias: EOF → eof (legacy DevPanel code uses uppercase; PHP properties
+     * are case-sensitive so this alias avoids a runtime null without touching that code).
+     *
      * @param string $name
      * @return mixed
      */
     public function __get($name)
     {
+        if ($name === 'EOF') {
+            return $this->eof;
+        }
         if (isset($this->fields[$name])) {
             return $this->fields[$name];
         }
@@ -157,8 +164,20 @@ class Result
             
             return is_array($results) ? $results : array();
         }
-        
+
         return array();
+    }
+
+    /**
+     * Allows foreach ($result as $row) to iterate over all rows as associative arrays.
+     *
+     * This satisfies \IteratorAggregate so that view code can do:
+     *   foreach ($view->items as $item) { echo $item['name']; }
+     * without the controller needing to explicitly call fetchAll().
+     */
+    public function getIterator(): \ArrayIterator
+    {
+        return new \ArrayIterator($this->fetchAll());
     }
 
     /**
