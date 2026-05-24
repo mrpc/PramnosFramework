@@ -14,7 +14,7 @@ $errorMessages = [
 ?>
 <div class="container py-4" style="max-width:540px">
 
-    <p><a href="<?php echo sURL; ?>Dashboard">← Back to Dashboard</a></p>
+    <p><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>">← Back to Dashboard</a></p>
 
     <div class="card border-danger">
         <div class="card-header bg-danger text-white fw-semibold">
@@ -34,7 +34,7 @@ $errorMessages = [
                 information will be permanently deleted. This cannot be undone.
             </div>
 
-            <form method="post" action="<?php echo sURL; ?>Dashboard/deleteaccount">
+            <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/deleteaccount">
                 <div class="mb-3">
                     <label for="del_password" class="form-label">Current Password</label>
                     <input type="password" id="del_password" name="password"
@@ -50,7 +50,7 @@ $errorMessages = [
                 <button type="submit" class="btn btn-danger w-100">
                     Permanently Delete My Account
                 </button>
-                <a href="<?php echo sURL; ?>Dashboard" class="btn btn-outline-secondary w-100 mt-2">
+                <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>" class="btn btn-outline-secondary w-100 mt-2">
                     Cancel
                 </a>
             </form>

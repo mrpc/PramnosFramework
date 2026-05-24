@@ -8,7 +8,7 @@
 ?>
 <div class="max-w-xl mx-auto px-4 py-8">
 
-    <p class="text-sm mb-4"><a href="<?php echo sURL; ?>Dashboard" class="text-blue-600 hover:underline">← Back to Dashboard</a></p>
+    <p class="text-sm mb-4"><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>" class="text-blue-600 hover:underline">← Back to Dashboard</a></p>
     <h2 class="text-2xl font-bold text-gray-800 mb-6">Privacy Settings</h2>
 
     <?php if (!empty($_GET['message']) && $_GET['message'] === 'saved'): ?>
@@ -22,7 +22,7 @@
             Control how your data is used. You can update these preferences at any time.
         </p>
 
-        <form method="post" action="<?php echo sURL; ?>Dashboard/privacy">
+        <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/privacy">
             <div class="space-y-5 mb-6">
                 <label class="flex items-start gap-3 cursor-pointer">
                     <div class="mt-0.5">
@@ -63,8 +63,8 @@
     <div class="mt-6 text-sm text-gray-500">
         <p>
             Under GDPR you have the right to access, rectify, and erase your data.
-            <a href="<?php echo sURL; ?>Dashboard/exportdata" class="text-blue-600 hover:underline">Download your data</a>
-            or <a href="<?php echo sURL; ?>Dashboard/deleteaccount" class="text-red-600 hover:underline">delete your account</a>.
+            <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/exportdata" class="text-blue-600 hover:underline">Download your data</a>
+            or <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/deleteaccount" class="text-red-600 hover:underline">delete your account</a>.
         </p>
     </div>
 

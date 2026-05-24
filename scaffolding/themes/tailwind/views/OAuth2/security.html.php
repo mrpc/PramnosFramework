@@ -9,7 +9,7 @@
 ?>
 <div class="max-w-2xl mx-auto px-4 py-8">
 
-    <p class="text-sm mb-4"><a href="<?php echo sURL; ?>Dashboard" class="text-blue-600 hover:underline">← Back to Dashboard</a></p>
+    <p class="text-sm mb-4"><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>" class="text-blue-600 hover:underline">← Back to Dashboard</a></p>
     <h2 class="text-2xl font-bold text-gray-800 mb-6">Security Overview</h2>
 
     <?php if (!empty($_GET['message']) && $_GET['message'] === 'password_changed'): ?>
@@ -48,7 +48,7 @@
     <div class="bg-white rounded-lg shadow mb-4">
         <div class="flex items-center justify-between px-4 py-4">
             <span class="text-sm text-gray-600">Change your account password regularly to stay secure.</span>
-            <a href="<?php echo sURL; ?>Dashboard/changepassword"
+            <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/changepassword"
                class="text-sm text-blue-600 hover:underline whitespace-nowrap">
                 Change Password
             </a>
