@@ -1,7 +1,84 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-24 (session 133) — Comprehensive scaffold test generation: 54/54 tests pass ✅
+## 📅 Last Updated: 2026-05-25 (session 134) — Scaffold app security fixes, DB dashboard details, server-side QR code ✅
+
+## 🏁 Session 134 — Scaffold app security fixes, DB dashboard details, server-side QR code (2026-05-25)
+
+### ✅ Scaffold template bug fixes
+
+**Organizations edit/save — ID key mismatch:**
+- Template `$org['id']` → `$org['organization_id']` (matches DB column name)
+- Form field `name="id"` → `name="organization_id"` (matches controller POST read)
+- Fixed in all 3 themes (bootstrap, plain-css, tailwind)
+
+**Users edit/save — active/validated missing, firstname/lastname not saved:**
+- Added `active` / `validated` checkboxes to all 3 user edit templates (defaulting to 1)
+- `UsersController::save()` now reads `firstname`, `lastname`, `active`, `validated` from POST and saves them
+- Default values in `edit()` changed from `0` to `1` for active/validated
+
+**CSRF protection added:**
+- `OrganizationsController::save()`: validates `$_POST['_csrf_token']` against `Session::verifyCsrfToken()` before processing
+- `UsersController::save()`: same CSRF guard, redirects with session error on invalid token
+- All 3 organization edit templates: added `<?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>`
+- All 3 user edit templates: same CSRF token field added
+
+**Usertype privilege escalation fix:**
+- `UsersController::save()`: caps submitted `usertype` to current user's own type
+- `UsersController::save()`: rejects editing users with usertype higher than current user's
+- All 3 user edit templates: restrict usertype dropdown to options ≤ current user's type
+
+### ✅ Admin dashboard — database details section
+
+Added DB server information section (Server version, DB size, connections, cache hit ratio) to all 3 admin dashboard templates:
+- `scaffolding/themes/bootstrap/views/dashboard/admin_dashboard.html.php`
+- `scaffolding/themes/plain-css/views/dashboard/admin_dashboard.html.php`
+- `scaffolding/themes/tailwind/views/dashboard/admin_dashboard.html.php`
+
+Supported by `DatabaseStatsService::getStats()` which now includes a `version` key for both MySQL (`"MySQL 8.0.36"`) and PostgreSQL (`"PostgreSQL 14.5"`).
+
+### ✅ Two-Factor Auth — server-side QR code (CSP fix)
+
+**Problem:** `api.qrserver.com` external URL was blocked by `img-src 'self' data:` CSP.
+
+**Fix:**
+- `TOTPHelper::buildOtpAuthUri()` — new pure function that builds the `otpauth://totp/…` URI
+- `TOTPHelper::getQRCodeDataUri()` — server-side SVG QR code via `chillerlan/php-qrcode`; returns `data:image/svg+xml;base64,…` inline URI or `null` when library absent
+- `TOTPHelper::getQRCodeUrl()` — marked `@deprecated`; kept for backward compatibility
+- `TwoFactorAuthService::startSetup()` — now includes `qr_code_data_uri` in return array (before `qr_code_url`)
+- All 3 `twofactor/setup.html.php` templates — use `qr_code_data_uri` first, fall back to `qr_code_url` if null
+- `composer.json` — added `chillerlan/php-qrcode: "^5.0"` to `suggest` block
+
+### ✅ Unit tests for all fixes
+
+New tests added:
+
+**`TOTPHelperTest`** (+4 tests):
+- `testBuildOtpAuthUriHasCorrectScheme` — otpauth://totp/ prefix
+- `testBuildOtpAuthUriContainsSecretIssuerAndLabel` — all three components encoded correctly
+- `testBuildOtpAuthUriUsesDefaultIssuer` — default issuer "Pramnos"
+- `testGetQRCodeDataUriReturnsNullOrDataUri` — null (library absent) or data: URI (library present)
+
+**`DatabaseStatsServiceTest`** (+5 tests):
+- `testGetStatsIncludesVersionKeyForPostgreSQL` — version key always present
+- `testGetStatsIncludesVersionKeyForMySQL` — version key always present
+- `testPostgreSQLVersionIsPrefixedCorrectly` — "PostgreSQL 14.5" extracted from full version string
+- `testMySQLVersionIsPrefixedCorrectly` — "MySQL 8.0.36" prefixed correctly
+- (existing tests unchanged)
+
+**`TwoFactorAuthServiceTest`** (+1 test):
+- `testStartSetupReturnsQrCodeDataUriKey` — `qr_code_data_uri` key always present in startSetup() return
+
+**`UsersControllerTest`** (+2 tests):
+- `testSaveRedirectsWhenCsrfTokenIsInvalid` — invalid CSRF token causes redirect to users/edit
+- `testSaveDoesNotRedirectForCsrfWhenTokenIsValid` — valid token does not set CSRF error in session
+
+**`OrganizationsControllerTest`** (+1 test):
+- `testSaveRedirectsWhenCsrfTokenIsInvalid` — invalid CSRF token triggers redirect
+
+**Result:** 52 new tests pass; full suite 5158/5158 tests, 2 expected skips.
+
+---
 
 ## 🏁 Session 133 — Comprehensive scaffold test generation (2026-05-24)
 
