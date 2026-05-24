@@ -70,7 +70,7 @@ class User extends \Pramnos\Addon\Addon
         $_SESSION['username'] = $info['username'];
         $_SESSION['auth'] = $info['auth'];
         $ctime = time();
-        $remoteIp = $_SERVER["REMOTE_ADDR"];
+        $remoteIp = $_SERVER['REMOTE_ADDR'] ?? '';
 
         if ($info['uid'] > 1) {
             $request->cookieset('logged', true);

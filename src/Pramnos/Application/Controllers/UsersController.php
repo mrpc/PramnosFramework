@@ -83,7 +83,16 @@ class UsersController extends Controller
 
         $view          = $this->getView('users');
         $view->action  = 'edit';
-        $view->user    = $user;
+        $view->user    = [
+            'userid'    => (int) ($user->userid ?? 0),
+            'username'  => (string) ($user->username ?? ''),
+            'email'     => (string) ($user->email ?? ''),
+            'usertype'  => (int) ($user->usertype ?? 1),
+            'firstname' => (string) ($user->firstname ?? ''),
+            'lastname'  => (string) ($user->lastname ?? ''),
+            'active'    => (int) ($user->active ?? 0),
+            'validated' => (int) ($user->validated ?? 0),
+        ];
         $view->isNew   = $isNew;
         $view->error   = $_SESSION['users_error'] ?? '';
         unset($_SESSION['users_error']);
@@ -213,7 +222,7 @@ class UsersController extends Controller
 
         $view              = $this->getView('users');
         $view->action      = 'sessions';
-        $view->user        = $user;
+        $view->user        = ['username' => (string) ($user->username ?? '')];
         $view->sessionList = $sessionList;
         return $view->display('sessions');
     }
