@@ -6,15 +6,16 @@
  *   $this->organization — row array (null when creating)
  */
 $org = $this->organization ?? [];
-$isNew = empty($org['id']);
+$isNew = empty($org['organization_id']);
 ?>
 <div class="container py-4" style="max-width:640px">
     <h2 class="mb-4"><?php echo $isNew ? 'New Organization' : 'Edit Organization'; ?></h2>
     <div class="card">
         <div class="card-body">
             <form method="post" action="<?php echo sURL; ?>Organizations/save">
+                <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
                 <?php if (!$isNew): ?>
-                    <input type="hidden" name="id" value="<?php echo (int)$org['id']; ?>">
+                    <input type="hidden" name="organization_id" value="<?php echo (int)$org['organization_id']; ?>">
                 <?php endif; ?>
                 <div class="mb-3">
                     <label class="form-label">Name</label>
