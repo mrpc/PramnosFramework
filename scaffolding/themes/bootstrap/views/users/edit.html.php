@@ -17,6 +17,7 @@ $u = $this->user ?? [];
     <div class="card">
         <div class="card-body">
             <form method="post" action="<?php echo sURL; ?>Users/save">
+                <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
                 <?php if (!$this->isNew): ?>
                     <input type="hidden" name="userid" value="<?php echo (int)($u['userid'] ?? 0); ?>">
                 <?php endif; ?>
@@ -45,12 +46,23 @@ $u = $this->user ?? [];
                 <div class="mb-3">
                     <label class="form-label">User Type</label>
                     <select name="usertype" class="form-select">
-                        <option value="1" <?php echo ($u['usertype'] ?? 1) == 1 ? 'selected' : ''; ?>>User (1)</option>
-                        <option value="50" <?php echo ($u['usertype'] ?? 1) == 50 ? 'selected' : ''; ?>>Editor (50)</option>
-                        <option value="80" <?php echo ($u['usertype'] ?? 1) == 80 ? 'selected' : ''; ?>>Manager (80)</option>
-                        <option value="90" <?php echo ($u['usertype'] ?? 1) == 90 ? 'selected' : ''; ?>>Admin (90)</option>
-                        <option value="100" <?php echo ($u['usertype'] ?? 1) == 100 ? 'selected' : ''; ?>>Super Admin (100)</option>
+                        <?php $maxType = $this->currentUserType ?? 100; $curType = $u['usertype'] ?? 1; ?>
+                        <option value="1" <?php echo $curType == 1 ? 'selected' : ''; ?>>User (1)</option>
+                        <?php if ($maxType >= 50): ?><option value="50" <?php echo $curType == 50 ? 'selected' : ''; ?>>Editor (50)</option><?php endif; ?>
+                        <?php if ($maxType >= 80): ?><option value="80" <?php echo $curType == 80 ? 'selected' : ''; ?>>Manager (80)</option><?php endif; ?>
+                        <?php if ($maxType >= 90): ?><option value="90" <?php echo $curType == 90 ? 'selected' : ''; ?>>Admin (90)</option><?php endif; ?>
+                        <?php if ($maxType >= 100): ?><option value="100" <?php echo $curType == 100 ? 'selected' : ''; ?>>Super Admin (100)</option><?php endif; ?>
                     </select>
+                </div>
+                <div class="mb-3 d-flex gap-4">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="active" value="1" id="chk_active" <?php echo ($u['active'] ?? 1) ? 'checked' : ''; ?>>
+                        <label class="form-check-label" for="chk_active">Active</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="validated" value="1" id="chk_validated" <?php echo ($u['validated'] ?? 1) ? 'checked' : ''; ?>>
+                        <label class="form-check-label" for="chk_validated">Validated</label>
+                    </div>
                 </div>
                 <div class="d-flex gap-2">
                     <button type="submit" class="btn btn-primary">Save</button>

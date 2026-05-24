@@ -126,6 +126,13 @@ class OrganizationsController extends Controller
         $orgType     = trim((string) ($_POST['org_type']    ?? ''));
         $isActive    = isset($_POST['is_active']) ? 1 : 0;
 
+        // CSRF validation.
+        $session = \Pramnos\Http\Session::getInstance();
+        if (!$session->verifyCsrfToken((string) ($_POST['_csrf_token'] ?? ''))) {
+            $this->redirect(sURL . 'organizations/edit/' . $id . '?error=invalid_token');
+            return;
+        }
+
         if ($name === '') {
             $this->redirect(sURL . 'organizations/edit/' . $id . '?error=name_required');
             return;
