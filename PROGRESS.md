@@ -1,7 +1,39 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-24 (session 128) — Scaffold application bug fixes (guestOnly, routeBase, admin usertype, plain-css log CSS) ✅
+## 📅 Last Updated: 2026-05-24 (session 129) — Framework controller/view runtime bugs fixed ✅
+
+## 🏁 Session 129 — Framework controller/view runtime bugs fixed (2026-05-24)
+
+### ✅ Bug fixes reported during scaffolded app testing
+
+**Bug #5 — HealthRegistry wrong namespace in DashboardController:**
+- `DashboardController.php`: `\Pramnos\Application\HealthRegistry::runAll()` → `\Pramnos\Health\HealthRegistry::runAll()`
+- Also fixed: `runAll()` returns `{status, checks}` but view expected only the checks map — now passes `['checks']`
+
+**Bug #6 — `foreach` on Result object causes `Cannot use object of type PgSql\Result as array`:**
+- `Result`: added `implements \IteratorAggregate` with `getIterator()` calling `fetchAll()` — views can now use `foreach($result as $row)`
+- `Result::__get()`: added `EOF` uppercase alias → `$result->EOF` maps to `$result->eof` (PHP is case-sensitive; legacy DevPanel code uses uppercase)
+- OrganizationsController, EmailsController, TokensController, TokenActionsController, PermissionsController, QueueController: changed `->get()` → `->get()?->fetchAll() ?? []`
+- Tests: 3 new tests in `ResultUnitTest` — IteratorAggregate foreach, empty foreach, EOF uppercase alias
+
+**Bug #7 — UsersController and SettingsController: MySQL backtick SQL + legacy ADOdb cursor API:**
+- UsersController `display()` + `sessions()`: replaced raw SQL with QueryBuilder + `fetchAll()`; table names use `#PREFIX#users`/`#PREFIX#sessions`
+- SettingsController `display()`: same migration to QueryBuilder; table uses `#PREFIX#settings`
+
+**Bug #8 — DevPanelController: 10 while(!EOF) loops + 5 if(!EOF) guards using ADOdb API:**
+- All replaced with `fetchAll()` / `numRows > 0` pattern
+
+**Bug #9 — TwoFactorAuth controller missing from scaffold:**
+- `Console/Commands/Init.php`: `scaffoldAuthWiring()` now generates `src/Controllers/TwoFactorAuth.php`
+- Tests: `testTwoFactorAuthControllerIsScaffolded()` in `InitCommandUnitTest`
+
+**Bug #10 — Organizations scaffold view uses `$org['id']` instead of `$org['organization_id']`:**
+- `scaffolding/themes/plain-css/views/organizations/organizations.html.php`: updated all 4 uses
+
+**Commits:** 48e02db, 9d7e6e3, 51bd8e8, 2cc86b5, 3b0c6b3, 94e393c, 84a5a60
+
+---
 
 ## 🏁 Session 128 — Scaffold application bug fixes (2026-05-24)
 
