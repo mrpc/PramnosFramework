@@ -495,6 +495,53 @@ class TwoFactorAuthServiceTest extends TestCase
     // cleanupExpiredSessions()
     // =========================================================================
 
+    // =========================================================================
+    // startSetup() — return shape
+    // =========================================================================
+
+    /**
+     * startSetup() must include a 'qr_code_data_uri' key in its return array.
+     *
+     * This key was added to support server-side QR code generation via
+     * chillerlan/php-qrcode, eliminating the need to send the TOTP secret to
+     * an external API (which is blocked by strict Content-Security-Policy rules).
+     *
+     * The value may be null when the library is not installed, but the key must
+     * always be present so templates can rely on $this->setupData['qr_code_data_uri'].
+     */
+    public function testStartSetupReturnsQrCodeDataUriKey(): void
+    {
+        // Arrange — minimal QB mock that accepts the delete + insert calls
+        $qb = $this->createMock(QueryBuilder::class);
+        foreach (['table', 'where'] as $m) {
+            $qb->method($m)->willReturn($qb);
+        }
+        $qb->method('delete')->willReturn(null);
+        $qb->method('insert')->willReturn(null);
+
+        $db      = $this->buildDb($qb);
+        $service = new TwoFactorAuthService($db);
+
+        // Act
+        $setup = $service->startSetup(1, 'user@example.com', 'TestApp');
+
+        // Assert — key must exist; value may be null (library absent) or a string
+        $this->assertArrayHasKey('qr_code_data_uri', $setup,
+            'startSetup() must include qr_code_data_uri key for CSP-safe QR rendering');
+        $this->assertArrayHasKey('qr_code_url', $setup,
+            'startSetup() must still include legacy qr_code_url for backward compatibility');
+
+        // When the key is non-null it must be a data: URI, never a plain URL
+        if ($setup['qr_code_data_uri'] !== null) {
+            $this->assertStringStartsWith('data:', $setup['qr_code_data_uri'],
+                'qr_code_data_uri must be a data: URI, not a plain URL');
+        }
+    }
+
+    // =========================================================================
+    // cleanupExpiredSessions()
+    // =========================================================================
+
     /**
      * cleanupExpiredSessions() must execute without error.
      *
