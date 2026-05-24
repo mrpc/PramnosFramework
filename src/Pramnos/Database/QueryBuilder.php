@@ -1089,6 +1089,24 @@ class QueryBuilder
     }
 
     /**
+     * Execute a SELECT and return all rows as an associative array.
+     *
+     * Unlike get()?->fetchAll() ?? [], this method handles both null and false
+     * return values from get() — returning [] whenever the query fails or
+     * the result set is empty, so callers never need to null-check.
+     *
+     * @param bool   $cache     Whether to cache the result.
+     * @param int    $cachetime Cache TTL in seconds.
+     * @param string $category  Cache category.
+     * @return array
+     */
+    public function getAll(bool $cache = false, int $cachetime = 60, string $category = ''): array
+    {
+        $result = $this->get($cache, $cachetime, $category);
+        return ($result instanceof \Pramnos\Database\Result) ? $result->fetchAll() : [];
+    }
+
+    /**
      * Execute a COUNT(*) aggregate and return the row count as an integer.
      *
      * Clones the builder (preserving WHERE, JOIN, GROUP BY, HAVING, and their bindings),
