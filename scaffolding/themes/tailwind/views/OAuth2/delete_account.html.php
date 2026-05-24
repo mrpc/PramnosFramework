@@ -11,7 +11,7 @@ $errorMessages = [
 ?>
 <div class="max-w-lg mx-auto px-4 py-8">
 
-    <p class="text-sm mb-4"><a href="<?php echo sURL; ?>Dashboard" class="text-blue-600 hover:underline">← Back to Dashboard</a></p>
+    <p class="text-sm mb-4"><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>" class="text-blue-600 hover:underline">← Back to Dashboard</a></p>
 
     <div class="bg-white border border-red-200 rounded-lg shadow">
         <div class="px-4 py-3 bg-red-600 rounded-t-lg">
@@ -31,7 +31,7 @@ $errorMessages = [
                 information will be permanently deleted and cannot be recovered.
             </div>
 
-            <form method="post" action="<?php echo sURL; ?>Dashboard/deleteaccount">
+            <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/deleteaccount">
                 <div class="mb-4">
                     <label for="del_password" class="block text-sm font-medium text-gray-700 mb-1">
                         Current Password
@@ -52,7 +52,7 @@ $errorMessages = [
                         class="w-full py-2 px-4 bg-red-600 hover:bg-red-700 text-white font-semibold rounded transition-colors">
                     Permanently Delete My Account
                 </button>
-                <a href="<?php echo sURL; ?>Dashboard"
+                <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>"
                    class="block mt-3 text-center py-2 px-4 border border-gray-300 text-gray-600 rounded hover:bg-gray-50 transition-colors">
                     Cancel
                 </a>

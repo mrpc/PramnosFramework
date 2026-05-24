@@ -9,7 +9,7 @@
 ?>
 <div class="container py-4" style="max-width:600px">
 
-    <p><a href="<?php echo sURL; ?>Dashboard">← Back to Dashboard</a></p>
+    <p><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>">← Back to Dashboard</a></p>
     <h2>Privacy Settings</h2>
 
     <?php if (!empty($_GET['message']) && $_GET['message'] === 'saved'): ?>
@@ -23,7 +23,7 @@
                 Changes take effect immediately.
             </p>
 
-            <form method="post" action="<?php echo sURL; ?>Dashboard/privacy">
+            <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/privacy">
                 <div class="mb-3">
                     <div class="form-check form-switch">
                         <input class="form-check-input" type="checkbox"
@@ -63,8 +63,8 @@
         <h5>Your Data Rights</h5>
         <p class="text-muted small">
             Under GDPR you have the right to access, rectify, and erase your personal data.
-            <a href="<?php echo sURL; ?>Dashboard/exportdata">Download a copy of your data</a> or
-            <a href="<?php echo sURL; ?>Dashboard/deleteaccount" class="text-danger">delete your account</a>.
+            <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/exportdata">Download a copy of your data</a> or
+            <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/deleteaccount" class="text-danger">delete your account</a>.
         </p>
     </div>
 
