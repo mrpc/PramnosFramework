@@ -1,7 +1,46 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-23 (session 127) — Health views scaffolding ✅ + apidoc scaffolding ✅
+## 📅 Last Updated: 2026-05-24 (session 128) — Scaffold application bug fixes (guestOnly, routeBase, admin usertype, plain-css log CSS) ✅
+
+## 🏁 Session 128 — Scaffold application bug fixes (2026-05-24)
+
+### ✅ Bug fixes for scaffolded applications (4 bugs)
+
+Four bugs reported after creating a new application with `pramnos init`:
+
+**Bug #1 — Login shows in navbar after login:**
+- `NavItem`: new `guestOnly: bool = false` constructor parameter — hides item for authenticated users
+- `NavRegistry::isVisible()`: new Rule 0 — `guestOnly=true + isLoggedIn → hidden`
+- `Application::registerDefaultNavItems()`: `user.login` now registered with `guestOnly: true`
+- Tests: 4 new tests in `NavRegistryTest` — guestOnly hidden for logged-in, visible for guest, default false visible for both, default nav items Login is guestOnly
+
+**Bug #2 — Account links broken (redirects go to /Dashboard instead of /account):**
+- `Auth/Controllers/Dashboard.php`: new `protected string $routeBase = 'Dashboard'` property; all 11 hardcoded `sURL . 'Dashboard'` references replaced with `sURL . $this->routeBase`
+- `Console/Commands/Init.php`: scaffolded `Account` controller now declares `protected string $routeBase = 'account'`
+- Tests: `testAccountControllerHasRouteBase()` in `InitCommandUnitTest`
+
+**Bug #3 — Logs not in navbar (admin user has usertype=10, Logs requires minUserType=80):**
+- `Console/Commands/Init.php`: `createAdminUser()` now sets `$user->usertype = 90` instead of 10
+- Tests: `testCreateAdminUserScriptHasUsertype90()` in `InitCommandUnitTest`
+
+**Bug #4 — Logs CSS broken in plain-css theme:**
+- `scaffolding/themes/plain-css/style.css`: large "Bootstrap compatibility" section added — covers `.row`, `.col-md-*`, `.card`, `.kt-portlet`, `.btn-*`, `.badge-*`, `.form-control`, `.table-*`, `.modal`, `.dropdown`, utility classes (`.mb-3`, `.text-muted`, etc.) and Metronic `.kt-*` aliases
+
+**Docs:** `docs/1.2-new-features.md` updated with `guestOnly` property in NavItem table and Rule 0 in filtering rules.
+
+**Modified files:**
+- `src/Pramnos/Application/NavItem.php`
+- `src/Pramnos/Application/NavRegistry.php`
+- `src/Pramnos/Application/Application.php`
+- `src/Pramnos/Auth/Controllers/Dashboard.php`
+- `src/Pramnos/Console/Commands/Init.php`
+- `scaffolding/themes/plain-css/style.css`
+- `tests/Unit/Application/NavRegistryTest.php`
+- `tests/Unit/Console/InitCommandUnitTest.php`
+- `docs/1.2-new-features.md`
+
+---
 
 ## 🏁 Session 123 — WebhookHandler + Health scaffold + DevPanel pluggable panels + built-in health checks (2026-05-23)
 
