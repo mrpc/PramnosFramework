@@ -51,18 +51,20 @@ class SettingsController extends Controller
         $doc->title = 'Settings';
 
         $db = \Pramnos\Database\Database::getInstance();
-        $result = $db->query(
-            "SELECT `setting`, `value` FROM `#PREFIX#settings` ORDER BY `setting` ASC"
-        );
+        $rows = $db->queryBuilder()
+            ->table('#PREFIX#settings')
+            ->select(['setting', 'value'])
+            ->orderBy('setting')
+            ->get()
+            ?->fetchAll() ?? [];
 
         $settings = [];
-        while (!$result->EOF) {
+        foreach ($rows as $row) {
             $settings[] = [
-                'key'      => $result->fields['setting'],
-                'value'    => $result->fields['value'],
-                'readonly' => in_array($result->fields['setting'], $this->readonlyKeys, true),
+                'key'      => $row['setting'],
+                'value'    => $row['value'],
+                'readonly' => in_array($row['setting'], $this->readonlyKeys, true),
             ];
-            $result->moveNext();
         }
 
         $view           = $this->getView('settings');
