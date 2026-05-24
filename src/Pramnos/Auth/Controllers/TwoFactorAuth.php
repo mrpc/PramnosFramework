@@ -40,7 +40,7 @@ class TwoFactorAuth extends Controller
     /**
      * 2FA settings overview page — shows current status and available actions.
      */
-    public function display(): void
+    public function display(): mixed
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         $view        = $this->getView('twofactor');
@@ -51,7 +51,7 @@ class TwoFactorAuth extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'Two-Factor Authentication';
 
-        $view->display();
+        return $view->display();
     }
 
     /**
@@ -63,20 +63,20 @@ class TwoFactorAuth extends Controller
      * On POST with `verify_code`: validates the supplied TOTP code and, if
      * correct, promotes the pending secret to active status.
      */
-    public function setup(): void
+    public function setup(): mixed
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
 
         if ($this->twoFactorService->isEnabled($currentUser->userid)) {
             $this->redirect(sURL . 'TwoFactorAuth?error=already_enabled');
-            return;
+            return null;
         }
 
         $request = new \Pramnos\Http\Request();
 
         if ($request->get('verify_code', '', 'post') !== '') {
             $this->verifySetup();
-            return;
+            return null;
         }
 
         $setupData = $this->twoFactorService->startSetup(
@@ -92,7 +92,7 @@ class TwoFactorAuth extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = '2FA Setup';
 
-        $view->display('setup');
+        return $view->display('setup');
     }
 
     /**
@@ -145,7 +145,7 @@ class TwoFactorAuth extends Controller
      * On POST with `regenerate_password`: generates a new set of backup codes
      * after verifying the account password.
      */
-    public function backup(): void
+    public function backup(): mixed
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
 
@@ -183,7 +183,7 @@ class TwoFactorAuth extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = '2FA Backup Codes';
 
-        $view->display('backup');
+        return $view->display('backup');
     }
 
     /**
