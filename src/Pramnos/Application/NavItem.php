@@ -12,6 +12,7 @@ namespace Pramnos\Application;
  * new NavItem instead of mutating an existing one.
  *
  * Permission model:
+ *   - guestOnly      — item is hidden for authenticated users (e.g. Login link)
  *   - requireAuth    — item is hidden for guests
  *   - minUserType    — minimum usertype integer (0 = all authenticated users)
  *   - permission     — RBAC permission name; null skips the RBAC check
@@ -34,6 +35,7 @@ readonly class NavItem
      * @param string|null     $permission   RBAC permission name, or null to skip RBAC check.
      * @param string|null     $feature      Required feature key from applicationInfo['features'], or null.
      * @param string|null     $icon         Optional CSS icon class (e.g. Bootstrap Icons 'bi-journal').
+     * @param bool            $guestOnly    If true, hidden when a user IS logged in (e.g. Login link).
      */
     public function __construct(
         public string      $id,
@@ -46,5 +48,6 @@ readonly class NavItem
         public ?string     $permission   = null,
         public ?string     $feature      = null,
         public ?string     $icon         = null,
+        public bool        $guestOnly    = false,
     ) {}
 }

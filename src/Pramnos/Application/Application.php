@@ -338,7 +338,7 @@ class Application extends Base
         // User section — auth-aware links
         NavRegistry::register(new NavItem(
             'user.login', 'Login', $base . 'login',
-            NavSection::User, 0, requireAuth: false,
+            NavSection::User, 0, requireAuth: false, guestOnly: true,
         ));
         NavRegistry::register(new NavItem(
             'user.account', 'My Account', $base . 'account',
