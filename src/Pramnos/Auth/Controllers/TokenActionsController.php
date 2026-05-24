@@ -73,7 +73,7 @@ class TokenActionsController extends Controller
         $this->applyDisplayFilters($qb);
 
         $view         = $this->getView('tokenactions');
-        $view->actions = $qb->orderBy('ta.servertime', 'desc')->forPage($page, 50)->get();
+        $view->actions = $qb->orderBy('ta.servertime', 'desc')->forPage($page, 50)->get()?->fetchAll() ?? [];
         $view->total   = (clone $qb)->count();
         $view->page    = $page;
 
