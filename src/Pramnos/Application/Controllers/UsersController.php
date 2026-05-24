@@ -47,16 +47,13 @@ class UsersController extends Controller
         $this->requireMinUserType($this->requiredUserType);
 
         $db = \Pramnos\Database\Database::getInstance();
-        $result = $db->query(
-            "SELECT `userid`, `username`, `email`, `usertype`, `active`, `validated`, `lastlogin`"
-            . " FROM `#PREFIX#users` ORDER BY `userid` DESC LIMIT 500"
-        );
-
-        $users = [];
-        while (!$result->EOF) {
-            $users[] = $result->fields;
-            $result->moveNext();
-        }
+        $users = $db->queryBuilder()
+            ->table('#PREFIX#users')
+            ->select(['userid', 'username', 'email', 'usertype', 'active', 'validated', 'lastlogin'])
+            ->orderBy('userid', 'desc')
+            ->limit(500)
+            ->get()
+            ?->fetchAll() ?? [];
 
         $view        = $this->getView('users');
         $view->users = $users;
@@ -209,18 +206,12 @@ class UsersController extends Controller
         $doc->title = 'Sessions: ' . htmlspecialchars($user->username ?? '', ENT_QUOTES, 'UTF-8');
 
         $db = \Pramnos\Database\Database::getInstance();
-        $result = $db->query(
-            $db->prepareQuery(
-                "SELECT * FROM `#PREFIX#sessions` WHERE `userid` = %d ORDER BY `date` DESC",
-                $id
-            )
-        );
-
-        $sessionList = [];
-        while (!$result->EOF) {
-            $sessionList[] = $result->fields;
-            $result->moveNext();
-        }
+        $sessionList = $db->queryBuilder()
+            ->table('#PREFIX#sessions')
+            ->where('userid', $id)
+            ->orderBy('date', 'desc')
+            ->get()
+            ?->fetchAll() ?? [];
 
         $view              = $this->getView('users');
         $view->action      = 'sessions';
