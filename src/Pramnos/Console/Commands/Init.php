@@ -2289,6 +2289,31 @@ PHP;
 
         $this->writeFile('src/Controllers/Account.php', $accountController);
 
+        // ── TwoFactorAuth controller ──────────────────────────────────────────
+        $twoFactorController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Auth\\Controllers\\TwoFactorAuth as FrameworkTwoFactorAuth;
+
+/**
+ * Two-factor authentication controller — thin wrapper around the framework.
+ *
+ * Routes: /TwoFactorAuth (display), /TwoFactorAuth/setup, /TwoFactorAuth/disable,
+ *         /TwoFactorAuth/backup, /TwoFactorAuth/status
+ * All actions require authentication (enforced by the framework controller).
+ */
+class TwoFactorAuth extends FrameworkTwoFactorAuth
+{
+    // Override whitelist or settings here if needed.
+}
+PHP;
+
+        $this->writeFile('src/Controllers/TwoFactorAuth.php', $twoFactorController);
+
         // ── Login view ────────────────────────────────────────────────────────
         $loginView = $uiSystem === 'bootstrap'
             ? $this->buildBootstrapLoginView()

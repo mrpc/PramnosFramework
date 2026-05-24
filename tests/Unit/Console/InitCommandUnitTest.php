@@ -2017,6 +2017,52 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * Every application scaffolded with the 'auth' feature must receive a
+     * TwoFactorAuth controller that extends the framework's TwoFactorAuth.
+     *
+     * Bug regression: without this controller, navigating to /TwoFactorAuth
+     * produces "There is no controller to run..." even though 2FA views and
+     * security-page links reference it.
+     */
+    public function testTwoFactorAuthControllerIsScaffolded(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'AuthApp3',
+            '--namespace' => 'AuthApp3',
+            '--features'  => 'auth',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'authapp3_db',
+            '--db-user'   => 'authapp3',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        $path = $this->tmpDir . '/src/Controllers/TwoFactorAuth.php';
+        $this->assertFileExists($path, 'src/Controllers/TwoFactorAuth.php must be scaffolded with auth feature');
+
+        $content = file_get_contents($path);
+        $this->assertStringContainsString('namespace AuthApp3\\Controllers;', $content);
+        $this->assertStringContainsString('TwoFactorAuth extends FrameworkTwoFactorAuth', $content,
+            'TwoFactorAuth controller must extend the framework class');
+        $this->assertStringContainsString(
+            'use Pramnos\\Auth\\Controllers\\TwoFactorAuth as FrameworkTwoFactorAuth',
+            $content
+        );
+    }
+
+    /**
      * The Account controller must declare routeBase = 'account' so that all
      * parent Dashboard redirects target /account/... instead of the hardcoded
      * /Dashboard/... fallback in the framework controller.
