@@ -64,7 +64,7 @@ class EmailsController extends Controller
         }
 
         $view        = $this->getView('emails');
-        $view->mails = $qb->orderBy('date', 'desc')->forPage($page, 50)->get();
+        $view->mails = $qb->orderBy('date', 'desc')->forPage($page, 50)->get()?->fetchAll() ?? [];
         $view->total = (clone $qb)->count();
         $view->page  = $page;
 

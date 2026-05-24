@@ -68,7 +68,8 @@ class OrganizationsController extends Controller
             ->select(['organization_id', 'name', 'description', 'org_type', 'is_active', 'created_at'])
             ->orderBy('name')
             ->forPage($page, 50)
-            ->get();
+            ->get()
+            ?->fetchAll() ?? [];
         $view->total = $db->queryBuilder()->table('organizations')->count();
         $view->page  = $page;
 
