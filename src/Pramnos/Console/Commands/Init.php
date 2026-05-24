@@ -1083,12 +1083,36 @@ HTML,
         $testDbName = $dbName . '_test';
         $this->scaffoldSettings('app/config/testsettings.php', $dbType, $dbHost, $testDbName, $dbUser, $dbPass, $dbPrefix, true);
 
-        $this->writeFile('tests/bootstrap.php', "<?php\ndefine('ROOT', dirname(__DIR__));\nrequire ROOT . '/vendor/autoload.php';\n\n\\Pramnos\\Framework\\Testing\\TestEnvironment::setup(\n    ROOT . '/app/config/testsettings.php'\n);\n");
+        $bootstrapContent = <<<'PHP'
+<?php
+define('ROOT', dirname(__DIR__));
+if (!defined('DS')) {
+    define('DS', DIRECTORY_SEPARATOR);
+}
+require ROOT . '/vendor/autoload.php';
+
+\Pramnos\Framework\Testing\TestEnvironment::setup(
+    ROOT . '/app/config/testsettings.php'
+);
+
+// Fallback constants for unit tests that run without a live HTTP request.
+// Application::init() defines these when a real request is processed; in
+// the CLI/test environment they may be absent.
+if (!defined('sURL')) {
+    define('sURL', 'http://localhost/');
+}
+if (!defined('URL')) {
+    define('URL', 'http://localhost/');
+}
+PHP;
+        $this->writeFile('tests/bootstrap.php', $bootstrapContent);
         $this->writeFile('tests/BaseTestCase.php', "<?php\nnamespace Tests;\n\nclass BaseTestCase extends \\Pramnos\\Framework\\Testing\\BaseTestCase\n{\n}\n");
         $this->writeFile('phpunit.xml', $this->getPhpunitXml());
 
         $this->writeFile('tests/Unit/Controllers/HomeControllerTest.php',
             $this->buildHomeControllerTest($namespace));
+        $this->writeFile('tests/Unit/Controllers/ControllersContractTest.php',
+            $this->buildControllersContractTest($namespace, $features));
 
         if (in_array('auth', $features, true)) {
             $this->writeFile('tests/Unit/Controllers/LoginControllerTest.php',
@@ -1113,20 +1137,25 @@ use {$namespace}\\Controllers\\Home;
 /**
  * Unit tests for the Home controller.
  *
- * These tests verify that the controller class is loadable and correctly
- * configured — they do NOT require a running database or web server.
+ * Tests cover the full surface of the scaffolded Home controller:
+ * class structure, constructor contract, and every action method.
+ * No database or web server is required — view rendering is mocked.
  */
 class HomeControllerTest extends TestCase
 {
+    // -------------------------------------------------------------------------
+    // Structure
+    // -------------------------------------------------------------------------
+
     /**
-     * The Home controller class must exist and be instantiable.
+     * The Home controller class must exist and be loadable.
      *
      * A missing or broken autoload entry is the most common reason a newly
-     * scaffolded controller silently returns a 404.
+     * scaffolded controller silently returns a 404 on every request.
      */
     public function testHomeControllerClassExists(): void
     {
-        // Assert — the class is loadable (autoload works)
+        // Assert — the class resolves via Composer autoload
         \$this->assertTrue(
             class_exists(Home::class),
             '{$namespace}\\Controllers\\Home must be loadable via autoload'
@@ -1134,13 +1163,12 @@ class HomeControllerTest extends TestCase
     }
 
     /**
-     * Home extends \\Pramnos\\Application\\Controller so that exec() and
-     * addaction() are available. If the inheritance chain breaks, /home
-     * will throw a fatal error on the first request.
+     * Home must extend \\Pramnos\\Application\\Controller so that exec() and
+     * addaction() are available to the router dispatcher.
      */
     public function testHomeControllerExtendsFrameworkController(): void
     {
-        // Arrange
+        // Act
         \$home = new Home(null);
 
         // Assert
@@ -1149,6 +1177,310 @@ class HomeControllerTest extends TestCase
             \$home,
             'Home must extend \\Pramnos\\Application\\Controller'
         );
+    }
+
+    /**
+     * The constructor must register edit, save, and delete as auth-required
+     * actions via addAuthAction().
+     *
+     * Without this registration, unauthenticated users could reach those
+     * routes — a silent access-control failure.
+     */
+    public function testHomeConstructorRegistersAuthActions(): void
+    {
+        // Arrange
+        \$home = new Home(null);
+        \$ref  = new \\ReflectionClass(\$home);
+
+        // Act — read the protected auth-actions list (property name: actions_auth)
+        \$prop       = \$ref->getProperty('actions_auth');
+        \$authActions = \$prop->getValue(\$home);
+
+        // Assert — all three write-actions require authentication
+        \$this->assertContains('edit',   \$authActions,
+            "'edit' must require auth — modifies content");
+        \$this->assertContains('save',   \$authActions,
+            "'save' must require auth — persists changes");
+        \$this->assertContains('delete', \$authActions,
+            "'delete' must require auth — destructive operation");
+    }
+
+    // -------------------------------------------------------------------------
+    // Actions — view-rendering methods
+    // -------------------------------------------------------------------------
+
+    /**
+     * display() must return the string produced by the view.
+     *
+     * The view layer is mocked so the test does not require template files on
+     * disk.  This proves the method body executes without errors and correctly
+     * returns the view output instead of printing it or returning void.
+     */
+    public function testDisplayReturnsViewContent(): void
+    {
+        // Arrange — partial mock intercepts getView() only
+        \$home = \$this->getMockBuilder(Home::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['getView'])
+            ->getMock();
+
+        \$mockView = \$this->createMock(\\Pramnos\\Application\\View::class);
+        \$mockView->method('display')->willReturn('<h1>Home</h1>');
+        \$home->method('getView')->willReturn(\$mockView);
+
+        // Act
+        \$result = \$home->display();
+
+        // Assert — action returns the view's rendered string
+        \$this->assertSame('<h1>Home</h1>', \$result,
+            'display() must return the string produced by the view');
+    }
+
+    /**
+     * show() must pass the 'show' template name to the view and return its output.
+     */
+    public function testShowReturnsViewContent(): void
+    {
+        // Arrange
+        \$home = \$this->getMockBuilder(Home::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['getView'])
+            ->getMock();
+
+        \$mockView = \$this->createMock(\\Pramnos\\Application\\View::class);
+        \$mockView->method('display')->willReturn('<section>show</section>');
+        \$home->method('getView')->willReturn(\$mockView);
+
+        // Act
+        \$result = \$home->show();
+
+        // Assert
+        \$this->assertSame('<section>show</section>', \$result,
+            'show() must return the string produced by the view');
+    }
+
+    /**
+     * edit() requires auth (registered in constructor) and must return the
+     * rendered edit form from the view.
+     */
+    public function testEditReturnsViewContent(): void
+    {
+        // Arrange
+        \$home = \$this->getMockBuilder(Home::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['getView'])
+            ->getMock();
+
+        \$mockView = \$this->createMock(\\Pramnos\\Application\\View::class);
+        \$mockView->method('display')->willReturn('<form>edit</form>');
+        \$home->method('getView')->willReturn(\$mockView);
+
+        // Act
+        \$result = \$home->edit();
+
+        // Assert
+        \$this->assertSame('<form>edit</form>', \$result,
+            'edit() must return the rendered form string');
+    }
+
+    // -------------------------------------------------------------------------
+    // Actions — redirect methods
+    // -------------------------------------------------------------------------
+
+    /**
+     * save() must redirect back to the home page after processing.
+     *
+     * redirect() is mocked to capture the call without triggering an HTTP
+     * header (which would crash in CLI) or requiring a live Application.
+     */
+    public function testSaveRedirectsToHomePage(): void
+    {
+        // Arrange
+        \$home = \$this->getMockBuilder(Home::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect'])
+            ->getMock();
+
+        // Assert — redirect is called exactly once with a URL ending in 'home'
+        \$home->expects(\$this->once())
+            ->method('redirect')
+            ->with(\$this->stringContains('home'));
+
+        // Act
+        \$home->save();
+    }
+
+    /**
+     * delete() must redirect back to the home page after processing.
+     */
+    public function testDeleteRedirectsToHomePage(): void
+    {
+        // Arrange
+        \$home = \$this->getMockBuilder(Home::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect'])
+            ->getMock();
+
+        \$home->expects(\$this->once())
+            ->method('redirect')
+            ->with(\$this->stringContains('home'));
+
+        // Act
+        \$home->delete();
+    }
+}
+PHP;
+    }
+
+    /**
+     * Builds ControllersContractTest.php — structural smoke tests for all
+     * thin-delegation controllers.  Every app controller must:
+     *   (1) load via autoload without fatal errors,
+     *   (2) extend the correct framework parent.
+     *
+     * These tests give instant feedback when a namespace, use-statement,
+     * or extends clause is wrong in a freshly generated project.
+     */
+    private function buildControllersContractTest(string $namespace, array $features): string
+    {
+        $hasAuth       = in_array('auth',       $features, true);
+        $hasAuthserver = in_array('authserver', $features, true);
+        $hasQueue      = in_array('queue',      $features, true);
+
+        // Build use-imports for app controllers (only those actually generated).
+        $uses  = "use {$namespace}\\Controllers\\Home;\n";
+        $uses .= "use {$namespace}\\Controllers\\Dashboard;\n";
+        $uses .= "use {$namespace}\\Controllers\\Health;\n";
+        $uses .= "use {$namespace}\\Controllers\\Users;\n";
+        $uses .= "use {$namespace}\\Controllers\\Settings;\n";
+        $uses .= "use {$namespace}\\Controllers\\Logs;\n";
+        $uses .= "use {$namespace}\\Controllers\\Services;\n";
+        $uses .= "use {$namespace}\\Controllers\\Organizations;\n";
+        $uses .= "use {$namespace}\\Controllers\\Emails;\n";
+        if ($hasAuth) {
+            $uses .= "use {$namespace}\\Controllers\\Login;\n";
+            $uses .= "use {$namespace}\\Controllers\\Account;\n";
+            $uses .= "use {$namespace}\\Controllers\\TwoFactorAuth;\n";
+            $uses .= "use {$namespace}\\Controllers\\TokenActions;\n";
+            $uses .= "use {$namespace}\\Controllers\\Tokens;\n";
+            $uses .= "use {$namespace}\\Controllers\\Oauth;\n";
+        }
+        if ($hasAuthserver) {
+            $uses .= "use {$namespace}\\Controllers\\Applications;\n";
+            $uses .= "use {$namespace}\\Controllers\\Permissions;\n";
+        }
+        if ($hasQueue) {
+            $uses .= "use {$namespace}\\Controllers\\Queue;\n";
+        }
+
+        // Build data-provider rows.
+        $rows  = "            'Home'          => [Home::class,          \\Pramnos\\Application\\Controller::class],\n";
+        $rows .= "            'Dashboard'     => [Dashboard::class,     \\Pramnos\\Application\\Controllers\\DashboardController::class],\n";
+        $rows .= "            'Health'        => [Health::class,         \\Pramnos\\Application\\Controllers\\Health::class],\n";
+        $rows .= "            'Users'         => [Users::class,          \\Pramnos\\Application\\Controllers\\UsersController::class],\n";
+        $rows .= "            'Settings'      => [Settings::class,       \\Pramnos\\Application\\Controllers\\SettingsController::class],\n";
+        $rows .= "            'Logs'          => [Logs::class,           \\Pramnos\\Application\\Controllers\\LogController::class],\n";
+        $rows .= "            'Services'      => [Services::class,       \\Pramnos\\Application\\Controllers\\ServicesController::class],\n";
+        $rows .= "            'Organizations' => [Organizations::class,  \\Pramnos\\Application\\Controllers\\OrganizationsController::class],\n";
+        $rows .= "            'Emails'        => [Emails::class,         \\Pramnos\\Application\\Controllers\\EmailsController::class],\n";
+        if ($hasAuth) {
+            $rows .= "            'Login'         => [Login::class,         \\Pramnos\\Application\\Controller::class],\n";
+            $rows .= "            'Account'       => [Account::class,       \\Pramnos\\Auth\\Controllers\\Dashboard::class],\n";
+            $rows .= "            'TwoFactorAuth' => [TwoFactorAuth::class, \\Pramnos\\Auth\\Controllers\\TwoFactorAuth::class],\n";
+            $rows .= "            'TokenActions'  => [TokenActions::class,  \\Pramnos\\Auth\\Controllers\\TokenActionsController::class],\n";
+            $rows .= "            'Tokens'        => [Tokens::class,        \\Pramnos\\Auth\\Controllers\\TokensController::class],\n";
+            $rows .= "            'Oauth'         => [Oauth::class,         \\Pramnos\\Auth\\Controllers\\Oauth::class],\n";
+        }
+        if ($hasAuthserver) {
+            $rows .= "            'Applications'  => [Applications::class,  \\Pramnos\\Auth\\Controllers\\ApplicationsController::class],\n";
+            $rows .= "            'Permissions'   => [Permissions::class,   \\Pramnos\\Auth\\Controllers\\PermissionsController::class],\n";
+        }
+        if ($hasQueue) {
+            $rows .= "            'Queue'         => [Queue::class,          \\Pramnos\\Queue\\Controllers\\QueueController::class],\n";
+        }
+
+        return <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\\Unit\\Controllers;
+
+use PHPUnit\\Framework\\TestCase;
+use PHPUnit\\Framework\\Attributes\\DataProvider;
+{$uses}
+/**
+ * Structural contract tests for all thin-delegation controllers.
+ *
+ * Every generated controller must:
+ *   1. Be loadable via autoload without causing a fatal error.
+ *   2. Extend the correct framework parent so it inherits the expected actions.
+ *
+ * These tests prove no class-name, namespace, or extends clause is wrong.
+ * They run in pure PHP (no database, no HTTP) and are extremely fast.
+ *
+ * If you add a new controller, add a corresponding row to provideControllers().
+ */
+class ControllersContractTest extends TestCase
+{
+    /**
+     * Every controller must be instantiable and extend the right framework class.
+     *
+     * A wrong extends clause (e.g. a typo, removed use-import, or renamed class)
+     * would cause a fatal error on the first real HTTP request but might otherwise
+     * go undetected until production.
+     */
+    #[DataProvider('provideControllers')]
+    public function testControllerCanBeInstantiatedAndExtendsCorrectParent(
+        string \$class,
+        string \$expectedParent
+    ): void {
+        // Act — instantiate with null application (no DB or HTTP needed)
+        \$controller = new \$class(null);
+
+        // Assert — correct inheritance so the framework can dispatch requests
+        \$this->assertInstanceOf(
+            \$expectedParent,
+            \$controller,
+            "\$class must extend or implement \$expectedParent"
+        );
+    }
+
+    /**
+     * Every controller must expose only valid, callable action methods.
+     *
+     * A controller that registers an action via addaction() but does not
+     * define the corresponding method would throw a fatal error when the
+     * router tries to dispatch that URL.
+     */
+    #[DataProvider('provideControllers')]
+    public function testControllerHasNoUnreachableRegisteredActions(
+        string \$class,
+        string \$expectedParent
+    ): void {
+        // Arrange
+        \$controller = new \$class(null);
+        \$ref        = new \\ReflectionClass(\$controller);
+        \$prop       = \$ref->getProperty('actions');
+        \$actions    = \$prop->getValue(\$controller);
+
+        // Assert — every registered action maps to a real method
+        foreach (\$actions as \$action) {
+            \$this->assertTrue(
+                \$ref->hasMethod(\$action),
+                "\$class registers action '\$action' via addaction() but the method does not exist"
+            );
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Data provider
+    // -------------------------------------------------------------------------
+
+    public static function provideControllers(): array
+    {
+        return [
+{$rows}        ];
     }
 }
 PHP;
@@ -1169,22 +1501,40 @@ use {$namespace}\\Controllers\\Login;
 /**
  * Unit tests for the Login controller.
  *
- * These tests verify the structural contract of the Login controller
- * (class hierarchy, action registration) without requiring a database or
- * active HTTP request.
+ * Covers the full surface of the scaffolded Login controller:
+ * class structure, action registration, and every method body.
+ * No database is required — redirect() is mocked; Auth is exercised
+ * only for the empty-credentials branch (no real credentials needed).
  */
 class LoginControllerTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        // Ensure the session superglobal is available (CLI has no HTTP session).
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        unset(\$_SESSION['login_error']);
+        \$_POST = [];
+    }
+
+    protected function tearDown(): void
+    {
+        \$_POST = [];
+        unset(\$_SESSION['login_error']);
+    }
+
+    // -------------------------------------------------------------------------
+    // Structure
+    // -------------------------------------------------------------------------
+
     /**
-     * Login extends \\Pramnos\\Application\\Controller and has the three
-     * public action methods (display, dologin, logout).
-     *
-     * Missing methods mean the router cannot dispatch /login/dologin or
-     * /login/logout, causing silent redirects to the homepage.
+     * Login extends \\Pramnos\\Application\\Controller and exposes the three
+     * public action methods.  Missing methods cause silent URL failures.
      */
     public function testLoginControllerHasRequiredActions(): void
     {
-        // Arrange
+        // Act
         \$login = new Login(null);
 
         // Assert — class hierarchy
@@ -1194,34 +1544,147 @@ class LoginControllerTest extends TestCase
             'Login must extend \\Pramnos\\Application\\Controller'
         );
 
-        // Assert — action methods exist
+        // Assert — methods exist (the router requires these)
         \$this->assertTrue(method_exists(\$login, 'display'),  'Login::display() must exist');
         \$this->assertTrue(method_exists(\$login, 'dologin'),  'Login::dologin() must exist');
         \$this->assertTrue(method_exists(\$login, 'logout'),   'Login::logout() must exist');
     }
 
     /**
-     * The Login constructor must register 'dologin' and 'logout' via addaction()
-     * so that Controller::exec() can dispatch POST requests to those actions.
+     * The constructor must register 'dologin' and 'logout' via addaction()
+     * so that Controller::exec() can dispatch POST requests.
      *
-     * Without this registration, the controller only exposes display() and
-     * silently falls back to it for every URL, making login and logout unreachable.
+     * Without this registration the controller only exposes display() and
+     * silently falls back to it for every URL.
      */
     public function testLoginControllerRegistersActionsInConstructor(): void
     {
         // Arrange
         \$login = new Login(null);
 
-        // Act — read the registered actions via reflection (they are protected)
+        // Act — read the protected actions list via reflection
         \$ref     = new \\ReflectionClass(\$login);
         \$prop    = \$ref->getProperty('actions');
         \$actions = \$prop->getValue(\$login);
 
-        // Assert — both actions are registered
+        // Assert
         \$this->assertContains('dologin', \$actions,
-            "dologin must be registered via addaction() so exec() can dispatch POST /login/dologin");
+            "dologin must be in actions so exec() can dispatch POST /login/dologin");
         \$this->assertContains('logout',  \$actions,
-            "logout must be registered via addaction() so exec() can dispatch /login/logout");
+            "logout must be in actions so exec() can dispatch /login/logout");
+    }
+
+    // -------------------------------------------------------------------------
+    // display()
+    // -------------------------------------------------------------------------
+
+    /**
+     * display() must return the string produced by the view.
+     *
+     * The view is mocked so no template files are required on disk.
+     */
+    public function testDisplayReturnsViewContent(): void
+    {
+        // Arrange
+        \$login = \$this->getMockBuilder(Login::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['getView'])
+            ->getMock();
+
+        \$mockView = \$this->createMock(\\Pramnos\\Application\\View::class);
+        \$mockView->method('display')->willReturn('<form>login</form>');
+        \$login->method('getView')->willReturn(\$mockView);
+
+        // Act
+        \$result = \$login->display();
+
+        // Assert
+        \$this->assertSame('<form>login</form>', \$result,
+            'display() must return the string produced by the view');
+    }
+
+    // -------------------------------------------------------------------------
+    // dologin()
+    // -------------------------------------------------------------------------
+
+    /**
+     * dologin() must redirect back to /login and set a session error when
+     * the submitted username is empty.
+     *
+     * This tests the guard at the top of dologin() — the most common failure
+     * mode for the login form (accidental blank submission or bot spam).
+     */
+    public function testDologinRedirectsOnEmptyUsername(): void
+    {
+        // Arrange — empty POST simulates blank form submission
+        \$_POST = ['username' => '', 'password' => 'anything'];
+
+        \$login = \$this->getMockBuilder(Login::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect'])
+            ->getMock();
+
+        \$login->expects(\$this->once())
+            ->method('redirect')
+            ->with(\$this->stringContains('login'));
+
+        // Act
+        \$login->dologin();
+
+        // Assert — error message is stored in the session for the view to display
+        \$this->assertNotEmpty(\$_SESSION['login_error'] ?? '',
+            'dologin() must set \$_SESSION[login_error] when credentials are empty');
+    }
+
+    /**
+     * dologin() must redirect and set a session error when the password is empty.
+     */
+    public function testDologinRedirectsOnEmptyPassword(): void
+    {
+        // Arrange
+        \$_POST = ['username' => 'someone', 'password' => ''];
+
+        \$login = \$this->getMockBuilder(Login::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect'])
+            ->getMock();
+
+        \$login->expects(\$this->once())
+            ->method('redirect')
+            ->with(\$this->stringContains('login'));
+
+        // Act
+        \$login->dologin();
+
+        // Assert
+        \$this->assertNotEmpty(\$_SESSION['login_error'] ?? '',
+            'dologin() must set an error message when password is empty');
+    }
+
+    // -------------------------------------------------------------------------
+    // logout()
+    // -------------------------------------------------------------------------
+
+    /**
+     * logout() must call redirect() to send the user away after clearing
+     * the session.
+     *
+     * The redirect target is the application root (sURL), not the login page.
+     * Auth::logout() is exercised here but does not require real DB state.
+     */
+    public function testLogoutCallsRedirect(): void
+    {
+        // Arrange
+        \$login = \$this->getMockBuilder(Login::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect'])
+            ->getMock();
+
+        \$login->expects(\$this->once())
+            ->method('redirect');
+
+        // Act — Auth::getInstance()->logout() clears the session; redirect() is mocked
+        \$login->logout();
     }
 }
 PHP;
@@ -1237,6 +1700,7 @@ declare(strict_types=1);
 namespace Tests\\Integration;
 
 use Tests\\BaseTestCase;
+use {$namespace}\\Controllers\\Login;
 
 /**
  * Integration test for the authentication flow.
@@ -1256,7 +1720,21 @@ class AuthFlowTest extends BaseTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
     }
+
+    protected function tearDown(): void
+    {
+        \$_POST = [];
+        unset(\$_SESSION['login_error'], \$_SESSION['logged']);
+        parent::tearDown();
+    }
+
+    // -----------------------------------------------------------------------
+    // Auth::auth() — low-level tests
+    // -----------------------------------------------------------------------
 
     /**
      * Auth::auth() returns false for a non-existent user.
@@ -1314,9 +1792,98 @@ class AuthFlowTest extends BaseTestCase
         \$this->assertNotEmpty(\$_SESSION['logged'] ?? null,
             '\$_SESSION[logged] must be set after successful auth — check that Addon\\\\User\\\\User is registered in app.php');
 
-        // Cleanup — remove the test user by its real auto-generated id
+        // Cleanup — no backtick quotes: works on both MySQL and PostgreSQL
         \$db = \\Pramnos\\Database\\Database::getInstance();
-        \$db->query(\$db->prepareQuery("DELETE FROM `#PREFIX#users` WHERE userid = %d", \$userId));
+        \$db->query(\$db->prepareQuery("DELETE FROM #PREFIX#users WHERE userid = %d", \$userId));
+    }
+
+    // -----------------------------------------------------------------------
+    // Login::dologin() — controller-level integration tests
+    // -----------------------------------------------------------------------
+
+    /**
+     * dologin() redirects to the application root on successful authentication.
+     *
+     * Creates a real user in the test database, submits valid credentials via
+     * \$_POST, and confirms the controller calls redirect() with the site root URL.
+     * redirect() is mocked to avoid HTTP headers being sent in the test runner.
+     * This covers the true-branch of the auth check in dologin().
+     */
+    public function testDologinRedirectsToHomeOnSuccessfulLogin(): void
+    {
+        // Arrange — create a disposable test user with a known password
+        \$user            = new \\Pramnos\\User\\User();
+        \$user->username  = 'testuser_dologin_ok';
+        \$user->email     = 'dologin_ok@example.com';
+        \$user->usertype  = 50;
+        \$user->validated = 1;
+        \$user->save();
+        \$userId = (int) \$user->userid;
+        \$user->setPassword('correctpass');
+        \$user->save();
+
+        \$_POST = ['username' => 'testuser_dologin_ok', 'password' => 'correctpass'];
+
+        \$login = \$this->getMockBuilder(Login::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect'])
+            ->getMock();
+
+        // Assert — on success the controller sends the user to the site root (sURL)
+        \$login->expects(\$this->once())
+            ->method('redirect')
+            ->with(\$this->stringContains(sURL));
+
+        // Act
+        \$login->dologin();
+
+        // Cleanup
+        \$db = \\Pramnos\\Database\\Database::getInstance();
+        \$db->query(\$db->prepareQuery("DELETE FROM #PREFIX#users WHERE userid = %d", \$userId));
+    }
+
+    /**
+     * dologin() redirects back to /login and sets a session error when
+     * credentials are rejected by Auth::auth().
+     *
+     * This covers the else-branch in dologin() — wrong password, locked account,
+     * or any other failure the Auth layer reports via lastResponse.
+     */
+    public function testDologinRedirectsOnInvalidCredentials(): void
+    {
+        // Arrange — create a real user but submit the wrong password
+        \$user            = new \\Pramnos\\User\\User();
+        \$user->username  = 'testuser_dologin_fail';
+        \$user->email     = 'dologin_fail@example.com';
+        \$user->usertype  = 50;
+        \$user->validated = 1;
+        \$user->save();
+        \$userId = (int) \$user->userid;
+        \$user->setPassword('rightpassword');
+        \$user->save();
+
+        \$_POST = ['username' => 'testuser_dologin_fail', 'password' => 'wrongpassword'];
+
+        \$login = \$this->getMockBuilder(Login::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect'])
+            ->getMock();
+
+        // Assert — failure must redirect back to the login page
+        \$login->expects(\$this->once())
+            ->method('redirect')
+            ->with(\$this->stringContains('login'));
+
+        // Act
+        \$login->dologin();
+
+        // Assert — error message is stored in the session for the view to display
+        \$this->assertNotEmpty(\$_SESSION['login_error'] ?? null,
+            '\$_SESSION[login_error] must be set when credentials are rejected by Auth');
+
+        // Cleanup
+        \$db = \\Pramnos\\Database\\Database::getInstance();
+        \$db->query(\$db->prepareQuery("DELETE FROM #PREFIX#users WHERE userid = %d", \$userId));
     }
 }
 PHP;
@@ -1326,7 +1893,12 @@ PHP;
     {
         return <<<XML
 <?xml version="1.0" encoding="UTF-8"?>
-<phpunit bootstrap="tests/bootstrap.php" colors="true">
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.0/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         displayDetailsOnTestsThatTriggerDeprecations="true"
+         displayDetailsOnTestsThatTriggerWarnings="true">
     <testsuites>
         <testsuite name="Unit">
             <directory>tests/Unit</directory>
@@ -1335,6 +1907,11 @@ PHP;
             <directory>tests/Integration</directory>
         </testsuite>
     </testsuites>
+    <source>
+        <include>
+            <directory suffix=".php">./src</directory>
+        </include>
+    </source>
 </phpunit>
 XML;
     }
