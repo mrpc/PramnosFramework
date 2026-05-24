@@ -58,6 +58,37 @@
         </div>
     </div>
 
+    <div class="card mb-4">
+        <div class="card-header fw-semibold">Database</div>
+        <div class="card-body p-0">
+            <table class="table table-sm mb-0">
+                <tbody>
+                    <tr>
+                        <td class="text-muted w-40" style="width:40%">Server</td>
+                        <td><strong><?php echo htmlspecialchars($this->dbStats['version'] ?? ($this->dbStats['type'] ?? '—')); ?></strong></td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Database size</td>
+                        <td><?php
+                            $bytes = $this->dbStats['db_size_bytes'] ?? 0;
+                            echo $bytes > 1048576 ? number_format($bytes / 1048576, 2) . ' MB' : number_format($bytes / 1024, 1) . ' KB';
+                        ?></td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Connections</td>
+                        <td><?php echo (int)($this->dbStats['connections_active'] ?? 0); ?> active / <?php echo (int)($this->dbStats['connections_total'] ?? 0); ?> total</td>
+                    </tr>
+                    <?php if (isset($this->dbStats['cache_hit_ratio'])): ?>
+                    <tr>
+                        <td class="text-muted">Cache hit ratio</td>
+                        <td><?php echo number_format((float)$this->dbStats['cache_hit_ratio'], 1); ?>%</td>
+                    </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <?php if (!empty($this->healthResults)): ?>
     <div class="card mb-4">
         <div class="card-header fw-semibold">Health Checks</div>
