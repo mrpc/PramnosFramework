@@ -328,6 +328,101 @@ class NavRegistryTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // guestOnly — Rule 0: items hidden when user is authenticated
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * A guestOnly item (e.g. Login) must be hidden when a user is logged in.
+     *
+     * Bug regression: before guestOnly was added, Login remained visible in the
+     * navbar after login, confusing users and potentially exposing the login form
+     * to authenticated sessions.
+     */
+    public function testGuestOnlyItemIsHiddenForLoggedInUser(): void
+    {
+        // Arrange — Login link, visible to guests only
+        $user = $this->makeUser(50);
+        NavRegistry::register(new NavItem(
+            'user.login', 'Login', '/login',
+            NavSection::User, 0, requireAuth: false, guestOnly: true,
+        ));
+
+        // Act
+        $nav = NavRegistry::getForUser($user);
+
+        // Assert — Login must not appear for authenticated users (Rule 0)
+        $this->assertEmpty($nav[NavSection::User->value] ?? [],
+            'guestOnly=true item must be hidden for logged-in user');
+    }
+
+    /**
+     * A guestOnly item IS visible for guests (null user).
+     *
+     * guestOnly hides the item when logged in, but it still shows to guests so
+     * they can navigate to the login page.
+     */
+    public function testGuestOnlyItemIsVisibleForGuest(): void
+    {
+        // Arrange
+        NavRegistry::register(new NavItem(
+            'user.login', 'Login', '/login',
+            NavSection::User, 0, requireAuth: false, guestOnly: true,
+        ));
+
+        // Act
+        $nav = NavRegistry::getForUser(null);
+
+        // Assert — guests do see the Login link
+        $this->assertCount(1, $nav[NavSection::User->value] ?? [],
+            'guestOnly=true item must remain visible for guests');
+        $this->assertSame('Login', ($nav[NavSection::User->value][0])->label);
+    }
+
+    /**
+     * Default guestOnly=false items are visible both for guests and logged-in users.
+     *
+     * The flag must default to false so that items which don't set it are not
+     * accidentally hidden for authenticated users.
+     */
+    public function testDefaultGuestOnlyFalseIsVisibleForBoth(): void
+    {
+        // Arrange
+        $user = $this->makeUser(10);
+        NavRegistry::register(new NavItem('main.home', 'Home', '/', NavSection::Main));
+
+        // Act
+        $navGuest  = NavRegistry::getForUser(null);
+        $navLogged = NavRegistry::getForUser($user);
+
+        // Assert — visible for both
+        $this->assertCount(1, $navGuest[NavSection::Main->value]  ?? [],
+            'guestOnly=false item must be visible to guests');
+        $this->assertCount(1, $navLogged[NavSection::Main->value] ?? [],
+            'guestOnly=false item must be visible to authenticated users');
+    }
+
+    /**
+     * registerDefaultNavItems() marks the Login link with guestOnly=true so it
+     * disappears from the navbar after a user logs in.
+     */
+    public function testDefaultNavItemsLoginIsGuestOnly(): void
+    {
+        // Arrange
+        $app  = new \Pramnos\Application\Application();
+        $app->registerDefaultNavItems([]);
+        $user = $this->makeUser(50);
+
+        // Act — get nav for a logged-in user
+        $nav = NavRegistry::getForUser($user);
+
+        // Assert — Login must not appear; Logout (requireAuth=true) should appear
+        $userItems = $nav[NavSection::User->value] ?? [];
+        $ids       = array_map(fn($i) => $i->id, $userItems);
+        $this->assertNotContains('user.login',  $ids, 'Login link must be hidden after login (guestOnly=true)');
+        $this->assertContains('user.logout',    $ids, 'Logout link must be visible after login');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Application::registerDefaultNavItems integration
     // ─────────────────────────────────────────────────────────────────────────
 

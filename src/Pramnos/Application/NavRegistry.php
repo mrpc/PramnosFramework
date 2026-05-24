@@ -104,6 +104,7 @@ class NavRegistry
      * Returns filtered and sorted nav items for the given user, grouped by section.
      *
      * Filtering rules (all must pass):
+     *   0. guestOnly=true    AND user is logged in          → removed  (e.g. Login link)
      *   1. requireAuth=true  AND no user logged in          → removed
      *   2. minUserType > 0   AND user->usertype < min       → removed
      *   3. permission set    AND RBAC active                → PermissionEngine check
@@ -146,6 +147,11 @@ class NavRegistry
     private static function isVisible(NavItem $item, ?User $user, array $enabledFeatures): bool
     {
         $isLoggedIn = ($user !== null && \Pramnos\Http\Session::staticIsLogged());
+
+        // Rule 0 — guest-only items are hidden when a user is logged in
+        if ($item->guestOnly && $isLoggedIn) {
+            return false;
+        }
 
         // Rule 1 — authentication required
         if ($item->requireAuth && !$isLoggedIn) {
