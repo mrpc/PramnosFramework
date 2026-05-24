@@ -28,6 +28,13 @@ use Pramnos\Application\Controller;
  */
 class Dashboard extends Controller
 {
+    /**
+     * Base route used in internal redirects (e.g. after form submission).
+     * Override in subclasses when the controller is exposed under a different URL.
+     * Example: class Account extends Dashboard { protected string $routeBase = 'account'; }
+     */
+    protected string $routeBase = 'Dashboard';
+
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction([
@@ -147,7 +154,7 @@ class Dashboard extends Controller
         }
 
         if (!$isAjax) {
-            $this->redirect(sURL . 'Dashboard/applications');
+            $this->redirect(sURL . $this->routeBase . '/applications');
         }
     }
 
@@ -173,7 +180,7 @@ class Dashboard extends Controller
 
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::log('Error exporting user data: ' . $ex->getMessage());
-            $this->redirect(sURL . 'Dashboard');
+            $this->redirect(sURL . $this->routeBase);
         }
     }
 
@@ -193,12 +200,12 @@ class Dashboard extends Controller
             $confirmation = (string) ($_POST['confirmation'] ?? '');
 
             if (!$this->verifyUserPassword((int) $currentUser->userid, $password)) {
-                $this->redirect(sURL . 'Dashboard/deleteaccount?error=invalid_password');
+                $this->redirect(sURL . $this->routeBase . '/deleteaccount?error=invalid_password');
                 return;
             }
 
             if ($confirmation !== 'DELETE') {
-                $this->redirect(sURL . 'Dashboard/deleteaccount?error=confirmation_required');
+                $this->redirect(sURL . $this->routeBase . '/deleteaccount?error=confirmation_required');
                 return;
             }
 
@@ -212,7 +219,7 @@ class Dashboard extends Controller
 
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::log('Error deleting account: ' . $ex->getMessage());
-                $this->redirect(sURL . 'Dashboard/deleteaccount?error=deletion_failed');
+                $this->redirect(sURL . $this->routeBase . '/deleteaccount?error=deletion_failed');
             }
             return;
         }
@@ -250,7 +257,7 @@ class Dashboard extends Controller
                    ['share_usage_analytics', 'marketing_emails', 'updated_at']
                );
 
-            $this->redirect(sURL . 'Dashboard/privacy');
+            $this->redirect(sURL . $this->routeBase . '/privacy');
             return;
         }
 
@@ -298,7 +305,7 @@ class Dashboard extends Controller
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $session = \Pramnos\Http\Session::getInstance();
             if (!$session->checkToken('post')) {
-                $this->redirect(sURL . 'Dashboard/changepassword');
+                $this->redirect(sURL . $this->routeBase . '/changepassword');
                 return;
             }
 
@@ -307,18 +314,18 @@ class Dashboard extends Controller
             $confirmPassword = (string) ($_POST['confirm_password'] ?? '');
 
             if (!$this->verifyUserPassword((int) $currentUser->userid, $currentPassword)) {
-                $this->redirect(sURL . 'Dashboard/changepassword?error=wrong_password');
+                $this->redirect(sURL . $this->routeBase . '/changepassword?error=wrong_password');
                 return;
             }
 
             $policyError = $this->validatePasswordPolicy($newPassword, $confirmPassword);
             if ($policyError !== null) {
-                $this->redirect(sURL . 'Dashboard/changepassword?error=' . urlencode($policyError));
+                $this->redirect(sURL . $this->routeBase . '/changepassword?error=' . urlencode($policyError));
                 return;
             }
 
             $this->updatePassword((int) $currentUser->userid, $newPassword);
-            $this->redirect(sURL . 'Dashboard/security?message=password_changed');
+            $this->redirect(sURL . $this->routeBase . '/security?message=password_changed');
             return;
         }
 
@@ -568,7 +575,7 @@ class Dashboard extends Controller
         }
 
         if (!$success) {
-            $this->redirect(sURL . 'Dashboard/applications?error=' . urlencode($message));
+            $this->redirect(sURL . $this->routeBase . '/applications?error=' . urlencode($message));
         }
     }
 }

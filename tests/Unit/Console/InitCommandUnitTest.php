@@ -2016,6 +2016,78 @@ class InitCommandUnitTest extends TestCase
             'Dashboard wrapper must extend the framework DashboardController');
     }
 
+    /**
+     * The Account controller must declare routeBase = 'account' so that all
+     * parent Dashboard redirects target /account/... instead of the hardcoded
+     * /Dashboard/... fallback in the framework controller.
+     *
+     * Bug regression: without this property, every redirect inside Dashboard
+     * (e.g. after export-data) would send the user to /Dashboard instead of /account.
+     */
+    public function testAccountControllerHasRouteBase(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'AuthApp2',
+            '--namespace' => 'AuthApp2',
+            '--features'  => 'auth',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'authapp2_db',
+            '--db-user'   => 'authapp2',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+            '--rest-api'  => 'n',
+        ], ['interactive' => false]);
+
+        $accountPath = $this->tmpDir . '/src/Controllers/Account.php';
+        $account     = file_get_contents($accountPath);
+
+        // Assert — routeBase must be set to 'account' so parent redirects are correct
+        $this->assertStringContainsString(
+            "\$routeBase = 'account'",
+            $account,
+            "Account controller must declare \$routeBase = 'account' to redirect back to /account/..."
+        );
+    }
+
+    /**
+     * The admin user created by the scaffold must have usertype 90, not 10.
+     *
+     * Bug regression: init previously set usertype=10 which is below the
+     * minUserType=80 threshold for admin nav items (Logs, Users, Settings).
+     * A fresh-init admin would see no admin links at all in the navbar.
+     */
+    public function testCreateAdminUserScriptHasUsertype90(): void
+    {
+        // Arrange — read the generated admin-user creation snippet directly from Init.php
+        $initSrc = file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/Console/Commands/Init.php'
+        );
+
+        // Act — find the usertype assignment inside createAdminUser()
+        // file_get_contents returns raw PHP source; inside a heredoc the dollar is escaped as \$
+        $this->assertStringContainsString(
+            '\$user->usertype  = 90;',
+            $initSrc,
+            "createAdminUser() must set usertype=90 so the admin user sees Logs/Users/Settings in navbar (minUserType=80)"
+        );
+        $this->assertStringNotContainsString(
+            '\$user->usertype  = 10;',
+            $initSrc,
+            "usertype=10 is below minUserType=80 — admin would be locked out of admin nav items"
+        );
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
