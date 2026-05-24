@@ -385,10 +385,7 @@ class DevPanelController extends Controller
                      ORDER BY pg_total_relation_size(oid) DESC
                      LIMIT 30"
                 );
-                while ($res && !$res->EOF) {
-                    $tables[] = $res->fields;
-                    $res->moveNext();
-                }
+                $tables = $res ? $res->fetchAll() : [];
             } else {
                 $dbName = $db->execute('SELECT DATABASE() AS d');
                 $dbName = $dbName ? ($dbName->fields['d'] ?? '') : '';
@@ -403,10 +400,7 @@ class DevPanelController extends Controller
                      LIMIT 30",
                     [$dbName]
                 );
-                while ($res && !$res->EOF) {
-                    $tables[] = $res->fields;
-                    $res->moveNext();
-                }
+                $tables = $res ? $res->fetchAll() : [];
             }
         } catch (\Throwable $e) {
             return $this->alert('Error querying table stats: ' . htmlspecialchars($e->getMessage()), 'error');
@@ -415,7 +409,7 @@ class DevPanelController extends Controller
         // TimescaleDB detection
         try {
             $tsRes = $db->execute("SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'");
-            if ($tsRes && !$tsRes->EOF) {
+            if ($tsRes && $tsRes->numRows > 0) {
                 $isTimescaleDb = true;
             }
         } catch (\Throwable) {
@@ -448,16 +442,12 @@ class DevPanelController extends Controller
 
     private function renderTimescaleDb(\Pramnos\Database\Database $db): string
     {
-        $hypertables = [];
         try {
             $res = $db->execute(
                 "SELECT hypertable_name, num_chunks, compression_enabled
                  FROM timescaledb_information.hypertables ORDER BY hypertable_name"
             );
-            while ($res && !$res->EOF) {
-                $hypertables[] = $res->fields;
-                $res->moveNext();
-            }
+            $hypertables = $res ? $res->fetchAll() : [];
         } catch (\Throwable $e) {
             return $this->alert('TimescaleDB query error: ' . htmlspecialchars($e->getMessage()), 'warning');
         }
@@ -610,10 +600,7 @@ class DevPanelController extends Controller
                  ORDER BY t.last_used DESC
                  LIMIT 50"
             );
-            while ($res && !$res->EOF) {
-                $sessions[] = $res->fields;
-                $res->moveNext();
-            }
+            $sessions = $res ? $res->fetchAll() : [];
         } catch (\Throwable) {
         }
 
@@ -628,10 +615,7 @@ class DevPanelController extends Controller
                  ORDER BY lockout_until DESC
                  LIMIT 20"
             );
-            while ($res && !$res->EOF) {
-                $lockouts[] = $res->fields;
-                $res->moveNext();
-            }
+            $lockouts = $res ? $res->fetchAll() : [];
         } catch (\Throwable) {
         }
 
@@ -697,7 +681,7 @@ class DevPanelController extends Controller
                  WHERE t.tokenid = {$tokenId}
                  LIMIT 1"
             );
-            if ($res && !$res->EOF) {
+            if ($res && $res->numRows > 0) {
                 $tokenInfo = $res->fields;
             }
         } catch (\Throwable) {
@@ -714,7 +698,7 @@ class DevPanelController extends Controller
             $countRes = $db->execute(
                 "SELECT COUNT(*) AS cnt FROM {$prefix}tokenactions WHERE tokenid = {$tokenId}"
             );
-            if ($countRes && !$countRes->EOF) {
+            if ($countRes && $countRes->numRows > 0) {
                 $total = (int) $countRes->fields['cnt'];
             }
 
@@ -725,10 +709,7 @@ class DevPanelController extends Controller
                  ORDER BY servertime DESC
                  LIMIT {$perPage} OFFSET {$offset}"
             );
-            while ($res && !$res->EOF) {
-                $actions[] = $res->fields;
-                $res->moveNext();
-            }
+            $actions = $res ? $res->fetchAll() : [];
         } catch (\Throwable) {
         }
 
@@ -792,7 +773,7 @@ class DevPanelController extends Controller
                  WHERE userid = {$userId}
                  LIMIT 1"
             );
-            if ($res && !$res->EOF) {
+            if ($res && $res->numRows > 0) {
                 $userInfo = $res->fields;
             }
         } catch (\Throwable) {
@@ -809,7 +790,7 @@ class DevPanelController extends Controller
             $countRes = $db->execute(
                 "SELECT COUNT(*) AS cnt FROM {$prefix}userlog WHERE userid = {$userId}"
             );
-            if ($countRes && !$countRes->EOF) {
+            if ($countRes && $countRes->numRows > 0) {
                 $total = (int) $countRes->fields['cnt'];
             }
 
@@ -820,10 +801,7 @@ class DevPanelController extends Controller
                  ORDER BY date DESC, logid DESC
                  LIMIT {$perPage} OFFSET {$offset}"
             );
-            while ($res && !$res->EOF) {
-                $logs[] = $res->fields;
-                $res->moveNext();
-            }
+            $logs = $res ? $res->fetchAll() : [];
         } catch (\Throwable) {
         }
 
@@ -889,10 +867,7 @@ class DevPanelController extends Controller
                  ORDER BY avg_ms DESC
                  LIMIT 20"
             );
-            while ($res && !$res->EOF) {
-                $endpoints[] = $res->fields;
-                $res->moveNext();
-            }
+            $endpoints = $res ? $res->fetchAll() : [];
 
             // Slowest users/applications: join tokenactions → tokens → users → applications
             $res2 = $db->execute(
@@ -910,10 +885,7 @@ class DevPanelController extends Controller
                  ORDER BY avg_ms DESC
                  LIMIT 20"
             );
-            while ($res2 && !$res2->EOF) {
-                $slowUsers[] = $res2->fields;
-                $res2->moveNext();
-            }
+            $slowUsers = $res2 ? $res2->fetchAll() : [];
         } catch (\Throwable) {
         }
 
@@ -1034,13 +1006,12 @@ class DevPanelController extends Controller
                 "SELECT status, COUNT(*) AS cnt FROM {$prefix}queue_jobs GROUP BY status"
             );
             $stats  = ['pending' => 0, 'running' => 0, 'failed' => 0];
-            while ($res && !$res->EOF) {
-                $status = $res->fields['status'] ?? '';
-                $cnt    = (int) ($res->fields['cnt'] ?? 0);
+            foreach ($res ? $res->fetchAll() : [] as $row) {
+                $status = $row['status'] ?? '';
+                $cnt    = (int) ($row['cnt'] ?? 0);
                 if (isset($stats[$status])) {
                     $stats[$status] = $cnt;
                 }
-                $res->moveNext();
             }
             return [$stats['pending'], $stats['running'], $stats['failed']];
         } catch (\Throwable) {
