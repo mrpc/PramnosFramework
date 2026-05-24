@@ -1,7 +1,44 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-24 (session 129) — Framework controller/view runtime bugs fixed ✅
+## 📅 Last Updated: 2026-05-24 (session 130) — Routing, getAll(), scaffold test template fixes ✅
+
+## 🏁 Session 130 — Routing, getAll(), scaffold test template fixes (2026-05-24)
+
+### ✅ Bug fixes (second batch from session 129 testing)
+
+**Bug #11 — `SettingsController::edit()` TypeError: Array given for ?string**
+- Root cause: `Controller::exec()` calls `$this->$action($args)` with `$args=[]`; method received array, not string
+- Fix: Changed signature `?string $key` → `mixed`, read key via `Request::staticGetOption()`
+- Same fix for `delete()`
+
+**Bug #12 — Organizations edit/delete/members got id=0 (routing)**
+- Same root cause: URL segment after action stored in `$_GET['_option']` via `Request::staticGetOption()`
+- Fixed: `edit()`, `delete()`, `members()` all use `staticGetOption()` now
+
+**Bug #13 — UsersController all id-based actions got id=0**
+- Fixed: `edit()`, `delete()`, `lock()`, `unlock()`, `sessions()` all use `staticGetOption()`
+
+**Bug #14 — `fetchAll() on false` in TokenActionsController (and pattern risk throughout)**
+- Root cause: `get()?->fetchAll() ?? []` — nullsafe operator handles null but not false; `get()` returns false on query failure
+- Fix: Added `QueryBuilder::getAll(): array` which checks `instanceof Result` before calling `fetchAll()`; always returns `[]` on failure
+- Migrated all 8 controllers from `->get()?->fetchAll() ?? []` to `->getAll()`
+
+**Bug #15 — admin_dashboard.html.php TypeError: Cannot access offset on string**
+- `HealthRegistry::runAll()` returns `{status, checks}` but view expects only checks map
+- Fixed in session 129: `DashboardController` now passes `runAll()['checks']`
+
+**Bug #16 — Scaffolded test failures**
+- `LoginControllerTest` used `getProperty('_actions')` — property is named `actions`
+- `AuthFlowTest::setUp()` called `$this->setUpDatabase()` — method doesn't exist in `BaseTestCase`
+- Both fixed in `Init.php` scaffold templates AND in existing `test-app` test files
+
+**Bug #17 — Organizations scaffold view `$org['id']`**
+- Column is `organization_id` — fixed in session 129
+
+**Commits:** afb9c88, fe9939e, 102b156
+
+---
 
 ## 🏁 Session 129 — Framework controller/view runtime bugs fixed (2026-05-24)
 
