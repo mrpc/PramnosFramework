@@ -1,7 +1,45 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-24 (session 130) — Routing, getAll(), scaffold test template fixes ✅
+## 📅 Last Updated: 2026-05-24 (session 131) — TwoFactorAuth void return, UsersController array, test fixes ✅
+
+## 🏁 Session 131 — TwoFactorAuth void return, UsersController array, test fixes (2026-05-24)
+
+### ✅ Bug fixes (third batch from test-app testing)
+
+**Bug #18 — TwoFactorAuth page appears blank:**
+- `Auth/Controllers/TwoFactorAuth.php`: `display()`, `setup()`, `backup()` declared `: void` and called `$view->display()` without `return`
+- `Application::exec()` does `$doc->addContent($controller->exec())` → void return = null content = empty page
+- Fix: changed all three to `: mixed` and added `return $view->display(...)`. Early-return redirect paths now `return null`
+
+**Bug #19 — Edit User / User Sessions Fatal Error: Cannot use object as array:**
+- `UsersController::edit()` and `sessions()` passed a User object to views that expect `$this->user` as associative array
+- Fix: both methods now convert User object to array with keys used by all three themes: `userid`, `username`, `email`, `usertype`, `firstname`, `lastname`, `active`, `validated`
+
+**Bug #20 — `$_SERVER["REMOTE_ADDR"]` undefined in CLI/test context:**
+- `Addon/User/User::onLogin()` line 73: `$_SERVER["REMOTE_ADDR"]` without null-coalesce
+- Fix: changed to `$_SERVER['REMOTE_ADDR'] ?? ''`
+
+**Bug #21 — Scaffolded AuthFlowTest INSERT fails on PostgreSQL (NOT NULL columns without DB-level defaults):**
+- Raw SQL INSERT didn't include `sex`, `birthdate`, `modified` — NOT NULL columns that may lack DEFAULT in some DB instances
+- Fix: replaced raw INSERT with User model (`new User(); save(); setPassword(); save()`) — model provides explicit values for all columns
+- Bonus: test now uses the real auto-generated userid for cleanup, not hardcoded id=2
+
+**Bug #22 — Scaffolded HomeControllerTest: wrong FQCN in class_exists():**
+- `class_exists(TestApp\Controllers\Home::class)` in namespace `Tests\Unit\Controllers` → resolves to `Tests\Unit\Controllers\TestApp\Controllers\Home` (wrong!)
+- Fix: changed to `class_exists(Home::class)` — resolves via the `use` import to correct FQCN
+
+**Bug #23 — Scaffolded LoginControllerTest: setAccessible(true) deprecated in PHP 8.5:**
+- `$prop->setAccessible(true)` is deprecated since PHP 8.5 (was no-op since 8.1)
+- Fix: removed the call — ReflectionProperty::getValue() works without it on public/protected properties
+
+All 5 fixes applied to both the existing `test-app` test files AND the `Init.php` scaffold templates.
+
+**Result:** `./dockertest` in test-app → **6/6 tests, 0 errors, 0 warnings, 0 deprecations**
+
+**Commits:** 42fe68d, 328e8ca
+
+---
 
 ## 🏁 Session 130 — Routing, getAll(), scaffold test template fixes (2026-05-24)
 
