@@ -1214,7 +1214,7 @@ class LoginControllerTest extends TestCase
 
         // Act — read the registered actions via reflection (they are protected)
         \$ref     = new \\ReflectionClass(\$login);
-        \$prop    = \$ref->getProperty('_actions');
+        \$prop    = \$ref->getProperty('actions');
         \$prop->setAccessible(true);
         \$actions = \$prop->getValue(\$login);
 
@@ -1257,7 +1257,6 @@ class AuthFlowTest extends BaseTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        \$this->setUpDatabase();
     }
 
     /**
