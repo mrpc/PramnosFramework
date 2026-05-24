@@ -336,4 +336,98 @@ class TOTPHelperTest extends TestCase
         $this->assertGreaterThanOrEqual(1, $remaining, 'remaining time must be at least 1 second');
         $this->assertLessThanOrEqual(30, $remaining, 'remaining time must not exceed one TOTP window');
     }
+
+    // -------------------------------------------------------------------------
+    // buildOtpAuthUri()
+    // -------------------------------------------------------------------------
+
+    /**
+     * buildOtpAuthUri() must return a URI starting with 'otpauth://totp/'.
+     *
+     * This is the standard provisioning URI scheme for TOTP; authenticator apps
+     * only recognise QR codes that encode a URI in this format.
+     */
+    public function testBuildOtpAuthUriHasCorrectScheme(): void
+    {
+        // Arrange
+        $secret = TOTPHelper::generateSecret();
+
+        // Act
+        $uri = TOTPHelper::buildOtpAuthUri($secret, 'user@example.com', 'TestApp');
+
+        // Assert
+        $this->assertStringStartsWith('otpauth://totp/', $uri, 'URI must start with otpauth://totp/');
+    }
+
+    /**
+     * buildOtpAuthUri() must embed the secret, issuer, and label in the URI.
+     *
+     * All three components are required by RFC 6238 and RFC 3986: the issuer
+     * is shown as the account name in authenticator apps, and the secret is the
+     * shared key without which code generation is impossible.
+     */
+    public function testBuildOtpAuthUriContainsSecretIssuerAndLabel(): void
+    {
+        // Arrange
+        $secret = 'JBSWY3DPEHPK3PXP'; // known base32 value for assertions
+        $label  = 'alice@example.com';
+        $issuer = 'MyService';
+
+        // Act
+        $uri = TOTPHelper::buildOtpAuthUri($secret, $label, $issuer);
+
+        // Assert — raw secret (not encoded), and URL-encoded issuer/label
+        $this->assertStringContainsString('secret=' . $secret, $uri, 'URI must include the raw secret');
+        $this->assertStringContainsString('issuer=' . rawurlencode($issuer), $uri, 'URI must include the issuer');
+        $this->assertStringContainsString(rawurlencode($label), $uri, 'URI must include the encoded label');
+    }
+
+    /**
+     * buildOtpAuthUri() must use the default issuer 'Pramnos' when not specified.
+     *
+     * Scaffolded apps rely on the default issuer rather than passing one
+     * explicitly; the authenticator app must still show a meaningful account name.
+     */
+    public function testBuildOtpAuthUriUsesDefaultIssuer(): void
+    {
+        // Arrange
+        $secret = TOTPHelper::generateSecret();
+
+        // Act
+        $uri = TOTPHelper::buildOtpAuthUri($secret, 'user@example.com');
+
+        // Assert
+        $this->assertStringContainsString('issuer=Pramnos', $uri, 'default issuer must be "Pramnos"');
+    }
+
+    // -------------------------------------------------------------------------
+    // getQRCodeDataUri()
+    // -------------------------------------------------------------------------
+
+    /**
+     * getQRCodeDataUri() must return null or a data: URI — never a bare URL.
+     *
+     * The entire motivation for this method is to avoid sending the TOTP secret
+     * to an external API (which would violate the user's privacy). The method
+     * must return either a self-contained data: URI (if chillerlan/php-qrcode
+     * is installed) or null (if the library is absent). A plain HTTPS URL is
+     * never acceptable.
+     */
+    public function testGetQRCodeDataUriReturnsNullOrDataUri(): void
+    {
+        // Arrange
+        $secret = TOTPHelper::generateSecret();
+
+        // Act
+        $result = TOTPHelper::getQRCodeDataUri($secret, 'user@example.com', 'Test');
+
+        // Assert — must be null (library absent) or a data: URI (library present)
+        if ($result !== null) {
+            $this->assertStringStartsWith('data:', $result,
+                'when library is available, result must be a data: URI');
+        } else {
+            $this->assertNull($result,
+                'when library is absent, getQRCodeDataUri() must return null');
+        }
+    }
 }

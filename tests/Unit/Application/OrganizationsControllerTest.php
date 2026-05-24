@@ -97,4 +97,57 @@ class OrganizationsControllerTest extends TestCase
             );
         }
     }
+
+    // -------------------------------------------------------------------------
+    // save() — CSRF protection
+    // -------------------------------------------------------------------------
+
+    /**
+     * save() must redirect when the submitted CSRF token does not match the
+     * session token.
+     *
+     * Organizations contain sensitive membership and ownership data. A CSRF
+     * attack that bypasses this check could rename, delete, or restructure
+     * organizations on behalf of a logged-in admin.
+     */
+    public function testSaveRedirectsWhenCsrfTokenIsInvalid(): void
+    {
+        // Arrange
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $_SESSION['csrf_token'] = 'correct-org-token';
+
+        $_POST = [
+            '_csrf_token'     => 'tampered-token',
+            'organization_id' => '0',
+            'name'            => 'Evil Corp',
+        ];
+
+        $ctrl = $this->getMockBuilder(OrganizationsController::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect', 'requireMinUserType'])
+            ->getMock();
+
+        // requireMinUserType() returns false when auth passes (true = redirect was issued)
+        $ctrl->method('requireMinUserType')->willReturn(false);
+
+        // Assert — redirect must be called when CSRF is invalid
+        $ctrl->expects($this->once())
+            ->method('redirect');
+
+        // Act
+        $ctrl->save();
+    }
+
+    // -------------------------------------------------------------------------
+    // Teardown: clean up superglobals
+    // -------------------------------------------------------------------------
+
+    protected function tearDown(): void
+    {
+        $_POST    = [];
+        $_SESSION = [];
+        parent::tearDown();
+    }
 }
