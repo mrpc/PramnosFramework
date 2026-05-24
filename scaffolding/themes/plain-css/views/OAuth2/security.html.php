@@ -9,7 +9,7 @@
 ?>
 <div class="page-section" style="max-width:700px;margin:0 auto">
 
-    <p><a href="<?php echo sURL; ?>Dashboard">← Back to Dashboard</a></p>
+    <p><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>">← Back to Dashboard</a></p>
     <h2>Security Overview</h2>
 
     <?php if (!empty($_GET['message']) && $_GET['message'] === 'password_changed'): ?>
@@ -41,7 +41,7 @@
             <p style="margin:0;font-size:.9em;color:#666">
                 Change your account password regularly to stay secure.
             </p>
-            <a href="<?php echo sURL; ?>Dashboard/changepassword" class="btn">Change Password</a>
+            <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/changepassword" class="btn">Change Password</a>
         </div>
     </div>
 

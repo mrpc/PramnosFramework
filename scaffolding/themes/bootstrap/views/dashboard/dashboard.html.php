@@ -32,25 +32,26 @@
             <div class="card h-100">
                 <div class="card-header fw-semibold">Account Settings</div>
                 <div class="list-group list-group-flush">
-                    <a href="<?php echo sURL; ?>Dashboard/applications" class="list-group-item list-group-item-action">
+                    <?php $routeBase = $this->routeBase ?? 'Dashboard'; ?>
+                    <a href="<?php echo sURL . $routeBase; ?>/applications" class="list-group-item list-group-item-action">
                         <i class="bi bi-grid me-2"></i> Authorized Applications
                         <?php if (count($this->authorizedApps) > 0): ?>
                             <span class="badge bg-secondary float-end"><?php echo count($this->authorizedApps); ?></span>
                         <?php endif; ?>
                     </a>
-                    <a href="<?php echo sURL; ?>Dashboard/security" class="list-group-item list-group-item-action">
+                    <a href="<?php echo sURL . $routeBase; ?>/security" class="list-group-item list-group-item-action">
                         <i class="bi bi-shield me-2"></i> Security
                     </a>
-                    <a href="<?php echo sURL; ?>Dashboard/privacy" class="list-group-item list-group-item-action">
+                    <a href="<?php echo sURL . $routeBase; ?>/privacy" class="list-group-item list-group-item-action">
                         <i class="bi bi-eye-slash me-2"></i> Privacy Settings
                     </a>
-                    <a href="<?php echo sURL; ?>Dashboard/changepassword" class="list-group-item list-group-item-action">
+                    <a href="<?php echo sURL . $routeBase; ?>/changepassword" class="list-group-item list-group-item-action">
                         <i class="bi bi-key me-2"></i> Change Password
                     </a>
                     <a href="<?php echo sURL; ?>TwoFactorAuth" class="list-group-item list-group-item-action">
                         <i class="bi bi-phone me-2"></i> Two-Factor Auth
                     </a>
-                    <a href="<?php echo sURL; ?>Dashboard/exportdata" class="list-group-item list-group-item-action">
+                    <a href="<?php echo sURL . $routeBase; ?>/exportdata" class="list-group-item list-group-item-action">
                         <i class="bi bi-download me-2"></i> Export My Data
                     </a>
                 </div>
@@ -62,7 +63,7 @@
             <div class="card mb-4">
                 <div class="card-header d-flex justify-content-between align-items-center fw-semibold">
                     <span>Authorized Applications</span>
-                    <a href="<?php echo sURL; ?>Dashboard/applications" class="btn btn-sm btn-outline-secondary">Manage</a>
+                    <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/applications" class="btn btn-sm btn-outline-secondary">Manage</a>
                 </div>
                 <div class="card-body p-0">
                     <?php if (empty($this->authorizedApps)): ?>
@@ -84,7 +85,7 @@
                             <?php endforeach; ?>
                             <?php if (count($this->authorizedApps) > 3): ?>
                                 <li class="list-group-item text-center">
-                                    <a href="<?php echo sURL; ?>Dashboard/applications">
+                                    <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/applications">
                                         + <?php echo count($this->authorizedApps) - 3; ?> more
                                     </a>
                                 </li>

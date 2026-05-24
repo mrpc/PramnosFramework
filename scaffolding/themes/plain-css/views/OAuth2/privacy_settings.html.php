@@ -8,7 +8,7 @@
 ?>
 <div class="page-section" style="max-width:580px;margin:0 auto">
 
-    <p><a href="<?php echo sURL; ?>Dashboard">← Back to Dashboard</a></p>
+    <p><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>">← Back to Dashboard</a></p>
     <h2>Privacy Settings</h2>
 
     <?php if (!empty($_GET['message']) && $_GET['message'] === 'saved'): ?>
@@ -21,7 +21,7 @@
                 Control how your data is used. You can update these preferences at any time.
             </p>
 
-            <form method="post" action="<?php echo sURL; ?>Dashboard/privacy">
+            <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/privacy">
                 <div class="form-group" style="margin-bottom:20px">
                     <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
                         <input type="checkbox" name="analytics" id="analytics"
@@ -57,8 +57,8 @@
 
     <p style="margin-top:16px;font-size:.85em;color:#666">
         Under GDPR you have the right to access, rectify, and erase your data.
-        <a href="<?php echo sURL; ?>Dashboard/exportdata">Download your data</a> or
-        <a href="<?php echo sURL; ?>Dashboard/deleteaccount" style="color:#c00">delete your account</a>.
+        <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/exportdata">Download your data</a> or
+        <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/deleteaccount" style="color:#c00">delete your account</a>.
     </p>
 
 </div>

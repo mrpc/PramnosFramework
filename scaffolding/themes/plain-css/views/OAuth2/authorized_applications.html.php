@@ -8,7 +8,7 @@
 ?>
 <div class="page-section" style="max-width:680px;margin:0 auto">
 
-    <p><a href="<?php echo sURL; ?>Dashboard">← Back to Dashboard</a></p>
+    <p><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>">← Back to Dashboard</a></p>
     <h2>Authorized Applications</h2>
 
     <?php if (!empty($_GET['error'])): ?>
@@ -39,7 +39,7 @@
                                     <?php endif; ?>
                                 </small>
                             </div>
-                            <form method="post" action="<?php echo sURL; ?>Dashboard/revokeapplication"
+                            <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/revokeapplication"
                                   onsubmit="return confirm('Revoke access for <?php echo htmlspecialchars(addslashes($app['name'])); ?>?')">
                                 <input type="hidden" name="client_id" value="<?php echo htmlspecialchars($app['apikey']); ?>">
                                 <button type="submit" class="btn" style="border-color:#c00;color:#c00">Revoke</button>

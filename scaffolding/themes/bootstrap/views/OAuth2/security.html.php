@@ -9,7 +9,7 @@
 ?>
 <div class="container py-4" style="max-width:760px">
 
-    <p><a href="<?php echo sURL; ?>Dashboard">← Back to Dashboard</a></p>
+    <p><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>">← Back to Dashboard</a></p>
     <h2>Security Overview</h2>
 
     <?php if (!empty($_GET['message']) && $_GET['message'] === 'password_changed'): ?>
@@ -40,7 +40,7 @@
         <div class="card-header fw-semibold">Password</div>
         <div class="card-body d-flex justify-content-between align-items-center">
             <span>Change your account password regularly to stay secure.</span>
-            <a href="<?php echo sURL; ?>Dashboard/changepassword" class="btn btn-sm btn-outline-primary">
+            <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/changepassword" class="btn btn-sm btn-outline-primary">
                 Change Password
             </a>
         </div>

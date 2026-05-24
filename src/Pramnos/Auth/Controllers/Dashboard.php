@@ -63,6 +63,7 @@ class Dashboard extends Controller
 
         $view = $this->getView('dashboard');
 
+        $view->routeBase         = $this->routeBase;
         $view->user              = $currentUser;
         $view->authorizedApps    = $this->getAuthorizedApplications((int) $currentUser->userid);
         $view->recentActivity    = $this->getActivityLog((int) $currentUser->userid, 5);
@@ -84,6 +85,7 @@ class Dashboard extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'Authorized Applications';
 
+        $view->routeBase      = $this->routeBase;
         $view->authorizedApps = $this->getAuthorizedApplications((int) $currentUser->userid);
 
         return $view->display('authorized_applications');
@@ -228,6 +230,7 @@ class Dashboard extends Controller
         $doc->title = 'Delete Account';
 
         $view = $this->getView('OAuth2');
+        $view->routeBase = $this->routeBase;
         return $view->display('delete_account');
     }
 
@@ -265,6 +268,7 @@ class Dashboard extends Controller
         $doc->title = 'Privacy Settings';
 
         $view                   = $this->getView('OAuth2');
+        $view->routeBase        = $this->routeBase;
         $view->privacySettings  = $this->getPrivacySettings((int) $currentUser->userid);
 
         return $view->display('privacy_settings');
@@ -283,6 +287,7 @@ class Dashboard extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'Security Overview';
 
+        $view->routeBase        = $this->routeBase;
         $view->recentActivity   = $this->getActivityLog((int) $currentUser->userid, 20);
         $view->twoFactorEnabled = $this->isTwoFactorEnabled((int) $currentUser->userid);
 
@@ -333,6 +338,7 @@ class Dashboard extends Controller
         $doc->title = 'Change Password';
 
         $view = $this->getView('OAuth2');
+        $view->routeBase = $this->routeBase;
         return $view->display('change_password');
     }
 

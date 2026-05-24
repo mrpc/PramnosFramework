@@ -11,7 +11,7 @@ $errorMessages = [
 ?>
 <div class="page-section" style="max-width:500px;margin:0 auto">
 
-    <p><a href="<?php echo sURL; ?>Dashboard">← Back to Dashboard</a></p>
+    <p><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>">← Back to Dashboard</a></p>
 
     <div class="card" style="border-color:#c00">
         <div class="card-header" style="background:#c00;color:#fff"><strong>Delete Account</strong></div>
@@ -29,7 +29,7 @@ $errorMessages = [
                 information will be permanently deleted. This cannot be undone.
             </div>
 
-            <form method="post" action="<?php echo sURL; ?>Dashboard/deleteaccount">
+            <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/deleteaccount">
                 <div class="form-group">
                     <label for="del_password">Current Password</label>
                     <input type="password" id="del_password" name="password"
@@ -43,7 +43,7 @@ $errorMessages = [
                 <button type="submit" class="btn" style="width:100%;background:#c00;color:#fff;border-color:#c00;margin-top:8px">
                     Permanently Delete My Account
                 </button>
-                <a href="<?php echo sURL; ?>Dashboard" class="btn" style="width:100%;margin-top:8px;box-sizing:border-box;text-align:center;display:block">
+                <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>" class="btn" style="width:100%;margin-top:8px;box-sizing:border-box;text-align:center;display:block">
                     Cancel
                 </a>
             </form>
