@@ -136,7 +136,7 @@ class TwoFactorAuthService
      * @param int    $userId    The user's ID
      * @param string $userLabel The identifier shown in the authenticator app (email/username)
      * @param string $issuer    The service name shown in the authenticator app
-     * @return array{secret: string, qr_code_url: string, manual_entry_key: string, backup_codes: string[]}
+     * @return array{secret: string, qr_code_url: string, qr_code_data_uri: string|null, manual_entry_key: string, backup_codes: string[]}
      */
     public function startSetup(int $userId, string $userLabel, string $issuer = 'Pramnos'): array
     {
@@ -161,10 +161,11 @@ class TwoFactorAuthService
             ]);
 
         return [
-            'secret'           => $secret,
-            'qr_code_url'      => TOTPHelper::getQRCodeUrl($secret, $userLabel, $issuer),
-            'manual_entry_key' => $secret,
-            'backup_codes'     => TOTPHelper::generateBackupCodes(),
+            'secret'            => $secret,
+            'qr_code_data_uri'  => TOTPHelper::getQRCodeDataUri($secret, $userLabel, $issuer),
+            'qr_code_url'       => TOTPHelper::getQRCodeUrl($secret, $userLabel, $issuer),
+            'manual_entry_key'  => $secret,
+            'backup_codes'      => TOTPHelper::generateBackupCodes(),
         ];
     }
 

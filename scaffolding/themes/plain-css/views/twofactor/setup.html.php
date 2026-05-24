@@ -31,7 +31,14 @@
     <div class="card">
         <div class="card-header"><strong>Step 1 — Scan the QR code</strong></div>
         <div class="card-body" style="text-align:center">
-            <img src="<?php echo htmlspecialchars($this->setupData['qr_code_url']); ?>"
+            <?php
+            $qrSrc = $this->setupData['qr_code_data_uri'] ?? null;
+            if ($qrSrc === null) {
+                // Fallback: data URI not available (library missing) — use external API.
+                $qrSrc = htmlspecialchars($this->setupData['qr_code_url'] ?? '');
+            }
+            ?>
+            <img src="<?php echo $qrSrc; ?>"
                  alt="QR Code" width="200" height="200" style="border:1px solid #ddd;padding:8px;border-radius:4px">
             <p style="font-size:.9em;color:#666;margin-top:8px">
                 Open your authenticator app (Google Authenticator, Authy, etc.) and scan this QR code.

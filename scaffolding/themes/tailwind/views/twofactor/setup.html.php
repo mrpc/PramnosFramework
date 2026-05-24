@@ -33,7 +33,13 @@
     <div class="bg-white border border-gray-200 rounded-xl shadow-sm mb-4">
         <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700 text-sm">Step 1 — Scan the QR code</div>
         <div class="p-5 text-center">
-            <img src="<?php echo htmlspecialchars($this->setupData['qr_code_url']); ?>"
+            <?php
+            $qrSrc = $this->setupData['qr_code_data_uri'] ?? null;
+            if ($qrSrc === null) {
+                $qrSrc = htmlspecialchars($this->setupData['qr_code_url'] ?? '');
+            }
+            ?>
+            <img src="<?php echo $qrSrc; ?>"
                  alt="QR Code" width="200" height="200"
                  class="inline-block border border-gray-200 rounded-lg p-2 mb-3">
             <p class="text-xs text-gray-500 mb-3">
