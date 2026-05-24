@@ -75,7 +75,7 @@ class TokensController extends Controller
         }
 
         $view         = $this->getView('tokens');
-        $view->tokens = $qb->orderBy('ut.lastused', 'desc')->forPage($page, 50)->get()?->fetchAll() ?? [];
+        $view->tokens = $qb->orderBy('ut.lastused', 'desc')->forPage($page, 50)->getAll();
         $view->total  = (clone $qb)->count();
         $view->page   = $page;
 

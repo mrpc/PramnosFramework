@@ -52,8 +52,7 @@ class UsersController extends Controller
             ->select(['userid', 'username', 'email', 'usertype', 'active', 'validated', 'lastlogin'])
             ->orderBy('userid', 'desc')
             ->limit(500)
-            ->get()
-            ?->fetchAll() ?? [];
+            ->getAll();
 
         $view        = $this->getView('users');
         $view->users = $users;
@@ -71,7 +70,7 @@ class UsersController extends Controller
 
         $this->requireMinUserType($this->requiredUserType);
 
-        $id    = (int) ($id ?? 0);
+        $id    = (int) \Pramnos\Http\Request::staticGetOption();
         $user  = new User();
         $isNew = ($id === 0);
 
@@ -146,7 +145,7 @@ class UsersController extends Controller
     {
         $this->requireMinUserType($this->requiredUserType);
 
-        $id = (int) ($id ?? 0);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id < 2) {
             // Protect userid=1 (Guest/Admin) and invalid ids
             $this->redirect(sURL . 'users');
@@ -165,7 +164,7 @@ class UsersController extends Controller
     public function lock(mixed $id = null): void
     {
         $this->requireMinUserType($this->requiredUserType);
-        $id = (int) ($id ?? 0);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id > 1) {
             $this->setActiveFlag($id, 0);
         }
@@ -180,7 +179,7 @@ class UsersController extends Controller
     public function unlock(mixed $id = null): void
     {
         $this->requireMinUserType($this->requiredUserType);
-        $id = (int) ($id ?? 0);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id > 1) {
             $this->setActiveFlag($id, 1);
         }
@@ -198,7 +197,7 @@ class UsersController extends Controller
 
         $this->requireMinUserType($this->requiredUserType);
 
-        $id = (int) ($id ?? 0);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
         $user = new User();
         if ($id > 0) {
             $user->load($id);
@@ -210,8 +209,7 @@ class UsersController extends Controller
             ->table('#PREFIX#sessions')
             ->where('userid', $id)
             ->orderBy('date', 'desc')
-            ->get()
-            ?->fetchAll() ?? [];
+            ->getAll();
 
         $view              = $this->getView('users');
         $view->action      = 'sessions';

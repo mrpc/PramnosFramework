@@ -74,7 +74,7 @@ class QueueController extends Controller
         }
 
         $view       = $this->getView('queue');
-        $view->jobs = $qb->orderBy('createdat', 'desc')->forPage($page, 50)->get()?->fetchAll() ?? [];
+        $view->jobs = $qb->orderBy('createdat', 'desc')->forPage($page, 50)->getAll();
         $view->total = (clone $qb)->count();
         $view->page  = $page;
 
