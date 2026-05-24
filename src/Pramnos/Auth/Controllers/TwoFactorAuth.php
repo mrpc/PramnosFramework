@@ -151,7 +151,7 @@ class TwoFactorAuth extends Controller
 
         if (!$this->twoFactorService->isEnabled($currentUser->userid)) {
             $this->redirect(sURL . 'TwoFactorAuth?error=not_enabled');
-            return;
+            return null;
         }
 
         $request = new \Pramnos\Http\Request();
