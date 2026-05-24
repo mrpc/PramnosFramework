@@ -6,15 +6,16 @@
  *   $this->organization — row array (null when creating)
  */
 $org = $this->organization ?? [];
-$isNew = empty($org['id']);
+$isNew = empty($org['organization_id']);
 ?>
-<div class="page-section"max-width:640px">
+<div class="page-section" style="max-width:640px">
     <h2 style="margin-bottom:16px"><?php echo $isNew ? 'New Organization' : 'Edit Organization'; ?></h2>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
         <div class="card-body" style="padding:16px">
             <form method="post" action="<?php echo sURL; ?>Organizations/save">
+                <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
                 <?php if (!$isNew): ?>
-                    <input type="hidden" name="id" value="<?php echo (int)$org['id']; ?>">
+                    <input type="hidden" name="organization_id" value="<?php echo (int)$org['organization_id']; ?>">
                 <?php endif; ?>
                 <div style="margin-bottom:12px">
                     <label style="display:block;font-weight:600;margin-bottom:4px">Name</label>
