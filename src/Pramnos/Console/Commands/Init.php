@@ -1128,7 +1128,7 @@ class HomeControllerTest extends TestCase
     {
         // Assert — the class is loadable (autoload works)
         \$this->assertTrue(
-            class_exists({$namespace}\\Controllers\\Home::class),
+            class_exists(Home::class),
             '{$namespace}\\Controllers\\Home must be loadable via autoload'
         );
     }
@@ -1215,7 +1215,6 @@ class LoginControllerTest extends TestCase
         // Act — read the registered actions via reflection (they are protected)
         \$ref     = new \\ReflectionClass(\$login);
         \$prop    = \$ref->getProperty('actions');
-        \$prop->setAccessible(true);
         \$actions = \$prop->getValue(\$login);
 
         // Assert — both actions are registered
@@ -1287,19 +1286,20 @@ class AuthFlowTest extends BaseTestCase
      */
     public function testAuthReturnsTrueAndSetsSessionForValidUser(): void
     {
-        // Arrange — create a test user directly in the database
-        \$db       = \\Pramnos\\Database\\Database::getInstance();
-        \$password = password_hash(
-            'testpass123' . md5(
-                \\Pramnos\\Application\\Settings::getSetting('securitySalt') . 2
-            ),
-            PASSWORD_DEFAULT
-        );
-        \$db->query(\$db->prepareQuery(
-            "INSERT INTO `#PREFIX#users` (userid, username, email, password, usertype, validated, active)
-             VALUES (2, 'testuser_auth', 'testuser@example.com', %s, 50, 1, 1)",
-            \$password
-        ));
+        // Arrange — create a test user via the User model so all NOT NULL columns
+        // get correct default values regardless of which columns have DB-level DEFAULTs.
+        \$user            = new \\Pramnos\\User\\User();
+        \$user->username  = 'testuser_auth';
+        \$user->email     = 'testuser@example.com';
+        \$user->usertype  = 50;
+        \$user->validated = 1;
+        \$user->save();
+
+        // setPassword() must be called after save() because it salts with the
+        // real userid — which is only known after the INSERT returns.
+        \$userId = (int) \$user->userid;
+        \$user->setPassword('testpass123');
+        \$user->save();
 
         \$auth = \\Pramnos\\Auth\\Auth::getInstance();
         unset(\$_SESSION['logged']);
@@ -1314,8 +1314,9 @@ class AuthFlowTest extends BaseTestCase
         \$this->assertNotEmpty(\$_SESSION['logged'] ?? null,
             '\$_SESSION[logged] must be set after successful auth — check that Addon\\\\User\\\\User is registered in app.php');
 
-        // Cleanup
-        \$db->query(\$db->prepareQuery("DELETE FROM `#PREFIX#users` WHERE userid = 2"));
+        // Cleanup — remove the test user by its real auto-generated id
+        \$db = \\Pramnos\\Database\\Database::getInstance();
+        \$db->query(\$db->prepareQuery("DELETE FROM `#PREFIX#users` WHERE userid = %d", \$userId));
     }
 }
 PHP;
