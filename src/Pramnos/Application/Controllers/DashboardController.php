@@ -61,7 +61,7 @@ class DashboardController extends Controller
         $view->activeUsers   = (new ActiveUsersService())->getCounts();
         $view->dbStats       = (new DatabaseStatsService())->getStats();
         $view->apiStats      = (new ApiPerformanceService())->getSummary(ApiPerformanceService::WINDOW_24H);
-        $view->healthResults = \Pramnos\Application\HealthRegistry::runAll();
+        $view->healthResults = \Pramnos\Health\HealthRegistry::runAll()['checks'] ?? [];
 
         return $view->display('admin_dashboard');
     }
