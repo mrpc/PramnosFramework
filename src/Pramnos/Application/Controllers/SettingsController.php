@@ -55,8 +55,7 @@ class SettingsController extends Controller
             ->table('#PREFIX#settings')
             ->select(['setting', 'value'])
             ->orderBy('setting')
-            ->get()
-            ?->fetchAll() ?? [];
+            ->getAll();
 
         $settings = [];
         foreach ($rows as $row) {
@@ -77,11 +76,11 @@ class SettingsController extends Controller
      *
      * @param string|null $key Setting key to edit; empty string for a new setting.
      */
-    public function edit(?string $key = null): mixed
+    public function edit(mixed $key = null): mixed
     {
         $doc = Factory::getDocument();
 
-        $key      = trim((string) ($key ?? ''));
+        $key      = trim((string) (\Pramnos\Http\Request::staticGetOption() ?? ''));
         $value    = '';
         $isNew    = ($key === '');
 
@@ -144,9 +143,9 @@ class SettingsController extends Controller
      *
      * @param string|null $key Setting key to delete.
      */
-    public function delete(?string $key = null): void
+    public function delete(mixed $key = null): void
     {
-        $key = trim((string) ($key ?? $_GET['key'] ?? ''));
+        $key = trim((string) (\Pramnos\Http\Request::staticGetOption() ?? $_GET['key'] ?? ''));
 
         if ($key === '' || in_array($key, $this->readonlyKeys, true)) {
             $this->redirect(sURL . 'settings');
