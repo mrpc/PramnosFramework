@@ -11,7 +11,7 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h2 class="mb-0">Authorized Applications</h2>
-            <small><a href="<?php echo sURL; ?>Dashboard">← Back to Dashboard</a></small>
+            <small><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>">← Back to Dashboard</a></small>
         </div>
     </div>
 
@@ -45,7 +45,7 @@
                                     </small>
                                 </div>
                                 <div class="col-auto">
-                                    <form method="post" action="<?php echo sURL; ?>Dashboard/revokeapplication"
+                                    <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/revokeapplication"
                                           onsubmit="return confirm('Revoke access for <?php echo htmlspecialchars(addslashes($app['name'])); ?>?')">
                                         <input type="hidden" name="client_id" value="<?php echo htmlspecialchars($app['apikey']); ?>">
                                         <button type="submit" class="btn btn-sm btn-outline-danger">Revoke</button>

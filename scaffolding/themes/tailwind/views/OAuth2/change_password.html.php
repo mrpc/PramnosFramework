@@ -13,7 +13,7 @@ $errorMessages = [
 ?>
 <div class="max-w-md mx-auto px-4 py-8">
 
-    <p class="text-sm mb-4"><a href="<?php echo sURL; ?>Dashboard/security" class="text-blue-600 hover:underline">← Back to Security</a></p>
+    <p class="text-sm mb-4"><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/security" class="text-blue-600 hover:underline">← Back to Security</a></p>
     <h2 class="text-2xl font-bold text-gray-800 mb-6">Change Password</h2>
 
     <?php if (!empty($_GET['error']) && isset($errorMessages[$_GET['error']])): ?>
@@ -26,7 +26,7 @@ $errorMessages = [
         <p class="text-sm text-gray-500 mb-5">
             Choose a strong password: at least 8 characters, one digit, and one special character.
         </p>
-        <form method="post" action="<?php echo sURL; ?>Dashboard/changepassword" class="space-y-4">
+        <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/changepassword" class="space-y-4">
             <?php
             $session = \Pramnos\Http\Session::getInstance();
             echo $session->getTokenField('post');

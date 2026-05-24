@@ -36,13 +36,14 @@
             <div class="bg-white rounded-lg shadow divide-y divide-gray-100">
                 <div class="px-4 py-3 font-semibold text-gray-700 bg-gray-50 rounded-t-lg">Account Settings</div>
                 <?php
+                $routeBase = $this->routeBase ?? 'Dashboard';
                 $navItems = [
-                    ['href' => 'Dashboard/applications', 'label' => 'Authorized Applications'],
-                    ['href' => 'Dashboard/security',     'label' => 'Security'],
-                    ['href' => 'Dashboard/privacy',      'label' => 'Privacy Settings'],
-                    ['href' => 'Dashboard/changepassword','label' => 'Change Password'],
-                    ['href' => 'TwoFactorAuth',           'label' => 'Two-Factor Auth'],
-                    ['href' => 'Dashboard/exportdata',   'label' => 'Export My Data'],
+                    ['href' => $routeBase . '/applications', 'label' => 'Authorized Applications'],
+                    ['href' => $routeBase . '/security',     'label' => 'Security'],
+                    ['href' => $routeBase . '/privacy',      'label' => 'Privacy Settings'],
+                    ['href' => $routeBase . '/changepassword','label' => 'Change Password'],
+                    ['href' => 'TwoFactorAuth',               'label' => 'Two-Factor Auth'],
+                    ['href' => $routeBase . '/exportdata',   'label' => 'Export My Data'],
                 ];
                 foreach ($navItems as $item): ?>
                     <a href="<?php echo sURL . $item['href']; ?>"
@@ -60,7 +61,7 @@
             <div class="bg-white rounded-lg shadow">
                 <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                     <h3 class="font-semibold text-gray-700">Authorized Applications</h3>
-                    <a href="<?php echo sURL; ?>Dashboard/applications"
+                    <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/applications"
                        class="text-sm text-blue-600 hover:underline">Manage</a>
                 </div>
                 <?php if (empty($this->authorizedApps)): ?>
@@ -86,7 +87,7 @@
                         <?php endforeach; ?>
                         <?php if (count($this->authorizedApps) > 3): ?>
                             <li class="px-4 py-3 text-center text-sm text-blue-600">
-                                <a href="<?php echo sURL; ?>Dashboard/applications">
+                                <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/applications">
                                     + <?php echo count($this->authorizedApps) - 3; ?> more
                                 </a>
                             </li>

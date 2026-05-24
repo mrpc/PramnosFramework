@@ -32,13 +32,14 @@
             <div class="card-header"><strong>Account Settings</strong></div>
             <ul style="list-style:none;margin:0;padding:0">
                 <?php
+                $routeBase = $this->routeBase ?? 'Dashboard';
                 $navItems = [
-                    ['href' => 'Dashboard/applications', 'label' => 'Authorized Applications'],
-                    ['href' => 'Dashboard/security',     'label' => 'Security'],
-                    ['href' => 'Dashboard/privacy',      'label' => 'Privacy Settings'],
-                    ['href' => 'Dashboard/changepassword','label' => 'Change Password'],
-                    ['href' => 'TwoFactorAuth',           'label' => 'Two-Factor Auth'],
-                    ['href' => 'Dashboard/exportdata',   'label' => 'Export My Data'],
+                    ['href' => $routeBase . '/applications', 'label' => 'Authorized Applications'],
+                    ['href' => $routeBase . '/security',     'label' => 'Security'],
+                    ['href' => $routeBase . '/privacy',      'label' => 'Privacy Settings'],
+                    ['href' => $routeBase . '/changepassword','label' => 'Change Password'],
+                    ['href' => 'TwoFactorAuth',               'label' => 'Two-Factor Auth'],
+                    ['href' => $routeBase . '/exportdata',   'label' => 'Export My Data'],
                 ];
                 foreach ($navItems as $item): ?>
                     <li style="border-bottom:1px solid #eee">
@@ -57,7 +58,7 @@
             <div class="card" style="margin-bottom:20px">
                 <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
                     <strong>Authorized Applications</strong>
-                    <a href="<?php echo sURL; ?>Dashboard/applications" class="btn btn-sm">Manage</a>
+                    <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/applications" class="btn btn-sm">Manage</a>
                 </div>
                 <div class="card-body" style="padding:0">
                     <?php if (empty($this->authorizedApps)): ?>
@@ -81,7 +82,7 @@
                             <?php endforeach; ?>
                             <?php if (count($this->authorizedApps) > 3): ?>
                                 <li style="padding:10px 16px;text-align:center">
-                                    <a href="<?php echo sURL; ?>Dashboard/applications">
+                                    <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/applications">
                                         + <?php echo count($this->authorizedApps) - 3; ?> more
                                     </a>
                                 </li>

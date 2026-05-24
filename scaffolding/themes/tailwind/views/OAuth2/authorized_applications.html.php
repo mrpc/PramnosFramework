@@ -8,7 +8,7 @@
 ?>
 <div class="max-w-2xl mx-auto px-4 py-8">
 
-    <p class="text-sm mb-4"><a href="<?php echo sURL; ?>Dashboard" class="text-blue-600 hover:underline">← Back to Dashboard</a></p>
+    <p class="text-sm mb-4"><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>" class="text-blue-600 hover:underline">← Back to Dashboard</a></p>
     <h2 class="text-2xl font-bold text-gray-800 mb-6">Authorized Applications</h2>
 
     <?php if (!empty($_GET['error'])): ?>
@@ -37,7 +37,7 @@
                             <?php endif; ?>
                         </p>
                     </div>
-                    <form method="post" action="<?php echo sURL; ?>Dashboard/revokeapplication"
+                    <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/revokeapplication"
                           onsubmit="return confirm('Revoke access for <?php echo htmlspecialchars(addslashes($app['name'])); ?>?')">
                         <input type="hidden" name="client_id" value="<?php echo htmlspecialchars($app['apikey']); ?>">
                         <button type="submit"
