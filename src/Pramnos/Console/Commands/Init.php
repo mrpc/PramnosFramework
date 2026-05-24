@@ -1870,7 +1870,7 @@ try {
     \$user = new \Pramnos\User\User(0);
     \$user->username  = '$safeUsername';
     \$user->email     = '$safeEmail';
-    \$user->usertype  = 10;
+    \$user->usertype  = 90;
     \$user->active    = 1;
     \$user->validated = 1;
     \$user->regdate   = time();
@@ -2283,7 +2283,7 @@ namespace {$namespace}\\Controllers;
  */
 class Account extends \\Pramnos\\Auth\\Controllers\\Dashboard
 {
-    // Extend or override methods here as needed for this application.
+    protected string \$routeBase = 'account';
 }
 PHP;
 
