@@ -81,17 +81,21 @@ class UsersController extends Controller
             $doc->title = 'New User';
         }
 
-        $view          = $this->getView('users');
-        $view->action  = 'edit';
-        $view->user    = [
+        $currentUser     = User::getCurrentUser();
+        $currentUserType = $currentUser ? (int) $currentUser->usertype : 1;
+
+        $view                  = $this->getView('users');
+        $view->action          = 'edit';
+        $view->currentUserType = $currentUserType;
+        $view->user            = [
             'userid'    => (int) ($user->userid ?? 0),
             'username'  => (string) ($user->username ?? ''),
             'email'     => (string) ($user->email ?? ''),
             'usertype'  => (int) ($user->usertype ?? 1),
             'firstname' => (string) ($user->firstname ?? ''),
             'lastname'  => (string) ($user->lastname ?? ''),
-            'active'    => (int) ($user->active ?? 0),
-            'validated' => (int) ($user->validated ?? 0),
+            'active'    => (int) ($user->active ?? 1),
+            'validated' => (int) ($user->validated ?? 1),
         ];
         $view->isNew   = $isNew;
         $view->error   = $_SESSION['users_error'] ?? '';
@@ -106,13 +110,30 @@ class UsersController extends Controller
     {
         $this->requireMinUserType($this->requiredUserType);
 
-        $id       = (int) ($_POST['userid']   ?? 0);
-        $username = trim((string) ($_POST['username']  ?? ''));
-        $email    = trim((string) ($_POST['email']     ?? ''));
-        $usertype = (int) ($_POST['usertype']  ?? 0);
-        $active   = isset($_POST['active'])    ? 1 : 0;
-        $validated= isset($_POST['validated']) ? 1 : 0;
-        $password = (string) ($_POST['password'] ?? '');
+        // CSRF validation — token must match the session token.
+        $session = \Pramnos\Http\Session::getInstance();
+        if (!$session->verifyCsrfToken((string) ($_POST['_csrf_token'] ?? ''))) {
+            $_SESSION['users_error'] = 'Invalid security token. Please try again.';
+            $this->redirect(sURL . 'users/edit/');
+            return;
+        }
+
+        $id        = (int) ($_POST['userid']    ?? 0);
+        $username  = trim((string) ($_POST['username']   ?? ''));
+        $email     = trim((string) ($_POST['email']      ?? ''));
+        $firstname = trim((string) ($_POST['firstname']  ?? ''));
+        $lastname  = trim((string) ($_POST['lastname']   ?? ''));
+        $usertype  = (int) ($_POST['usertype']   ?? 0);
+        $active    = isset($_POST['active'])     ? 1 : 0;
+        $validated = isset($_POST['validated'])  ? 1 : 0;
+        $password  = (string) ($_POST['password'] ?? '');
+
+        // Privilege cap: no one can assign a type higher than their own.
+        $currentUser = User::getCurrentUser();
+        $currentType = $currentUser ? (int) $currentUser->usertype : 0;
+        if ($usertype > $currentType) {
+            $usertype = $currentType;
+        }
 
         if ($username === '') {
             $_SESSION['users_error'] = 'Username must not be empty.';
@@ -123,10 +144,19 @@ class UsersController extends Controller
         $user = new User();
         if ($id > 0) {
             $user->load($id);
+
+            // Prevent editing a user whose privilege is higher than the current user.
+            if ((int) $user->usertype > $currentType) {
+                $_SESSION['users_error'] = 'You cannot edit users with a higher privilege level.';
+                $this->redirect(sURL . 'users');
+                return;
+            }
         }
 
         $user->username  = $username;
         $user->email     = $email;
+        $user->firstname = $firstname;
+        $user->lastname  = $lastname;
         $user->usertype  = $usertype;
         $user->active    = $active;
         $user->validated = $validated;
