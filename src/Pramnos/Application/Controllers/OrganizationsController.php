@@ -68,8 +68,7 @@ class OrganizationsController extends Controller
             ->select(['organization_id', 'name', 'description', 'org_type', 'is_active', 'created_at'])
             ->orderBy('name')
             ->forPage($page, 50)
-            ->get()
-            ?->fetchAll() ?? [];
+            ->getAll();
         $view->total = $db->queryBuilder()->table('organizations')->count();
         $view->page  = $page;
 
@@ -86,7 +85,7 @@ class OrganizationsController extends Controller
             return null;
         }
 
-        $id  = (int) ($id ?? 0);
+        $id  = (int) \Pramnos\Http\Request::staticGetOption();
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->title = $id > 0 ? 'Edit Organization' : 'New Organization';
 
@@ -168,7 +167,7 @@ class OrganizationsController extends Controller
             return;
         }
 
-        $id = (int) ($id ?? 0);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
             $this->redirect(sURL . 'organizations?error=invalid_id');
             return;
@@ -193,7 +192,7 @@ class OrganizationsController extends Controller
             return null;
         }
 
-        $orgId = (int) ($id ?? 0);
+        $orgId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($orgId <= 0) {
             $this->redirect(sURL . 'organizations?error=invalid_id');
             return null;
@@ -222,7 +221,7 @@ class OrganizationsController extends Controller
             ->select(['u.userid', 'u.username', 'u.email', 'uo.granted_at', 'uo.is_active'])
             ->where('uo.' . $orgCol, $orgId)
             ->orderBy('u.username')
-            ->get();
+            ->getAll();
 
         $view           = $this->getView('organizations');
         $view->org      = $org->fields;
