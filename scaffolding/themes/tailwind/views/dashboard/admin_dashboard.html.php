@@ -58,6 +58,37 @@
         </div>
     </div>
 
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Database</div>
+        <div class="p-5">
+            <table class="w-full text-sm">
+                <tbody>
+                    <tr>
+                        <td class="py-1 pr-4 text-gray-500 w-2/5">Server</td>
+                        <td class="py-1 font-semibold"><?php echo htmlspecialchars($this->dbStats['version'] ?? ($this->dbStats['type'] ?? '—')); ?></td>
+                    </tr>
+                    <tr>
+                        <td class="py-1 pr-4 text-gray-500">Database size</td>
+                        <td class="py-1"><?php
+                            $bytes = $this->dbStats['db_size_bytes'] ?? 0;
+                            echo $bytes > 1048576 ? number_format($bytes / 1048576, 2) . ' MB' : number_format($bytes / 1024, 1) . ' KB';
+                        ?></td>
+                    </tr>
+                    <tr>
+                        <td class="py-1 pr-4 text-gray-500">Connections</td>
+                        <td class="py-1"><?php echo (int)($this->dbStats['connections_active'] ?? 0); ?> active / <?php echo (int)($this->dbStats['connections_total'] ?? 0); ?> total</td>
+                    </tr>
+                    <?php if (isset($this->dbStats['cache_hit_ratio'])): ?>
+                    <tr>
+                        <td class="py-1 pr-4 text-gray-500">Cache hit ratio</td>
+                        <td class="py-1"><?php echo number_format((float)$this->dbStats['cache_hit_ratio'], 1); ?>%</td>
+                    </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <?php if (!empty($this->healthResults)): ?>
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Health Checks</div>
