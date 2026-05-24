@@ -22,14 +22,14 @@
                 <tbody>
                 <?php foreach (($this->organizations ?? []) as $org): ?>
                     <tr>
-                        <td><?php echo (int)$org['id']; ?></td>
+                        <td><?php echo (int)($org['organization_id'] ?? 0); ?></td>
                         <td><strong><?php echo htmlspecialchars($org['name'] ?? ''); ?></strong></td>
                         <td style="color:#888;font-size:0.8em"><?php echo htmlspecialchars(substr($org['description'] ?? '', 0, 80)); ?></td>
                         <td><?php echo ($org['is_active'] ?? 1) ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'; ?></td>
                         <td style="text-align:right">
-                            <a href="<?php echo sURL; ?>Organizations/members/<?php echo (int)$org['id']; ?>" class="btn btn-sm btn-outline-info">Members</a>
-                            <a href="<?php echo sURL; ?>Organizations/edit/<?php echo (int)$org['id']; ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                            <a href="<?php echo sURL; ?>Organizations/delete/<?php echo (int)$org['id']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Deactivate this organization?')">Deactivate</a>
+                            <a href="<?php echo sURL; ?>Organizations/members/<?php echo (int)($org['organization_id'] ?? 0); ?>" class="btn btn-sm btn-outline-info">Members</a>
+                            <a href="<?php echo sURL; ?>Organizations/edit/<?php echo (int)($org['organization_id'] ?? 0); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
+                            <a href="<?php echo sURL; ?>Organizations/delete/<?php echo (int)($org['organization_id'] ?? 0); ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Deactivate this organization?')">Deactivate</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>
