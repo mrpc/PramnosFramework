@@ -135,26 +135,22 @@ class TOTPHelper
         return self::TIME_WINDOW - (time() % self::TIME_WINDOW);
     }
 
-    // ── QR code URL ───────────────────────────────────────────────────────────
+    // ── QR code ───────────────────────────────────────────────────────────────
 
     /**
-     * Build an otpauth:// URI for display in a QR code.
-     *
-     * The returned URL is a GET request to a public QR-code rendering API.
-     * For production use, generate the QR code server-side to avoid leaking
-     * the secret to a third party.
+     * Build an otpauth:// URI string (standard TOTP provisioning URI).
      *
      * @param string $secret  Base32-encoded secret
-     * @param string $label   User identifier shown in the authenticator app (email/username)
+     * @param string $label   User identifier shown in the authenticator app
      * @param string $issuer  Service name shown in the authenticator app
-     * @return string QR code image URL (200×200 px)
+     * @return string otpauth:// URI
      */
-    public static function getQRCodeUrl(
+    public static function buildOtpAuthUri(
         string $secret,
         string $label,
         string $issuer = 'Pramnos'
     ): string {
-        $uri = sprintf(
+        return sprintf(
             'otpauth://totp/%s:%s?secret=%s&issuer=%s&algorithm=SHA1&digits=%d&period=%d',
             rawurlencode($issuer),
             rawurlencode($label),
@@ -163,6 +159,57 @@ class TOTPHelper
             self::CODE_LENGTH,
             self::TIME_WINDOW
         );
+    }
+
+    /**
+     * Generate a QR code as an inline data URI (data:image/svg+xml;base64,...).
+     *
+     * Uses chillerlan/php-qrcode for server-side generation — no external HTTP
+     * request is made and the TOTP secret never leaves the server.
+     *
+     * Falls back to null when the library is not installed.
+     *
+     * @param string $secret  Base32-encoded secret
+     * @param string $label   User identifier shown in the authenticator app
+     * @param string $issuer  Service name shown in the authenticator app
+     * @return string|null    data: URI string, or null on failure
+     */
+    public static function getQRCodeDataUri(
+        string $secret,
+        string $label,
+        string $issuer = 'Pramnos'
+    ): ?string {
+        if (!class_exists(\chillerlan\QRCode\QRCode::class)) {
+            return null;
+        }
+
+        $uri     = self::buildOtpAuthUri($secret, $label, $issuer);
+        $options = new \chillerlan\QRCode\QROptions([
+            'outputType'   => \chillerlan\QRCode\Output\QROutputInterface::OUTPUT_MARKUP_SVG,
+            'imageBase64'  => true,
+            'addQuietzone' => true,
+        ]);
+
+        return (new \chillerlan\QRCode\QRCode($options))->render($uri);
+    }
+
+    /**
+     * @deprecated Use getQRCodeDataUri() instead — the external API leaks the TOTP secret.
+     *
+     * Build a URL pointing at a public QR-code rendering API.
+     * Kept for backward compatibility; do not use in new code.
+     *
+     * @param string $secret  Base32-encoded secret
+     * @param string $label   User identifier shown in the authenticator app
+     * @param string $issuer  Service name shown in the authenticator app
+     * @return string External QR code image URL
+     */
+    public static function getQRCodeUrl(
+        string $secret,
+        string $label,
+        string $issuer = 'Pramnos'
+    ): string {
+        $uri = self::buildOtpAuthUri($secret, $label, $issuer);
         return 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($uri);
     }
 
