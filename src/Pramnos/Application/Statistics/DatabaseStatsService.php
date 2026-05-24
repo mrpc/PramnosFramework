@@ -63,6 +63,19 @@ class DatabaseStatsService
         $stats = ['type' => 'postgresql'];
 
         try {
+            $r = $this->db->query('SELECT version() AS ver');
+            $raw = ($r && $r->numRows > 0) ? (string) $r->fields['ver'] : '';
+            // Extract "PostgreSQL 14.5" from the full version string
+            if (preg_match('/^PostgreSQL\s+([\d.]+)/i', $raw, $m)) {
+                $stats['version'] = 'PostgreSQL ' . $m[1];
+            } else {
+                $stats['version'] = $raw !== '' ? $raw : null;
+            }
+        } catch (\Exception $e) {
+            $stats['version'] = null;
+        }
+
+        try {
             $r = $this->db->query(
                 'SELECT pg_database_size(current_database()) AS db_size'
             );
@@ -126,6 +139,14 @@ class DatabaseStatsService
     private function getMySQLStats(): array
     {
         $stats = ['type' => 'mysql'];
+
+        try {
+            $r = $this->db->query('SELECT VERSION() AS ver');
+            $ver = ($r && $r->numRows > 0) ? (string) $r->fields['ver'] : null;
+            $stats['version'] = $ver !== null ? 'MySQL ' . $ver : null;
+        } catch (\Exception $e) {
+            $stats['version'] = null;
+        }
 
         try {
             $r = $this->db->query(

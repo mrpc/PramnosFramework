@@ -58,6 +58,35 @@
         </div>
     </div>
 
+    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
+        <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd">Database</div>
+        <div class="card-body" style="padding:16px">
+            <table style="width:100%;border-collapse:collapse;font-size:.9rem">
+                <tr>
+                    <td style="padding:4px 8px;color:#666;width:40%">Server</td>
+                    <td style="padding:4px 8px"><strong><?php echo htmlspecialchars($this->dbStats['version'] ?? ($this->dbStats['type'] ?? '—')); ?></strong></td>
+                </tr>
+                <tr>
+                    <td style="padding:4px 8px;color:#666">Database size</td>
+                    <td style="padding:4px 8px"><?php
+                        $bytes = $this->dbStats['db_size_bytes'] ?? 0;
+                        echo $bytes > 1048576 ? number_format($bytes / 1048576, 2) . ' MB' : number_format($bytes / 1024, 1) . ' KB';
+                    ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:4px 8px;color:#666">Connections</td>
+                    <td style="padding:4px 8px"><?php echo (int)($this->dbStats['connections_active'] ?? 0); ?> active / <?php echo (int)($this->dbStats['connections_total'] ?? 0); ?> total</td>
+                </tr>
+                <?php if (isset($this->dbStats['cache_hit_ratio'])): ?>
+                <tr>
+                    <td style="padding:4px 8px;color:#666">Cache hit ratio</td>
+                    <td style="padding:4px 8px"><?php echo number_format((float)$this->dbStats['cache_hit_ratio'], 1); ?>%</td>
+                </tr>
+                <?php endif; ?>
+            </table>
+        </div>
+    </div>
+
     <?php if (!empty($this->healthResults)): ?>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
         <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd">Health Checks</div>
