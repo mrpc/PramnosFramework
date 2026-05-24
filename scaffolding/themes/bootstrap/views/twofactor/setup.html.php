@@ -34,7 +34,13 @@
         <div class="card mb-4">
             <div class="card-header fw-semibold">Step 1 — Scan the QR code</div>
             <div class="card-body text-center">
-                <img src="<?php echo htmlspecialchars($this->setupData['qr_code_url']); ?>"
+                <?php
+                $qrSrc = $this->setupData['qr_code_data_uri'] ?? null;
+                if ($qrSrc === null) {
+                    $qrSrc = htmlspecialchars($this->setupData['qr_code_url'] ?? '');
+                }
+                ?>
+                <img src="<?php echo $qrSrc; ?>"
                      alt="QR Code" width="200" height="200" class="mb-3 border rounded p-2">
 
                 <p class="text-muted small mb-2">
