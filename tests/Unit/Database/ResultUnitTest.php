@@ -175,4 +175,77 @@ class ResultUnitTest extends TestCase
         $result = $this->makeResultWithType('mysql');
         $this->assertEquals(0, $result->getNumFields());
     }
+
+    // -------------------------------------------------------------------------
+    // IteratorAggregate — foreach ($result as $row)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Result implements IteratorAggregate so views can iterate over it with
+     * foreach without the controller explicitly calling fetchAll().
+     *
+     * Regression guard: before this was added, foreach iterated over the
+     * Result's public properties (including the raw PgSql\Result object),
+     * causing "Cannot use object of type PgSql\Result as array" in views.
+     */
+    public function testResultIsIterableViaForeach(): void
+    {
+        // Arrange — cached result with two rows
+        $rows   = [['id' => 1, 'name' => 'Alpha'], ['id' => 2, 'name' => 'Beta']];
+        $result = $this->makeResult($rows);
+
+        // Act
+        $collected = [];
+        foreach ($result as $row) {
+            $collected[] = $row;
+        }
+
+        // Assert — rows match, not properties of the Result object
+        $this->assertCount(2, $collected, 'foreach must yield 2 rows, not object properties');
+        $this->assertSame($rows[0], $collected[0]);
+        $this->assertSame($rows[1], $collected[1]);
+    }
+
+    /**
+     * Iterating an empty Result with foreach must produce no iterations.
+     */
+    public function testForeachOnEmptyResultYieldsNothing(): void
+    {
+        // Arrange
+        $result = $this->makeResult([]);
+
+        // Act
+        $collected = [];
+        foreach ($result as $row) {
+            $collected[] = $row;
+        }
+
+        // Assert
+        $this->assertCount(0, $collected);
+    }
+
+    // -------------------------------------------------------------------------
+    // EOF property alias (__get) — legacy ADOdb compatibility
+    // -------------------------------------------------------------------------
+
+    /**
+     * $result->EOF must alias $result->eof (uppercase vs lowercase).
+     *
+     * PHP property names are case-sensitive. DevPanelController and other legacy
+     * code use the uppercase variant from ADOdb convention. The __get alias ensures
+     * they read the correct value without requiring a mass-rename across old callers.
+     */
+    public function testEofUppercaseAliasMatchesLowercaseProperty(): void
+    {
+        // Arrange — empty result (eof is true by default)
+        $result = $this->makeResult([]);
+
+        // Assert — uppercase alias equals lowercase property
+        $this->assertTrue($result->eof,  '$result->eof (lowercase) must be true for empty result');
+        $this->assertTrue($result->EOF,  '$result->EOF (uppercase alias) must equal $result->eof');
+
+        // Mutate lowercase — alias must reflect the change
+        $result->eof = false;
+        $this->assertFalse($result->EOF, 'uppercase alias must track the lowercase property after mutation');
+    }
 }
