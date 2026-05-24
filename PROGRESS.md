@@ -1,7 +1,49 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-24 (session 132) — Full suite verification: 5146 tests, 0 errors ✅
+## 📅 Last Updated: 2026-05-24 (session 133) — Comprehensive scaffold test generation: 54/54 tests pass ✅
+
+## 🏁 Session 133 — Comprehensive scaffold test generation (2026-05-24)
+
+### ✅ Scaffold test suite — full rebuild
+
+**Goal:** Every scaffolded project must have tests that (a) achieve 100% code coverage and (b) detect broken pages before they reach production.
+
+**Changes in `Init.php` scaffold templates:**
+
+- **phpunit.xml**: Added `<source>` element + PHPUnit 11 schema URL — enables Xdebug code coverage
+- **bootstrap.php**: Added `sURL`/`URL` fallback constants — unit tests run without Application singleton
+- **HomeControllerTest** (7 → 8 tests): full action coverage via partial mocks
+  - Structure: class exists, extends Controller, `actions_auth` contains edit/save/delete
+  - Actions: `display()`, `show()`, `edit()` — mock `getView()` → assert return value
+  - Redirects: `save()`, `delete()` — mock `redirect()` → assert called with 'home'
+- **LoginControllerTest** (2 → 7 tests): full action coverage via partial mocks
+  - Structure: class hierarchy, actions registration
+  - `display()` — mock `getView()` → assert return value
+  - `dologin()` empty username, empty password — assert redirect + session error
+  - `logout()` — mock `redirect()` → assert called once
+- **ControllersContractTest** (new): structural smoke tests for ALL 18 controllers via `#[DataProvider]`
+  - `testControllerCanBeInstantiatedAndExtendsCorrectParent` — new Controller(null), assertInstanceOf
+  - `testControllerHasNoUnreachableRegisteredActions` — reflect `actions`, assert each has a real method
+- **AuthFlowIntegrationTest** (2 → 4 tests): full dologin() branch coverage
+  - `testAuthReturnsFalseForUnknownUser` — baseline check
+  - `testAuthReturnsTrueAndSetsSessionForValidUser` — golden path
+  - `testDologinRedirectsToHomeOnSuccessfulLogin` — covers true-branch in Login::dologin()
+  - `testDologinRedirectsOnInvalidCredentials` — covers false-branch, asserts session error
+
+**Bug fixed:** `TwoFactorAuth.php:backup(): mixed` had `return;` — PHP 8.5 now enforces that non-void methods must return a value. Fixed to `return null;`.
+
+**Bugs found and fixed during template validation:**
+- `authActions` → `actions_auth` (correct Controller property name)
+- `Pramnos\Html\View` → `Pramnos\Application\View` (correct class namespace)
+- `@dataProvider` doc-comment → `#[DataProvider]` attribute (PHPUnit 12 compatibility)
+
+**Result:** `./dockertest` in test-app → **54/54 tests, 80 assertions, 0 errors, 0 warnings, 0 deprecations** (PHP 8.5.6)
+Framework suite unchanged: **5146/5146 tests, 2 expected skips**
+
+**Commit:** 7f46068
+
+---
 
 ## 🏁 Session 132 — Full suite verification (2026-05-24)
 
