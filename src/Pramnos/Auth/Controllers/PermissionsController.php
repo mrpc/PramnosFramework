@@ -71,7 +71,7 @@ class PermissionsController extends Controller
         $this->applyDisplayFilters($qb);
 
         $view              = $this->getView('permissions');
-        $view->permissions = $qb->orderBy('subject_type')->orderBy('subject_id')->forPage($page, 50)->get();
+        $view->permissions = $qb->orderBy('subject_type')->orderBy('subject_id')->forPage($page, 50)->get()?->fetchAll() ?? [];
         $view->total       = (clone $qb)->count();
         $view->page        = $page;
 
