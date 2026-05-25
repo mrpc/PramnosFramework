@@ -12,15 +12,17 @@ use Pramnos\Application\Statistics\ApiPerformanceService;
 /**
  * Admin/ops overview dashboard controller.
  *
- * Provides six actions:
+ * Provides eight actions:
  *   - display      — full HTML overview (active users + DB stats + API performance + health badges)
  *   - activeusers  — JSON: authenticated user counts per time window
  *   - apistats     — JSON: API performance summary (error rate, avg/p95/p99 latency)
  *   - dbstats      — JSON: database server metrics (size, connections, cache hit ratio)
- *   - database     — HTML detail page: DB processes, table sizes, TimescaleDB hypertables/aggregates/jobs
+ *   - database     — HTML detail page: DB processes, replication, table sizes, TimescaleDB detail
  *   - cache        — HTML detail page: cache adapter info, namespace list, item browser
+ *   - cacheitem    — JSON: single cache item content (GET ?key=…)
+ *   - clearcache   — JSON: clear all cache entries (POST)
  *
- * All six actions require authentication (manager level: usertype >= 80).
+ * All eight actions require authentication (manager level: usertype >= 80).
  *
  * Note: This controller is distinct from \Pramnos\Auth\Controllers\Dashboard, which
  * handles the end-user account management view. This controller is admin/ops-focused.
@@ -37,7 +39,7 @@ class DashboardController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'activeusers', 'apistats', 'dbstats', 'database', 'cache']);
+        $this->addAuthAction(['display', 'activeusers', 'apistats', 'dbstats', 'database', 'cache', 'cacheitem', 'clearcache']);
         parent::__construct($application);
     }
 
@@ -145,15 +147,19 @@ class DashboardController extends Controller
         $db    = \Pramnos\Framework\Factory::getDatabase();
         $stats = (new DatabaseStatsService())->getStats();
 
-        $processes  = $this->collectProcessList($db);
-        $tableSizes = $this->collectTableSizes($db);
-        $tsData     = $this->collectTimescaleData($db);
+        $processes   = $this->collectProcessList($db);
+        $tableSizes  = $this->collectTableSizes($db);
+        $tsData      = $this->collectTimescaleData($db);
+        $replication = $this->collectReplicationData($db);
+        $publicViews = $this->collectPublicViews($db);
 
-        $view             = $this->getView('dashboard');
-        $view->stats      = $stats;
-        $view->processes  = $processes;
-        $view->tableSizes = $tableSizes;
-        $view->tsData     = $tsData;
+        $view              = $this->getView('dashboard');
+        $view->stats       = $stats;
+        $view->processes   = $processes;
+        $view->tableSizes  = $tableSizes;
+        $view->tsData      = $tsData;
+        $view->replication = $replication;
+        $view->publicViews = $publicViews;
         return $view->display('database');
     }
 
@@ -175,20 +181,128 @@ class DashboardController extends Controller
         $cacheStats = $cache->getStats();
         $categories = $cache->getCategories();
 
-        $items = [];
+        $items           = [];
+        $cacheCategories = [];
+        $namespaceStats  = [];
+        $cacheItems      = [];
+
         foreach ($categories as $cat) {
-            $catName = is_array($cat) ? ($cat['name'] ?? $cat[0] ?? '') : (string) $cat;
-            $catItems = $cache->getAllItems($catName, 50);
+            $catName          = is_array($cat) ? ($cat['name'] ?? $cat[0] ?? '') : (string) $cat;
+            $catItems         = $cache->getAllItems($catName, 50);
+            $cacheCategories[] = $catName;
+            $namespaceStats[$catName] = count($catItems);
             if (!empty($catItems)) {
                 $items[$catName] = $catItems;
+                foreach ($catItems as $item) {
+                    if (is_array($item) && !array_key_exists('namespace', $item)) {
+                        $item['namespace'] = $catName;
+                    }
+                    $cacheItems[] = $item;
+                }
             }
         }
 
-        $view             = $this->getView('dashboard');
-        $view->cacheStats = $cacheStats;
-        $view->categories = $categories;
-        $view->items      = $items;
+        $method              = strtolower($cacheStats['method'] ?? 'none');
+        $cacheStatus         = $method !== 'none' && $method !== '';
+        $isMemcached         = in_array($method, ['memcached', 'memcache'], true);
+        $memcachedLimitation = $isMemcached && empty($cacheItems) && ($cacheStats['items'] ?? 0) > 0;
+
+        $view                             = $this->getView('dashboard');
+        $view->cacheStats                 = $cacheStats;
+        $view->categories                 = $categories;
+        $view->items                      = $items;
+        $view->cacheStatus                = $cacheStatus;
+        $view->namespaceStats             = $namespaceStats;
+        $view->cacheCategories            = $cacheCategories;
+        $view->cacheItems                 = $cacheItems;
+        $view->memcachedLimitation        = $memcachedLimitation;
+        $view->memcachedLimitationMessage = $memcachedLimitation
+            ? 'Memcached does not support listing individual cache items. Statistics are available but item details cannot be displayed. Consider using Redis for full cache management.'
+            : '';
         return $view->display('cache');
+    }
+
+    /**
+     * JSON endpoint: single cache item content.
+     * GET parameter: key (required).
+     *
+     * Response: {success: bool, content: mixed, metadata: {size, type, created, ttl}}
+     */
+    public function cacheitem(): void
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
+        header('Content-Type: application/json');
+
+        $key = $_GET['key'] ?? '';
+        if ($key === '') {
+            echo json_encode(['success' => false, 'error' => 'No key provided']);
+            return;
+        }
+
+        try {
+            $cache   = \Pramnos\Cache\Cache::getInstance();
+            $content = $cache->load($key);
+            if ($content === false || $content === null) {
+                echo json_encode(['success' => false, 'error' => 'Item not found or expired']);
+                return;
+            }
+
+            $raw  = serialize($content);
+            $size = strlen($raw);
+            if ($size >= 1048576) {
+                $sizeStr = round($size / 1048576, 2) . ' MB';
+            } elseif ($size >= 1024) {
+                $sizeStr = round($size / 1024, 2) . ' KB';
+            } else {
+                $sizeStr = $size . ' B';
+            }
+
+            echo json_encode([
+                'success'  => true,
+                'content'  => $content,
+                'metadata' => [
+                    'size'    => $sizeStr,
+                    'type'    => gettype($content),
+                    'created' => '—',
+                    'ttl'     => '—',
+                ],
+            ]);
+        } catch (\Exception $e) {
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * JSON endpoint: clear all cache entries.
+     * Must be called with POST method.
+     *
+     * Response: {success: bool}
+     */
+    public function clearcache(): void
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+            http_response_code(405);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+            return;
+        }
+
+        header('Content-Type: application/json');
+
+        try {
+            $cache = \Pramnos\Cache\Cache::getInstance();
+            $cache->clear();
+            echo json_encode(['success' => true]);
+        } catch (\Exception $e) {
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -203,8 +317,10 @@ class DashboardController extends Controller
         try {
             if ($db->type === 'postgresql') {
                 $r = $db->query(
-                    "SELECT pid, usename, application_name, client_addr,
+                    "SELECT pid, usename, datname, application_name,
+                            client_addr::text AS client_addr,
                             state, wait_event_type, wait_event,
+                            to_char(backend_start, 'YYYY-MM-DD HH24:MI:SS') AS backend_start,
                             EXTRACT(EPOCH FROM (now() - query_start))::int AS duration_sec,
                             left(query, 200) AS query
                      FROM pg_stat_activity
@@ -271,11 +387,11 @@ class DashboardController extends Controller
      * Returns empty arrays for all keys on non-PostgreSQL or when TimescaleDB
      * is not installed.
      *
-     * @return array{hypertables: array, aggregates: array, jobs: array, ts_version: string|null}
+     * @return array{hypertables: array, aggregates: array, jobs: array, jobHistory: array, chunkCount: int, ts_version: string|null}
      */
     private function collectTimescaleData(\Pramnos\Database\Database $db): array
     {
-        $empty = ['hypertables' => [], 'aggregates' => [], 'jobs' => [], 'ts_version' => null];
+        $empty = ['hypertables' => [], 'aggregates' => [], 'jobs' => [], 'jobHistory' => [], 'chunkCount' => 0, 'ts_version' => null];
         if ($db->type !== 'postgresql') {
             return $empty;
         }
@@ -295,28 +411,98 @@ class DashboardController extends Controller
             $hypertables = ($ht && $ht->numRows > 0) ? $ht->fetchAll() : [];
 
             $ca = $db->query(
-                "SELECT view_name, materialization_hypertable_name, compression_enabled, refresh_lag
+                "SELECT view_schema, view_name,
+                        materialization_hypertable_schema AS materialization_schema,
+                        materialization_hypertable_name AS materialization_name,
+                        CASE WHEN materialized_only THEN 'Yes' ELSE 'No' END AS materialized_only,
+                        compression_enabled
                  FROM timescaledb_information.continuous_aggregates
                  ORDER BY view_name"
             );
             $aggregates = ($ca && $ca->numRows > 0) ? $ca->fetchAll() : [];
 
             $jr = $db->query(
-                "SELECT job_id, proc_name, schedule_interval::text, max_runtime::text,
-                        last_run_started_at, last_successful_finish, last_run_status, next_start
+                "SELECT job_id, proc_schema, proc_name, schedule_interval::text,
+                        last_run_started_at::text AS last_run_started_at,
+                        last_successful_finish::text AS last_successful_finish,
+                        last_run_status, next_start::text AS next_start
                  FROM timescaledb_information.jobs
                  ORDER BY job_id"
             );
             $jobs = ($jr && $jr->numRows > 0) ? $jr->fetchAll() : [];
 
+            $jh = $db->query(
+                "SELECT job_id, start_time::text AS start_time,
+                        finish_time::text AS finish_time,
+                        succeeded::text AS succeeded,
+                        proc_schema, proc_name, err_message
+                 FROM timescaledb_information.job_history
+                 ORDER BY start_time DESC
+                 LIMIT 200"
+            );
+            $jobHistory = ($jh && $jh->numRows > 0) ? $jh->fetchAll() : [];
+
+            $cc = $db->query("SELECT COUNT(*) AS total FROM timescaledb_information.chunks");
+            $chunkCount = ($cc && $cc->numRows > 0) ? (int) $cc->fields['total'] : 0;
+
             return [
                 'hypertables' => $hypertables,
                 'aggregates'  => $aggregates,
                 'jobs'        => $jobs,
+                'jobHistory'  => $jobHistory,
+                'chunkCount'  => $chunkCount,
                 'ts_version'  => $tsVersion,
             ];
         } catch (\Exception $e) {
             return $empty;
+        }
+    }
+
+    /**
+     * Returns PostgreSQL streaming replication status rows.
+     * Empty array on non-PostgreSQL or when no standbys are connected.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function collectReplicationData(\Pramnos\Database\Database $db): array
+    {
+        if ($db->type !== 'postgresql') {
+            return [];
+        }
+        try {
+            $r = $db->query(
+                "SELECT client_addr::text AS client_addr, state, sync_state,
+                        EXTRACT(EPOCH FROM write_lag)::int AS lag_sec
+                 FROM pg_stat_replication
+                 ORDER BY client_addr"
+            );
+            return ($r && $r->numRows > 0) ? $r->fetchAll() : [];
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Returns public-schema view definitions.
+     * Empty array on non-PostgreSQL databases.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function collectPublicViews(\Pramnos\Database\Database $db): array
+    {
+        if ($db->type !== 'postgresql') {
+            return [];
+        }
+        try {
+            $r = $db->query(
+                "SELECT table_name AS view_name, view_definition
+                 FROM information_schema.views
+                 WHERE table_schema = 'public'
+                 ORDER BY table_name"
+            );
+            return ($r && $r->numRows > 0) ? $r->fetchAll() : [];
+        } catch (\Exception $e) {
+            return [];
         }
     }
 
