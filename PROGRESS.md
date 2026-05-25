@@ -1,7 +1,41 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-25 (session 137) — View/detail pages for users, applications, database, cache ✅
+## 📅 Last Updated: 2026-05-25 (session 138) — Full-parity database/cache dashboard pages ✅
+
+## 🏁 Session 138 — Full-parity database/cache dashboard pages (2026-05-25)
+
+### ✅ Extended DashboardController with full feature parity to Urbanwater (commit 7b876bc)
+
+**Controller changes:**
+- `cacheitem()` — new GET JSON endpoint: returns single cache item content + metadata
+- `clearcache()` — new POST JSON endpoint: clears all cache entries
+- `addAuthAction()` now includes 'cacheitem', 'clearcache'
+- `collectProcessList()` extended for PostgreSQL: adds `datname`, `client_addr`, `backend_start`
+- `collectTimescaleData()` extended: extended aggregates query (view_schema, materialization_schema, materialized_only), job history (timescaledb_information.job_history), chunk count
+- New `collectReplicationData()`: queries `pg_stat_replication`
+- New `collectPublicViews()`: queries `information_schema.views WHERE table_schema='public'`
+
+**database.html.php (all 3 themes):**
+- Active Processes: added Database, IP, Backend Start, Running Time badge (danger/warning/info), Copy Query button
+- Replication Status section (PostgreSQL-only): client_addr, state badge, sync_state badge, lag badge (color-coded)
+- Public Schema Views section: view_name, truncated definition, modal with full SQL
+- Storage Information section (TimescaleDB): total chunks count, compressed hypertables count
+- Continuous Aggregates: extended with view_schema, materialization_schema, materialization_name, materialized_only badge
+- Scheduled Jobs: added "Error History" button per job → modal with job_history records
+
+**cache.html.php (all 3 themes):**
+- Clear All Cache button (POST → /dashboard/clearcache, confirm dialog, reload on success)
+- Cache status icon (green/red) next to adapter name
+- Cache by Namespace grid (cards with namespace → item count)
+- Cache Categories section (toggleable, hidden by default)
+- Flat Cache Items table (merged across all categories): Key (clickable), Namespace badge, Size (MB/KB/B), Created, TTL badge, Type, Status badge, View button
+- AJAX item detail modal (fetches /dashboard/cacheitem?key=X, shows metadata + content)
+- Memcached limitation warning
+
+**admin_dashboard.html.php (all 3 themes):**
+- Database section: added "View Details" link → /dashboard/database
+- Cache section: new card with "View Details" link → /dashboard/cache
 
 ## 🏁 Session 137 — View/detail pages for users, applications, database, cache (2026-05-25)
 
