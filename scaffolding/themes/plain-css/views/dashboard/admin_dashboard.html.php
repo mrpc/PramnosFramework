@@ -59,7 +59,10 @@
     </div>
 
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
-        <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd">Database</div>
+        <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center">
+            <span>Database</span>
+            <a href="<?php echo sURL; ?>dashboard/database" style="font-size:.85rem;font-weight:400">View Details &rarr;</a>
+        </div>
         <div class="card-body" style="padding:16px">
             <table style="width:100%;border-collapse:collapse;font-size:.9rem">
                 <tr>
@@ -84,6 +87,16 @@
                 </tr>
                 <?php endif; ?>
             </table>
+        </div>
+    </div>
+
+    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
+        <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center">
+            <span>Cache</span>
+            <a href="<?php echo sURL; ?>dashboard/cache" style="font-size:.85rem;font-weight:400">View Details &rarr;</a>
+        </div>
+        <div class="card-body" style="padding:16px;color:#666;font-size:.9rem">
+            Cache management: view namespaces, browse items, and clear the cache.
         </div>
     </div>
 

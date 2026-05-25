@@ -59,7 +59,10 @@
     </div>
 
     <div class="card mb-4">
-        <div class="card-header fw-semibold">Database</div>
+        <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+            Database
+            <a href="<?php echo sURL; ?>dashboard/database" class="btn btn-sm btn-outline-primary">View Details</a>
+        </div>
         <div class="card-body p-0">
             <table class="table table-sm mb-0">
                 <tbody>
@@ -86,6 +89,16 @@
                     <?php endif; ?>
                 </tbody>
             </table>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+            Cache
+            <a href="<?php echo sURL; ?>dashboard/cache" class="btn btn-sm btn-outline-primary">View Details</a>
+        </div>
+        <div class="card-body text-muted small">
+            Cache management: view namespaces, browse items, and clear the cache.
         </div>
     </div>
 

@@ -59,7 +59,10 @@
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
-        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Database</div>
+        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex justify-between items-center">
+            <span>Database</span>
+            <a href="<?php echo sURL; ?>dashboard/database" class="text-blue-600 text-xs font-normal hover:underline">View Details &rarr;</a>
+        </div>
         <div class="p-5">
             <table class="w-full text-sm">
                 <tbody>
@@ -86,6 +89,16 @@
                     <?php endif; ?>
                 </tbody>
             </table>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex justify-between items-center">
+            <span>Cache</span>
+            <a href="<?php echo sURL; ?>dashboard/cache" class="text-blue-600 text-xs font-normal hover:underline">View Details &rarr;</a>
+        </div>
+        <div class="px-5 py-4 text-gray-500 text-sm">
+            Cache management: view namespaces, browse items, and clear the cache.
         </div>
     </div>
 
