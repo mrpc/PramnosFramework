@@ -134,10 +134,6 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
         <div id="settings-tab-security" class="settings-pane hidden">
             <div class="<?php echo $card; ?>">
                 <div class="grid grid-cols-1 gap-4">
-                    <div><label class="<?php echo $label; ?>">Security Salt</label>
-                        <input type="text" name="securitySalt" class="<?php echo $input; ?> font-mono" autocomplete="off" placeholder="Leave blank to keep the current salt" value="">
-                        <p class="text-xs text-red-500 mt-1">Current salt is not shown. Fill this field only if you want to change it.</p>
-                    </div>
                     <div class="md:w-48"><label class="<?php echo $label; ?>">Lockout Window (seconds)</label>
                         <input type="number" name="loginlockoutwindowseconds" class="<?php echo $input; ?>" min="60" max="86400"
                             value="<?php
