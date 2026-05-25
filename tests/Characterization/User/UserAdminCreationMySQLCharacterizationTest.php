@@ -102,6 +102,9 @@ class UserAdminCreationMySQLCharacterizationTest extends TestCase
         // We drop usertokens/userstogroups/usergroups too because setupDb() creates them
         // with FKs pointing to users; leaving them orphaned between tests causes
         // "Table doesn't exist" errors in the next test's tearDown.
+        // FK_CHECKS stays 0 through the entire drop — re-enabling it between drops and
+        // creates confuses InnoDB's data dictionary and causes "Failed to open the
+        // referenced table" errors when the FK tables are recreated.
         $this->db->query('SET FOREIGN_KEY_CHECKS=0');
         $this->db->query('DROP TABLE IF EXISTS usertokens');
         $this->db->query('DROP TABLE IF EXISTS userstogroups');
@@ -117,14 +120,16 @@ class UserAdminCreationMySQLCharacterizationTest extends TestCase
     {
         // Drop all user-family tables then restore via setupDb() so that other
         // test classes in the same suite run see a consistent schema.
+        // FK_CHECKS=0 is held through User::setupDb() so InnoDB does not attempt
+        // FK validation mid-creation; re-enabling after all tables exist is safe.
         $this->db->query('SET FOREIGN_KEY_CHECKS=0');
         $this->db->query('DROP TABLE IF EXISTS usertokens');
         $this->db->query('DROP TABLE IF EXISTS userstogroups');
         $this->db->query('DROP TABLE IF EXISTS usergroups');
         $this->db->query('DROP TABLE IF EXISTS userdetails');
         $this->db->query('DROP TABLE IF EXISTS users');
-        $this->db->query('SET FOREIGN_KEY_CHECKS=1');
         User::setupDb();
+        $this->db->query('SET FOREIGN_KEY_CHECKS=1');
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────
