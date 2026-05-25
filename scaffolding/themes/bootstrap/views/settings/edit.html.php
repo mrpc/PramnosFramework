@@ -16,20 +16,23 @@
     <?php endif; ?>
     <div class="card">
         <div class="card-body">
-            <form method="post" action="<?php echo sURL; ?>Settings/save">
+            <form method="post" action="<?php echo sURL; ?>settings/save">
+                <?php if (!$this->isNew): ?>
+                    <input type="hidden" name="original_key" value="<?php echo htmlspecialchars($this->key ?? ''); ?>">
+                <?php endif; ?>
                 <div class="mb-3">
                     <label class="form-label">Key</label>
-                    <input type="text" name="skey" class="form-control" required
+                    <input type="text" name="key" class="form-control" required
                         value="<?php echo htmlspecialchars($this->key ?? ''); ?>"
                         <?php echo !$this->isNew ? 'readonly' : ''; ?>>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Value</label>
-                    <textarea name="svalue" class="form-control" rows="4"><?php echo htmlspecialchars($this->value ?? ''); ?></textarea>
+                    <textarea name="value" class="form-control" rows="4"><?php echo htmlspecialchars($this->value ?? ''); ?></textarea>
                 </div>
                 <div class="d-flex gap-2">
                     <button type="submit" class="btn btn-primary">Save</button>
-                    <a href="<?php echo sURL; ?>Settings" class="btn btn-outline-secondary">Cancel</a>
+                    <a href="<?php echo sURL; ?>settings/list" class="btn btn-outline-secondary">Cancel</a>
                 </div>
             </form>
         </div>
