@@ -32,7 +32,7 @@ class UsersController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions']);
+        $this->addAuthAction(['display', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions', 'tokens', 'deactivateToken', 'deleteToken']);
         parent::__construct($application);
     }
 
@@ -255,6 +255,77 @@ class UsersController extends Controller
         $view->user        = ['username' => (string) ($user->username ?? '')];
         $view->sessionList = $sessionList;
         return $view->display('sessions');
+    }
+
+    /**
+     * List all tokens for a specific user.
+     *
+     * @param string|int|null $id User ID.
+     */
+    public function tokens(mixed $id = null): mixed
+    {
+        $doc = Factory::getDocument();
+
+        $this->requireMinUserType($this->requiredUserType);
+
+        $id   = (int) \Pramnos\Http\Request::staticGetOption();
+        $user = new User();
+        if ($id > 0) {
+            $user->load($id);
+        }
+        $doc->title = 'Tokens: ' . htmlspecialchars($user->username ?? '', ENT_QUOTES, 'UTF-8');
+
+        $tokenList = $user->getAllTokens();
+
+        $view            = $this->getView('users');
+        $view->action    = 'tokens';
+        $view->user      = ['userid' => (int) ($user->userid ?? 0), 'username' => (string) ($user->username ?? '')];
+        $view->tokenList = $tokenList;
+        return $view->display('tokens');
+    }
+
+    /**
+     * Deactivate a specific token belonging to a user.
+     * Expects POST: userid, tokenid.
+     */
+    public function deactivateToken(): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+
+        $userId  = (int) ($_POST['userid']  ?? 0);
+        $tokenId = (int) ($_POST['tokenid'] ?? 0);
+
+        if ($userId > 0 && $tokenId > 0) {
+            $user = new User();
+            $user->load($userId);
+            if ((int) $user->userid === $userId) {
+                $user->deactivateToken($tokenId);
+            }
+        }
+
+        $this->redirect(sURL . 'users/tokens/' . $userId);
+    }
+
+    /**
+     * Delete (status=2) a specific token belonging to a user.
+     * Expects POST: userid, tokenid.
+     */
+    public function deleteToken(): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+
+        $userId  = (int) ($_POST['userid']  ?? 0);
+        $tokenId = (int) ($_POST['tokenid'] ?? 0);
+
+        if ($userId > 0 && $tokenId > 0) {
+            $user = new User();
+            $user->load($userId);
+            if ((int) $user->userid === $userId) {
+                $user->deleteToken($tokenId);
+            }
+        }
+
+        $this->redirect(sURL . 'users/tokens/' . $userId);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
