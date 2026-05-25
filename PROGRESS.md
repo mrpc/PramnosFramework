@@ -1,7 +1,26 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-25 (session 135) — Rich settings page, full Application edit, user token management ✅
+## 📅 Last Updated: 2026-05-25 (session 136) — CSRF login fix, test isolation fixes ✅
+
+## 🏁 Session 136 — CSRF login fix, test isolation fixes (2026-05-25)
+
+### ✅ Security fix — CSRF token missing from generated login form
+
+- `Init.php` generated login views (`buildBootstrapLoginView()`, `buildPlainLoginView()`) were missing `Session::getTokenField()` → login-CSRF attack surface
+- `dologin()` generated handler was not validating the CSRF token at all
+- Fix: added `getTokenField()` to both generated view templates; added `Session::checkToken('post')` as the first guard in `dologin()` with redirect+error on failure
+- Also applied to test-app's already-generated `src/Controllers/Login.php` and `src/Views/login/login.html.php`
+- Scaffold theme views (`scaffolding/themes/*/views/login/login.html.php`) already had `getTokenField()` — no change needed
+
+### ✅ Test isolation fixes — 0 errors in full suite (5158 tests)
+
+Four intermittent test failures caused by MySQL/PostgreSQL state contamination:
+
+1. `FrameworkMigrationsMySQLTest.dropAllTestTables()` — cycled `FK_CHECKS=0/1` per table, leaving InnoDB dictionary stale → "Failed to open the referenced table 'users'" on subsequent FK creates. Fixed: single `FK_CHECKS=0` block around all drops.
+2. `UserAdminCreationMySQLCharacterizationTest.tearDown()` — called `User::setupDb()` with `FK_CHECKS=1` immediately after FK_CHECKS=0 drops. Fixed: hold `FK_CHECKS=0` through `User::setupDb()`, re-enable after all tables exist.
+3. `UserTokenManagementCharacterizationTest.setUp()` — same FK_CHECKS pattern. Fixed same way.
+4. `UserAdminCreationPostgreSQLCharacterizationTest` setUp/tearDown — only dropped `users`+`userdetails`, leaving `usertokens` table (and its SERIAL sequence) in a partially-detached state. A subsequent `User::setupDb()` CREATE TABLE with `tokenid SERIAL` would fail with "duplicate key usertokens_tokenid_seq". Fixed: drop full user-family in both setUp and tearDown.
 
 ## 🏁 Session 135 — Rich settings page, full Application editing, user token management (2026-05-25)
 
