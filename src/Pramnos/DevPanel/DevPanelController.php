@@ -111,10 +111,7 @@ class DevPanelController extends Controller
     public function __call(string $name, array $args): mixed
     {
         if (isset(static::$customPanels[$name])) {
-            if (!FeatureRegistry::isEnabled('devpanel')) {
-                $this->renderError(404, 'DevPanel feature is not enabled.');
-            }
-            if ($this->guardUserType()) {
+            if ($this->guardAccess()) {
                 return null;
             }
             $panel   = static::$customPanels[$name];
@@ -134,10 +131,7 @@ class DevPanelController extends Controller
      */
     public function display(): mixed
     {
-        if (!FeatureRegistry::isEnabled('devpanel')) {
-            $this->renderError(404, 'DevPanel feature is not enabled.');
-        }
-        if ($this->guardUserType()) {
+        if ($this->guardAccess()) {
             return null;
         }
 
@@ -150,10 +144,7 @@ class DevPanelController extends Controller
      */
     public function db(): mixed
     {
-        if (!FeatureRegistry::isEnabled('devpanel')) {
-            $this->renderError(404, 'DevPanel feature is not enabled.');
-        }
-        if ($this->guardUserType()) {
+        if ($this->guardAccess()) {
             return null;
         }
 
@@ -165,10 +156,7 @@ class DevPanelController extends Controller
      */
     public function cache(): mixed
     {
-        if (!FeatureRegistry::isEnabled('devpanel')) {
-            $this->renderError(404, 'DevPanel feature is not enabled.');
-        }
-        if ($this->guardUserType()) {
+        if ($this->guardAccess()) {
             return null;
         }
 
@@ -190,10 +178,7 @@ class DevPanelController extends Controller
      */
     public function users(): mixed
     {
-        if (!FeatureRegistry::isEnabled('devpanel')) {
-            $this->renderError(404, 'DevPanel feature is not enabled.');
-        }
-        if ($this->guardUserType()) {
+        if ($this->guardAccess()) {
             return null;
         }
 
@@ -205,10 +190,7 @@ class DevPanelController extends Controller
      */
     public function performance(): mixed
     {
-        if (!FeatureRegistry::isEnabled('devpanel')) {
-            $this->renderError(404, 'DevPanel feature is not enabled.');
-        }
-        if ($this->guardUserType()) {
+        if ($this->guardAccess()) {
             return null;
         }
 
@@ -220,10 +202,7 @@ class DevPanelController extends Controller
      */
     public function git(): mixed
     {
-        if (!FeatureRegistry::isEnabled('devpanel')) {
-            $this->renderError(404, 'DevPanel feature is not enabled.');
-        }
-        if ($this->guardUserType()) {
+        if ($this->guardAccess()) {
             return null;
         }
 
@@ -235,10 +214,7 @@ class DevPanelController extends Controller
      */
     public function phpinfo(): mixed
     {
-        if (!FeatureRegistry::isEnabled('devpanel')) {
-            $this->renderError(404, 'DevPanel feature is not enabled.');
-        }
-        if ($this->guardUserType()) {
+        if ($this->guardAccess()) {
             return null;
         }
 
@@ -1210,6 +1186,34 @@ class DevPanelController extends Controller
         echo "<!DOCTYPE html><html><head><title>Error {$code}</title></head><body><h1>Error {$code}</h1><p>"
             . htmlspecialchars($message) . "</p></body></html>";
         exit;
+    }
+
+    /**
+     * Central access guard: feature enabled + dev mode + usertype.
+     * Returns true if access is denied (caller should return early).
+     */
+    private function guardAccess(): bool
+    {
+        if (!FeatureRegistry::isEnabled('devpanel')) {
+            $this->renderError(404, 'DevPanel feature is not enabled.');
+        }
+        if (!$this->isDevMode()) {
+            $this->renderError(403, 'DevPanel is only available in development mode (DEVELOPMENT=true or debug=yes).');
+        }
+        return $this->guardUserType();
+    }
+
+    /**
+     * Returns true when the application is running in development/debug mode.
+     * Mirrors the check used by DebugBarServiceProvider and Application.
+     */
+    private function isDevMode(): bool
+    {
+        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
+            return true;
+        }
+        $setting = Settings::getSetting('debug');
+        return $setting === 'yes' || $setting === '1' || $setting === 'true' || $setting === true;
     }
 
     /**

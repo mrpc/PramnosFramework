@@ -8,8 +8,9 @@
  *   $this->success   — success flash message (string)
  *   $this->warning   — warning flash message (string)
  */
-$s   = $this->settings ?? [];
-$tzs = $this->timezones ?? \DateTimeZone::listIdentifiers();
+$s               = $this->settings ?? [];
+$tzs             = $this->timezones ?? \DateTimeZone::listIdentifiers();
+$devpanelEnabled = $this->devpanelEnabled ?? false;
 
 $defaultSteps = \Pramnos\Application\Controllers\SettingsController::DEFAULT_LOCKOUT_STEPS;
 ksort($defaultSteps, SORT_NUMERIC);
@@ -49,7 +50,7 @@ ksort($initialSteps, SORT_NUMERIC);
             <button type="button" class="plain-tab-btn active" data-tab="settings-tab-general" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:14px;font-weight:600;border-bottom:2px solid #0d6efd;margin-bottom:-2px;color:#0d6efd">General</button>
             <button type="button" class="plain-tab-btn" data-tab="settings-tab-email" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-2px;color:#666">Email / SMTP</button>
             <button type="button" class="plain-tab-btn" data-tab="settings-tab-security" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-2px;color:#666">Security</button>
-            <button type="button" class="plain-tab-btn" data-tab="settings-tab-devpanel" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-2px;color:#666">DevPanel</button>
+            <?php if ($devpanelEnabled): ?><button type="button" class="plain-tab-btn" data-tab="settings-tab-devpanel" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-2px;color:#666">DevPanel</button><?php endif; ?>
         </div>
 
         <!-- General -->
@@ -168,6 +169,7 @@ ksort($initialSteps, SORT_NUMERIC);
             </div>
         </div>
 
+        <?php if ($devpanelEnabled): ?>
         <!-- DevPanel -->
         <div id="settings-tab-devpanel" class="plain-settings-pane" style="display:none">
             <div class="card" style="border:1px solid #ddd;border-radius:4px;padding:16px;margin-bottom:16px">
@@ -190,6 +192,7 @@ ksort($initialSteps, SORT_NUMERIC);
                 </div>
             </div>
         </div>
+        <?php endif; ?>
 
         <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-primary">Save Settings</button>

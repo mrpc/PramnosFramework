@@ -8,8 +8,9 @@
  *   $this->success   — success flash message (string)
  *   $this->warning   — warning flash message (string)
  */
-$s   = $this->settings ?? [];
-$tzs = $this->timezones ?? \DateTimeZone::listIdentifiers();
+$s               = $this->settings ?? [];
+$tzs             = $this->timezones ?? \DateTimeZone::listIdentifiers();
+$devpanelEnabled = $this->devpanelEnabled ?? false;
 
 $defaultSteps = \Pramnos\Application\Controllers\SettingsController::DEFAULT_LOCKOUT_STEPS;
 ksort($defaultSteps, SORT_NUMERIC);
@@ -64,9 +65,11 @@ ksort($initialSteps, SORT_NUMERIC);
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="tab-security-btn" data-bs-toggle="tab" data-bs-target="#settings-tab-security" type="button" role="tab">Security</button>
             </li>
+            <?php if ($devpanelEnabled): ?>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="tab-devpanel-btn" data-bs-toggle="tab" data-bs-target="#settings-tab-devpanel" type="button" role="tab">DevPanel</button>
             </li>
+            <?php endif; ?>
         </ul>
 
         <div class="tab-content" id="settingsTabsContent">
@@ -190,6 +193,7 @@ ksort($initialSteps, SORT_NUMERIC);
                 </div></div>
             </div>
 
+            <?php if ($devpanelEnabled): ?>
             <!-- ── DevPanel ───────────────────────────────────────────────── -->
             <div class="tab-pane fade" id="settings-tab-devpanel" role="tabpanel">
                 <div class="card mb-3"><div class="card-body">
@@ -212,6 +216,7 @@ ksort($initialSteps, SORT_NUMERIC);
                     </div>
                 </div></div>
             </div>
+            <?php endif; ?>
 
         </div><!-- /.tab-content -->
 
