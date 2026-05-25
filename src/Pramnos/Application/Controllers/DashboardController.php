@@ -8,6 +8,8 @@ use Pramnos\Application\Controller;
 use Pramnos\Application\Statistics\ActiveUsersService;
 use Pramnos\Application\Statistics\DatabaseStatsService;
 use Pramnos\Application\Statistics\ApiPerformanceService;
+use Pramnos\Database\Inspector\DatabaseInspector;
+use Pramnos\Database\Inspector\TimescaleInspector;
 
 /**
  * Admin/ops overview dashboard controller.
@@ -147,11 +149,12 @@ class DashboardController extends Controller
         $db    = \Pramnos\Framework\Factory::getDatabase();
         $stats = (new DatabaseStatsService())->getStats();
 
-        $processes   = $this->collectProcessList($db);
-        $tableSizes  = $this->collectTableSizes($db);
-        $tsData      = $this->collectTimescaleData($db);
-        $replication = $this->collectReplicationData($db);
-        $publicViews = $this->collectPublicViews($db);
+        $dbInspector = new DatabaseInspector($db);
+        $processes   = $dbInspector->getProcessList();
+        $tableSizes  = $dbInspector->getTableSizes();
+        $replication = $dbInspector->getReplicationStatus();
+        $publicViews = $dbInspector->getPublicViews();
+        $tsData      = (new TimescaleInspector($db))->getData();
 
         $view              = $this->getView('dashboard');
         $view->stats       = $stats;
@@ -302,207 +305,6 @@ class DashboardController extends Controller
             echo json_encode(['success' => true]);
         } catch (\Exception $e) {
             echo json_encode(['success' => false, 'error' => $e->getMessage()]);
-        }
-    }
-
-    // ── Private helpers ───────────────────────────────────────────────────────
-
-    /**
-     * Returns active database processes/queries.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    private function collectProcessList(\Pramnos\Database\Database $db): array
-    {
-        try {
-            if ($db->type === 'postgresql') {
-                $r = $db->query(
-                    "SELECT pid, usename, datname, application_name,
-                            client_addr::text AS client_addr,
-                            state, wait_event_type, wait_event,
-                            to_char(backend_start, 'YYYY-MM-DD HH24:MI:SS') AS backend_start,
-                            EXTRACT(EPOCH FROM (now() - query_start))::int AS duration_sec,
-                            left(query, 200) AS query
-                     FROM pg_stat_activity
-                     WHERE datname = current_database() AND pid <> pg_backend_pid()
-                     ORDER BY duration_sec DESC NULLS LAST
-                     LIMIT 50"
-                );
-            } else {
-                $r = $db->query('SHOW PROCESSLIST');
-            }
-            if (!$r || $r->numRows === 0) {
-                return [];
-            }
-            return $r->fetchAll();
-        } catch (\Exception $e) {
-            return [];
-        }
-    }
-
-    /**
-     * Returns table sizes sorted by total bytes descending.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    private function collectTableSizes(\Pramnos\Database\Database $db): array
-    {
-        try {
-            if ($db->type === 'postgresql') {
-                $r = $db->query(
-                    "SELECT schemaname, tablename AS table_name,
-                            pg_total_relation_size(quote_ident(schemaname)||'.'||quote_ident(tablename)) AS total_bytes,
-                            pg_relation_size(quote_ident(schemaname)||'.'||quote_ident(tablename)) AS data_bytes,
-                            pg_total_relation_size(quote_ident(schemaname)||'.'||quote_ident(tablename))
-                              - pg_relation_size(quote_ident(schemaname)||'.'||quote_ident(tablename)) AS index_bytes,
-                            (SELECT reltuples::bigint FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-                             WHERE n.nspname = schemaname AND c.relname = tablename) AS row_estimate
-                     FROM information_schema.tables
-                     WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-                       AND table_type = 'BASE TABLE'
-                     ORDER BY total_bytes DESC
-                     LIMIT 30"
-                );
-            } else {
-                $r = $db->query(
-                    "SELECT table_name, data_length AS data_bytes, index_length AS index_bytes,
-                            data_length + index_length AS total_bytes, table_rows AS row_estimate
-                     FROM information_schema.tables
-                     WHERE table_schema = DATABASE()
-                     ORDER BY total_bytes DESC
-                     LIMIT 30"
-                );
-            }
-            if (!$r || $r->numRows === 0) {
-                return [];
-            }
-            return $r->fetchAll();
-        } catch (\Exception $e) {
-            return [];
-        }
-    }
-
-    /**
-     * Returns TimescaleDB-specific data if the extension is available.
-     * Returns empty arrays for all keys on non-PostgreSQL or when TimescaleDB
-     * is not installed.
-     *
-     * @return array{hypertables: array, aggregates: array, jobs: array, jobHistory: array, chunkCount: int, ts_version: string|null}
-     */
-    private function collectTimescaleData(\Pramnos\Database\Database $db): array
-    {
-        $empty = ['hypertables' => [], 'aggregates' => [], 'jobs' => [], 'jobHistory' => [], 'chunkCount' => 0, 'ts_version' => null];
-        if ($db->type !== 'postgresql') {
-            return $empty;
-        }
-        try {
-            $vr = $db->query("SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'");
-            if (!$vr || $vr->numRows === 0) {
-                return $empty;
-            }
-            $tsVersion = (string) $vr->fields['extversion'];
-
-            $ht = $db->query(
-                "SELECT hypertable_name, num_chunks, num_dimensions,
-                        compression_enabled, tablespaces
-                 FROM timescaledb_information.hypertables
-                 ORDER BY hypertable_name"
-            );
-            $hypertables = ($ht && $ht->numRows > 0) ? $ht->fetchAll() : [];
-
-            $ca = $db->query(
-                "SELECT view_schema, view_name,
-                        materialization_hypertable_schema AS materialization_schema,
-                        materialization_hypertable_name AS materialization_name,
-                        CASE WHEN materialized_only THEN 'Yes' ELSE 'No' END AS materialized_only,
-                        compression_enabled
-                 FROM timescaledb_information.continuous_aggregates
-                 ORDER BY view_name"
-            );
-            $aggregates = ($ca && $ca->numRows > 0) ? $ca->fetchAll() : [];
-
-            $jr = $db->query(
-                "SELECT job_id, proc_schema, proc_name, schedule_interval::text,
-                        last_run_started_at::text AS last_run_started_at,
-                        last_successful_finish::text AS last_successful_finish,
-                        last_run_status, next_start::text AS next_start
-                 FROM timescaledb_information.jobs
-                 ORDER BY job_id"
-            );
-            $jobs = ($jr && $jr->numRows > 0) ? $jr->fetchAll() : [];
-
-            $jh = $db->query(
-                "SELECT job_id, start_time::text AS start_time,
-                        finish_time::text AS finish_time,
-                        succeeded::text AS succeeded,
-                        proc_schema, proc_name, err_message
-                 FROM timescaledb_information.job_history
-                 ORDER BY start_time DESC
-                 LIMIT 200"
-            );
-            $jobHistory = ($jh && $jh->numRows > 0) ? $jh->fetchAll() : [];
-
-            $cc = $db->query("SELECT COUNT(*) AS total FROM timescaledb_information.chunks");
-            $chunkCount = ($cc && $cc->numRows > 0) ? (int) $cc->fields['total'] : 0;
-
-            return [
-                'hypertables' => $hypertables,
-                'aggregates'  => $aggregates,
-                'jobs'        => $jobs,
-                'jobHistory'  => $jobHistory,
-                'chunkCount'  => $chunkCount,
-                'ts_version'  => $tsVersion,
-            ];
-        } catch (\Exception $e) {
-            return $empty;
-        }
-    }
-
-    /**
-     * Returns PostgreSQL streaming replication status rows.
-     * Empty array on non-PostgreSQL or when no standbys are connected.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    private function collectReplicationData(\Pramnos\Database\Database $db): array
-    {
-        if ($db->type !== 'postgresql') {
-            return [];
-        }
-        try {
-            $r = $db->query(
-                "SELECT client_addr::text AS client_addr, state, sync_state,
-                        EXTRACT(EPOCH FROM write_lag)::int AS lag_sec
-                 FROM pg_stat_replication
-                 ORDER BY client_addr"
-            );
-            return ($r && $r->numRows > 0) ? $r->fetchAll() : [];
-        } catch (\Exception $e) {
-            return [];
-        }
-    }
-
-    /**
-     * Returns public-schema view definitions.
-     * Empty array on non-PostgreSQL databases.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    private function collectPublicViews(\Pramnos\Database\Database $db): array
-    {
-        if ($db->type !== 'postgresql') {
-            return [];
-        }
-        try {
-            $r = $db->query(
-                "SELECT table_name AS view_name, view_definition
-                 FROM information_schema.views
-                 WHERE table_schema = 'public'
-                 ORDER BY table_name"
-            );
-            return ($r && $r->numRows > 0) ? $r->fetchAll() : [];
-        } catch (\Exception $e) {
-            return [];
         }
     }
 
