@@ -145,11 +145,6 @@ ksort($initialSteps, SORT_NUMERIC);
         <!-- Security -->
         <div id="settings-tab-security" class="plain-settings-pane" style="display:none">
             <div class="card" style="border:1px solid #ddd;border-radius:4px;padding:16px;margin-bottom:16px">
-                <div style="margin-bottom:12px">
-                    <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Security Salt</label>
-                    <input type="text" name="securitySalt" autocomplete="off" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-family:monospace" placeholder="Leave blank to keep the current salt" value="">
-                    <small style="color:#c0392b;font-size:11px">Current salt is not shown. Fill only to change it.</small>
-                </div>
                 <div style="margin-bottom:12px;max-width:220px">
                     <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Lockout Window (seconds)</label>
                     <input type="number" name="loginlockoutwindowseconds" min="60" max="86400" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box"
