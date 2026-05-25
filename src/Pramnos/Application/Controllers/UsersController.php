@@ -32,8 +32,76 @@ class UsersController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions', 'tokens', 'deactivateToken', 'deleteToken']);
+        $this->addAuthAction(['display', 'view', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions', 'tokens', 'deactivateToken', 'deleteToken']);
         parent::__construct($application);
+    }
+
+    /**
+     * Read-only detail view for a single user.
+     *
+     * Displays profile, account details, usage stats (token count, unique apps),
+     * active session count, and the 5 most recent tokens.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption).
+     */
+    public function view(mixed $id = null): mixed
+    {
+        $doc = Factory::getDocument();
+
+        $this->requireMinUserType($this->requiredUserType);
+
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
+        if ($id < 1) {
+            $this->redirect(sURL . 'users');
+            return null;
+        }
+
+        $user = new User();
+        $user->load($id);
+        if ((int) $user->userid !== $id) {
+            $this->redirect(sURL . 'users');
+            return null;
+        }
+
+        $doc->title = 'User: ' . htmlspecialchars($user->username, ENT_QUOTES, 'UTF-8');
+
+        $usageStats = $user->getDataUsageStats();
+
+        $db = \Pramnos\Database\Database::getInstance();
+        $sessionCount = 0;
+        try {
+            $sessionCount = $db->queryBuilder()
+                ->table('#PREFIX#sessions')
+                ->where('userid', $id)
+                ->count();
+        } catch (\Exception $e) {
+            // sessions table may not exist in all deployments
+        }
+
+        $recentTokens = array_slice($user->getAllTokens(), 0, 5);
+
+        $view               = $this->getView('users');
+        $view->action       = 'view';
+        $view->user         = [
+            'userid'    => (int) $user->userid,
+            'username'  => (string) $user->username,
+            'email'     => (string) $user->email,
+            'firstname' => (string) $user->firstname,
+            'lastname'  => (string) $user->lastname,
+            'usertype'  => (int) $user->usertype,
+            'active'    => (int) $user->active,
+            'validated' => (int) $user->validated,
+            'regdate'   => (int) $user->regdate,
+            'lastlogin' => (int) $user->lastlogin,
+            'phone'     => (string) $user->phone,
+            'mobile'    => (string) $user->mobile,
+            'language'  => (string) $user->language,
+            'timezone'  => (string) $user->timezone,
+        ];
+        $view->usageStats   = $usageStats;
+        $view->sessionCount = $sessionCount;
+        $view->recentTokens = $recentTokens;
+        return $view->display('view');
     }
 
     /**
