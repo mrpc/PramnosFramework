@@ -34,11 +34,70 @@ class ApplicationsController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'edit', 'save', 'delete', 'tokens', 'rotate']);
+        $this->addAuthAction(['display', 'view', 'edit', 'save', 'delete', 'tokens', 'rotate']);
         parent::__construct($application);
     }
 
     // ── Actions ───────────────────────────────────────────────────────────────
+
+    /**
+     * Read-only detail view for a single OAuth2 application.
+     *
+     * Shows full application metadata, API key (read-only), token statistics
+     * (total/active/revoked), and the 5 most recent users who accessed the app.
+     */
+    public function view(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $id = (int) ($id ?? 0);
+        if ($id <= 0) {
+            $this->redirect(sURL . 'applications?error=invalid_id');
+            return null;
+        }
+
+        $db  = \Pramnos\Framework\Factory::getDatabase();
+        $app = $db->queryBuilder()
+            ->table('applications')
+            ->where('appid', $id)
+            ->first();
+
+        if (!$app || $app->numRows === 0) {
+            $this->redirect(sURL . 'applications?error=not_found');
+            return null;
+        }
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = 'Application: ' . htmlspecialchars((string) ($app->fields['name'] ?? ''), ENT_QUOTES);
+
+        $tokenStats = ['total' => 0, 'active' => 0, 'revoked' => 0];
+        $lastUsers  = [];
+        try {
+            $tokenStats['total']   = $db->queryBuilder()->table('#PREFIX#usertokens')->where('applicationid', $id)->count();
+            $tokenStats['active']  = $db->queryBuilder()->table('#PREFIX#usertokens')->where('applicationid', $id)->where('status', 1)->count();
+            $tokenStats['revoked'] = $db->queryBuilder()->table('#PREFIX#usertokens')->where('applicationid', $id)->where('status', 3)->count();
+
+            $lastUsers = $db->queryBuilder()
+                ->table('#PREFIX#usertokens ut')
+                ->join('#PREFIX#users u', 'ut.userid', '=', 'u.userid')
+                ->select(['u.userid', 'u.username', 'ut.lastused', 'ut.ipaddress', 'ut.scope'])
+                ->where('ut.applicationid', $id)
+                ->orderBy('ut.lastused', 'desc')
+                ->limit(5)
+                ->get();
+        } catch (\Exception $e) {
+            // usertokens or users may not exist in all deployments
+        }
+
+        $view             = $this->getView('applications');
+        $view->app        = $app->fields;
+        $view->tokenStats = $tokenStats;
+        $view->lastUsers  = $lastUsers;
+
+        return $view->display('view');
+    }
 
     /**
      * Paginated DataTable list of registered OAuth2 applications.
