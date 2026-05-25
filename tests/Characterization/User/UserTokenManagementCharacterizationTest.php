@@ -46,13 +46,17 @@ class UserTokenManagementCharacterizationTest extends TestCase
         // subsequent INSERT statements would fail with "Field ... doesn't have a
         // default value" or "Unknown column" errors.
         // Explicitly dropping ensures every setUp starts with the canonical schema.
+        //
+        // FK_CHECKS=0 is held through User::setupDb() so InnoDB does not attempt
+        // FK validation mid-creation. Re-enabling after all tables exist avoids the
+        // "Failed to open the referenced table" InnoDB error that arises when FK_CHECKS
+        // is cycled between the drop and the subsequent create.
         $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         foreach (['usertokens', 'userstogroups', 'userdetails', 'users', 'usergroups'] as $t) {
             $this->db->query("DROP TABLE IF EXISTS `{$t}`");
         }
-        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
-
         User::setupDb();
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
     }
 
     protected function tearDown(): void
