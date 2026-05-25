@@ -1,7 +1,44 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-25 (session 136) — CSRF login fix, test isolation fixes ✅
+## 📅 Last Updated: 2026-05-25 (session 137) — View/detail pages for users, applications, database, cache ✅
+
+## 🏁 Session 137 — View/detail pages for users, applications, database, cache (2026-05-25)
+
+### ✅ Read-only detail pages for all admin entities
+
+Added `view($id)` actions and companion views (all 3 themes: bootstrap, tailwind, plain-css):
+
+**`UsersController::view()`** (`GET /users/view/:id`)
+- Profile card: initials avatar, full name, username, usertype badge, active badge
+- Statistics sidebar: total tokens (link to tokens page), unique apps, session count (link to sessions), regdate, lastlogin
+- Account details grid: userid, username, email, firstname, lastname, phone, mobile, language, timezone, usertype, status, validation
+- Recent tokens table (last 5 rows): tokenid, type, status, IP, lastused, expires
+- Actions: Edit, Lock/Unlock, All Tokens, Sessions
+
+**`ApplicationsController::view()`** (`GET /applications/view/:id`)
+- Credentials card: API key (readonly + copy-to-clipboard), client secret (toggle-visible)
+- Token stats: total tokens (link), active count, revoked count
+- Details grid: appid, type, access type, API version, app version, public flag, added date, description, callback URL, scope, organization, public key (collapsible pre)
+- Recent users table (last 5): username (link to user view), scope, IP, lastused
+- Actions: Edit, View Tokens, Rotate Secret, Disable App
+
+### ✅ Database details page
+
+**`DashboardController::database()`** (`GET /dashboard/database`)
+- Overview cards: DB size, connections total, active connections, cache hit ratio; PostgreSQL adds commits/rollbacks; MySQL adds total queries
+- Active process list: MySQL `SHOW PROCESSLIST` / PostgreSQL `pg_stat_activity` (pid, user, app, state, wait event, duration, query truncated)
+- Table sizes (top 30): schemaname.tablename, row estimate, data size, index size, total size
+- TimescaleDB section (PostgreSQL only, gracefully absent if extension not installed): hypertables (name, chunks, dimensions, compression), continuous aggregates (view, materialization table, compression), scheduled jobs (id, procedure, interval, last run, status, next run)
+
+### ✅ Cache details page
+
+**`DashboardController::cache()`** (`GET /dashboard/cache`)
+- Overview cards: namespace count, total item count, adapter type badge
+- Namespace/category chips with item count
+- Per-category item table (up to 50 items each): key, type, size (KB), expiry timestamp
+
+All 12 view files (3 themes × 4 pages) + docs updated. `addAuthAction` updated to include new routes. Commit: e7d3981
 
 ## 🏁 Session 136 — CSRF login fix, test isolation fixes (2026-05-25)
 
