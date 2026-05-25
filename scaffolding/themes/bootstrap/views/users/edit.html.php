@@ -66,7 +66,11 @@ $u = $this->user ?? [];
                 </div>
                 <div class="d-flex gap-2">
                     <button type="submit" class="btn btn-primary">Save</button>
-                    <a href="<?php echo sURL; ?>Users" class="btn btn-outline-secondary">Cancel</a>
+                    <a href="<?php echo sURL; ?>users" class="btn btn-outline-secondary">Cancel</a>
+                    <?php if (!$this->isNew): ?>
+                        <a href="<?php echo sURL; ?>users/tokens/<?php echo (int)($u['userid'] ?? 0); ?>" class="btn btn-outline-info ms-auto">Tokens</a>
+                        <a href="<?php echo sURL; ?>users/sessions/<?php echo (int)($u['userid'] ?? 0); ?>" class="btn btn-outline-secondary">Sessions</a>
+                    <?php endif; ?>
                 </div>
             </form>
         </div>

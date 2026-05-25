@@ -1,7 +1,32 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-25 (session 134) — Scaffold app security fixes, DB dashboard details, server-side QR code ✅
+## 📅 Last Updated: 2026-05-25 (session 135) — Rich settings page, full Application edit, user token management ✅
+
+## 🏁 Session 135 — Rich settings page, full Application editing, user token management (2026-05-25)
+
+### ✅ SettingsController — categorized system settings page
+
+- `display()` now renders a 4-tab rich settings page (General, Email/SMTP, Security, DevPanel) with all framework-used settings
+- New `saveSystem()` POST handler with per-field normalization (yes/no booleans, int ranges, lockout steps JSON)
+- New `list()` action shows the old flat key/value DataTable (accessible from rich page via "Advanced / Raw" link)
+- New helper methods: `normalizeYesNo()`, `normalizeIntRange()`, `normalizeLoginLockoutSteps()` (with defaults `DEFAULT_LOCKOUT_STEPS`, `DEFAULT_LOCKOUT_WINDOW_SECONDS`)
+- Lockout steps dynamic card builder ported from Urbanwater (JS in all 3 themes)
+- All 3 themes: `settings.html.php` replaced with rich form, new `list.html.php` for DataTable, `edit.html.php` fixed (field names `skey/svalue`→`key/value`, Cancel→`settings/list`, `original_key` hidden input added)
+
+### ✅ ApplicationsController — full Application model field coverage
+
+- Migration `authserver/2020_01_01_000049_add_extended_info_to_applications.php` (priority 61) adds `supportemail`, `termsurl`, `privacyurl`, `appversion`, `logourl` to `applications` table
+- `ApplicationsController::save()` now handles all fields: apptype, accesstype, apiversion, appversion, public, organization, organizationurl, url, supportemail, termsurl, privacyurl, public_key, jwks_uri
+- Edit form (all 3 themes): 4-tab layout (Basic, Organisation, OAuth2/API, Legal) with all fields, Rotate Secret button, View Tokens link
+
+### ✅ UsersController — token management actions
+
+- New `tokens($id)` action: list all tokens for a user via `User::getAllTokens()`
+- New `deactivateToken()` POST action: calls `User::deactivateToken()`
+- New `deleteToken()` POST action: calls `User::deleteToken()`
+- New `tokens.html.php` view for all 3 themes: tokenid, type, status badge, IP, timestamps, expired row highlight, Deactivate/Delete actions
+- Bootstrap user edit form: "Tokens" and "Sessions" quick-links added to action bar
 
 ## 🏁 Session 134 — Scaffold app security fixes, DB dashboard details, server-side QR code (2026-05-25)
 
