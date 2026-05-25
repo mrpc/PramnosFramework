@@ -165,14 +165,6 @@ ksort($initialSteps, SORT_NUMERIC);
             <div class="tab-pane fade" id="settings-tab-security" role="tabpanel">
                 <div class="card mb-3"><div class="card-body">
                     <div class="row g-3">
-                        <div class="col-12">
-                            <label class="form-label fw-semibold">Security Salt</label>
-                            <input type="text" name="securitySalt" class="form-control font-monospace"
-                                autocomplete="off"
-                                placeholder="Leave blank to keep the current salt"
-                                value="">
-                            <div class="form-text text-danger">Current salt is not shown. Fill this field only if you want to change it.</div>
-                        </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Lockout Window (seconds)</label>
                             <input type="number" name="loginlockoutwindowseconds" class="form-control"

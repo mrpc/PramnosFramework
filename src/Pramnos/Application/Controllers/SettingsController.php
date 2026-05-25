@@ -46,6 +46,7 @@ class SettingsController extends Controller
     protected array $readonlyKeys = [
         'hostname', 'database', 'schema', 'user', 'password',
         'collation', 'prefix', 'type', 'cache',
+        'securitySalt',
     ];
 
     public function __construct(?\Pramnos\Application\Application $application = null)
@@ -66,7 +67,7 @@ class SettingsController extends Controller
             'sitename', 'site_url', 'admin_mail', 'admin_replymail',
             'default_language', 'timezone', 'debug', 'forcessl',
             'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_tls',
-            'securitySalt', 'loginlockoutwindowseconds', 'loginlockoutsteps',
+            'loginlockoutwindowseconds', 'loginlockoutsteps',
             'devpanel.min_usertype', 'devpanel.mount',
         ];
 
@@ -112,10 +113,6 @@ class SettingsController extends Controller
         Settings::setSetting('smtp_tls',  $this->normalizeYesNo($request->get('smtp_tls', 'no', 'post')));
 
         // Security
-        $salt = trim($request->get('securitySalt', '', 'post'));
-        if ($salt !== '') {
-            Settings::setSetting('securitySalt', $salt);
-        }
         Settings::setSetting('loginlockoutwindowseconds', (string) $this->normalizeIntRange(
             $request->get('loginlockoutwindowseconds', (string) self::DEFAULT_LOCKOUT_WINDOW_SECONDS, 'post'),
             60, 86400, self::DEFAULT_LOCKOUT_WINDOW_SECONDS
