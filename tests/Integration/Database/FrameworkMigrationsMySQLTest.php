@@ -2427,10 +2427,13 @@ class FrameworkMigrationsMySQLTest extends TestCase
             'pramnos_framework_policies', 'settings', 'sessions',
         ];
 
+        // Disable FK checks once for the entire drop batch.
+        // Cycling FK_CHECKS per table confuses InnoDB's internal data dictionary
+        // and causes "Failed to open the referenced table" errors in subsequent tests.
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
         foreach ($tables as $table) {
-            $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
             $this->db->query("DROP TABLE IF EXISTS `{$table}`");
-            $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
         }
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
     }
 }

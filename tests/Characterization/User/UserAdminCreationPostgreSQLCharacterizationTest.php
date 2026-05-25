@@ -102,7 +102,11 @@ class UserAdminCreationPostgreSQLCharacterizationTest extends TestCase
             $this->db->connect();
         }
 
-        // Rebuild tables fresh for each test — migration-compatible schema
+        // Rebuild tables fresh for each test — migration-compatible schema.
+        // Drop the full user-family so orphaned sequences don't survive into setUp.
+        $this->db->query('DROP TABLE IF EXISTS usertokens CASCADE');
+        $this->db->query('DROP TABLE IF EXISTS userstogroups CASCADE');
+        $this->db->query('DROP TABLE IF EXISTS usergroups CASCADE');
         $this->db->query('DROP TABLE IF EXISTS userdetails CASCADE');
         $this->db->query('DROP TABLE IF EXISTS users CASCADE');
         $this->db->query(self::CREATE_USERS_SQL);
@@ -111,8 +115,15 @@ class UserAdminCreationPostgreSQLCharacterizationTest extends TestCase
 
     protected function tearDown(): void
     {
-        // Drop the test tables then restore to the canonical setupDb() schema so
-        // other test classes in the same suite run do not see an absent users table.
+        // Drop the full user-family (children before parents) so that no orphaned
+        // sequences (usertokens_tokenid_seq, usergroups_groupid_seq) are left behind.
+        // Without this, a subsequent User::setupDb() call that tries to CREATE TABLE
+        // usertokens with `tokenid SERIAL` would fail with a duplicate-sequence error
+        // because PostgreSQL's SERIAL creates the sequence before the table and the
+        // IF NOT EXISTS check only guards the table, not the sequence.
+        $this->db->query('DROP TABLE IF EXISTS usertokens CASCADE');
+        $this->db->query('DROP TABLE IF EXISTS userstogroups CASCADE');
+        $this->db->query('DROP TABLE IF EXISTS usergroups CASCADE');
         $this->db->query('DROP TABLE IF EXISTS userdetails CASCADE');
         $this->db->query('DROP TABLE IF EXISTS users CASCADE');
         User::setupDb();
