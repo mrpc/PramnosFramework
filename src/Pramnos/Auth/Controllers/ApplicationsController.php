@@ -14,7 +14,7 @@ use Pramnos\Application\Controller;
  *
  * Actions:
  *   - display()      — paginated DataTable list of OAuth2 applications
- *   - edit($id)      — create/edit form (name, description, redirect URIs, scopes)
+ *   - edit($id)      — create/edit form (all application fields)
  *   - save()         — POST handler; generates client_id/client_secret on create
  *   - delete($id)    — soft-delete (status=0) + revoke all active tokens
  *   - tokens($id)    — list active tokens for an application
@@ -55,10 +55,10 @@ class ApplicationsController extends Controller
         $db   = \Pramnos\Framework\Factory::getDatabase();
         $page = max(1, (int) ($_GET['page'] ?? 1));
 
-        $view  = $this->getView('applications');
+        $view               = $this->getView('applications');
         $view->applications = $db->queryBuilder()
             ->table('applications')
-            ->select(['appid', 'name', 'description', 'apikey', 'status', 'added'])
+            ->select(['appid', 'name', 'description', 'apikey', 'status', 'added', 'apptype', 'accesstype', 'organization'])
             ->orderBy('name')
             ->forPage($page, 50)
             ->get();
@@ -82,8 +82,10 @@ class ApplicationsController extends Controller
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->title = $id > 0 ? 'Edit Application' : 'New Application';
 
-        $view = $this->getView('applications');
+        $view              = $this->getView('applications');
         $view->application = null;
+        $view->message     = $_GET['message'] ?? '';
+        $view->error       = $_GET['error'] ?? '';
 
         if ($id > 0) {
             $db     = \Pramnos\Framework\Factory::getDatabase();
@@ -114,47 +116,71 @@ class ApplicationsController extends Controller
             return;
         }
 
-        $id          = (int)    ($_POST['appid']       ?? 0);
-        $name        = trim((string) ($_POST['name']        ?? ''));
-        $description = trim((string) ($_POST['description'] ?? ''));
-        $callback    = trim((string) ($_POST['callback']    ?? ''));
-        $scope       = trim((string) ($_POST['scope']       ?? ''));
-        $status      = (int) ($_POST['status'] ?? 1);
+        $id          = (int)    ($_POST['appid']           ?? 0);
+        $name        = trim((string) ($_POST['name']           ?? ''));
+        $description = trim((string) ($_POST['description']    ?? ''));
+        $callback    = trim((string) ($_POST['callback']       ?? ''));
+        $scope       = trim((string) ($_POST['scope']          ?? ''));
+        $status      = (int)    ($_POST['status']          ?? 1);
+        $apptype     = (int)    ($_POST['apptype']         ?? 0);
+        $accesstype  = (int)    ($_POST['accesstype']      ?? 0);
+        $apiversion  = trim((string) ($_POST['apiversion']     ?? 'v1'));
+        $appversion  = trim((string) ($_POST['appversion']     ?? ''));
+        $public      = isset($_POST['public']) ? 1 : 0;
+        $organization    = trim((string) ($_POST['organization']    ?? ''));
+        $organizationurl = trim((string) ($_POST['organizationurl'] ?? ''));
+        $url             = trim((string) ($_POST['url']             ?? ''));
+        $supportemail    = trim((string) ($_POST['supportemail']    ?? ''));
+        $termsurl        = trim((string) ($_POST['termsurl']        ?? ''));
+        $privacyurl      = trim((string) ($_POST['privacyurl']      ?? ''));
+        $public_key      = trim((string) ($_POST['public_key']      ?? ''));
+        $jwks_uri        = trim((string) ($_POST['jwks_uri']        ?? ''));
 
         if ($name === '') {
             $this->redirect(sURL . 'applications/edit/' . $id . '?error=name_required');
             return;
         }
 
+        // Clamp to valid apptype/accesstype ranges.
+        $apptype    = max(0, min(5, $apptype));
+        $accesstype = max(0, min(2, $accesstype));
+        $status     = max(0, min(1, $status));
+
         $db = \Pramnos\Framework\Factory::getDatabase();
+
+        $fields = [
+            'name'            => $name,
+            'description'     => $description !== '' ? $description : null,
+            'callback'        => $callback !== '' ? $callback : null,
+            'scope'           => $scope !== '' ? $scope : null,
+            'status'          => $status,
+            'apptype'         => $apptype,
+            'accesstype'      => $accesstype,
+            'apiversion'      => $apiversion !== '' ? $apiversion : 'v1',
+            'appversion'      => $appversion,
+            'public'          => $public,
+            'organization'    => $organization !== '' ? $organization : null,
+            'organizationurl' => $organizationurl !== '' ? $organizationurl : null,
+            'url'             => $url !== '' ? $url : null,
+            'supportemail'    => $supportemail !== '' ? $supportemail : null,
+            'termsurl'        => $termsurl !== '' ? $termsurl : null,
+            'privacyurl'      => $privacyurl !== '' ? $privacyurl : null,
+            'public_key'      => $public_key !== '' ? $public_key : null,
+            'jwks_uri'        => $jwks_uri !== '' ? $jwks_uri : null,
+        ];
 
         if ($id > 0) {
             $db->queryBuilder()
                 ->table('applications')
                 ->where('appid', $id)
-                ->update([
-                    'name'        => $name,
-                    'description' => $description !== '' ? $description : null,
-                    'callback'    => $callback !== '' ? $callback : null,
-                    'scope'       => $scope !== '' ? $scope : null,
-                    'status'      => $status,
-                ]);
+                ->update($fields);
         } else {
-            $apiKey    = bin2hex(random_bytes(16));
-            $apiSecret = bin2hex(random_bytes(32));
-
+            $fields['apikey']    = bin2hex(random_bytes(16));
+            $fields['apisecret'] = bin2hex(random_bytes(32));
+            $fields['added']     = time();
             $db->queryBuilder()
                 ->table('applications')
-                ->insert([
-                    'name'        => $name,
-                    'description' => $description !== '' ? $description : null,
-                    'callback'    => $callback !== '' ? $callback : null,
-                    'scope'       => $scope !== '' ? $scope : null,
-                    'apikey'      => $apiKey,
-                    'apisecret'   => $apiSecret,
-                    'status'      => 1,
-                    'added'       => time(),
-                ]);
+                ->insert($fields);
         }
 
         $this->redirect(sURL . 'applications?message=saved');
@@ -209,8 +235,8 @@ class ApplicationsController extends Controller
             return null;
         }
 
-        $db     = \Pramnos\Framework\Factory::getDatabase();
-        $app    = $db->queryBuilder()
+        $db  = \Pramnos\Framework\Factory::getDatabase();
+        $app = $db->queryBuilder()
             ->table('applications')
             ->select(['appid', 'name', 'apikey'])
             ->where('appid', $appId)
@@ -227,15 +253,15 @@ class ApplicationsController extends Controller
         $tokens = $db->queryBuilder()
             ->table('#PREFIX#usertokens ut')
             ->join('#PREFIX#users u', 'ut.userid', '=', 'u.userid')
-            ->select(['ut.tokenid', 'u.username', 'ut.scope', 'ut.expires', 'ut.lastused', 'ut.status'])
+            ->select(['ut.tokenid', 'u.username', 'ut.scope', 'ut.expires', 'ut.lastused', 'ut.status', 'ut.ipaddress', 'ut.tokentype'])
             ->where('ut.applicationid', $appId)
             ->where('ut.status', 1)
             ->orderBy('ut.lastused', 'desc')
             ->get();
 
-        $view          = $this->getView('applications');
-        $view->app     = $app->fields;
-        $view->tokens  = $tokens;
+        $view         = $this->getView('applications');
+        $view->app    = $app->fields;
+        $view->tokens = $tokens;
 
         return $view->display('tokens');
     }
