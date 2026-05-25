@@ -63,24 +63,30 @@ class SettingsController extends Controller
         $doc        = Factory::getDocument();
         $doc->title = 'System Settings';
 
+        $devpanelEnabled = \Pramnos\Application\FeatureRegistry::isEnabled('devpanel');
+
         $keys = [
             'sitename', 'site_url', 'admin_mail', 'admin_replymail',
             'default_language', 'timezone', 'debug', 'forcessl',
             'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_tls',
             'loginlockoutwindowseconds', 'loginlockoutsteps',
-            'devpanel.min_usertype', 'devpanel.mount',
         ];
+        if ($devpanelEnabled) {
+            $keys[] = 'devpanel.min_usertype';
+            $keys[] = 'devpanel.mount';
+        }
 
         $settings = [];
         foreach ($keys as $key) {
             $settings[$key] = (string) Settings::getSetting($key, '');
         }
 
-        $view            = $this->getView('settings');
-        $view->settings  = $settings;
-        $view->timezones = \DateTimeZone::listIdentifiers();
-        $view->success   = $_SESSION['settings_success'] ?? '';
-        $view->warning   = $_SESSION['settings_warning'] ?? '';
+        $view                   = $this->getView('settings');
+        $view->settings         = $settings;
+        $view->devpanelEnabled  = $devpanelEnabled;
+        $view->timezones        = \DateTimeZone::listIdentifiers();
+        $view->success          = $_SESSION['settings_success'] ?? '';
+        $view->warning          = $_SESSION['settings_warning'] ?? '';
         unset($_SESSION['settings_success'], $_SESSION['settings_warning']);
 
         return $view->display();
@@ -129,11 +135,13 @@ class SettingsController extends Controller
         }
         Settings::setSetting('loginlockoutsteps', $normalizedSteps);
 
-        // DevPanel
-        Settings::setSetting('devpanel.min_usertype', (string) $this->normalizeIntRange(
-            $request->get('devpanel.min_usertype', '90', 'post'), 0, 100, 90
-        ));
-        Settings::setSetting('devpanel.mount', trim($request->get('devpanel.mount', 'devpanel', 'post')));
+        // DevPanel (only when feature is active)
+        if (\Pramnos\Application\FeatureRegistry::isEnabled('devpanel')) {
+            Settings::setSetting('devpanel.min_usertype', (string) $this->normalizeIntRange(
+                $request->get('devpanel.min_usertype', '90', 'post'), 0, 100, 90
+            ));
+            Settings::setSetting('devpanel.mount', trim($request->get('devpanel.mount', 'devpanel', 'post')));
+        }
 
         if (count($lockoutErrors) > 0) {
             $_SESSION['settings_warning'] = 'Lockout rules adjusted to safe defaults: '
@@ -147,8 +155,10 @@ class SettingsController extends Controller
             'settings-tab-general',
             'settings-tab-email',
             'settings-tab-security',
-            'settings-tab-devpanel',
         ];
+        if (\Pramnos\Application\FeatureRegistry::isEnabled('devpanel')) {
+            $allowedTabs[] = 'settings-tab-devpanel';
+        }
         if (in_array($activeTab, $allowedTabs, true)) {
             $this->redirect(sURL . 'settings#' . $activeTab);
             return;

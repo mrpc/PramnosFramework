@@ -8,8 +8,9 @@
  *   $this->success   — success flash message (string)
  *   $this->warning   — warning flash message (string)
  */
-$s   = $this->settings ?? [];
-$tzs = $this->timezones ?? \DateTimeZone::listIdentifiers();
+$s               = $this->settings ?? [];
+$tzs             = $this->timezones ?? \DateTimeZone::listIdentifiers();
+$devpanelEnabled = $this->devpanelEnabled ?? false;
 
 $defaultSteps = \Pramnos\Application\Controllers\SettingsController::DEFAULT_LOCKOUT_STEPS;
 ksort($defaultSteps, SORT_NUMERIC);
@@ -59,7 +60,7 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
             <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-gray-200 bg-white text-blue-600" data-tab="settings-tab-general">General</button>
             <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-gray-600 hover:text-blue-600" data-tab="settings-tab-email">Email / SMTP</button>
             <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-gray-600 hover:text-blue-600" data-tab="settings-tab-security">Security</button>
-            <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-gray-600 hover:text-blue-600" data-tab="settings-tab-devpanel">DevPanel</button>
+            <?php if ($devpanelEnabled): ?><button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-gray-600 hover:text-blue-600" data-tab="settings-tab-devpanel">DevPanel</button><?php endif; ?>
         </div>
 
         <!-- General -->
@@ -157,6 +158,7 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
             </div>
         </div>
 
+        <?php if ($devpanelEnabled): ?>
         <!-- DevPanel -->
         <div id="settings-tab-devpanel" class="settings-pane hidden">
             <div class="<?php echo $card; ?>">
@@ -177,6 +179,7 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
                 </div>
             </div>
         </div>
+        <?php endif; ?>
 
         <div class="flex gap-3 mt-2">
             <button type="submit" class="<?php echo $btnPri; ?>">Save Settings</button>
