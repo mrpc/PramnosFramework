@@ -14,7 +14,7 @@ use Symfony\Component\Console\Input\InputOption;
  *
  * Steps:
  *  1. Project metadata (name, namespace)
- *  2. Framework features (auth, authserver, queue, messaging)
+ *  2. Framework features (auth, authserver, queue, messaging, devpanel)
  *  3. UI system (plain-css, bootstrap, tailwind)
  *  4. Extra libraries (local asset download into public/assets/vendor/)
  *  5. Extra resources (favicon set, base CSS reset, print stylesheet)
@@ -43,7 +43,7 @@ class Init extends Command
         $this->setDescription('Initialize a new Pramnos project structure');
         $this->addOption('app-name',      null, InputOption::VALUE_OPTIONAL, 'Application name');
         $this->addOption('namespace',     null, InputOption::VALUE_OPTIONAL, 'PHP namespace');
-        $this->addOption('features',      null, InputOption::VALUE_OPTIONAL, 'Comma-separated feature list (auth,authserver,queue,messaging)');
+        $this->addOption('features',      null, InputOption::VALUE_OPTIONAL, 'Comma-separated feature list (auth,authserver,queue,messaging,devpanel)');
         $this->addOption('ui-system',     null, InputOption::VALUE_OPTIONAL, 'UI system (plain-css, bootstrap, tailwind)');
         $this->addOption('docker',        null, InputOption::VALUE_OPTIONAL, 'Setup Docker environment (y/n)');
         $this->addOption('docker-port',   null, InputOption::VALUE_OPTIONAL, 'Local port for Docker mapping');
@@ -346,6 +346,7 @@ class Init extends Command
             'authserver' => 'OAuth Server         [authserver]',
             'queue'      => 'Queue System         [queue]',
             'messaging'  => 'Messaging            [messaging]',
+            'devpanel'   => 'Developer Panel      [devpanel]',
         ];
 
         $enabled = [];
