@@ -218,11 +218,7 @@ class DashboardController extends Controller
             if (!$r || $r->numRows === 0) {
                 return [];
             }
-            $rows = [(array) $r->fields];
-            while ($r->nextRecord()) {
-                $rows[] = (array) $r->fields;
-            }
-            return $rows;
+            return $r->fetchAll();
         } catch (\Exception $e) {
             return [];
         }
@@ -264,11 +260,7 @@ class DashboardController extends Controller
             if (!$r || $r->numRows === 0) {
                 return [];
             }
-            $rows = [(array) $r->fields];
-            while ($r->nextRecord()) {
-                $rows[] = (array) $r->fields;
-            }
-            return $rows;
+            return $r->fetchAll();
         } catch (\Exception $e) {
             return [];
         }
@@ -300,26 +292,14 @@ class DashboardController extends Controller
                  FROM timescaledb_information.hypertables
                  ORDER BY hypertable_name"
             );
-            $hypertables = [];
-            if ($ht && $ht->numRows > 0) {
-                $hypertables[] = (array) $ht->fields;
-                while ($ht->nextRecord()) {
-                    $hypertables[] = (array) $ht->fields;
-                }
-            }
+            $hypertables = ($ht && $ht->numRows > 0) ? $ht->fetchAll() : [];
 
             $ca = $db->query(
                 "SELECT view_name, materialization_hypertable_name, compression_enabled, refresh_lag
                  FROM timescaledb_information.continuous_aggregates
                  ORDER BY view_name"
             );
-            $aggregates = [];
-            if ($ca && $ca->numRows > 0) {
-                $aggregates[] = (array) $ca->fields;
-                while ($ca->nextRecord()) {
-                    $aggregates[] = (array) $ca->fields;
-                }
-            }
+            $aggregates = ($ca && $ca->numRows > 0) ? $ca->fetchAll() : [];
 
             $jr = $db->query(
                 "SELECT job_id, proc_name, schedule_interval::text, max_runtime::text,
@@ -327,13 +307,7 @@ class DashboardController extends Controller
                  FROM timescaledb_information.jobs
                  ORDER BY job_id"
             );
-            $jobs = [];
-            if ($jr && $jr->numRows > 0) {
-                $jobs[] = (array) $jr->fields;
-                while ($jr->nextRecord()) {
-                    $jobs[] = (array) $jr->fields;
-                }
-            }
+            $jobs = ($jr && $jr->numRows > 0) ? $jr->fetchAll() : [];
 
             return [
                 'hypertables' => $hypertables,
