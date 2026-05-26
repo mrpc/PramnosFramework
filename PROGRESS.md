@@ -1,7 +1,46 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-27 (session 145) — PF-9 docs, PF-40, Phase 17 JS tests, migration display fix ✅
+## 📅 Last Updated: 2026-05-27 (session 145b) — scaffolding bug fixes, user profile, DataTable lists ✅
+
+## 🏁 Session 145b — Scaffolding bug fixes, user profile, DataTable on lists (2026-05-27)
+
+### ✅ fix(scaffolding): DebugBar always visible
+- `scaffoldSettings()` was hardcoding `'development' => true`. Fixed to `false`.
+- Also fixed `testsettings.php` call.
+- **Commit**: `9a39e84`
+
+### ✅ fix(scaffolding): cache adapter not written to settings.php
+- `scaffoldSettings()` now accepts `$cacheSystem` and writes `'cache' => [...]` block when redis/memcached selected.
+- Port: 6379 for redis, 11211 for memcached.
+- **Commit**: `9a39e84`
+
+### ✅ fix(dashboard): DB type label shows "postgres" instead of "PostgreSQL · TimescaleDB"
+- `DatabaseStatsService::getPostgreSQLStats()`: never returns null for version (falls back to 'PostgreSQL').
+- Detects TimescaleDB via `SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'` and appends it.
+- `getMySQLStats()`: falls back to 'MySQL' instead of null.
+- All 3 dashboard templates: map raw type names properly in fallback.
+- **Commit**: `9a39e84`
+
+### ✅ feat(auth): user profile page
+- `Auth\Controllers\Dashboard::profile()` — GET shows form, POST validates + saves firstname/lastname/email/phone.
+- Scaffolded `src/Views/account/profile.html.php` (per uiSystem: bootstrap vs tailwind/plain-css).
+- Improved `src/Views/account/dashboard.html.php` with sidebar nav linking to profile/security/privacy/logout.
+- **Commit**: `9a39e84`
+
+### ✅ feat(document): isScriptRegistered / isStyleRegistered
+- `Document::isScriptRegistered(string $handle): bool` — safe check before calling `enqueueScript()`
+- `Document::isStyleRegistered(string $handle): bool` — safe check before calling `enqueueStyle()`
+- **Commit**: `9a39e84`
+
+### ✅ feat(scaffolding): DataTable on list views
+- users/organizations/applications × 3 themes: auto-init DataTables when `datatables` is registered.
+- `enqueueStyle` guarded with `isStyleRegistered()` to prevent fatal on apps without CSS registration.
+- **Commit**: `9a39e84`
+
+### ✅ fix(document): throw new \Exception (namespace bug)
+- `Document._enqueueScript/_enqueueStyle` were throwing `new Exception(...)` which resolved to `Pramnos\Document\Exception` (not found). Fixed to `\Exception`.
+- **Commit**: `9a39e84`
 
 ## 🏁 Session 145 — PF-40, Phase 17 JS tests, migration display fix (2026-05-27)
 
