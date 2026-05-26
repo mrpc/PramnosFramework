@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-26 (session 139) — Phase 21 complete: Form Requests + Model Factories ✅
+## 📅 Last Updated: 2026-05-26 (session 139) — Phase 21 complete: Form Requests + Model Factories + Notification Channels ✅
 
 ## 🏁 Session 139 — Phase 21: Form Requests + Model Factories (2026-05-26)
 
@@ -27,9 +27,26 @@
 - 13 unit tests in `tests/Unit/Support/ModelFactoryTest.php`.
 - `docs/1.2-new-features.md` + `ROADMAP_1.2.md` updated.
 
+### ✅ Phase 21 — Notification Channels (`Pramnos\Notification`)
+
+**New files:**
+- `src/Pramnos/Notification/NotificationInterface.php` — `via()` contract
+- `src/Pramnos/Notification/ChannelInterface.php` — `send()` contract
+- `src/Pramnos/Notification/NotifiableInterface.php` — `notify()` + `routeNotificationFor()` contract
+- `src/Pramnos/Notification/NotifiableTrait.php` — default implementation; routes 'mail' → $email, 'database' → $userid
+- `src/Pramnos/Notification/Notifier.php` — dispatches to all `via()` channels; accepts aliases + FQCN; `registerChannel()`
+- `src/Pramnos/Notification/Channels/MailChannel.php` — delegates to `Pramnos\Email\Email`; skips if no address
+- `src/Pramnos/Notification/Channels/DatabaseChannel.php` — INSERTs to `#PREFIX#notifications` via `prepareInput()`
+- `src/Pramnos/Notification/Channels/BroadcastChannel.php` — delegates to `BroadcastingManager`
+- `src/Pramnos/Notification/Channels/LogChannel.php` — appends JSON line to log file
+- `database/migrations/framework/notifications/2020_01_01_000060_create_notifications_table.php`
+
+**Tests:** 25 unit tests (`tests/Unit/Notification/`) + 6 MySQL integration tests (`tests/Integration/Notification/`).
+
 ### ROADMAP items closed
 - `[x]` Phase 21: Form Requests
 - `[x]` Phase 21: Model Factories
+- `[x]` Phase 21: Notification Channels
 
 ---
 
