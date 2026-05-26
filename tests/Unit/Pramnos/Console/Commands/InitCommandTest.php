@@ -71,6 +71,7 @@ class InitCommandTest extends TestCase
             'n',               // Step 2: Enable authserver?
             'n',               // Step 2: Enable queue?
             'n',               // Step 2: Enable messaging?
+            'n',               // Step 2: Enable devpanel?
             'n',               // Step 2b: REST API?
             'n',               // Step 2c: webhook?
             '',                // Step 3: UI system (Enter = plain-css default)
@@ -120,6 +121,7 @@ class InitCommandTest extends TestCase
             'n',                 // Step 2: authserver
             'n',                 // Step 2: queue
             'n',                 // Step 2: messaging
+            'n',                 // Step 2: devpanel
             'n',                 // Step 2b: REST API?
             'n',                 // Step 2c: webhook?
             '',                  // Step 3: UI (plain-css)
@@ -168,6 +170,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
@@ -211,6 +214,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
@@ -292,6 +296,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
@@ -341,6 +346,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
@@ -400,6 +406,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
@@ -447,6 +454,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
             'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             '',             // Step 3: UI (plain-css)
@@ -510,7 +518,7 @@ class InitCommandTest extends TestCase
         // Arrange — namespace 'MyCLIApp' → cliName 'mycliapp'
         $commandTester->setInputs([
             'My CLI App', 'MyCLIApp',
-            'n', 'n', 'n', 'n',   // features
+            'n', 'n', 'n', 'n', 'n',   // features
             'n',                   // REST API?
             'n',                   // webhook?
             '',                    // UI plain-css
@@ -657,7 +665,7 @@ class InitCommandTest extends TestCase
         // Arrange — Docker enabled so the migrate fallback line appears in summary
         $commandTester->setInputs([
             'Migrate App', 'MigrateApp',
-            'n', 'n', 'n', 'n',
+            'n', 'n', 'n', 'n', 'n',
             'n',            // REST API?
             'n',            // webhook?
             '', 'n',
@@ -695,7 +703,7 @@ class InitCommandTest extends TestCase
         // Arrange
         $commandTester->setInputs([
             'CDN Test App', 'CDNTestApp',
-            'n', 'n', 'n', 'n',
+            'n', 'n', 'n', 'n', 'n',
             'n',            // REST API?
             'n',            // webhook?
             '', 'n',
