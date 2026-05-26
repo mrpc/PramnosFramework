@@ -36,9 +36,11 @@ class UsersControllerTest extends TestCase
     }
 
     /**
-     * All seven CRUD+management actions must be registered via addAuthAction()
+     * All CRUD+management actions must be registered via addAuthAction()
      * so that unauthenticated users are redirected to /login rather than
-     * receiving a direct response.
+     * receiving a direct response. resetpassword() is included because it
+     * writes a token to the DB and sends email — unauthenticated access
+     * would be a privilege-escalation vector.
      */
     public function testAllActionsAreAuthProtected(): void
     {
@@ -49,7 +51,7 @@ class UsersControllerTest extends TestCase
         $authActions = $prop->getValue($ctrl);
 
         // Assert — every action that touches user data must be auth-gated
-        $expected = ['display', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions'];
+        $expected = ['display', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions', 'resetpassword'];
         foreach ($expected as $action) {
             $this->assertContains(
                 $action, $authActions,
@@ -91,12 +93,67 @@ class UsersControllerTest extends TestCase
         $ctrl = new UsersController(null);
 
         // Assert
-        foreach (['display', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions'] as $action) {
+        foreach (['display', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions', 'resetpassword'] as $action) {
             $this->assertTrue(
                 method_exists($ctrl, $action),
                 "UsersController::$action() method must exist"
             );
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // resetpassword()
+    // -------------------------------------------------------------------------
+
+    /**
+     * resetpassword() must redirect to /users when the requested user ID is
+     * below 2. ID 1 is the reserved Guest/Admin account; ID 0 and negatives
+     * are invalid. Sending a reset email to these IDs would be a logic error.
+     */
+    public function testResetPasswordRedirectsForInvalidUserId(): void
+    {
+        // Arrange — request option returns 0 (invalid ID)
+        $_SERVER['REQUEST_URI'] = '/users/resetpassword/0';
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        $ctrl = $this->getMockBuilder(UsersController::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect', 'requireMinUserType'])
+            ->getMock();
+
+        $ctrl->expects($this->once())
+            ->method('redirect')
+            ->with($this->stringContains('users'));
+
+        // Act — staticGetOption() resolves to 0 from the empty POST/GET
+        $ctrl->resetpassword(null);
+    }
+
+    /**
+     * getPasswordResetUrl() must return a URL that contains the raw token.
+     *
+     * The token is an opaque 64-character hex string; the method must embed
+     * it verbatim so the reset handler can look it up in usertokens.
+     */
+    public function testGetPasswordResetUrlContainsToken(): void
+    {
+        // Arrange
+        $ctrl  = new UsersController(null);
+        $ref   = new \ReflectionClass($ctrl);
+        $method = $ref->getMethod('getPasswordResetUrl');
+
+        $token = 'abc123def456';
+
+        // Act
+        $url = $method->invoke($ctrl, $token);
+
+        // Assert — URL must contain the token so the reset handler can find it
+        $this->assertStringContainsString(
+            $token, $url,
+            'getPasswordResetUrl() must embed the token in the URL'
+        );
     }
 
     // -------------------------------------------------------------------------
