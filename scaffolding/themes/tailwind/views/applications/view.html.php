@@ -49,7 +49,7 @@ $accessTypeLabel = function (int $t): string {
                                    class="flex-1 text-xs font-mono border border-gray-200 rounded px-2 py-1.5 bg-gray-50"
                                    value="<?php echo htmlspecialchars($app['apikey'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
                             <button class="px-2 py-1 border border-gray-300 text-gray-500 rounded text-xs hover:bg-gray-50"
-                                    onclick="navigator.clipboard.writeText(this.previousElementSibling.value)" title="Copy">&#128203;</button>
+                                    data-copy-prev title="Copy">&#128203;</button>
                         </div>
                     </div>
                     <div>
@@ -59,7 +59,7 @@ $accessTypeLabel = function (int $t): string {
                                    class="flex-1 text-xs font-mono border border-gray-200 rounded px-2 py-1.5 bg-gray-50"
                                    value="<?php echo htmlspecialchars($app['apisecret'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
                             <button class="px-2 py-1 border border-gray-300 text-gray-500 rounded text-xs hover:bg-gray-50"
-                                    onclick="var f=document.getElementById('twAppSecret<?php echo $appId; ?>');f.type=f.type==='password'?'text':'password'"
+                                    data-toggle-type="twAppSecret<?php echo $appId; ?>"
                                     title="Toggle">&#128065;</button>
                         </div>
                     </div>
@@ -95,10 +95,10 @@ $accessTypeLabel = function (int $t): string {
                        class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded hover:bg-gray-50">View Tokens</a>
                     <a href="<?php echo sURL; ?>applications/rotate/<?php echo $appId; ?>"
                        class="block text-center px-3 py-2 text-sm border border-yellow-400 text-yellow-700 rounded hover:bg-yellow-50"
-                       onclick="return confirm('Rotate the client secret? Existing tokens remain valid.')">Rotate Secret</a>
+                       data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</a>
                     <a href="<?php echo sURL; ?>applications/delete/<?php echo $appId; ?>"
                        class="block text-center px-3 py-2 text-sm border border-red-300 text-red-700 rounded hover:bg-red-50"
-                       onclick="return confirm('Disable this application and revoke all active tokens?')">Disable App</a>
+                       data-confirm="Disable this application and revoke all active tokens?">Disable App</a>
                 </div>
             </div>
 

@@ -38,7 +38,7 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
             <div class="ms-auto">
                 <a href="<?php echo sURL; ?>applications/rotate/<?php echo (int)$app['appid']; ?>"
                    class="btn btn-sm btn-outline-warning"
-                   onclick="return confirm('Rotate the client secret? All new token requests will use the new secret.')">
+                   data-confirm="Rotate the client secret? All new token requests will use the new secret.">
                    Rotate Secret
                 </a>
             </div>

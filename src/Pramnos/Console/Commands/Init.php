@@ -780,6 +780,11 @@ PHP;
             $this->writeFile('www/assets/css/style.css', file_get_contents($cssFile));
         }
 
+        $pfUtils = $this->scaffoldingDir . '/assets/js/pf-utils.js';
+        if (file_exists($pfUtils)) {
+            $this->writeFile('www/assets/js/pf-utils.js', file_get_contents($pfUtils));
+        }
+
         if ($uiSystem === 'bootstrap') {
             $this->ensureBootstrapAssets();
         }
@@ -925,6 +930,7 @@ HTML,
 
         return $footer . "\n"
             . $themeJs
+            . "    <script src=\"<?php echo sURL; ?>assets/js/pf-utils.js\"></script>\n"
             . "    <?php \$this->document->renderJs(); ?>\n";
     }
 

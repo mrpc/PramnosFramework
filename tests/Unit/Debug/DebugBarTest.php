@@ -86,6 +86,74 @@ class DebugBarTest extends TestCase
     }
 
     /**
+     * render($nonce) must add nonce="..." to every inline <style> and <script>
+     * tag in the widget output.
+     *
+     * Without nonces a strict CSP would block the inline tags, breaking the
+     * toolbar in CSP-protected applications.
+     */
+    public function testRenderAddsCspNonceToInlineTags(): void
+    {
+        // Arrange
+        $bar   = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('demo'));
+        $nonce = 'abc123testNonce';
+
+        // Act
+        $html = $bar->render($nonce);
+
+        // Assert — every inline <style> and <script> must carry the nonce
+        $this->assertStringContainsString("nonce=\"$nonce\"", $html);
+        // At least two occurrences: one <style> + one <script> (JS init) + the main <script>
+        $this->assertGreaterThanOrEqual(2, substr_count($html, "nonce=\"$nonce\""));
+        // The nonce must NOT be injected when empty
+        $htmlNoNonce = $bar->render('');
+        $this->assertStringNotContainsString('nonce=', $htmlNoNonce);
+    }
+
+    /**
+     * render() must include a DevPanel link in the toolbar bar.
+     *
+     * The link lets developers navigate to the DevPanel from any page without
+     * memorising the URL.
+     */
+    public function testRenderIncludesDevPanelLink(): void
+    {
+        // Arrange
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('demo'));
+
+        // Act
+        $html = $bar->render();
+
+        // Assert
+        $this->assertStringContainsString('pdb-devpanel', $html);
+        $this->assertStringContainsString('href="/devpanel"', $html);
+    }
+
+    /**
+     * render() must not contain any onclick= attributes.
+     *
+     * Inline event handlers are blocked by strict CSP even with a nonce,
+     * because CSP nonces apply only to <script> elements, not to event handlers.
+     */
+    public function testRenderHasNoInlineEventHandlers(): void
+    {
+        // Arrange
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('demo'));
+        $bar->addCollector(new TimeCollector());
+        $bar->addCollector(new MemoryCollector());
+
+        // Act
+        $html = $bar->render();
+
+        // Assert — no inline event handlers
+        $this->assertStringNotContainsString('onclick=', $html);
+        $this->assertStringNotContainsString('onsubmit=', $html);
+    }
+
+    /**
      * render() must return an empty string when no collectors are registered.
      *
      * No collectors → no widget → nothing injected into the response.

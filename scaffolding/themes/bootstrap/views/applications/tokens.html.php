@@ -27,7 +27,7 @@
                         <td class="text-muted small"><?php echo htmlspecialchars($tok['lastused'] ?? ''); ?></td>
                         <td class="text-muted small"><?php echo !empty($tok['expires']) ? htmlspecialchars($tok['expires']) : '—'; ?></td>
                         <td class="text-end">
-                            <a href="<?php echo sURL; ?>Tokens/revoke/<?php echo (int)$tok['tokenid']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Revoke token?')">Revoke</a>
+                            <a href="<?php echo sURL; ?>Tokens/revoke/<?php echo (int)$tok['tokenid']; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Revoke token?">Revoke</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

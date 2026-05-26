@@ -42,8 +42,8 @@
                         <td class="text-right">
                             <a href="<?php echo sURL; ?>Users/edit/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50">Edit</a>
                             <a href="<?php echo sURL; ?>Users/sessions/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-blue-300 text-blue-700 text-xs rounded hover:bg-blue-50">Sessions</a>
-                            <a href="<?php echo sURL; ?>Users/resetpassword/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-yellow-300 text-yellow-700 text-xs rounded hover:bg-yellow-50" onclick="return confirm('Send password reset email to this user?')">Reset Password</a>
-                            <a href="<?php echo sURL; ?>Users/delete/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" onclick="return confirm('Deactivate this user?')">Deactivate</a>
+                            <a href="<?php echo sURL; ?>Users/resetpassword/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-yellow-300 text-yellow-700 text-xs rounded hover:bg-yellow-50" data-confirm="Send password reset email to this user?">Reset Password</a>
+                            <a href="<?php echo sURL; ?>Users/delete/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" data-confirm="Deactivate this user?">Deactivate</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>
