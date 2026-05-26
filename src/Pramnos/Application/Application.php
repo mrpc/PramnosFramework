@@ -244,12 +244,46 @@ class Application extends Base
             }
         }
 
+        // Auto-activate the DebugBar in development/debug mode even when the
+        // app has not listed 'debug' in its features array.  Mirrors the
+        // Laravel Debugbar experience: just set APP_DEBUG or development=true
+        // and the toolbar appears on every HTML page.
+        if (!FeatureRegistry::isEnabled('debug') && $this->isDebugMode()) {
+            $class = FeatureRegistry::getProvider('debug');
+            if ($class !== null && class_exists($class)) {
+                $this->serviceProviders[] = new $class($this);
+            }
+        }
+
         foreach ($this->serviceProviders as $provider) {
             $provider->register();
         }
         foreach ($this->serviceProviders as $provider) {
             $provider->boot();
         }
+    }
+
+    /**
+     * Returns true when the application is running in debug / development mode.
+     *
+     * Checks (in order): APP_DEBUG env var, DEVELOPMENT constant, 'debug'
+     * setting, 'development' setting.
+     */
+    private function isDebugMode(): bool
+    {
+        $env = getenv('APP_DEBUG');
+        if ($env !== false && $env !== '' && $env !== '0' && $env !== 'false') {
+            return true;
+        }
+        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
+            return true;
+        }
+        $debug = Settings::getSetting('debug');
+        if ($debug === true || $debug === '1' || $debug === 'true' || $debug === 'yes') {
+            return true;
+        }
+        $dev = Settings::getSetting('development');
+        return $dev === true || $dev === '1' || $dev === 'true' || $dev === 'yes';
     }
 
     /**
