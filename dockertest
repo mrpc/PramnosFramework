@@ -35,6 +35,7 @@ echo $$ >"$LOCK_FILE"
 nobrowser=false
 coverage=false
 testdox=false
+resetdb=false
 passthrough=()
 for arg in "$@"; do
     if [[ "$arg" == "--nobrowser" ]]; then
@@ -43,6 +44,8 @@ for arg in "$@"; do
         coverage=true
     elif [[ "$arg" == "--testdox" ]]; then
         testdox=true
+    elif [[ "$arg" == "--reset-db" ]]; then
+        resetdb=true
     else
         passthrough+=("$arg")
     fi
@@ -54,6 +57,19 @@ if ! docker-compose ps | grep -q "pramnos_php.*Up"; then
     docker-compose up -d
     echo "Waiting for services to be ready..."
     sleep 10
+fi
+
+# Optionally reset test databases to a clean slate (drops all accumulated tables
+# from previous runs, then recreates empty databases).
+if [[ "$resetdb" == true ]]; then
+    echo "Resetting test databases..."
+    docker-compose exec db mysql -uroot -psecret \
+        -e "DROP DATABASE IF EXISTS pramnos_test; CREATE DATABASE pramnos_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null \
+        && echo "  MySQL pramnos_test reset OK" || echo "  MySQL reset skipped (container not ready)"
+    docker-compose exec timescaledb psql -U postgres \
+        -c "DROP DATABASE IF EXISTS pramnos_test;" \
+        -c "CREATE DATABASE pramnos_test;" \
+        && echo "  PostgreSQL pramnos_test reset OK" || echo "  PostgreSQL reset skipped (container not ready)"
 fi
 
 # Check if database is initialized by accessing the app
