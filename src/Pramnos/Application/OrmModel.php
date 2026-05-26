@@ -328,6 +328,54 @@ abstract class OrmModel extends Model
     }
 
     /**
+     * Persist this model to the database.
+     *
+     * Wraps the protected _save() so that factories and external callers
+     * can persist a model without needing to know the internal API.
+     *
+     * @return static
+     */
+    public function save(): static
+    {
+        $this->_save();
+        return $this;
+    }
+
+    /**
+     * Return a factory instance for this model class.
+     *
+     * By convention, the factory class is named `{ModelClass}Factory`.
+     * Override the protected static $factory property in the model to
+     * specify a different class:
+     *
+     *     protected static string $factory = MyCustomUserFactory::class;
+     *
+     * @return \Pramnos\Support\ModelFactory
+     * @throws \RuntimeException When no factory class is found.
+     */
+    public static function factory(): \Pramnos\Support\ModelFactory
+    {
+        // Allow models to declare a custom factory class
+        if (property_exists(static::class, 'factory') && static::$factory !== '') {
+            /** @var class-string<\Pramnos\Support\ModelFactory> */
+            $class = static::$factory;
+            return new $class();
+        }
+
+        // Convention: {ModelClass}Factory (same namespace)
+        $defaultClass = static::class . 'Factory';
+        if (class_exists($defaultClass)) {
+            return new $defaultClass();
+        }
+
+        throw new \RuntimeException(
+            'Factory class not found for ' . static::class . '. '
+            . 'Create ' . $defaultClass . ' extending \\Pramnos\\Support\\ModelFactory, '
+            . 'or set protected static string $factory = YourFactory::class; on the model.'
+        );
+    }
+
+    /**
      * Return a plain array representation of this model's stored attributes.
      * Applies casts and accessors.
      *
