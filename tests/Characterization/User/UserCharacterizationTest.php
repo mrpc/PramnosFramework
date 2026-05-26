@@ -373,4 +373,60 @@ class UserCharacterizationTest extends TestCase
         // Cleanup
         $user->deleteuser();
     }
+
+    /**
+     * Ensures that when setPassword() is called before save() (userid <= 1),
+     * _save() automatically rehashes the password with the real userid after
+     * INSERT so the user can immediately authenticate via Auth::auth().
+     *
+     * This was broken in v1.2 because the MD5 fallback in UserDatabase::onAuth
+     * was gated behind legacyMd5=true, but User::setPassword() stores MD5 for
+     * unsaved users. The fix stores a pending password and rehashes post-INSERT.
+     *
+     * @covers \Pramnos\User\User::save
+     * @covers \Pramnos\User\User::setPassword
+     */
+    public function testPasswordRehashesAfterInsertWithRealUserId(): void
+    {
+        // Arrange
+        $username = 'rehash_user_' . bin2hex(random_bytes(4));
+        $plainPassword = 'TestPass!42';
+
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        // setPassword is called BEFORE save() — userid is still 1 here,
+        // so a plain MD5 placeholder is stored temporarily.
+        $user->setPassword($plainPassword);
+
+        // Act
+        $user->save();
+        $userId = (int) $user->userid;
+
+        // Assert — real userid must have been assigned
+        $this->assertGreaterThan(1, $userId, 'INSERT must yield a real userid > 1');
+
+        // Reload from DB to get the stored password hash
+        $salt = (string) Settings::getSetting('securitySalt');
+        $result = $this->db->queryBuilder()
+            ->table('users')
+            ->select('password')
+            ->where('userid', $userId)
+            ->get();
+        $storedHash = $result->fields['password'];
+
+        // The stored hash must NOT be a raw MD5 (32-char hex) — it must be bcrypt.
+        $this->assertNotSame(md5($plainPassword), $storedHash,
+            'Password must be rehashed to bcrypt after INSERT, not left as MD5 placeholder');
+
+        // Verifying with the salted+userid format proves bcrypt rehash worked.
+        $expectedPayload = $plainPassword . md5($salt . $userId);
+        $this->assertTrue(
+            password_verify($expectedPayload, $storedHash),
+            'Stored bcrypt hash must verify against password+salt+userid payload'
+        );
+
+        // Cleanup
+        $user->deleteuser();
+    }
 }
