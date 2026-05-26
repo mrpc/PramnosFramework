@@ -53,6 +53,12 @@ class DebugBarServiceProvider extends ServiceProvider
 
         $bar->addCollector(new RouteCollector());
 
+        // Never open an output buffer in CLI (PHPUnit) — the unclosed level
+        // would trigger "did not close its own output buffers" on every test.
+        if (PHP_SAPI === 'cli') {
+            return;
+        }
+
         // Capture the app reference so the ob_start callback can read the
         // per-request CSP nonce that Application::exec() generates.
         $app = $this->app;
