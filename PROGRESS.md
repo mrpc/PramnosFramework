@@ -1,7 +1,37 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-25 (session 138) — Full-parity database/cache dashboard pages ✅
+## 📅 Last Updated: 2026-05-26 (session 139) — Phase 21 complete: Form Requests + Model Factories ✅
+
+## 🏁 Session 139 — Phase 21: Form Requests + Model Factories (2026-05-26)
+
+### ✅ Bug fix: settings not persisting (dbsettings=false)
+
+- `scaffolding/themes/bootstrap/views/users/users.html.php` + plain-css + tailwind: flash success/error messages + "Reset Password" button.
+- `src/Pramnos/Console/Commands/Init.php`: `scaffoldSettings()` template changed `'dbsettings' => false` → `'dbsettings' => true`.
+- `src/Pramnos/Application/Controllers/UsersController.php`: added `resetpassword` action (generates password-reset token via `User::addToken()`, sends email via `Pramnos\Email\Email`).
+- `tests/Unit/Application/UsersControllerTest.php`: updated to cover `resetpassword`.
+
+### ✅ Phase 21 — Form Requests (`Pramnos\Validation\FormRequest`)
+
+- New file: `src/Pramnos/Validation/FormRequest.php` — abstract base for form validation requests.
+- Fluent API: `validated()` runs Validator, stores errors in session + redirects on failure; static `hasErrors()`, `errors()`, `old()`, `clearErrors()`.
+- 12 unit tests in `tests/Unit/Validation/FormRequestTest.php`.
+- `docs/1.2-new-features.md` section added.
+
+### ✅ Phase 21 — Model Factories (`Pramnos\Support\ModelFactory`)
+
+- New file: `src/Pramnos/Support/ModelFactory.php` — fluent factory base class.
+- `OrmModel::save()` public wrapper + `OrmModel::factory()` convention lookup added to `src/Pramnos/Application/OrmModel.php`.
+- `makeOne()` uses `ReflectionClass::newInstanceWithoutConstructor()` — no DB or Controller required for in-memory usage.
+- 13 unit tests in `tests/Unit/Support/ModelFactoryTest.php`.
+- `docs/1.2-new-features.md` + `ROADMAP_1.2.md` updated.
+
+### ROADMAP items closed
+- `[x]` Phase 21: Form Requests
+- `[x]` Phase 21: Model Factories
+
+---
 
 ## 🏁 Session 138 — Full-parity database/cache dashboard pages (2026-05-25)
 

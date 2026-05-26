@@ -1365,8 +1365,8 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 ### 🚀 Φάση 21: Developer Experience (DX) - Advanced Tooling
 *Προσθήκες που θα φέρουν το Pramnos στο επίπεδο των πιο σύγχρονων frameworks (Laravel/Symfony) όσον αφορά την ταχύτητα ανάπτυξης και την ποιότητα κώδικα.*
 
-- [ ] **Form Requests (Advanced Validation):** Επέκταση του `Pramnos\Validation\Validator`. Αντί για χειροκίνητο validation στους controllers, δημιουργία κλάσεων Request (π.χ. `StoreUserRequest`) που εκτελούνται αυτόματα πριν τον controller και κάνουν αυτόματο redirect σε περίπτωση λάθους.
-- [ ] **Model Factories:** Δημιουργία συστήματος Factories (π.χ. `UserFactory`) που θα συνδέει το ORM με το `Pramnos\Support\Faker`. Έτσι, με μία εντολή όπως `User::factory()->count(50)->create()`, θα δημιουργούνται μαζικά test data απευθείας στη βάση, ιδανικό για Seeding και Unit Testing.
+- [x] **Form Requests (Advanced Validation):** `Pramnos\Validation\FormRequest` — subclasses declare `rules()`, `validated()` runs validation, stores errors in session and redirects on failure. Static helpers `hasErrors()`, `errors()`, `old()`. 12 unit tests.
+- [x] **Model Factories:** `Pramnos\Support\ModelFactory` — `User::factory()->count(50)->create()`. Fluent `count()`/`state()` cloning, `make()` (in-memory) + `create()` (persisted). `OrmModel::factory()` convention lookup. 13 unit tests.
 - [ ] **Notification Channels:** Δημιουργία ενός ενοποιημένου Notification Component (πέραν του απλού Email και Messaging). Έτσι, θα ορίζουμε μια κλάση `InvoicePaidNotification` και το σύστημα θα την κάνει dispatch ταυτόχρονα σε πολλαπλά κανάλια (Email, SMS, WebSockets, Database Logs) ανάλογα με τα preferences του χρήστη.
 
 ---
