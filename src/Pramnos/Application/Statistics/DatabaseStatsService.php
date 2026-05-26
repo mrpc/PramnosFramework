@@ -69,10 +69,22 @@ class DatabaseStatsService
             if (preg_match('/^PostgreSQL\s+([\d.]+)/i', $raw, $m)) {
                 $stats['version'] = 'PostgreSQL ' . $m[1];
             } else {
-                $stats['version'] = $raw !== '' ? $raw : null;
+                $stats['version'] = $raw !== '' ? $raw : 'PostgreSQL';
             }
         } catch (\Exception $e) {
-            $stats['version'] = null;
+            $stats['version'] = 'PostgreSQL';
+        }
+
+        // Detect TimescaleDB extension
+        try {
+            $r = $this->db->query(
+                "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb' LIMIT 1"
+            );
+            if ($r && $r->numRows > 0) {
+                $stats['version'] .= ' · TimescaleDB ' . $r->fields['extversion'];
+            }
+        } catch (\Exception $e) {
+            // TimescaleDB not installed or no access to pg_extension — skip silently
         }
 
         try {
@@ -143,9 +155,9 @@ class DatabaseStatsService
         try {
             $r = $this->db->query('SELECT VERSION() AS ver');
             $ver = ($r && $r->numRows > 0) ? (string) $r->fields['ver'] : null;
-            $stats['version'] = $ver !== null ? 'MySQL ' . $ver : null;
+            $stats['version'] = $ver !== null ? 'MySQL ' . $ver : 'MySQL';
         } catch (\Exception $e) {
-            $stats['version'] = null;
+            $stats['version'] = 'MySQL';
         }
 
         try {

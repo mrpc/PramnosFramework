@@ -13,9 +13,14 @@
         <h2 >Organizations</h2>
         <a href="<?php echo sURL; ?>Organizations/edit" class="btn btn-primary">+ New Organization</a>
     </div>
+    <?php
+    $_doc = \Pramnos\Framework\Factory::getDocument();
+    $_hasDt = $_doc->isScriptRegistered('datatables');
+    if ($_hasDt) { $_doc->enqueueScript('datatables'); if ($_doc->isStyleRegistered('datatables')) { $_doc->enqueueStyle('datatables'); } }
+    ?>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
         <div class="card-body" style="padding:16px" style="padding:0">
-            <table style="width:100%;border-collapse:collapse">
+            <table id="dt-organizations" style="width:100%;border-collapse:collapse">
                 <thead style="background:#f5f5f5">
                     <tr><th>ID</th><th>Name</th><th>Description</th><th>Status</th><th></th></tr>
                 </thead>
@@ -41,3 +46,6 @@
         </div>
     </div>
 </div>
+<?php if ($_hasDt ?? false): ?>
+<script>$(document).ready(function(){ $('#dt-organizations').DataTable({pageLength:25,order:[]}); });</script>
+<?php endif; ?>

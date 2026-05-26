@@ -192,7 +192,7 @@ class Init extends Command
         // CLI entry-point name: lowercase alphanumeric, e.g. "myapp" → myapp.php / ./myapp
         $cliName = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $namespace));
 
-        $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true);
+        $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, false, $cacheSystem);
         $this->scaffoldAppConfig('app/app.php', $appName, $namespace, $enabledFeatures, $uiSystem, $withRestApi);
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
         $this->writeFile('www/index.php', $this->getIndexTemplate($namespace));
@@ -748,12 +748,18 @@ PHP;
         $this->writeFile('www/api/.htaccess', $apiHtaccess);
     }
 
-    private function scaffoldSettings(string $path, string $type, string $host, string $name, string $user, string $pass, string $prefix, bool $dev): void
+    private function scaffoldSettings(string $path, string $type, string $host, string $name, string $user, string $pass, string $prefix, bool $dev, string $cacheSystem = 'none'): void
     {
         $realType      = ($type === 'timescaledb') ? 'postgresql' : $type;
         $timescaleFlag = ($type === 'timescaledb') ? ",\n        'timescale' => true" : '';
 
-        $content = "<?php\nreturn [\n    'database' => [\n        'type' => '$realType',\n        'hostname' => '$host',\n        'database' => '$name',\n        'user' => '$user',\n        'password' => '$pass',\n        'prefix' => '$prefix'$timescaleFlag\n    ],\n    'dbsettings' => true,\n    'language' => 'en',\n    'development' => " . ($dev ? 'true' : 'false') . ",\n    'forcessl' => false\n];\n";
+        $cacheConfig = '';
+        if ($cacheSystem !== 'none') {
+            $port = ($cacheSystem === 'redis') ? 6379 : 11211;
+            $cacheConfig = "\n    'cache' => [\n        'method' => '$cacheSystem',\n        'hostname' => 'cache',\n        'port' => $port,\n    ],";
+        }
+
+        $content = "<?php\nreturn [\n    'database' => [\n        'type' => '$realType',\n        'hostname' => '$host',\n        'database' => '$name',\n        'user' => '$user',\n        'password' => '$pass',\n        'prefix' => '$prefix'$timescaleFlag\n    ],\n    'dbsettings' => true,\n    'language' => 'en',\n    'development' => " . ($dev ? 'true' : 'false') . ",\n    'forcessl' => false,$cacheConfig\n];\n";
         $this->writeFile($path, $content);
     }
 
@@ -1089,7 +1095,7 @@ HTML,
         $this->mkdir('tests/Integration');
 
         $testDbName = $dbName . '_test';
-        $this->scaffoldSettings('app/config/testsettings.php', $dbType, $dbHost, $testDbName, $dbUser, $dbPass, $dbPrefix, true);
+        $this->scaffoldSettings('app/config/testsettings.php', $dbType, $dbHost, $testDbName, $dbUser, $dbPass, $dbPrefix, false);
 
         $bootstrapContent = <<<'PHP'
 <?php
@@ -3148,22 +3154,236 @@ PHP;
         $this->writeFile('src/Views/login/login.html.php', $loginView);
 
         // ── Account views directory ───────────────────────────────────────────
-        // The framework Dashboard controller resolves its views from the app's
-        // view path (via getView('dashboard')). Scaffold a minimal placeholder.
-        $dashboardView = <<<'HTML'
+        $dashboardView = $this->buildAccountDashboardView($uiSystem);
+        $this->writeFile('src/Views/account/dashboard.html.php', $dashboardView);
+
+        $profileView = $this->buildAccountProfileView($uiSystem);
+        $this->writeFile('src/Views/account/profile.html.php', $profileView);
+    }
+
+    private function buildAccountDashboardView(string $uiSystem): string
+    {
+        if ($uiSystem === 'bootstrap') {
+            return <<<'HTML'
 <?php /** @var \Pramnos\View\View $this */ ?>
 <div class="container mt-4">
-    <h1>My Account</h1>
-    <p>Welcome, <?php echo htmlspecialchars($this->user->username ?? 'User', ENT_QUOTES, 'UTF-8'); ?>.</p>
-    <ul>
-        <li><a href="<?php echo sURL; ?>account/security">Security</a></li>
-        <li><a href="<?php echo sURL; ?>account/changepassword">Change Password</a></li>
-        <li><a href="<?php echo sURL; ?>login/logout">Logout</a></li>
-    </ul>
+    <div class="row">
+        <div class="col-md-3">
+            <div class="card mb-3">
+                <div class="card-body text-center">
+                    <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center mx-auto mb-2" style="width:64px;height:64px;font-size:1.5rem">
+                        <?php echo strtoupper(substr($this->user->username ?? 'U', 0, 1)); ?>
+                    </div>
+                    <h6 class="mb-0"><?php echo htmlspecialchars(trim(($this->user->firstname ?? '') . ' ' . ($this->user->lastname ?? '')) ?: ($this->user->username ?? ''), ENT_QUOTES, 'UTF-8'); ?></h6>
+                    <small class="text-muted"><?php echo htmlspecialchars($this->user->email ?? '', ENT_QUOTES, 'UTF-8'); ?></small>
+                </div>
+            </div>
+            <div class="list-group">
+                <a href="<?php echo sURL; ?>account/profile" class="list-group-item list-group-item-action">My Profile</a>
+                <a href="<?php echo sURL; ?>account/security" class="list-group-item list-group-item-action">Security</a>
+                <a href="<?php echo sURL; ?>account/changepassword" class="list-group-item list-group-item-action">Change Password</a>
+                <a href="<?php echo sURL; ?>account/privacy" class="list-group-item list-group-item-action">Privacy</a>
+                <a href="<?php echo sURL; ?>login/logout" class="list-group-item list-group-item-action text-danger">Logout</a>
+            </div>
+        </div>
+        <div class="col-md-9">
+            <div class="card">
+                <div class="card-header"><h5 class="mb-0">Account Overview</h5></div>
+                <div class="card-body">
+                    <?php if (!empty($this->recentActivity)): ?>
+                    <h6>Recent Activity</h6>
+                    <table class="table table-sm">
+                        <thead><tr><th>Action</th><th>Date</th><th>IP</th></tr></thead>
+                        <tbody>
+                        <?php foreach (array_slice($this->recentActivity, 0, 5) as $entry): ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars($entry['action'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td><?php echo htmlspecialchars($entry['created_at'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td><?php echo htmlspecialchars($entry['ip_address'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    <?php else: ?>
+                    <p class="text-muted">No recent activity.</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 HTML;
+        }
 
-        $this->writeFile('src/Views/account/dashboard.html.php', $dashboardView);
+        // tailwind / plain-css
+        return <<<'HTML'
+<?php /** @var \Pramnos\View\View $this */ ?>
+<div class="container mt-4">
+    <h1 class="text-2xl font-bold mb-4">My Account</h1>
+    <div class="flex gap-6">
+        <div class="w-48 flex-shrink-0">
+            <div class="card p-4 text-center mb-4">
+                <div class="w-16 h-16 rounded-full bg-gray-400 text-white flex items-center justify-center text-2xl mx-auto mb-2">
+                    <?php echo strtoupper(substr($this->user->username ?? 'U', 0, 1)); ?>
+                </div>
+                <p class="font-semibold text-sm"><?php echo htmlspecialchars(trim(($this->user->firstname ?? '') . ' ' . ($this->user->lastname ?? '')) ?: ($this->user->username ?? ''), ENT_QUOTES, 'UTF-8'); ?></p>
+                <p class="text-xs text-gray-500"><?php echo htmlspecialchars($this->user->email ?? '', ENT_QUOTES, 'UTF-8'); ?></p>
+            </div>
+            <nav class="flex flex-col gap-1">
+                <a href="<?php echo sURL; ?>account/profile" class="nav-link">My Profile</a>
+                <a href="<?php echo sURL; ?>account/security" class="nav-link">Security</a>
+                <a href="<?php echo sURL; ?>account/changepassword" class="nav-link">Change Password</a>
+                <a href="<?php echo sURL; ?>account/privacy" class="nav-link">Privacy</a>
+                <a href="<?php echo sURL; ?>login/logout" class="nav-link text-red-600">Logout</a>
+            </nav>
+        </div>
+        <div class="flex-1">
+            <div class="card p-4">
+                <h2 class="text-lg font-semibold mb-3">Account Overview</h2>
+                <?php if (!empty($this->recentActivity)): ?>
+                <h3 class="text-sm font-semibold mb-2">Recent Activity</h3>
+                <table class="w-full text-sm">
+                    <thead><tr class="text-left text-gray-500"><th class="pb-1">Action</th><th class="pb-1">Date</th><th class="pb-1">IP</th></tr></thead>
+                    <tbody>
+                    <?php foreach (array_slice($this->recentActivity, 0, 5) as $entry): ?>
+                        <tr class="border-t">
+                            <td class="py-1"><?php echo htmlspecialchars($entry['action'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
+                            <td class="py-1"><?php echo htmlspecialchars($entry['created_at'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
+                            <td class="py-1"><?php echo htmlspecialchars($entry['ip_address'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php else: ?>
+                <p class="text-gray-500 text-sm">No recent activity.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+HTML;
+    }
+
+    private function buildAccountProfileView(string $uiSystem): string
+    {
+        $errorMessages = <<<'PHP'
+<?php
+$_msg = $_GET['message'] ?? '';
+$_err = $_GET['error'] ?? '';
+$_msgMap = ['profile_saved' => 'Profile updated successfully.'];
+$_errMap = [
+    'invalid_email' => 'Please enter a valid email address.',
+    'invalid_token' => 'Security token invalid. Please try again.',
+];
+?>
+PHP;
+
+        if ($uiSystem === 'bootstrap') {
+            return <<<HTML
+<?php /** @var \\Pramnos\\View\\View \$this */ ?>
+$errorMessages
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-7">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">My Profile</h5>
+                    <a href="<?php echo sURL; ?>account" class="btn btn-sm btn-outline-secondary">Back</a>
+                </div>
+                <div class="card-body">
+                    <?php if (\$_msg && isset(\$_msgMap[\$_msg])): ?>
+                    <div class="alert alert-success"><?php echo htmlspecialchars(\$_msgMap[\$_msg], ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php endif; ?>
+                    <?php if (\$_err && isset(\$_errMap[\$_err])): ?>
+                    <div class="alert alert-danger"><?php echo htmlspecialchars(\$_errMap[\$_err], ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php endif; ?>
+                    <form method="post" action="<?php echo sURL; ?>account/profile">
+                        <?php echo \\Pramnos\\Http\\Session::getInstance()->getTokenField(); ?>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">First Name</label>
+                                <input type="text" name="firstname" class="form-control" value="<?php echo htmlspecialchars(\$this->user->firstname ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Last Name</label>
+                                <input type="text" name="lastname" class="form-control" value="<?php echo htmlspecialchars(\$this->user->lastname ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Email <span class="text-danger">*</span></label>
+                            <input type="email" name="email" class="form-control" required value="<?php echo htmlspecialchars(\$this->user->email ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Phone</label>
+                            <input type="text" name="phone" class="form-control" value="<?php echo htmlspecialchars(\$this->user->phone ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label text-muted">Username</label>
+                            <input type="text" class="form-control" value="<?php echo htmlspecialchars(\$this->user->username ?? '', ENT_QUOTES, 'UTF-8'); ?>" disabled>
+                            <div class="form-text">Username cannot be changed here.</div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                        <a href="<?php echo sURL; ?>account/changepassword" class="btn btn-outline-secondary ms-2">Change Password</a>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+HTML;
+        }
+
+        // tailwind / plain-css
+        return <<<HTML
+<?php /** @var \\Pramnos\\View\\View \$this */ ?>
+$errorMessages
+<div class="container mt-4">
+    <div class="max-w-lg mx-auto">
+        <div class="card p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h1 class="text-xl font-bold">My Profile</h1>
+                <a href="<?php echo sURL; ?>account" class="text-sm text-gray-500 hover:underline">Back</a>
+            </div>
+            <?php if (\$_msg && isset(\$_msgMap[\$_msg])): ?>
+            <div class="bg-green-50 border border-green-200 text-green-800 rounded p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_msgMap[\$_msg], ENT_QUOTES, 'UTF-8'); ?></div>
+            <?php endif; ?>
+            <?php if (\$_err && isset(\$_errMap[\$_err])): ?>
+            <div class="bg-red-50 border border-red-200 text-red-800 rounded p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_errMap[\$_err], ENT_QUOTES, 'UTF-8'); ?></div>
+            <?php endif; ?>
+            <form method="post" action="<?php echo sURL; ?>account/profile">
+                <?php echo \\Pramnos\\Http\\Session::getInstance()->getTokenField(); ?>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">First Name</label>
+                        <input type="text" name="firstname" class="form-input w-full" value="<?php echo htmlspecialchars(\$this->user->firstname ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Last Name</label>
+                        <input type="text" name="lastname" class="form-input w-full" value="<?php echo htmlspecialchars(\$this->user->lastname ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Email <span class="text-red-500">*</span></label>
+                    <input type="email" name="email" class="form-input w-full" required value="<?php echo htmlspecialchars(\$this->user->email ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Phone</label>
+                    <input type="text" name="phone" class="form-input w-full" value="<?php echo htmlspecialchars(\$this->user->phone ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                </div>
+                <div class="mb-6">
+                    <label class="block text-sm font-medium mb-1 text-gray-400">Username</label>
+                    <input type="text" class="form-input w-full bg-gray-50" value="<?php echo htmlspecialchars(\$this->user->username ?? '', ENT_QUOTES, 'UTF-8'); ?>" disabled>
+                    <p class="text-xs text-gray-400 mt-1">Username cannot be changed here.</p>
+                </div>
+                <div class="flex gap-3">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <a href="<?php echo sURL; ?>account/changepassword" class="btn btn-secondary">Change Password</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+HTML;
     }
 
     private function buildBootstrapLoginView(): string

@@ -21,9 +21,14 @@
         <h2 >Users</h2>
         <a href="<?php echo sURL; ?>Users/edit" class="btn btn-primary">+ New User</a>
     </div>
+    <?php
+    $_doc = \Pramnos\Framework\Factory::getDocument();
+    $_hasDt = $_doc->isScriptRegistered('datatables');
+    if ($_hasDt) { $_doc->enqueueScript('datatables'); if ($_doc->isStyleRegistered('datatables')) { $_doc->enqueueStyle('datatables'); } }
+    ?>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
         <div class="card-body" style="padding:16px" style="padding:0">
-            <table style="width:100%;border-collapse:collapse">
+            <table id="dt-users" style="width:100%;border-collapse:collapse">
                 <thead style="background:#f5f5f5">
                     <tr>
                         <th>ID</th><th>Username</th><th>Email</th><th>Status</th><th>Registered</th><th></th>
@@ -53,7 +58,7 @@
                 </tbody>
             </table>
         </div>
-        <?php if (($this->total ?? 0) > 50): ?>
+        <?php if (!($_hasDt ?? false) && ($this->total ?? 0) > 50): ?>
         <div class="card-footer" style="padding:10px 16px;background:#f5f5f5;border-top:1px solid #ddd;display:flex;justify-content:space-between;align-items:center">
             <small style="color:#888">Showing page <?php echo (int)($this->page ?? 1); ?> of <?php echo ceil(($this->total ?? 0) / 50); ?></small>
             <div>
@@ -68,3 +73,6 @@
         <?php endif; ?>
     </div>
 </div>
+<?php if ($_hasDt ?? false): ?>
+<script>$(document).ready(function(){ $('#dt-users').DataTable({pageLength:25,order:[]}); });</script>
+<?php endif; ?>

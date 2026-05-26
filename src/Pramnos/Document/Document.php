@@ -437,6 +437,30 @@ class Document extends \Pramnos\Framework\Base
     }
 
     /**
+     * Check whether a script handle has been registered (via registerScript()).
+     * Safe to call from views before conditionally enqueuing a library.
+     *
+     * @param string $handle Script handle to test
+     * @return bool
+     */
+    public function isScriptRegistered(string $handle): bool
+    {
+        return isset($this->_js[$handle]);
+    }
+
+    /**
+     * Check whether a style handle has been registered (via registerStyle()).
+     * Safe to call from views before conditionally enqueuing a library.
+     *
+     * @param string $handle Style handle to test
+     * @return bool
+     */
+    public function isStyleRegistered(string $handle): bool
+    {
+        return isset($this->_css[$handle]);
+    }
+
+    /**
      * A safe way to register a CSS style file for later use with enqueueStyle().
      * @param string $handle Name of the stylesheet.
      * @param string $src URL to the stylesheet.
@@ -568,7 +592,7 @@ class Document extends \Pramnos\Framework\Base
             $this->registerScript($handle, $src, $deps, $version, $footer);
             return $this->_enqueueScript($handle);
         } else {
-            throw new Exception('Cannot find script: ' . $handle);
+            throw new \Exception('Cannot find script: ' . $handle);
         }
 
         return $this;
@@ -615,7 +639,7 @@ class Document extends \Pramnos\Framework\Base
             $this->registerStyle($handle, $src, $deps, $version, $media);
             return $this->_enqueueStyle($handle);
         } else {
-            throw new Exception('Cannot find stylesheet: ' . $handle);
+            throw new \Exception('Cannot find stylesheet: ' . $handle);
         }
         return $this;
     }

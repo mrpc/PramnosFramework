@@ -21,9 +21,14 @@
         <h2 class="mb-0">Users</h2>
         <a href="<?php echo sURL; ?>Users/edit" class="btn btn-primary">+ New User</a>
     </div>
+    <?php
+    $_doc = \Pramnos\Framework\Factory::getDocument();
+    $_hasDt = $_doc->isScriptRegistered('datatables');
+    if ($_hasDt) { $_doc->enqueueScript('datatables'); if ($_doc->isStyleRegistered('datatables')) { $_doc->enqueueStyle('datatables'); } }
+    ?>
     <div class="card">
         <div class="card-body p-0">
-            <table class="table table-hover mb-0">
+            <table id="dt-users" class="table table-hover mb-0">
                 <thead class="table-light">
                     <tr>
                         <th>ID</th><th>Username</th><th>Email</th><th>Status</th><th>Registered</th><th></th>
@@ -53,7 +58,7 @@
                 </tbody>
             </table>
         </div>
-        <?php if (($this->total ?? 0) > 50): ?>
+        <?php if (!($_hasDt ?? false) && ($this->total ?? 0) > 50): ?>
         <div class="card-footer d-flex justify-content-between align-items-center">
             <small class="text-muted">Showing page <?php echo (int)($this->page ?? 1); ?> of <?php echo ceil(($this->total ?? 0) / 50); ?></small>
             <div>
@@ -68,3 +73,6 @@
         <?php endif; ?>
     </div>
 </div>
+<?php if ($_hasDt ?? false): ?>
+<script>$(document).ready(function(){ $('#dt-users').DataTable({pageLength:25,order:[]}); });</script>
+<?php endif; ?>

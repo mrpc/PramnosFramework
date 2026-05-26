@@ -13,9 +13,14 @@
         <h2 class="mb-0">OAuth2 Applications</h2>
         <a href="<?php echo sURL; ?>Applications/edit" class="btn btn-primary">+ New Application</a>
     </div>
+    <?php
+    $_doc = \Pramnos\Framework\Factory::getDocument();
+    $_hasDt = $_doc->isScriptRegistered('datatables');
+    if ($_hasDt) { $_doc->enqueueScript('datatables'); if ($_doc->isStyleRegistered('datatables')) { $_doc->enqueueStyle('datatables'); } }
+    ?>
     <div class="card">
         <div class="card-body p-0">
-            <table class="table table-hover mb-0">
+            <table id="dt-applications" class="table table-hover mb-0">
                 <thead class="table-light">
                     <tr><th>ID</th><th>Name</th><th>API Key</th><th>Status</th><th></th></tr>
                 </thead>
@@ -46,3 +51,6 @@
         </div>
     </div>
 </div>
+<?php if ($_hasDt ?? false): ?>
+<script>$(document).ready(function(){ $('#dt-applications').DataTable({pageLength:25,order:[]}); });</script>
+<?php endif; ?>
