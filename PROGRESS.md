@@ -1,6 +1,53 @@
 
 # Project Progress - Pramnos Framework v1.2
 
+## 📅 Last Updated: 2026-05-26 (session 143) — CSP inline handler elimination + pf-utils.js ✅
+
+## 🏁 Session 143 — CSP compliance: pf-utils.js delegation + DevPanel/DebugBar improvements (2026-05-26)
+
+### ✅ pf-utils.js — delegated event handler utility
+
+- **`scaffolding/assets/js/pf-utils.js`** — νέο utility με `data-confirm`, `data-copy-prev`, `data-toggle-type`, `data-modal-show/hide` delegation handlers.
+- Loaded σε όλα τα theme footers (plain-css, tailwind, bootstrap + test-app default).
+- `Init.php scaffoldTheme()` το αντιγράφει αυτόματα στο `www/assets/js/` νέων projects.
+- `Init.php buildThemeFooter()` το περιλαμβάνει στο generated footer.
+
+### ✅ Αντικατάσταση 62+ inline onclick handlers
+
+- Scaffolding views (3 themes × ~20 files): `onclick="return confirm()"` → `data-confirm="..."`.
+- `applications/view.html.php` (3 themes): `data-copy-prev` + `data-toggle-type`.
+- `tailwind/twofactor.html.php`: `data-modal-show/hide`.
+- Framework PHP classes: `LogController`, `Model`, `QueueItem`, `MakeCommandBase`, `DevPanelController`, `LogViewer`.
+- Εκκρεμεί: `Datatable.php` (jQuery legacy component, θέλει ξεχωριστή αντιμετώπιση).
+
+### ✅ DebugBar improvements
+
+- DevPanel link (`pdb-devpanel`) στο toolbar bar.
+- Dropdown hover gap fix: `top: calc(100% + 0.75rem)` → `top: 100%` + `padding-top` στο UL (mouse trap fix).
+- CSS nonce σε `<style>` και `<script>` tags.
+
+### ✅ DevPanel improvements
+
+- "Back to app" link στο footer.
+- CSP nonce στο `<style>` tag της renderLayout + στο `<script>` του renderCache.
+- `renderCache()` flush form: `onsubmit=` → `data-confirm=` στο button.
+
+### ✅ Application error logging
+
+- `Application.setDefines()`: `ini_set('log_errors', '1')` πάντα, `display_errors` ανάλογα με DEVELOPMENT mode, `error_reporting(E_ALL)` σε development.
+- Προηγουμένως: μόνο το `error_log` path οριζόταν, χωρίς ρητό enable.
+
+### ✅ Settings views — debug warning
+
+- Και στα 3 themes: όταν `DEVELOPMENT === true`, το Debug Mode checkbox κρύβεται και εμφανίζεται warning "Always ON — DEVELOPMENT constant is defined".
+
+### ✅ Tests
+
+- `DebugBarTest`: 3 νέα tests — `testRenderAddsCspNonceToInlineTags`, `testRenderIncludesDevPanelLink`, `testRenderHasNoInlineEventHandlers`.
+- Commit: `5118045`
+
+---
+
 ## 📅 Last Updated: 2026-05-26 (session 142) — DebugBar fix + DevPanel routing + navbar organizzazione ✅
 
 ## 🏁 Session 142 — DebugBar auto-activation + DevPanel routing fix (2026-05-26)
