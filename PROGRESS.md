@@ -1,7 +1,22 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-26 (session 141) — ROADMAP items 1+2+3 + scaffolding LoginControllerTest ✅
+## 📅 Last Updated: 2026-05-26 (session 142) — DebugBar auto-activation + DevPanel routing fix ✅
+
+## 🏁 Session 142 — DebugBar auto-activation + DevPanel routing fix (2026-05-26)
+
+### ✅ DebugBar auto-injection su tutte le pagine
+
+- **`src/Pramnos/Debug/DebugBarServiceProvider.php`** — `isDebugEnabled()` ora controlla anche `DEVELOPMENT` constant e `'development'` setting (oltre a `APP_DEBUG` env e `'debug'` setting).
+- **`src/Pramnos/Application/Application.php`** — `bootServiceProviders()` auto-boota il `DebugBarServiceProvider` quando debug mode è attivo, anche senza dichiarazione esplicita nella features list. Aggiunto `isDebugMode()` helper privato con stessa logica.
+- Il toolbar appare automaticamente su tutte le pagine HTML quando `development=true` in `settings.php` (o `APP_DEBUG=true` env, o `DEVELOPMENT` constant).
+
+### ✅ DevPanel routing fix
+
+- **`src/Pramnos/DevPanel/DevPanelController.php`** — `renderLayout()`: tab links cambiati da `?action=db` (query string, ignorata dal router) a `/devpanel/db` (path-based routing). Il router legge l'action dal path URL, non da `$_GET`. Footer link `/devpanel?action=phpinfo` → `/devpanel/phpinfo`.
+- Le internal links relative (`?action=cache&ns=foo`) dentro le singole panel view restano corrette: sono relative alla pagina corrente (`/devpanel/cache`), quindi il path è preservato.
+
+---
 
 ## 🏁 Session 141 — ROADMAP item 1: conditional FK users.locationid (2026-05-26)
 
