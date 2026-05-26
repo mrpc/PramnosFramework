@@ -36,6 +36,7 @@ readonly class NavItem
      * @param string|null     $feature      Required feature key from applicationInfo['features'], or null.
      * @param string|null     $icon         Optional CSS icon class (e.g. Bootstrap Icons 'bi-journal').
      * @param bool            $guestOnly    If true, hidden when a user IS logged in (e.g. Login link).
+     * @param string|null     $parent       Parent item id for nested dropdown rendering, or null for top-level.
      */
     public function __construct(
         public string      $id,
@@ -49,5 +50,6 @@ readonly class NavItem
         public ?string     $feature      = null,
         public ?string     $icon         = null,
         public bool        $guestOnly    = false,
+        public ?string     $parent       = null,
     ) {}
 }

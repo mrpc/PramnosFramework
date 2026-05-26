@@ -6,6 +6,13 @@
     $_navUser     = \Pramnos\User\User::getCurrentUser() ?: null;
     $_navFeatures = \Pramnos\Application\Application::getInstance()->applicationInfo['features'] ?? [];
     $_nav         = \Pramnos\Application\NavRegistry::getForUser($_navUser, $_navFeatures);
+    $_adminAll    = $_nav[\Pramnos\Application\NavSection::Admin->value] ?? [];
+    $_adminTop    = [];
+    $_adminSub    = [];
+    foreach ($_adminAll as $_ai) {
+        if ($_ai->parent === null) { $_adminTop[] = $_ai; }
+        else { $_adminSub[$_ai->parent][] = $_ai; }
+    }
     ?>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
@@ -28,12 +35,24 @@
                     <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
                     <li class="nav-item"><a class="nav-link" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
                     <?php endforeach; ?>
-                    <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
+                    <?php if (!empty($_adminTop)): ?>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Admin</a>
                         <ul class="dropdown-menu dropdown-menu-end">
-                            <?php foreach ($_nav[\Pramnos\Application\NavSection::Admin->value] as $_item): ?>
+                            <?php foreach ($_adminTop as $_item):
+                                $_children = $_adminSub[$_item->id] ?? [];
+                                if (!empty($_children)): ?>
+                            <li class="dropdown-submenu">
+                                <a class="dropdown-item dropdown-toggle" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a>
+                                <ul class="dropdown-menu">
+                                    <?php foreach ($_children as $_child): ?>
+                                    <li><a class="dropdown-item" href="<?php echo htmlspecialchars($_child->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_child->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            </li>
+                            <?php else: ?>
                             <li><a class="dropdown-item" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                            <?php endif; ?>
                             <?php endforeach; ?>
                         </ul>
                     </li>
