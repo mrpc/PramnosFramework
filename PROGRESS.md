@@ -1,6 +1,37 @@
 
 # Project Progress - Pramnos Framework v1.2
 
+## 📅 Last Updated: 2026-05-26 (session 144) — BC validation + 3 critical bug fixes ✅
+
+## 🏁 Session 144 — urbanwaterDev BC validation: 3 regression fixes (2026-05-26)
+
+### ✅ Bug: User::setPassword() πριν save() → MD5 placeholder δεν rehash-άρεται
+
+- **Root cause**: `setPassword()` με `userid <= 1` (πριν INSERT) αποθηκεύει `md5($password)` placeholder. Στο v1.2, το MD5 fallback στο `UserDatabase::onAuth` έγινε conditional (`legacyMd5 = false`), οπότε κάθε νέος χρήστης απέτυχε authentication.
+- **Fix**: `User._save()` αποθηκεύει plaintext σε `_pendingPlainPassword`, και μετά το INSERT με πραγματικό userid κάνει rehash και UPDATE.
+- **Test**: `UserCharacterizationTest::testPasswordRehashesAfterInsertWithRealUserId`
+- **Commits**: `0d14bd8`
+
+### ✅ Bug: DebugBarServiceProvider::boot() άνοιγε ob_start() στο CLI
+
+- **Root cause**: `ob_start()` χωρίς CLI guard → 4301 PHPUnit risky tests ("did not close its own output buffers").
+- **Fix**: `if (PHP_SAPI === 'cli') { return; }` πριν το `ob_start()`.
+- **Commit**: `ddeff61`
+
+### ✅ Bug: Base::__unset() έλειπε από το magic property quartet
+
+- **Root cause**: `__set/__get/__isset` υπήρχαν αλλά `__unset()` έλειπε → `unset($obj->prop)` ήταν no-op, η property παρέμενε στο `_data`, `isset()` επέστρεφε `true`.
+- **Fix**: Προσθήκη `__unset(string $name)` στο `Base`.
+- Εφαρμογή: `Emails::loadContent()` κάνει `unset($this->content)` όταν path είναι άδειο.
+- **Tests**: `BaseTest::testMagicPropertyQuartet`, `testIssetReturnsFalseForNullProperty`
+- **Commits**: `ce57a91`, `49ef405`
+
+### ✅ urbanwaterDev BC αποτελέσματα
+- Πριν: 18 failures + 1 error + 4301 risky
+- Μετά: **0 failures, 0 errors, 0 risky** (5178 tests, 2 skipped)
+
+---
+
 ## 📅 Last Updated: 2026-05-26 (session 143) — CSP inline handler elimination + pf-utils.js ✅
 
 ## 🏁 Session 143 — CSP compliance: pf-utils.js delegation + DevPanel/DebugBar improvements (2026-05-26)
