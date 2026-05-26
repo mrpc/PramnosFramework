@@ -36,7 +36,7 @@
                             <?php if (!($row['readonly'] ?? false)): ?>
                                 <a href="<?php echo sURL; ?>settings/edit/<?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
                                 <a href="<?php echo sURL; ?>settings/delete/<?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-danger"
-                                   onclick="return confirm('Delete this setting?')">Delete</a>
+                                   data-confirm="Delete this setting?">Delete</a>
                             <?php else: ?>
                                 <span style="font-size:11px;color:#888">Read-only</span>
                             <?php endif; ?>

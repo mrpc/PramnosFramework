@@ -29,7 +29,7 @@
                         <td style="text-align:right">
                             <a href="<?php echo sURL; ?>Organizations/members/<?php echo (int)($org['organization_id'] ?? 0); ?>" class="btn btn-sm btn-outline-info">Members</a>
                             <a href="<?php echo sURL; ?>Organizations/edit/<?php echo (int)($org['organization_id'] ?? 0); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                            <a href="<?php echo sURL; ?>Organizations/delete/<?php echo (int)($org['organization_id'] ?? 0); ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Deactivate this organization?')">Deactivate</a>
+                            <a href="<?php echo sURL; ?>Organizations/delete/<?php echo (int)($org['organization_id'] ?? 0); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Deactivate this organization?">Deactivate</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

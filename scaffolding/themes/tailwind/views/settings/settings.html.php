@@ -90,11 +90,15 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
                         <p class="text-xs text-gray-400 mt-1">Server time: <?php echo date('H:i'); ?></p>
                     </div>
                     <div><label class="<?php echo $label; ?>">Debug Mode</label>
+                        <?php if (defined('DEVELOPMENT') && DEVELOPMENT === true): ?>
+                            <p class="text-xs text-yellow-600 mt-1">&#9888; Always ON — DEVELOPMENT constant is defined in app config. This setting has no effect.</p>
+                        <?php else: ?>
                         <label class="flex items-center gap-2 mt-1 cursor-pointer">
                             <input type="checkbox" name="debug" value="yes" class="w-4 h-4"
                                 <?php echo (($s['debug'] ?? '') === 'yes') ? 'checked' : ''; ?>>
                             <span class="text-sm text-gray-600">Enabled</span>
                         </label>
+                        <?php endif; ?>
                     </div>
                     <div><label class="<?php echo $label; ?>">Force HTTPS</label>
                         <label class="flex items-center gap-2 mt-1 cursor-pointer">

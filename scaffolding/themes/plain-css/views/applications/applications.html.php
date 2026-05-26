@@ -32,9 +32,9 @@
                         <td><?php echo ($app['status'] ?? 1) == 1 ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Deleted</span>'; ?></td>
                         <td style="text-align:right">
                             <a href="<?php echo sURL; ?>Applications/tokens/<?php echo (int)$app['appid']; ?>" class="btn btn-sm btn-outline-info">Tokens</a>
-                            <a href="<?php echo sURL; ?>Applications/rotate/<?php echo (int)$app['appid']; ?>" class="btn btn-sm btn-outline-secondary" onclick="return confirm('Rotate secret?')">Rotate</a>
+                            <a href="<?php echo sURL; ?>Applications/rotate/<?php echo (int)$app['appid']; ?>" class="btn btn-sm btn-outline-secondary" data-confirm="Rotate secret?">Rotate</a>
                             <a href="<?php echo sURL; ?>Applications/edit/<?php echo (int)$app['appid']; ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                            <a href="<?php echo sURL; ?>Applications/delete/<?php echo (int)$app['appid']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete application?')">Delete</a>
+                            <a href="<?php echo sURL; ?>Applications/delete/<?php echo (int)$app['appid']; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete application?">Delete</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

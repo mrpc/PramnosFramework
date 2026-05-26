@@ -5,4 +5,5 @@
         </div>
     </footer>
     <script src="<?php echo sURL; ?>assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="<?php echo sURL; ?>assets/js/pf-utils.js"></script>
     <?php $this->document->renderJs(); ?>

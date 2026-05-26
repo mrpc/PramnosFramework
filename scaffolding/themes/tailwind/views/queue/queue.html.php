@@ -22,7 +22,7 @@ $filterStatus = htmlspecialchars($_GET['status'] ?? '');
         <h2 >Queue</h2>
         <div class="flex gap-2">
             <a href="<?php echo sURL; ?>Queue/stats" class="px-3 py-1 border border-blue-300 text-blue-700 text-xs rounded hover:bg-blue-50">Stats</a>
-            <a href="<?php echo sURL; ?>Queue/retryall" class="px-3 py-1 border border-yellow-400 text-yellow-700 text-xs rounded hover:bg-yellow-50" onclick="return confirm('Retry all failed jobs?')">Retry All Failed</a>
+            <a href="<?php echo sURL; ?>Queue/retryall" class="px-3 py-1 border border-yellow-400 text-yellow-700 text-xs rounded hover:bg-yellow-50" data-confirm="Retry all failed jobs?">Retry All Failed</a>
         </div>
     </div>
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-4">
@@ -36,7 +36,7 @@ $filterStatus = htmlspecialchars($_GET['status'] ?? '');
                 </select>
                 <button class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50">Filter</button>
                 <?php if ($filterStatus === 'failed' || $filterStatus === 'completed' || $filterStatus === 'deleted'): ?>
-                    <a href="<?php echo sURL; ?>Queue/clear?status=<?php echo $filterStatus; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" onclick="return confirm('Clear all <?php echo $filterStatus; ?> jobs?')">Clear</a>
+                    <a href="<?php echo sURL; ?>Queue/clear?status=<?php echo $filterStatus; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" data-confirm="Clear all <?php echo $filterStatus; ?> jobs?">Clear</a>
                 <?php endif; ?>
             </form>
         </div>
@@ -60,7 +60,7 @@ $filterStatus = htmlspecialchars($_GET['status'] ?? '');
                             <?php if (($job['status'] ?? '') === 'failed'): ?>
                                 <a href="<?php echo sURL; ?>Queue/retry/<?php echo (int)$job['id']; ?>" class="px-3 py-1 border border-yellow-400 text-yellow-700 text-xs rounded hover:bg-yellow-50">Retry</a>
                             <?php endif; ?>
-                            <a href="<?php echo sURL; ?>Queue/delete/<?php echo (int)$job['id']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" onclick="return confirm('Delete job?')">Delete</a>
+                            <a href="<?php echo sURL; ?>Queue/delete/<?php echo (int)$job['id']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" data-confirm="Delete job?">Delete</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

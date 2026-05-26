@@ -36,7 +36,7 @@
                             <?php if (!($row['readonly'] ?? false)): ?>
                                 <a href="<?php echo sURL; ?>settings/edit/<?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
                                 <a href="<?php echo sURL; ?>settings/delete/<?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-danger"
-                                   onclick="return confirm('Delete setting <?php echo htmlspecialchars(addslashes($row['key'] ?? '')); ?>?')">Delete</a>
+                                   data-confirm="Delete setting <?php echo htmlspecialchars($row['key'] ?? '', ENT_QUOTES, 'UTF-8'); ?>?">Delete</a>
                             <?php else: ?>
                                 <span class="badge bg-secondary">Read-only</span>
                             <?php endif; ?>

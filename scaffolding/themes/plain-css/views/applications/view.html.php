@@ -47,7 +47,7 @@ $accessTypeLabel = function (int $t): string {
                             <input type="text" readonly style="flex:1;font-family:monospace;font-size:11px;border:1px solid #ddd;border-radius:3px;padding:5px 8px;background:#f9f9f9"
                                    value="<?php echo htmlspecialchars($app['apikey'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
                             <button style="border:1px solid #ddd;background:#f9f9f9;border-radius:3px;padding:5px 8px;cursor:pointer"
-                                    onclick="navigator.clipboard.writeText(this.previousElementSibling.value)" title="Copy">&#128203;</button>
+                                    data-copy-prev title="Copy">&#128203;</button>
                         </div>
                     </div>
                     <div>
@@ -57,7 +57,7 @@ $accessTypeLabel = function (int $t): string {
                                    style="flex:1;font-family:monospace;font-size:11px;border:1px solid #ddd;border-radius:3px;padding:5px 8px;background:#f9f9f9"
                                    value="<?php echo htmlspecialchars($app['apisecret'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
                             <button style="border:1px solid #ddd;background:#f9f9f9;border-radius:3px;padding:5px 8px;cursor:pointer"
-                                    onclick="var f=document.getElementById('pcAppSecret<?php echo $appId; ?>');f.type=f.type==='password'?'text':'password'"
+                                    data-toggle-type="pcAppSecret<?php echo $appId; ?>"
                                     title="Toggle">&#128065;</button>
                         </div>
                     </div>
@@ -83,9 +83,9 @@ $accessTypeLabel = function (int $t): string {
                     <a href="<?php echo sURL; ?>applications/edit/<?php echo $appId; ?>" class="btn btn-primary" style="text-align:center">Edit Application</a>
                     <a href="<?php echo sURL; ?>applications/tokens/<?php echo $appId; ?>" class="btn btn-outline-secondary" style="text-align:center">View Tokens</a>
                     <a href="<?php echo sURL; ?>applications/rotate/<?php echo $appId; ?>" class="btn btn-outline-warning" style="text-align:center"
-                       onclick="return confirm('Rotate the client secret? Existing tokens remain valid.')">Rotate Secret</a>
+                       data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</a>
                     <a href="<?php echo sURL; ?>applications/delete/<?php echo $appId; ?>" class="btn btn-outline-danger" style="text-align:center"
-                       onclick="return confirm('Disable this application and revoke all active tokens?')">Disable App</a>
+                       data-confirm="Disable this application and revoke all active tokens?">Disable App</a>
                 </div>
             </div>
 

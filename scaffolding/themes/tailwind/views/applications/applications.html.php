@@ -32,9 +32,9 @@
                         <td><?php echo ($app['status'] ?? 1) == 1 ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Deleted</span>'; ?></td>
                         <td class="text-right">
                             <a href="<?php echo sURL; ?>Applications/tokens/<?php echo (int)$app['appid']; ?>" class="px-3 py-1 border border-blue-300 text-blue-700 text-xs rounded hover:bg-blue-50">Tokens</a>
-                            <a href="<?php echo sURL; ?>Applications/rotate/<?php echo (int)$app['appid']; ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50" onclick="return confirm('Rotate secret?')">Rotate</a>
+                            <a href="<?php echo sURL; ?>Applications/rotate/<?php echo (int)$app['appid']; ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50" data-confirm="Rotate secret?">Rotate</a>
                             <a href="<?php echo sURL; ?>Applications/edit/<?php echo (int)$app['appid']; ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50">Edit</a>
-                            <a href="<?php echo sURL; ?>Applications/delete/<?php echo (int)$app['appid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" onclick="return confirm('Delete application?')">Delete</a>
+                            <a href="<?php echo sURL; ?>Applications/delete/<?php echo (int)$app['appid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" data-confirm="Delete application?">Delete</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>
