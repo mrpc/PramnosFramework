@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Run JavaScript tests (Phase 17 adapters + any future tests/js/**/*.test.js).
+#
+# Runs inside the php-apache-environment Docker container when available
+# (requires the container to be built with nodejs — see Dockerfile).
+# Falls back to the host's node binary so the command also works in CI
+# environments that don't have Docker.
+#
+# Usage:
+#   ./testjs                  # all tests/js/**/*.test.js
+#   ./testjs --test-reporter tap   # TAP output for CI
+set -euo pipefail
+
+CONTAINER="php-apache-environment"
+TEST_DIR="/var/www/html/tests/js"
+HOST_TEST_DIR="$(cd "$(dirname "$0")" && pwd)/tests/js"
+
+run_in_container() {
+    if docker-compose ps "$CONTAINER" 2>/dev/null | grep -q "Up"; then
+        if docker-compose exec -T "$CONTAINER" which node &>/dev/null; then
+            echo "Running JS tests in Docker container..."
+            docker-compose exec -T "$CONTAINER" \
+                node --test "$TEST_DIR"/*.test.js "$@"
+            return 0
+        else
+            echo "Warning: Container is running but has no 'node' binary." >&2
+            echo "  Rebuild with:  docker-compose build $CONTAINER" >&2
+            return 1
+        fi
+    fi
+    return 1
+}
+
+if ! run_in_container "$@"; then
+    echo "Falling back to host node..."
+    if ! command -v node &>/dev/null; then
+        echo "Error: 'node' not found on host either." >&2
+        exit 1
+    fi
+    node --test "$HOST_TEST_DIR"/*.test.js "$@"
+fi
