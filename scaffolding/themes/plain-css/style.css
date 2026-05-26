@@ -58,6 +58,7 @@ body {
     list-style: none;
     display: flex;
     gap: 2rem;
+    align-items: center;
 }
 
 .main-nav a {
@@ -70,6 +71,56 @@ body {
 .main-nav a:hover {
     color: var(--primary-color);
 }
+
+/* ── Admin dropdown ───────────────────────────────────────────── */
+.nav-admin { position: relative; }
+.nav-admin > span { font-weight: 500; color: var(--text-main); cursor: default; font-size: 1rem; }
+.nav-admin > ul {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.75rem);
+    background: var(--white);
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 16px rgba(0,0,0,.10);
+    min-width: 200px;
+    z-index: 200;
+    padding: 0.25rem 0;
+    flex-direction: column;
+    gap: 0;
+}
+.nav-admin:hover > ul { display: flex; }
+.nav-admin > ul > li { padding: 0; position: relative; }
+.nav-admin > ul > li > a {
+    display: block;
+    padding: 0.5rem 1.25rem;
+    color: var(--text-main);
+    font-weight: 400;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
+}
+.nav-admin > ul > li > a:hover { background: #f8fafc; color: var(--primary-color); }
+
+/* ── Nested sub-dropdown ──────────────────────────────────────── */
+.nav-admin .has-sub > a::after { content: ' \25B8'; font-size: 0.7em; opacity: 0.5; }
+.nav-admin .has-sub > ul {
+    display: none;
+    position: absolute;
+    left: 100%;
+    top: -0.25rem;
+    background: var(--white);
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 16px rgba(0,0,0,.10);
+    min-width: 180px;
+    z-index: 201;
+    padding: 0.25rem 0;
+    flex-direction: column;
+    gap: 0;
+}
+.nav-admin .has-sub:hover > ul { display: flex; }
 
 .main-content {
     flex: 1;

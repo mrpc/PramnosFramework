@@ -395,10 +395,12 @@ class Application extends Base
         NavRegistry::register(new NavItem(
             'admin.logs', 'Logs', $base . 'logs',
             NavSection::Admin, 10, requireAuth: true, minUserType: 80,
+            parent: 'admin.dashboard',
         ));
         NavRegistry::register(new NavItem(
             'admin.health', 'Health', $base . 'health',
             NavSection::Admin, 11, requireAuth: true, minUserType: 80,
+            parent: 'admin.dashboard',
         ));
 
         // Admin ops dashboard — always
@@ -419,10 +421,11 @@ class Application extends Base
             NavSection::Admin, 14, requireAuth: true, minUserType: 80,
         ));
 
-        // Emails — always
+        // Emails — always, grouped under Dashboard
         NavRegistry::register(new NavItem(
             'admin.emails', 'Emails', $base . 'Emails',
             NavSection::Admin, 16, requireAuth: true, minUserType: 80,
+            parent: 'admin.dashboard',
         ));
 
         // OAuth Apps — authserver feature
@@ -444,12 +447,13 @@ class Application extends Base
             ));
         }
 
-        // Token Actions audit log — auth feature
+        // Token Actions audit log — auth feature, grouped under Users
         if (in_array('auth', $features, true)) {
             NavRegistry::register(new NavItem(
                 'admin.tokenactions', 'Token Actions', $base . 'TokenActions',
                 NavSection::Admin, 26, requireAuth: true, minUserType: 80,
                 feature: 'auth',
+                parent: 'admin.users',
             ));
         }
 
