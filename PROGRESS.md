@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-26 (session 142) — DebugBar auto-activation + DevPanel routing fix ✅
+## 📅 Last Updated: 2026-05-26 (session 142) — DebugBar fix + DevPanel routing + navbar organizzazione ✅
 
 ## 🏁 Session 142 — DebugBar auto-activation + DevPanel routing fix (2026-05-26)
 
@@ -15,6 +15,14 @@
 
 - **`src/Pramnos/DevPanel/DevPanelController.php`** — `renderLayout()`: tab links cambiati da `?action=db` (query string, ignorata dal router) a `/devpanel/db` (path-based routing). Il router legge l'action dal path URL, non da `$_GET`. Footer link `/devpanel?action=phpinfo` → `/devpanel/phpinfo`.
 - Le internal links relative (`?action=cache&ns=foo`) dentro le singole panel view restano corrette: sono relative alla pagina corrente (`/devpanel/cache`), quindi il path è preservato.
+
+### ✅ Navbar nested dropdown + DebugBar JS/CSS fix
+
+- **`src/Pramnos/Application/NavItem.php`** — aggiunto `parent: ?string = null` per raggruppamento gerarchico.
+- **`src/Pramnos/Application/Application.php`** — `admin.health`, `admin.logs`, `admin.emails` → `parent: 'admin.dashboard'`; `admin.tokenactions` → `parent: 'admin.users'`.
+- **Header templates** (plain-css, tailwind, bootstrap, test-app) — pre-computo `$_adminTop`/`$_adminSub`; items con children renderizzati come `.has-sub` fly-out dropdown.
+- **`plain-css/style.css`** (scaffolding + test-app) — `.nav-admin` hover dropdown + `.has-sub` sub-dropdown CSS. Prima mancavano completamente.
+- **`src/Pramnos/Debug/DebugBar.php`** — fix `event.target` → `e.currentTarget` (window.event deprecato); scoped `p{}` a `#pdb-panels p`; `padding-bottom:36px` su body per non nascondere contenuto.
 
 ---
 
