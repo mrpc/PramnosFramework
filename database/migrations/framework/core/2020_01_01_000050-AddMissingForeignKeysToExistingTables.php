@@ -98,6 +98,25 @@ class AddMissingForeignKeysToExistingTables extends Migration
                 });
         }
 
+        // ===== users table =====
+
+        // Add FK: locationid → locations.locationid (SET NULL)
+        // Conditional: only when the parent application has a locations table.
+        // The framework does not define locations — it is an app-level concept.
+        if ($this->schema('public')->hasTable('locations')
+            && $this->constraintDoesNotExist('users', 'fk_users_locationid')
+        ) {
+            $this->schema('public')
+                ->table('users', function ($table) {
+                    $table->foreign('locationid')
+                        ->references('locationid')
+                        ->on('locations')
+                        ->onDelete('set null')
+                        ->onUpdate('cascade')
+                        ->name('fk_users_locationid');
+                });
+        }
+
         // ===== GDPR tables (add explicit FKs to users table) =====
 
         // user_privacy_settings.userid → users.userid (CASCADE)
@@ -181,6 +200,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
             'usertokens' => ['fk_usertokens_parenttoken', 'fk_usertokens_applicationid'],
             'tokenactions' => ['fk_tokenactions_tokenid', 'fk_tokenactions_urlid'],
             'applications' => ['fk_applications_owner'],
+            'users' => ['fk_users_locationid'],
             'user_privacy_settings' => ['fk_user_privacy_settings_userid'],
             'user_consents' => ['fk_user_consents_userid'],
             'data_processing_records' => ['fk_data_processing_records_userid'],
@@ -190,10 +210,12 @@ class AddMissingForeignKeysToExistingTables extends Migration
 
         foreach ($constraints as $table => $fks) {
             foreach ($fks as $fk) {
-                $this->schema('public')
-                    ->table($table, function ($table) use ($fk) {
-                        $table->dropForeign([$fk]);
-                    });
+                if (!$this->constraintDoesNotExist($table, $fk)) {
+                    $this->schema('public')
+                        ->table($table, function ($table) use ($fk) {
+                            $table->dropForeign([$fk]);
+                        });
+                }
             }
         }
     }

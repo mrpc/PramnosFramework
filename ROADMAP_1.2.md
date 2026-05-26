@@ -722,8 +722,9 @@
   - Προσθήκη: `owner` → `users.userid` (SET NULL)
   - *Καλύπτεται από `core/000050-AddMissingForeignKeysToExistingTables.php`*
 
-- [ ] **Missing FK σε `users` (migration 000010):**
+- [x] **Missing FK σε `users` (migration 000010):**
   - Προσθήκη: `locationid` → `locations.locationid` (SET NULL) — *αν υπάρχει locations table στη parent app*
+  - *Καλύπτεται από `core/000050-AddMissingForeignKeysToExistingTables.php` — conditional `hasTable('locations')` check*
 
 - [x] **Missing FK σε GDPR tables (migrations 000021-000025):**
   - `user_activity_log.userid` → `users.userid` (CASCADE)
@@ -1208,7 +1209,7 @@ $(function() { PramnosDataTable.init('#users-table', { columns: [...] }); });
 
 - [x] **Scaffolding:** `create:model` παράγει `getApiList()` override μόνο (χωρίς `getJsonList()`). Η view template για list pages χρησιμοποιεί `PramnosDataTable.init()` αντί για inline DataTables config.
 - [x] **Tests:** server-side: `_getApiList(format: 'datatables')` output format validation × MySQL + PostgreSQL; `_getJsonList()` introspection unification tests × MySQL + PostgreSQL. Client-side: adapter unit tests (mock fetch) — pending.
-- [ ] **UrbanWater migration:** βλ. `UrbanWater-Cleanup-Guide.md` Phase 8 — custom `getJsonList()` overrides μεταφέρονται σταδιακά.
+- ~~**UrbanWater migration:** βλ. `UrbanWater-Cleanup-Guide.md` Phase 8 — custom `getJsonList()` overrides μεταφέρονται σταδιακά.~~ *(εκτός scope framework)*
 
 > **BC:** `_getJsonList()` και όλα τα custom `getJsonList()` overrides στο Urbanwater συνεχίζουν να λειτουργούν αναλλοίωτα. Η μετάβαση γίνεται model-by-model, view-by-view.
 > **Εξάρτηση:** Φάση 17 εξαρτάται από Φάση 16 (CSRF header για session-authenticated AJAX) και Φάση 15 (API route group).
@@ -1247,7 +1248,7 @@ $(function() { PramnosDataTable.init('#users-table', { columns: [...] }); });
   - Παράγει `scripts/apidoc-to-openapi.js`
   - Προσθέτει `apidoc` + `docs` scripts στο `package.json`
   - Προσθέτει `www/api/openapi*.json` και `www/api/docs/` στο `.gitignore`
-- [ ] **Urbanwater migration:** αντικαθιστήσει `src/Api/apidoc.json` + `scripts/apidoc-to-openapi.js` με τις νέες εκδόσεις — output identικό, χωρίς αλλαγές στα controllers
+- ~~**Urbanwater migration:** αντικαθιστήσει `src/Api/apidoc.json` + `scripts/apidoc-to-openapi.js` με τις νέες εκδόσεις.~~ *(εκτός scope framework)*
 
 > **Δεν γίνεται:** PHP-native generator, νέα PHP attributes (`#[ApiDoc]` κλπ), `pramnos api:docs` CLI command. Το Node.js pipeline είναι η σωστή εργαλειοθήκη για αυτή τη δουλειά.
 > **Εξάρτηση:** Καμία framework dependency — standalone Node.js script, τρέχει ανεξάρτητα.

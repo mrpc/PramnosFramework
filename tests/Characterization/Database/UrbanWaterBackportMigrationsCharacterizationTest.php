@@ -145,6 +145,10 @@ class UrbanWaterBackportMigrationsCharacterizationTest extends TestCase
                 'usertokens'              => ['fk_usertokens_parenttoken', 'fk_usertokens_applicationid'],
                 'tokenactions'            => ['fk_tokenactions_tokenid', 'fk_tokenactions_urlid'],
                 'applications'            => ['fk_applications_owner'],
+                // userstogroups_userid_fkey is auto-created by User::setupDb() (REFERENCES clause
+                // in raw DDL). It references the stub users table and must be removed before
+                // users can be dropped without CASCADE.
+                'userstogroups'           => ['userstogroups_userid_fkey'],
                 'user_privacy_settings'   => ['fk_user_privacy_settings_userid'],
                 'user_consents'           => ['fk_user_consents_userid'],
                 'data_processing_records' => ['fk_data_processing_records_userid'],

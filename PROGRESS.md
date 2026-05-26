@@ -1,7 +1,23 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-26 (session 140) — Phase 12 PusherDriver + pramnos-echo.js ✅
+## 📅 Last Updated: 2026-05-26 (session 141) — ROADMAP item 1: conditional FK users.locationid ✅
+
+## 🏁 Session 141 — ROADMAP item 1: conditional FK users.locationid (2026-05-26)
+
+### ✅ Conditional FK: users.locationid → locations.locationid
+
+- **`database/migrations/framework/core/2020_01_01_000050-AddMissingForeignKeysToExistingTables.php`**
+  - `up()`: aggiunto FK `fk_users_locationid` con guard `hasTable('locations')` — solo se la parent app ha una `locations` table.
+  - `down()`: wrappato ogni `dropForeign` in `!constraintDoesNotExist()` per evitare errori se il constraint non fu mai creato.
+- **`tests/Characterization/Database/UrbanWaterBackportMigrationsCharacterizationTest.php`**
+  - teardown step 1: aggiunto `userstogroups_userid_fkey` (auto-creato da `User::setupDb()`) per permettere il drop di `users` senza CASCADE dopo run del full suite.
+- **`docs/1.2-new-features.md`** — aggiunta sezione FK condizionale per `users.locationid`.
+
+### ROADMAP items closed
+- `[x]` Missing FK su `users`: `locationid` → `locations.locationid` (SET NULL, conditional)
+
+---
 
 ## 🏁 Session 140 — Phase 12: PusherDriver + pramnos-echo.js (2026-05-26)
 
