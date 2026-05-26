@@ -267,23 +267,19 @@ class Datatable extends Base
             foreach ($this->aoColumns as $column) {
 
                 if ($column->showHide == true && trim($column->label) != "") {
+                    $btnId = 'psh_' . $this->name . '_' . $n;
                     if ($this->jui == true) {
-                        $showHide .= '<a href="javascript:void(0);" '
-                            . 'onclick="fnShowHide_' . $this->name . '('
-                            . $n . ')"><span style="padding-left:3px; '
-                            . 'padding-right:3px;" class="ui-button '
-                            . 'ui-state-default">' . $column->label
+                        $showHide .= '<a href="javascript:void(0);" id="' . $btnId . '">'
+                            . '<span style="padding-left:3px; padding-right:3px;" '
+                            . 'class="ui-button ui-state-default">' . $column->label
                             . '</span></a>';
 
                     } elseif ($this->bootstrap == true) {
-                        $showHide .= '<li><a href="javascript:void(0);" '
-                            . 'onclick="fnShowHide_' . $this->name . '('
-                            . $n . ')">' . $column->label
-                            . '</a></li>';
+                        $showHide .= '<li><a href="javascript:void(0);" id="' . $btnId . '">'
+                            . $column->label . '</a></li>';
                     } else {
-                        $showHide .= $sep . ' <a href="javascript:void(0);" '
-                            . 'onclick="fnShowHide_' . $this->name
-                            . '(' . $n . ')">' . $column->label . '</a> ';
+                        $showHide .= $sep . ' <a href="javascript:void(0);" id="' . $btnId . '">'
+                            . $column->label . '</a> ';
                     }
                     $t+=1;
                     $sep = $this->separateChar;
@@ -608,13 +604,18 @@ table;
 
 table;
         if ($this->showHide == true) {
-            $return .= 'function fnShowHide_' . $this->name . '(iCol){
-                        var bVis = '
-                . $this->name . '.fnSettings().aoColumns[iCol].bVisible;'
-                . "\n                        "
-                . $this->name . '.fnSetColumnVis( iCol, bVis ? false : true );'
-                . "\n                        "
-                . '}';
+            $n = 0;
+            foreach ($this->aoColumns as $column) {
+                if ($column->showHide == true && trim($column->label) != '') {
+                    $btnId = 'psh_' . $this->name . '_' . $n;
+                    $return .= "\ndocument.getElementById('" . $btnId . "') && "
+                        . "document.getElementById('" . $btnId . "').addEventListener('click', function(){"
+                        . "var bVis=" . $this->name . ".fnSettings().aoColumns[" . $n . "].bVisible;"
+                        . $this->name . ".fnSetColumnVis(" . $n . ",!bVis);"
+                        . "});";
+                }
+                $n++;
+            }
         }
         $return .= "\n</script>";
         return $return;
