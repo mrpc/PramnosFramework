@@ -28,12 +28,7 @@ class DebugBarServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        if (!$this->isDebugEnabled()) {
-            return;
-        }
-
-        $bar = DebugBar::getInstance();
-        $this->app->container->singleton('debug.bar', fn() => $bar);
+        // DebugBar is a native singleton — no container binding needed.
     }
 
     public function boot(): void
@@ -42,24 +37,11 @@ class DebugBarServiceProvider extends ServiceProvider
             return;
         }
 
-        if (!$this->app->container->has('debug.bar')) {
-            return;
-        }
+        $bar = DebugBar::getInstance();
 
-        /** @var DebugBar $bar */
-        $bar = $this->app->container->get('debug.bar');
-
-        // Time collector — records request start time
-        $timeCollector = new TimeCollector();
-        $bar->addCollector($timeCollector);
-
-        // Memory collector
+        $bar->addCollector(new TimeCollector());
         $bar->addCollector(new MemoryCollector());
-
-        // Session collector
         $bar->addCollector(new SessionCollector());
-
-        // Log collector
         $bar->addCollector(new LogCollector());
 
         // Query collector — only if DB is available
@@ -69,17 +51,16 @@ class DebugBarServiceProvider extends ServiceProvider
             $bar->addCollector(new QueryCollector($db));
         }
 
-        // Route collector
         $bar->addCollector(new RouteCollector());
 
-        // Inject toolbar via output buffering — works regardless of routing strategy
-        $debugBar = $bar;
-        ob_start(function (string $output) use ($debugBar): string {
+        // Inject toolbar via output buffering — captures the full response
+        // regardless of routing strategy and injects before </body>.
+        ob_start(function (string $output) use ($bar): string {
             $bodyPos = strripos($output, '</body>');
             if ($bodyPos === false) {
                 return $output;
             }
-            $widget = $debugBar->render();
+            $widget = $bar->render();
             if ($widget === '') {
                 return $output;
             }
@@ -93,7 +74,14 @@ class DebugBarServiceProvider extends ServiceProvider
         if ($envDebug !== false && $envDebug !== '' && $envDebug !== '0' && $envDebug !== 'false') {
             return true;
         }
-        $setting = \Pramnos\Application\Settings::getSetting('debug');
-        return $setting === true || $setting === '1' || $setting === 'true';
+        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
+            return true;
+        }
+        $debug = \Pramnos\Application\Settings::getSetting('debug');
+        if ($debug === true || $debug === '1' || $debug === 'true' || $debug === 'yes') {
+            return true;
+        }
+        $dev = \Pramnos\Application\Settings::getSetting('development');
+        return $dev === true || $dev === '1' || $dev === 'true' || $dev === 'yes';
     }
 }

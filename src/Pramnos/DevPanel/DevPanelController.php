@@ -1124,24 +1124,28 @@ class DevPanelController extends Controller
         $mountPoint = Settings::getSetting('devpanel.mount') ?: 'devpanel';
 
         $tabs = [
-            'overview'    => ['Overview',    ''],
-            'db'          => ['Database',    'action=db'],
-            'cache'       => ['Cache',       'action=cache'],
-            'users'       => ['Users',       'action=users'],
-            'performance' => ['Performance', 'action=performance'],
-            'git'         => ['Git',         'action=git'],
-            'phpinfo'     => ['PHP Info',    'action=phpinfo'],
+            'overview'    => 'Overview',
+            'db'          => 'Database',
+            'cache'       => 'Cache',
+            'users'       => 'Users',
+            'performance' => 'Performance',
+            'git'         => 'Git',
+            'phpinfo'     => 'PHP Info',
         ];
 
         // Append registered custom panels to the navigation.
         foreach (static::$customPanels as $slug => $panel) {
-            $tabs[$slug] = [$panel['label'], 'action=' . $slug];
+            $tabs[$slug] = $panel['label'];
         }
 
         $tabHtml = '';
-        foreach ($tabs as $key => [$label, $qs]) {
+        foreach ($tabs as $key => $label) {
             $active = $key === $activeTab ? ' class="active"' : '';
-            $href   = $baseUrl . '/' . $mountPoint . ($qs ? '?' . $qs : '');
+            // Use path-based routing — the framework routes /devpanel/<action>
+            // not ?action=<action> (which the URL router ignores).
+            $href   = $key === 'overview'
+                ? $baseUrl . '/' . $mountPoint
+                : $baseUrl . '/' . $mountPoint . '/' . $key;
             $tabHtml .= "<a href=\"{$href}\"{$active}>" . htmlspecialchars($label) . "</a>";
         }
 
@@ -1166,7 +1170,7 @@ class DevPanelController extends Controller
                 {$content}
               </div>
             </main>
-            <footer>PramnosFramework DevPanel · <a href="{$baseUrl}/{$mountPoint}?action=phpinfo">PHP Info</a></footer>
+            <footer>PramnosFramework DevPanel · <a href="{$baseUrl}/{$mountPoint}/phpinfo">PHP Info</a></footer>
           </div>
         </body>
         </html>
