@@ -109,8 +109,7 @@ class DebugBar
             $label      = $this->formatTabLabel($name, $data);
             $panelHtml  = $this->renderPanel($name, $data);
             $tabs[]     = sprintf(
-                '<button class="pdb-tab" data-panel="%s" onclick="pdbShowPanel(event,\'%s\')">%s</button>',
-                htmlspecialchars($name),
+                '<button class="pdb-tab" data-panel="%s">%s</button>',
                 htmlspecialchars($name),
                 $label,
             );
@@ -138,7 +137,7 @@ class DebugBar
   <div id="pdb-bar">
     <span id="pdb-brand">&#9881; Pramnos</span>
     {$tabsHtml}
-    <button class="pdb-close" onclick="pdbToggle()">&#x2715;</button>
+    <button class="pdb-close" id="pdb-close-btn">&#x2715;</button>
   </div>
   <div id="pdb-panels">{$panelsHtml}</div>
 </div>
@@ -274,24 +273,30 @@ HTML;
     private function js(): string
     {
         return '
-function pdbShowPanel(e,name){
-  var panels=document.querySelectorAll(".pdb-panel");
-  var tabs=document.querySelectorAll(".pdb-tab");
-  var panelEl=document.getElementById("pdb-panel-"+name);
-  var panelsDiv=document.getElementById("pdb-panels");
-  var isOpen=panelsDiv.style.display!=="none"&&panelEl.style.display!=="none";
-  panels.forEach(function(p){p.style.display="none"});
-  tabs.forEach(function(t){t.classList.remove("pdb-active")});
-  if(isOpen){panelsDiv.style.display="none";return}
-  panelEl.style.display="block";
-  panelsDiv.style.display="block";
-  e.currentTarget.classList.add("pdb-active");
-}
-function pdbToggle(){
-  var d=document.getElementById("pdb-panels");
-  d.style.display=d.style.display==="none"?"":"none";
-  if(d.style.display==="none")document.querySelectorAll(".pdb-tab").forEach(function(t){t.classList.remove("pdb-active")});
-}
+(function(){
+  document.querySelectorAll(".pdb-tab").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      var name=btn.dataset.panel;
+      var panels=document.querySelectorAll(".pdb-panel");
+      var tabs=document.querySelectorAll(".pdb-tab");
+      var panelEl=document.getElementById("pdb-panel-"+name);
+      var panelsDiv=document.getElementById("pdb-panels");
+      var isOpen=panelsDiv.style.display!=="none"&&panelEl.style.display!=="none";
+      panels.forEach(function(p){p.style.display="none"});
+      tabs.forEach(function(t){t.classList.remove("pdb-active")});
+      if(isOpen){panelsDiv.style.display="none";return;}
+      panelEl.style.display="block";
+      panelsDiv.style.display="block";
+      btn.classList.add("pdb-active");
+    });
+  });
+  var closeBtn=document.getElementById("pdb-close-btn");
+  if(closeBtn){closeBtn.addEventListener("click",function(){
+    var d=document.getElementById("pdb-panels");
+    d.style.display=d.style.display==="none"?"":"none";
+    if(d.style.display==="none")document.querySelectorAll(".pdb-tab").forEach(function(t){t.classList.remove("pdb-active");});
+  });}
+})();
 ';
     }
 }
