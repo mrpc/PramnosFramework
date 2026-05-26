@@ -3,12 +3,20 @@
  * Users list (Bootstrap theme).
  *
  * Variables:
- *   $this->users  — iterable rows (userid, username, email, active, regdate)
- *   $this->page   — current page (1-based)
- *   $this->total  — total row count
+ *   $this->users   — iterable rows (userid, username, email, active, regdate)
+ *   $this->page    — current page (1-based)
+ *   $this->total   — total row count
+ *   $this->success — optional success flash message
+ *   $this->error   — optional error flash message
  */
 ?>
 <div class="container-fluid py-4">
+    <?php if (!empty($this->success)): ?>
+        <div class="alert alert-success"><?php echo htmlspecialchars($this->success); ?></div>
+    <?php endif; ?>
+    <?php if (!empty($this->error)): ?>
+        <div class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
+    <?php endif; ?>
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">Users</h2>
         <a href="<?php echo sURL; ?>Users/edit" class="btn btn-primary">+ New User</a>
@@ -34,6 +42,7 @@
                         <td class="text-end">
                             <a href="<?php echo sURL; ?>Users/edit/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
                             <a href="<?php echo sURL; ?>Users/sessions/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-info">Sessions</a>
+                            <a href="<?php echo sURL; ?>Users/resetpassword/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-warning" onclick="return confirm('Send password reset email to this user?')">Reset Password</a>
                             <a href="<?php echo sURL; ?>Users/delete/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Deactivate this user?')">Deactivate</a>
                         </td>
                     </tr>

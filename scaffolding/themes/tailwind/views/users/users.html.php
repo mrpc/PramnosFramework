@@ -3,12 +3,20 @@
  * Users list (Tailwind theme).
  *
  * Variables:
- *   $this->users  — iterable rows (userid, username, email, active, regdate)
- *   $this->page   — current page (1-based)
- *   $this->total  — total row count
+ *   $this->users   — iterable rows (userid, username, email, active, regdate)
+ *   $this->page    — current page (1-based)
+ *   $this->total   — total row count
+ *   $this->success — optional success flash message
+ *   $this->error   — optional error flash message
  */
 ?>
 <div class="px-4 py-6">
+    <?php if (!empty($this->success)): ?>
+        <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 rounded text-green-800 text-sm"><?php echo htmlspecialchars($this->success); ?></div>
+    <?php endif; ?>
+    <?php if (!empty($this->error)): ?>
+        <div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded text-red-800 text-sm"><?php echo htmlspecialchars($this->error); ?></div>
+    <?php endif; ?>
     <div class="flex justify-between items-center mb-4">
         <h2 >Users</h2>
         <a href="<?php echo sURL; ?>Users/edit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700">+ New User</a>
@@ -34,6 +42,7 @@
                         <td class="text-right">
                             <a href="<?php echo sURL; ?>Users/edit/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50">Edit</a>
                             <a href="<?php echo sURL; ?>Users/sessions/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-blue-300 text-blue-700 text-xs rounded hover:bg-blue-50">Sessions</a>
+                            <a href="<?php echo sURL; ?>Users/resetpassword/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-yellow-300 text-yellow-700 text-xs rounded hover:bg-yellow-50" onclick="return confirm('Send password reset email to this user?')">Reset Password</a>
                             <a href="<?php echo sURL; ?>Users/delete/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" onclick="return confirm('Deactivate this user?')">Deactivate</a>
                         </td>
                     </tr>

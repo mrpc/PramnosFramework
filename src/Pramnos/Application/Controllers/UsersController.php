@@ -32,7 +32,7 @@ class UsersController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'view', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions', 'tokens', 'deactivateToken', 'deleteToken']);
+        $this->addAuthAction(['display', 'view', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions', 'tokens', 'deactivateToken', 'deleteToken', 'resetpassword']);
         parent::__construct($application);
     }
 
@@ -122,8 +122,11 @@ class UsersController extends Controller
             ->limit(500)
             ->getAll();
 
-        $view        = $this->getView('users');
-        $view->users = $users;
+        $view          = $this->getView('users');
+        $view->users   = $users;
+        $view->success = $_SESSION['users_success'] ?? '';
+        $view->error   = $_SESSION['users_error']   ?? '';
+        unset($_SESSION['users_success'], $_SESSION['users_error']);
         return $view->display();
     }
 
@@ -291,6 +294,95 @@ class UsersController extends Controller
             $this->setActiveFlag($id, 1);
         }
         $this->redirect(sURL . 'users');
+    }
+
+    /**
+     * Send a password reset email to the specified user (admin-initiated).
+     *
+     * Generates a `password_reset` token, stores it in `usertokens`, and
+     * emails the user a link pointing to getPasswordResetUrl($token). The
+     * reset URL defaults to `sURL . 'home/resetpassword/' . $token`; subclasses
+     * may override getPasswordResetUrl() to use a different route.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption).
+     */
+    public function resetpassword(mixed $id = null): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
+        if ($id < 2) {
+            $this->redirect(sURL . 'users');
+            return;
+        }
+
+        $user = new User();
+        $user->load($id);
+
+        if ((int) ($user->userid ?? 0) !== $id) {
+            $_SESSION['users_error'] = 'User not found.';
+            $this->redirect(sURL . 'users');
+            return;
+        }
+
+        $email = (string) ($user->email ?? '');
+        if ($email === '') {
+            $_SESSION['users_error'] = 'User has no email address — cannot send reset link.';
+            $this->redirect(sURL . 'users');
+            return;
+        }
+
+        $token    = bin2hex(random_bytes(32));
+        $user->addToken('password_reset', $token, 'Admin-initiated password reset');
+
+        $resetUrl = $this->getPasswordResetUrl($token);
+        $siteName = (string) \Pramnos\Application\Settings::getSetting('sitename', 'System');
+        $fromAddr = (string) \Pramnos\Application\Settings::getSetting('admin_mail', '');
+        if ($fromAddr === '') {
+            $host     = parse_url(sURL, PHP_URL_HOST) ?? 'localhost';
+            $fromAddr = 'noreply@' . $host;
+        }
+
+        $mailer          = new \Pramnos\Email\Email();
+        $mailer->to      = $email;
+        $mailer->from    = $fromAddr;
+        $mailer->subject = 'Password Reset — ' . $siteName;
+        $mailer->body    = $this->buildPasswordResetEmailBody($user, $resetUrl, $siteName);
+
+        if ($mailer->send()) {
+            $_SESSION['users_success'] = 'Password reset email sent to ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '.';
+        } else {
+            $_SESSION['users_error'] = 'Failed to send password reset email.';
+        }
+
+        $this->redirect(sURL . 'users');
+    }
+
+    /**
+     * Return the URL the reset email should point to.
+     * Override in a subclass to use a custom route.
+     */
+    protected function getPasswordResetUrl(string $token): string
+    {
+        return sURL . 'home/resetpassword/' . $token;
+    }
+
+    /**
+     * Build the HTML body of the password reset email.
+     */
+    private function buildPasswordResetEmailBody(User $user, string $resetUrl, string $siteName): string
+    {
+        $username = htmlspecialchars((string) ($user->username ?? ''), ENT_QUOTES, 'UTF-8');
+        $link     = htmlspecialchars($resetUrl, ENT_QUOTES, 'UTF-8');
+        $site     = htmlspecialchars($siteName, ENT_QUOTES, 'UTF-8');
+
+        return '<p>Hello ' . $username . ',</p>'
+            . '<p>A password reset has been requested for your account on <strong>' . $site . '</strong>.</p>'
+            . '<p>Click the link below to set a new password:</p>'
+            . '<p><a href="' . $link . '">' . $link . '</a></p>'
+            . '<p>If you did not request this, please ignore this email. '
+            . 'The link expires in 24 hours.</p>'
+            . '<p>— ' . $site . ' Team</p>';
     }
 
     /**
