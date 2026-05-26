@@ -1,7 +1,23 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-26 (session 139) — Phase 21 complete: Form Requests + Model Factories + Notification Channels ✅
+## 📅 Last Updated: 2026-05-26 (session 140) — Phase 12 PusherDriver + pramnos-echo.js ✅
+
+## 🏁 Session 140 — Phase 12: PusherDriver + pramnos-echo.js (2026-05-26)
+
+### ✅ Phase 12 Broadcasting — PusherDriver + client-side JS
+
+- **`src/Pramnos/Broadcasting/Drivers/PusherDriver.php`** — Pusher HTTP API driver; supports Pusher cloud + Reverb self-hosted; runtime guard when `pusher/pusher-php-server` not installed.
+- **`tests/Unit/Broadcasting/PusherDriverTest.php`** — 3 tests; runtime-guard test always runs; SDK tests auto-skip when package absent.
+- **`scaffolding/resources/vendor/pramnos-echo/pramnos-echo.js`** — browser client; `PramnosEcho.configure/channel/private/presence/leave/disconnect`; CSRF auto-inject.
+- **`composer.json`** — `suggest` section: `pusher/pusher-php-server ^7.0`.
+- **`docs/1.2-new-features.md`** — §70 extended with PusherDriver + pramnos-echo.js API docs.
+
+### ROADMAP items closed
+- `[x]` Phase 12: PusherDriver / ReverbDriver
+- `[x]` Phase 12: Client-side helper (`pramnos-echo.js`)
+
+---
 
 ## 🏁 Session 139 — Phase 21: Form Requests + Model Factories (2026-05-26)
 
