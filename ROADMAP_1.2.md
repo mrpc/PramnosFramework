@@ -1367,7 +1367,7 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
 
 - [x] **Form Requests (Advanced Validation):** `Pramnos\Validation\FormRequest` — subclasses declare `rules()`, `validated()` runs validation, stores errors in session and redirects on failure. Static helpers `hasErrors()`, `errors()`, `old()`. 12 unit tests.
 - [x] **Model Factories:** `Pramnos\Support\ModelFactory` — `User::factory()->count(50)->create()`. Fluent `count()`/`state()` cloning, `make()` (in-memory) + `create()` (persisted). `OrmModel::factory()` convention lookup. 13 unit tests.
-- [ ] **Notification Channels:** Δημιουργία ενός ενοποιημένου Notification Component (πέραν του απλού Email και Messaging). Έτσι, θα ορίζουμε μια κλάση `InvoicePaidNotification` και το σύστημα θα την κάνει dispatch ταυτόχρονα σε πολλαπλά κανάλια (Email, SMS, WebSockets, Database Logs) ανάλογα με τα preferences του χρήστη.
+- [x] **Notification Channels:** `Pramnos\Notification` — `$user->notify(new InvoicePaidNotification(...))` dispatches to Mail, Database, Broadcast, Log channels. `NotificationInterface` + `ChannelInterface` + `NotifiableInterface` + `NotifiableTrait`. `Notifier` resolves channels by alias or FQCN. Migration `CreateNotificationsTable`. 25 unit tests + 6 MySQL integration tests.
 
 ---
 
@@ -1425,7 +1425,7 @@ $content = shell_exec('cd /home/urbanwater/public_html && git pull origin master
   - [x] `save()` — POST handler για create/update
   - [x] `delete($id)` — διαγραφή (soft delete αν `deleted_at` υπάρχει)
   - [x] `lock($id)` / `unlock($id)` — αλλαγή `active` flag
-  - `resetpassword($id)` — send password reset email *(pending)*
+  - [x] `resetpassword($id)` — send password reset email via `User::addToken()` + `Pramnos\Email\Email`
   - [x] `sessions($id)` — λίστα ενεργών sessions για χρήστη
   - [x] Wrapper: `src/Controllers/Users.php` — scaffolded πάντα
 
