@@ -1,7 +1,32 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-26 (session 144) — BC validation + 3 critical bug fixes ✅
+## 📅 Last Updated: 2026-05-27 (session 145) — PF-9 docs, PF-40, Phase 17 JS tests, migration display fix ✅
+
+## 🏁 Session 145 — PF-40, Phase 17 JS tests, migration display fix (2026-05-27)
+
+### ✅ PF-9 docs added (retrospective — missed in f012455)
+- `docs/1.2-new-features.md` §62 now documents `withCache()` and `cache()` with examples.
+- **Commit**: `c2c6359`
+
+### ✅ PF-40 — Client-side group-by selector in `Datatable`
+- New: `$groupByColumn` (int|null) pre-selects group column; `$groupBySelector` (bool) shows runtime dropdown.
+- `renderTable()` injects `<select id="pf40_groupby_{name}">` with per-column options + "None" default.
+- `renderJs()` emits `pf40_doGroup_*()` hooked on `draw.dt`; selector `change` calls `fnDraw()`.
+- 8 unit tests in `tests/Unit/Pramnos/Html/DatatableGroupByTest.php`.
+- **Commit**: `c2c6359`
+
+### ✅ Phase 17 — Client-side JS adapter tests (node:test, zero npm deps)
+- `tests/js/adapters.test.js`: 33 tests covering PramnosDataTable + PramnosGridJS transformations.
+- `./testjs` script: runs in Docker container (after rebuild with `nodejs`) or falls back to host.
+- Added `nodejs` to `Dockerfile` (Debian 13 apt → Node.js 20).
+- **Commit**: `557db34`
+
+### ✅ fix(init): migration detail output restored in `pramnos init app`
+- **Root cause 1**: Non-blocking pipes: `stream_get_contents()` called in non-blocking mode after process exit could miss data. Fixed with `stream_set_blocking($pipe, true)` before final drain.
+- **Root cause 2**: Combined stdout+stderr wrapped in a single `<error>` tag — fails silently when text contains `<` (SQL error messages). Fixed to output each line via `OutputFormatter::escape()`.
+- **Improvement**: Migration step passes `alwaysShowOutput=true` → migration list is shown on success too (not just failure).
+- **Commit**: `68347ed`
 
 ## 🏁 Session 144 — urbanwaterDev BC validation: 3 regression fixes (2026-05-26)
 
