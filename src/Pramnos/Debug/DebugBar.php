@@ -105,7 +105,7 @@ class DebugBar
             $label      = $this->formatTabLabel($name, $data);
             $panelHtml  = $this->renderPanel($name, $data);
             $tabs[]     = sprintf(
-                '<button class="pdb-tab" data-panel="%s" onclick="pdbShowPanel(\'%s\')">%s</button>',
+                '<button class="pdb-tab" data-panel="%s" onclick="pdbShowPanel(event,\'%s\')">%s</button>',
                 htmlspecialchars($name),
                 htmlspecialchars($name),
                 $label,
@@ -128,6 +128,7 @@ class DebugBar
 
         return <<<HTML
 <style>{$css}</style>
+<script>document.body.style.paddingBottom='36px';</script>
 <div id="pramnos-debugbar">
   <div id="pdb-bar">
     <span id="pdb-brand">&#9881; Pramnos</span>
@@ -261,14 +262,14 @@ HTML;
 .pdb-dl dt{color:#89b4fa}
 .pdb-level-error{color:#f38ba8}
 .pdb-level-warn,.pdb-level-warning{color:#fab387}
-p{margin:0 0 6px}
+#pdb-panels p{margin:0 0 6px}
 ';
     }
 
     private function js(): string
     {
         return '
-function pdbShowPanel(name){
+function pdbShowPanel(e,name){
   var panels=document.querySelectorAll(".pdb-panel");
   var tabs=document.querySelectorAll(".pdb-tab");
   var panelEl=document.getElementById("pdb-panel-"+name);
@@ -279,7 +280,7 @@ function pdbShowPanel(name){
   if(isOpen){panelsDiv.style.display="none";return}
   panelEl.style.display="block";
   panelsDiv.style.display="block";
-  event.target.classList.add("pdb-active");
+  e.currentTarget.classList.add("pdb-active");
 }
 function pdbToggle(){
   var d=document.getElementById("pdb-panels");
