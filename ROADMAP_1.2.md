@@ -925,9 +925,9 @@
 - [x] **`BroadcastingServiceProvider`:** registers `'broadcasting'` singleton in container; reads `app.php` `broadcasting.default` + `broadcasting.log_path`; fallback to null driver on misconfiguration.
 - [x] **Feature key `'broadcasting'`** registered in FeatureRegistry.
 - [x] **Tests:** 15 unit tests — FeatureRegistry, manager defaults, driver registration, setDefault errors, via() routing, LogDriver I/O (write/read/clear), NullDriver.
-- [ ] **PusherDriver / ReverbDriver:** προαιρετική εξάρτηση — runtime guard αν δεν είναι εγκατεστημένο.
+- [x] **PusherDriver / ReverbDriver:** προαιρετική εξάρτηση — runtime guard αν δεν είναι εγκατεστημένο.
 - [ ] **`pramnos broadcast:serve`** command: ελαφρύ WebSocket server για local dev (Ratchet/ReactPHP).
-- [ ] **Client-side helper:** `www/assets/vendor/pramnos-echo/` — minimal JS που κάνει subscribe σε channels.
+- [x] **Client-side helper:** `scaffolding/resources/vendor/pramnos-echo/pramnos-echo.js` — minimal JS που κάνει subscribe σε channels (Pusher-compatible).
 
 > **Εξάρτηση:** Φάση 12 εξαρτάται από Φάση 11 (Cache για channel presence/heartbeat tracking).
 
