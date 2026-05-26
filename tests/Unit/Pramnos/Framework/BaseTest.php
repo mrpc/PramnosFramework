@@ -25,4 +25,45 @@ class BaseTest extends \PHPUnit\Framework\TestCase
     {
         $this->assertInstanceOf('\Pramnos\Framework\Base', $this->object);
     }
+
+    /**
+     * Verifies the complete magic-property quartet: __set/__get/__isset/__unset.
+     *
+     * A property stored via __set() must be readable via __get(), visible to
+     * isset(), and fully removed (including from isset()) after unset().
+     * This contract prevents silent failures when application code uses
+     * isset() / empty() / unset() on dynamic model properties.
+     */
+    public function testMagicPropertyQuartet(): void
+    {
+        // Arrange / Act — store via __set
+        $this->object->foo = 'bar';
+
+        // Assert — __get and __isset work
+        $this->assertSame('bar', $this->object->foo);
+        $this->assertTrue(isset($this->object->foo));
+
+        // Act — __unset removes from _data
+        unset($this->object->foo);
+
+        // Assert — __get returns null, __isset returns false
+        $this->assertNull($this->object->foo);
+        $this->assertFalse(isset($this->object->foo));
+    }
+
+    /**
+     * Verifies that __isset returns false for a property set to null, so that
+     * isset() and unset() are semantically consistent with regular PHP vars.
+     */
+    public function testIssetReturnsFalseForNullProperty(): void
+    {
+        // Arrange
+        $this->object->bar = null;
+
+        // Assert — null value makes isset() false (consistent with PHP semantics)
+        $this->assertFalse(isset($this->object->bar));
+
+        // But __get still returns null (property readable, just "not set")
+        $this->assertNull($this->object->bar);
+    }
 }
