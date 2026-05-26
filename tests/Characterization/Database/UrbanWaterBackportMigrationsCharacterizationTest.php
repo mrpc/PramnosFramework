@@ -13,6 +13,7 @@ use Pramnos\Framework\Migrations\Applications\CreateApplicationSettingsTable;
 use Pramnos\Framework\Migrations\Applications\CreateApplicationStatsTable;
 use Pramnos\Framework\Migrations\AuthServer\CreateUserAppAuthorizationsTable;
 use Pramnos\Database\Migrations\AddMissingForeignKeysToExistingTables;
+use Pramnos\Database\Migrations\AddMissingIndexesToExistingTables;
 
 /**
  * Characterization tests for new UrbanWater schema backport migrations.
@@ -164,6 +165,24 @@ class UrbanWaterBackportMigrationsCharacterizationTest extends TestCase
                 }
             }
 
+            // Step 1b — drop any stray indexes left by AddMissingIndexesToExistingTables
+            // tests that failed before reaching their inline cleanup. DROP INDEX IF EXISTS
+            // is safe when the index does not exist.
+            foreach ([
+                'idx_sessions_userid',
+                'idx_sessions_time',
+                'idx_tokenactions_tokenid',
+                'idx_tokenactions_urlid',
+                'idx_tokenactions_return_status',
+                'idx_tokenactions_execution_time',
+                'idx_tokenactions_time_method',
+                'idx_usertokens_parentToken',
+                'idx_usertokens_token',
+                'idx_users_photo',
+            ] as $idx) {
+                $this->db->statement("DROP INDEX IF EXISTS \"{$idx}\"");
+            }
+
             // Step 2 — drop tables that migration up() methods CREATE (not pre-existing).
             // These should be dropped by inline migration->down() calls in each test,
             // but guard with IF EXISTS in case a test fails before reaching its cleanup.
@@ -171,6 +190,7 @@ class UrbanWaterBackportMigrationsCharacterizationTest extends TestCase
                 '"applications"."application_settings"',
                 '"applications"."application_stats"',
                 '"authserver"."user_app_authorizations"',
+                '"public"."sessions"',
             ] as $table) {
                 $this->db->statement("DROP TABLE IF EXISTS {$table}");
             }
@@ -489,6 +509,140 @@ class UrbanWaterBackportMigrationsCharacterizationTest extends TestCase
             'public',
             'urls'
         );
+
+        // Cleanup
+        $migration->down();
+    }
+
+    /**
+     * Verifies that AddMissingIndexesToExistingTables.up() creates indexes on the
+     * sessions table (userid and time columns used for active-session lookups).
+     *
+     * These indexes are present in the UrbanWater production schema but were absent
+     * from the original sessions migration.
+     */
+    public function testAddMissingIndexesAddsSessesionIndexes(): void
+    {
+        if ($this->driver !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL-only test.');
+        }
+
+        // Arrange – create a minimal sessions stub with the required columns.
+        $this->db->statement(
+            "CREATE TABLE IF NOT EXISTS public.sessions ("
+            . "visitorid VARCHAR(255) PRIMARY KEY,"
+            . "userid BIGINT,"
+            . "time INTEGER"
+            . ")"
+        );
+
+        $migration = new AddMissingIndexesToExistingTables($this->app);
+
+        // Ensure indexes do not already exist (clean state for the test).
+        $this->db->statement('DROP INDEX IF EXISTS idx_sessions_userid');
+        $this->db->statement('DROP INDEX IF EXISTS idx_sessions_time');
+
+        // Act
+        $migration->up();
+
+        // Assert – both session lookup indexes exist.
+        $this->assertIndexExists('public', 'sessions', 'idx_sessions_userid');
+        $this->assertIndexExists('public', 'sessions', 'idx_sessions_time');
+
+        // Cleanup – down() drops the indexes; then drop the stub table.
+        $migration->down();
+        $this->db->statement('DROP TABLE IF EXISTS public.sessions');
+    }
+
+    /**
+     * Verifies that AddMissingIndexesToExistingTables.up() creates the basic
+     * tokenactions indexes (tokenid and urlid) that were in the original UrbanWater
+     * schema but were omitted from the framework's CREATE TABLE migration
+     * (which only added composite time-based indexes for TimescaleDB queries).
+     */
+    public function testAddMissingIndexesAddsTokenactionsBasicIndexes(): void
+    {
+        if ($this->driver !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL-only test.');
+        }
+
+        // Arrange – stub tokenactions already exists from setUp (tokenid, urlid columns).
+        $migration = new AddMissingIndexesToExistingTables($this->app);
+
+        // Remove any lingering indexes from previous runs.
+        $this->db->statement('DROP INDEX IF EXISTS idx_tokenactions_tokenid');
+        $this->db->statement('DROP INDEX IF EXISTS idx_tokenactions_urlid');
+
+        // Act
+        $migration->up();
+
+        // Assert – single-column indexes on tokenid and urlid exist.
+        $this->assertIndexExists('public', 'tokenactions', 'idx_tokenactions_tokenid');
+        $this->assertIndexExists('public', 'tokenactions', 'idx_tokenactions_urlid');
+
+        // Cleanup
+        $migration->down();
+    }
+
+    /**
+     * Verifies that AddMissingIndexesToExistingTables.up() creates the parentToken
+     * index on usertokens and, when the return_status column exists, creates the
+     * idx_tokenactions_return_status and idx_tokenactions_time_method indexes.
+     *
+     * The migration guards these with hasColumn() checks; this test adds the
+     * missing columns to the stubs so all guards evaluate to true.
+     */
+    public function testAddMissingIndexesAddsConditionalColumnIndexes(): void
+    {
+        if ($this->driver !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL-only test.');
+        }
+
+        // Arrange – extend the tokenactions stub with return_status, execution_time_ms,
+        // action_time, and method columns so the conditional guards succeed.
+        $this->db->statement(
+            'ALTER TABLE public.tokenactions ADD COLUMN IF NOT EXISTS return_status INTEGER'
+        );
+        $this->db->statement(
+            'ALTER TABLE public.tokenactions ADD COLUMN IF NOT EXISTS execution_time_ms NUMERIC(10,3)'
+        );
+        $this->db->statement(
+            "ALTER TABLE public.tokenactions ADD COLUMN IF NOT EXISTS action_time TIMESTAMPTZ DEFAULT NOW()"
+        );
+        $this->db->statement(
+            "ALTER TABLE public.tokenactions ADD COLUMN IF NOT EXISTS method VARCHAR(6)"
+        );
+        // Also extend usertokens stub with a token column so idx_usertokens_token can be tested.
+        $this->db->statement(
+            "ALTER TABLE public.usertokens ADD COLUMN IF NOT EXISTS token TEXT"
+        );
+
+        $migration = new AddMissingIndexesToExistingTables($this->app);
+
+        // Drop any indexes left from previous runs.
+        foreach ([
+            'idx_usertokens_parentToken',
+            'idx_usertokens_token',
+            'idx_tokenactions_return_status',
+            'idx_tokenactions_execution_time',
+            'idx_tokenactions_time_method',
+        ] as $idx) {
+            $this->db->statement("DROP INDEX IF EXISTS \"{$idx}\"");
+        }
+
+        // Act
+        $migration->up();
+
+        // Assert – parentToken index on usertokens exists.
+        $this->assertIndexExists('public', 'usertokens', 'idx_usertokens_parentToken');
+
+        // Assert – token lookup index exists.
+        $this->assertIndexExists('public', 'usertokens', 'idx_usertokens_token');
+
+        // Assert – conditional tokenactions indexes exist.
+        $this->assertIndexExists('public', 'tokenactions', 'idx_tokenactions_return_status');
+        $this->assertIndexExists('public', 'tokenactions', 'idx_tokenactions_execution_time');
+        $this->assertIndexExists('public', 'tokenactions', 'idx_tokenactions_time_method');
 
         // Cleanup
         $migration->down();

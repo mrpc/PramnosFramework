@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-26 (session 141) — ROADMAP item 1: conditional FK users.locationid ✅
+## 📅 Last Updated: 2026-05-26 (session 141) — ROADMAP items 1+2: conditional FK + missing indexes ✅
 
 ## 🏁 Session 141 — ROADMAP item 1: conditional FK users.locationid (2026-05-26)
 
@@ -14,8 +14,15 @@
   - teardown step 1: aggiunto `userstogroups_userid_fkey` (auto-creato da `User::setupDb()`) per permettere il drop di `users` senza CASCADE dopo run del full suite.
 - **`docs/1.2-new-features.md`** — aggiunta sezione FK condizionale per `users.locationid`.
 
+### ✅ Schema index sync (ROADMAP item 2)
+
+- **`database/migrations/framework/core/2020_01_01_000052_add_missing_indexes_to_existing_tables.php`** — nuova migration con guard `hasTable`/`hasColumn`/`indexExists`; aggiunge index mancanti a `sessions`, `users`, `usertokens`, `tokenactions`.
+- **`tests/Characterization/Database/UrbanWaterBackportMigrationsCharacterizationTest.php`** — 3 nuovi test: sessions indexes, tokenactions basic indexes, conditional column indexes.
+- **`docs/1.2-new-features.md`** — nuova sezione §"Indexes Added to Existing Tables (000052)".
+
 ### ROADMAP items closed
 - `[x]` Missing FK su `users`: `locationid` → `locations.locationid` (SET NULL, conditional)
+- `[x]` Συγχρονισμός indexes με UrbanWater schema (sessions, users, usertokens, tokenactions)
 
 ---
 

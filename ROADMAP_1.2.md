@@ -840,7 +840,7 @@
 
 ##### Ενημέρωση Υπάρχοντος Κώδικα
 - [x] **Schema Repositioning:** `slow_api_calls` view — dropped from authserver schema (migration 000048), consolidated under `applications.slow_api_calls` (migration 000046)
-- [ ] Συγχρονισμός indexes, comments, default values με UrbanWater schema
+- [x] Συγχρονισμός indexes με UrbanWater schema — `core/000052-AddMissingIndexesToExistingTables.php`
 - [x] Ενημέρωση docs/1.2-new-features.md με τα νέα migration/schema elements
 
 #### Open Jira Issues προς ενσωμάτωση
