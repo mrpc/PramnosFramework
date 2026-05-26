@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-26 (session 141) — ROADMAP items 1+2: conditional FK + missing indexes ✅
+## 📅 Last Updated: 2026-05-26 (session 141) — ROADMAP items 1+2+3: FK, indexes, broadcast:serve ✅
 
 ## 🏁 Session 141 — ROADMAP item 1: conditional FK users.locationid (2026-05-26)
 
@@ -20,9 +20,17 @@
 - **`tests/Characterization/Database/UrbanWaterBackportMigrationsCharacterizationTest.php`** — 3 nuovi test: sessions indexes, tokenactions basic indexes, conditional column indexes.
 - **`docs/1.2-new-features.md`** — nuova sezione §"Indexes Added to Existing Tables (000052)".
 
+### ✅ `broadcast:serve` daemon (ROADMAP item 3)
+
+- **`src/Pramnos/Broadcasting/LocalBroadcastServer.php`** — Pure-PHP WebSocket server; Pusher protocol v7; RFC 6455 framing; `stream_socket_server` + `stream_select` event loop; tails LogDriver JSONL file; `logOffset` reset on log rotation; `broadcast()`, `stop()`, `onTick()`.
+- **`src/Pramnos/Console/Commands/BroadcastServe.php`** — Symfony command `broadcast:serve`; options `--host`, `--port`, `--log-file`, `--app-key`; SIGTERM/SIGINT shutdown; verbose tick output.
+- **`src/Pramnos/Console/Application.php`** — `BroadcastServe` command registered.
+- **`tests/Unit/Broadcasting/LocalBroadcastServerTest.php`** — 5 unit tests: constructor/stop safety, onTick registration, bind failure, log file format parsing (LogDriver `payload` + generic `data`), log rotation offset reset.
+
 ### ROADMAP items closed
 - `[x]` Missing FK su `users`: `locationid` → `locations.locationid` (SET NULL, conditional)
 - `[x]` Συγχρονισμός indexes με UrbanWater schema (sessions, users, usertokens, tokenactions)
+- `[x]` `pramnos broadcast:serve`: pure-PHP WebSocket server, Pusher-compatible, no Ratchet
 
 ---
 

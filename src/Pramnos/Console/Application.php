@@ -82,6 +82,8 @@ class Application extends \Symfony\Component\Console\Application
         // MCP server + debug status (Phase 13)
         $this->add(new \Pramnos\Console\Commands\McpServe());
         $this->add(new \Pramnos\Console\Commands\DebugStatus());
+        // Broadcasting (Phase 12)
+        $this->add(new \Pramnos\Console\Commands\BroadcastServe());
         // DaemonOrchestrator is abstract — apps register their own concrete subclass
     }
 
