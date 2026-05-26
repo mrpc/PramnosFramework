@@ -176,6 +176,20 @@ class Datatable extends Base
      */
     public $bootstrap = true;
 
+    /**
+     * Column index (0-based) to group rows by client-side.
+     * null means no grouping. Set directly or let the user pick via $groupBySelector.
+     * @var int|null
+     */
+    public $groupByColumn = null;
+
+    /**
+     * When true, renders a column-picker dropdown above the table so the user can
+     * choose (or clear) the group-by column at runtime without a page reload.
+     * @var bool
+     */
+    public $groupBySelector = false;
+
     public function __construct($name = '', $source = '')
     {
         $this->name = trim($name);
@@ -298,6 +312,9 @@ class Datatable extends Base
                 $return .= $showHide;
             }
         }
+        if ($this->groupBySelector === true) {
+            $return .= $this->renderGroupBySelector($lang);
+        }
         $return .= '<table id="' . $this->name . '" class="'
             . $this->tableClass . '" cellspacing="0" width="100%">
         <thead>
@@ -417,6 +434,42 @@ embed;
     } );
 embed;
         }
+    }
+
+    /**
+     * Builds the group-by column-picker dropdown HTML.
+     * Only called when $groupBySelector === true.
+     * @param  \Pramnos\Language\Language $lang
+     * @return string
+     */
+    private function renderGroupBySelector($lang): string
+    {
+        $selectorId  = 'pf40_groupby_' . $this->name;
+        $selectedCol = $this->groupByColumn !== null ? (int) $this->groupByColumn : -1;
+
+        $html  = '<div class="pramnos-groupby-selector" style="margin-bottom:8px;">';
+        $html .= '<label for="' . $selectorId . '" style="margin-right:5px;">'
+            . $lang->_('Group by') . ':</label>';
+        $html .= '<select id="' . $selectorId . '"';
+        if ($this->bootstrap === true) {
+            $html .= ' class="form-control"';
+        }
+        $html .= ' style="display:inline-block;width:auto;margin-right:8px;">';
+        $noneSelected = ($selectedCol === -1) ? ' selected' : '';
+        $html .= '<option value="-1"' . $noneSelected . '>' . $lang->_('None') . '</option>';
+
+        $n = 0;
+        foreach ($this->aoColumns as $column) {
+            if (trim($column->label) !== '') {
+                $selected = ($selectedCol === $n) ? ' selected' : '';
+                $html .= '<option value="' . $n . '"' . $selected . '>'
+                    . htmlspecialchars($column->label, ENT_QUOTES, 'UTF-8')
+                    . '</option>';
+            }
+            $n++;
+        }
+        $html .= '</select></div>';
+        return $html;
     }
 
     /**
@@ -550,6 +603,35 @@ ss;
         },
 table;
         }
+
+        // Build client-side group-by JS (injected into the load handler below).
+        $groupByInitJs = '';
+        if ($this->groupByColumn !== null || $this->groupBySelector === true) {
+            $initCol = $this->groupByColumn !== null ? (int) $this->groupByColumn : -1;
+            $nCols   = count($this->aoColumns);
+            $tName   = $this->name;
+            $groupByInitJs = "
+    var pf40_gc_{$tName} = {$initCol};
+    function pf40_doGroup_{$tName}() {
+        var col = pf40_gc_{$tName};
+        var tbody = jQuery('#{$tName} tbody');
+        tbody.find('tr.pramnos-group-row').remove();
+        if (col < 0) return;
+        var last = null;
+        tbody.find('tr').each(function() {
+            var cells = jQuery(this).find('td');
+            if (!cells.length) return;
+            var v = cells.eq(col).text();
+            if (v !== last) {
+                jQuery(this).before('<tr class=\"pramnos-group-row\" style=\"background:#f5f7fa;font-weight:bold;\"><td colspan=\"{$nCols}\" style=\"padding:6px 8px;\">' + v + '</td></tr>');
+                last = v;
+            }
+        });
+    }
+    jQuery('#{$tName}').on('draw.dt', pf40_doGroup_{$tName});
+    pf40_doGroup_{$tName}();";
+        }
+
         $return = <<<table
    <script>
 
@@ -598,6 +680,7 @@ table;
 
         $sf
         $this->codeEmbed;
+        $groupByInitJs
 
 
     });
@@ -616,6 +699,15 @@ table;
                 }
                 $n++;
             }
+        }
+        if ($this->groupBySelector === true) {
+            $sId   = 'pf40_groupby_' . $this->name;
+            $tName = $this->name;
+            $return .= "\ndocument.getElementById('" . $sId . "') && "
+                . "document.getElementById('" . $sId . "').addEventListener('change', function() {"
+                . "pf40_gc_" . $tName . " = parseInt(this.value);"
+                . $tName . ".fnDraw();"
+                . "});";
         }
         $return .= "\n</script>";
         return $return;
