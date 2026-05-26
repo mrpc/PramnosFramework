@@ -68,7 +68,7 @@
                 <tbody>
                     <tr>
                         <td class="py-1 pr-4 text-gray-500 w-2/5">Server</td>
-                        <td class="py-1 font-semibold"><?php echo htmlspecialchars($this->dbStats['version'] ?? ($this->dbStats['type'] ?? '—')); ?></td>
+                        <td class="py-1 font-semibold"><?php $__t=$this->dbStats['type']??''; echo htmlspecialchars($this->dbStats['version'] ?? (['postgresql'=>'PostgreSQL','mysql'=>'MySQL'][$__t] ?? ($__t ?: '—'))); ?></td>
                     </tr>
                     <tr>
                         <td class="py-1 pr-4 text-gray-500">Database size</td>
