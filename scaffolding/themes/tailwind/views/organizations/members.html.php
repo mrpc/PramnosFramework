@@ -34,7 +34,7 @@
                         <td><?php echo htmlspecialchars($m['username'] ?? ''); ?></td>
                         <td><?php echo htmlspecialchars($m['email'] ?? ''); ?></td>
                         <td class="text-right">
-                            <a href="<?php echo sURL; ?>Organizations/removemember/<?php echo (int)($this->org['id'] ?? 0); ?>/<?php echo (int)$m['userid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" onclick="return confirm('Remove member?')">Remove</a>
+                            <a href="<?php echo sURL; ?>Organizations/removemember/<?php echo (int)($this->org['id'] ?? 0); ?>/<?php echo (int)$m['userid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" data-confirm="Remove member?">Remove</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

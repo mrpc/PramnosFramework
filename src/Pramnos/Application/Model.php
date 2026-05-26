@@ -869,7 +869,7 @@ class Model extends \Pramnos\Framework\Base
 
                     $confirm = '';
                     if ($action['confirm'] == true) {
-                        $confirm = " onclick=\"return confirm('" . $lang->_('Are you sure?') . "');\" ";
+                        $confirm = ' data-confirm="' . htmlspecialchars($lang->_('Are you sure?'), ENT_QUOTES) . '" ';
                     }
 
                     if ($action['column'] == '') {

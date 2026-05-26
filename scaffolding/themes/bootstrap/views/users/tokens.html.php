@@ -67,7 +67,7 @@ $statusLabel = function (int $s): string {
                                 <input type="hidden" name="userid" value="<?php echo $uid; ?>">
                                 <input type="hidden" name="tokenid" value="<?php echo $tokenId; ?>">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"
-                                    onclick="return confirm('Delete this token permanently?')">Delete</button>
+                                    data-confirm="Delete this token permanently?">Delete</button>
                             </form>
                         </td>
                     </tr>

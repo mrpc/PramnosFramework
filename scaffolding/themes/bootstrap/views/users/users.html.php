@@ -42,8 +42,8 @@
                         <td class="text-end">
                             <a href="<?php echo sURL; ?>Users/edit/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
                             <a href="<?php echo sURL; ?>Users/sessions/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-info">Sessions</a>
-                            <a href="<?php echo sURL; ?>Users/resetpassword/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-warning" onclick="return confirm('Send password reset email to this user?')">Reset Password</a>
-                            <a href="<?php echo sURL; ?>Users/delete/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Deactivate this user?')">Deactivate</a>
+                            <a href="<?php echo sURL; ?>Users/resetpassword/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-warning" data-confirm="Send password reset email to this user?">Reset Password</a>
+                            <a href="<?php echo sURL; ?>Users/delete/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Deactivate this user?">Deactivate</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

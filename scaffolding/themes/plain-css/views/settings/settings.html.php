@@ -92,11 +92,15 @@ ksort($initialSteps, SORT_NUMERIC);
                     </div>
                     <div>
                         <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Debug Mode</label>
+                        <?php if (defined('DEVELOPMENT') && DEVELOPMENT === true): ?>
+                            <small style="color:#e67e22;font-size:12px">&#9888; Always ON — DEVELOPMENT constant is defined in app config. This setting has no effect.</small>
+                        <?php else: ?>
                         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
                             <input type="checkbox" name="debug" value="yes"
                                 <?php echo (($s['debug'] ?? '') === 'yes') ? 'checked' : ''; ?>>
                             <span style="font-size:13px">Enabled</span>
                         </label>
+                        <?php endif; ?>
                     </div>
                     <div>
                         <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Force HTTPS</label>

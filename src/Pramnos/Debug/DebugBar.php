@@ -137,6 +137,7 @@ class DebugBar
   <div id="pdb-bar">
     <span id="pdb-brand">&#9881; Pramnos</span>
     {$tabsHtml}
+    <a class="pdb-devpanel" href="/devpanel" title="DevPanel">&#128270; DevPanel</a>
     <button class="pdb-close" id="pdb-close-btn">&#x2715;</button>
   </div>
   <div id="pdb-panels">{$panelsHtml}</div>
@@ -254,7 +255,9 @@ HTML;
 #pdb-brand{color:#89b4fa;font-weight:bold;margin-right:8px;flex-shrink:0}
 .pdb-tab{background:none;border:none;color:#cdd6f4;cursor:pointer;padding:2px 8px;border-radius:4px;font:inherit}
 .pdb-tab:hover,.pdb-tab.pdb-active{background:#313244;color:#89b4fa}
-.pdb-close{background:none;border:none;color:#f38ba8;cursor:pointer;margin-left:auto;font:inherit;flex-shrink:0}
+.pdb-devpanel{color:#a6e3a1;text-decoration:none;padding:2px 8px;font:inherit;flex-shrink:0;margin-left:auto}
+.pdb-devpanel:hover{color:#cba6f7}
+.pdb-close{background:none;border:none;color:#f38ba8;cursor:pointer;margin-left:4px;font:inherit;flex-shrink:0}
 #pdb-panels{max-height:300px;overflow-y:auto;padding:8px 12px;background:#181825;border-top:1px solid #313244;display:none}
 .pdb-table{width:100%;border-collapse:collapse;font-size:11px}
 .pdb-table th{background:#313244;padding:4px 8px;text-align:left;color:#89b4fa}

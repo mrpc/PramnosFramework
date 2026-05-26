@@ -467,9 +467,9 @@ class DevPanelController extends Controller
         $items      = $cache->getAllItems($ns, 100);
 
         $flushButton = <<<HTML
-            <form method="POST" onsubmit="return confirm('Flush entire cache?');">
+            <form method="POST">
                 <input type="hidden" name="action" value="flush">
-                <button type="submit" class="btn-danger">Flush All Cache</button>
+                <button type="submit" class="btn-danger" data-confirm="Flush entire cache?">Flush All Cache</button>
             </form>
         HTML;
 
@@ -498,7 +498,7 @@ class DevPanelController extends Controller
             }
             $created = htmlspecialchars((string) ($item['created_time'] ?? '—'));
             $nsParam = $ns !== '' ? '&amp;ns=' . htmlspecialchars(urlencode($ns)) : '';
-            $inspectBtn = "<button class='btn-inspect' data-key='{$keyEnc}' data-ns='" . htmlspecialchars(urlencode($ns)) . "' onclick='inspectItem(this)' style='padding:2px 8px;cursor:pointer;font-size:0.8em'>Inspect</button>";
+            $inspectBtn = "<button class='btn-inspect' data-key='{$keyEnc}' data-ns='" . htmlspecialchars(urlencode($ns)) . "' data-inspect style='padding:2px 8px;cursor:pointer;font-size:0.8em'>Inspect</button>";
             $itemRows .= "<tr><td><code style='font-size:0.85em'>{$key}</code></td><td>{$nsDisp}</td><td class='num'>{$size}</td><td>{$ttl}</td><td>{$created}</td><td>{$inspectBtn}</td></tr>";
         }
 
@@ -506,6 +506,8 @@ class DevPanelController extends Controller
         $nsFilter = !empty($categories) ? "<div class='range-bar' style='margin-bottom:1rem'>{$nsLinks}</div>" : '';
         $itemCount = count($items);
         $limitNote = $itemCount >= 100 ? ' <em>(showing first 100)</em>' : '';
+        $cacheNonce = \Pramnos\Application\Application::getInstance()->cspNonce ?? '';
+        $cacheNa    = $cacheNonce !== '' ? ' nonce="' . htmlspecialchars($cacheNonce, ENT_QUOTES) . '"' : '';
 
         return <<<HTML
             <div class="grid-2">
@@ -528,8 +530,10 @@ class DevPanelController extends Controller
                 <strong id="inspect-title">Item content</strong>
                 <pre id="inspect-content" style="margin-top:0.5rem;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:0.8em"></pre>
             </div>
-            <script>
-            function inspectItem(btn) {
+            <script{$cacheNa}>
+            document.addEventListener('click', function(e) {
+                var btn = e.target.closest('[data-inspect]');
+                if (!btn) return;
                 var key = btn.dataset.key;
                 var ns  = btn.dataset.ns;
                 var url = '?action=cache&key=' + key + (ns ? '&ns=' + ns : '');
@@ -543,7 +547,7 @@ class DevPanelController extends Controller
                     document.getElementById('inspect-title').textContent = 'Error';
                     document.getElementById('inspect-content').textContent = String(e);
                 });
-            }
+            });
             </script>
         HTML;
     }
@@ -1149,15 +1153,17 @@ class DevPanelController extends Controller
             $tabHtml .= "<a href=\"{$href}\"{$active}>" . htmlspecialchars($label) . "</a>";
         }
 
-        $css  = $this->panelCss();
-        $html = <<<HTML
+        $css   = $this->panelCss();
+        $nonce = \Pramnos\Application\Application::getInstance()->cspNonce ?? '';
+        $na    = $nonce !== '' ? ' nonce="' . htmlspecialchars($nonce, ENT_QUOTES) . '"' : '';
+        $html  = <<<HTML
         <!DOCTYPE html>
         <html lang="en">
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>{$title}</title>
-          <style>{$css}</style>
+          <style{$na}>{$css}</style>
         </head>
         <body>
           <div id="devpanel">
@@ -1170,7 +1176,7 @@ class DevPanelController extends Controller
                 {$content}
               </div>
             </main>
-            <footer>PramnosFramework DevPanel · <a href="{$baseUrl}/{$mountPoint}/phpinfo">PHP Info</a></footer>
+            <footer>PramnosFramework DevPanel · <a href="{$baseUrl}/{$mountPoint}/phpinfo">PHP Info</a> · <a href="{$baseUrl}">&#8592; Back to app</a></footer>
           </div>
         </body>
         </html>

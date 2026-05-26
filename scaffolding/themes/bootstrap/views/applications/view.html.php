@@ -46,7 +46,7 @@ $accessTypeLabel = function (int $t): string {
                         <input type="text" class="form-control font-monospace" readonly
                                value="<?php echo htmlspecialchars($app['apikey'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
                         <button class="btn btn-outline-secondary" type="button"
-                                onclick="navigator.clipboard.writeText(this.previousElementSibling.value)"
+                                data-copy-prev
                                 title="Copy">&#128203;</button>
                     </div>
                     <label class="form-label text-muted small">Client Secret</label>
@@ -55,7 +55,7 @@ $accessTypeLabel = function (int $t): string {
                                value="<?php echo htmlspecialchars($app['apisecret'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
                                id="appSecret<?php echo $appId; ?>">
                         <button class="btn btn-outline-secondary" type="button"
-                                onclick="var f=document.getElementById('appSecret<?php echo $appId; ?>');f.type=f.type==='password'?'text':'password'"
+                                data-toggle-type="appSecret<?php echo $appId; ?>"
                                 title="Toggle">&#128065;</button>
                     </div>
                 </div>
@@ -88,10 +88,10 @@ $accessTypeLabel = function (int $t): string {
                     <a href="<?php echo sURL; ?>applications/tokens/<?php echo $appId; ?>" class="btn btn-outline-secondary btn-sm">View Tokens</a>
                     <a href="<?php echo sURL; ?>applications/rotate/<?php echo $appId; ?>"
                        class="btn btn-outline-warning btn-sm"
-                       onclick="return confirm('Rotate the client secret? Existing tokens remain valid.')">Rotate Secret</a>
+                       data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</a>
                     <a href="<?php echo sURL; ?>applications/delete/<?php echo $appId; ?>"
                        class="btn btn-outline-danger btn-sm"
-                       onclick="return confirm('Disable this application and revoke all active tokens?')">Disable App</a>
+                       data-confirm="Disable this application and revoke all active tokens?">Disable App</a>
                 </div>
             </div>
 

@@ -211,9 +211,15 @@ class Application extends Base
         if (!defined('DB_PERMISSIONSTABLE')) {
             define('DB_PERMISSIONSTABLE', "#PREFIX#permissions");
         }
-        ini_set(
-            'error_log', LOG_PATH . DS . 'logs' . DS . 'php_error.log'
-        );
+        ini_set('error_log', LOG_PATH . DS . 'logs' . DS . 'php_error.log');
+        ini_set('log_errors', '1');
+        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
+            error_reporting(E_ALL);
+            ini_set('display_errors', '1');
+        } else {
+            error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+            ini_set('display_errors', '0');
+        }
         define('PRAMNOS_DEFINES', true);
     }
 

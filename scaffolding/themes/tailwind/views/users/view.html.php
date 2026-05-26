@@ -106,7 +106,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     <?php if ($isActive): ?>
                         <a href="<?php echo sURL; ?>users/lock/<?php echo $uid; ?>"
                            class="block text-center px-3 py-2 text-sm border border-yellow-400 text-yellow-700 rounded hover:bg-yellow-50"
-                           onclick="return confirm('Lock this account?')">Lock Account</a>
+                           data-confirm="Lock this account?">Lock Account</a>
                     <?php else: ?>
                         <a href="<?php echo sURL; ?>users/unlock/<?php echo $uid; ?>"
                            class="block text-center px-3 py-2 text-sm border border-green-400 text-green-700 rounded hover:bg-green-50">Unlock Account</a>

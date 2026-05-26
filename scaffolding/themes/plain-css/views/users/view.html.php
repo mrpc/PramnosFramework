@@ -87,7 +87,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     <a href="<?php echo sURL; ?>users/edit/<?php echo $uid; ?>" class="btn btn-primary" style="text-align:center">Edit User</a>
                     <?php if ($isActive): ?>
                         <a href="<?php echo sURL; ?>users/lock/<?php echo $uid; ?>" class="btn btn-outline-warning" style="text-align:center"
-                           onclick="return confirm('Lock this account?')">Lock Account</a>
+                           data-confirm="Lock this account?">Lock Account</a>
                     <?php else: ?>
                         <a href="<?php echo sURL; ?>users/unlock/<?php echo $uid; ?>" class="btn btn-outline-success" style="text-align:center">Unlock Account</a>
                     <?php endif; ?>

@@ -65,7 +65,7 @@
                    class="inline-flex items-center px-4 py-2 border border-indigo-300 rounded-md text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50 transition-colors">
                     Manage Backup Codes
                 </a>
-                <button type="button" onclick="document.getElementById('disableModal').classList.remove('hidden')"
+                <button type="button" data-modal-show="disableModal"
                         class="inline-flex items-center px-4 py-2 border border-red-300 rounded-md text-sm font-medium text-red-700 bg-white hover:bg-red-50 transition-colors">
                     Disable 2FA
                 </button>
@@ -90,7 +90,7 @@
             <input type="password" id="confirm_password" name="confirm_password" required autocomplete="current-password"
                    class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500">
             <div class="flex justify-end gap-2">
-                <button type="button" onclick="document.getElementById('disableModal').classList.add('hidden')"
+                <button type="button" data-modal-hide="disableModal"
                         class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
                     Cancel
                 </button>

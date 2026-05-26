@@ -4,4 +4,5 @@
             <p class="text-sm text-gray-500">Powered by <a href="https://github.com/mrpc/PramnosFramework" target="_blank" class="text-gray-400 hover:text-white">PramnosFramework</a></p>
         </div>
     </footer>
+    <script src="<?php echo sURL; ?>assets/js/pf-utils.js"></script>
     <?php $this->document->renderJs(); ?>

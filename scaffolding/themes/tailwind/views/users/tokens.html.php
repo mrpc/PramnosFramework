@@ -67,7 +67,7 @@ $statusBadge = function (int $s): string {
                             <input type="hidden" name="userid" value="<?php echo $uid; ?>">
                             <input type="hidden" name="tokenid" value="<?php echo $tokenId; ?>">
                             <button type="submit" class="px-2 py-1 text-xs border border-red-300 text-red-700 rounded hover:bg-red-50"
-                                onclick="return confirm('Delete this token?')">Delete</button>
+                                data-confirm="Delete this token?">Delete</button>
                         </form>
                     </td>
                 </tr>

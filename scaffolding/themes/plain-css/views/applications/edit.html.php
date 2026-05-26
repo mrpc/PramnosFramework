@@ -37,7 +37,7 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
             <div style="font-size:13px"><strong>Client ID:</strong> <code style="background:#fff;padding:2px 4px;border-radius:3px"><?php echo htmlspecialchars($app['apikey'] ?? ''); ?></code></div>
             <a href="<?php echo sURL; ?>applications/rotate/<?php echo (int)$app['appid']; ?>"
                style="margin-left:auto" class="btn btn-sm btn-outline-warning"
-               onclick="return confirm('Rotate the client secret?')">Rotate Secret</a>
+               data-confirm="Rotate the client secret?">Rotate Secret</a>
         </div>
     <?php endif; ?>
 

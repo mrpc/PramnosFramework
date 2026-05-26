@@ -179,7 +179,7 @@ class QueueItem extends \Pramnos\Application\Model
                 }
 
                 $data[] = '<a href="' . $this->getItemEditUrl($taskid) . '">Edit</a> '
-                    . '<a onclick="return confirm(\'Delete this task?\');" href="'
+                    . '<a data-confirm="Delete this task?" href="'
                     . $this->getItemDeleteUrl($taskid) . '">Delete</a>';
 
                 $items['aaData'][$loopCounter] = $data;

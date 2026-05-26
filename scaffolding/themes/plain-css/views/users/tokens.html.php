@@ -65,7 +65,7 @@ $statusColor = [0 => '#6c757d', 1 => '#28a745', 2 => '#343a40', 3 => '#dc3545'];
                                 <input type="hidden" name="userid" value="<?php echo $uid; ?>">
                                 <input type="hidden" name="tokenid" value="<?php echo $tokenId; ?>">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"
-                                    onclick="return confirm('Delete this token?')">Delete</button>
+                                    data-confirm="Delete this token?">Delete</button>
                             </form>
                         </td>
                     </tr>

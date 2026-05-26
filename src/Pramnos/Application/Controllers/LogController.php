@@ -186,8 +186,8 @@ class LogController extends Controller
                             <a href="<?php echo defined('sURL') ? sURL . 'Logs/archive' : '#'; ?>" class="btn btn-secondary">
                                 <i class="fa fa-archive"></i> Archive Logs
                             </a>
-                            <a href="<?php echo defined('sURL') ? sURL . 'Logs/clear' : '#'; ?>" class="btn btn-danger" 
-                               onclick="return confirm('Are you sure you want to clear all logs in the clearList?');">
+                            <a href="<?php echo defined('sURL') ? sURL . 'Logs/clear' : '#'; ?>" class="btn btn-danger"
+                               data-confirm="Are you sure you want to clear all logs in the clearList?">
                                 <i class="fa fa-trash"></i> Clear Logs
                             </a>
                         </div>
@@ -361,9 +361,9 @@ class LogController extends Controller
                                                     class="btn btn-info" title="View">
                                                         <i class="fa fa-eye"></i>
                                                     </a>
-                                                    <a href="<?php echo defined('sURL') ? sURL . 'Logs/clearFile/' . $stat['name'] : '#'; ?>" 
+                                                    <a href="<?php echo defined('sURL') ? sURL . 'Logs/clearFile/' . $stat['name'] : '#'; ?>"
                                                     class="btn btn-danger" title="Clear"
-                                                    onclick="return confirm('Are you sure you want to clear this log?');">
+                                                    data-confirm="Are you sure you want to clear this log?">
                                                         <i class="fa fa-trash"></i>
                                                     </a>
                                                     <a href="<?php echo defined('sURL') ? sURL . 'Logs/raw?file=' . $stat['name'] : '#'; ?>" 
