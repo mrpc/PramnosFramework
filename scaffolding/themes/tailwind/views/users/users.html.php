@@ -21,9 +21,14 @@
         <h2 >Users</h2>
         <a href="<?php echo sURL; ?>Users/edit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700">+ New User</a>
     </div>
+    <?php
+    $_doc = \Pramnos\Framework\Factory::getDocument();
+    $_hasDt = $_doc->isScriptRegistered('datatables');
+    if ($_hasDt) { $_doc->enqueueScript('datatables'); if ($_doc->isStyleRegistered('datatables')) { $_doc->enqueueStyle('datatables'); } }
+    ?>
     <div class="bg-white rounded-xl shadow-sm border border-gray-200">
         <div >
-            <table class="w-full text-sm">
+            <table id="dt-users" class="w-full text-sm">
                 <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
                     <tr>
                         <th>ID</th><th>Username</th><th>Email</th><th>Status</th><th>Registered</th><th></th>
@@ -53,8 +58,8 @@
                 </tbody>
             </table>
         </div>
-        <?php if (($this->total ?? 0) > 50): ?>
-        <div class="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+        <?php if (!($_hasDt ?? false) && ($this->total ?? 0) > 50): ?>
+        <div id="pager-users" class="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
             <small class="text-gray-500">Showing page <?php echo (int)($this->page ?? 1); ?> of <?php echo ceil(($this->total ?? 0) / 50); ?></small>
             <div>
                 <?php if (($this->page ?? 1) > 1): ?>
@@ -68,3 +73,6 @@
         <?php endif; ?>
     </div>
 </div>
+<?php if ($_hasDt ?? false): ?>
+<script>$(document).ready(function(){ $('#dt-users').DataTable({pageLength:25,order:[]}); });</script>
+<?php endif; ?>

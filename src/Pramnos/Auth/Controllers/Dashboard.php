@@ -41,6 +41,7 @@ class Dashboard extends Controller
             'applications', 'revokeapplication',
             'exportdata', 'deleteaccount',
             'privacy', 'security', 'changepassword',
+            'profile',
         ]);
         parent::__construct($application);
     }
@@ -70,6 +71,57 @@ class Dashboard extends Controller
         $view->twoFactorEnabled  = $this->isTwoFactorEnabled((int) $currentUser->userid);
 
         return $view->display();
+    }
+
+    // ── Profile ───────────────────────────────────────────────────────────────
+
+    /**
+     * User profile — view and edit display name, email, phone.
+     * GET: render edit form. POST: validate input, save, redirect.
+     */
+    public function profile()
+    {
+        $currentUser = \Pramnos\User\User::getCurrentUser();
+        if ($currentUser === null || !isset($currentUser->userid)) {
+            $this->redirect(sURL . 'login');
+            return;
+        }
+
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $session = \Pramnos\Http\Session::getInstance();
+            if (!$session->checkToken('post')) {
+                $this->redirect(sURL . $this->routeBase . '/profile?error=invalid_token');
+                return;
+            }
+
+            $firstname = trim((string) ($_POST['firstname'] ?? ''));
+            $lastname  = trim((string) ($_POST['lastname']  ?? ''));
+            $email     = trim((string) ($_POST['email']     ?? ''));
+            $phone     = trim((string) ($_POST['phone']     ?? ''));
+
+            if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                $this->redirect(sURL . $this->routeBase . '/profile?error=invalid_email');
+                return;
+            }
+
+            $currentUser->firstname = $firstname;
+            $currentUser->lastname  = $lastname;
+            $currentUser->email     = $email;
+            $currentUser->phone     = $phone;
+            $currentUser->save();
+
+            $this->redirect(sURL . $this->routeBase . '/profile?message=profile_saved');
+            return;
+        }
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = 'My Profile';
+
+        $view            = $this->getView('account');
+        $view->routeBase = $this->routeBase;
+        $view->user      = $currentUser;
+
+        return $view->display('profile');
     }
 
     // ── Authorized applications ───────────────────────────────────────────────
