@@ -53,14 +53,19 @@ class DebugBarServiceProvider extends ServiceProvider
 
         $bar->addCollector(new RouteCollector());
 
+        // Capture the app reference so the ob_start callback can read the
+        // per-request CSP nonce that Application::exec() generates.
+        $app = $this->app;
+
         // Inject toolbar via output buffering — captures the full response
         // regardless of routing strategy and injects before </body>.
-        ob_start(function (string $output) use ($bar): string {
+        ob_start(function (string $output) use ($bar, $app): string {
             $bodyPos = strripos($output, '</body>');
             if ($bodyPos === false) {
                 return $output;
             }
-            $widget = $bar->render();
+            $nonce  = $app->cspNonce ?? '';
+            $widget = $bar->render($nonce);
             if ($widget === '') {
                 return $output;
             }

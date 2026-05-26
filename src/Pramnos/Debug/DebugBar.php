@@ -89,8 +89,12 @@ class DebugBar
      *
      * Returns a self-contained HTML string suitable for injection before
      * `</body>`. Inline CSS and JavaScript — no external dependencies.
+     *
+     * @param string $nonce CSP nonce for the inline <style> and <script> tags.
+     *                      Pass Application::$cspNonce; leave empty when CSP
+     *                      is not configured (dev environments without strict CSP).
      */
-    public function render(): string
+    public function render(string $nonce = ''): string
     {
         $tabs    = [];
         $panels  = [];
@@ -125,10 +129,11 @@ class DebugBar
         $panelsHtml = implode('', $panels);
         $css        = $this->css();
         $js         = $this->js();
+        $na         = $nonce !== '' ? ' nonce="' . htmlspecialchars($nonce, ENT_QUOTES) . '"' : '';
 
         return <<<HTML
-<style>{$css}</style>
-<script>document.body.style.paddingBottom='36px';</script>
+<style{$na}>{$css}</style>
+<script{$na}>document.body.style.paddingBottom='36px';</script>
 <div id="pramnos-debugbar">
   <div id="pdb-bar">
     <span id="pdb-brand">&#9881; Pramnos</span>
@@ -137,7 +142,7 @@ class DebugBar
   </div>
   <div id="pdb-panels">{$panelsHtml}</div>
 </div>
-<script>{$js}</script>
+<script{$na}>{$js}</script>
 HTML;
     }
 
