@@ -1043,7 +1043,7 @@ class LogViewer
                         $html .= '<div class="json-content expanded">'
                             . $this->highlightText($expandedJson, $search, true) . '</div>';
                         $html .= '<div class="buttons-container">';
-                        $html .= '<button class="copy-btn" onclick="copyToClipboard(this)" title="Copy to clipboard">';
+                        $html .= '<button class="copy-btn" data-copy-log title="Copy to clipboard">';
                         $html .= '<i class="fas fa-copy"></i></button>';
                         $html .= '<button class="toggle-json" title="Toggle JSON format">';
                         $html .= '<i class="fas fa-expand"></i>';
@@ -1054,7 +1054,7 @@ class LogViewer
                         $message = $this->highlightText(htmlspecialchars($message), $search);
                         $html .= $message;
                         $html .= '<div class="buttons-container">';
-                        $html .= '<button class="copy-btn" onclick="copyToClipboard(this)" title="Copy to clipboard">';
+                        $html .= '<button class="copy-btn" data-copy-log title="Copy to clipboard">';
                         $html .= '<i class="fas fa-copy"></i></button>';
                         $html .= '</div>';
                     }
@@ -1062,7 +1062,7 @@ class LogViewer
                     $message = $this->highlightText(htmlspecialchars($message), $search);
                     $html .= str_replace("\\n", "<br>", $message);
                     $html .= '<div class="buttons-container">';
-                    $html .= '<button class="copy-btn" onclick="copyToClipboard(this)" title="Copy to clipboard">';
+                    $html .= '<button class="copy-btn" data-copy-log title="Copy to clipboard">';
                     $html .= '<i class="fas fa-copy"></i></button>';
                     if (isset($data['context']) && !empty($data['context'])) {
                         $html .= '<button class="toggle-json" title="Toggle Context">';
@@ -1093,7 +1093,7 @@ class LogViewer
                 $html .= trim($message);
                 $html .= '</span>';
                 $html .= '<div class="buttons-container">';
-                $html .= '<button class="copy-btn" onclick="copyToClipboard(this)" title="Copy to clipboard">';
+                $html .= '<button class="copy-btn" data-copy-log title="Copy to clipboard">';
                 $html .= '<i class="fas fa-copy"></i></button>';
                 $html .= '</div>';
             }
@@ -1537,10 +1537,12 @@ class LogViewer
             }
         });
 
-        function copyToClipboard(button) {
+        document.addEventListener('click', function(e) {
+            var button = e.target.closest('[data-copy-log]');
+            if (!button) return;
             var li = button.closest('li');
-
-            var content = li.querySelector('.log-content .main-json-container .expanded') ? li.querySelector('.log-content .main-json-container .expanded').textContent : li.querySelector('.log-content').textContent;
+            var expanded = li.querySelector('.log-content .main-json-container .expanded');
+            var content = expanded ? expanded.textContent : li.querySelector('.log-content').textContent;
             navigator.clipboard.writeText(content).then(function() {
                 button.classList.add('copied');
                 button.innerHTML = '<i class="fas fa-check"></i>';
@@ -1555,7 +1557,7 @@ class LogViewer
                     button.innerHTML = '<i class="fas fa-copy"></i>';
                 }, 2000);
             });
-        }
+        });
     </script>
 HTML;
     }

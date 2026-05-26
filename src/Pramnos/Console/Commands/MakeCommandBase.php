@@ -1662,7 +1662,7 @@ content;
                 <div class="btn-group">
                     <a href="[sURL]{$className}" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back to List</a>
                     <a href="[sURL]{$className}/edit/<?php echo \$this->model->{$primaryKey}; ?>" class="btn btn-primary"><i class="fa fa-edit"></i> Edit</a>
-                    <a onclick="return confirm('<?php l('Are you sure?');?>');" href="[sURL]{$className}/delete/<?php echo \$this->model->{$primaryKey}; ?>" class="btn btn-danger"><i class="fa fa-trash"></i> Delete</a>
+                    <a data-confirm="<?php l('Are you sure?');?>" href="[sURL]{$className}/delete/<?php echo \$this->model->{$primaryKey}; ?>" class="btn btn-danger"><i class="fa fa-trash"></i> Delete</a>
                 </div>
             </div>
         </div>
@@ -3023,7 +3023,7 @@ HTML;
             { data: null, orderable: false, render: function(data, type, row) {
                 return '<a href="<?php echo sURL;?>{$className}/show/' + row.{$primaryKey} + '" class="btn btn-sm btn-info"><i class="fa fa-eye"></i></a> '
                      + '<a href="<?php echo sURL;?>{$className}/edit/' + row.{$primaryKey} + '" class="btn btn-sm btn-warning"><i class="fa fa-edit"></i></a> '
-                     + '<a href="<?php echo sURL;?>{$className}/delete/' + row.{$primaryKey} + '" class="btn btn-sm btn-danger" onclick="return confirm(\'Delete?\')"><i class="fa fa-trash"></i></a>';
+                     + '<a href="<?php echo sURL;?>{$className}/delete/' + row.{$primaryKey} + '" class="btn btn-sm btn-danger" data-confirm="Delete?"><i class="fa fa-trash"></i></a>';
             }}
         ]
         });
@@ -3067,7 +3067,7 @@ HTML;
                     <td>
                         <a href="<?php echo sURL;?>{$className}/show/<?php echo \$item['{$primaryKey}']; ?>" class="btn btn-info btn-sm"><i class="fa fa-eye"></i></a>
                         <a href="<?php echo sURL;?>{$className}/edit/<?php echo \$item['{$primaryKey}']; ?>" class="btn btn-warning btn-sm"><i class="fa fa-edit"></i></a>
-                        <a href="<?php echo sURL;?>{$className}/delete/<?php echo \$item['{$primaryKey}']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Delete?')"><i class="fa fa-trash"></i></a>
+                        <a href="<?php echo sURL;?>{$className}/delete/<?php echo \$item['{$primaryKey}']; ?>" class="btn btn-danger btn-sm" data-confirm="Delete?"><i class="fa fa-trash"></i></a>
                     </td>
                 </tr>
                 <?php endforeach; else: ?>
@@ -3100,7 +3100,7 @@ HTML;
         <td>
             <a href="<?php echo sURL;?>{$className}/show/<?php echo \$item['{$primaryKey}']; ?>">View</a> |
             <a href="<?php echo sURL;?>{$className}/edit/<?php echo \$item['{$primaryKey}']; ?>">Edit</a> |
-            <a href="<?php echo sURL;?>{$className}/delete/<?php echo \$item['{$primaryKey}']; ?>" onclick="return confirm('Delete?')">Delete</a>
+            <a href="<?php echo sURL;?>{$className}/delete/<?php echo \$item['{$primaryKey}']; ?>" data-confirm="Delete?">Delete</a>
         </td>
     </tr>
     <?php endforeach; else: ?>
@@ -3178,7 +3178,7 @@ HTML;
 
         // ── Show (detail) view ────────────────────────────────────────────────
         $editBtn  = $useBootstrap ? "class=\"btn btn-primary\"" : '';
-        $delBtn   = $useBootstrap ? "class=\"btn btn-danger\" onclick=\"return confirm('Delete?')\"" : "onclick=\"return confirm('Delete?')\"";
+        $delBtn   = $useBootstrap ? "class=\"btn btn-danger\" data-confirm=\"Delete?\"" : "data-confirm=\"Delete?\"";
         $backBtn  = $useBootstrap ? "class=\"btn btn-secondary\"" : '';
         $cardS    = $useBootstrap ? "<div class=\"card\">\n    <div class=\"card-header\">" : '';
         $cardH    = $useBootstrap ? "</div>\n    <div class=\"card-body\">" : '';

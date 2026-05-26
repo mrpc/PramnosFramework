@@ -36,7 +36,7 @@
                         </td>
                         <td style="text-align:right">
                             <a href="<?php echo sURL; ?>Permissions/edit/<?php echo (int)$p['id']; ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                            <a href="<?php echo sURL; ?>Permissions/delete/<?php echo (int)$p['id']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete permission?')">Delete</a>
+                            <a href="<?php echo sURL; ?>Permissions/delete/<?php echo (int)$p['id']; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete permission?">Delete</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

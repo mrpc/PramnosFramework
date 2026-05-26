@@ -39,7 +39,7 @@ $card = 'bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4';
             <div><strong>Client ID:</strong> <code class="font-mono text-xs bg-white px-1 py-0.5 border border-gray-200 rounded"><?php echo htmlspecialchars($app['apikey'] ?? ''); ?></code></div>
             <a href="<?php echo sURL; ?>applications/rotate/<?php echo (int)$app['appid']; ?>"
                class="ml-auto px-3 py-1 border border-yellow-400 text-yellow-700 rounded text-xs hover:bg-yellow-50"
-               onclick="return confirm('Rotate the client secret?')">Rotate Secret</a>
+               data-confirm="Rotate the client secret?">Rotate Secret</a>
         </div>
     <?php endif; ?>
 

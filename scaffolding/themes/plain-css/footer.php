@@ -6,4 +6,5 @@
             </div>
         </div>
     </footer>
+    <script src="<?php echo sURL; ?>assets/js/pf-utils.js"></script>
     <?php $this->document->renderJs(); ?>
