@@ -298,7 +298,8 @@ class Init extends Command
                     $migStatus = $this->runProcessWithSpinner(
                         "docker-compose exec -T app php $cliName.php migrate --scope=framework 2>/dev/null",
                         'Running framework migrations',
-                        $output
+                        $output,
+                        true // always show migration output — the per-migration list is always informative
                     );
                     $this->migrationsSuccess = ($migStatus === 0);
 
@@ -2902,7 +2903,15 @@ PHP;
         return true;
     }
 
-    private function runProcessWithSpinner(string $command, string $message, OutputInterface $output): int
+    /**
+     * Run a shell command with a spinner animation, then show DONE/FAILED.
+     *
+     * @param bool $alwaysShowOutput When true, captured stdout is printed after
+     *                               the spinner line regardless of exit code
+     *                               (useful for migration steps where the output
+     *                               is always informative).
+     */
+    private function runProcessWithSpinner(string $command, string $message, OutputInterface $output, bool $alwaysShowOutput = false): int
     {
         $isVerbose = $output->getVerbosity() >= OutputInterface::VERBOSITY_VERBOSE;
 
@@ -2948,6 +2957,10 @@ PHP;
             usleep(100_000);
         }
 
+        // Switch to blocking mode before final drain so non-blocking reads
+        // don't silently drop data that arrived just as the process exited.
+        stream_set_blocking($pipes[1], true);
+        stream_set_blocking($pipes[2], true);
         $remainingOut = stream_get_contents($pipes[1]);
         $remainingErr = stream_get_contents($pipes[2]);
 
@@ -2970,10 +2983,23 @@ PHP;
         } else {
             $suffix = $exitCode === 0 ? "<info>DONE</info>" : "<error>FAILED</error>";
             $output->write("\r\033[K$message $suffix\n");
-            if ($exitCode !== 0) {
+
+            $showOutput = $alwaysShowOutput || $exitCode !== 0;
+            if ($showOutput) {
                 $combined = trim($stdoutBuf . "\n" . $stderrBuf);
                 if ($combined !== '') {
-                    $output->writeln('<error>' . $combined . '</error>');
+                    // Output each line indented, avoiding wrapping everything in
+                    // a single <error> tag (which can fail if text contains '<').
+                    foreach (explode("\n", $combined) as $line) {
+                        if (trim($line) === '') {
+                            continue;
+                        }
+                        if ($exitCode !== 0) {
+                            $output->writeln('  <comment>' . \Symfony\Component\Console\Formatter\OutputFormatter::escape($line) . '</comment>');
+                        } else {
+                            $output->writeln('  ' . \Symfony\Component\Console\Formatter\OutputFormatter::escape($line));
+                        }
+                    }
                 }
             }
         }
