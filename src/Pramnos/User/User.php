@@ -84,6 +84,8 @@ class User extends \Pramnos\Framework\Base
     protected $_isnew = 0;
     protected static $_usercache = NULL;
     protected static $usersCache = array();
+    /** @var string|null Plaintext held between setPassword() and first INSERT so _save() can rehash with the real userid. */
+    private ?string $_pendingPlainPassword = null;
 
     public function __construct($userid = 0)
     {
@@ -313,11 +315,12 @@ class User extends \Pramnos\Framework\Base
                 . $this->userid
             );
             $this->password = password_hash($pwd, PASSWORD_DEFAULT);
+            $this->_pendingPlainPassword = null;
         } else {
-            // userid <= 1: either unsaved user (default userid=1) or Guest
-            // sentinel (userid=1 inserted by setupDb). MD5 is a placeholder;
-            // the caller must rehash after the real userid is known.
+            // userid not yet assigned — store MD5 as placeholder and keep the
+            // plaintext so _save() can rehash with the real userid after INSERT.
             $this->password = md5($password);
+            $this->_pendingPlainPassword = $password;
         }
     }
 
@@ -548,6 +551,17 @@ class User extends \Pramnos\Framework\Base
                     return $this;
                 }
                 $this->userid = $database->getInsertId();
+            }
+
+            // Rehash the password with the real userid now that it is known.
+            // setPassword() stored MD5 as a placeholder when userid was <= 1.
+            if ($this->_pendingPlainPassword !== null && $this->userid > 1) {
+                $this->setPassword($this->_pendingPlainPassword);
+                $database->updateTableData(
+                    $database->prefix . "users",
+                    [['fieldName' => 'password', 'value' => $this->password, 'type' => 'string']],
+                    "`userid` = " . (int) $this->userid
+                );
             }
         } else {
             if (!$database->updateTableData(
