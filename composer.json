@@ -25,7 +25,8 @@
         "psr/http-server-middleware": "^1.0"
     },
     "suggest": {
-        "chillerlan/php-qrcode": "^5.0 — required for server-side QR code generation in TwoFactorAuthService (avoids sending TOTP secrets to external APIs)"
+        "chillerlan/php-qrcode": "^5.0 — required for server-side QR code generation in TwoFactorAuthService (avoids sending TOTP secrets to external APIs)",
+        "pusher/pusher-php-server": "^7.0 — required for PusherDriver (Broadcasting) to push events to Pusher or any Pusher-compatible server (Reverb)"
     },
     "require-dev": {
         "php": ">=8.1",
