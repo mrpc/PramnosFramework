@@ -97,6 +97,64 @@ class View extends \Pramnos\Framework\Base
      */
     protected static string $templateCacheDir = '';
 
+    // =========================================================================
+    // Output cache state (PF-9)
+    // =========================================================================
+
+    /**
+     * Output cache TTL in seconds. Null means caching disabled for this render.
+     * Set via withCache(). Consumed (reset to null) after each getTpl() call.
+     * @var int|null
+     */
+    protected ?int $_cacheTtl = null;
+
+    /**
+     * Explicit output cache key. Null = auto-generated from view name + tpl + type.
+     * @var string|null
+     */
+    protected ?string $_cacheKey = null;
+
+    /**
+     * Enable output caching for the next display() / getTpl() call.
+     *
+     * The cache key is optional — when omitted it is auto-generated from the
+     * view name, template, and type so identical views share the same entry.
+     * The TTL resets to null after each getTpl() call (one-shot).
+     *
+     * @param  int         $ttl Seconds to keep the cached output (default 3600).
+     * @param  string|null $key Explicit cache key; null = auto-generate.
+     * @return static
+     */
+    public function withCache(int $ttl = 3600, ?string $key = null): static
+    {
+        $this->_cacheTtl = $ttl;
+        $this->_cacheKey = $key;
+        return $this;
+    }
+
+    /**
+     * Cache the output of an arbitrary callable and return it.
+     *
+     * Useful inside template files for expensive sub-sections:
+     *   <?= $this->cache('sidebar', 600, fn() => $this->insert('sidebar')) ?>
+     *
+     * Falls back to calling $fn directly when the Cache adapter is unavailable.
+     *
+     * @param  string   $key Unique cache key.
+     * @param  int      $ttl Seconds to keep the cached value.
+     * @param  callable $fn  Callable that produces the string to cache.
+     * @return string
+     */
+    public function cache(string $key, int $ttl, callable $fn): string
+    {
+        try {
+            $cacheInstance = \Pramnos\Cache\Cache::getInstance('views');
+            return (string) $cacheInstance->remember($key, $ttl, $fn);
+        } catch (\Throwable $e) {
+            return (string) $fn();
+        }
+    }
+
     /**
      * Render and return the view contents
      * @param string $tpl template file to load
@@ -441,6 +499,32 @@ class View extends \Pramnos\Framework\Base
         $_url = URL . $this->controllerName . '/';
         $model=$this->model;
 
+        // Consume output-cache settings (one-shot: reset after reading so that
+        // a second getTpl() call on the same view object is uncached by default).
+        $cacheTtl = $this->_cacheTtl;
+        $cacheKey = $this->_cacheKey
+            ?? 'view::' . $this->name . '::' . $tpl . '::' . ($type !== '' ? $type : $this->type);
+        $this->_cacheTtl = null;
+        $this->_cacheKey = null;
+
+        // Output-cache read: serve from cache when available.
+        if ($cacheTtl !== null) {
+            try {
+                $cacheInst  = \Pramnos\Cache\Cache::getInstance('views');
+                $cachedData = $cacheInst->load($cacheKey, 'views', $cacheTtl);
+                if ($cachedData !== false && $cachedData !== null) {
+                    if ($render) {
+                        return (string) $cachedData;
+                    }
+                    $this->output .= (string) $cachedData;
+                    return true;
+                }
+            } catch (\Throwable $ignored) {
+                // Cache unavailable — render normally.
+                $cacheTtl = null;
+            }
+        }
+
         $tplfile = $this->path
             . DS . $tpl . '.' . $type . '.php';
 
@@ -516,10 +600,22 @@ class View extends \Pramnos\Framework\Base
                     . str_replace(ROOT, '', $tplfile)
                     . "\n-->";
             }
-            if ($render == true){
-                return $childOutput . $tplInformation;
+            $finalOutput = $childOutput . $tplInformation;
+
+            // Output-cache write: store rendered result for subsequent requests.
+            if ($cacheTtl !== null) {
+                try {
+                    $cacheInst = \Pramnos\Cache\Cache::getInstance('views');
+                    $cacheInst->save($finalOutput, $cacheKey);
+                } catch (\Throwable $ignored) {
+                    // Cache save failure is non-fatal.
+                }
             }
-            $this->output .= $childOutput . $tplInformation;
+
+            if ($render == true){
+                return $finalOutput;
+            }
+            $this->output .= $finalOutput;
             return true;
         } else {
             if (\Pramnos\Http\Request::staticGet(

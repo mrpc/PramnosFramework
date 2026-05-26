@@ -539,6 +539,38 @@ $handler->handle();
 
 ---
 
+## Framework v1.2 Compatibility Fixes
+
+Αλλαγές που έγιναν στο UW codebase για συμβατότητα με το PramnosFramework v1.2-dev. Κάθε εγγραφή περιέχει την αιτία (τι άλλαξε στο framework) και το fix που εφαρμόστηκε στο UW.
+
+### `src/Models/Emails.php` — `loadContent()` unset on empty path
+
+**Commit (urbanwaterDev):** `50b802dc`
+
+**Αιτία:** Το v1.2 πρόσθεσε `Base::__isset()` (commit `3d1d453`) που κάνει `isset()` σε magic properties να ελέγχει σωστά το `_data`. Πριν, `isset($obj->prop)` επέστρεφε πάντα `false` για properties αποθηκευμένες μόνο στο `_data`.
+
+**Πρόβλημα:** Ο `_load()` φορτώνει όλες τις στήλες της DB στο `_data`, συμπεριλαμβανομένης της στήλης `content` του πίνακα `mails` (ακόμα και ως κενό string `''`). Η `loadContent()` έκανε early return όταν το `path` ήταν άδειο, χωρίς να καθαρίζει το `content`. Με το νέο `__isset()`, το `isset($email->content)` επέστρεφε `true` για emails χωρίς αρχείο — σπάζοντας tests που περίμεναν `false`.
+
+**Fix:**
+
+```php
+protected function loadContent()
+{
+    if ($this->path == '' || !is_file(ROOT . $this->path)) {
+        // Clear any DB-loaded placeholder so isset($this->content) === false
+        unset($this->content);
+        return false;
+    }
+    // ...
+}
+```
+
+Το `unset($this->content)` δουλεύει γιατί το v1.2 πρόσθεσε επίσης `Base::__unset()` (commit `ce57a91`) που αφαιρεί την property από το `_data`.
+
+**Σχετικά framework commits:** `3d1d453` (`__isset`), `ce57a91` (`__unset`), `49ef405` (tests).
+
+---
+
 ## Σημείωση για Migration Cutoff
 
 Τα framework baseline migrations φέρουν σκόπιμα παλιά timestamps (`2020_01_01_*`). Κατά το upgrade ενός υπάρχοντος UrbanWater installation, θέτεις `migration_cutoff = '2026-01-01 00:00:00'` ώστε ο runner να παρακάμπτει τα pre-cutoff framework migrations — χωρίς να αγγίξει τα UW migrations που έχουν ήδη τρέξει σε production.
