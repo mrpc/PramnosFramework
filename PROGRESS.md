@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-26 (session 141) — ROADMAP items 1+2+3: FK, indexes, broadcast:serve ✅
+## 📅 Last Updated: 2026-05-26 (session 141) — ROADMAP items 1+2+3 + scaffolding LoginControllerTest ✅
 
 ## 🏁 Session 141 — ROADMAP item 1: conditional FK users.locationid (2026-05-26)
 
@@ -26,6 +26,18 @@
 - **`src/Pramnos/Console/Commands/BroadcastServe.php`** — Symfony command `broadcast:serve`; options `--host`, `--port`, `--log-file`, `--app-key`; SIGTERM/SIGINT shutdown; verbose tick output.
 - **`src/Pramnos/Console/Application.php`** — `BroadcastServe` command registered.
 - **`tests/Unit/Broadcasting/LocalBroadcastServerTest.php`** — 5 unit tests: constructor/stop safety, onTick registration, bind failure, log file format parsing (LogDriver `payload` + generic `data`), log rotation offset reset.
+
+### ✅ Task #4 — LoginControllerTest επέκταση (test-app)
+
+- **`/home/mrpc/projects/test-app/tests/Unit/Controllers/LoginControllerTest.php`**
+  - `setupValidCsrfToken()` helper που συγχρονίζει Session singleton + HMAC fingerprint στο `$_POST`.
+  - `tearDown()` καθαρίζει CSRF token field από `$_POST`.
+  - Νέα tests: CSRF failure, display passes+clears session error, empty username/password (με CSRF), auth success stub, auth failure stub.
+  - 10/10 tests pass. Anonymous subclass pattern για auth branches χωρίς live DB.
+
+### ✅ Task #5 — Ενημέρωση `buildLoginControllerTest()` στο scaffolding
+
+- **`src/Pramnos/Console/Commands/Init.php`** — `buildLoginControllerTest()` αντικαταστάθηκε πλήρως με νέο template που παράγει τα ίδια tests με το test-app (CSRF helper, CSRF failure, credentials validation, auth stubs).
 
 ### ROADMAP items closed
 - `[x]` Missing FK su `users`: `locationid` → `locations.locationid` (SET NULL, conditional)
