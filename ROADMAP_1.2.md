@@ -844,8 +844,8 @@
 - [x] Ενημέρωση docs/1.2-new-features.md με τα νέα migration/schema elements
 
 #### Open Jira Issues προς ενσωμάτωση
-- **PF-9:** Native caching σε views (όχι μόνο manual)
-- **PF-40:** Υποστήριξη group by επιλογής στο datatable UI (όχι μόνο backend)
+- ~~**PF-9:** Native caching σε views (όχι μόνο manual)~~ ✅ `View::withCache(ttl, key)` + `View::cache(key, ttl, fn)`. One-shot TTL/key consumed after first `getTpl()`. Graceful fallback when cache unavailable. 8 unit tests in `tests/Unit/Pramnos/Application/ViewCacheTest.php`.
+- ~~**PF-40:** Υποστήριξη group by επιλογής στο datatable UI (όχι μόνο backend)~~ ✅ `Datatable::$groupByColumn` (int|null) + `Datatable::$groupBySelector` (bool). Client-side draw callback groups rows by chosen column. Selector dropdown with "None" option. 8 unit tests in `tests/Unit/Pramnos/Html/DatatableGroupByTest.php`.
 - ~~**PF-43:** Database-driven CORS policy enforcement~~ ✅ `CorsMiddleware::fromApplicationSettings(appName, ?db)` + `fromCorsData(enabled, rawOrigins)` + `getAllowedOrigins()`. `Api::exec()` χρησιμοποιεί `fromApplicationSettings()` όταν `cors_from_db: true` στο `applicationInfo`. Fallback σε wildcard όταν η `application_settings` δεν υπάρχει / η DB δεν είναι συνδεδεμένη. 11 unit tests.
 
 > Τα παρακάτω είναι **υποχρεωτικά follow-ups** που εντοπίστηκαν από τα νέα framework-native characterization tests. Παραμένουν εδώ ως ενεργό backlog και κλείνουν σταδιακά με ξεχωριστά commits.
