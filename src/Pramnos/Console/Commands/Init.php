@@ -119,7 +119,7 @@ class Init extends Command
         }
 
         $dockerPort  = 8080;
-        $cacheSystem = 'none';
+        $cacheSystem = 'redis';
 
         if ($useDocker) {
             while (!$this->isPortAvailable($dockerPort)) {
@@ -131,7 +131,7 @@ class Init extends Command
             $cacheSystemOption = $input->getOption('cache-system');
             $cacheSystem = $cacheSystemOption !== null
                 ? $cacheSystemOption
-                : $helper->ask($input, $output, new ChoiceQuestion('Cache System [none]: ', ['none', 'redis', 'memcached'], 0));
+                : $helper->ask($input, $output, new ChoiceQuestion('Cache System [redis]: ', ['redis', 'none', 'memcached'], 0));
         }
 
         // ── Database config ───────────────────────────────────────────────────
