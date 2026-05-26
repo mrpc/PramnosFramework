@@ -75,6 +75,16 @@ class Base
     }
 
     /**
+     * Magic unset — removes a property stored in _data so that isset() returns
+     * false afterwards.  Completes the __set/__get/__isset quartet.
+     * @param string $name
+     */
+    public function __unset($name)
+    {
+        unset($this->_data[$name]);
+    }
+
+    /**
      * Magic method to give build-in protection against direct calls to all
      * classes.
      */
