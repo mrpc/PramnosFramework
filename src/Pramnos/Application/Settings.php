@@ -181,17 +181,22 @@ class Settings extends \Pramnos\Framework\Base
         }
 
         if (is_object(self::$database)) {
-            $sql = self::$database->prepareQuery(
-                "select `value` from `#PREFIX#settings` "
-                . " where `setting` = %s limit 1",
-                $setting
-            );
-            $result = self::$database->query(
-                $sql, true, 600, 'settings'
-            );
-            if ($result->numRows != 0) {
-                self::$settings[$setting] = $result->fields['value'];
-                return self::$settings[$setting];
+            try {
+                $sql = self::$database->prepareQuery(
+                    "select `value` from `#PREFIX#settings` "
+                    . " where `setting` = %s limit 1",
+                    $setting
+                );
+                $result = self::$database->query(
+                    $sql, true, 600, 'settings'
+                );
+                if ($result->numRows != 0) {
+                    self::$settings[$setting] = $result->fields['value'];
+                    return self::$settings[$setting];
+                }
+            } catch (\Throwable $e) {
+                // The settings table may not exist yet (fresh install before migrations).
+                // Return the default value so the application can still boot and run migrations.
             }
         }
 
