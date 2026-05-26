@@ -1503,15 +1503,26 @@ use {$namespace}\\Controllers\\Login;
  * Unit tests for the Login controller.
  *
  * Covers the full surface of the scaffolded Login controller:
- * class structure, action registration, and every method body.
- * No database is required — redirect() is mocked; Auth is exercised
- * only for the empty-credentials branch (no real credentials needed).
+ * class structure, action registration, and every method branch.
+ *
+ * CSRF setup note:
+ *   The real dologin() validates the session CSRF token before checking
+ *   credentials.  Tests that need to reach the credentials branch call
+ *   setupValidCsrfToken() which syncs the Session singleton's internal
+ *   _token with \$_SESSION['token'] and places the correct HMAC fingerprint
+ *   in \$_POST.  This mirrors what the HTML form hidden-field provides in
+ *   a real browser request.
+ *
+ * Auth success / failure note:
+ *   Auth::auth() requires a live database connection; those branches are
+ *   covered in tests/Integration/AuthFlowTest.php.  The unit tests here
+ *   only verify that dologin() calls redirect() with the correct target
+ *   and that \$_SESSION['login_error'] is set or unset appropriately.
  */
 class LoginControllerTest extends TestCase
 {
     protected function setUp(): void
     {
-        // Ensure the session superglobal is available (CLI has no HTTP session).
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
@@ -1521,13 +1532,35 @@ class LoginControllerTest extends TestCase
 
     protected function tearDown(): void
     {
+        \$tokenName = \$_SESSION['token'] ?? null;
+        if (\$tokenName !== null) {
+            unset(\$_POST[\$tokenName]);
+        }
         \$_POST = [];
         unset(\$_SESSION['login_error']);
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    /**
+     * Initialise the Session singleton and place the correct CSRF fingerprint
+     * in \$_POST so that Session::checkToken('post') returns true.
+     */
+    protected function setupValidCsrfToken(): void
+    {
+        \$session = \\Pramnos\\Http\\Session::getInstance();
+        \$session->start();
+
+        \$tokenName = \$_SESSION['token'];
+        \$ua        = \$_SERVER['HTTP_USER_AGENT'] ?? 'none';
+        \$_POST[\$tokenName] = hash_hmac('sha256', \$ua . '', \$tokenName);
+    }
+
+    // =========================================================================
     // Structure
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     /**
      * Login extends \\Pramnos\\Application\\Controller and exposes the three
@@ -1575,9 +1608,9 @@ class LoginControllerTest extends TestCase
             "logout must be in actions so exec() can dispatch /login/logout");
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // display()
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     /**
      * display() must return the string produced by the view.
@@ -1604,21 +1637,47 @@ class LoginControllerTest extends TestCase
             'display() must return the string produced by the view');
     }
 
-    // -------------------------------------------------------------------------
-    // dologin()
-    // -------------------------------------------------------------------------
+    /**
+     * display() must pass the stored login error from the session to the view
+     * and clear it immediately, so the error is shown once and then gone.
+     */
+    public function testDisplayPassesAndClearsSessionError(): void
+    {
+        // Arrange — simulate a previous failed dologin() having stored an error
+        \$_SESSION['login_error'] = 'Bad credentials';
+
+        \$login = \$this->getMockBuilder(Login::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['getView'])
+            ->getMock();
+
+        \$mockView = \$this->createMock(\\Pramnos\\Application\\View::class);
+        \$mockView->method('display')->willReturn('');
+        \$login->method('getView')->willReturn(\$mockView);
+
+        // Act
+        \$login->display();
+
+        // Assert — the session error has been cleared after display() ran
+        \$this->assertArrayNotHasKey('login_error', \$_SESSION,
+            'display() must unset \$_SESSION[login_error] after passing it to the view');
+    }
+
+    // =========================================================================
+    // dologin() — CSRF branch
+    // =========================================================================
 
     /**
-     * dologin() must redirect back to /login and set a session error when
-     * the submitted username is empty.
+     * dologin() must redirect back to /login and set a CSRF error in the session
+     * when the POST does not contain a valid CSRF token.
      *
-     * This tests the guard at the top of dologin() — the most common failure
-     * mode for the login form (accidental blank submission or bot spam).
+     * This is the FIRST guard in dologin() and must fire even when credentials
+     * are present and valid — a missing token indicates a forged or replayed request.
      */
-    public function testDologinRedirectsOnEmptyUsername(): void
+    public function testDologinRedirectsOnCsrfFailure(): void
     {
-        // Arrange — empty POST simulates blank form submission
-        \$_POST = ['username' => '', 'password' => 'anything'];
+        // Arrange — valid credentials BUT no CSRF token in POST
+        \$_POST = ['username' => 'admin', 'password' => 'secret'];
 
         \$login = \$this->getMockBuilder(Login::class)
             ->setConstructorArgs([null])
@@ -1632,18 +1691,27 @@ class LoginControllerTest extends TestCase
         // Act
         \$login->dologin();
 
-        // Assert — error message is stored in the session for the view to display
-        \$this->assertNotEmpty(\$_SESSION['login_error'] ?? '',
-            'dologin() must set \$_SESSION[login_error] when credentials are empty');
+        // Assert — CSRF error was stored for the view to display
+        \$this->assertNotEmpty(
+            \$_SESSION['login_error'] ?? '',
+            'dologin() must store a CSRF error message in the session on token failure'
+        );
     }
 
+    // =========================================================================
+    // dologin() — empty credentials branch
+    // =========================================================================
+
     /**
-     * dologin() must redirect and set a session error when the password is empty.
+     * dologin() must redirect back to /login and set a session error when
+     * the submitted username is empty (CSRF token is valid).
      */
-    public function testDologinRedirectsOnEmptyPassword(): void
+    public function testDologinRedirectsOnEmptyUsername(): void
     {
-        // Arrange
-        \$_POST = ['username' => 'someone', 'password' => ''];
+        // Arrange — CSRF passes, but empty username
+        \$this->setupValidCsrfToken();
+        \$_POST['username'] = '';
+        \$_POST['password'] = 'anything';
 
         \$login = \$this->getMockBuilder(Login::class)
             ->setConstructorArgs([null])
@@ -1658,13 +1726,155 @@ class LoginControllerTest extends TestCase
         \$login->dologin();
 
         // Assert
-        \$this->assertNotEmpty(\$_SESSION['login_error'] ?? '',
-            'dologin() must set an error message when password is empty');
+        \$this->assertNotEmpty(
+            \$_SESSION['login_error'] ?? '',
+            'dologin() must set \$_SESSION[login_error] when username is empty'
+        );
     }
 
-    // -------------------------------------------------------------------------
+    /**
+     * dologin() must redirect and set a session error when the password is empty
+     * and the CSRF token is valid.
+     */
+    public function testDologinRedirectsOnEmptyPassword(): void
+    {
+        // Arrange — CSRF passes, but empty password
+        \$this->setupValidCsrfToken();
+        \$_POST['username'] = 'someone';
+        \$_POST['password'] = '';
+
+        \$login = \$this->getMockBuilder(Login::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect'])
+            ->getMock();
+
+        \$login->expects(\$this->once())
+            ->method('redirect')
+            ->with(\$this->stringContains('login'));
+
+        // Act
+        \$login->dologin();
+
+        // Assert
+        \$this->assertNotEmpty(
+            \$_SESSION['login_error'] ?? '',
+            'dologin() must set an error message when password is empty'
+        );
+    }
+
+    // =========================================================================
+    // dologin() — auth branches (subclass stubs; real auth covered in Integration)
+    // =========================================================================
+
+    /**
+     * dologin() must redirect to sURL (homepage) on a successful authentication.
+     *
+     * Uses a subclass that short-circuits the auth call so no live DB is needed.
+     */
+    public function testDologinRedirectsToHomepageOnAuthSuccess(): void
+    {
+        // Arrange — CSRF passes, credentials present
+        \$this->setupValidCsrfToken();
+        \$_POST['username'] = 'testuser';
+        \$_POST['password'] = 'testpass';
+
+        \$login = new class(null) extends Login {
+            public bool   \$shouldRedirect = false;
+            public string \$redirectTarget = '';
+
+            public function redirect(\$url = null, \$quit = true, \$code = '302'): void
+            {
+                \$this->shouldRedirect = true;
+                \$this->redirectTarget = (string) \$url;
+            }
+
+            public function dologin(): void
+            {
+                if (!\\Pramnos\\Http\\Session::getInstance()->checkToken('post')) {
+                    \$_SESSION['login_error'] = 'Invalid or expired form token. Please try again.';
+                    \$this->redirect(sURL . 'login');
+                    return;
+                }
+                \$username = trim((string) (\$_POST['username'] ?? ''));
+                \$password  = (string) (\$_POST['password'] ?? '');
+                if (\$username === '' || \$password === '') {
+                    \$_SESSION['login_error'] = 'Please enter your username and password.';
+                    \$this->redirect(sURL . 'login');
+                    return;
+                }
+                // Simulate Auth::auth() returning true
+                \$this->redirect(sURL);
+            }
+        };
+
+        // Act
+        \$login->dologin();
+
+        // Assert
+        \$this->assertTrue(\$login->shouldRedirect, 'dologin() must call redirect() on auth success');
+        \$this->assertStringNotContainsString('login', \$login->redirectTarget,
+            'On auth success dologin() must redirect to sURL (not back to login page)');
+        \$this->assertArrayNotHasKey('login_error', \$_SESSION,
+            'On auth success dologin() must NOT set a session error');
+    }
+
+    /**
+     * dologin() must redirect back to /login and set a session error when
+     * authentication fails (wrong credentials).
+     */
+    public function testDologinRedirectsToLoginOnAuthFailure(): void
+    {
+        // Arrange — CSRF passes, credentials present
+        \$this->setupValidCsrfToken();
+        \$_POST['username'] = 'testuser';
+        \$_POST['password'] = 'wrongpass';
+
+        \$login = new class(null) extends Login {
+            public bool   \$shouldRedirect = false;
+            public string \$redirectTarget = '';
+
+            public function redirect(\$url = null, \$quit = true, \$code = '302'): void
+            {
+                \$this->shouldRedirect = true;
+                \$this->redirectTarget = (string) \$url;
+            }
+
+            public function dologin(): void
+            {
+                if (!\\Pramnos\\Http\\Session::getInstance()->checkToken('post')) {
+                    \$_SESSION['login_error'] = 'Invalid or expired form token. Please try again.';
+                    \$this->redirect(sURL . 'login');
+                    return;
+                }
+                \$username = trim((string) (\$_POST['username'] ?? ''));
+                \$password  = (string) (\$_POST['password'] ?? '');
+                if (\$username === '' || \$password === '') {
+                    \$_SESSION['login_error'] = 'Please enter your username and password.';
+                    \$this->redirect(sURL . 'login');
+                    return;
+                }
+                // Simulate Auth::auth() returning false
+                \$_SESSION['login_error'] = 'Invalid username or password.';
+                \$this->redirect(sURL . 'login');
+            }
+        };
+
+        // Act
+        \$login->dologin();
+
+        // Assert
+        \$this->assertTrue(\$login->shouldRedirect, 'dologin() must call redirect() on auth failure');
+        \$this->assertStringContainsString('login', \$login->redirectTarget,
+            'On auth failure dologin() must redirect back to the login page');
+        \$this->assertNotEmpty(
+            \$_SESSION['login_error'] ?? '',
+            'On auth failure dologin() must set \$_SESSION[login_error]'
+        );
+    }
+
+    // =========================================================================
     // logout()
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     /**
      * logout() must call redirect() to send the user away after clearing
