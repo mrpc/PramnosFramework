@@ -738,9 +738,11 @@ class Application extends Base
         /*
          * Try to load the controller
          */
+        \Pramnos\Debug\DebugBar::startTimer('routing');
         try {
             $controllerObject = $this->getController($this->controller);
         } catch (\Exception $Exception) {
+            \Pramnos\Debug\DebugBar::stopTimer('routing');
             try {
                 $ec = \Pramnos\Debug\DebugBar::getInstance()->getCollector('exceptions');
                 if ($ec instanceof \Pramnos\Debug\Collectors\ExceptionsCollector) {
@@ -751,6 +753,7 @@ class Application extends Base
             //\Pramnos\Logs\Logger::log($Exception->getMessage());
             $this->close('There is no controller to run...');
         }
+        \Pramnos\Debug\DebugBar::stopTimer('routing');
         $this->activeController = $controllerObject;
 
         // Feed resolved route into DebugBar RouteCollector when debug toolbar is active.
@@ -793,11 +796,15 @@ class Application extends Base
         /*
          * Execute the controller and add content to the document
          */
+        \Pramnos\Debug\DebugBar::startTimer('controller');
         try {
             $doc->addContent($controllerObject->exec($this->action));
+            \Pramnos\Debug\DebugBar::stopTimer('controller');
         } catch (\Pramnos\Http\RedirectException $exception) {
+            \Pramnos\Debug\DebugBar::stopTimer('controller');
             $this->redirect($exception->getUrl(), true, $exception->getStatusCode());
         } catch (\Pramnos\Validation\ValidationException $exception) {
+            \Pramnos\Debug\DebugBar::stopTimer('controller');
             try {
                 $ec = \Pramnos\Debug\DebugBar::getInstance()->getCollector('exceptions');
                 if ($ec instanceof \Pramnos\Debug\Collectors\ExceptionsCollector) {
@@ -812,6 +819,7 @@ class Application extends Base
             $redirectTo = $_SERVER['HTTP_REFERER'] ?? URL;
             $this->redirect($redirectTo);
         } catch (\Exception $exception) {
+            \Pramnos\Debug\DebugBar::stopTimer('controller');
             try {
                 $ec = \Pramnos\Debug\DebugBar::getInstance()->getCollector('exceptions');
                 if ($ec instanceof \Pramnos\Debug\Collectors\ExceptionsCollector) {
