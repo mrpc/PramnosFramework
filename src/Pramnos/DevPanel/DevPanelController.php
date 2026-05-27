@@ -1170,6 +1170,7 @@ class DevPanelController extends Controller
             <header>
               <span class="logo">⚙ DevPanel</span>
               <nav>{$tabHtml}</nav>
+              <a href="{$baseUrl}" class="back-btn">&#8592; Back</a>
             </header>
             <main>
               <div class="panel-content">
@@ -1308,6 +1309,10 @@ class DevPanelController extends Controller
                 border-bottom: 3px solid transparent; }
         nav a:hover { color: var(--text); }
         nav a.active { color: var(--blue); border-bottom-color: var(--blue); }
+        .back-btn { margin-left: auto; color: var(--subtext); text-decoration: none;
+                    font-size: 12px; padding: 5px 10px; border: 1px solid var(--surface2);
+                    border-radius: 4px; white-space: nowrap; }
+        .back-btn:hover { color: var(--text); border-color: var(--blue); }
         main { flex: 1; padding: 20px; }
         footer { background: var(--bg2); border-top: 1px solid var(--surface2);
                  padding: 8px 16px; font-size: 12px; color: var(--subtext); text-align: center; }
