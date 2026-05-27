@@ -1,7 +1,23 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-27 (session 145b) — scaffolding bug fixes, user profile, DataTable lists ✅
+## 📅 Last Updated: 2026-05-27 (session 146) — QR code local gen, DataTable JS fix, View link ✅
+
+## 🏁 Session 146 — QR code local generation, DataTable JS fix, View link (2026-05-27)
+
+### ✅ fix(2fa): QR code via external API violates CSP
+- `chillerlan/php-qrcode` spostato da `suggest` a `require` in `composer.json`.
+- `TOTPHelper::getQRCodeDataUri()`: corretta costante `OUTPUT_MARKUP_SVG` → `MARKUP_SVG` (API v5) e `imageBase64` → `outputBase64`.
+- `TwoFactorAuth::test()` usa `getQRCodeDataUri()` al posto di `getQRCodeUrl()`.
+- Nessun chiamata all'API esterna `api.qrserver.com` — il QR viene generato server-side come `data:image/svg+xml;base64,...`.
+
+### ✅ fix(datatables): $ is not defined in view body
+- Aggiunto `Document::addInlineScript(string $code): self` — appende JS al footer del documento, dopo `renderJs()`.
+- Tutte e 9 le list view (users/organizations/applications × 3 temi) ora usano `$_doc->addInlineScript(...)` invece di un tag `<script>` inline nel body.
+- Prima: lo script veniva eseguito prima che jQuery/DataTables fossero caricati (footer.php chiama `renderJs()` dopo il body).
+
+### ✅ feat(scaffolding): link "View" in users list — bootstrap + plain-css
+- `themes/bootstrap/views/users/users.html.php` e `plain-css/views/users/users.html.php` ora hanno il link "View" prima di "Edit" in ogni riga (già presente nel tema tailwind dalla sessione 145b).
 
 ## 🏁 Session 145b — Scaffolding bug fixes, user profile, DataTable on lists (2026-05-27)
 

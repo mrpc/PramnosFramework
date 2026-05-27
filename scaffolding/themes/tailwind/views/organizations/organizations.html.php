@@ -46,6 +46,4 @@
         </div>
     </div>
 </div>
-<?php if ($_hasDt ?? false): ?>
-<script>$(document).ready(function(){ $('#dt-organizations').DataTable({pageLength:25,order:[]}); });</script>
-<?php endif; ?>
+<?php if ($_hasDt ?? false): $_doc->addInlineScript("$(document).ready(function(){ $('#dt-organizations').DataTable({pageLength:25,order:[]}); });"); endif; ?>
