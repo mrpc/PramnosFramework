@@ -96,8 +96,13 @@ class DebugBar
      */
     public function render(string $nonce = ''): string
     {
-        $tabs    = [];
-        $panels  = [];
+        $tabs      = [];
+        $panels    = [];
+        $memData   = [];
+        $routeData = [];
+
+        // Collectors that are shown inline in the bar, not as clickable tabs.
+        $inlineOnly = ['memory'];
 
         foreach ($this->collectors as $name => $collector) {
             try {
@@ -106,26 +111,45 @@ class DebugBar
                 $data = ['error' => $e->getMessage()];
             }
 
-            $label      = $this->formatTabLabel($name, $data);
-            $panelHtml  = $this->renderPanel($name, $data);
-            $tabs[]     = sprintf(
+            // Memory: inline-only — no tab, but data is needed for the info strip.
+            if ($name === 'memory') {
+                $memData = $data;
+                // Still create the panel so the route badge can reference it if needed.
+                continue;
+            }
+
+            // Route: no tab button — shown as a clickable badge in the info strip.
+            if ($name === 'route') {
+                $routeData = $data;
+                $panels[]  = sprintf(
+                    '<div class="pdb-panel" id="pdb-panel-%s" style="display:none">%s</div>',
+                    htmlspecialchars($name),
+                    $this->renderPanel($name, $data),
+                );
+                continue;
+            }
+
+            $label     = $this->formatTabLabel($name, $data);
+            $panelHtml = $this->renderPanel($name, $data);
+            $tabs[]    = sprintf(
                 '<button class="pdb-tab" data-panel="%s">%s</button>',
                 htmlspecialchars($name),
                 $label,
             );
-            $panels[]   = sprintf(
+            $panels[]  = sprintf(
                 '<div class="pdb-panel" id="pdb-panel-%s" style="display:none">%s</div>',
                 htmlspecialchars($name),
                 $panelHtml,
             );
         }
 
-        if (empty($tabs)) {
+        if (empty($tabs) && empty($panels)) {
             return '';
         }
 
         $tabsHtml   = implode('', $tabs);
         $panelsHtml = implode('', $panels);
+        $infoHtml   = $this->renderInfoStrip($memData, $routeData);
         $css        = $this->css();
         $js         = $this->js();
         $na         = $nonce !== '' ? ' nonce="' . htmlspecialchars($nonce, ENT_QUOTES) . '"' : '';
@@ -137,6 +161,7 @@ class DebugBar
   <div id="pdb-bar">
     <span id="pdb-brand">&#9881; Pramnos</span>
     {$tabsHtml}
+    {$infoHtml}
     <a class="pdb-devpanel" href="/devpanel" title="DevPanel">&#128270; DevPanel</a>
     <button class="pdb-close" id="pdb-close-btn">&#x2715;</button>
   </div>
@@ -159,7 +184,6 @@ HTML;
                                 return "SQL ({$live}{$suffix} · {$ms}ms)";
                             })(),
             'timers'     => 'Time (' . ($data['request_ms'] ?? 0) . 'ms)',
-            'memory'     => 'Mem (' . ($data['peak_human'] ?? '') . ')',
             'logs'       => 'Logs (' . ($data['count'] ?? 0) . ')',
             'session'    => 'Session (' . ($data['count'] ?? 0) . ')',
             'views'      => (function() use ($data): string {
@@ -190,6 +214,52 @@ HTML;
             'exceptions' => $this->renderExceptions($data),
             default      => '<pre>' . htmlspecialchars(json_encode($data, JSON_PRETTY_PRINT)) . '</pre>',
         };
+    }
+
+    private function renderInfoStrip(array $memData, array $routeData): string
+    {
+        $items = [];
+
+        // Route badge — clickable, opens the route panel.
+        $method = strtoupper((string) ($routeData['method'] ?? ''));
+        $uri    = (string) ($routeData['uri'] ?? '');
+        if ($method !== '' && $uri !== '' && $uri !== '(not matched)') {
+            $methodCls = match ($method) {
+                'GET'            => 'pdb-m-get',
+                'POST'           => 'pdb-m-post',
+                'PUT', 'PATCH'   => 'pdb-m-put',
+                'DELETE'         => 'pdb-m-del',
+                default          => '',
+            };
+            $items[] = sprintf(
+                '<button class="pdb-tab pdb-route-badge" data-panel="route">'
+                . '<span class="pdb-method %s">%s</span> %s</button>',
+                $methodCls,
+                htmlspecialchars($method),
+                htmlspecialchars($uri),
+            );
+        }
+
+        // PHP version chip.
+        $items[] = '<span class="pdb-chip">PHP ' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION . '</span>';
+
+        // Memory chip — peak / limit.
+        $peak  = $memData['peak_human'] ?? '';
+        if ($peak !== '') {
+            $limit = ini_get('memory_limit');
+            $limitStr = ($limit && $limit !== '-1') ? ' / ' . $limit : '';
+            $items[] = '<span class="pdb-chip">Mem: ' . htmlspecialchars($peak) . $limitStr . '</span>';
+        }
+
+        // Environment chip (APP_ENV or ENVIRONMENT from $_ENV / $_SERVER).
+        $env = $_ENV['APP_ENV'] ?? $_SERVER['APP_ENV'] ?? $_ENV['ENVIRONMENT'] ?? $_SERVER['ENVIRONMENT'] ?? null;
+        if ($env !== null) {
+            $isProd = in_array(strtolower((string) $env), ['prod', 'production'], true);
+            $cls    = $isProd ? 'pdb-chip pdb-env-prod' : 'pdb-chip pdb-env-dev';
+            $items[] = '<span class="' . $cls . '">' . htmlspecialchars((string) $env) . '</span>';
+        }
+
+        return '<div id="pdb-info">' . implode('', $items) . '</div>';
     }
 
     private function renderQueries(array $data): string
@@ -373,7 +443,18 @@ HTML;
 #pdb-brand{color:#89b4fa;font-weight:bold;margin-right:8px;flex-shrink:0}
 .pdb-tab{background:none;border:none;color:#cdd6f4;cursor:pointer;padding:2px 8px;border-radius:4px;font:inherit}
 .pdb-tab:hover,.pdb-tab.pdb-active{background:#313244;color:#89b4fa}
-.pdb-devpanel{color:#a6e3a1;text-decoration:none;padding:2px 8px;font:inherit;flex-shrink:0;margin-left:auto}
+#pdb-info{display:flex;align-items:center;gap:5px;margin-left:auto;flex-shrink:0}
+.pdb-chip{font-size:10px;color:#6c7086;padding:1px 6px;background:#313244;border-radius:3px;white-space:nowrap}
+.pdb-env-prod{color:#f38ba8!important}
+.pdb-env-dev{color:#a6e3a1!important}
+.pdb-route-badge{font-size:11px;background:#313244!important;border-radius:4px;padding:1px 7px!important}
+.pdb-route-badge:hover{background:#45475a!important;color:#cdd6f4!important}
+.pdb-method{font-size:9px;font-weight:bold;padding:0 3px;border-radius:2px;margin-right:3px}
+.pdb-m-get{color:#a6e3a1}
+.pdb-m-post{color:#fab387}
+.pdb-m-put{color:#f9e2af}
+.pdb-m-del{color:#f38ba8}
+.pdb-devpanel{color:#a6e3a1;text-decoration:none;padding:2px 8px;font:inherit;flex-shrink:0;margin-left:6px}
 .pdb-devpanel:hover{color:#cba6f7}
 .pdb-close{background:none;border:none;color:#f38ba8;cursor:pointer;margin-left:4px;font:inherit;flex-shrink:0}
 #pdb-panels{max-height:300px;overflow-y:auto;padding:8px 12px;background:#181825;border-top:1px solid #313244;display:none}
