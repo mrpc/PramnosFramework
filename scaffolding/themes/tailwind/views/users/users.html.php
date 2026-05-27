@@ -45,6 +45,7 @@
                         </td>
                         <td><?php echo htmlspecialchars($u['regdate'] ?? ''); ?></td>
                         <td class="text-right">
+                            <a href="<?php echo sURL; ?>Users/view/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-indigo-300 text-indigo-700 text-xs rounded hover:bg-indigo-50">View</a>
                             <a href="<?php echo sURL; ?>Users/edit/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50">Edit</a>
                             <a href="<?php echo sURL; ?>Users/sessions/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-blue-300 text-blue-700 text-xs rounded hover:bg-blue-50">Sessions</a>
                             <a href="<?php echo sURL; ?>Users/resetpassword/<?php echo (int)$u['userid']; ?>" class="px-3 py-1 border border-yellow-300 text-yellow-700 text-xs rounded hover:bg-yellow-50" data-confirm="Send password reset email to this user?">Reset Password</a>
@@ -73,6 +74,4 @@
         <?php endif; ?>
     </div>
 </div>
-<?php if ($_hasDt ?? false): ?>
-<script>$(document).ready(function(){ $('#dt-users').DataTable({pageLength:25,order:[]}); });</script>
-<?php endif; ?>
+<?php if ($_hasDt ?? false): $_doc->addInlineScript("$(document).ready(function(){ $('#dt-users').DataTable({pageLength:25,order:[]}); });"); endif; ?>
