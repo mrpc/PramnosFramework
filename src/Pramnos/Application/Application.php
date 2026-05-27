@@ -746,6 +746,21 @@ class Application extends Base
         }
         $this->activeController = $controllerObject;
 
+        // Feed resolved route into DebugBar RouteCollector when debug toolbar is active.
+        try {
+            $routeCollector = \Pramnos\Debug\DebugBar::getInstance()->getCollector('route');
+            if ($routeCollector instanceof \Pramnos\Debug\Collectors\RouteCollector) {
+                $routeCollector->setRoute([
+                    'uri'        => $_SERVER['REQUEST_URI'] ?? '/',
+                    'method'     => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+                    'controller' => $this->controller,
+                    'action'     => $this->action ?: 'display',
+                    'class'      => get_class($controllerObject),
+                ]);
+            }
+        } catch (\Throwable) {
+        }
+
         /*
          * Check for theme in the application configuration. If set, load it.
          */

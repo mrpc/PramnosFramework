@@ -116,6 +116,17 @@ class Logger
         } else {
             @file_put_contents($filepath, $formattedEntry, FILE_APPEND | LOCK_EX);
         }
+
+        // Forward to DebugBar LogCollector when the debug toolbar is active.
+        // Wrapped in try/catch so instrumentation never affects production.
+        try {
+            $collector = \Pramnos\Debug\DebugBar::getInstance()->getCollector('logs');
+            if ($collector instanceof \Pramnos\Debug\Collectors\LogCollector) {
+                $level = $context['level'] ?? 'log';
+                $collector->addEntry($level, $message);
+            }
+        } catch (\Throwable) {
+        }
     }
 
     /**
