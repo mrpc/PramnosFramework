@@ -815,6 +815,19 @@ class Database extends \Pramnos\Framework\Base
         return $this;
     }
 
+    /** Record a query that was served from cache (no DB round-trip). */
+    public function logCacheHit(string $sql): void
+    {
+        if ($this->_inMemoryLogEnabled) {
+            $this->_inMemoryQueryLog[] = [
+                'sql'        => $sql,
+                'time'       => 0.0,
+                'at'         => microtime(true),
+                'from_cache' => true,
+            ];
+        }
+    }
+
     /**
      * Close the database connection
      * @return boolean
@@ -901,7 +914,7 @@ class Database extends \Pramnos\Framework\Base
             
             $time += microtime(true);
             if ($this->_inMemoryLogEnabled) {
-                $this->_inMemoryQueryLog[] = ['sql' => $query, 'time' => $time, 'at' => microtime(true)];
+                $this->_inMemoryQueryLog[] = ['sql' => $query, 'time' => $time, 'at' => microtime(true), 'from_cache' => false];
             }
             if ($this->_customLogSlowQueries == true
                     && $this->_slowQueryLogHandler !== NULL
@@ -2385,10 +2398,11 @@ class Database extends \Pramnos\Framework\Base
         $this->currentQuery = $sql;
 
         if ($cache && $cacheData) {
+            $this->logCacheHit($sql);
             $obj = new Result($this);
             $obj->cursor = -1;
             $obj->isCached = true;
-            
+
             // Check if data is already unserialized (new format) or needs unserialization (old format)
             if (is_string($cacheData)) {
                 $resultArray = unserialize($cacheData);
