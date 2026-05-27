@@ -1108,6 +1108,160 @@ class DatabasePureMethodsTest extends TestCase
     }
 
     // =========================================================================
+    // pgRewriteDmlLimit (private)
+    // PostgreSQL does not support LIMIT in DELETE or UPDATE statements.
+    // The adapter rewrites them to equivalent ctid subqueries.
+    // =========================================================================
+
+    /** Helper that calls the private pgRewriteDmlLimit() via reflection. */
+    private function rewriteDml(string $sql): string
+    {
+        $ref = new \ReflectionMethod($this->db, 'pgRewriteDmlLimit');
+        return (string) $ref->invoke($this->db, $sql);
+    }
+
+    /**
+     * SELECT queries are returned unchanged — LIMIT is valid for SELECT in
+     * PostgreSQL and must never be rewritten.
+     */
+    public function testPgRewriteDmlLimitIgnoresSelectStatements(): void
+    {
+        // Arrange
+        $sql = 'SELECT * FROM "users" WHERE "active" = 1 LIMIT 10';
+
+        // Act
+        $result = $this->rewriteDml($sql);
+
+        // Assert — SELECT must pass through unchanged
+        $this->assertSame($sql, $result);
+    }
+
+    /**
+     * DELETE without LIMIT is returned unchanged — nothing to rewrite.
+     * Verifies the quick-exit guard fires correctly.
+     */
+    public function testPgRewriteDmlLimitIgnoresDeleteWithoutLimit(): void
+    {
+        // Arrange
+        $sql = 'DELETE FROM "metricstoios" WHERE "ioid" = 4699';
+
+        // Act
+        $result = $this->rewriteDml($sql);
+
+        // Assert — no LIMIT → no rewrite
+        $this->assertSame($sql, $result);
+    }
+
+    /**
+     * DELETE FROM table WHERE ... LIMIT N is rewritten to a ctid subquery.
+     *
+     * This is the exact query that was failing in the urbanwaterDev integration
+     * suite: MySQL-style `DELETE ... LIMIT 1` written as a raw query, which
+     * PostgreSQL rejects with "syntax error at or near 'limit'".
+     *
+     * The ctid form is semantically equivalent: it deletes the same set of
+     * rows (at most N rows matching the WHERE clause).
+     */
+    public function testPgRewriteDmlLimitRewritesSimpleDelete(): void
+    {
+        // Arrange — post backtick→double-quote conversion
+        $sql = 'delete from "metricstoios" where "ioid" = 4699 and "metricid" = 6572 limit 1';
+
+        // Act
+        $result = $this->rewriteDml($sql);
+
+        // Assert — rewritten to ctid subquery
+        $this->assertStringContainsString('ctid IN', $result,
+            'DELETE with LIMIT must be rewritten to ctid subquery');
+        $this->assertStringContainsString('LIMIT 1', $result,
+            'The original limit value must be preserved in the subquery');
+        // The top-level statement must end with the closing ')' of the subquery, not with LIMIT
+        $this->assertStringEndsWith(')', rtrim($result),
+            'Rewritten DELETE must end with closing paren of ctid subquery, not a trailing LIMIT');
+        // Verify full ctid subquery structure
+        $this->assertMatchesRegularExpression(
+            '/DELETE FROM[^(]+WHERE ctid IN \(SELECT ctid FROM[^)]+LIMIT 1\)$/i',
+            rtrim($result)
+        );
+    }
+
+    /**
+     * DELETE FROM table LIMIT N (no WHERE clause) is rewritten to:
+     * DELETE FROM t WHERE ctid IN (SELECT ctid FROM t LIMIT N).
+     * This deletes the first N rows in physical storage order.
+     */
+    public function testPgRewriteDmlLimitRewritesDeleteWithoutWhere(): void
+    {
+        // Arrange
+        $sql = 'DELETE FROM "logs" LIMIT 100';
+
+        // Act
+        $result = $this->rewriteDml($sql);
+
+        // Assert
+        $this->assertStringContainsString('ctid IN', $result);
+        $this->assertStringContainsString('LIMIT 100', $result);
+        $this->assertStringNotContainsString('DELETE FROM "logs" LIMIT', $result);
+    }
+
+    /**
+     * UPDATE table SET ... WHERE ... LIMIT N is rewritten using a ctid subquery.
+     *
+     * PostgreSQL rejects `UPDATE ... LIMIT N`; the ctid form is the standard
+     * workaround that preserves the "update at most N matching rows" semantics.
+     */
+    public function testPgRewriteDmlLimitRewritesUpdateWithWhereAndLimit(): void
+    {
+        // Arrange
+        $sql = 'UPDATE "orders" SET "status" = \'done\' WHERE "user_id" = 42 LIMIT 5';
+
+        // Act
+        $result = $this->rewriteDml($sql);
+
+        // Assert — ctid subquery present, original LIMIT at end removed
+        $this->assertStringContainsString('ctid IN', $result);
+        $this->assertStringContainsString('LIMIT 5', $result);
+        $this->assertMatchesRegularExpression(
+            '/UPDATE "orders" SET.+WHERE ctid IN \(SELECT ctid FROM "orders" WHERE.+LIMIT 5\)/is',
+            $result
+        );
+    }
+
+    /**
+     * UPDATE table SET ... LIMIT N (no WHERE) strips the LIMIT — updating all
+     * rows with a limit is uncommon, and without a WHERE we just update all rows.
+     */
+    public function testPgRewriteDmlLimitRewritesUpdateWithoutWhereStripsLimit(): void
+    {
+        // Arrange
+        $sql = 'UPDATE "sessions" SET "active" = 0 LIMIT 10';
+
+        // Act
+        $result = $this->rewriteDml($sql);
+
+        // Assert — LIMIT stripped, no ctid needed (no WHERE to subquery on)
+        $this->assertStringNotContainsStringIgnoringCase('LIMIT', $result);
+        $this->assertStringContainsString('UPDATE "sessions" SET', $result);
+    }
+
+    /**
+     * LIMIT inside a subquery (not at the top-level end) is NOT rewritten.
+     * E.g.: DELETE FROM t WHERE id IN (SELECT id FROM s LIMIT 10) — valid PG.
+     * The trailing character is ')' not a digit, so the guard does not fire.
+     */
+    public function testPgRewriteDmlLimitIgnoresLimitInsideSubquery(): void
+    {
+        // Arrange — LIMIT 10 is inside a subquery, followed by ')'
+        $sql = 'DELETE FROM "t" WHERE "id" IN (SELECT "id" FROM "s" ORDER BY "ts" LIMIT 10)';
+
+        // Act
+        $result = $this->rewriteDml($sql);
+
+        // Assert — unchanged (trailing char is ')', not a digit-ended LIMIT)
+        $this->assertSame($sql, $result);
+    }
+
+    // =========================================================================
     // connect — throw-on-failure branch (throwOnFailure=true, bad server)
     // =========================================================================
 

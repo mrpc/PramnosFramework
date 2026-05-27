@@ -815,6 +815,66 @@ class Database extends \Pramnos\Framework\Base
         return $this;
     }
 
+    /**
+     * Rewrite DELETE/UPDATE ... LIMIT N to PostgreSQL-compatible form.
+     *
+     * PostgreSQL does not support LIMIT in DELETE or UPDATE statements.
+     * The transformation preserves semantics by using a ctid subquery:
+     *
+     *   DELETE FROM t WHERE cond LIMIT N
+     *   → DELETE FROM t WHERE ctid IN (SELECT ctid FROM t WHERE cond LIMIT N)
+     *
+     *   UPDATE t SET col=val WHERE cond LIMIT N
+     *   → UPDATE t SET col=val WHERE ctid IN (SELECT ctid FROM t WHERE cond LIMIT N)
+     *
+     * Called after backtick→double-quote conversion, so table names are already
+     * in PostgreSQL double-quote form when this runs.
+     *
+     * @internal Used only by the PostgreSQL paths in prepare() / prepareQuery().
+     */
+    private function pgRewriteDmlLimit(string $sql): string
+    {
+        $trimmed = rtrim($sql, " ;\t\n\r");
+
+        // Quick exit — no LIMIT at the very end of the statement.
+        if (!preg_match('/\bLIMIT\s+\d+\s*$/i', $trimmed)) {
+            return $sql;
+        }
+
+        // Extract limit value and strip it from the body.
+        preg_match('/\bLIMIT\s+(\d+)\s*$/i', $trimmed, $lm);
+        $limit = (int) $lm[1];
+        $body  = rtrim(preg_replace('/\bLIMIT\s+\d+\s*$/i', '', $trimmed));
+
+        // Table-name segment: optionally schema-qualified, quoted or unquoted.
+        $tp = '(?:"[^"]*"|\w+)(?:\.(?:"[^"]*"|\w+))*';
+
+        // DELETE FROM table [rest]
+        if (preg_match('/^DELETE\s+FROM\s+(' . $tp . ')((?:\s+.*)?)$/is', $body, $m)) {
+            $table = $m[1];
+            $rest  = trim($m[2]); // WHERE clause (and optional ORDER BY)
+            if ($rest !== '') {
+                return "DELETE FROM {$table} WHERE ctid IN (SELECT ctid FROM {$table} {$rest} LIMIT {$limit})";
+            }
+            return "DELETE FROM {$table} WHERE ctid IN (SELECT ctid FROM {$table} LIMIT {$limit})";
+        }
+
+        // UPDATE table SET ... WHERE ... — greedy match + backtrack finds LAST WHERE.
+        if (preg_match('/^(UPDATE\s+(' . $tp . ')\s+SET\s+.+)\s+(WHERE\s+.+)$/is', $body, $m)) {
+            $updateSet   = $m[1]; // "UPDATE t SET col=val" (no WHERE)
+            $table       = $m[2];
+            $whereClause = $m[3]; // "WHERE condition"
+            return "{$updateSet} WHERE ctid IN (SELECT ctid FROM {$table} {$whereClause} LIMIT {$limit})";
+        }
+
+        // UPDATE without WHERE + LIMIT: strip LIMIT (already done by removing it above).
+        if (preg_match('/^UPDATE\s+/i', $body)) {
+            return $body;
+        }
+
+        return $sql;
+    }
+
     /** Record a query that was served from cache (no DB round-trip). */
     public function logCacheHit(string $sql): void
     {
@@ -1000,6 +1060,8 @@ class Database extends \Pramnos\Framework\Base
             $sql = str_replace('`', '"', $sql);
             // Convert single-quoted column aliases (MySQL syntax) to double-quoted (PostgreSQL syntax)
             $sql = preg_replace('/\bAS\s+\'([^\']+)\'/i', 'AS "$1"', $sql);
+            // Rewrite DELETE/UPDATE ... LIMIT N (not valid in PostgreSQL)
+            $sql = $this->pgRewriteDmlLimit($sql);
             $query = str_replace(
                 array('"#PREFIX#', '#PREFIX#', "#CP#"),
                 array($schema . '"' . $this->prefix, $schema . $this->prefix, $this->controllerPrefix),
@@ -1381,8 +1443,9 @@ class Database extends \Pramnos\Framework\Base
         }
         if ($this->type == 'postgresql') {
             $sqlQueryString = str_replace("`", '"', $sqlQueryString);
-
             $sqlQueryString = preg_replace("/\bas\s+'([^']+)'/i", 'AS "$1"', $sqlQueryString);
+            // Rewrite DELETE/UPDATE ... LIMIT N (not valid in PostgreSQL)
+            $sqlQueryString = $this->pgRewriteDmlLimit($sqlQueryString);
 
 
 
