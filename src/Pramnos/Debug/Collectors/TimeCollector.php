@@ -22,7 +22,10 @@ class TimeCollector implements CollectorInterface
 
     public function __construct(?float $startTime = null)
     {
-        $this->startTime = $startTime ?? microtime(true);
+        // Prefer the PHP request start time so the timeline covers the full
+        // request lifecycle rather than just the DebugBar boot moment.
+        $this->startTime = $startTime
+            ?? (isset($_SERVER['REQUEST_TIME_FLOAT']) ? (float) $_SERVER['REQUEST_TIME_FLOAT'] : microtime(true));
     }
 
     public function name(): string
@@ -49,16 +52,19 @@ class TimeCollector implements CollectorInterface
 
         $named = [];
         foreach ($this->timers as $name => $t) {
-            $end     = $t['end'] ?? $now;
+            $end       = $t['end'] ?? $now;
+            $duration  = round(($end - $t['start']) * 1000, 2);
+            $offsetMs  = round(($t['start'] - $this->startTime) * 1000, 2);
             $named[] = [
-                'name' => $name,
-                'ms'   => round(($end - $t['start']) * 1000, 2),
+                'name'      => $name,
+                'ms'        => $duration,
+                'offset_ms' => max(0.0, $offsetMs),
             ];
         }
 
         return [
-            'request_ms'  => $elapsed,
-            'start_time'  => date('H:i:s', (int) $this->startTime),
+            'request_ms'   => $elapsed,
+            'start_time'   => date('H:i:s', (int) $this->startTime),
             'named_timers' => $named,
         ];
     }

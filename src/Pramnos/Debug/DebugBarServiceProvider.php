@@ -43,6 +43,7 @@ class DebugBarServiceProvider extends ServiceProvider
         $bar = DebugBar::getInstance();
 
         $bar->addCollector(new TimeCollector());
+        DebugBar::startTimer('boot');
         $bar->addCollector(new MemoryCollector());
         $bar->addCollector(new SessionCollector());
         $bar->addCollector(new LogCollector());
@@ -58,6 +59,8 @@ class DebugBarServiceProvider extends ServiceProvider
         $bar->addCollector(new ViewsCollector());
         $bar->addCollector(new ModelsCollector());
         $bar->addCollector(new ExceptionsCollector());
+
+        DebugBar::stopTimer('boot');
 
         // Never open an output buffer in CLI (PHPUnit) — the unclosed level
         // would trigger "did not close its own output buffers" on every test.

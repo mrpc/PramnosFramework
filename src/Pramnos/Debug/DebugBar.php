@@ -198,14 +198,46 @@ HTML;
 
     private function renderTimers(array $data): string
     {
-        $html  = '<p><strong>Request time:</strong> ' . ($data['request_ms'] ?? 0) . 'ms</p>';
-        $named = $data['named_timers'] ?? [];
+        $totalMs = (float) ($data['request_ms'] ?? 1);
+        $named   = $data['named_timers'] ?? [];
+
+        // Segment colors (Catppuccin palette)
+        $palette = ['#89b4fa', '#cba6f7', '#a6e3a1', '#f9e2af', '#fab387', '#f38ba8', '#94e2d5'];
+        $html    = '<p style="margin:0 0 6px"><strong>Request:</strong> ' . $totalMs . 'ms &nbsp;'
+                 . '<span style="color:#6c7086">started ' . ($data['start_time'] ?? '') . '</span></p>';
+
         if (!empty($named)) {
-            $rows = '';
-            foreach ($named as $t) {
-                $rows .= '<tr><td>' . htmlspecialchars($t['name']) . '</td><td>' . $t['ms'] . 'ms</td></tr>';
+            // Timeline bar
+            $html .= '<div class="pdb-timeline">';
+            foreach ($named as $i => $t) {
+                $leftPct  = $totalMs > 0 ? min(100, ($t['offset_ms'] / $totalMs) * 100) : 0;
+                $widthPct = $totalMs > 0 ? max(0.5, min(100 - $leftPct, ($t['ms'] / $totalMs) * 100)) : 1;
+                $color    = $palette[$i % count($palette)];
+                $label    = htmlspecialchars($t['name']);
+                $title    = "{$label}: {$t['ms']}ms";
+                $html    .= sprintf(
+                    '<div class="pdb-tl-seg" style="left:%.2f%%;width:%.2f%%;background:%s" title="%s">%s</div>',
+                    $leftPct, $widthPct, $color, $title,
+                    $widthPct > 4 ? $label : ''
+                );
             }
-            $html .= "<table class=\"pdb-table\"><thead><tr><th>Timer</th><th>Time</th></tr></thead><tbody>{$rows}</tbody></table>";
+            $html .= '</div>';
+
+            // Legend table
+            $rows = '';
+            foreach ($named as $i => $t) {
+                $color  = $palette[$i % count($palette)];
+                $name   = htmlspecialchars($t['name']);
+                $pct    = $totalMs > 0 ? round($t['ms'] / $totalMs * 100, 1) : 0;
+                $rows  .= "<tr>"
+                        . "<td><span style=\"display:inline-block;width:10px;height:10px;border-radius:2px;background:{$color};margin-right:4px\"></span>{$name}</td>"
+                        . "<td class=\"pdb-time\">{$t['ms']}ms</td>"
+                        . "<td style=\"color:#6c7086\">{$pct}%</td>"
+                        . "</tr>";
+            }
+            $html .= "<table class=\"pdb-table\" style=\"margin-top:8px\">"
+                   . "<thead><tr><th>Phase</th><th>Duration</th><th>%</th></tr></thead>"
+                   . "<tbody>{$rows}</tbody></table>";
         }
         return $html;
     }
@@ -328,6 +360,9 @@ HTML;
 .pdb-level-error{color:#f38ba8}
 .pdb-level-warn,.pdb-level-warning{color:#fab387}
 #pdb-panels p{margin:0 0 6px}
+.pdb-timeline{position:relative;height:20px;background:#313244;border-radius:4px;margin:6px 0 4px;overflow:hidden}
+.pdb-tl-seg{position:absolute;top:0;height:100%;border-radius:2px;font-size:9px;line-height:20px;padding:0 3px;white-space:nowrap;overflow:hidden;opacity:.9;color:#1e1e2e;font-weight:bold}
+.pdb-tl-seg:hover{opacity:1;z-index:1}
 ';
     }
 
