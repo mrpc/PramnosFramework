@@ -741,6 +741,13 @@ class Application extends Base
         try {
             $controllerObject = $this->getController($this->controller);
         } catch (\Exception $Exception) {
+            try {
+                $ec = \Pramnos\Debug\DebugBar::getInstance()->getCollector('exceptions');
+                if ($ec instanceof \Pramnos\Debug\Collectors\ExceptionsCollector) {
+                    $ec->record($Exception);
+                }
+            } catch (\Throwable) {
+            }
             //\Pramnos\Logs\Logger::log($Exception->getMessage());
             $this->close('There is no controller to run...');
         }
@@ -791,6 +798,13 @@ class Application extends Base
         } catch (\Pramnos\Http\RedirectException $exception) {
             $this->redirect($exception->getUrl(), true, $exception->getStatusCode());
         } catch (\Pramnos\Validation\ValidationException $exception) {
+            try {
+                $ec = \Pramnos\Debug\DebugBar::getInstance()->getCollector('exceptions');
+                if ($ec instanceof \Pramnos\Debug\Collectors\ExceptionsCollector) {
+                    $ec->record($exception);
+                }
+            } catch (\Throwable) {
+            }
             $request = new \Pramnos\Http\Request();
             $_SESSION['_validation_errors'] = $exception->errors();
             $_SESSION['_old_input'] = $request->allCurrent();
@@ -798,6 +812,13 @@ class Application extends Base
             $redirectTo = $_SERVER['HTTP_REFERER'] ?? URL;
             $this->redirect($redirectTo);
         } catch (\Exception $exception) {
+            try {
+                $ec = \Pramnos\Debug\DebugBar::getInstance()->getCollector('exceptions');
+                if ($ec instanceof \Pramnos\Debug\Collectors\ExceptionsCollector) {
+                    $ec->record($exception);
+                }
+            } catch (\Throwable) {
+            }
             $format = isset($doc) && $doc->getType() === 'json' ? 'json' : 'html';
             $debug  = defined('DEVELOPMENT') && DEVELOPMENT === true;
             \Pramnos\Http\ExceptionHandler::log($exception);

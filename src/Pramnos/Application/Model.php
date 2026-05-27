@@ -152,6 +152,13 @@ class Model extends \Pramnos\Framework\Base
         if ($key !== NULL && $key != "") {
             $this->_primaryKey = $key;
         }
+        try {
+            $mc = \Pramnos\Debug\DebugBar::getInstance()->getCollector('models');
+            if ($mc instanceof \Pramnos\Debug\Collectors\ModelsCollector) {
+                $mc->record(static::class, (string) $this->_dbtable, 'save', $this->{$this->_primaryKey} ?? null);
+            }
+        } catch (\Throwable) {
+        }
 
         if ($debug==true) {
             var_dump($_POST, $this);
@@ -389,13 +396,19 @@ class Model extends \Pramnos\Framework\Base
     protected function _load($primaryKey, $table = NULL,
         $key = NULL, $debug=false, $useCache = true)
     {
-
         $database = \Pramnos\Database\Database::getInstance();
         if ($table !== NULL && $table != "") {
             $this->_dbtable = $table;
         }
         if ($key !== NULL && $key != "") {
             $this->_primaryKey = $key;
+        }
+        try {
+            $mc = \Pramnos\Debug\DebugBar::getInstance()->getCollector('models');
+            if ($mc instanceof \Pramnos\Debug\Collectors\ModelsCollector) {
+                $mc->record(static::class, (string) $this->_dbtable, 'load', $primaryKey);
+            }
+        } catch (\Throwable) {
         }
         if ($this->_dbtable != NULL) {
             if ($this->_cacheKey === NULL) {
