@@ -128,7 +128,7 @@ class InitCommandTest extends TestCase
             'n',                 // Step 4: libraries
             'y',                 // Setup Docker (y)
             '8081',              // Port
-            '1',                 // Redis
+            '0',                 // Redis (index 0 in ['redis','none','memcached'])
             '1',                 // PostgreSQL
             'localhost',
             'dockerdb',
@@ -303,7 +303,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 4: libraries
             'y',            // Setup Docker
             '8086',         // Port
-            '0',            // No Cache
+            '1',            // No Cache (index 1 in ['redis','none','memcached'])
             '0',            // MySQL
             'localhost',
             'nocachedb',
@@ -413,7 +413,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 4: libraries
             'y',            // Setup Docker (y)
             '8088',         // Port
-            '1',            // Redis
+            '0',            // Redis (index 0 in ['redis','none','memcached'])
             '2',            // TimescaleDB
             'localhost',
             'timescaledb',
