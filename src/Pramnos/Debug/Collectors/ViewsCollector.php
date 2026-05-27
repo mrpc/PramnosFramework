@@ -23,20 +23,23 @@ class ViewsCollector implements CollectorInterface
         return 'views';
     }
 
-    public function record(string $viewName, string $tplFile, float $renderMs): void
+    public function record(string $viewName, string $tplFile, float $renderMs, bool $fromCache = false): void
     {
         $this->views[] = [
-            'view'      => $viewName,
-            'template'  => basename($tplFile),
-            'render_ms' => round($renderMs, 2),
+            'view'       => $viewName,
+            'template'   => basename($tplFile),
+            'render_ms'  => round($renderMs, 2),
+            'from_cache' => $fromCache,
         ];
     }
 
     public function collect(): array
     {
+        $cached = count(array_filter($this->views, fn($v) => $v['from_cache']));
         return [
-            'count' => count($this->views),
-            'views' => $this->views,
+            'count'  => count($this->views),
+            'cached' => $cached,
+            'views'  => $this->views,
         ];
     }
 }
