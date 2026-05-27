@@ -283,16 +283,16 @@ class Datatable extends Base
                 if ($column->showHide == true && trim($column->label) != "") {
                     $btnId = 'psh_' . $this->name . '_' . $n;
                     if ($this->jui == true) {
-                        $showHide .= '<a href="javascript:void(0);" id="' . $btnId . '">'
+                        $showHide .= '<a href="#" id="' . $btnId . '">'
                             . '<span style="padding-left:3px; padding-right:3px;" '
                             . 'class="ui-button ui-state-default">' . $column->label
                             . '</span></a>';
 
                     } elseif ($this->bootstrap == true) {
-                        $showHide .= '<li><a href="javascript:void(0);" id="' . $btnId . '">'
+                        $showHide .= '<li><a href="#" id="' . $btnId . '">'
                             . $column->label . '</a></li>';
                     } else {
-                        $showHide .= $sep . ' <a href="javascript:void(0);" id="' . $btnId . '">'
+                        $showHide .= $sep . ' <a href="#" id="' . $btnId . '">'
                             . $column->label . '</a> ';
                     }
                     $t+=1;
@@ -645,6 +645,35 @@ table;
     pf40_doGroup_{$tVar}();";
         }
 
+        // Build show/hide column handlers — must live inside the load callback so
+        // the DataTable variable ($tableVar) is in scope.  e.preventDefault()
+        // avoids CSP violations from href="#" navigation.
+        $showHideJs = '';
+        if ($this->showHide == true) {
+            $n = 0;
+            foreach ($this->aoColumns as $column) {
+                if ($column->showHide == true && trim($column->label) != '') {
+                    $btnId = 'psh_' . $this->name . '_' . $n;
+                    $showHideJs .= "\ndocument.getElementById('" . $btnId . "') && "
+                        . "document.getElementById('" . $btnId . "').addEventListener('click', function(e){"
+                        . "e.preventDefault();"
+                        . "var bVis=" . $jsVar . ".fnSettings().aoColumns[" . $n . "].bVisible;"
+                        . $jsVar . ".fnSetColumnVis(" . $n . ",!bVis);"
+                        . "});";
+                }
+                $n++;
+            }
+        }
+        $groupBySelectorJs = '';
+        if ($this->groupBySelector === true) {
+            $sId = 'pf40_groupby_' . $this->name;
+            $groupBySelectorJs = "\ndocument.getElementById('" . $sId . "') && "
+                . "document.getElementById('" . $sId . "').addEventListener('change', function() {"
+                . "pf40_gc_" . $jsVar . " = parseInt(this.value);"
+                . $jsVar . ".fnDraw();"
+                . "});";
+        }
+
         $tableId   = $this->name;
         $tableVar  = $jsVar;
         $return = <<<table
@@ -684,34 +713,12 @@ table;
         $sf
         $this->codeEmbed;
         $groupByInitJs
-
+        $showHideJs
+        $groupBySelectorJs
 
     });
-
+   </script>
 table;
-        if ($this->showHide == true) {
-            $n = 0;
-            foreach ($this->aoColumns as $column) {
-                if ($column->showHide == true && trim($column->label) != '') {
-                    $btnId = 'psh_' . $this->name . '_' . $n;
-                    $return .= "\ndocument.getElementById('" . $btnId . "') && "
-                        . "document.getElementById('" . $btnId . "').addEventListener('click', function(){"
-                        . "var bVis=" . $jsVar . ".fnSettings().aoColumns[" . $n . "].bVisible;"
-                        . $jsVar . ".fnSetColumnVis(" . $n . ",!bVis);"
-                        . "});";
-                }
-                $n++;
-            }
-        }
-        if ($this->groupBySelector === true) {
-            $sId   = 'pf40_groupby_' . $this->name;
-            $return .= "\ndocument.getElementById('" . $sId . "') && "
-                . "document.getElementById('" . $sId . "').addEventListener('change', function() {"
-                . "pf40_gc_" . $jsVar . " = parseInt(this.value);"
-                . $jsVar . ".fnDraw();"
-                . "});";
-        }
-        $return .= "\n</script>";
         return $return;
     }
 
