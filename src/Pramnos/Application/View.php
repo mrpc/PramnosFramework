@@ -545,6 +545,7 @@ class View extends \Pramnos\Framework\Base
             $this->sections     = [];
             $this->sectionStack = [];
 
+            $_pdb_view_start = microtime(true);
             ob_start();
             try {
                 $lang  = \Pramnos\Framework\Factory::getLanguage();
@@ -552,6 +553,13 @@ class View extends \Pramnos\Framework\Base
                 include $this->getIncludePath($tplfile);
             } catch (\Exception $ex) {
                 ob_end_clean();
+                try {
+                    $ec = \Pramnos\Debug\DebugBar::getInstance()->getCollector('exceptions');
+                    if ($ec instanceof \Pramnos\Debug\Collectors\ExceptionsCollector) {
+                        $ec->record($ex);
+                    }
+                } catch (\Throwable) {
+                }
                 \Pramnos\Logs\Logger::log(
                     'Error in view: ' . $this->name . ' and template file: '
                     . $tplfile . '. ' . $ex->getMessage()
@@ -601,6 +609,15 @@ class View extends \Pramnos\Framework\Base
                     . "\n-->";
             }
             $finalOutput = $childOutput . $tplInformation;
+
+            // Record in DebugBar ViewsCollector.
+            try {
+                $vc = \Pramnos\Debug\DebugBar::getInstance()->getCollector('views');
+                if ($vc instanceof \Pramnos\Debug\Collectors\ViewsCollector) {
+                    $vc->record($this->name, $tplfile, (microtime(true) - $_pdb_view_start) * 1000);
+                }
+            } catch (\Throwable) {
+            }
 
             // Output-cache write: store rendered result for subsequent requests.
             if ($cacheTtl !== null) {
