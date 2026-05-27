@@ -151,12 +151,23 @@ HTML;
     private function formatTabLabel(string $name, array $data): string
     {
         return match ($name) {
-            'queries'    => 'SQL (' . ($data['count'] ?? 0) . ' · ' . ($data['total_ms'] ?? 0) . 'ms)',
+            'queries'    => (function() use ($data): string {
+                                $live   = ($data['count'] ?? 0) - ($data['cached'] ?? 0);
+                                $cached = $data['cached'] ?? 0;
+                                $ms     = $data['total_ms'] ?? 0;
+                                $suffix = $cached > 0 ? " · {$cached} cached" : '';
+                                return "SQL ({$live}{$suffix} · {$ms}ms)";
+                            })(),
             'timers'     => 'Time (' . ($data['request_ms'] ?? 0) . 'ms)',
             'memory'     => 'Mem (' . ($data['peak_human'] ?? '') . ')',
             'logs'       => 'Logs (' . ($data['count'] ?? 0) . ')',
             'session'    => 'Session (' . ($data['count'] ?? 0) . ')',
-            'views'      => 'Views (' . ($data['count'] ?? 0) . ')',
+            'views'      => (function() use ($data): string {
+                                $total  = $data['count'] ?? 0;
+                                $cached = $data['cached'] ?? 0;
+                                $suffix = $cached > 0 ? " · {$cached} cached" : '';
+                                return "Views ({$total}{$suffix})";
+                            })(),
             'models'     => 'Models (' . ($data['count'] ?? 0) . ' · ' . ($data['ops'] ?? 0) . ' ops)',
             'exceptions' => ($data['count'] ?? 0) > 0
                             ? '⚠ Exceptions (' . $data['count'] . ')'
@@ -185,14 +196,24 @@ HTML;
     {
         $rows = '';
         foreach ($data['queries'] ?? [] as $q) {
-            $sql  = htmlspecialchars($q['sql'] ?? '');
-            $time = $q['time'] ?? 0;
-            $cls  = $time > 100 ? 'pdb-slow' : '';
-            $rows .= "<tr class=\"{$cls}\"><td class=\"pdb-time\">{$time}ms</td><td class=\"pdb-sql\">{$sql}</td></tr>";
+            $rawSql    = $q['sql'] ?? '';
+            $sql       = htmlspecialchars($rawSql);
+            $sqlAttr   = htmlspecialchars($rawSql, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $time      = $q['time'] ?? 0;
+            $fromCache = (bool) ($q['from_cache'] ?? false);
+            $cls       = (!$fromCache && $time > 100) ? 'pdb-slow' : '';
+            $timeTd    = $fromCache
+                ? '<td class="pdb-time pdb-cached">CACHE</td>'
+                : "<td class=\"pdb-time\">{$time}ms</td>";
+            $copyBtn   = "<button class=\"pdb-copy\" data-sql=\"{$sqlAttr}\" title=\"Copy SQL\">&#x2398;</button>";
+            $rows .= "<tr class=\"{$cls}\">{$timeTd}<td class=\"pdb-sql\">{$copyBtn} {$sql}</td></tr>";
         }
-        $count = $data['count'] ?? 0;
-        $total = $data['total_ms'] ?? 0;
-        return "<p><strong>{$count} queries</strong> — {$total}ms total</p>"
+        $count  = $data['count'] ?? 0;
+        $cached = $data['cached'] ?? 0;
+        $live   = $count - $cached;
+        $total  = $data['total_ms'] ?? 0;
+        $info   = $cached > 0 ? " ({$live} live · {$cached} from cache)" : '';
+        return "<p><strong>{$count} queries{$info}</strong> — {$total}ms total</p>"
              . "<table class=\"pdb-table\"><thead><tr><th>Time</th><th>SQL</th></tr></thead><tbody>{$rows}</tbody></table>";
     }
 
@@ -289,15 +310,22 @@ HTML;
     {
         $rows = '';
         foreach ($data['views'] ?? [] as $v) {
-            $view = htmlspecialchars($v['view'] ?? '');
-            $tpl  = htmlspecialchars($v['template'] ?? '');
-            $ms   = $v['render_ms'] ?? 0;
-            $cls  = $ms > 50 ? 'pdb-slow' : '';
-            $rows .= "<tr class=\"{$cls}\"><td class=\"pdb-time\">{$ms}ms</td><td>{$view}</td><td class=\"pdb-sql\">{$tpl}</td></tr>";
+            $view      = htmlspecialchars($v['view'] ?? '');
+            $tpl       = htmlspecialchars($v['template'] ?? '');
+            $ms        = $v['render_ms'] ?? 0;
+            $fromCache = (bool) ($v['from_cache'] ?? false);
+            $cls       = (!$fromCache && $ms > 50) ? 'pdb-slow' : '';
+            $timeTd    = $fromCache
+                ? '<td class="pdb-time pdb-cached">CACHE</td>'
+                : "<td class=\"pdb-time\">{$ms}ms</td>";
+            $rows .= "<tr class=\"{$cls}\">{$timeTd}<td>{$view}</td><td class=\"pdb-sql\">{$tpl}</td></tr>";
         }
-        $count = $data['count'] ?? 0;
-        $empty = $rows === '' ? '<tr><td colspan="3" style="color:#6c7086">No views rendered</td></tr>' : $rows;
-        return "<p><strong>{$count} template(s) rendered</strong></p>"
+        $count  = $data['count'] ?? 0;
+        $cached = $data['cached'] ?? 0;
+        $live   = $count - $cached;
+        $info   = $cached > 0 ? " ({$live} rendered · {$cached} from cache)" : '';
+        $empty  = $rows === '' ? '<tr><td colspan="3" style="color:#6c7086">No views rendered</td></tr>' : $rows;
+        return "<p><strong>{$count} template(s){$info}</strong></p>"
              . "<table class=\"pdb-table\"><thead><tr><th>Time</th><th>View</th><th>Template</th></tr></thead><tbody>{$empty}</tbody></table>";
     }
 
@@ -355,6 +383,10 @@ HTML;
 .pdb-table .pdb-sql{font-size:10.5px;word-break:break-all}
 .pdb-table .pdb-time{white-space:nowrap;color:#a6e3a1;min-width:50px}
 .pdb-slow .pdb-time{color:#f38ba8}
+.pdb-cached{color:#a6e3a1!important;font-size:9px;letter-spacing:.05em;font-weight:bold}
+.pdb-copy{background:none;border:1px solid #45475a;color:#6c7086;cursor:pointer;font:10px monospace;padding:0 3px;border-radius:2px;line-height:14px;vertical-align:middle}
+.pdb-copy:hover{background:#313244;color:#cba6f7;border-color:#cba6f7}
+.pdb-copy.pdb-copied{color:#a6e3a1;border-color:#a6e3a1}
 .pdb-dl{display:grid;grid-template-columns:150px 1fr;gap:4px 12px}
 .pdb-dl dt{color:#89b4fa}
 .pdb-level-error{color:#f38ba8}
@@ -370,6 +402,15 @@ HTML;
     {
         return '
 (function(){
+  function pdbCopy(sql,btn){
+    var done=function(){btn.classList.add("pdb-copied");btn.textContent="✓";setTimeout(function(){btn.classList.remove("pdb-copied");btn.innerHTML="⎘";},1500);};
+    if(navigator.clipboard){navigator.clipboard.writeText(sql).then(done).catch(function(){done();});}
+    else{var ta=document.createElement("textarea");ta.value=sql;ta.style.cssText="position:fixed;opacity:0";document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(e){}document.body.removeChild(ta);done();}
+  }
+  document.addEventListener("click",function(e){
+    var btn=e.target.closest(".pdb-copy");
+    if(btn){e.stopPropagation();pdbCopy(btn.dataset.sql,btn);}
+  });
   document.querySelectorAll(".pdb-tab").forEach(function(btn){
     btn.addEventListener("click",function(){
       var name=btn.dataset.panel;

@@ -1031,6 +1031,7 @@ class QueryBuilder
             $cacheData = $this->db->cacheRead($cacheKey, $category);
             
             if ($cacheData !== false) {
+                $this->db->logCacheHit($sql);
                 $obj = new \Pramnos\Database\Result($this->db);
                 $obj->cursor = -1;
                 $obj->isCached = true;

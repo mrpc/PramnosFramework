@@ -513,6 +513,13 @@ class View extends \Pramnos\Framework\Base
                 $cacheInst  = \Pramnos\Cache\Cache::getInstance('views');
                 $cachedData = $cacheInst->load($cacheKey, 'views', $cacheTtl);
                 if ($cachedData !== false && $cachedData !== null) {
+                    try {
+                        $vc = \Pramnos\Debug\DebugBar::getInstance()->getCollector('views');
+                        if ($vc instanceof \Pramnos\Debug\Collectors\ViewsCollector) {
+                            $vc->record($this->name, $tpl . '.' . $type . '.php', 0.0, true);
+                        }
+                    } catch (\Throwable) {
+                    }
                     if ($render) {
                         return (string) $cachedData;
                     }
