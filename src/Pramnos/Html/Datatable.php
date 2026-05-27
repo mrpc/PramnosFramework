@@ -505,15 +505,22 @@ embed;
         if (count($this->aoColumns) == 0) {
             $aoColumns = "";
         } else {
-
             $aoColumns = '"aoColumns": [' . "\n";
-            $i = 1;
+            $colIdx    = 0;
+            $colTotal  = count($this->aoColumns);
             foreach ($this->aoColumns as $c) {
-                $aoColumns .= $c->js;
-                if ($i != count($this->aoColumns)) {
+                // In server-side mode, inject "data": N so DataTables 1.10+ maps
+                // positional array values to the correct column.
+                if ($this->source !== '') {
+                    $colJs = rtrim($c->js, '}') . ', "data": ' . $colIdx . '}';
+                } else {
+                    $colJs = $c->js;
+                }
+                $aoColumns .= $colJs;
+                if ($colIdx + 1 < $colTotal) {
                     $aoColumns .= ', ';
                 }
-                $i+=1;
+                $colIdx++;
             }
             $aoColumns .= '],';
         }
@@ -573,12 +580,15 @@ ss;
 
         $ajaxsource = '';
         if ($this->source != '') {
-            $ajaxsource = '"bServerSide": true, "sAjaxSource": "'
-                . $this->source . '",';
-            $ajaxsource .= "\n";
-            $ajaxsource .= '"aaSorting": [[ ' . $this->sortColumn . ', "'
-                . $this->sortOrder . '" ]],';
-            $ajaxsource .= "\n";
+            $extraDataJson = json_encode($this->aoData ?: []);
+            $sortDir       = strtolower($this->sortOrder) === 'asc' ? 'asc' : 'desc';
+            $ajaxsource    = '"serverSide": true,' . "\n"
+                . '"ajax": {"url": "' . $this->source . '", "type": "POST",'
+                . '"data": function(d){'
+                . 'var e=' . $extraDataJson . ';'
+                . 'for(var i=0;i<e.length;i++){d[e[i].name]=e[i].value;}'
+                . '}},' . "\n"
+                . '"order": [[' . (int)$this->sortColumn . ', "' . $sortDir . '"]],' . "\n";
         }
 
 
@@ -664,18 +674,6 @@ table;
              $aoColumns
              $tabletools
              $search
-            "fnServerData": function ( sSource, aoData, fnCallback ) {
-                let aoDataArray = $this->aoData ;
-                for (var i = 0; i < aoDataArray.length; i++){
-                    aoData.push( aoDataArray[i] );
-                }                
-                jQuery.ajax( {
-                    "dataType": 'json',
-                    "type": "POST",
-                    "url": sSource,
-                    "data": aoData,
-                    "success": fnCallback
-                } ); }
         });
 
         $sf

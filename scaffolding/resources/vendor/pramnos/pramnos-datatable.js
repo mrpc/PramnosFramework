@@ -91,10 +91,11 @@
                 }
 
                 return {
-                    page   : page,
-                    search : search,
-                    order  : orderParts.join(','),
-                    fields : fields.join(',')
+                    page    : page,
+                    perpage : length,
+                    search  : search,
+                    order   : orderParts.join(','),
+                    fields  : fields.join(',')
                 };
             },
             dataFilter: function (json) {
