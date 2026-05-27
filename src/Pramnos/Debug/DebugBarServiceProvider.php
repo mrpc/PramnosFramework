@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Pramnos\Debug;
 
 use Pramnos\Application\ServiceProvider;
+use Pramnos\Debug\Collectors\ExceptionsCollector;
 use Pramnos\Debug\Collectors\LogCollector;
 use Pramnos\Debug\Collectors\MemoryCollector;
+use Pramnos\Debug\Collectors\ModelsCollector;
 use Pramnos\Debug\Collectors\QueryCollector;
 use Pramnos\Debug\Collectors\RouteCollector;
 use Pramnos\Debug\Collectors\SessionCollector;
 use Pramnos\Debug\Collectors\TimeCollector;
+use Pramnos\Debug\Collectors\ViewsCollector;
 
 /**
  * Bootstraps the DebugBar when APP_DEBUG is truthy.
@@ -52,12 +55,25 @@ class DebugBarServiceProvider extends ServiceProvider
         }
 
         $bar->addCollector(new RouteCollector());
+        $bar->addCollector(new ViewsCollector());
+        $bar->addCollector(new ModelsCollector());
+        $bar->addCollector(new ExceptionsCollector());
 
         // Never open an output buffer in CLI (PHPUnit) — the unclosed level
         // would trigger "did not close its own output buffers" on every test.
         if (PHP_SAPI === 'cli') {
             return;
         }
+
+        // Capture PHP errors (warnings, notices, deprecations) into ExceptionsCollector.
+        set_error_handler(function (int $errno, string $errstr, string $errfile, int $errline) use ($bar): bool {
+            $ec = $bar->getCollector('exceptions');
+            if ($ec instanceof ExceptionsCollector) {
+                $ec->recordPhpError($errno, $errstr, $errfile, $errline);
+            }
+            return false; // continue default PHP error handling
+        });
+
 
         // Capture the app reference so the ob_start callback can read the
         // per-request CSP nonce that Application::exec() generates.
