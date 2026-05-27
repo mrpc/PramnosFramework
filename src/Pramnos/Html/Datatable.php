@@ -480,6 +480,8 @@ embed;
     {
         $lang = \Pramnos\Framework\Factory::getLanguage();
         $document = \Pramnos\Framework\Factory::getDocument();
+        // JS variable name: replace non-identifier chars (e.g. hyphens in "dt-users") with _
+        $jsVar = preg_replace('/[^a-zA-Z0-9_$]/', '_', $this->name);
         if ($this->aLengthMenu === NULL) {
             $this->aLengthMenu = '[[10, 25, 50, 100, -1], [10, 25, 50, 100, "'
                 . $lang->_('All') . '"]]';
@@ -598,13 +600,13 @@ ss;
    "fnDrawCallback": function () {
             $('#$this->name tbody td').editable( '$this->source', {
                 "callback": function( sValue, y ) {
-                      var aPos = $this->name.fnGetPosition( this );
-                      $this->name.fnUpdate( sValue, aPos[0], aPos[1] );
+                      var aPos = {$jsVar}.fnGetPosition( this );
+                      {$jsVar}.fnUpdate( sValue, aPos[0], aPos[1] );
                 },
                 "submitdata": function ( value, settings ) {
             return {
                 "row_id": this.parentNode.getAttribute('id'),
-                "column": $this->name.fnGetPosition( this )[2]
+                "column": {$jsVar}.fnGetPosition( this )[2]
             };
         },
                 "height": "14px",
@@ -619,11 +621,12 @@ table;
         if ($this->groupByColumn !== null || $this->groupBySelector === true) {
             $initCol = $this->groupByColumn !== null ? (int) $this->groupByColumn : -1;
             $nCols   = count($this->aoColumns);
-            $tName   = $this->name;
+            $tName   = $this->name;   // original name for selectors (#id)
+            $tVar    = $jsVar;        // sanitized name for JS variables/functions
             $groupByInitJs = "
-    var pf40_gc_{$tName} = {$initCol};
-    function pf40_doGroup_{$tName}() {
-        var col = pf40_gc_{$tName};
+    var pf40_gc_{$tVar} = {$initCol};
+    function pf40_doGroup_{$tVar}() {
+        var col = pf40_gc_{$tVar};
         var tbody = jQuery('#{$tName} tbody');
         tbody.find('tr.pramnos-group-row').remove();
         if (col < 0) return;
@@ -638,10 +641,12 @@ table;
             }
         });
     }
-    jQuery('#{$tName}').on('draw.dt', pf40_doGroup_{$tName});
-    pf40_doGroup_{$tName}();";
+    jQuery('#{$tName}').on('draw.dt', pf40_doGroup_{$tVar});
+    pf40_doGroup_{$tVar}();";
         }
 
+        $tableId   = $this->name;
+        $tableVar  = $jsVar;
         $return = <<<table
    <script>
 
@@ -657,7 +662,7 @@ table;
     window.addEventListener("load", function () {
 
 
-            $this->name = jQuery('#$this->name').dataTable( {
+            var {$tableVar} = jQuery('#{$tableId}').dataTable( {
             $language
             $jui
             $fnDrawCallback
@@ -691,8 +696,8 @@ table;
                     $btnId = 'psh_' . $this->name . '_' . $n;
                     $return .= "\ndocument.getElementById('" . $btnId . "') && "
                         . "document.getElementById('" . $btnId . "').addEventListener('click', function(){"
-                        . "var bVis=" . $this->name . ".fnSettings().aoColumns[" . $n . "].bVisible;"
-                        . $this->name . ".fnSetColumnVis(" . $n . ",!bVis);"
+                        . "var bVis=" . $jsVar . ".fnSettings().aoColumns[" . $n . "].bVisible;"
+                        . $jsVar . ".fnSetColumnVis(" . $n . ",!bVis);"
                         . "});";
                 }
                 $n++;
@@ -700,11 +705,10 @@ table;
         }
         if ($this->groupBySelector === true) {
             $sId   = 'pf40_groupby_' . $this->name;
-            $tName = $this->name;
             $return .= "\ndocument.getElementById('" . $sId . "') && "
                 . "document.getElementById('" . $sId . "').addEventListener('change', function() {"
-                . "pf40_gc_" . $tName . " = parseInt(this.value);"
-                . $tName . ".fnDraw();"
+                . "pf40_gc_" . $jsVar . " = parseInt(this.value);"
+                . $jsVar . ".fnDraw();"
                 . "});";
         }
         $return .= "\n</script>";
