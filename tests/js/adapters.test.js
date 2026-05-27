@@ -256,6 +256,34 @@ describe('PramnosDataTable', function () {
 
     // ── data() — fields ────────────────────────────────────────────────────
 
+    // ── data() — perpage ───────────────────────────────────────────────────
+
+    test('data(): length is forwarded as perpage param', function () {
+        // Arrange
+        var PramnosDataTable = loadDataTable(null);
+        var config = PramnosDataTable.buildAjaxConfig('/api/users');
+
+        // Act
+        var params = config.data({ draw: 1, start: 0, length: 25, search: {}, order: [], columns: [] });
+
+        // Assert — server needs perpage to apply the correct LIMIT
+        assert.strictEqual(params.perpage, 25);
+    });
+
+    test('data(): length=10 forwards perpage=10', function () {
+        // Arrange
+        var PramnosDataTable = loadDataTable(null);
+        var config = PramnosDataTable.buildAjaxConfig('/api/users');
+
+        // Act
+        var params = config.data({ draw: 1, start: 0, length: 10, search: {}, order: [], columns: [] });
+
+        // Assert
+        assert.strictEqual(params.perpage, 10);
+    });
+
+    // ── data() — fields ────────────────────────────────────────────────────
+
     test('data(): columns with data values are joined into fields param', function () {
         // Arrange
         var PramnosDataTable = loadDataTable(null);
