@@ -151,25 +151,33 @@ HTML;
     private function formatTabLabel(string $name, array $data): string
     {
         return match ($name) {
-            'queries' => 'SQL (' . ($data['count'] ?? 0) . ' · ' . ($data['total_ms'] ?? 0) . 'ms)',
-            'timers'  => 'Time (' . ($data['request_ms'] ?? 0) . 'ms)',
-            'memory'  => 'Mem (' . ($data['peak_human'] ?? '') . ')',
-            'logs'    => 'Logs (' . ($data['count'] ?? 0) . ')',
-            'session' => 'Session (' . ($data['count'] ?? 0) . ')',
-            default   => ucfirst($name),
+            'queries'    => 'SQL (' . ($data['count'] ?? 0) . ' · ' . ($data['total_ms'] ?? 0) . 'ms)',
+            'timers'     => 'Time (' . ($data['request_ms'] ?? 0) . 'ms)',
+            'memory'     => 'Mem (' . ($data['peak_human'] ?? '') . ')',
+            'logs'       => 'Logs (' . ($data['count'] ?? 0) . ')',
+            'session'    => 'Session (' . ($data['count'] ?? 0) . ')',
+            'views'      => 'Views (' . ($data['count'] ?? 0) . ')',
+            'models'     => 'Models (' . ($data['count'] ?? 0) . ' · ' . ($data['ops'] ?? 0) . ' ops)',
+            'exceptions' => ($data['count'] ?? 0) > 0
+                            ? '⚠ Exceptions (' . $data['count'] . ')'
+                            : 'Exceptions (0)',
+            default      => ucfirst($name),
         };
     }
 
     private function renderPanel(string $name, array $data): string
     {
         return match ($name) {
-            'queries'  => $this->renderQueries($data),
-            'timers'   => $this->renderTimers($data),
-            'memory'   => $this->renderMemory($data),
-            'route'    => $this->renderRoute($data),
-            'logs'     => $this->renderLogs($data),
-            'session'  => $this->renderSession($data),
-            default    => '<pre>' . htmlspecialchars(json_encode($data, JSON_PRETTY_PRINT)) . '</pre>',
+            'queries'    => $this->renderQueries($data),
+            'timers'     => $this->renderTimers($data),
+            'memory'     => $this->renderMemory($data),
+            'route'      => $this->renderRoute($data),
+            'logs'       => $this->renderLogs($data),
+            'session'    => $this->renderSession($data),
+            'views'      => $this->renderViews($data),
+            'models'     => $this->renderModels($data),
+            'exceptions' => $this->renderExceptions($data),
+            default      => '<pre>' . htmlspecialchars(json_encode($data, JSON_PRETTY_PRINT)) . '</pre>',
         };
     }
 
@@ -243,6 +251,56 @@ HTML;
         }
         return '<p><strong>Session ID:</strong> ' . htmlspecialchars($data['session_id'] ?? '') . '</p>'
              . "<table class=\"pdb-table\"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>{$rows}</tbody></table>";
+    }
+
+    private function renderViews(array $data): string
+    {
+        $rows = '';
+        foreach ($data['views'] ?? [] as $v) {
+            $view = htmlspecialchars($v['view'] ?? '');
+            $tpl  = htmlspecialchars($v['template'] ?? '');
+            $ms   = $v['render_ms'] ?? 0;
+            $cls  = $ms > 50 ? 'pdb-slow' : '';
+            $rows .= "<tr class=\"{$cls}\"><td class=\"pdb-time\">{$ms}ms</td><td>{$view}</td><td class=\"pdb-sql\">{$tpl}</td></tr>";
+        }
+        $count = $data['count'] ?? 0;
+        $empty = $rows === '' ? '<tr><td colspan="3" style="color:#6c7086">No views rendered</td></tr>' : $rows;
+        return "<p><strong>{$count} template(s) rendered</strong></p>"
+             . "<table class=\"pdb-table\"><thead><tr><th>Time</th><th>View</th><th>Template</th></tr></thead><tbody>{$empty}</tbody></table>";
+    }
+
+    private function renderModels(array $data): string
+    {
+        $rows = '';
+        foreach ($data['operations'] ?? [] as $op) {
+            $cls   = htmlspecialchars($op['class'] ?? '');
+            $table = htmlspecialchars($op['table'] ?? '');
+            $oper  = htmlspecialchars($op['op'] ?? '');
+            $key   = htmlspecialchars((string) ($op['key'] ?? '—'));
+            $rows .= "<tr><td>{$cls}</td><td>{$table}</td><td>{$oper}</td><td>{$key}</td></tr>";
+        }
+        $classes = $data['count'] ?? 0;
+        $ops     = $data['ops'] ?? 0;
+        $empty   = $rows === '' ? '<tr><td colspan="4" style="color:#6c7086">No model operations</td></tr>' : $rows;
+        return "<p><strong>{$classes} model class(es)</strong> — {$ops} operation(s)</p>"
+             . "<table class=\"pdb-table\"><thead><tr><th>Class</th><th>Table</th><th>Op</th><th>Key</th></tr></thead><tbody>{$empty}</tbody></table>";
+    }
+
+    private function renderExceptions(array $data): string
+    {
+        $rows = '';
+        foreach ($data['items'] ?? [] as $item) {
+            $type = $item['type'] === 'php_error' ? 'PHP' : 'EXC';
+            $cls  = htmlspecialchars($item['class'] ?? '');
+            $msg  = htmlspecialchars($item['message'] ?? '');
+            $file = htmlspecialchars($item['file'] ?? '');
+            $line = (int) ($item['line'] ?? 0);
+            $rows .= "<tr><td style=\"color:#f38ba8;white-space:nowrap\">{$type}</td><td style=\"color:#fab387\">{$cls}</td><td>{$msg}</td><td class=\"pdb-sql\">{$file}:{$line}</td></tr>";
+        }
+        $count = $data['count'] ?? 0;
+        $empty = $rows === '' ? '<tr><td colspan="4" style="color:#a6e3a1">No exceptions</td></tr>' : $rows;
+        return "<p><strong>{$count} exception(s) / error(s)</strong></p>"
+             . "<table class=\"pdb-table\"><thead><tr><th>Type</th><th>Class</th><th>Message</th><th>Location</th></tr></thead><tbody>{$empty}</tbody></table>";
     }
 
     // ── Assets ────────────────────────────────────────────────────────────────
