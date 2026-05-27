@@ -205,15 +205,15 @@ class TwoFactorAuth extends Controller
      */
     public function test(): void
     {
-        $secret = TOTPHelper::generateSecret();
-        $code   = TOTPHelper::generateCode($secret);
-        $qrUrl  = TOTPHelper::getQRCodeUrl($secret, 'test@example.com');
+        $secret    = TOTPHelper::generateSecret();
+        $code      = TOTPHelper::generateCode($secret);
+        $qrDataUri = TOTPHelper::getQRCodeDataUri($secret, 'test@example.com');
 
         header('Content-Type: application/json');
         echo json_encode([
             'secret'           => $secret,
             'code'             => $code,
-            'qr_url'           => $qrUrl,
+            'qr_data_uri'      => $qrDataUri !== null ? '(generated)' : null,
             'remaining_time'   => TOTPHelper::getRemainingTime(),
             'is_valid_secret'  => TOTPHelper::isValidSecret($secret),
             'verify_test'      => TOTPHelper::verifyCode($secret, $code),
