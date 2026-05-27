@@ -34,7 +34,7 @@ class ApplicationsController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'view', 'edit', 'save', 'delete', 'tokens', 'rotate']);
+        $this->addAuthAction(['display', 'data', 'view', 'edit', 'save', 'delete', 'tokens', 'rotate']);
         parent::__construct($application);
     }
 
@@ -100,7 +100,7 @@ class ApplicationsController extends Controller
     }
 
     /**
-     * Paginated DataTable list of registered OAuth2 applications.
+     * DataTable list of OAuth2 applications — shell only; rows loaded via AJAX from data().
      */
     public function display(): mixed
     {
@@ -111,20 +111,54 @@ class ApplicationsController extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'OAuth2 Applications';
 
-        $db   = \Pramnos\Framework\Factory::getDatabase();
-        $page = max(1, (int) ($_GET['page'] ?? 1));
+        $dt = new \Pramnos\Html\Datatable('dt-applications');
+        $dt->source    = sURL . 'applications/data';
+        $dt->bootstrap = false;
+        $dt->addColumn('ID',          true,  true,  true,  'num')
+           ->addColumn('Name',        true,  true,  true)
+           ->addColumn('API Key',     true,  true,  true)
+           ->addColumn('Status',      true,  true,  false, 'html')
+           ->addColumn('Added',       true,  true,  false)
+           ->addColumn('Actions',     true,  false, false, 'html');
 
-        $view               = $this->getView('applications');
-        $view->applications = $db->queryBuilder()
-            ->table('applications')
-            ->select(['appid', 'name', 'description', 'apikey', 'status', 'added', 'apptype', 'accesstype', 'organization'])
-            ->orderBy('name')
-            ->forPage($page, 50)
-            ->get();
-        $view->total = $db->queryBuilder()->table('applications')->count();
-        $view->page  = $page;
-
+        $view            = $this->getView('applications');
+        $view->datatable = $dt;
         return $view->display();
+    }
+
+    /**
+     * AJAX data endpoint for the applications DataTable.
+     */
+    public function data(): void
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+        \Pramnos\Framework\Factory::getDocument('json');
+
+        $fields = ['appid', 'name', 'apikey', 'status', 'added'];
+        $result = \Pramnos\Html\Datatable\Datasource::getList(
+            'applications',
+            $fields,
+            false
+        );
+
+        foreach ($result['data'] ?? $result['aaData'] ?? [] as &$row) {
+            $id     = (int) $row[0];
+            $status = (int) $row[3];
+            $added  = (int) $row[4];
+            $row[3] = $status === 1
+                ? '<span style="color:green">Active</span>'
+                : '<span style="color:#888">Inactive</span>';
+            $row[4] = $added > 0 ? date('Y-m-d', $added) : '';
+            $row[]  = '<a href="' . sURL . 'applications/view/' . $id . '">View</a> '
+                    . '<a href="' . sURL . 'applications/edit/' . $id . '">Edit</a> '
+                    . '<a href="' . sURL . 'applications/delete/' . $id . '" data-confirm="Delete this application?">Delete</a>';
+        }
+        unset($row);
+
+        echo json_encode($result);
+        exit;
     }
 
     /**

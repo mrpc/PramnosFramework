@@ -135,6 +135,35 @@ class Datasource extends Base
                 $_POST[$key] = iconv('utf-8', $iconv . '//IGNORE', $value);
             }
         }
+
+        // Translate DataTables 1.10+ params (draw/start/length/search/order/columns)
+        // into the legacy format (sEcho/iDisplayStart/iDisplayLength/sSearch/iSortCol_N)
+        // that the rest of this method reads. BC-safe: legacy callers keep working.
+        $isModernDT = isset($_POST['draw']) && !isset($_POST['sEcho']);
+        if ($isModernDT) {
+            $_POST['sEcho']         = (int)($_POST['draw'] ?? 1);
+            $_POST['iDisplayStart'] = (int)($_POST['start'] ?? 0);
+            $dtLength               = (int)($_POST['length'] ?? (int)$this->maxlimit);
+            $_POST['iDisplayLength']= $dtLength > 0 ? $dtLength : (int)$this->maxlimit;
+            $dtSearch               = is_array($_POST['search'] ?? null)
+                                    ? ($_POST['search']['value'] ?? '')
+                                    : (string)($_POST['search'] ?? '');
+            $_POST['sSearch']       = $dtSearch;
+            if (isset($_POST['order']) && is_array($_POST['order'])) {
+                $orders = array_values($_POST['order']);
+                $_POST['iSortingCols'] = count($orders);
+                foreach ($orders as $i => $o) {
+                    $_POST['iSortCol_' . $i] = (int)($o['column'] ?? 0);
+                    $_POST['sSortDir_' . $i] = ($o['dir'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
+                }
+            }
+            if (isset($_POST['columns']) && is_array($_POST['columns'])) {
+                foreach ($_POST['columns'] as $i => $col) {
+                    $_POST['bSearchable_' . $i] = ($col['searchable'] ?? 'true') !== 'false' ? 'true' : 'false';
+                }
+            }
+        }
+
         if ($join != '') {
             $qb->joinRaw($join);
         }
@@ -282,6 +311,18 @@ class Datasource extends Base
         if (!isset($return['aaData'])) {
             $return['aaData'] = array();
         }
+
+        // Return DataTables 1.10+ format when the request used modern params.
+        if ($isModernDT) {
+            $modernReturn = [
+                'draw'            => (int)($_POST['draw'] ?? 1),
+                'recordsTotal'    => $total,
+                'recordsFiltered' => $totalDisplay,
+                'data'            => $return['aaData'],
+            ];
+            return $encode ? json_encode($modernReturn) : $modernReturn;
+        }
+
         if ($encode === true) {
             return json_encode($return);
         } else {

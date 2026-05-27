@@ -1,23 +1,36 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-27 (session 146) — QR code local gen, DataTable JS fix, View link ✅
+## 📅 Last Updated: 2026-05-27 (session 147) — DataTable AJAX architecture ✅
+
+## 🏁 Session 147 — DataTable AJAX architecture refactor (2026-05-27)
+
+### ✅ feat(datatables): server-side AJAX για όλες τις list views
+- `Datasource::render()`: auto-detect modern DT 1.10+ params (`draw`/`start`/`length`/`search`/`order`/`columns`) → translate to legacy format → return modern response format.
+- `Datatable::renderJs()`: αντικατάσταση `bServerSide`/`sAjaxSource`/`fnServerData` (DT 1.9) με `serverSide`/`ajax` (DT 1.10+). Κάθε column παίρνει `"data": N` σε server-side mode.
+- `UsersController`, `OrganizationsController`, `ApplicationsController`: νέο `data()` action με `Datasource::getList()` + row decoration + JSON output. Το `display()` περνά `\Pramnos\Html\Datatable` object στο view.
+- 9 list views (users/organizations/applications × tailwind/bootstrap/plain-css): αντικαταστάθηκαν με minimal wrapper `echo $this->datatable->render()` — χωρίς manual `<table>`, `foreach`, ή DataTable init scripts.
+
+### ✅ fix(pramnos-datatable.js): perpage param λείπει
+- `data()` function στο `pramnos-datatable.js` τώρα στέλνει `perpage: length` ώστε ο server να εφαρμόσει το σωστό LIMIT.
+- 2 νέα tests στο `tests/js/adapters.test.js` που επαληθεύουν ότι το `perpage` περνάει σωστά.
+
+---
 
 ## 🏁 Session 146 — QR code local generation, DataTable JS fix, View link (2026-05-27)
 
 ### ✅ fix(2fa): QR code via external API violates CSP
-- `chillerlan/php-qrcode` spostato da `suggest` a `require` in `composer.json`.
-- `TOTPHelper::getQRCodeDataUri()`: corretta costante `OUTPUT_MARKUP_SVG` → `MARKUP_SVG` (API v5) e `imageBase64` → `outputBase64`.
-- `TwoFactorAuth::test()` usa `getQRCodeDataUri()` al posto di `getQRCodeUrl()`.
-- Nessun chiamata all'API esterna `api.qrserver.com` — il QR viene generato server-side come `data:image/svg+xml;base64,...`.
+- `chillerlan/php-qrcode` μετακινήθηκε από `suggest` σε `require` στο `composer.json`.
+- `TOTPHelper::getQRCodeDataUri()`: διόρθωση σταθεράς `OUTPUT_MARKUP_SVG` → `MARKUP_SVG` (API v5) και `imageBase64` → `outputBase64`.
+- `TwoFactorAuth::test()` χρησιμοποιεί `getQRCodeDataUri()` αντί `getQRCodeUrl()`.
+- Καμία κλήση στο εξωτερικό API `api.qrserver.com` — το QR παράγεται server-side ως `data:image/svg+xml;base64,...`.
 
 ### ✅ fix(datatables): $ is not defined in view body
-- Aggiunto `Document::addInlineScript(string $code): self` — appende JS al footer del documento, dopo `renderJs()`.
-- Tutte e 9 le list view (users/organizations/applications × 3 temi) ora usano `$_doc->addInlineScript(...)` invece di un tag `<script>` inline nel body.
-- Prima: lo script veniva eseguito prima che jQuery/DataTables fossero caricati (footer.php chiama `renderJs()` dopo il body).
+- Προσθήκη `Document::addInlineScript(string $code): self` — προσθέτει JS στο footer μετά τα enqueued scripts.
+- 9 list views (users/organizations/applications × 3 themes) χρησιμοποιούν `$_doc->addInlineScript(...)` αντί raw `<script>` tag.
 
-### ✅ feat(scaffolding): link "View" in users list — bootstrap + plain-css
-- `themes/bootstrap/views/users/users.html.php` e `plain-css/views/users/users.html.php` ora hanno il link "View" prima di "Edit" in ogni riga (già presente nel tema tailwind dalla sessione 145b).
+### ✅ feat(scaffolding): link "View" στη users list — bootstrap + plain-css
+- `themes/bootstrap/views/users/users.html.php` και `plain-css/views/users/users.html.php` έχουν "View" link πριν το "Edit" σε κάθε γραμμή.
 
 ## 🏁 Session 145b — Scaffolding bug fixes, user profile, DataTable on lists (2026-05-27)
 

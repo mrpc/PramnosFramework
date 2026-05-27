@@ -32,7 +32,7 @@ class UsersController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'view', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions', 'tokens', 'deactivateToken', 'deleteToken', 'resetpassword']);
+        $this->addAuthAction(['display', 'data', 'view', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions', 'tokens', 'deactivateToken', 'deleteToken', 'resetpassword']);
         parent::__construct($application);
     }
 
@@ -105,7 +105,7 @@ class UsersController extends Controller
     }
 
     /**
-     * DataTable list of users ordered by userid descending.
+     * DataTable list of users — table shell only; rows loaded via AJAX from data().
      */
     public function display(): mixed
     {
@@ -114,20 +114,57 @@ class UsersController extends Controller
 
         $this->requireMinUserType($this->requiredUserType);
 
-        $db = \Pramnos\Database\Database::getInstance();
-        $users = $db->queryBuilder()
-            ->table('#PREFIX#users')
-            ->select(['userid', 'username', 'email', 'usertype', 'active', 'validated', 'lastlogin'])
-            ->orderBy('userid', 'desc')
-            ->limit(500)
-            ->getAll();
+        $dt = new \Pramnos\Html\Datatable('dt-users');
+        $dt->source    = sURL . 'users/data';
+        $dt->bootstrap = false;
+        $dt->addColumn('ID',           true,  true,  true,  'num-html')
+           ->addColumn('Username',     true,  true,  true)
+           ->addColumn('Email',        true,  true,  true)
+           ->addColumn('Type',         true,  true,  true,  'num')
+           ->addColumn('Status',       true,  true,  false, 'html')
+           ->addColumn('Registered',   true,  true,  false, 'num')
+           ->addColumn('Actions',      true,  false, false, 'html');
 
         $view          = $this->getView('users');
-        $view->users   = $users;
+        $view->datatable = $dt;
         $view->success = $_SESSION['users_success'] ?? '';
         $view->error   = $_SESSION['users_error']   ?? '';
         unset($_SESSION['users_success'], $_SESSION['users_error']);
         return $view->display();
+    }
+
+    /**
+     * AJAX data endpoint for the users DataTable.
+     * Reads DataTables server-side params from POST and returns paginated JSON.
+     */
+    public function data(): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        \Pramnos\Framework\Factory::getDocument('json');
+
+        $fields = ['userid', 'username', 'email', 'usertype', 'active', 'regdate'];
+        $result = \Pramnos\Html\Datatable\Datasource::getList(
+            '#PREFIX#users',
+            $fields,
+            false
+        );
+
+        foreach ($result['data'] ?? $result['aaData'] ?? [] as &$row) {
+            $id      = (int) $row[0];
+            $active  = (int) $row[4];
+            $regdate = (int) $row[5];
+            $row[4]  = $active
+                ? '<span style="color:green">Active</span>'
+                : '<span style="color:#888">Inactive</span>';
+            $row[5]  = $regdate > 0 ? date('Y-m-d', $regdate) : '';
+            $row[]   = '<a href="' . sURL . 'users/view/'   . $id . '">View</a> '
+                     . '<a href="' . sURL . 'users/edit/'   . $id . '">Edit</a> '
+                     . '<a href="' . sURL . 'users/delete/' . $id . '" data-confirm="Deactivate this user?">Deactivate</a>';
+        }
+        unset($row);
+
+        echo json_encode($result);
+        exit;
     }
 
     /**

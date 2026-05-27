@@ -39,7 +39,7 @@ class OrganizationsController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction([
-            'display', 'edit', 'save', 'delete',
+            'display', 'data', 'edit', 'save', 'delete',
             'members', 'addmember', 'removemember',
         ]);
         parent::__construct($application);
@@ -48,7 +48,7 @@ class OrganizationsController extends Controller
     // ── Actions ───────────────────────────────────────────────────────────────
 
     /**
-     * Paginated list of organizations (active + inactive).
+     * DataTable list of organizations — shell only; rows loaded via AJAX from data().
      */
     public function display(): mixed
     {
@@ -59,20 +59,49 @@ class OrganizationsController extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'Organizations';
 
-        $db   = \Pramnos\Framework\Factory::getDatabase();
-        $page = max(1, (int) ($_GET['page'] ?? 1));
+        $dt = new \Pramnos\Html\Datatable('dt-organizations');
+        $dt->source    = sURL . 'organizations/data';
+        $dt->bootstrap = false;
+        $dt->addColumn('ID',          true,  true,  true,  'num')
+           ->addColumn('Name',        true,  true,  true)
+           ->addColumn('Type',        true,  true,  true)
+           ->addColumn('Active',      true,  true,  false, 'html')
+           ->addColumn('Created',     true,  true,  false)
+           ->addColumn('Actions',     true,  false, false, 'html');
 
-        $view  = $this->getView('organizations');
-        $view->organizations = $db->queryBuilder()
-            ->table('organizations')
-            ->select(['organization_id', 'name', 'description', 'org_type', 'is_active', 'created_at'])
-            ->orderBy('name')
-            ->forPage($page, 50)
-            ->getAll();
-        $view->total = $db->queryBuilder()->table('organizations')->count();
-        $view->page  = $page;
-
+        $view           = $this->getView('organizations');
+        $view->datatable = $dt;
         return $view->display();
+    }
+
+    /**
+     * AJAX data endpoint for the organizations DataTable.
+     */
+    public function data(): void
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+        \Pramnos\Framework\Factory::getDocument('json');
+
+        $fields = ['organization_id', 'name', 'org_type', 'is_active', 'created_at'];
+        $result = \Pramnos\Html\Datatable\Datasource::getList(
+            'organizations',
+            $fields,
+            false
+        );
+
+        foreach ($result['data'] ?? $result['aaData'] ?? [] as &$row) {
+            $id     = (int) $row[0];
+            $row[3] = $row[3] ? '<span style="color:green">Yes</span>' : '<span style="color:#888">No</span>';
+            $row[]  = '<a href="' . sURL . 'organizations/edit/'   . $id . '">Edit</a> '
+                    . '<a href="' . sURL . 'organizations/members/' . $id . '">Members</a> '
+                    . '<a href="' . sURL . 'organizations/delete/'  . $id . '" data-confirm="Delete this organization?">Delete</a>';
+        }
+        unset($row);
+
+        echo json_encode($result);
+        exit;
     }
 
     /**
