@@ -192,7 +192,7 @@ class Init extends Command
         // CLI entry-point name: lowercase alphanumeric, e.g. "myapp" → myapp.php / ./myapp
         $cliName = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $namespace));
 
-        $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, false, $cacheSystem);
+        $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true, $cacheSystem);
         $this->scaffoldAppConfig('app/app.php', $appName, $namespace, $enabledFeatures, $uiSystem, $withRestApi);
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
         $this->writeFile('www/index.php', $this->getIndexTemplate($namespace));
@@ -2453,6 +2453,13 @@ BASH;
             $deps    = $libDef['requires'] ?? [];
             $depsPhp = $deps ? "['" . implode("', '", $deps) . "']" : '[]';
 
+            // CSS deps: only include requires that also have CSS (skip JS-only libraries
+            // like jquery which appear in requires but have no CSS registration).
+            $cssDeps = array_filter($deps, function (string $d) use ($catalog) {
+                return !empty($catalog['libraries'][$d]['css'] ?? []);
+            });
+            $cssDepsPhp = $cssDeps ? "['" . implode("', '", $cssDeps) . "']" : '[]';
+
             foreach ($libDef['js'] as $url) {
                 $filename = basename(parse_url($url, PHP_URL_PATH));
                 $path     = $libDef['local_path'] . '/' . $filename;
@@ -2461,7 +2468,7 @@ BASH;
             foreach ($libDef['css'] as $url) {
                 $filename = basename(parse_url($url, PHP_URL_PATH));
                 $path     = $libDef['local_path'] . '/' . $filename;
-                $lines[]  = "        \$doc->registerStyle('$lib', sURL . '$path', $depsPhp, '$version');";
+                $lines[]  = "        \$doc->registerStyle('$lib', sURL . '$path', $cssDepsPhp, '$version');";
             }
         }
 

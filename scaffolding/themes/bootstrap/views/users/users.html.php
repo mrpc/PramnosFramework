@@ -45,6 +45,7 @@
                         </td>
                         <td><?php echo htmlspecialchars($u['regdate'] ?? ''); ?></td>
                         <td class="text-end">
+                            <a href="<?php echo sURL; ?>Users/view/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-primary">View</a>
                             <a href="<?php echo sURL; ?>Users/edit/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
                             <a href="<?php echo sURL; ?>Users/sessions/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-info">Sessions</a>
                             <a href="<?php echo sURL; ?>Users/resetpassword/<?php echo (int)$u['userid']; ?>" class="btn btn-sm btn-outline-warning" data-confirm="Send password reset email to this user?">Reset Password</a>
@@ -73,6 +74,4 @@
         <?php endif; ?>
     </div>
 </div>
-<?php if ($_hasDt ?? false): ?>
-<script>$(document).ready(function(){ $('#dt-users').DataTable({pageLength:25,order:[]}); });</script>
-<?php endif; ?>
+<?php if ($_hasDt ?? false): $_doc->addInlineScript("$(document).ready(function(){ $('#dt-users').DataTable({pageLength:25,order:[]}); });"); endif; ?>

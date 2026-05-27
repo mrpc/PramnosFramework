@@ -1215,15 +1215,23 @@ class DevPanelController extends Controller
 
     /**
      * Returns true when the application is running in development/debug mode.
-     * Mirrors the check used by DebugBarServiceProvider and Application.
+     * Mirrors the check used by DebugBarServiceProvider and Application::isDebugMode().
      */
     private function isDevMode(): bool
     {
         if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
             return true;
         }
-        $setting = Settings::getSetting('debug');
-        return $setting === 'yes' || $setting === '1' || $setting === 'true' || $setting === true;
+        $env = getenv('APP_DEBUG');
+        if ($env !== false && $env !== '' && $env !== '0' && $env !== 'false') {
+            return true;
+        }
+        $debug = Settings::getSetting('debug');
+        if ($debug === 'yes' || $debug === '1' || $debug === 'true' || $debug === true) {
+            return true;
+        }
+        $dev = Settings::getSetting('development');
+        return $dev === true || $dev === '1' || $dev === 'true' || $dev === 'yes';
     }
 
     /**

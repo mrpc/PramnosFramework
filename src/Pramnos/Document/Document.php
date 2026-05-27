@@ -613,7 +613,11 @@ class Document extends \Pramnos\Framework\Base
         if (isset($this->_css[$handle])) {
             if ($this->_css[$handle]['loaded'] == false) {
                 foreach ($this->_css[$handle]['deps'] as $dep) {
-                    $this->_enqueueStyle($dep);
+                    // Skip deps that have no CSS registration (e.g. JS-only libraries
+                    // listed as a CSS dep due to shared requires in the asset catalog).
+                    if (isset($this->_css[$dep])) {
+                        $this->_enqueueStyle($dep);
+                    }
                 }
                 if ($media != '') {
                     $tag = "\n        "
@@ -735,6 +739,23 @@ class Document extends \Pramnos\Framework\Base
             $this->enqueueScript(md5($jsfile), $jsfile);
             $count++;
         }
+        return $this;
+    }
+
+    /**
+     * Append a block of inline JavaScript to the document footer (after all enqueued scripts).
+     *
+     * Use this instead of raw <script> tags inside view templates when the code
+     * depends on libraries loaded via enqueueScript() — those are output by renderJs()
+     * which runs in footer.php, after the view body, so any inline tag inside the view
+     * would execute before jQuery/DataTables/etc. are available.
+     *
+     * @param string $code Raw JavaScript (without <script> tags)
+     * @return self
+     */
+    public function addInlineScript(string $code): self
+    {
+        $this->foot .= '<script>' . $code . '</script>' . "\n";
         return $this;
     }
 

@@ -185,8 +185,8 @@ class TOTPHelper
 
         $uri     = self::buildOtpAuthUri($secret, $label, $issuer);
         $options = new \chillerlan\QRCode\QROptions([
-            'outputType'   => \chillerlan\QRCode\Output\QROutputInterface::OUTPUT_MARKUP_SVG,
-            'imageBase64'  => true,
+            'outputType'   => \chillerlan\QRCode\Output\QROutputInterface::MARKUP_SVG,
+            'outputBase64' => true,
             'addQuietzone' => true,
         ]);
 
