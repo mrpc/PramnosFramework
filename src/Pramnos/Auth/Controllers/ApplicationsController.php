@@ -143,7 +143,8 @@ class ApplicationsController extends Controller
             false
         );
 
-        foreach ($result['data'] ?? $result['aaData'] ?? [] as &$row) {
+        $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
+        foreach ($result[$dataKey] as &$row) {
             $id     = (int) $row[0];
             $status = (int) $row[3];
             $added  = (int) $row[4];
@@ -154,6 +155,7 @@ class ApplicationsController extends Controller
             $row[]  = '<a href="' . sURL . 'applications/view/' . $id . '">View</a> '
                     . '<a href="' . sURL . 'applications/edit/' . $id . '">Edit</a> '
                     . '<a href="' . sURL . 'applications/delete/' . $id . '" data-confirm="Delete this application?">Delete</a>';
+            unset($row['DT_RowId']);
         }
         unset($row);
 

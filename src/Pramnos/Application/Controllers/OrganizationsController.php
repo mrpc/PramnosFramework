@@ -91,12 +91,14 @@ class OrganizationsController extends Controller
             false
         );
 
-        foreach ($result['data'] ?? $result['aaData'] ?? [] as &$row) {
+        $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
+        foreach ($result[$dataKey] as &$row) {
             $id     = (int) $row[0];
             $row[3] = $row[3] ? '<span style="color:green">Yes</span>' : '<span style="color:#888">No</span>';
             $row[]  = '<a href="' . sURL . 'organizations/edit/'   . $id . '">Edit</a> '
                     . '<a href="' . sURL . 'organizations/members/' . $id . '">Members</a> '
                     . '<a href="' . sURL . 'organizations/delete/'  . $id . '" data-confirm="Delete this organization?">Delete</a>';
+            unset($row['DT_RowId']);
         }
         unset($row);
 
