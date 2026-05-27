@@ -149,7 +149,10 @@ class UsersController extends Controller
             false
         );
 
-        foreach ($result['data'] ?? $result['aaData'] ?? [] as &$row) {
+        // Use $dataKey to get a direct lvalue reference — the ?? operator returns a copy
+        // (rvalue) so &$row references inside foreach would not modify $result in place.
+        $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
+        foreach ($result[$dataKey] as &$row) {
             $id      = (int) $row[0];
             $active  = (int) $row[4];
             $regdate = (int) $row[5];
@@ -160,6 +163,7 @@ class UsersController extends Controller
             $row[]   = '<a href="' . sURL . 'users/view/'   . $id . '">View</a> '
                      . '<a href="' . sURL . 'users/edit/'   . $id . '">Edit</a> '
                      . '<a href="' . sURL . 'users/delete/' . $id . '" data-confirm="Deactivate this user?">Deactivate</a>';
+            unset($row['DT_RowId']);
         }
         unset($row);
 
