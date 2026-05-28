@@ -56,6 +56,27 @@ Every test method must carry:
 
 This rule overrides the general "no comments" default. The goal is that a developer reading the test understands the contract being verified without having to trace the production code.
 
+### 9. Framework migration timestamps — always use the current date
+
+New framework migration files under `database/migrations/framework/` **must** use the
+current date as the timestamp prefix (e.g. `2026_05_28_000001_add_something.php`).
+
+**Never reuse `2020_01_01_*`** for new migrations.
+
+**Why:** The `2020_01_01_*` prefix is the "baseline" epoch for all migrations that were
+written before the framework's migration system existed. Existing installations (e.g.
+Urbanwater production) set `migration_cutoff = 2020_01_02_000000` in their settings to
+skip this entire baseline — they already have all those structures via their own
+app-level migrations. Any new framework migration with a `2020_01_01_*` timestamp would
+be silently skipped on those installations.
+
+**Cutoff convention for legacy installations:**
+```
+migration_cutoff = 2020_01_02_000000   # skips all 2020_01_01_* baseline migrations
+```
+Set this in the application settings of any project whose database predates the
+framework migration system.
+
 ### 8. Integration tests are mandatory for every DDL/DML feature
 
 A feature is not considered **done** until it has integration tests that run against the real database (MySQL, PostgreSQL, TimescaleDB via Docker). Unit tests that only verify SQL string output are necessary but not sufficient. Integration tests must verify that the operation actually took effect in the database (schema exists, rows were written, indexes were created, etc.).
