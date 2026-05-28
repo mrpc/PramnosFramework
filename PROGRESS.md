@@ -1,7 +1,36 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-28 (session 149) — pgRewriteDmlLimit PostgreSQL fix ✅
+## 📅 Last Updated: 2026-05-28 (session 150) — MigrationRunner auto-run + DebugBar Migrations tab ✅
+
+## 🏁 Session 150 — MigrationRunner auto-run + DebugBar Migrations tab (2026-05-28)
+
+### ✅ feat(migrations): wire MigrationRunner auto-run into Application::exec()
+- `Application::runAutoMigrations()` — three-phase fingerprint check:
+  - Phase 1: PK lookup (`__fw_auto_{count}_{latestTs}`) → same cost as old `checkversion()`.
+  - Phase 2: one SELECT on slugs (`hasPendingFromSlugs()`) → only when fingerprint absent.
+  - Phase 3: PHP load + `run()` → only when something genuinely pending.
+- `autoExecute=false` migrations never run automatically (filtered by `filterAutorun()`).
+- `migration_cutoff` from `app.php` normalised via `normalizeMigrationCutoff()`.
+- `MigrationLoader::slugsFromDirectories()` — filename-only scan, no PHP loading.
+- `MigrationLoader::resolveFrameworkMigrationsBase()` + `resolveDefaultDirectories()`.
+- `MigrationRunner::hasPendingFromSlugs()` — fast slug comparison without loading files.
+- Integration tests: MySQL + PostgreSQL, 9 + 8 tests, fixture migrations with `autoExecute`.
+- Unit tests: `MigrationLoaderStaticMethodsTest` (10 tests), `MigrationRunnerHasPendingTest` (13 tests).
+- **Commit**: `cf77e45`
+
+### ✅ feat(debugbar): Migrations tab + timeline integration
+- `MigrationsCollector` — νέος collector που καταγράφει migrations του request + ιστορικό από `schemaversion`.
+- `TimeCollector::addCompletedSegment(string $name, float $durationMs)` — retroactive timeline entry.
+- `DebugBar::recordMigration(string $slug, float $ms, string $status)` — static bridge.
+- `MigrationRunner::run()` — περνάει elapsed ms ως 4ο όρισμα στο `$onProgress` callback (backward compat).
+- `Application::runAutoMigrations()` — χρησιμοποιεί callback που καλεί `DebugBar::recordMigration()`.
+- `DebugBarServiceProvider::boot()` — εγγράφει `MigrationsCollector`.
+- `startMaintenance()` — διορθώθηκε: `fopen` failure (permission denied) δεν πλέον προκαλεί `TypeError`.
+- 14 unit tests στο `tests/Unit/Debug/MigrationsCollectorTest.php`.
+- **Commit**: (αυτή η session)
+
+---
 
 ## 🏁 Session 149 — PostgreSQL DELETE/UPDATE LIMIT fix + test verification (2026-05-27)
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Debug;
 
 use Pramnos\Debug\Collectors\CollectorInterface;
+use Pramnos\Debug\Collectors\MigrationsCollector;
 use Pramnos\Debug\Collectors\TimeCollector;
 
 /**
@@ -80,6 +81,26 @@ class DebugBar
     public static function stopTimer(string $name): void
     {
         static::getInstance()->timeCollector?->stopTimer($name);
+    }
+
+    /**
+     * Records a migration that ran during this request.
+     *
+     * Adds a timeline segment to the TimeCollector AND an entry to the
+     * MigrationsCollector so both the timeline and the Migrations tab reflect it.
+     *
+     * @param string $slug   Migration slug.
+     * @param float  $ms     Execution time in milliseconds.
+     * @param string $status 'ran' (success) or 'failed'.
+     */
+    public static function recordMigration(string $slug, float $ms, string $status = 'ran'): void
+    {
+        $bar = static::getInstance();
+        $bar->timeCollector?->addCompletedSegment('migration:' . $slug, $ms);
+        $mc = $bar->getCollector('migrations');
+        if ($mc instanceof MigrationsCollector) {
+            $mc->record($slug, $ms, $status);
+        }
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
@@ -193,6 +214,10 @@ HTML;
                                 return "Views ({$total}{$suffix})";
                             })(),
             'models'     => 'Models (' . ($data['count'] ?? 0) . ' · ' . ($data['ops'] ?? 0) . ' ops)',
+            'migrations'  => (function() use ($data): string {
+                                $n = $data['count_request'] ?? 0;
+                                return $n > 0 ? "Migrations ({$n} ran)" : 'Migrations';
+                             })(),
             'exceptions' => ($data['count'] ?? 0) > 0
                             ? '⚠ Exceptions (' . $data['count'] . ')'
                             : 'Exceptions (0)',
@@ -211,6 +236,7 @@ HTML;
             'session'    => $this->renderSession($data),
             'views'      => $this->renderViews($data),
             'models'     => $this->renderModels($data),
+            'migrations'  => $this->renderMigrations($data),
             'exceptions' => $this->renderExceptions($data),
             default      => '<pre>' . htmlspecialchars(json_encode($data, JSON_PRETTY_PRINT)) . '</pre>',
         };
@@ -414,6 +440,52 @@ HTML;
         $empty   = $rows === '' ? '<tr><td colspan="4" style="color:#6c7086">No model operations</td></tr>' : $rows;
         return "<p><strong>{$classes} model class(es)</strong> — {$ops} operation(s)</p>"
              . "<table class=\"pdb-table\"><thead><tr><th>Class</th><th>Table</th><th>Op</th><th>Key</th></tr></thead><tbody>{$empty}</tbody></table>";
+    }
+
+    private function renderMigrations(array $data): string
+    {
+        $html  = '';
+        $ranNow = $data['this_request'] ?? [];
+
+        if (!empty($ranNow)) {
+            $rows = '';
+            foreach ($ranNow as $m) {
+                $slug   = htmlspecialchars($m['slug'] ?? '');
+                $ms     = (float) ($m['ms'] ?? 0);
+                $status = $m['status'] ?? 'ran';
+                $cls    = $status === 'failed' ? 'pdb-slow' : '';
+                $timeTd = $status === 'failed'
+                    ? '<td class="pdb-time" style="color:#f38ba8">FAILED</td>'
+                    : "<td class=\"pdb-time\">{$ms}ms</td>";
+                $rows .= "<tr class=\"{$cls}\">{$timeTd}<td>{$slug}</td></tr>";
+            }
+            $n     = count($ranNow);
+            $html .= "<p><strong>{$n} migration(s) ran this request</strong></p>"
+                  .  "<table class=\"pdb-table\"><thead><tr><th>Time</th><th>Migration</th></tr></thead><tbody>{$rows}</tbody></table>";
+        } else {
+            $html .= '<p style="color:#6c7086">No migrations ran this request (fast-path).</p>';
+        }
+
+        $history = $data['history'] ?? [];
+        if (!empty($history)) {
+            $rows = '';
+            foreach ($history as $row) {
+                $key     = htmlspecialchars((string) ($row['key']            ?? ''));
+                $when    = htmlspecialchars((string) ($row['when']           ?? ''));
+                $feature = htmlspecialchars((string) ($row['feature']        ?? '—'));
+                $execMs  = isset($row['execution_time']) ? round((float) $row['execution_time'] * 1000, 1) . 'ms' : '—';
+                $ok      = (int) ($row['result'] ?? 1);
+                $status  = $ok ? '<span style="color:#a6e3a1">✓</span>' : '<span style="color:#f38ba8">✗</span>';
+                $rows   .= "<tr><td>{$status}</td><td class=\"pdb-sql\">{$key}</td><td>{$feature}</td><td class=\"pdb-time\">{$execMs}</td><td style=\"color:#6c7086\">{$when}</td></tr>";
+            }
+            $total = count($history);
+            $html .= "<p style=\"margin-top:10px\"><strong>{$total} framework migration(s) in history</strong></p>"
+                  .  "<table class=\"pdb-table\"><thead><tr><th></th><th>Migration</th><th>Feature</th><th>Time</th><th>When</th></tr></thead><tbody>{$rows}</tbody></table>";
+        } else {
+            $html .= '<p style="color:#6c7086;margin-top:6px">No framework migrations in history table.</p>';
+        }
+
+        return $html;
     }
 
     private function renderExceptions(array $data): string
