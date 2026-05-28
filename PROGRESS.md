@@ -1,6 +1,73 @@
 
 # Project Progress - Pramnos Framework v1.2
 
+## 📅 Last Updated: 2026-05-28 (session 149) — pgRewriteDmlLimit PostgreSQL fix ✅
+
+## 🏁 Session 149 — PostgreSQL DELETE/UPDATE LIMIT fix + test verification (2026-05-27)
+
+### ✅ fix(database): pgRewriteDmlLimit — DELETE/UPDATE ... LIMIT N → ctid subquery
+- PostgreSQL δεν υποστηρίζει `LIMIT` σε `DELETE`/`UPDATE` (MySQL extension).
+- `pgRewriteDmlLimit(string $sql): string` — private method στη `Database` κλάση, εφαρμόζεται σε `prepare()` και `prepareQuery()` για PostgreSQL.
+- `DELETE FROM t WHERE cond LIMIT N` → `DELETE FROM t WHERE ctid IN (SELECT ctid FROM t WHERE cond LIMIT N)`
+- `UPDATE t SET ... WHERE cond LIMIT N` → `UPDATE t SET ... WHERE ctid IN (SELECT ctid FROM t cond LIMIT N)`
+- UPDATE χωρίς WHERE clause: το LIMIT αφαιρείται (PostgreSQL syntax).
+- Η μετατροπή εφαρμόζεται ΠΡΙΝ την PREFIX substitution, οπότε `"#PREFIX#"` στο table name υποστηρίζεται.
+- **Trigger**: Το `Base::__isset()` (session 103) ξεμπλόκαρε το `Io::deleteRelation()` path που εκτελεί `delete from \`metricstoios\` ... limit 1` raw SQL.
+- 7 νέα unit tests στο `tests/Unit/Database/DatabasePureMethodsTest.php` — all branches + edge cases.
+- **Commit**: `0a77418`
+
+### ✅ Urbanwater integration suite: 5208 / 5208 tests pass
+- Full suite (ApiTests → ModelTests → TransmitterTests → UnitTests → ControllerTests) pass.
+- 6 risky tests = pre-existing OAuth2 unexpected output (δεν σχετίζεται με τις αλλαγές μας).
+- PramnosFramework suite: 5262 tests, 4 skipped (pusher/git/cache — expected), 0 failures.
+
+---
+
+## 🏁 Session 148 — DebugBar collectors, timeline, cache hit tracking, info strip (2026-05-27)
+
+### ✅ fix(debugbar): wire Logger and Application dispatch
+- `DebugBar::getInstance()` lazy-register `LogsCollector` όταν καλείται από `Logger`.
+- Dispatch hook στο `Application::dispatch()` ενημερώνει το `TimeCollector` stop.
+- **Commit**: `dfcebcc`
+
+### ✅ feat(debugbar): Views, Models, Exceptions collectors
+- `ViewsCollector` — καταγράφει κάθε view render: template path, χρόνος εκτέλεσης, cached flag.
+- `ModelsCollector` — καταγράφει load/save/delete operations σε Model objects.
+- `ExceptionsCollector` — συλλαμβάνει exceptions που ρίχνει η εφαρμογή.
+- Όλοι οι collectors εγγράφονται στο `DebugBarServiceProvider`.
+- **Commit**: `e41f7ef`
+
+### ✅ feat(debugbar): visual request timeline in Time panel
+- `TimeCollector` αποθηκεύει absolute timestamps για κάθε named timer.
+- `DebugBar::render()` αποδίδει SVG timeline bar με χρωματιστά segments ανά timer.
+- **Commit**: `6e529c9`
+
+### ✅ feat(debugbar): cache hit tracking + SQL copy button
+- `Database::logCacheHit(string $sql): void` — προσθέτει entry στο `_inMemoryQueryLog` με `'from_cache' => true`.
+- `_inMemoryQueryLog` entries: πλέον έχουν `'from_cache'` field (false για live queries, true για cache hits).
+- `QueryBuilder::get()`: καλεί `logCacheHit()` στο cache hit path.
+- `QueryCollector::collect()` εκθέτει `cached` count και `from_cache` per-row.
+- SQL copy button: `data-sql` attribute (CSP-safe, αποφεύγει inline `onclick`).
+- **Commit**: `8e6d73b`
+
+### ✅ feat(debugbar): Laravel-style info strip
+- `DebugBar::renderInfoStrip(array $memData, array $routeData): string` — renders compact strip πάνω από τα tabs.
+- Εμφανίζει: memory usage badge, DB query count + cache count badge, route/controller, environment tag.
+- Memory/route πληροφορίες μεταφέρθηκαν εκτός tabs στο info strip.
+- **Commit**: `a49e41e`
+
+### ✅ fix(datatable): three bugfixes
+- `renderJs()`: sanitize table name σε valid JS identifier (αντικατάσταση non-word chars με `_`).
+- `iterate()`: iterate rows by direct key reference αντί array copy (preserved in-place modifications).
+- Event handlers (`showHide`, `groupBySelector`): μέσα στο DataTables `load` callback (αποφυγή race condition).
+- **Commit**: `f430436`, `c6ab53f`, `c37ad9a`
+
+### ✅ feat(devpanel): back button in header navigation
+- `DevPanel` header: back button (`←`) που γυρίζει στην προηγούμενη σελίδα.
+- **Commit**: `7d7f821`
+
+---
+
 ## 📅 Last Updated: 2026-05-27 (session 147) — DataTable AJAX architecture ✅
 
 ## 🏁 Session 147 — DataTable AJAX architecture refactor (2026-05-27)
@@ -3970,8 +4037,8 @@ Bug fixes required after verifying against the Urbanwater PostgreSQL test suite 
 ---
 
 ## 📈 Quality Metrics
-- **Framework Test Pass Rate:** 2094/2094 pass (0 failures, 0 errors, 3 skipped per ext-gd) — includes unit, integration, and characterization suites.
-- **Urbanwater Integration Suite:** 5 176 / 5 176 tests passing (0 failures, 0 errors) — runs against live PostgreSQL + TimescaleDB via Docker.
+- **Framework Test Pass Rate:** 5262/5262 pass (0 failures, 0 errors, 4 skipped — pusher/git/cache expected) — includes unit, integration, and characterization suites.
+- **Urbanwater Integration Suite:** 5208/5208 tests passing (0 failures, 0 errors, 6 risky = pre-existing OAuth2 unexpected output) — runs against live PostgreSQL + TimescaleDB via Docker.
 - **PHP Compatibility:** 8.4 (tested in Docker).
 - **Database Compatibility:** MySQL 8.0, PostgreSQL 14, TimescaleDB.
 
