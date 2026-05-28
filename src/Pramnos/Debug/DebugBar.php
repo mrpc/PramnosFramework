@@ -71,6 +71,12 @@ class DebugBar
         return $this->collectors[$name] ?? null;
     }
 
+    /** @return array<string, CollectorInterface> */
+    public function getCollectors(): array
+    {
+        return $this->collectors;
+    }
+
     // ── Timer Convenience ──────────────────────────────────────────────────────
 
     public static function startTimer(string $name): void
