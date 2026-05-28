@@ -45,6 +45,27 @@ class TimeCollector implements CollectorInterface
         }
     }
 
+    /**
+     * Adds a retroactive timeline segment for work that has already completed.
+     *
+     * Used by DebugBar::recordMigration() to place migration execution blocks
+     * on the timeline even though migrations run before the collector was asked
+     * to display them.  The start offset is back-calculated from now minus the
+     * known duration.
+     *
+     * @param string $name       Label shown in the timeline (e.g. "migration:slug").
+     * @param float  $durationMs How long the work took, in milliseconds.
+     */
+    public function addCompletedSegment(string $name, float $durationMs): void
+    {
+        $nowMs    = (microtime(true) - $this->startTime) * 1000;
+        $offsetMs = max(0.0, $nowMs - $durationMs);
+        // Convert back to absolute epoch floats so collect() can compute pct correctly.
+        $start = $this->startTime + ($offsetMs / 1000);
+        $end   = $start + ($durationMs / 1000);
+        $this->timers[$name] = ['start' => $start, 'end' => $end];
+    }
+
     public function collect(): array
     {
         $now     = microtime(true);
