@@ -263,40 +263,6 @@ class Migrate extends Command
      */
     private function resolveMigrationDirectories(): array
     {
-        $root = defined('ROOT') ? ROOT : getcwd();
-        $dirs = [$root . '/app/Migrations'];
-
-        $frameworkBase = $this->findFrameworkMigrationsBase();
-        if ($frameworkBase !== null && is_dir($frameworkBase)) {
-            foreach (glob($frameworkBase . '/*', GLOB_ONLYDIR) ?: [] as $featureDir) {
-                $dirs[] = $featureDir;
-            }
-        }
-
-        return $dirs;
-    }
-
-    /**
-     * Locates the framework's database/migrations/framework directory.
-     *
-     * Works whether the framework is used as the project root (development)
-     * or installed as a Composer package inside vendor/.
-     */
-    private function findFrameworkMigrationsBase(): ?string
-    {
-        // Path relative to this file: src/Pramnos/Console/Commands → ../../../../database/migrations/framework
-        $fromSource = dirname(__DIR__, 4) . '/database/migrations/framework';
-        if (is_dir($fromSource)) {
-            return $fromSource;
-        }
-
-        // Installed as Composer package
-        $root = defined('ROOT') ? ROOT : getcwd();
-        $fromVendor = $root . '/vendor/mrpc/pramnosframework/database/migrations/framework';
-        if (is_dir($fromVendor)) {
-            return $fromVendor;
-        }
-
-        return null;
+        return MigrationLoader::resolveDefaultDirectories();
     }
 }
