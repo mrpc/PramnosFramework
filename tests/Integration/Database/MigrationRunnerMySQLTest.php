@@ -149,6 +149,62 @@ class MigrationRunnerMySQLTest extends TestCase
         $this->assertTrue(true, 'ensureHistoryTable() must be safe to call multiple times');
     }
 
+    /**
+     * ensureHistoryTable() must add missing columns to a pre-existing legacy table
+     * that has only the original three columns (when, key, extra) from the
+     * old urbanwater schemaversion schema.
+     *
+     * This mirrors the real-world upgrade path: the production database already
+     * has a schemaversion table populated by app-level migrations, but without
+     * the framework logging columns.  ensureHistoryTable() must patch the table
+     * in place rather than failing or silently leaving the columns absent.
+     */
+    public function testEnsureHistoryTableUpgradesLegacyTable(): void
+    {
+        // Arrange – create a legacy table with only the three original columns
+        $this->db->query("CREATE TABLE `{$this->historyTable}` (
+            `when` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `key`  VARCHAR(255) NOT NULL,
+            `extra` VARCHAR(255) NULL,
+            PRIMARY KEY (`key`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8");
+
+        // Insert a legacy row to prove existing data survives the upgrade
+        $this->db->query(
+            "INSERT INTO `{$this->historyTable}` (`when`, `key`, `extra`)
+             VALUES (NOW(), 'LegacyMigration0010', NULL)"
+        );
+
+        $runner = new MigrationRunner($this->db, $this->historyTable);
+
+        // Act
+        $runner->ensureHistoryTable();
+
+        // Assert – all new columns were added
+        $colsResult = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
+                'pramnos_test',
+                $this->historyTable
+            )
+        );
+        $cols = [];
+        while ($colsResult->fetch()) {
+            $cols[] = $colsResult->fields['COLUMN_NAME'];
+        }
+        foreach (['scope', 'feature', 'batch', 'execution_time', 'result', 'error_message'] as $col) {
+            $this->assertContains($col, $cols, "Column '{$col}' must be added to legacy table");
+        }
+
+        // Assert – the pre-existing legacy row is intact
+        $row = $this->db->query(
+            "SELECT `key` FROM `{$this->historyTable}` WHERE `key` = 'LegacyMigration0010'"
+        );
+        $row->fetch();
+        $this->assertSame('LegacyMigration0010', $row->fields['key'], 'Legacy rows must survive the schema upgrade');
+    }
+
     // -------------------------------------------------------------------------
     // run() — happy path
     // -------------------------------------------------------------------------

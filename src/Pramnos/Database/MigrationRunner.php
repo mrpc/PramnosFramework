@@ -63,6 +63,10 @@ class MigrationRunner
         // with additional columns for logging (scope, feature, batch, execution_time,
         // result, error_message). `key` is the PRIMARY KEY so each migration slug
         // appears exactly once; retries are handled via UPSERT.
+        //
+        // Legacy databases (pre-framework-migrations) may have the table already with
+        // only the original three columns.  After CREATE TABLE IF NOT EXISTS we add any
+        // missing columns so old installs are upgraded transparently.
         if ($db->type === 'postgresql') {
             $db->query("CREATE TABLE IF NOT EXISTS \"{$this->historyTable}\" (
                 \"when\"          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
@@ -75,6 +79,20 @@ class MigrationRunner
                 \"result\"        SMALLINT      NOT NULL DEFAULT 1,
                 \"error_message\" TEXT          NULL
             )");
+            // PostgreSQL supports ADD COLUMN IF NOT EXISTS directly.
+            $newCols = [
+                '"scope"'           => "VARCHAR(255) NOT NULL DEFAULT 'app'",
+                '"feature"'         => 'VARCHAR(255) NULL',
+                '"batch"'           => 'INTEGER NULL',
+                '"execution_time"'  => 'DOUBLE PRECISION NULL',
+                '"result"'          => 'SMALLINT NOT NULL DEFAULT 1',
+                '"error_message"'   => 'TEXT NULL',
+            ];
+            foreach ($newCols as $col => $def) {
+                $db->query(
+                    "ALTER TABLE \"{$this->historyTable}\" ADD COLUMN IF NOT EXISTS {$col} {$def}"
+                );
+            }
         } else {
             $db->query("CREATE TABLE IF NOT EXISTS `{$this->historyTable}` (
                 `when`           TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -87,6 +105,21 @@ class MigrationRunner
                 `result`         SMALLINT      NOT NULL DEFAULT 1,
                 `error_message`  TEXT          NULL
             )");
+            // MySQL lacks ADD COLUMN IF NOT EXISTS; check via schema introspection.
+            $schema  = $db->schema();
+            $newCols = [
+                'scope'          => "VARCHAR(255) NOT NULL DEFAULT 'app'",
+                'feature'        => 'VARCHAR(255) NULL',
+                'batch'          => 'INT NULL',
+                'execution_time' => 'DOUBLE NULL',
+                'result'         => 'SMALLINT NOT NULL DEFAULT 1',
+                'error_message'  => 'TEXT NULL',
+            ];
+            foreach ($newCols as $col => $def) {
+                if (!$schema->hasColumn($this->historyTable, $col)) {
+                    $db->query("ALTER TABLE `{$this->historyTable}` ADD COLUMN `{$col}` {$def}");
+                }
+            }
         }
     }
 

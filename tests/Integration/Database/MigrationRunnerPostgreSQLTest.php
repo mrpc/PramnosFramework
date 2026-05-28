@@ -139,6 +139,59 @@ class MigrationRunnerPostgreSQLTest extends TestCase
         $this->assertTrue(true, 'ensureHistoryTable() must be idempotent on PostgreSQL');
     }
 
+    /**
+     * ensureHistoryTable() must add missing columns to a pre-existing legacy table
+     * that has only the original three columns (when, key, extra).
+     *
+     * PostgreSQL uses ADD COLUMN IF NOT EXISTS so the operation is a no-op for
+     * columns that already exist; for legacy tables the new columns are added
+     * without touching existing rows.
+     */
+    public function testEnsureHistoryTableUpgradesLegacyTable(): void
+    {
+        // Arrange – create a minimal legacy table mimicking the old urbanwater schema
+        $this->db->query("CREATE TABLE \"{$this->historyTable}\" (
+            \"when\" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            \"key\"  VARCHAR(255) NOT NULL,
+            \"extra\" VARCHAR(255) NULL,
+            PRIMARY KEY (\"key\")
+        )");
+
+        // Insert a legacy row to prove existing data survives
+        $this->db->query(
+            "INSERT INTO \"{$this->historyTable}\" (\"when\", \"key\")
+             VALUES (NOW(), 'LegacyMigration0010')"
+        );
+
+        $runner = new MigrationRunner($this->db, $this->historyTable);
+
+        // Act
+        $runner->ensureHistoryTable();
+
+        // Assert – all new columns were added
+        $colsResult = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT column_name FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = %s",
+                $this->historyTable
+            )
+        );
+        $cols = [];
+        while ($colsResult->fetch()) {
+            $cols[] = $colsResult->fields['column_name'];
+        }
+        foreach (['scope', 'feature', 'batch', 'execution_time', 'result', 'error_message'] as $col) {
+            $this->assertContains($col, $cols, "Column '{$col}' must be added to legacy table");
+        }
+
+        // Assert – the pre-existing legacy row is intact
+        $row = $this->db->query(
+            "SELECT \"key\" FROM \"{$this->historyTable}\" WHERE \"key\" = 'LegacyMigration0010'"
+        );
+        $row->fetch();
+        $this->assertSame('LegacyMigration0010', $row->fields['key'], 'Legacy rows must survive the schema upgrade');
+    }
+
     // -------------------------------------------------------------------------
     // run() — happy path
     // -------------------------------------------------------------------------
