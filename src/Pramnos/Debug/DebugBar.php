@@ -450,48 +450,27 @@ HTML;
 
     private function renderMigrations(array $data): string
     {
-        $html  = '';
         $ranNow = $data['this_request'] ?? [];
 
-        if (!empty($ranNow)) {
-            $rows = '';
-            foreach ($ranNow as $m) {
-                $slug   = htmlspecialchars($m['slug'] ?? '');
-                $ms     = (float) ($m['ms'] ?? 0);
-                $status = $m['status'] ?? 'ran';
-                $cls    = $status === 'failed' ? 'pdb-slow' : '';
-                $timeTd = $status === 'failed'
-                    ? '<td class="pdb-time" style="color:#f38ba8">FAILED</td>'
-                    : "<td class=\"pdb-time\">{$ms}ms</td>";
-                $rows .= "<tr class=\"{$cls}\">{$timeTd}<td>{$slug}</td></tr>";
-            }
-            $n     = count($ranNow);
-            $html .= "<p><strong>{$n} migration(s) ran this request</strong></p>"
-                  .  "<table class=\"pdb-table\"><thead><tr><th>Time</th><th>Migration</th></tr></thead><tbody>{$rows}</tbody></table>";
-        } else {
-            $html .= '<p style="color:#6c7086">No migrations ran this request (fast-path).</p>';
+        if (empty($ranNow)) {
+            return '<p style="color:#6c7086">No migrations ran this request.</p>';
         }
 
-        $history = $data['history'] ?? [];
-        if (!empty($history)) {
-            $rows = '';
-            foreach ($history as $row) {
-                $key     = htmlspecialchars((string) ($row['key']            ?? ''));
-                $when    = htmlspecialchars((string) ($row['when']           ?? ''));
-                $feature = htmlspecialchars((string) ($row['feature']        ?? '—'));
-                $execMs  = isset($row['execution_time']) ? round((float) $row['execution_time'] * 1000, 1) . 'ms' : '—';
-                $ok      = (int) ($row['result'] ?? 1);
-                $status  = $ok ? '<span style="color:#a6e3a1">✓</span>' : '<span style="color:#f38ba8">✗</span>';
-                $rows   .= "<tr><td>{$status}</td><td class=\"pdb-sql\">{$key}</td><td>{$feature}</td><td class=\"pdb-time\">{$execMs}</td><td style=\"color:#6c7086\">{$when}</td></tr>";
-            }
-            $total = count($history);
-            $html .= "<p style=\"margin-top:10px\"><strong>{$total} framework migration(s) in history</strong></p>"
-                  .  "<table class=\"pdb-table\"><thead><tr><th></th><th>Migration</th><th>Feature</th><th>Time</th><th>When</th></tr></thead><tbody>{$rows}</tbody></table>";
-        } else {
-            $html .= '<p style="color:#6c7086;margin-top:6px">No framework migrations in history table.</p>';
+        $rows = '';
+        foreach ($ranNow as $m) {
+            $slug   = htmlspecialchars($m['slug'] ?? '');
+            $ms     = (float) ($m['ms'] ?? 0);
+            $status = $m['status'] ?? 'ran';
+            $cls    = $status === 'failed' ? 'pdb-slow' : '';
+            $timeTd = $status === 'failed'
+                ? '<td class="pdb-time" style="color:#f38ba8">FAILED</td>'
+                : "<td class=\"pdb-time\">{$ms}ms</td>";
+            $rows .= "<tr class=\"{$cls}\">{$timeTd}<td>{$slug}</td></tr>";
         }
 
-        return $html;
+        $n = count($ranNow);
+        return "<p><strong>{$n} migration(s) ran this request</strong></p>"
+             . "<table class=\"pdb-table\"><thead><tr><th>Time</th><th>Migration</th></tr></thead><tbody>{$rows}</tbody></table>";
     }
 
     private function renderExceptions(array $data): string

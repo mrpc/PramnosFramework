@@ -46,13 +46,13 @@ class MigrationsCollectorTest extends TestCase
     }
 
     /**
-     * A fresh collector with no DB and no records must return safe empty arrays
+     * A fresh collector with no records must return safe empty arrays
      * rather than throwing or returning null values.
      */
-    public function testCollectReturnsEmptyStructureWithNoDb(): void
+    public function testCollectReturnsEmptyStructureWhenNothingRecorded(): void
     {
         // Arrange
-        $mc = new MigrationsCollector(null);
+        $mc = new MigrationsCollector();
 
         // Act
         $data = $mc->collect();
@@ -60,7 +60,6 @@ class MigrationsCollectorTest extends TestCase
         // Assert
         $this->assertSame(0, $data['count_request']);
         $this->assertSame([], $data['this_request']);
-        $this->assertSame([], $data['history']); // no DB → empty
     }
 
     /**
@@ -279,9 +278,9 @@ class MigrationsCollectorTest extends TestCase
     }
 
     /**
-     * When nothing ran this request, the panel must show the fast-path message.
+     * When nothing ran this request, the panel must show an appropriate empty message.
      */
-    public function testMigrationsPanelShowsFastPathMessageWhenNothingRan(): void
+    public function testMigrationsPanelShowsEmptyMessageWhenNothingRan(): void
     {
         // Arrange
         $bar = DebugBar::getInstance();
@@ -292,6 +291,6 @@ class MigrationsCollectorTest extends TestCase
         $html = $bar->render();
 
         // Assert
-        $this->assertStringContainsString('fast-path', $html);
+        $this->assertStringContainsString('No migrations ran this request', $html);
     }
 }

@@ -59,7 +59,7 @@ class DebugBarServiceProvider extends ServiceProvider
         $bar->addCollector(new RouteCollector());
         $bar->addCollector(new ViewsCollector());
         $bar->addCollector(new ModelsCollector());
-        $bar->addCollector(new MigrationsCollector($db));
+        $bar->addCollector(new MigrationsCollector());
         $bar->addCollector(new ExceptionsCollector());
 
         DebugBar::stopTimer('boot');
