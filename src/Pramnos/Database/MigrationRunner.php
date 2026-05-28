@@ -333,6 +333,60 @@ class MigrationRunner
     }
 
     // =========================================================================
+    // Fast-check (no PHP loading)
+    // =========================================================================
+
+    /**
+     * Checks whether any slug from the given set has not yet been recorded in
+     * the history table, WITHOUT loading the Migration PHP files.
+     *
+     * Intended for the per-request "is there anything pending?" probe inside
+     * Application::exec().  Only when this returns true does Application
+     * perform the more expensive full MigrationLoader::loadFromDirectories()
+     * + run() cycle.
+     *
+     * Cutoff filtering mirrors MigrationRunner::filterCutoff(): a migration
+     * is considered non-pending when its timestamp is at-or-before the cutoff.
+     * Slugs without a timestamp (non-timestamped files) always count as
+     * potentially pending if not yet in history.
+     *
+     * When the history table does not yet exist (fresh install), every slug is
+     * treated as pending so that the caller proceeds to the full run() which
+     * will create the table via ensureHistoryTable().
+     *
+     * @param array<string, string> $slugTimestamps [slug => YYYY_MM_DD_HHmmss] as
+     *   returned by MigrationLoader::slugsFromDirectories(). Value '' means no timestamp.
+     * @param string $cutoff YYYY_MM_DD_HHmmss cutoff (empty = no cutoff).
+     * @return bool True if at least one non-cutoff slug has not been run.
+     */
+    public function hasPendingFromSlugs(array $slugTimestamps, string $cutoff = ''): bool
+    {
+        if ($this->db === null || empty($slugTimestamps)) {
+            return false;
+        }
+
+        try {
+            $ranSlugs = array_flip($this->getRanSlugs());
+        } catch (\Throwable) {
+            // History table does not exist yet — everything is pending.
+            return true;
+        }
+
+        foreach ($slugTimestamps as $slug => $timestamp) {
+            if (isset($ranSlugs[$slug])) {
+                continue;
+            }
+            // Apply cutoff: skip migrations at-or-before the cutoff date.
+            if ($cutoff !== '' && $timestamp !== '' && strcmp($timestamp, $cutoff) <= 0) {
+                continue;
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    // =========================================================================
     // Sort and filter methods (public so unit tests can call them directly)
     // =========================================================================
 
