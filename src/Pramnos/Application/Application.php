@@ -87,6 +87,14 @@ class Application extends Base
      * @var bool
      */
     protected $initialized = false;
+
+    /**
+     * Guards against running the auto-migration check more than once per
+     * Application instance (e.g. if exec() is called multiple times).
+     * Protected so test subclasses can inspect or reset the flag.
+     * @var bool
+     */
+    protected bool $autoMigrationsChecked = false;
     /**
      * Application instances
      * @var Application[]
@@ -672,11 +680,18 @@ class Application extends Base
     {
         $this->cspNonce = base64_encode(random_bytes(16));
         /*
-         * Run any needed updates
+         * Run any needed updates (legacy app migration system)
          */
         if ($this->checkversion() !== true) {
             $this->upgrade();
         }
+
+        /*
+         * Run pending framework-level migrations (new MigrationRunner system).
+         * Only autoExecute=true migrations run here; autoExecute=false require
+         * an explicit `pramnos migrate` or DevPanel trigger.
+         */
+        $this->runAutoMigrations();
 
         /*
          * Find the right controller to load
@@ -1070,6 +1085,191 @@ class Application extends Base
                 \Pramnos\Logs\Logger::log("\n" . $sql . "\n\n", 'upgrades');
                 $this->stopMaintenance();
             }
+        }
+    }
+
+    /**
+     * Returns the name of the migrations history table.
+     *
+     * Defaults to 'schemaversion' (same as the old legacy migration system).
+     * Override in a test subclass to use an isolated table and avoid
+     * contaminating the real history.
+     *
+     * @return string
+     */
+    protected function getMigrationHistoryTable(): string
+    {
+        return 'schemaversion';
+    }
+
+    /**
+     * Returns the framework-level migration directories to scan for auto-run.
+     *
+     * Includes one sub-directory per registered feature under
+     * database/migrations/framework/.  Override in a subclass to add
+     * application-specific framework migration directories.
+     *
+     * @return string[] Absolute directory paths.
+     */
+    protected function getFrameworkMigrationDirs(): array
+    {
+        $base = \Pramnos\Database\MigrationLoader::resolveFrameworkMigrationsBase();
+        if ($base === null || !is_dir($base)) {
+            return [];
+        }
+        return glob($base . '/*', GLOB_ONLYDIR) ?: [];
+    }
+
+    /**
+     * Runs pending framework-level migrations with autoExecute=true.
+     *
+     * Called once per Application instance from exec() (guarded by
+     * $autoMigrationsChecked).  Uses a three-phase approach:
+     *
+     *  Phase 1 — fingerprint check (filesystem + one PK lookup, no PHP loading):
+     *    Derives a fingerprint from the migration filenames (count + latest
+     *    timestamp).  Looks up this fingerprint in the history table with a
+     *    single primary-key SELECT — identical in cost to the old checkversion().
+     *    If the fingerprint is found: nothing changed since last check → return.
+     *
+     *  Phase 2 — pending check (one full-table SELECT, no PHP loading):
+     *    Only reached when the fingerprint is absent (new migrations may exist).
+     *    Reads all ran slugs from the history table and compares with the file-
+     *    derived slug list.  If nothing is actually pending: records the
+     *    fingerprint and returns.
+     *
+     *  Phase 3 — full load + run (only when Phase 2 confirms something pending):
+     *    Loads migration PHP files, applies autoExecute and cutoff filters, runs
+     *    via MigrationRunner, then records the fingerprint for next time.
+     *
+     * The fingerprint key format is:
+     *   __fw_auto_{count}_{latestTimestamp}[_{cutoff}]
+     * It changes only when new migration files are added or the cutoff changes,
+     * ensuring a clean re-check without false positives.
+     *
+     * Protected so test subclasses can override getFrameworkMigrationDirs() or
+     * call this method directly to verify the wiring.
+     */
+    protected function runAutoMigrations(): void
+    {
+        if ($this->autoMigrationsChecked || $this->database === null) {
+            return;
+        }
+        $this->autoMigrationsChecked = true;
+
+        $dirs = $this->getFrameworkMigrationDirs();
+        if (empty($dirs)) {
+            return;
+        }
+
+        $cutoff = $this->normalizeMigrationCutoff(
+            $this->applicationInfo['migration_cutoff'] ?? ''
+        );
+
+        // Phase 1: build slug→timestamp map from filenames (no PHP loading).
+        $slugTimestamps = \Pramnos\Database\MigrationLoader::slugsFromDirectories($dirs);
+        if (empty($slugTimestamps)) {
+            return;
+        }
+
+        // Apply cutoff filter at the filename level so the fingerprint only
+        // covers migrations that are actually eligible to run.
+        if ($cutoff !== '') {
+            $slugTimestamps = array_filter(
+                $slugTimestamps,
+                static fn(string $ts) => $ts === '' || strcmp($ts, $cutoff) > 0
+            );
+            if (empty($slugTimestamps)) {
+                return; // All migrations are pre-cutoff
+            }
+        }
+
+        // Compute fingerprint: count + latest timestamp of eligible files.
+        $timestamps  = array_filter(array_values($slugTimestamps)); // drop empty-ts entries
+        $latestTs    = !empty($timestamps) ? max($timestamps) : '0';
+        $count       = count($slugTimestamps);
+        $fingerprint = "__fw_auto_{$count}_{$latestTs}" . ($cutoff !== '' ? "_{$cutoff}" : '');
+
+        $histTable = $this->getMigrationHistoryTable();
+        $quote     = $this->database->type === 'postgresql' ? '"' : '`';
+
+        // Phase 1b: one PK lookup — same pattern as old checkversion().
+        try {
+            $sql    = $this->database->prepareQuery(
+                "SELECT 1 FROM {$quote}{$histTable}{$quote} WHERE {$quote}key{$quote} = %s LIMIT 1",
+                $fingerprint
+            );
+            $result = $this->database->query($sql);
+            if ($result && $result->numRows > 0) {
+                return; // Fingerprint found → nothing changed since last check
+            }
+        } catch (\Throwable) {
+            // History table does not yet exist — fall through to full run
+        }
+
+        // Phase 2: fingerprint absent → check which slugs are genuinely pending.
+        $runner = new \Pramnos\Database\MigrationRunner($this->database, $histTable, $this);
+        if (!$runner->hasPendingFromSlugs($slugTimestamps, $cutoff)) {
+            // No pending migrations — record fingerprint for future fast-path.
+            $this->insertFingerprintRow($fingerprint, $histTable, $quote);
+            return;
+        }
+
+        // Phase 3: load PHP files and run pending autoExecute=true migrations.
+        $migrations = \Pramnos\Database\MigrationLoader::loadFromDirectories($dirs, $this);
+        $options    = [];
+        if ($cutoff !== '') {
+            $options['cutoff'] = $cutoff;
+        }
+
+        $runner->run($migrations, $options);
+
+        // Record fingerprint so the next request uses the fast path.
+        $this->insertFingerprintRow($fingerprint, $histTable, $quote);
+    }
+
+    /**
+     * Inserts the "all-up-to-date" fingerprint row into the history table.
+     * Uses INSERT IGNORE (MySQL) / INSERT … ON CONFLICT DO NOTHING (PG) so
+     * concurrent requests never cause duplicate-key errors.
+     */
+    private function insertFingerprintRow(string $fingerprint, string $histTable, string $quote): void
+    {
+        try {
+            if ($this->database->type === 'postgresql') {
+                $sql = $this->database->prepareQuery(
+                    "INSERT INTO {$quote}{$histTable}{$quote} ({$quote}key{$quote}, {$quote}scope{$quote}, {$quote}result{$quote})
+                     VALUES (%s, 'framework', 1)
+                     ON CONFLICT ({$quote}key{$quote}) DO NOTHING",
+                    $fingerprint
+                );
+            } else {
+                $sql = $this->database->prepareQuery(
+                    "INSERT IGNORE INTO {$quote}{$histTable}{$quote} ({$quote}key{$quote}, {$quote}scope{$quote}, {$quote}result{$quote})
+                     VALUES (%s, 'framework', 1)",
+                    $fingerprint
+                );
+            }
+            $this->database->query($sql);
+        } catch (\Throwable) {
+            // Non-fatal: the next request will simply redo the check.
+        }
+    }
+
+    /**
+     * Converts a datetime string from app.php format ('YYYY-MM-DD HH:mm:ss')
+     * to the YYYY_MM_DD_HHmmss format used by MigrationRunner::filterCutoff().
+     * Returns an empty string when the input is empty or unparseable.
+     */
+    private function normalizeMigrationCutoff(string $raw): string
+    {
+        if ($raw === '') {
+            return '';
+        }
+        try {
+            return (new \DateTime($raw))->format('Y_m_d_His');
+        } catch (\Throwable) {
+            return '';
         }
     }
 
