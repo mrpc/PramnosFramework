@@ -170,7 +170,9 @@ class MigrationRunner
                     $this->recordHistory($migration, $slug, $batch, $elapsed, 1, null);
                     $ran[] = $slug;
                     if ($onProgress !== null) {
-                        $onProgress('ran', $slug, '');
+                        // 4th arg is elapsed ms — extra args are silently ignored by
+                        // older callbacks that only accept 3 parameters.
+                        $onProgress('ran', $slug, '', round($elapsed * 1000, 2));
                     }
                 } catch (\Throwable $e) {
                     $elapsed = microtime(true) - $start;
@@ -182,7 +184,7 @@ class MigrationRunner
                     $this->recordHistory($migration, $slug, $batch, $elapsed, 0, $e->getMessage());
                     $failed[$slug] = $e->getMessage();
                     if ($onProgress !== null) {
-                        $onProgress('failed', $slug, $e->getMessage());
+                        $onProgress('failed', $slug, $e->getMessage(), round($elapsed * 1000, 2));
                     }
                 }
             }

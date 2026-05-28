@@ -1222,7 +1222,9 @@ class Application extends Base
             $options['cutoff'] = $cutoff;
         }
 
-        $runner->run($migrations, $options);
+        $runner->run($migrations, $options, static function(string $event, string $slug, string $error, float $ms = 0.0): void {
+            \Pramnos\Debug\DebugBar::recordMigration($slug, $ms, $event === 'ran' ? 'ran' : 'failed');
+        });
 
         // Record fingerprint so the next request uses the fast path.
         $this->insertFingerprintRow($fingerprint, $histTable, $quote);
@@ -1338,7 +1340,10 @@ class Application extends Base
         if (!file_exists(ROOT . DS . 'var')) {
             mkdir(ROOT . DS . 'var');
         }
-        $file = fopen(ROOT . DS . 'var' . DS . "MAINTENANCE", "w+");
+        $file = @fopen(ROOT . DS . 'var' . DS . "MAINTENANCE", "w+");
+        if ($file === false) {
+            return; // Cannot write maintenance flag (e.g. permission denied) — skip silently
+        }
         if ($reason != '') {
             fwrite(
                 $file,
