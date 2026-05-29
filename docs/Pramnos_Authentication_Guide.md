@@ -4,6 +4,17 @@
 
 The Pramnos Framework provides a comprehensive authentication system that supports multiple authentication methods, user management, permissions, JWT tokens, session management, and OAuth2 capabilities. The system is modular and extensible through addons.
 
+> **v1.2 New Features:** 
+> - **Database Authentication Driver** — Native auth without addons
+> - **Two-Factor Authentication (2FA/TOTP)** — Time-based one-time passwords
+> - **Login Lockout** — Brute-force protection with exponential backoff
+> - **Session Tracking** — Bot detection and session monitoring
+> - **OAuth2 Server** — Full `league/oauth2-server` integration
+> - **Security Hardening** — CSRF, session cookie, view escaping
+> - **Auto-Login Lifecycle** — Built-in login/logout handling
+>
+> See related guides: [Pramnos_Security_Guide.md](Pramnos_Security_Guide.md), [Pramnos_Authorization_Guide.md](Pramnos_Authorization_Guide.md)
+
 ## Architecture
 
 ### Core Components

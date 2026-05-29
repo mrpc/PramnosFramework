@@ -1,5 +1,12 @@
 # Pramnos Cache System Guide
 
+> **v1.2 Update:**
+> - **Query Caching** — `QueryBuilder::get(cache: true, cachetime: 60)`
+> - **Cache Hit Tracking** — Visible in DebugBar and request logs
+> - **Multiple Backends** — Redis, Memcached, file-based, in-memory
+>
+> See [Pramnos_QueryBuilder_Guide.md](Pramnos_QueryBuilder_Guide.md#api-reference--execution) for query caching patterns.
+
 ## Overview
 
 The Pramnos Framework includes a comprehensive caching system that supports multiple backends and provides a unified interface for all caching operations. The cache system is designed to improve application performance by storing frequently accessed data in memory or on disk.

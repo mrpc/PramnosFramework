@@ -1,5 +1,12 @@
 # Environment Variables & Dotenv Support
 
+> **v1.2 Enhancement:**
+> - **Service Providers** — Load environment variables via service providers
+> - **Configuration Management** — Centralized settings system
+> - **Feature Flags** — Enable/disable features via environment variables
+>
+> See [v1.2 New Features — Service Providers](1.2-new-features.md#12-phase-4-service-providers) and [v1.2 New Features — Feature Registry](1.2-new-features.md#11-phase-4-feature-registry).
+
 ## Overview
 
 This feature introduces support for environment variables in the Pramnos Framework using a `.env` file, similar to modern frameworks like Laravel and Symfony.
