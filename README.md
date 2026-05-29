@@ -59,7 +59,24 @@ Pramnos Framework is a comprehensive PHP MVC framework designed for building rob
 
 ---
 
-## 📚 Documentation & Guides
+## 📚 Documentation
+
+The full documentation is available as a live site at **[mrpc.github.io/PramnosFramework](https://mrpc.github.io/PramnosFramework/)**.
+
+### Running the docs locally (Docker required)
+
+```bash
+# Start the live-reload development server at http://localhost:8000
+./dockerdocs serve
+
+# Build the static HTML site into ./site/
+./dockerdocs build
+
+# Deploy to GitHub Pages manually
+./dockerdocs deploy
+```
+
+No local Python or pip installation is required — everything runs inside Docker.
 
 ### Getting Started
 - **[Installation & Setup](docs/Getting_Started.md)** - Quick start guide for new projects
