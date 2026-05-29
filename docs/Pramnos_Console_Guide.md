@@ -4,6 +4,18 @@
 
 The Pramnos Framework includes a powerful console command system built on Symfony Console components. The console system provides code generation, maintenance tools, and administrative utilities to streamline development workflows.
 
+> **v1.2 New Commands:**
+> - `migrate` — Run database migrations with auto-run support
+> - `migrate:rollback` — Rollback migrations by batch
+> - `migrate:status` — Show migration status
+> - `scaffold:views` — Publish framework views
+> - `route:list` — List all registered routes
+> - `db:seed` — Run database seeders
+> - `make:factory` — Generate model factory
+> - `make:seeder` — Generate database seeder
+>
+> See [Pramnos_Migration_Guide.md](Pramnos_Migration_Guide.md) and [Pramnos_Routing_Guide.md](Pramnos_Routing_Guide.md) for details.
+
 ## Available Commands
 
 ### Code Generation Commands

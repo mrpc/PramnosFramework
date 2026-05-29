@@ -1,5 +1,15 @@
 # Pramnos Framework Guide
 
+> **v1.2 Updates:**
+> - **Middleware Pipeline** — Request/response filtering with composable middleware
+> - **Response Object** — Formal HTTP response abstraction
+> - **Error/Exception Handler** — Centralized error handling
+> - **Service Providers** — Application bootstrap and dependency injection
+> - **Policy Engine** — Authorization framework
+> - **Modern Routing** — Attribute-based routing with parameter binding
+>
+> See [Pramnos_Routing_Guide.md](Pramnos_Routing_Guide.md), [Pramnos_Authorization_Guide.md](Pramnos_Authorization_Guide.md), and [Pramnos_Security_Guide.md](Pramnos_Security_Guide.md).
+
 ## Overview
 
 Pramnos is a PHP MVC framework designed for building robust web applications with a focus on security, modularity, and clean code architecture. This guide covers the framework's structure, conventions, and best practices.

@@ -1,6 +1,6 @@
-# Getting Started with Pramnos Framework
+# Getting Started with Pramnos Framework v1.2
 
-Welcome to the Pramnos Framework! This guide will help you set up a new project from scratch using our command-line tools.
+> **Welcome to v1.2!** This release includes a complete ORM layer, modern routing, REST API scaffolding, and much more. Check out the [v1.2 Feature Overview](README.md) for what's new.\n\nWelcome to the Pramnos Framework! This guide will help you set up a new project from scratch using our command-line tools.
 
 ## Installation
 
