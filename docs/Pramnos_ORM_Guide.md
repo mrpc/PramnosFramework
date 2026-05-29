@@ -390,16 +390,14 @@ foreach ($recentPosts as $post) {
 
 ## Reference
 
-For detailed API reference and advanced features, see:
+**Related Guides:**
+- [Pramnos_Database_API_Guide.md](Pramnos_Database_API_Guide.md) — QueryBuilder and low-level database operations
+- [Pramnos_Migration_Guide.md](Pramnos_Migration_Guide.md) — Schema versioning
+- [Pramnos_Console_Guide.md](Pramnos_Console_Guide.md) — Model and CRUD generation wizard
 
-- [v1.2 New Features — Full ORM Layer](1.2-new-features.md#45-phase-9-full-orm-layer)
-
-**Topics covered in the detailed reference:**
-
+**Topics covered:**
 - Complete Model API with all CRUD methods
-- All relationship types (hasMany, hasOne, belongsTo, belongsToMany, etc.)
+- Relationship types (hasMany, hasOne, belongsTo)
 - Query scopes and eager loading
-- Type casting and attribute accessors/mutators
 - Soft deletes and timestamp handling
 - Model factories and seeders
-- Event hooks and observers
