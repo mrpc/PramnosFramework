@@ -38,8 +38,6 @@ use Pramnos\Routing\Attributes\RouteGroup as RouteGroupAttribute;
  * }
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Routing
  */
 class RouteDiscovery
 {

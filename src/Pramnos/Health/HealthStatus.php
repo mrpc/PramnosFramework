@@ -6,8 +6,7 @@ namespace Pramnos\Health;
  * Possible outcomes of a health check.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Health
+ * @license    MIT
  */
 enum HealthStatus: string
 {

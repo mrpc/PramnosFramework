@@ -13,8 +13,6 @@ use Pramnos\Logs\Logger;
  * Base Logs Controller class for the framework
  * Applications should extend this and only override the whitelists and other project-specific settings
  * 
- * @package     PramnosFramework
- * @subpackage  Application
  */
 class LogController extends Controller
 {

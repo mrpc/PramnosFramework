@@ -23,8 +23,6 @@ use Psr\Http\Message\ServerRequestInterface;
  * // $request is a Psr\Http\Message\ServerRequestInterface
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Http\Psr
  * @see         https://www.php-fig.org/psr/psr-7/
  */
 class ServerRequestCreator

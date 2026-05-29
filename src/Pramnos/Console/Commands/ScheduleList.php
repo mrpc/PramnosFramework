@@ -15,8 +15,7 @@ use Pramnos\Scheduling\Scheduler;
  * and overlap-prevention flag.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Console
+ * @license    MIT
  */
 class ScheduleList extends Command
 {

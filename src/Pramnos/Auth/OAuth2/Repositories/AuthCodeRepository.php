@@ -15,7 +15,6 @@ use League\OAuth2\Server\Repositories\AuthCodeRepositoryInterface;
  * The redirect URI is stored in the `notes` column for retrieval during
  * token exchange.
  *
- * @package PramnosFramework
  */
 class AuthCodeRepository implements AuthCodeRepositoryInterface
 {

@@ -1,9 +1,8 @@
 <?php
 namespace Pramnos\Application;
 /**
- * @package     PramnosFramework
- * @subpackage  Application
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Controller extends \Pramnos\Framework\Base
 {

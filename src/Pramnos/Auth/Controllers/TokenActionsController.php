@@ -24,8 +24,6 @@ use Pramnos\Application\Controller;
  *
  * Scaffold wrappers at `src/Controllers/TokenActions.php` (auth feature).
  *
- * @package     PramnosFramework
- * @subpackage  Auth\Controllers
  */
 class TokenActionsController extends Controller
 {

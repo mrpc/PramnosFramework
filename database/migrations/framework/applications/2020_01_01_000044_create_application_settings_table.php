@@ -19,7 +19,6 @@ use Pramnos\Database\Migration;
  *   applications_application_settings; array columns are stored as JSON;
  *   updated_at is maintained by ON UPDATE CURRENT_TIMESTAMP.
  *
- * @package PramnosFramework
  */
 class CreateApplicationSettingsTable extends Migration
 {

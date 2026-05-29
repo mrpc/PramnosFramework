@@ -17,7 +17,6 @@ use Pramnos\Database\Migration;
  * policies (retention, compression, continuous aggregates) handle their
  * own scheduling.
  *
- * @package PramnosFramework
  */
 class CreateFrameworkPoliciesTable extends Migration
 {

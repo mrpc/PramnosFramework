@@ -29,7 +29,6 @@ use Pramnos\Database\Migration;
  *  - trigger_set_permission_priority  (BEFORE INSERT OR UPDATE ON authserver.permissions)
  *  - trigger_check_user_org_membership  (BEFORE INSERT OR UPDATE ON authserver.user_roles)
  *
- * @package PramnosFramework
  */
 class CreateAuthserverRbacFunctions extends Migration
 {

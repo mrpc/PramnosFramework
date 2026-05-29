@@ -22,7 +22,6 @@ use Pramnos\Database\Migration;
  * Used by check_permission_with_inheritance() (PostgreSQL) and application-level
  * permission checks on all backends.
  *
- * @package PramnosFramework
  */
 class CreateAuthserverEffectivePermissionsView extends Migration
 {

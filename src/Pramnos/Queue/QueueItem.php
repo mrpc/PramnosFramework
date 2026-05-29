@@ -14,8 +14,6 @@ namespace Pramnos\Queue;
  * Status lifecycle:
  *   pending → processing → completed | failed | warning
  *
- * @package     PramnosFramework
- * @subpackage  Queue
  *
  * @property int         $taskid
  * @property string      $type

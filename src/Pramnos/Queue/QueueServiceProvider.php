@@ -18,8 +18,7 @@ use Pramnos\Application\ServiceProvider;
  * the CLI bootstrap does not go through the ServiceProvider lifecycle.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Queue
+ * @license    MIT
  */
 class QueueServiceProvider extends ServiceProvider
 {

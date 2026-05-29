@@ -25,7 +25,6 @@ use Pramnos\Framework\Factory;
  *   legacy_md5   (bool, default false) — accept MD5 passwords from old stores
  *   auto_upgrade (bool, default true)  — rehash matched MD5 passwords to bcrypt
  *
- * @package PramnosFramework
  */
 class DatabaseAuthDriver implements AuthDriverInterface
 {

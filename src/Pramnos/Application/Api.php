@@ -3,10 +3,9 @@
 namespace Pramnos\Application;
 /**
  * Restful API Application
- * @package     PramnosFramework
- * @subpackage  Application
- * @copyright   2020 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Api extends Application
 {

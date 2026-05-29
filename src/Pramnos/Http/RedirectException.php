@@ -9,8 +9,6 @@ namespace Pramnos\Http;
  * performs the actual redirect via header()/exit. This avoids bare `exit` calls
  * inside middleware, making redirect logic fully testable.
  *
- * @package    PramnosFramework
- * @subpackage Http
  */
 class RedirectException extends \RuntimeException
 {

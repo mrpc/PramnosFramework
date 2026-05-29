@@ -12,8 +12,6 @@ use Pramnos\Database\QueryBuilder;
  * compileInsertOrIgnore, compileUpsert) and the protected hooks
  * (compileReturning, wrapColumnForOperator) where dialects diverge.
  *
- * @package     PramnosFramework
- * @subpackage  Database\Grammar
  */
 abstract class Grammar implements GrammarInterface
 {

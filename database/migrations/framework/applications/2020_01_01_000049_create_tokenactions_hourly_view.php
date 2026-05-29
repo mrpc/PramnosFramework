@@ -20,7 +20,6 @@ use Pramnos\Database\DatabaseCapabilities;
  *
  * Requires: create_tokenactions_table, create_applications_schema.
  *
- * @package PramnosFramework
  */
 class CreateTokenactionsHourlyView extends Migration
 {

@@ -34,8 +34,6 @@ use Pramnos\Broadcasting\Drivers\NullDriver;
  * $manager->broadcast('channel', 'event', ['key' => 'value']);
  * ```
  *
- * @package PramnosFramework
- * @subpackage Broadcasting
  */
 class BroadcastingServiceProvider extends ServiceProvider
 {

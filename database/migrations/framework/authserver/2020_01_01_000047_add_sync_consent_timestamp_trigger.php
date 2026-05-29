@@ -18,7 +18,6 @@ use Pramnos\Database\Migration;
  *   on the column handles UPDATE, but not INSERT when the caller omits the
  *   field, so both triggers are needed for full parity.
  *
- * @package PramnosFramework
  */
 class AddSyncConsentTimestampTrigger extends Migration
 {

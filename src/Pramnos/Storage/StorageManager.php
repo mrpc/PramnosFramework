@@ -25,8 +25,6 @@ use Pramnos\Storage\Drivers\S3Driver;
  * ],
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Storage
  */
 class StorageManager
 {

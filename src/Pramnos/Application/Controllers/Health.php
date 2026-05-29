@@ -26,8 +26,6 @@ use Pramnos\User\User;
  * Scaffold wrapper:
  *   pramnos init generates `src/Controllers/Health.php` extending this class.
  *
- * @package PramnosFramework
- * @subpackage Application\Controllers
  */
 class Health extends Controller
 {

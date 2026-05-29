@@ -26,7 +26,6 @@ use Pramnos\Debug\Collectors\ViewsCollector;
  * The toolbar is injected before `</body>` by DebugBarMiddleware which this
  * provider registers as a global middleware on the application pipeline.
  *
- * @package PramnosFramework
  */
 class DebugBarServiceProvider extends ServiceProvider
 {

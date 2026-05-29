@@ -12,8 +12,6 @@ namespace Pramnos\Framework;
  * remote lists are built by scanning refs/heads/, refs/remotes/ and the
  * packed-refs file so both loose and packed refs are covered.
  *
- * @package PramnosFramework
- * @subpackage Framework
  */
 class GitInfo
 {

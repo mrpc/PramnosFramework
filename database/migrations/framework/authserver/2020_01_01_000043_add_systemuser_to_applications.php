@@ -12,7 +12,6 @@ use Pramnos\Database\Migration;
  * per application and stores its userid here.  Subsequent requests reuse
  * that user instead of creating a new one on every token request.
  *
- * @package PramnosFramework
  */
 class AddSystemuserToApplications extends Migration
 {

@@ -25,8 +25,7 @@ use Pramnos\Scheduling\Scheduler;
  *   1 — one or more tasks threw an exception
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Console
+ * @license    MIT
  */
 class ScheduleRun extends Command
 {

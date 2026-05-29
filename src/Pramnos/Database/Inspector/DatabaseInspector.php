@@ -14,8 +14,6 @@ use Pramnos\Database\Database;
  * supported database type; they return empty arrays when the feature is not
  * available (e.g. replication on a standalone instance, views on MySQL).
  *
- * @package     PramnosFramework
- * @subpackage  Database\Inspector
  */
 class DatabaseInspector
 {

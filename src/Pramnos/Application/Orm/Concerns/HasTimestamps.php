@@ -17,8 +17,6 @@ namespace Pramnos\Application\Orm\Concerns;
  * const UPDATED_AT = 'modified_on';
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Application\Orm\Concerns
  */
 trait HasTimestamps
 {

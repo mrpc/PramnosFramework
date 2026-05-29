@@ -2,11 +2,10 @@
 namespace Pramnos\Media;
 /**
  * Based on justThumb.php - by Jack-the-ripper (c) Lars Oll�n 2005
- * @package     PramnosFramework
- * @subpackage  Thumbnail
- * @copyright   Copyright (C) 2005 - 2013 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @copyright   Lars Oll�n 2005
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 
 
@@ -575,6 +574,7 @@ class ResizeTools extends \Pramnos\Framework\Base
      * 5 = No speedup. Just uses imagecopyresampled, no advantage over
      * imagecopyresampled.
      * @return boolean Returns TRUE on success or FALSE on failure.
+     * @license    MIT
      */
     public static function fastimagecopyresampled(
     $dst_image, $src_image, $dst_x, $dst_y, $src_x, $src_y, $dst_w, $dst_h, $src_w, $src_h, $quality = 4

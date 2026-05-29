@@ -11,7 +11,6 @@ use Pramnos\Database\Migration;
  * users table schema. Used by applications to store domain-specific profile data
  * that doesn't belong in the core users table.
  *
- * @package PramnosFramework
  */
 class CreateUserdetailsTable extends Migration
 {

@@ -17,7 +17,6 @@ use Pramnos\Database\Migration;
  * INTEGER[] type is not used here to maintain cross-database compatibility with
  * MySQL. The PL/pgSQL apply_role_template() function iterates this array.
  *
- * @package PramnosFramework
  */
 class CreateAuthserverRoleTemplatesTable extends Migration
 {

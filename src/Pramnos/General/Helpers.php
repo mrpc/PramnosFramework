@@ -4,10 +4,9 @@ namespace Pramnos\General;
 
 /**
  * Helper Methods
- * @package     PramnosFramework
- * @subpackage  General
- * @copyright   2005 - 2013 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Helpers
 {
@@ -280,6 +279,7 @@ class Helpers
      * @param array $files
      * @author Corey Ballou
      * @link http://www.jqueryin.com
+     * @license    MIT
      */
     public static function fixFilesArray(&$files)
     {

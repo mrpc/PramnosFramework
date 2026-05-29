@@ -20,7 +20,6 @@ use League\OAuth2\Server\Repositories\UserRepositoryInterface;
  * Code + PKCE for new integrations. This repository is provided for backward
  * compatibility with existing integrations.
  *
- * @package PramnosFramework
  */
 class UserRepository implements UserRepositoryInterface
 {

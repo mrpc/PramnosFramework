@@ -12,8 +12,6 @@ namespace Pramnos\Database\Grammar;
  *   - Continuous aggregate DDL
  *   - Retention/compression policy helpers
  *
- * @package     PramnosFramework
- * @subpackage  Database\Grammar
  */
 class TimescaleDBGrammar extends PostgreSQLGrammar
 {

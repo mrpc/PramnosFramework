@@ -10,9 +10,9 @@ use Pramnos\Auth\Drivers\DatabaseAuthDriver;
 
 /**
  * Authentication class
- * @package     PramnosFramework
- * @copyright   2005 - 2014 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Auth extends \Pramnos\Framework\Base
 {

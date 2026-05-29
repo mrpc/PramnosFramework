@@ -23,8 +23,6 @@ namespace Pramnos\Application\Orm\Concerns;
  * $post->trashed();                   // true / false
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Application\Orm\Concerns
  */
 trait HasSoftDeletes
 {

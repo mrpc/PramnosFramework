@@ -16,7 +16,6 @@ use Pramnos\Database\DatabaseCapabilities;
  *   - compression enabled; compress chunks older than 90 days
  *   - retention: drop chunks older than 36 months (3 years)
  *
- * @package PramnosFramework
  */
 class CreateDataProcessingRecordsTable extends Migration
 {

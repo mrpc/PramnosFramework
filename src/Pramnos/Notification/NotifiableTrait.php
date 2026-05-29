@@ -22,8 +22,6 @@ namespace Pramnos\Notification;
  * Override `routeNotificationFor()` to customise how the entity's delivery
  * address is resolved per channel.
  *
- * @package     PramnosFramework
- * @subpackage  Notification
  */
 trait NotifiableTrait
 {

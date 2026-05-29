@@ -14,8 +14,6 @@ namespace Pramnos\Application\Controllers;
  * All logic lives in DevPanelController — this class only provides the
  * namespace anchor needed for auto-discovery.
  *
- * @package PramnosFramework
- * @subpackage Application\Controllers
  */
 class Devpanel extends \Pramnos\DevPanel\DevPanelController
 {

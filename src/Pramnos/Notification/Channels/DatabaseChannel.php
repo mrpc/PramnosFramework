@@ -32,8 +32,6 @@ use Pramnos\Notification\NotificationInterface;
  * Silently skips if the notification has no toDatabase() method or the
  * notifiable has no resolvable ID.
  *
- * @package     PramnosFramework
- * @subpackage  Notification\Channels
  */
 class DatabaseChannel implements ChannelInterface
 {

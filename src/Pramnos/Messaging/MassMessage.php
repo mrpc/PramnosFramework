@@ -22,8 +22,6 @@ namespace Pramnos\Messaging;
  *   MassMessage::STATUS_SENT      = 1
  *   MassMessage::STATUS_SCHEDULED = 2
  *
- * @package     PramnosFramework
- * @subpackage  Messaging
  *
  * @property int         $messageid
  * @property string      $subject

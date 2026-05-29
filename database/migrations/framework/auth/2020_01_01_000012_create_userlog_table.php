@@ -11,7 +11,6 @@ use Pramnos\Database\Migration;
  * (e.g. password changes, activation/deactivation, admin notes). Distinct from
  * the tokenactions hypertable which tracks API call history.
  *
- * @package PramnosFramework
  */
 class CreateUserlogTable extends Migration
 {

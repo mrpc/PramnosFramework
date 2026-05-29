@@ -11,7 +11,6 @@ namespace Pramnos\Debug\Collectors;
  * DebugBar::recordModel(). Distinct model classes are counted separately
  * so the tab badge shows unique model types, not total DB round-trips.
  *
- * @package PramnosFramework
  */
 class ModelsCollector implements CollectorInterface
 {

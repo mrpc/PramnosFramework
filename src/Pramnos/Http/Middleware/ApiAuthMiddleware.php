@@ -42,8 +42,6 @@ use Pramnos\Http\Request;
  * This mirrors the behaviour of `Api::exec()` so that controllers reading
  * the session work the same way.
  *
- * @package    PramnosFramework
- * @subpackage Http\Middleware
  */
 class ApiAuthMiddleware implements MiddlewareInterface
 {

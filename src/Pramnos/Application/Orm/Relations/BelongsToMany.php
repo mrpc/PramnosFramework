@@ -23,8 +23,6 @@ use Pramnos\Database\Database;
  * }
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Application\Orm\Relations
  */
 class BelongsToMany extends Relation
 {

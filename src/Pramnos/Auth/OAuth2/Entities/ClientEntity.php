@@ -14,7 +14,6 @@ use League\OAuth2\Server\Entities\Traits\EntityTrait;
  * Represents a registered OAuth2 client application within the league/oauth2-server
  * grant flow. Hydrated by ClientRepository from the `applications` table.
  *
- * @package PramnosFramework
  */
 class ClientEntity implements ClientEntityInterface
 {

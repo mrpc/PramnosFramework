@@ -16,8 +16,6 @@ namespace Pramnos\Auth;
  *   3. Dynamic truncation of the 20-byte HMAC to a 31-bit integer.
  *   4. Take the integer mod 10^6 to produce a 6-digit code.
  *
- * @package     PramnosFramework
- * @subpackage  Auth
  */
 class TOTPHelper
 {

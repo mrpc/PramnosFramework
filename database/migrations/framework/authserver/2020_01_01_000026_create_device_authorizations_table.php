@@ -15,7 +15,6 @@ use Pramnos\Database\Migration;
  * On PostgreSQL, the table lives in the `authserver` schema.
  * On MySQL, the schema is translated to a prefix: authserver_device_authorizations.
  *
- * @package PramnosFramework
  */
 class CreateDeviceAuthorizationsTable extends Migration
 {

@@ -3,11 +3,10 @@
 namespace Pramnos\Filesystem;
 
 /**
- * @package     PramnosFramework
- * @subpackage  Filesystem
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @todo        FTP, Zip
+ * @license    MIT
  */
 class Filesystem
 {

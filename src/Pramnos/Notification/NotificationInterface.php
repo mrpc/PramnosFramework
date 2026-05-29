@@ -16,8 +16,6 @@ namespace Pramnos\Notification;
  *   toBroadcast($notifiable): array    — consumed by BroadcastChannel
  *   toLog($notifiable): mixed          — consumed by LogChannel
  *
- * @package     PramnosFramework
- * @subpackage  Notification
  */
 interface NotificationInterface
 {

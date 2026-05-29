@@ -5,9 +5,9 @@ namespace Pramnos\Framework;
 /**
  * This class provides easy access to all factory methods of the framework
  * and a registry for sigleton pattern.
- * @package     PramnosFramework
- * @copyright   2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author  Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Factory
 {

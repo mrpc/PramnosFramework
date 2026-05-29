@@ -3,10 +3,9 @@ namespace Pramnos\User;
 /**
  * User class
  * Dynamic loading of new user information  :-)
- * @copyright   (c) 2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
- * @package     PramnosFramework
- * @subpackage  User
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class User extends \Pramnos\Framework\Base
 {

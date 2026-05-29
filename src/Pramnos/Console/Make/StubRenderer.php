@@ -10,7 +10,6 @@ namespace Pramnos\Console\Make;
  * embedded skeletons when a file is absent, so commands work even in
  * environments where the scaffolding directory is missing.
  *
- * @package PramnosFramework
  */
 class StubRenderer
 {
@@ -66,7 +65,7 @@ class StubRenderer
                 "<?php\nnamespace {{ namespace }};\n\n"
                 . "use Pramnos\\Http\\MiddlewareInterface;\n"
                 . "use Pramnos\\Http\\Request;\n\n"
-                . "/**\n * {{ class }} Middleware\n *\n * @package {{ namespace }}\n */\n"
+                . "/**\n * {{ class }} Middleware\n *\n * @license MIT\n */\n"
                 . "class {{ class }} implements MiddlewareInterface\n{\n"
                 . "    public function handle(Request \$request, callable \$next): mixed\n    {\n"
                 . "        \$response = \$next(\$request);\n"
@@ -74,7 +73,7 @@ class StubRenderer
 
             'event' =>
                 "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\n"
-                . "/**\n * {{ class }} Event\n *\n * @package {{ namespace }}\n */\n"
+                . "/**\n * {{ class }} Event\n *\n * @license MIT\n */\n"
                 . "class {{ class }}\n{\n"
                 . "    public function __construct(\n"
                 . "        // TODO: add public readonly properties for event payload\n"
@@ -83,7 +82,7 @@ class StubRenderer
             'listener' =>
                 "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\n"
                 . "use Pramnos\\Event\\ListenerInterface;\n\n"
-                . "/**\n * {{ class }} Listener\n *\n * @package {{ namespace }}\n */\n"
+                . "/**\n * {{ class }} Listener\n *\n * @license MIT\n */\n"
                 . "class {{ class }} implements ListenerInterface\n{\n"
                 . "    public function handle(mixed ...\$args): mixed\n    {\n"
                 . "        return null;\n    }\n}\n",
@@ -92,7 +91,7 @@ class StubRenderer
                 "<?php\nnamespace {{ namespace }};\n\n"
                 . "use Pramnos\\Database\\Blueprint;\n"
                 . "use Pramnos\\Database\\Migration;\n\n"
-                . "/**\n * {{ class }} Migration\n *\n * @package {{ namespace }}\n */\n"
+                . "/**\n * {{ class }} Migration\n *\n * @license MIT\n */\n"
                 . "final class {{ class }} extends Migration\n{\n"
                 . "    public \$description = '{{ description }}';\n"
                 . "    public bool \$transactional = false;\n\n"
@@ -102,7 +101,7 @@ class StubRenderer
             'seeder' =>
                 "<?php\nnamespace {{ namespace }};\n\n"
                 . "use Pramnos\\Database\\Seeder;\n\n"
-                . "/**\n * {{ class }} Seeder\n *\n * @package {{ namespace }}\n */\n"
+                . "/**\n * {{ class }} Seeder\n *\n * @license MIT\n */\n"
                 . "class {{ class }} extends Seeder\n{\n"
                 . "    protected string \$table = '{{ table }}';\n\n"
                 . "    public function run(): void\n    {\n"
@@ -113,7 +112,7 @@ class StubRenderer
             'controller' =>
                 "<?php\nnamespace {{ namespace }};\n\n"
                 . "use Pramnos\\Application\\Controller;\n\n"
-                . "/**\n * {{ class }} Controller\n *\n * @package {{ namespace }}\n */\n"
+                . "/**\n * {{ class }} Controller\n *\n * @license MIT\n */\n"
                 . "class {{ class }} extends Controller\n{\n"
                 . "    public function __construct(?\\Pramnos\\Application\\Application \$application = null)\n    {\n"
                 . "        \$this->addAuthAction(['edit', 'save', 'delete']);\n"
@@ -125,7 +124,7 @@ class StubRenderer
             'model' =>
                 "<?php\nnamespace {{ namespace }};\n\n"
                 . "use Pramnos\\Application\\Model;\n\n"
-                . "/**\n * {{ class }} Model\n *\n * @package {{ namespace }}\n */\n"
+                . "/**\n * {{ class }} Model\n *\n * @license MIT\n */\n"
                 . "class {{ class }} extends Model\n{\n"
                 . "    protected \$_dbtable = '{{ table }}';\n"
                 . "    protected \$_primaryKey = '{{ primaryKey }}';\n}\n",
@@ -133,7 +132,7 @@ class StubRenderer
             'test' =>
                 "<?php\nnamespace Tests\\Unit;\n\n"
                 . "use PHPUnit\\Framework\\TestCase;\n\n"
-                . "/**\n * {{ class }}Test\n *\n * @package Tests\\Unit\n */\n"
+                . "/**\n * {{ class }}Test\n *\n * @license MIT\n */\n"
                 . "class {{ class }}Test extends TestCase\n{\n"
                 . "    public function testInstantiation(): void\n    {\n"
                 . "        \$instance = new \\{{ namespace }}\\{{ class }}();\n"
@@ -144,7 +143,7 @@ class StubRenderer
                 "<?php\nnamespace Tests\\Feature;\n\n"
                 . "use PHPUnit\\Framework\\TestCase;\n"
                 . "use Pramnos\\Testing\\TestClient;\n\n"
-                . "/**\n * {{ class }}Test Feature Test\n *\n * @package Tests\\Feature\n */\n"
+                . "/**\n * {{ class }}Test Feature Test\n *\n * @license MIT\n */\n"
                 . "class {{ class }}Test extends TestCase\n{\n"
                 . "    public function testDisplayRouteReturnsSuccessfulResponse(): void\n    {\n"
                 . "        \$client = new TestClient();\n"

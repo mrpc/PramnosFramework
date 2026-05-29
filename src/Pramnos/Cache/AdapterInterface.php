@@ -5,7 +5,8 @@ namespace Pramnos\Cache;
 /**
  * Interface for all cache adapters
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   (C) 2024 Yannis - Pastis Glaros
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 interface AdapterInterface
 {

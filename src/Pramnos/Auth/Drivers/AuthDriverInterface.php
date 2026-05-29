@@ -13,7 +13,6 @@ namespace Pramnos\Auth\Drivers;
  *
  * The framework ships DatabaseAuthDriver as the default implementation.
  *
- * @package PramnosFramework
  */
 interface AuthDriverInterface
 {

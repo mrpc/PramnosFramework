@@ -16,8 +16,6 @@ namespace Pramnos\Messaging;
  *   Mail::STATUS_SENT    = 1
  *   Mail::STATUS_QUEUED  = 2
  *
- * @package     PramnosFramework
- * @subpackage  Messaging
  *
  * @property int    $id
  * @property int    $status         0=failed, 1=sent, 2=queued

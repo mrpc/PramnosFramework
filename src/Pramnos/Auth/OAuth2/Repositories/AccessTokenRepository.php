@@ -15,7 +15,6 @@ use League\OAuth2\Server\Repositories\AccessTokenRepositoryInterface;
  * Persists access tokens to the `usertokens` table (tokentype='access_token').
  * Revocation sets status=0; isAccessTokenRevoked() checks existence and status.
  *
- * @package PramnosFramework
  */
 class AccessTokenRepository implements AccessTokenRepositoryInterface
 {

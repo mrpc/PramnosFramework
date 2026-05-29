@@ -20,8 +20,6 @@ use Pramnos\Queue\QueueManager;
  * Override createQueueManager() in a subclass to inject an application-
  * specific QueueManager.
  *
- * @package     PramnosFramework
- * @subpackage  Console\Commands
  */
 class CleanupQueue extends Command
 {
