@@ -1,7 +1,102 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-28 (session 150) — MigrationRunner auto-run + DebugBar Migrations tab ✅
+## 📅 Last Updated: 2026-05-29 (session 151) — v1.2 Documentation Reorganization ✅
+
+## 🏁 Session 151 — v1.2 Documentation Complete Reorganization (2026-05-29)
+
+### ✅ docs: Complete documentation reorganization for v1.2 release
+
+**Created 9 new comprehensive guides:**
+
+1. **Pramnos_QueryBuilder_Guide.md** — Complete DML Query Builder reference
+   - SELECT, INSERT, UPDATE, DELETE with all methods
+   - Joins, conditions, aggregates, window functions
+   - Set operations, subqueries, pagination
+   - 450+ lines with practical examples
+
+2. **Pramnos_Schema_Builder_Guide.md** — DDL schema definition system
+   - Table creation and modification
+   - Column types and modifiers
+   - Indexes, foreign keys, constraints
+   - TimescaleDB features (hypertables, retention, aggregates)
+   - Conditional DDL with DatabaseCapabilities
+
+3. **Pramnos_ORM_Guide.md** — Complete Object-Relational Mapping
+   - Model definition, CRUD operations
+   - Relationships (hasMany, hasOne, belongsTo, belongsToMany)
+   - Query scopes and eager loading
+   - Casting, accessors, mutators
+   - Soft deletes, timestamps, model events
+
+4. **Pramnos_Migration_Guide.md** — Database versioning system
+   - Creating and running migrations
+   - Rollback semantics and batching
+   - Conditional DDL (capabilities checking)
+   - Framework vs application migrations
+   - Auto-run configuration
+
+5. **Pramnos_API_Guide.md** — REST API development guide
+   - API controller structure
+   - Route definition and groups
+   - JSON request/response handling
+   - Validation, authentication, CORS
+   - Pagination and versioning
+
+6. **Pramnos_Routing_Guide.md** — Modern routing with attributes
+   - Route definition (all HTTP methods)
+   - Parameter binding and constraints
+   - Route groups and namespaces
+   - Attribute-based routing (PHP 8+)
+   - REST resource routes
+   - Named routes and URL generation
+
+7. **Pramnos_Authorization_Guide.md** — Policy engine and access control
+   - Policy class definition
+   - Authorization evaluation
+   - Before/after hooks
+   - Model authorization
+   - Gates and permissions
+
+8. **Pramnos_Security_Guide.md** — Comprehensive security guide
+   - CSRF protection with session-stable tokens
+   - Session cookie hardening
+   - Password hashing and verification
+   - XSS prevention and output escaping
+   - SQL injection prevention with QueryBuilder
+   - Login lockout and 2FA/TOTP
+   - Content Security Policy
+   - Security headers
+
+9. **Pramnos_Testing_Guide.md** — HTTP testing infrastructure
+   - HTTP test client with fluent API
+   - Response assertions (status, JSON, content)
+   - Database testing and assertions
+   - Factories for test data generation
+   - Seeders for database population
+   - Complete test examples
+
+**Updated README.md:**
+- Complete restructure with v1.2 features overview
+- Organized by topic: Database, Infrastructure, API, Security, Developer Experience
+- Links to all 24 documentation files
+- Clear getting started section
+- Feature highlights for v1.2
+
+**Documentation Structure:**
+- Each guide: Overview → Getting Started → API Reference → Complete Examples
+- All guides reference v1.2-new-features.md for detailed technical specifications
+- Practical code examples for every feature
+- Backward compatibility notes where applicable
+
+**Key Stats:**
+- 9 new guides created (3,500+ lines of documentation)
+- 1 README.md completely reorganized
+- All guides follow consistent formatting and structure
+- Cross-referenced linking between related guides
+- Ready for v1.2 release
+
+---
 
 ## 🏁 Session 150 — MigrationRunner auto-run + DebugBar Migrations tab (2026-05-28)
 

@@ -1,19 +1,112 @@
-# Pramnos Framework
+# Pramnos Framework v1.2
 
-Pramnos Framework is a comprehensive PHP MVC framework designed for building robust web applications. It combines proven design patterns with modern development practices, providing a solid foundation for secure, scalable, and maintainable applications.
+Pramnos Framework is a comprehensive PHP MVC framework designed for building robust, scalable web applications. The **v1.2 release** brings major infrastructure improvements, a complete ORM layer, advanced API support, and enhanced developer experience.
 
-## 📚 Documentation
+> **Release Date:** May 2026  
+> **Minimum PHP Version:** 8.1  
+> **Database Support:** MySQL 8.0+, PostgreSQL 14+, TimescaleDB
 
-For comprehensive documentation, please refer to:
+## 🚀 What's New in v1.2?
 
-- **[Framework Guide](docs/Pramnos_Framework_Guide.md)** - Complete guide to the framework architecture, controllers, views, and best practices
-- **[Database API Guide](docs/Pramnos_Database_API_Guide.md)** - Detailed documentation on database operations and patterns
-- **[Cache System Guide](docs/Pramnos_Cache_Guide.md)** - Caching implementation and usage
-- **[Authentication Guide](docs/Pramnos_Authentication_Guide.md)** - User authentication and session management
-- **[Console Commands Guide](docs/Pramnos_Console_Guide.md)** - Command-line tools and utilities
-- **[Logging System Guide](docs/Pramnos_Logging_Guide.md)** - Comprehensive logging, analytics, and monitoring
-- **[Document & Output Guide](docs/Pramnos_Document_Output_Guide.md)** - Multi-format output, document generation, and asset management
-- **[Theme System Guide](docs/Pramnos_Theme_Guide.md)** - Template system, widgets, menus, and theming best practices
+### Database & Query Layer
+- **Read/Write Replicas** — Automatic routing of queries to primary and replica connections
+- **Connection Health & Auto-reconnect** — Transparent reconnection on dropped connections
+- **DML Query Builder** — Fluent interface for SELECT, INSERT, UPDATE, DELETE with dialect support
+- **DDL Schema Builder** — Programmatic schema definition with support for migrations
+- **DatabaseCapabilities** — Runtime detection of database features (TimescaleDB, JSON, spatial, etc.)
+- **timeBucket() & Time Series Support** — Dialect-transparent time bucketing for TimescaleDB/PostgreSQL
+
+### Infrastructure & Architecture
+- **Complete ORM** — Models with relationships, scopes, and casting
+- **Migration System v2** — Framework-managed migrations with auto-run, versioning, and rollback
+- **Service Providers** — Application bootstrap and dependency injection
+- **Feature Registry** — Declarative feature management and wiring
+- **Policy Engine** — Authorization framework with condition-based access control
+- **Middleware Pipeline** — Request/response filtering with composable middleware
+- **Health Check System** — Built-in application health monitoring and diagnostics
+
+### API & Web Features
+- **PSR Compliance Layer** — PSR-7/PSR-15 compatibility for interoperability
+- **Modern Routing** — Attribute-based routing with parameter binding and groups
+- **REST API Framework** — Scaffolding and conventions for API-first development
+- **Database-Driven CORS** — Configuration stored in database with runtime validation
+- **Response Object** — Formal HTTP response abstraction
+- **HTTP Testing Infrastructure** — Built-in testing helpers for API/web testing
+
+### Security Enhancements
+- **CSRF Hardening** — Strengthened token validation with session binding
+- **Session Cookie Hardening** — Secure cookie attributes and regeneration
+- **View Escaping Helpers** — Safe output escaping with context-aware strategies
+- **OAuth2 Server** — Full OAuth2 authorization server implementation
+- **2FA/TOTP** — Two-factor authentication and time-based one-time passwords
+- **Login Lockout** — Brute-force protection with exponential backoff
+
+### Developer Experience
+- **Scaffolding System** — Generate controllers, views, models, tests with smart defaults
+- **Rich CLI** — Comprehensive command-line tools with progress reporting
+- **MCP Server** — AI-powered developer assistance (Claude/ChatGPT integration)
+- **Enhanced DebugBar** — Migrations, request timeline, cache tracking, and profiling
+- **Form Requests** — Validation-focused request objects with automatic routing
+- **Notification Channels** — Email, database, and webhook notifications
+- **Admin CRUD Generators** — Automatic admin interfaces for database tables
+
+### Database Features
+- **Window Functions** — RANK(), ROW_NUMBER(), LAG/LEAD support across MySQL 8+ and PostgreSQL
+- **CTEs & Subqueries** — Common Table Expressions with `with()` and subquery builders
+- **Set Operations** — UNION/UNION ALL with type coercion
+- **Upsert Operations** — INSERT...ON DUPLICATE KEY / INSERT...ON CONFLICT
+- **Aggregate Functions** — COUNT, SUM, AVG, MIN, MAX with proper cloning
+
+---
+
+## 📚 Documentation & Guides
+
+### Getting Started
+- **[Installation & Setup](docs/Getting_Started.md)** - Quick start guide for new projects
+- **[v1.2 New Features Reference](docs/1.2-new-features.md)** - Comprehensive feature documentation (implementation reference)
+
+### Core Guides by Topic
+
+#### Database & ORM
+- **[Database API Guide](docs/Pramnos_Database_API_Guide.md)** - Legacy `Database::query()` API and patterns
+- **[DML Query Builder Guide](docs/Pramnos_QueryBuilder_Guide.md)** - Fluent query construction for SELECT/INSERT/UPDATE/DELETE *(new in v1.2)*
+- **[DDL Schema Builder Guide](docs/Pramnos_Schema_Builder_Guide.md)** - Programmatic schema definition *(new in v1.2)*
+- **[ORM Guide](docs/Pramnos_ORM_Guide.md)** - Model definition, relationships, scopes, and casting *(new in v1.2)*
+- **[Migration System Guide](docs/Pramnos_Migration_Guide.md)** - Database versioning and auto-run system *(new in v1.2)*
+
+#### Web & API
+- **[Framework Guide](docs/Pramnos_Framework_Guide.md)** - Controllers, views, and MVC architecture
+- **[REST API Guide](docs/Pramnos_API_Guide.md)** - Building and deploying REST APIs *(updated for v1.2)*
+- **[Routing Guide](docs/Pramnos_Routing_Guide.md)** - Modern attribute-based routing *(new in v1.2)*
+- **[Response & Status Guide](docs/Pramnos_Response_Guide.md)** - HTTP response abstraction *(new in v1.2)*
+
+#### Authentication & Security
+- **[Authentication Guide](docs/Pramnos_Authentication_Guide.md)** - Authentication drivers, session management, OAuth2
+- **[Authorization & Policies Guide](docs/Pramnos_Authorization_Guide.md)** - Policy engine and access control *(new in v1.2)*
+- **[Security Best Practices](docs/Pramnos_Security_Guide.md)** - CSRF, XSS, injection prevention, and hardening *(new in v1.2)*
+
+#### Backend & Infrastructure
+- **[Console Commands Guide](docs/Pramnos_Console_Guide.md)** - Building and running CLI commands
+- **[Service Providers Guide](docs/Pramnos_ServiceProviders_Guide.md)** - Application bootstrap and dependency injection *(new in v1.2)*
+- **[Health Check Guide](docs/Pramnos_Health_Guide.md)** - Monitoring and diagnostics *(new in v1.2)*
+- **[Scheduled Tasks Guide](docs/Pramnos_Scheduler_Guide.md)** - Background job scheduling *(new in v1.2)*
+- **[Queue System Guide](docs/Pramnos_Queue_Guide.md)** - Asynchronous job processing
+
+#### Developer Tools
+- **[Logging System Guide](docs/Pramnos_Logging_Guide.md)** - Structured logging and analytics
+- **[Caching Guide](docs/Pramnos_Cache_Guide.md)** - Query, data, and application-level caching
+- **[Testing Guide](docs/Pramnos_Testing_Guide.md)** - HTTP tests, factories, seeders *(updated for v1.2)*
+- **[Scaffolding Guide](docs/Pramnos_Scaffolding_Guide.md)** - Code generation tools *(new in v1.2)*
+- **[DebugBar Guide](docs/Pramnos_DebugBar_Guide.md)** - Development profiling and debugging *(updated for v1.2)*
+
+#### Content & UI
+- **[Theme System Guide](docs/Pramnos_Theme_Guide.md)** - Template system, widgets, and theming
+- **[Document & Output Guide](docs/Pramnos_Document_Output_Guide.md)** - Multi-format output (HTML, PDF, JSON, etc.)
+- **[Validation Guide](docs/Pramnos_Validation_System_Guide.md)** - Form validation and custom rules
+- **[Internationalization Guide](docs/Pramnos_Internationalization_Guide.md)** - Multi-language support
+- **[Email Guide](docs/Pramnos_Email_Guide.md)** - Email delivery and templates
+- **[Media & Storage Guide](docs/Pramnos_Media_Guide.md)** - File uploads and storage abstraction *(updated for v1.2)*
+- **[Environment Variables Guide](docs/Pramnos_Environment_Variables_Guide.md)** - Configuration management
 
 ## Requirements
 
