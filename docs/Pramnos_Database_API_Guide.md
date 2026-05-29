@@ -2,9 +2,25 @@
 
 This guide explains how to properly use the Pramnos database API for database operations in the Pramnos MVC framework.
 
+> **v1.2 Update:** A new fluent **QueryBuilder** API is now available for more expressive query construction. See [Pramnos_QueryBuilder_Guide.md](Pramnos_QueryBuilder_Guide.md) for modern query patterns. The `Database::query()` and `prepareQuery()` methods remain unchanged and fully supported.
+
 ## Overview
 
 The Pramnos framework provides a database abstraction layer that must be used for all database operations. The key principle is to **always use `prepareQuery()` for parameter binding, then `query()` for execution**.
+
+**For new code, consider using the QueryBuilder API:**
+
+```php
+// Modern approach (v1.2+)
+$users = $db->queryBuilder()
+    ->from('users')
+    ->where('active', 1)
+    ->get();
+
+// Legacy approach (still supported)
+$sql = $db->prepareQuery("SELECT * FROM users WHERE active = %d", 1);
+$result = $db->query($sql);
+```
 
 ## Database Access in Controllers
 

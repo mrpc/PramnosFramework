@@ -1,5 +1,12 @@
 # Pramnos Framework - Document & Output System Guide
 
+> **v1.2 New Features:**
+> - **PSR Compliance Layer** — PSR-7/PSR-15 compatibility
+> - **Response Object** — Formal HTTP response abstraction
+> - **Multiple Output Formats** — JSON, XML, HTML, PDF, RSS with unified API
+>
+> See [Pramnos_API_Guide.md](Pramnos_API_Guide.md) for API response handling and [v1.2 New Features](1.2-new-features.md#44-phase-6-psr-compliance-layer).
+
 The Pramnos Framework includes a sophisticated document and output system that handles multiple output formats, theming, asset management, and content rendering. This guide covers the complete document system from basic usage to advanced customization.
 
 ## Table of Contents
