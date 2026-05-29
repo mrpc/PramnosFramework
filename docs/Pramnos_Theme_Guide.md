@@ -1,13 +1,5 @@
 # Pramnos Framework - Theme System Guide
 
-> **v1.2 New Features:**
-> - **Blade-Inspired Directives** — Template engine with familiar directive syntax
-> - **Template Engine** — Advanced templating capabilities
-> - **View System** — Complete guide in [View & Template System](1.2-new-features.md#62-view--template-system--complete-guide)
-> - **Widget System** — Enhanced widget management
->
-> Related guides: [Pramnos_Framework_Guide.md](Pramnos_Framework_Guide.md)
-
 The Pramnos Framework includes a powerful theming system that provides flexible template management, widget support, menu systems, and complete design customization. This guide covers everything from basic theme usage to advanced theme development.
 
 ## Table of Contents

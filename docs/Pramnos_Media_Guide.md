@@ -1,12 +1,5 @@
 # Pramnos Framework - Media System Guide
 
-> **v1.2 New Features:**
-> - **File Storage Abstraction** — Unified interface for local, S3, and cloud storage
-> - **Stream Support** — Efficient handling of large files
-> - **Metadata Management** — Automatic extraction and caching
->
-> See [v1.2 New Features — File Storage Abstraction](1.2-new-features.md#47-phase-10---file-storage-abstraction-pramnos-storage)
-
 The Pramnos Framework includes a comprehensive media management system that handles file uploads, image processing, thumbnail generation, and media organization. The system provides automatic resizing, cropping, rotation, and supports various media types including images, documents, and PDFs.
 
 ## Table of Contents

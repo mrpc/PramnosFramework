@@ -1,12 +1,5 @@
 # Pramnos Framework - Email System Guide
 
-> **v1.2 New Features:**
-> - **Notification Channels** — Email, database, webhook notifications
-> - **Messaging System** — Models and service provider for notifications
-> - **Template Support** — Blade-inspired email templates
->
-> See [v1.2 New Features — Notification Channels](1.2-new-features.md#phase-21---advanced-dx-notification-channels) and [Pramnos_Theme_Guide.md](Pramnos_Theme_Guide.md) for templating.
-
 The Pramnos Framework includes a comprehensive email system built on top of Symfony Mailer that provides a clean, flexible API for sending emails with advanced features like tracking, templates, and multiple transport options.
 
 ## Table of Contents

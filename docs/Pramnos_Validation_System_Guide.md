@@ -1,13 +1,5 @@
 # Pramnos Validation System Guide
 
-> **v1.2 New Features:**
-> - **Extended Rules** — Additional validation rules beyond core set
-> - **Custom Rules** — Closure-based and class-based custom rules
-> - **Form Requests** — Validation-focused request objects with automatic routing
-> - **API Validation** — JSON validation with same rule set
->
-> See [v1.2 New Features — Validation Layer](1.2-new-features.md#48-validation-layer---extended-rules--custom-rules) and [v1.2 New Features — Form Requests](1.2-new-features.md#phase-21---advanced-dx-form-requests)
-
 The Pramnos Framework includes a lightweight validation system for validating incoming data in a centralized and reusable way.
 
 This feature was designed to reduce manual validation code inside controllers and provide a cleaner, more maintainable flow for both WWW and API applications.

@@ -1,13 +1,5 @@
 # Pramnos Framework - Logging System Guide
 
-> **v1.2 New Features:**
-> - **Health Check System** — Application health monitoring and diagnostics
-> - **Observability** — Request profiling, performance metrics
-> - **DebugBar Integration** — Enhanced logging visualization with timeline
-> - **Request Tracking** — Session and request-level logging
->
-> For health checks and observability, see [v1.2 New Features](1.2-new-features.md#13-phase-4-health-check--observability)
-
 The Pramnos Framework includes a comprehensive logging system with structured logging support, log analytics, file management, and advanced viewing capabilities. This guide covers all aspects of the logging system from basic usage to advanced features.
 
 ## Table of Contents
