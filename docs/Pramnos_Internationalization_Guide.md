@@ -1,12 +1,5 @@
 # Pramnos Framework - Internationalization (i18n) Guide
 
-> **v1.2 New Features:**
-> - **Enhanced Locale Support** — Improved multi-language handling
-> - **Translation Management** — Centralized translation system
-> - **Regional Settings** — Locale-specific formatting and dates
->
-> Related: [Pramnos_Framework_Guide.md](Pramnos_Framework_Guide.md) for global configuration.
-
 The Pramnos Framework includes a comprehensive internationalization system that enables applications to support multiple languages and locales. The system provides translation management, language switching, and localization features.
 
 ## Table of Contents
