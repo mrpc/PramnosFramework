@@ -1,7 +1,35 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-29 (session 151) — v1.2 Documentation Reorganization ✅
+## 📅 Last Updated: 2026-05-29 (session 152) — All Existing Guides Updated with v1.2 References ✅
+
+## 🏁 Session 152 — Update All Existing Guides with v1.2 References (2026-05-29)
+
+### ✅ docs: update all existing guides with v1.2 feature references
+
+**Updated 14 existing documentation guides with v1.2 feature cross-references:**
+
+1. **Pramnos_Logging_Guide.md** — Added v1.2 Health Check System notes
+2. **Pramnos_Media_Guide.md** — Added v1.2 File Storage Abstraction notes
+3. **Pramnos_Cache_Guide.md** — Added v1.2 Query Caching reference
+4. **Pramnos_Validation_System_Guide.md** — Added Extended Rules and Form Requests
+5. **Pramnos_Theme_Guide.md** — Added Blade-inspired directives reference
+6. **Pramnos_Email_Guide.md** — Added Notification Channels reference
+7. **Pramnos_Document_Output_Guide.md** — Added PSR Compliance and Response Object notes
+8. **Pramnos_Internationalization_Guide.md** — Added Enhanced Locale Support notes
+9. **Pramnos_Database_API_Guide.md** — Added QueryBuilder alternative note
+10. **Pramnos_Authentication_Guide.md** — Added 2FA, TOTP, OAuth2, security hardening
+11. **Pramnos_Console_Guide.md** — Added v1.2 commands (migrate, db:seed, make:factory)
+12. **Pramnos_Framework_Guide.md** — Added middleware pipeline, response object, service providers
+13. **Getting_Started.md** — Updated with v1.2 title and feature overview link
+14. **Pramnos_Environment_Variables_Guide.md** — Added Service Providers and Feature Registry notes
+
+**Completion Status:**
+- All 14 guides now include header notes linking to 1.2-new-features.md sections
+- Commit: 169c396 — "docs: update all existing guides with v1.2 feature references"
+- Cross-referencing complete and consistent
+
+---
 
 ## 🏁 Session 151 — v1.2 Documentation Complete Reorganization (2026-05-29)
 

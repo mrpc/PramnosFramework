@@ -1,9 +1,177 @@
 # Pramnos QueryBuilder Guide
 
-The **QueryBuilder** provides a fluent, dialect-aware interface for constructing SQL queries programmatically. It supports MySQL 8.0+, PostgreSQL 14+, and TimescaleDB, handling dialect differences automatically.
+The **QueryBuilder** provides a fluent, dialect-aware interface for constructing SQL queries programmatically. It automatically handles dialect differences between MySQL, PostgreSQL, and TimescaleDB, and supports advanced features like window functions, subqueries, and set operations.
 
 **Class:** `Pramnos\Database\QueryBuilder`  
 **Entry point:** `$db->queryBuilder()` — returns a fresh builder bound to the current database connection.
+
+---
+
+## Foundational Concepts
+
+### Read/Write Replicas
+
+Applications that scale horizontally typically run one primary database for writes and one or more read replicas for SELECT queries. The `Database` class maintains separate `read` and `write` connections, automatically routing queries based on their type.
+
+#### Configuration
+
+Add `read` and `write` blocks to your `settings.php`:
+
+```php
+'database' => [
+    'type'      => 'mysql',
+    'write' => [
+        'hostname' => 'db-primary.example.com',
+        'user'     => 'app_rw',
+        'password' => 'secret',
+        'database' => 'myapp',
+    ],
+    'read' => [
+        'hostname' => 'db-replica.example.com',
+        'user'     => 'app_ro',
+        'password' => 'secret',
+        'database' => 'myapp',
+    ],
+    'port'      => 3306,
+    'prefix'    => 'pramnos_',
+    'collation' => 'utf8mb4_unicode_ci',
+]
+```
+
+PostgreSQL / TimescaleDB works identically:
+
+```php
+'database' => [
+    'type'   => 'postgresql',
+    'write'  => ['hostname' => 'pg-primary', 'user' => 'app', 'password' => '...', 'database' => 'myapp'],
+    'read'   => ['hostname' => 'pg-replica', 'user' => 'app', 'password' => '...', 'database' => 'myapp'],
+    'schema' => 'public',
+]
+```
+
+#### How Routing Works
+
+`Database::isWriteQuery(string $sql): bool` checks the first SQL keyword. Queries beginning with `SELECT`, `SHOW`, `EXPLAIN`, `DESC`, or `DESCRIBE` are treated as reads; everything else as a write.
+
+```php
+$db = \Pramnos\Database\Database::getInstance();
+
+// Automatically uses the READ connection
+$result = $db->query("SELECT * FROM #PREFIX#users WHERE active = 1");
+
+// Automatically uses the WRITE connection
+$db->query("UPDATE #PREFIX#users SET last_login = NOW() WHERE userid = %i", 42);
+```
+
+#### API Reference
+
+| Method | Description |
+|---|---|
+| `getConnection(bool $isWrite = false)` | Returns the appropriate live connection, reconnecting if needed |
+| `isConnectionAlive(mixed $connection): bool` | Checks if connection handle is open |
+| `isWriteQuery(string $sql): bool` | Returns `true` if the query's first keyword implies a write operation |
+
+**BC Note:** If `read`/`write` config keys are absent, the database behaves as before — a single connection for all queries.
+
+### Connection Health & Auto-reconnect
+
+Long-running workers and daemon processes lose database connections when the server closes idle sockets (e.g., MySQL's `wait_timeout`). Previously this caused silent failures; now `Database::query()` detects a lost connection and transparently reconnects once before executing.
+
+#### How It Works
+
+On each query, if the connection is dead, the framework calls `tryReconnect()` before executing SQL. If reconnect succeeds, the query runs normally. If it fails, the original exception propagates.
+
+#### API Reference
+
+| Method | Description |
+|---|---|
+| `tryReconnect(): bool` | Non-fatal reconnect. Returns `true` on success, `false` on failure |
+| `refresh(bool $throwOnFailure = true): bool` | Full reconnect. Throws `RuntimeException` on failure if `$throwOnFailure` is `true` |
+| `isConnectionAlive(mixed $connection): bool` | Low-level check used internally |
+
+#### Usage
+
+For most applications, reconnect is **fully automatic** — no code changes needed:
+
+```php
+// Normal query — transparently reconnects if connection dropped
+$result = $db->query('SELECT * FROM users WHERE active = 1');
+```
+
+For long-running daemons that want to pro-actively verify before a critical operation:
+
+```php
+// Non-fatal check (returns bool)
+if (!$db->tryReconnect()) {
+    $logger->warning('Database unavailable, skipping this cycle');
+    sleep(5);
+    continue;
+}
+```
+
+For workers that should abort on connection failure:
+
+```php
+// Throws RuntimeException on failure
+$db->refresh(throwOnFailure: true);
+```
+
+### DatabaseCapabilities — Runtime Detection
+
+Features like `JSONB`, TimescaleDB hypertables, and spatial indexes are not available on every backend. `DatabaseCapabilities` detects the connected server's actual capabilities at runtime and provides a clean API to branch on them.
+
+**Class:** `Pramnos\Database\DatabaseCapabilities`
+
+#### Getting Started
+
+```php
+$db   = \Pramnos\Database\Database::getInstance();
+$caps = new \Pramnos\Database\DatabaseCapabilities($db);
+
+if ($caps->hasTimescaleDB()) {
+    // use time_bucket(), hypertable APIs
+} elseif ($caps->isPostgreSQL()) {
+    // plain PostgreSQL fallback
+} else {
+    // MySQL fallback
+}
+```
+
+#### Conditional Execution with `ifCapable()`
+
+```php
+$caps->ifCapable(
+    \Pramnos\Database\DatabaseCapabilities::FEATURE_TIMESCALEDB,
+    function () use ($db, $table) {
+        // runs only on TimescaleDB
+        $db->query("SELECT create_hypertable('%s', 'time')", $table);
+    },
+    function () {
+        // runs on all other backends
+    }
+);
+```
+
+#### Feature Constants
+
+| Constant | Value | Detected via |
+|---|---|---|
+| `FEATURE_TIMESCALEDB` | `'timescaledb'` | `pg_extension` catalog query |
+| `FEATURE_JSON` | `'json'` | Always true (MySQL 5.7+, all PG versions) |
+| `FEATURE_JSONB` | `'jsonb'` | PostgreSQL only |
+| `FEATURE_FULLTEXT` | `'fulltext'` | MySQL only |
+| `FEATURE_SPATIAL` | `'spatial'` | MySQL with spatial extensions |
+
+#### API Reference
+
+- `has(string $capability): bool` — Returns `true` if capability is supported
+- `isMySQL(): bool` — Returns `true` for MySQL
+- `isPostgreSQL(): bool` — Returns `true` for PostgreSQL and TimescaleDB
+- `hasTimescaleDB(): bool` — Returns `true` only if TimescaleDB extension is loaded
+- `ifCapable(string $capability, callable $ifTrue, ?callable $ifFalse = null): mixed` — Executes callback based on capability
+- `supports(string $capability): bool` — Fluent alias for `has()`
+
+---
 
 ## Getting Started
 
