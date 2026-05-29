@@ -12,8 +12,7 @@ use Pramnos\Health\HealthCheckResult;
  * down when it falls below $downThresholdMb.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Health
+ * @license    MIT
  */
 class DiskSpaceCheck implements HealthCheck
 {

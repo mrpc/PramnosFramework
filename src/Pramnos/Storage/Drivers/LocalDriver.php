@@ -20,8 +20,6 @@ use Pramnos\Storage\StorageInterface;
  *   - `root` (string, required) — absolute path to the storage root.
  *   - `url`  (string, optional) — public base URL, used by url(). E.g. '/uploads'.
  *
- * @package     PramnosFramework
- * @subpackage  Storage\Drivers
  */
 class LocalDriver implements StorageInterface
 {

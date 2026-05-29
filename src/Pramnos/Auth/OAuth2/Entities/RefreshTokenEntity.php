@@ -15,7 +15,6 @@ use League\OAuth2\Server\Entities\Traits\RefreshTokenTrait;
  * re-authenticating the user. Linked to its parent access token via the
  * `usertokens.parentToken` column.
  *
- * @package PramnosFramework
  */
 class RefreshTokenEntity implements RefreshTokenEntityInterface
 {

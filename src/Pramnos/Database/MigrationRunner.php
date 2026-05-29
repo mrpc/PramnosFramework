@@ -15,8 +15,7 @@ namespace Pramnos\Database;
  * per-instance (useful for test isolation).
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Database
+ * @license    MIT
  */
 class MigrationRunner
 {

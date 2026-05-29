@@ -10,8 +10,6 @@ use Pramnos\Database\QueryBuilder;
  * Each grammar translates a QueryBuilder AST into dialect-specific SQL.
  * Grammars are stateless; every method receives the builder as its first argument.
  *
- * @package     PramnosFramework
- * @subpackage  Database\Grammar
  */
 interface GrammarInterface
 {

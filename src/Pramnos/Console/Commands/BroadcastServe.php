@@ -49,8 +49,6 @@ use Pramnos\Console\CommandBase;
  * });
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Console
  */
 class BroadcastServe extends CommandBase
 {

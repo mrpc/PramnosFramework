@@ -7,8 +7,7 @@ namespace Pramnos\Policy;
  * table.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Policy
+ * @license    MIT
  */
 class PolicyRecord
 {

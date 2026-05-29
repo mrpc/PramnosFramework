@@ -17,8 +17,6 @@ namespace Pramnos\Application\Statistics;
  * If the table or columns do not exist (e.g., fresh install before first API
  * call), all queries are wrapped in try/catch and degrade to null values.
  *
- * @package     PramnosFramework
- * @subpackage  Application\Statistics
  */
 class ApiPerformanceService
 {

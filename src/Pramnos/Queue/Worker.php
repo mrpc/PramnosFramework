@@ -22,8 +22,6 @@ namespace Pramnos\Queue;
  *       if (!$info) { sleep(5); }
  *   }
  *
- * @package     PramnosFramework
- * @subpackage  Queue
  */
 class Worker
 {

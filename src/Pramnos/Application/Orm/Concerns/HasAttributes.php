@@ -19,8 +19,6 @@ namespace Pramnos\Application\Orm\Concerns;
  * Methods named `getXxxAttribute($value)` / `setXxxAttribute($value)` are
  * automatically invoked when reading / writing `$model->xxx`.
  *
- * @package     PramnosFramework
- * @subpackage  Application\Orm\Concerns
  */
 trait HasAttributes
 {

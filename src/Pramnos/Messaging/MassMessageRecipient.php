@@ -16,8 +16,6 @@ namespace Pramnos\Messaging;
  *   MassMessageRecipient::STATUS_DELIVERED = 1
  *   MassMessageRecipient::STATUS_FAILED    = 2
  *
- * @package     PramnosFramework
- * @subpackage  Messaging
  *
  * @property int $recipientid  Auto-increment PK
  * @property int $messageid    FK to massmessages.messageid

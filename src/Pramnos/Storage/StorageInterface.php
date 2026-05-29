@@ -10,8 +10,6 @@ namespace Pramnos\Storage;
  * Every method operates on **relative paths** — the driver is responsible for
  * prepending the root/bucket prefix. Paths use forward slashes regardless of OS.
  *
- * @package     PramnosFramework
- * @subpackage  Storage
  */
 interface StorageInterface
 {

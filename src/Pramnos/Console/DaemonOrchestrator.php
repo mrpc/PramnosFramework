@@ -28,8 +28,6 @@ use Symfony\Component\Console\Output\OutputInterface;
  *   shellCommand  string   (optional) Raw shell command — overrides tokens + getEntryPoint()
  *   profile       string   (optional) Human-readable profile name shown in dashboard
  *
- * @package     PramnosFramework
- * @subpackage  Console
  */
 abstract class DaemonOrchestrator extends CommandBase
 {

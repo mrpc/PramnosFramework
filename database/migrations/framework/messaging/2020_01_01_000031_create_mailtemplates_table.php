@@ -11,7 +11,6 @@ use Pramnos\Database\Migration;
  * column distinguishes the delivery channel: 0=email, 1=SMS, 2=push notification.
  * Multiple language variants of the same template are stored as separate rows.
  *
- * @package PramnosFramework
  */
 class CreateMailtemplatesTable extends Migration
 {

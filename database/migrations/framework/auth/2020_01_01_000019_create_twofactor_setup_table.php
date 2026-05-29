@@ -11,7 +11,6 @@ use Pramnos\Database\Migration;
  * 15 minutes (expires_at = created_at + 900). The row is marked used=1 when
  * completeSetup() succeeds; cleanupExpiredSessions() removes expired/used rows.
  *
- * @package PramnosFramework
  */
 class CreateTwofactorSetupTable extends Migration
 {

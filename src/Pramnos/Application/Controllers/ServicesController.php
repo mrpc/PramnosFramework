@@ -26,8 +26,6 @@ use Pramnos\Application\Controller;
  *
  * Scaffolded wrappers live at `src/Controllers/Services.php`.
  *
- * @package     PramnosFramework
- * @subpackage  Application\Controllers
  */
 class ServicesController extends Controller
 {

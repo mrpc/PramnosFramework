@@ -20,7 +20,6 @@ use Pramnos\Database\Migration;
  *
  * PostgreSQL and MySQL: lives in the public schema.
  *
- * @package PramnosFramework
  */
 class CreateOrganizationsTable extends Migration
 {

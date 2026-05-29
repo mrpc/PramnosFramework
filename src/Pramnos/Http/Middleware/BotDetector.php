@@ -17,7 +17,6 @@ namespace Pramnos\Http\Middleware;
  *       $name = $detector->botName($_SERVER['HTTP_USER_AGENT'] ?? '');
  *   }
  *
- * @package PramnosFramework
  */
 class BotDetector
 {

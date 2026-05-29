@@ -14,8 +14,6 @@ namespace Pramnos\Support;
  *   email() → $this->generator->userName() → $this->generator->firstName()
  * If GrProvider overrides firstName(), it automatically affects emails.
  *
- * @package    PramnosFramework
- * @subpackage Support
  */
 class FakerBaseProvider extends FakerProvider
 {

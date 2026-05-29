@@ -12,7 +12,6 @@ use Pramnos\Database\DatabaseCapabilities;
  * column encodes the role at the account level (0=simple, 1=salesman, 2=admin),
  * while fine-grained permissions are managed through the authserver RBAC tables.
  *
- * @package PramnosFramework
  */
 class CreateUsersTable extends Migration
 {

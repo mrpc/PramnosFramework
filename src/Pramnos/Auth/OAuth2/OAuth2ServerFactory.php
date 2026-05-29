@@ -33,7 +33,6 @@ use League\OAuth2\Server\ResourceServer;
  * RSA keys are expected at ROOT/app/keys/private.key and public.key.
  * Call generateKeyPair() during first-time setup (or pramnos init).
  *
- * @package PramnosFramework
  */
 class OAuth2ServerFactory
 {

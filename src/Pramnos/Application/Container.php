@@ -46,8 +46,6 @@ use Psr\Container\ContainerExceptionInterface;
  * $db = $c->get(Database::class);
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Application
  * @see         https://www.php-fig.org/psr/psr-11/
  */
 class Container implements ContainerInterface

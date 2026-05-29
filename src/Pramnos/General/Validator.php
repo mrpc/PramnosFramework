@@ -6,8 +6,6 @@ namespace Pramnos\General;
  * Legacy Validator class, maintained for backward compatibility.
  * Redirects all calls to the modern Validation system.
  * 
- * @package     PramnosFramework
- * @subpackage  Validation
  * @deprecated Use \Pramnos\Validation\Validator instead.
  */
 class Validator extends \Pramnos\Validation\Validator

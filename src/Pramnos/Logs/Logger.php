@@ -4,8 +4,6 @@ namespace Pramnos\Logs;
 
 /**
  * Enhanced Logger class with structured logging support
- * @package     PramnosFramework
- * @subpackage  Logs
  */
 class Logger
 {

@@ -31,8 +31,6 @@ namespace Pramnos\Broadcasting;
  * The payload is the model's toArray() output plus a `_model` key with the
  * fully-qualified class name.
  *
- * @package PramnosFramework
- * @subpackage Broadcasting
  */
 trait Broadcastable
 {

@@ -15,7 +15,6 @@ use Pramnos\Database\Migration;
  * MySQL has no equivalent schema concept (schemas = databases), so this
  * migration is a no-op there — MySQL tables keep their flat names.
  *
- * @package PramnosFramework
  */
 class CreatePramnosSchema extends Migration
 {

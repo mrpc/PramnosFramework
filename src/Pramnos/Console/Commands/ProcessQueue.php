@@ -32,8 +32,6 @@ use Pramnos\Queue\Worker;
  *       }
  *   }
  *
- * @package     PramnosFramework
- * @subpackage  Console\Commands
  */
 class ProcessQueue extends CommandBase
 {

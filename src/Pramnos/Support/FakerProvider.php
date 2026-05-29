@@ -9,8 +9,6 @@ namespace Pramnos\Support;
  * Methods that compose other generator methods must dispatch through
  * $this->generator so that overrides in subclasses are honoured.
  *
- * @package    PramnosFramework
- * @subpackage Support
  */
 abstract class FakerProvider
 {

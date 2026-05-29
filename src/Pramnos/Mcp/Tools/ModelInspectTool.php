@@ -13,7 +13,6 @@ use Pramnos\Mcp\McpToolInterface;
  * table name, primary key, and declared relations so the AI can understand
  * the model's data shape without reading the source file manually.
  *
- * @package PramnosFramework
  */
 class ModelInspectTool implements McpToolInterface
 {

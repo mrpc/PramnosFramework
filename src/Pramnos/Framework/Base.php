@@ -6,9 +6,9 @@ namespace Pramnos\Framework;
  * Basic class. All other classes of the framework must be based on this one.
  * Contains: startpoint protection
  * an array with errors and magic methods to set/get properties.
- * @package     PramnosFramework
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Base
 {

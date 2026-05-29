@@ -21,7 +21,6 @@ use Pramnos\Database\DatabaseCapabilities;
  *
  * Requires: user_activity_log (migration 000021).
  *
- * @package PramnosFramework
  */
 class CreateDailyActivitySummaryView extends Migration
 {

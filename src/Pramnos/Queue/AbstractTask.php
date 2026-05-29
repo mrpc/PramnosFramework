@@ -10,8 +10,6 @@ namespace Pramnos\Queue;
  * Provides sensible defaults for validate(), handleFailure(), and log() so
  * concrete handlers only need to implement execute() and getDescription().
  *
- * @package     PramnosFramework
- * @subpackage  Queue
  */
 abstract class AbstractTask implements TaskInterface
 {

@@ -45,6 +45,7 @@ use Pramnos\User\User;
  * ```
  *
  * @author  Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class NavRegistry
 {

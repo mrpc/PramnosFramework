@@ -15,7 +15,6 @@ use Pramnos\Mcp\McpToolInterface;
  * Returns counts plus a list of pending and recently-applied migrations so the
  * AI assistant can identify schema drift without accessing raw DB tables.
  *
- * @package PramnosFramework
  */
 class MigrationStatusTool implements McpToolInterface
 {

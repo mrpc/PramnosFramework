@@ -33,8 +33,6 @@ use Pramnos\Notification\Channels\MailChannel;
  *   // Bulk dispatch
  *   (new Notifier())->send([$user1, $user2], new InvoicePaidNotification($invoice));
  *
- * @package     PramnosFramework
- * @subpackage  Notification
  */
 class Notifier
 {

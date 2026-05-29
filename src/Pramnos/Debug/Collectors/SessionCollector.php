@@ -10,7 +10,6 @@ namespace Pramnos\Debug\Collectors;
  * Keys matching any of the $sensitiveKeys patterns are replaced with
  * '***' so passwords and auth tokens don't appear in the toolbar.
  *
- * @package PramnosFramework
  */
 class SessionCollector implements CollectorInterface
 {

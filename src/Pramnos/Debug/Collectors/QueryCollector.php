@@ -12,7 +12,6 @@ use Pramnos\Database\Database;
  * Reads from Database::getQueryLog() which is only populated when
  * Database::enableQueryLog() has been called (done by DebugBarServiceProvider).
  *
- * @package PramnosFramework
  */
 class QueryCollector implements CollectorInterface
 {

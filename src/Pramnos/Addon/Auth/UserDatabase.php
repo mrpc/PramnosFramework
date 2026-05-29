@@ -3,8 +3,7 @@ namespace Pramnos\Addon\Auth;
 /**
  * Addon-based database authentication handler.
  *
- * @package     PramnosFramework
- * @copyright   2005 - 2020 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  *
  * @deprecated  Since v1.2 — the equivalent functionality is built into the
@@ -12,6 +11,7 @@ namespace Pramnos\Addon\Auth;
  *              used automatically by Auth::auth() when no addon is registered.
  *              Applications that rely on this class continue to work unchanged
  *              (backward-compatible); you may remove it from app.php when ready.
+ * @license    MIT
  */
 
 class UserDatabase extends \Pramnos\Addon\Addon

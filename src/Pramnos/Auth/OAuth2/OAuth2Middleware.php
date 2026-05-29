@@ -18,7 +18,6 @@ namespace Pramnos\Auth\OAuth2;
  * if (!$tokenInfo) return; // response already sent
  * ```
  *
- * @package PramnosFramework
  */
 class OAuth2Middleware
 {

@@ -19,8 +19,7 @@ use Pramnos\Application\ServiceProvider;
  *                that depends on other features.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Messaging
+ * @license    MIT
  */
 class MessagingServiceProvider extends ServiceProvider
 {

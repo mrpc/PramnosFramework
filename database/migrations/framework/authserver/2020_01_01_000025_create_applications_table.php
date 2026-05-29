@@ -17,7 +17,6 @@ use Pramnos\Database\Migration;
  * - `authserver.slow_api_calls` view
  * - OAuth2 authorization flows (all 4 grant types)
  *
- * @package PramnosFramework
  */
 class CreateApplicationsTable extends Migration
 {

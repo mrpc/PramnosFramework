@@ -16,7 +16,6 @@ use League\OAuth2\Server\Entities\Traits\TokenEntityTrait;
  * Carries the authorized user, client, scopes, and redirect URI.
  * Persisted to `usertokens` (tokentype='auth_code') by AuthCodeRepository.
  *
- * @package PramnosFramework
  */
 class AuthCodeEntity implements AuthCodeEntityInterface
 {

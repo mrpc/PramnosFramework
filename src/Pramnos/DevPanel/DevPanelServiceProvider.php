@@ -18,8 +18,6 @@ use Pramnos\Application\Settings;
  * mechanism (Devpanel.php in Application\Controllers\) — no route registration
  * is required.  This provider just validates config and sets up the feature.
  *
- * @package PramnosFramework
- * @subpackage DevPanel
  */
 class DevPanelServiceProvider extends ServiceProvider
 {

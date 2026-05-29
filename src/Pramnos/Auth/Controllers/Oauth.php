@@ -25,8 +25,6 @@ use Nyholm\Psr7\Factory\Psr17Factory;
  *   logout              — Bearer-token logout
  *   deviceauthorization — RFC 8628 device authorization
  *
- * @package     PramnosFramework
- * @subpackage  Auth\Controllers
  */
 class Oauth extends Controller
 {

@@ -13,7 +13,6 @@ use Pramnos\Mcp\McpToolInterface;
  * Returns HTTP method, URI, controller/action, and required permissions so
  * the AI assistant can navigate the application's URL structure.
  *
- * @package PramnosFramework
  */
 class RouteListTool implements McpToolInterface
 {

@@ -16,7 +16,6 @@ use Pramnos\Database\Migration;
  * Depends on both the auth feature (tokenactions, usertokens) and the authserver
  * feature (applications), so this migration must run after both are in place.
  *
- * @package PramnosFramework
  */
 class CreateSlowApiCallsView extends Migration
 {

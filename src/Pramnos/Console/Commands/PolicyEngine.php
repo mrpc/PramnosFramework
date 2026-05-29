@@ -28,8 +28,7 @@ use Pramnos\Policy\PolicyEngine as Engine;
  * Exit codes: 0 = success, 1 = one or more policies failed.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Console
+ * @license    MIT
  */
 class PolicyEngine extends Command
 {

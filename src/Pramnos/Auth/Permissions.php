@@ -2,8 +2,6 @@
 namespace Pramnos\Auth;
 /**
  * Store and manage permissions
- * @package     PramnosFramework
- * @subpackage  Permissions
  */
 class Permissions extends \Pramnos\Framework\Base
 {
