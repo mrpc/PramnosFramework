@@ -7,18 +7,9 @@ The **Migration System** provides version control for your database schema. Migr
 - `Pramnos\Database\MigrationRunner` — Execution engine
 - `Pramnos\Database\MigrationLoader` — File discovery and loading
 
-## Creating Migrations
+## Migration Structure
 
-### Generate a Migration File
-
-```bash
-php vendor/bin/pramnos make:migration create_users_table
-php vendor/bin/pramnos make:migration add_email_to_users
-```
-
-This creates a file like `database/migrations/2026_05_29_000001_create_users_table.php`
-
-### Migration Structure
+### The Migration Base Class
 
 ```php
 <?php
@@ -27,33 +18,75 @@ use Pramnos\Database\Migration;
 
 class CreateUsersTable extends Migration
 {
-    /**
-     * Run the migration.
-     */
-    public function up(\Pramnos\Database\Database $db)
+    public string $feature      = 'auth';       // Feature key ('auth', 'queue', ...)
+    public string $scope        = 'framework';  // 'app' or 'framework'
+    public int    $priority     = 20;           // Lower runs first
+    public array  $dependencies = ['create_roles_table']; // Must run before this
+    public string $description  = 'Creates the users table';
+    public bool   $autorun      = true;         // false = requires --force
+    public bool   $transactional = false;       // true = wrap in BEGIN/COMMIT on PostgreSQL
+
+    public function up(): void
     {
-        $schema = $db->schemaBuilder();
-        
-        $schema->create('users', function ($table) {
-            $table->id();
-            $table->string('username')->unique();
-            $table->string('email')->unique();
-            $table->string('password');
+        $this->schema()->createTable('users', function ($table) {
+            $table->bigIncrements('userid');
+            $table->string('username', 100)->unique();
+            $table->string('email', 255)->unique();
+            $table->string('password_hash', 255);
+            $table->boolean('active')->default(true);
             $table->timestamps();
-            $table->index('created_at');
         });
     }
-    
-    /**
-     * Rollback the migration.
-     */
-    public function down(\Pramnos\Database\Database $db)
+
+    public function down(): void
     {
-        $schema = $db->schemaBuilder();
-        $schema->dropIfExists('users');
+        $this->schema()->dropIfExists('users');
     }
 }
 ```
+
+### Migration Metadata Fields
+
+| Property | Type | Default | Purpose |
+|---|---|---|---|
+| `$feature` | `string` | `''` | Feature key; empty = app migration |
+| `$scope` | `string` | `'app'` | `'app'` or `'framework'` |
+| `$priority` | `int` | `50` | Lower number runs first |
+| `$dependencies` | `array` | `[]` | Slugs of migrations that must run before this one |
+| `$autorun` | `bool` | `true` | `false` = requires `--force` |
+| `$transactional` | `bool` | `false` | Wrap `up()` in `BEGIN`/`COMMIT`/`ROLLBACK` on PostgreSQL |
+
+> **Note:** `$autoExecute` is a PHP 8.4 property hook that maps to `$autorun`. Existing code using `$autoExecute` continues to work unchanged.
+
+### Protected Helpers
+
+Migration subclasses have access to:
+
+```php
+// Get the database connection
+$this->DB();
+
+// Get a SchemaBuilder bound to the current connection
+$this->schema();
+
+// Schema-qualified builder (PostgreSQL)
+$this->schema('public')->createTable('users', fn($t) => ...);
+$this->schema('analytics')->createTable('events', fn($t) => ...);
+```
+
+### Slug and Timestamp Derivation
+
+`getSlug()` and `getTimestamp()` check the **migration file's basename** first:
+
+```
+File:  app/Migrations/2024_03_15_143022_create_users_table.php
+Class: CreateUsersTable
+
+getSlug()      → 'create_users_table'   (from filename)
+getTimestamp() → '2024_03_15_143022'    (from filename)
+```
+
+For legacy non-timestamped files, the class name is used as before.
 
 ## Running Migrations
 
@@ -202,36 +235,124 @@ php vendor/bin/pramnos migrate:status
 php vendor/bin/pramnos migrate:pending
 ```
 
-## Advanced: Using MigrationRunner Programmatically
+## MigrationRunner
+
+`MigrationRunner` handles execution order, history recording, rollback, and cutoff filtering.
+
+**Namespace:** `Pramnos\Database\MigrationRunner`
 
 ```php
-$db = \Pramnos\Database\Database::getInstance();
-$runner = new \Pramnos\Database\MigrationRunner($db);
-$loader = new \Pramnos\Database\MigrationLoader($db);
-
-// Load migrations
-$migrations = $loader->loadFromDirectories(['database/migrations']);
-
-// Run all pending
-$runner->run($migrations);
-
-// Rollback
-$runner->rollback($migrations, 1);  // rollback 1 batch
+new MigrationRunner(
+    ?Database $db = null,
+    string $historyTable = 'framework_migrations',
+    ?Application $app = null  // enables maintenance-mode integration
+)
 ```
 
-## Reference
+### Running Migrations
 
-For complete API reference and advanced features, see:
+```php
+$runner = new MigrationRunner($db);
 
-- [v1.2 New Features — Migration System Overhaul](1.2-new-features.md#9-phase-4-migration-system-overhaul)
-- [v1.2 New Features — MigrationLoader and CLI](1.2-new-features.md#10-phase-4-migrationloader-and-cli-commands)
+// Run all pending migrations (sorted, filtered, recorded)
+$result = $runner->run($migrations);
+// $result = ['ran' => ['create_roles_table', ...], 'failed' => [...]]
 
-**Topics covered in the detailed reference:**
+// With options
+$result = $runner->run($migrations, [
+    'force'  => true,                    // include autorun=false migrations
+    'cutoff' => '2022_01_01_000000',     // skip migrations at or before this date
+]);
+```
 
-- Complete SchemaBuilder API (column types, indexes, etc.)
-- Migration file discovery and loading
-- Batch management and versioning
-- Rollback semantics and rollback tracking
-- Auto-run configuration and fingerprinting
-- Framework vs application migration directories
-- Migration testing and verification
+### History Table Schema
+
+`ensureHistoryTable()` creates `framework_migrations` if it does not exist:
+
+```sql
+migration        VARCHAR(255)   -- slug, e.g. 'create_users_table'
+scope            VARCHAR(255)   DEFAULT 'app'
+feature          VARCHAR(255)   NULL
+batch            INT            NULL
+execution_time   DOUBLE         NULL    -- seconds
+result           SMALLINT       DEFAULT 1   -- 1=success, 0=failed
+error_message    TEXT           NULL
+description      VARCHAR(255)   NULL
+ran_at           TIMESTAMP      DEFAULT NOW()
+```
+
+### Sorting
+
+`sort(array $migrations, array $alreadyRan = []): array`
+
+Returns migrations in execution order:
+1. Topological sort — dependencies run before dependents
+2. Priority ascending — lower `$priority` runs first
+3. Timestamp ascending — older `YYYY_MM_DD_HHmmss` prefix runs first
+
+```php
+$sorted = $runner->sort($migrations);
+// Throws RuntimeException if a cycle is detected
+```
+
+### Filtering
+
+```php
+// Exclude autorun=false migrations (pass force=true to include them)
+$runner->filterAutorun($migrations, force: false);
+
+// Skip migrations at or before the cutoff timestamp
+$runner->filterCutoff($migrations, cutoff: '2022_01_01_000000');
+
+// Remove already-ran slugs
+$runner->filterAlreadyRan($migrations, ranSlugs: ['create_roles_table']);
+```
+
+### Rollback
+
+```php
+// Rollback the last batch
+$result = $runner->rollback($migrations);
+// $result = ['rolledBack' => ['create_users_table', ...]]
+
+// Rollback specific batch number
+$result = $runner->rollback($migrations, ['batch' => 3]);
+
+// Rollback all batches
+$result = $runner->rollbackAll($migrations);
+```
+
+### Pending Migrations
+
+```php
+// Returns migrations whose slug does not appear as result=1 in history
+$pending = $runner->getPending($migrations);
+
+// History for migrate:status
+$history = $runner->getHistory();
+```
+
+## MigrationLoader
+
+Discovers and instantiates `Migration` subclasses from PHP files in a directory.
+
+**Namespace:** `Pramnos\Database\MigrationLoader`
+
+```php
+// Load from one directory
+$migrations = MigrationLoader::loadFromDirectory(
+    ROOT . '/app/Migrations',
+    $app
+);
+
+// Load from multiple directories
+$migrations = MigrationLoader::loadFromDirectories(
+    [
+        ROOT . '/app/Migrations',
+        ROOT . '/vendor/pramnos/framework/migrations',
+    ],
+    $app
+);
+```
+
+Files are sorted alphabetically before loading, so `YYYY_MM_DD_HHmmss_` prefixes naturally produce chronological order.

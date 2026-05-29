@@ -318,22 +318,105 @@ $router->resource('comments', 'CommentController')
     ->names('comments.list', 'comments.view');    // Custom names
 ```
 
+## Route Groups
+
+### Programmatic groups — `Router::group()`
+
+```php
+$router->group([
+    'prefix'      => '/api/v1',
+    'middleware'  => [ApiAuthMiddleware::class, ThrottleMiddleware::class],
+    'permissions' => ['api:access'],
+    'name'        => 'api.v1.',
+], function (\Pramnos\Routing\Router $r): void {
+    $r->get('/users',       [UserController::class, 'index'])->name('users.index');
+    $r->post('/users',      [UserController::class, 'store'])->name('users.store');
+    $r->get('/users/{id}',  [UserController::class, 'show'])->name('users.show');
+});
+
+// Registered routes:
+//   GET  /api/v1/users       named api.v1.users.index
+//   POST /api/v1/users       named api.v1.users.store
+//   GET  /api/v1/users/{id}  named api.v1.users.show
+
+// URL generation still works:
+echo $router->route('api.v1.users.show', ['id' => 42]); // /api/v1/users/42
+```
+
+**Supported attributes:**
+
+| Key | Type | Description |
+|---|---|---|
+| `prefix` | `string` | URI prefix prepended to every route URI |
+| `middleware` | `array` | Middleware prepended before each route's own middleware |
+| `permissions` | `array` | Permission scopes merged with each route's own permissions |
+| `name` | `string` | Logical name prefix prepended to every named route |
+
+### Nested groups
+
+```php
+$router->group(['prefix' => '/api', 'name' => 'api.'], function (Router $r): void {
+    $r->group(['prefix' => '/v2', 'name' => 'v2.'], function (Router $r): void {
+        $r->get('/items', fn() => ...)->name('items.index');
+        // → GET /api/v2/items  named api.v2.items.index
+    });
+    $r->get('/status', fn() => ...);
+    // → GET /api/status  (only outer prefix)
+});
+```
+
+### Middleware ordering
+
+```
+global middleware → group middleware → per-route middleware → action
+```
+
+### `#[RouteGroup]` attribute
+
+Apply group attributes declaratively on a controller class. `RouteDiscovery` reads the attribute and wraps all `#[Route]` methods in a `Router::group()` call:
+
+```php
+use Pramnos\Routing\Attributes\Route;
+use Pramnos\Routing\Attributes\RouteGroup;
+
+#[RouteGroup(
+    prefix:      '/api/v1',
+    middleware:  [ApiAuthMiddleware::class],
+    permissions: ['api:access'],
+    name:        'api.v1.',
+)]
+class UserController
+{
+    #[Route('/users',      methods: 'GET',  name: 'users.index')]
+    #[Route('/users',      methods: 'POST', name: 'users.store')]
+    public function index(): void { ... }
+
+    #[Route('/users/{id}', methods: 'GET',  name: 'users.show')]
+    public function show(int $id): void { ... }
+}
+```
+
+**`#[RouteGroup]` constructor parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `prefix` | `string` | `''` | URI prefix |
+| `middleware` | `array` | `[]` | Middleware FQCN strings |
+| `permissions` | `array` | `[]` | Permission scopes |
+| `name` | `string` | `''` | Name prefix |
+
 ## Reference
 
-For complete documentation on routing, see:
+For related guides:
 
-- [v1.2 New Features — Modern Routing Engine](1.2-new-features.md#46-phase-7---modern-routing-engine)
-- [v1.2 New Features — Router::group() + #[RouteGroup]](1.2-new-features.md#64-routergroup--routegroup)
+- [Pramnos_Framework_Guide.md](Pramnos_Framework_Guide.md) — Middleware pipeline, global middleware
+- [Pramnos_API_Guide.md](Pramnos_API_Guide.md) — API middleware, CORS, authentication
 
-**Topics covered in detailed reference:**
+**Topics covered:**
 
 - Route definition with all HTTP methods
 - Parameter binding and constraints
 - Named routes and URL generation
-- Route groups with prefixes and namespaces
-- Middleware application and exclusion
-- Attribute-based routing discovery
-- Model binding (implicit and explicit)
+- Route groups with prefixes, middleware, permissions, and name prefixes
+- Attribute-based routing discovery (`#[Route]`, `#[RouteGroup]`)
 - Resource routes and REST conventions
-- Route caching for performance
-- Route debugging and listing

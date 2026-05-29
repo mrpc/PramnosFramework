@@ -496,31 +496,146 @@ class ApiController extends \Pramnos\Application\Controller
 
 ## Advanced Features
 
-### Multi-Factor Authentication
+### Login Lockout (Brute-Force Protection)
+
+`Pramnos\Auth\Loginlockout` — progressive brute-force lockout for login endpoints.
+
+Tracks failed login attempts per scope+identifier pair. Three scopes are supported: `'user'` (by user ID), `'identifier'` (by normalized email/username), and `'ip'` (by remote address).
+
+#### Default thresholds
+
+| Failures | Lockout duration |
+|---|---|
+| 3 | 60 s (1 minute) |
+| 5 | 300 s (5 minutes) |
+| 7 | 900 s (15 minutes) |
+| 10+ | 3600 s (1 hour) |
+
+A **sliding window** of 900 seconds applies: if the gap between the previous failure and the current attempt exceeds the window, the counter resets to 1. This prevents indefinite accumulation from past brute-force campaigns.
+
+#### Usage
 
 ```php
-class UserWithMFA extends \Pramnos\User\User
-{
-    public function generateTotpSecret()
-    {
-        $secret = \Base32\Base32::encode(random_bytes(20));
-        $this->totp_secret = $secret;
-        $this->save();
-        return $secret;
-    }
-    
-    public function verifyTotp($code)
-    {
-        $totp = new \OTPHP\TOTP($this->totp_secret);
-        return $totp->verify($code);
-    }
-    
-    public function requiresMFA()
-    {
-        return !empty($this->totp_secret);
-    }
+use Pramnos\Auth\Loginlockout;
+
+$lockout = new Loginlockout();
+
+// Check BEFORE processing the login attempt
+$status = $lockout->getLockoutStatus('identifier', strtolower($email));
+// Returns: ['locked' => bool, 'remaining' => int]
+
+if ($status['locked']) {
+    return ['status' => 429, 'retry_after' => $status['remaining']];
+}
+
+// Attempt authentication ...
+
+if ($authFailed) {
+    // Record failure for all applicable scopes
+    $lockout->recordFailedAttempt('identifier', strtolower($email));
+    $lockout->recordFailedAttempt('user', (string) $userId);
+    $lockout->recordFailedAttempt('ip', $ipAddress);
+} else {
+    // Clear state on success
+    $lockout->clearSuccessfulLoginState('identifier', strtolower($email));
+    $lockout->clearSuccessfulLoginState('user', (string) $userId);
+    $lockout->clearSuccessfulLoginState('ip', $ipAddress);
 }
 ```
+
+#### API
+
+| Method | Description |
+|---|---|
+| `recordFailedAttempt(string $scope, string $identifier): void` | Increment failure counter; apply threshold; creates row if absent |
+| `getLockoutStatus(string $scope, string $identifier): array` | Returns `['locked' => bool, 'remaining' => int]`; 0 remaining when not locked |
+| `clearSuccessfulLoginState(string $scope, string $identifier): void` | Deletes the tracking row — fully resets counter and lockout |
+
+#### Constants
+
+| Constant | Value |
+|---|---|
+| `Loginlockout::DEFAULT_WINDOW_SECONDS` | `900` |
+| `Loginlockout::DEFAULT_STEPS` | `[3=>60, 5=>300, 7=>900, 10=>3600]` |
+
+### Two-Factor Authentication (TOTP)
+
+Two classes: `TOTPHelper` (pure static, no DB) and `TwoFactorAuthService` (stateful, DB-backed).
+
+Compatible with Google Authenticator, Authy, and any RFC 6238 TOTP app.
+
+#### TOTPHelper — setup and verification
+
+```php
+use Pramnos\Auth\TOTPHelper;
+
+// Generate a new shared secret (once per user, during setup)
+$secret = TOTPHelper::generateSecret(); // e.g., 'JBSWY3DPEHPK3PXP'
+
+// Verify a user-submitted code (±1 window drift tolerance)
+$valid = TOTPHelper::verifyCode($secret, $userCode); // bool
+
+// QR code as an inline data URI — no external API calls, CSP-safe
+$dataUri = TOTPHelper::getQRCodeDataUri($secret, 'user@example.com', 'MyApp');
+// Returns 'data:image/svg+xml;base64,…' (requires chillerlan/php-qrcode ^5.0) or null
+
+// Build the provisioning URI
+$uri = TOTPHelper::buildOtpAuthUri($secret, 'user@example.com', 'MyApp');
+// 'otpauth://totp/MyApp:user%40example.com?secret=…&issuer=MyApp'
+
+// Backup codes
+$codes   = TOTPHelper::generateBackupCodes(10);        // ['ABCD2345', ...]
+$hash    = TOTPHelper::hashBackupCode($codes[0]);       // bcrypt hash for storage
+$isMatch = TOTPHelper::verifyBackupCode($code, $hash);  // bool, case-insensitive
+
+// Utilities
+$remaining = TOTPHelper::getRemainingTime();    // seconds until window expires [1, 30]
+$isValid   = TOTPHelper::isValidSecret($secret); // validate base32 format
+```
+
+> **Security note:** `getQRCodeUrl()` sends the TOTP secret to an external API and is deprecated. Always use `getQRCodeDataUri()` instead.
+
+#### TwoFactorAuthService — full setup flow
+
+```php
+use Pramnos\Auth\TwoFactorAuthService;
+
+$svc = new TwoFactorAuthService(); // uses Factory::getDatabase()
+
+// Step 1 — generate secret and show QR code to user
+$info = $svc->startSetup($userId, $userEmail);
+// ['secret', 'qr_code_data_uri', 'qr_code_url', 'manual_entry_key', 'backup_codes']
+// Show backup_codes ONCE — user must record them
+
+// Step 2 — user scans QR, enters first code to confirm
+$success = $svc->completeSetup($userId, $submittedCode); // bool
+
+// Verify on login
+$valid = $svc->verifyCode($userId, $code); // accepts TOTP or backup code
+
+// State queries
+$enabled   = $svc->isEnabled($userId);   // bool
+$remaining = $svc->getRemainingBackupCodes($userId); // int
+$status    = $svc->getStatus($userId);
+// ['enabled' => bool, 'setup' => bool, 'backup_codes_remaining' => int]
+
+// Management
+$svc->disable($userId);                   // clears secret, sets enabled=0
+$newCodes = $svc->regenerateBackupCodes($userId); // string[]|false
+$svc->cleanupExpiredSessions();            // removes used/expired setup rows
+```
+
+**Replay protection:** `verifyCode()` compares the current 30-second window against `last_used`. If the same window was already used, the code is rejected even if cryptographically valid.
+
+**Backup codes are one-time:** the matching hash is removed from storage after successful verification.
+
+#### Database tables
+
+| Table | Description |
+|---|---|
+| `user_twofactor` | One row per user — enabled flag, secret, backup code hashes, last_used |
+| `twofactor_setup` | Temporary setup sessions (15-min TTL) |
+| `twofactor_attempts` | Append-only attempt log (TimescaleDB hypertable where available) |
 
 ### Password Security
 
@@ -557,6 +672,46 @@ class SecureUser extends \Pramnos\User\User
             && preg_match('/[^A-Za-z0-9]/', $password);
     }
 }
+```
+
+### OAuth2 Scopes and Policy
+
+`Pramnos\Auth\Scopes` — static scope registry for OAuth2 consent screens and validation.
+
+```php
+use Pramnos\Auth\Scopes;
+
+// All scopes grouped by category (consent screen)
+$grouped = Scopes::getScopes();
+// ['Personal User Data' => ['profile' => [...], 'email' => [...]], ...]
+
+// Flat scope → description map
+$descriptions = Scopes::getScopeDescriptions();
+
+// Scopes implicitly granted to all clients
+$defaults = Scopes::getDefaultScopes(); // ['profile', 'email', 'user']
+
+// Validate a scope string
+[$hasInvalid, $invalidList] = Scopes::hasInvalidScopes('profile email unknown_scope');
+
+// Resolve inherited scopes transitively
+$resolved = Scopes::resolveInheritedScopes('system:notifications_write');
+// ['system:notifications_read', 'system:notifications_write']
+```
+
+Standard scopes: `profile`, `email`, `phone`, `address`, `user`, `openid`, `offline_access`, `system:admin`, `system:audit_read`, `system:health`, `system:notifications_read/write`.
+
+`Pramnos\Auth\OAuthPolicyHelper` — server-wide OAuth2 policy defaults.
+
+```php
+use Pramnos\Auth\OAuthPolicyHelper;
+
+$methods = OAuthPolicyHelper::getDefaultAllowedAuthMethods();
+// ['client_secret_basic', 'client_secret_post', 'private_key_jwt']
+
+$grants = OAuthPolicyHelper::getDefaultAllowedGrantTypes();
+// ['authorization_code', 'client_credentials', 'device_code', 'refresh_token', 'exchange_token']
+// 'password' grant excluded (deprecated per RFC 9126 / OAuth 2.1)
 ```
 
 ### OAuth2 Integration
