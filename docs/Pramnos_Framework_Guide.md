@@ -1,20 +1,8 @@
 # Pramnos Framework Guide
 
-> **v1.2 Updates:**
-> - **Middleware Pipeline** — Request/response filtering with composable middleware
-> - **Response Object** — Formal HTTP response abstraction
-> - **Error/Exception Handler** — Centralized error handling
-> - **Service Providers** — Application bootstrap and dependency injection
-> - **Policy Engine** — Authorization framework
-> - **Modern Routing** — Attribute-based routing with parameter binding
->
-> See [Pramnos_Routing_Guide.md](Pramnos_Routing_Guide.md), [Pramnos_Authorization_Guide.md](Pramnos_Authorization_Guide.md), and [Pramnos_Security_Guide.md](Pramnos_Security_Guide.md).
-
-## Overview
-
 Pramnos is a PHP MVC framework designed for building robust web applications with a focus on security, modularity, and clean code architecture. This guide covers the framework's structure, conventions, and best practices.
 
-## Framework Architecture
+## Overview
 
 ### Core Components
 
@@ -400,19 +388,243 @@ This guide provides a comprehensive overview of the Pramnos framework structure 
 
 ---
 
-## Related Documentation
+## Middleware Pipeline
 
-- **[Database API Guide](Pramnos_Database_API_Guide.md)** - Detailed database operations and best practices
-- **[Authentication Guide](Pramnos_Authentication_Guide.md)** - User authentication and authorization patterns
-- **[Cache System Guide](Pramnos_Cache_Guide.md)** - Performance optimization through caching
-- **[Console Commands Guide](Pramnos_Console_Guide.md)** - Code generation and development tools
-- **[Logging System Guide](Pramnos_Logging_Guide.md)** - Application monitoring and debugging
-- **[Document & Output Guide](Pramnos_Document_Output_Guide.md)** - Document generation and output formats
-- **[Theme System Guide](Pramnos_Theme_Guide.md)** - UI theming and template customization
-- **[Email System Guide](Pramnos_Email_Guide.md)** - Email handling and notifications
-- **[Media System Guide](Pramnos_Media_Guide.md)** - File uploads and media processing
-- **[Internationalization Guide](Pramnos_Internationalization_Guide.md)** - Multi-language application support
+A lightweight, composable middleware pipeline (PSR-15-inspired) for applying cross-cutting concerns — authentication, rate limiting, CORS, maintenance mode — without modifying controllers.
+
+### Route Middleware
+
+```php
+use Pramnos\Http\Middleware\AuthMiddleware;
+use Pramnos\Http\Middleware\ThrottleMiddleware;
+
+$router->get('/dashboard', [DashboardController::class, 'index'])
+       ->middleware(new AuthMiddleware());
+
+$router->post('/api/export', fn() => exportData())
+       ->middleware(
+           new AuthMiddleware(),
+           new ThrottleMiddleware(maxRequests: 5, perSeconds: 60)
+       );
+```
+
+### Global Middleware (ServiceProvider::boot())
+
+```php
+public function boot(): void
+{
+    $router = $this->app->getRouter();
+
+    $router->addGlobalMiddleware(new MaintenanceModeMiddleware());
+    $router->addGlobalMiddleware(new CorsMiddleware(
+        allowedOrigins: ['https://app.example.com'],
+        allowCredentials: true
+    ));
+}
+```
+
+### Controller Middleware
+
+```php
+class ApiController extends \Pramnos\Application\Controller
+{
+    public function __construct()
+    {
+        $this->addMiddleware('*', new AuthMiddleware());
+        $this->addMiddleware('export', new ThrottleMiddleware(5, 60));
+        parent::__construct();
+    }
+}
+```
+
+### Writing Your Own Middleware
+
+Implement `Pramnos\Http\MiddlewareInterface`:
+
+```php
+use Pramnos\Http\MiddlewareInterface;
+use Pramnos\Http\Request;
+
+class JsonOnlyMiddleware implements MiddlewareInterface
+{
+    public function handle(Request $request, callable $next): mixed
+    {
+        $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+        if (!str_contains($contentType, 'application/json')) {
+            throw new \Exception('This endpoint only accepts JSON.', 415);
+        }
+        return $next($request);
+    }
+}
+```
+
+### Using the Pipeline Standalone
+
+```php
+use Pramnos\Http\MiddlewarePipeline;
+
+$result = (new MiddlewarePipeline())
+    ->pipe(new LoggingMiddleware())
+    ->pipe(new AuthMiddleware())
+    ->pipe(new ThrottleMiddleware(60, 60))
+    ->run($request, fn($req) => $controller->myAction());
+```
+
+### Built-in Middleware
+
+| Class | Description |
+|---|---|
+| `AuthMiddleware` | Throws 401 or redirects if not logged in |
+| `CorsMiddleware` | Sets `Access-Control-*` headers; handles OPTIONS preflight |
+| `ThrottleMiddleware` | Rate-limits by IP using APCu (requires `apcu` extension) |
+| `MaintenanceModeMiddleware` | Returns 503 when `maintenance.flag` exists |
+| `CsrfMiddleware` | Validates CSRF token on POST/PUT/PATCH/DELETE |
+
+**Execution order:**
+
+```
+Global middleware (registration order)
+    └─ Route-specific middleware (registration order)
+           └─ Permission check (unchanged)
+                  └─ Action method
+```
 
 ---
 
-For specific implementation details and advanced features, explore the specialized guides above to deepen your understanding of each framework component.
+## Response Object
+
+`Pramnos\Http\Response` — an immutable-style fluent builder for HTTP responses.
+
+```php
+use Pramnos\Http\Response;
+
+// Simple HTML response
+return Response::make('<p>Hello</p>')->send();
+
+// JSON API response
+return Response::json(['user' => $user])->send();
+
+// Redirect
+return Response::redirect('/dashboard', 302)->send();
+
+// Custom status + headers
+return Response::make('Created', 201)
+    ->withHeader('Location', '/api/users/42')
+    ->withHeader('X-Request-Id', $requestId)
+    ->send();
+```
+
+Every mutator returns a **new cloned instance** — safe to share and branch:
+
+```php
+$base = Response::json([])->withHeader('X-Api-Version', '2');
+
+$ok    = $base->withBody(json_encode(['ok' => true]))->withStatus(200);
+$error = $base->withBody(json_encode(['error' => 'Not found']))->withStatus(404);
+```
+
+### In Middleware
+
+```php
+class AddSecurityHeadersMiddleware implements MiddlewareInterface
+{
+    public function handle(Request $request, callable $next): mixed
+    {
+        $response = $next($request);
+
+        if ($response instanceof Response) {
+            return $response
+                ->withHeader('X-Content-Type-Options', 'nosniff')
+                ->withHeader('X-Frame-Options', 'DENY');
+        }
+
+        return $response;
+    }
+}
+```
+
+### API Reference
+
+**Static factories:**
+- `Response::make(string $body = '', int $status = 200): static`
+- `Response::json(mixed $data, int $status = 200, int $flags = 0): static`
+- `Response::redirect(string $url, int $status = 302): static`
+
+**Fluent mutators (return new instance):**
+- `withStatus(int $code): static`
+- `withHeader(string $name, string $value): static`
+- `withRawHeader(string $name, string $value): static`
+- `withoutHeader(string $name): static`
+- `withBody(string $body): static`
+
+**Accessors:**
+- `getStatusCode(): int`, `getBody(): string`, `getHeader(string $name): array`
+- `hasHeader(string $name): bool`, `getHeaders(): array`
+
+**Emission:**
+- `send(): static` — emits status code, headers, and body.
+
+---
+
+## Exception Handler
+
+`Pramnos\Http\ExceptionHandler` — centralises exception rendering and logging.
+
+```php
+use Pramnos\Http\ExceptionHandler;
+
+// Inside a catch block
+ExceptionHandler::log($exception);
+ExceptionHandler::render($exception, 'html', false)->send();
+exit();
+
+// Auto-detect format (JSON vs HTML)
+$format = $doc->getType() === 'json' ? 'json' : 'html';
+$debug  = defined('DEVELOPMENT') && DEVELOPMENT === true;
+ExceptionHandler::log($exception);
+ExceptionHandler::render($exception, $format, $debug)->send();
+
+// Global handler for early-bootstrap / CLI
+set_exception_handler(function (\Throwable $e) {
+    ExceptionHandler::log($e);
+    ExceptionHandler::render($e, ExceptionHandler::detectFormat())->send();
+    exit(1);
+});
+```
+
+### Output Formats
+
+| Scenario | Format | Debug | Output |
+|---|---|---|---|
+| HTML app — production | `html` | `false` | Friendly error page |
+| HTML app — development | `html` | `true` | Full stack trace (HTML-escaped) |
+| JSON API — production | `json` | `false` | `{"error": "msg", "code": 422}` |
+| JSON API — development | `json` | `true` | + `"exception"`, `"file"`, `"line"`, `"trace"` array |
+
+**HTTP status mapping:** `getCode()` is used when in 400–599 range; everything else maps to **500**.
+
+### API Reference
+
+| Method | Description |
+|---|---|
+| `ExceptionHandler::render(\Throwable $e, string $format = 'html', bool $debug = false): Response` | Build a Response for the exception |
+| `ExceptionHandler::log(\Throwable $e, string $logFile = 'pramnosframework'): void` | Write full exception detail to error log |
+| `ExceptionHandler::detectFormat(): string` | Returns `'json'` or `'html'` based on `HTTP_ACCEPT` |
+
+---
+
+## Related Documentation
+
+- **[Database API Guide](Pramnos_Database_API_Guide.md)** — Database operations and best practices
+- **[Authentication Guide](Pramnos_Authentication_Guide.md)** — User authentication and authorization
+- **[Routing Guide](Pramnos_Routing_Guide.md)** — Modern routing with PHP 8 attributes
+- **[Security Guide](Pramnos_Security_Guide.md)** — CSRF, XSS, sessions, 2FA
+- **[Authorization Guide](Pramnos_Authorization_Guide.md)** — Policy engine and access control
+- **[Cache System Guide](Pramnos_Cache_Guide.md)** — Performance optimization
+- **[Console Commands Guide](Pramnos_Console_Guide.md)** — CLI tools and generators
+- **[Logging System Guide](Pramnos_Logging_Guide.md)** — Application monitoring
+- **[Document & Output Guide](Pramnos_Document_Output_Guide.md)** — Output formats
+- **[Theme System Guide](Pramnos_Theme_Guide.md)** — UI theming and templates
+- **[Email System Guide](Pramnos_Email_Guide.md)** — Email handling and notifications
+- **[Media System Guide](Pramnos_Media_Guide.md)** — File uploads and media processing
+- **[Internationalization Guide](Pramnos_Internationalization_Guide.md)** — Multi-language support

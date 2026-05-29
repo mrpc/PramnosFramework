@@ -4,18 +4,6 @@
 
 The Pramnos Framework includes a powerful console command system built on Symfony Console components. The console system provides code generation, maintenance tools, and administrative utilities to streamline development workflows.
 
-> **v1.2 New Commands:**
-> - `migrate` — Run database migrations with auto-run support
-> - `migrate:rollback` — Rollback migrations by batch
-> - `migrate:status` — Show migration status
-> - `scaffold:views` — Publish framework views
-> - `route:list` — List all registered routes
-> - `db:seed` — Run database seeders
-> - `make:factory` — Generate model factory
-> - `make:seeder` — Generate database seeder
->
-> See [Pramnos_Migration_Guide.md](Pramnos_Migration_Guide.md) and [Pramnos_Routing_Guide.md](Pramnos_Routing_Guide.md) for details.
-
 ## Available Commands
 
 ### Code Generation Commands
@@ -1042,18 +1030,283 @@ The Pramnos console system provides a comprehensive set of tools for rapid appli
 
 ---
 
-## Related Documentation
+## CommandBase
 
-- **[Framework Guide](Pramnos_Framework_Guide.md)** - Understanding MVC architecture for generated code
-- **[Database API Guide](Pramnos_Database_API_Guide.md)** - Database patterns used in generated models and controllers
-- **[Authentication Guide](Pramnos_Authentication_Guide.md)** - Implementing authentication in generated controllers
-- **[Cache System Guide](Pramnos_Cache_Guide.md)** - Adding caching to generated code
-- **[Logging System Guide](Pramnos_Logging_Guide.md)** - Log migration tools and monitoring generated applications
-- **[Email System Guide](Pramnos_Email_Guide.md)** - Adding email functionality to generated controllers
-- **[Media System Guide](Pramnos_Media_Guide.md)** - Integrating file uploads in generated forms
-- **[Theme System Guide](Pramnos_Theme_Guide.md)** - Customizing generated view templates
-- **[Internationalization Guide](Pramnos_Internationalization_Guide.md)** - Adding multi-language support to generated components
+`Pramnos\Console\CommandBase` — abstract base class for lock-guarded and interactive console commands. All long-running or daemon-style commands should extend this instead of `Command` directly.
+
+```php
+abstract class CommandBase extends \Symfony\Component\Console\Command\Command
+{
+    abstract protected function getJobName(): string;
+}
+```
+
+### Lock-file job guards
+
+```php
+class MyDaemon extends \Pramnos\Console\CommandBase
+{
+    protected function getJobName(): string { return 'my_daemon'; }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        if (!$this->beginJob($output)) {
+            $output->writeln('<error>Already running.</error>');
+            return Command::FAILURE;
+        }
+
+        while (true) {
+            $this->heartbeat();  // touch lock file so orchestrator knows we're alive
+            // ... do work ...
+        }
+
+        $this->endJob();
+        return Command::SUCCESS;
+    }
+}
+```
+
+| Method | Description |
+|---|---|
+| `beginJob(OutputInterface, bool $registerShutdown=true): bool` | Returns `false` if already running; creates lock file + SIGINT handler |
+| `endJob(): void` | Removes the lock file (also called by shutdown/signal handlers) |
+| `heartbeat(): void` | `touch()` the lock file to signal liveness |
+| `checkIfRunning(): bool` | Checks lock file + PID liveness; treats stale locks (>2 h) as gone |
+
+### Terminal control
+
+| Method | Description |
+|---|---|
+| `clearScreen(OutputInterface)` | Clear terminal |
+| `hideCursor(OutputInterface)` | Hide cursor during live dashboard |
+| `showCursor(OutputInterface)` | Restore cursor |
+| `detectTerminalSize(): array{int,int}` | Returns `[height, width]` via `stty size` |
+
+### Progress bar
+
+```php
+$output->write("\r" . $this->buildProgressBar($current, $total));
+// → " [████████████..........] 60 of 100 (60%)"
+```
+
+### Text utilities
+
+| Method | Description |
+|---|---|
+| `formatBytes(int|float, int $precision=2): string` | `1024 → "1 KB"`, `1048576 → "1 MB"` |
+| `formatTime(int $seconds): string` | `3723 → "01:02:03"` (HH:MM:SS) |
+| `visibleLength(string): int` | Character count ignoring ANSI escape sequences |
+| `truncateText(string, int $maxLen): string` | Adds `...` if visible length exceeds maxLen |
+
+### Dashboard rendering
+
+Used to build live bordered terminal dashboards:
+
+```
+┌──────────────────────────────────────┐
+│           QUEUE PROCESSOR v2         │
+├──────────────────────────────────────┤
+│ Time: 2026-05-05 14:30:00 │ Uptime: 00:12:34 │ CPU: 2.1 │ Memory: 48 MB │
+├──────────────────────────────────────┤
+│ Mode: Normal │ State: Running │ Tasks today: 1024     │
+└──────────────────────────────────────┘
+```
+
+| Method | Description |
+|---|---|
+| `buildDashboardHeader(string $title, int $borderLen): string` | Top border with centered title |
+| `buildDashboardSectionSeparator(int $borderLen): string` | Section divider `├──┤` |
+| `buildDashboardFooter(int $borderLen): string` | Bottom border `└──┘` |
+| `padDashboardLine(string $content, int $borderLen): string` | Pad content with side borders `│ … │` |
+| `buildDashboardRows(string[] $segments, int $borderLen): string` | Fit segments side-by-side with ` │ ` separator |
+| `buildSystemStatusSegments(int $startTime, float $cpu, int|float $mem): string[]` | `['Time: …', 'Uptime: …', 'CPU: …', 'Memory: …']` |
+| `renderDashboardFrame(OutputInterface, string $title, string[] $systemSegments, string[] $sections, int $terminalWidth): void` | Full frame render (cursor-home → write → erase-below) |
+| `renderDashboardFrameAutoSystem(OutputInterface, string $title, string[] $sections, int $terminalWidth): void` | As above with auto-built system segments |
+
+### Migrating Urbanwater commands
+
+```php
+// Before (Urbanwater-local):
+use Urbanwater\ConsoleCommands\CommandBase;
+
+// After (framework-level — no code changes in the command):
+use Pramnos\Console\CommandBase;
+```
 
 ---
 
-For more information on customizing generated code and understanding the framework patterns, see the [Framework Guide](Pramnos_Framework_Guide.md) for detailed explanations of controllers, models, and views.
+## DaemonOrchestrator
+
+`Pramnos\Console\DaemonOrchestrator` — abstract generic process supervisor that reconciles desired-vs-actual daemon state. Handles crash detection, heartbeat monitoring, git-hash restart on deploy, pre-spawn dedup, graceful stop, and a live interactive dashboard.
+
+### Extending
+
+Override three abstract methods and optionally hook lifecycle checks:
+
+```php
+use Pramnos\Console\DaemonOrchestrator;
+
+class MyOrchestrator extends DaemonOrchestrator
+{
+    protected function getJobName(): string        { return 'my_orchestrator'; }
+    protected function getEntryPoint(): string     { return ROOT . '/bin/myapp'; }
+    protected function getDashboardTitle(): string { return ' MY APP ORCHESTRATOR '; }
+
+    protected function buildDesiredProcesses(): array
+    {
+        return [[
+            'id'       => 'queue-1',
+            'daemon'   => 'queue',
+            'workerId' => 'worker-1',
+            'lockFile' => ROOT . '/var/QUEUE_WORKER_1',
+            'tokens'   => ['queue:process', '--worker-id', 'worker-1', '--daemon'],
+        ]];
+    }
+
+    // Optional — read from application settings:
+    protected function isOrchestratorEnabled(): bool
+    {
+        return \Pramnos\Application\Settings::getSetting('daemon_enabled', true);
+    }
+}
+```
+
+```bash
+php bin/myapp daemons:start
+php bin/myapp daemons:start --once           # single reconcile cycle
+php bin/myapp daemons:start --interactive    # live terminal dashboard
+php bin/myapp daemons:start --dry-run        # show planned actions, no changes
+php bin/myapp daemons:start --interval=5     # reconcile every 5 seconds
+```
+
+### Process definition keys
+
+| Key | Required | Description |
+|---|---|---|
+| `id` | yes | Unique slot identifier for state tracking |
+| `daemon` | yes | Daemon type label (`'queue'`, `'kafka'`, etc.) |
+| `workerId` | yes | `--worker-id` argument value |
+| `lockFile` | yes | Absolute path to the worker's lock file |
+| `tokens` | yes | CLI arguments passed to `getEntryPoint()` |
+| `requireLockFile` | no | Whether a healthy lock file is required (default `true`) |
+| `shellCommand` | no | Raw shell command — overrides `tokens` |
+
+---
+
+## db:seed — Database Seeder Command
+
+```bash
+# Run all seeders in database/seeds/
+php bin/pramnos db:seed
+
+# Run a single seeder by class name
+php bin/pramnos db:seed UsersSeeder
+
+# Run seeders from a custom directory
+php bin/pramnos db:seed --path=/custom/seeds/
+```
+
+Seeders must extend `Pramnos\Database\Seeder` and implement `run()`:
+
+```php
+use Pramnos\Database\Seeder;
+
+class UsersSeeder extends Seeder
+{
+    public function run(): void
+    {
+        for ($i = 0; $i < 10; $i++) {
+            $this->insert('users', [
+                'name'  => 'User ' . $i,
+                'email' => 'user' . $i . '@example.com',
+            ]);
+        }
+    }
+}
+```
+
+Default seeds path: `ROOT . '/database/seeds/'`. Exit codes: `0` = success, `1` = failure.
+
+---
+
+## Interactive Migration Wizard
+
+`create:migration` (called without a name argument) launches an interactive wizard:
+
+```bash
+php bin/pramnos create:migration
+```
+
+The wizard collects the full schema definition — columns, types, nullable/default/unique flags, foreign keys — and writes a migration with a complete `up()` / `down()`. After generating the migration it prompts to optionally create a Model, Web Controller, API Controller, and Seeder from the same session.
+
+```
+ Migration description: create users table
+ Table name: #PREFIX#users
+ Add auto-increment primary key id? [yes]
+
+ ── Columns ──────────────────────────────────────────────────────────
+ Column name (Enter to finish): name
+   Type [string (VARCHAR)]:
+   Length [255]: 100
+   Nullable? [no]:
+   Default value (blank = none, '' = empty string):
+   Unique? [no]:
+
+ Column name (Enter to finish):              ← blank = done
+
+ Add timestamps (created_at / updated_at)? [yes]
+ Add another table to this migration? [no]:
+
+ ✓ Migration created: app/migrations/2026_05_06_120000_create_users_table.php
+
+ Run this migration now? [yes]
+
+ ── Also create ───────────────────────────────────────────────────────
+ Create Model (Users)? [yes]
+ Create Web Controller (UsersController)? [yes]
+ Create API Controller (UsersApiController)? [yes]
+ Create Seeder (UsersSeeder with fake data)? [yes]
+```
+
+### UI-aware controller and view generation
+
+The wizard detects the application's UI setup:
+
+| Setup detected | Generated output |
+|---|---|
+| Bootstrap + DataTables + Select2 | ServerSide DataTable list, Select2 FK dropdowns |
+| Bootstrap only | Plain `<table class="table">` list |
+| Plain CSS | Minimal HTML table, no framework dependencies |
+
+### Non-interactive usage (unchanged)
+
+```bash
+php bin/pramnos create:migration create_users_table   # blank stub, no wizard
+```
+
+### Seeder fake-data heuristics
+
+| Column name contains | Generated fake value |
+|---|---|
+| `email` | `'user' . $i . '@example.com'` |
+| `name` | `'Name ' . $i` |
+| `status` | `['active','inactive','pending'][$i % 3]` |
+| `password` | `password_hash('password' . $i, PASSWORD_DEFAULT)` |
+| `token` | `bin2hex(random_bytes(16))` |
+| `uuid` type | UUID v4 formatted string |
+| `boolean` type | `($i % 2 === 0)` |
+| `decimal/float` type | `round($i * 9.99, 2)` |
+| fallback | `'value_' . $i` |
+
+Auto-managed columns (`id`, `created_at`, `updated_at`, `deleted_at`) are never included in seed inserts.
+
+---
+
+## Related Documentation
+
+- **[Framework Guide](Pramnos_Framework_Guide.md)** — MVC architecture for generated code
+- **[Migration Guide](Pramnos_Migration_Guide.md)** — Migration system and MigrationRunner
+- **[Database API Guide](Pramnos_Database_API_Guide.md)** — Database patterns used in generated models
+- **[Authentication Guide](Pramnos_Authentication_Guide.md)** — Implementing authentication in generated controllers
+- **[Routing Guide](Pramnos_Routing_Guide.md)** — Route registration for generated controllers
+- **[Logging System Guide](Pramnos_Logging_Guide.md)** — Log migration tools and monitoring

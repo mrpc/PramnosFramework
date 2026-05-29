@@ -234,18 +234,13 @@ class PostPolicy
 
 ## Reference
 
-For complete documentation on authorization features, see:
+**Related Guides:**
+- [Pramnos_Authentication_Guide.md](Pramnos_Authentication_Guide.md) — Login lockout, 2FA, OAuth2 scopes, `OAuthPolicyHelper`
+- [Pramnos_Framework_Guide.md](Pramnos_Framework_Guide.md) — Middleware pipeline, `AuthMiddleware`
+- [Pramnos_Security_Guide.md](Pramnos_Security_Guide.md) — CSRF, session hardening
 
-- [v1.2 New Features — Policy Engine](1.2-new-features.md#15-phase-4-policy-engine)
-- [v1.2 New Features — Authorization Policies](1.2-new-features.md#35-phase-2-auth--pramnos-auth-scopes--pramnos-auth-oauthpolicyhelper)
-
-**Topics covered in detailed reference:**
-
+**Topics covered:**
 - Policy class structure and methods
-- Before/after authorization hooks
-- Model authorization macros
 - Gate definition and evaluation
 - Resource authorization
-- Authorization caching and performance
-- Custom authorization exceptions
 - Middleware for authorization checks

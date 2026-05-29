@@ -299,20 +299,14 @@ class UserApiTest extends \Pramnos\Testing\HttpTest
 
 ## Reference
 
-For complete documentation on testing, see:
+**Related Guides:**
+- [Pramnos_Migration_Guide.md](Pramnos_Migration_Guide.md) — Running migrations in tests
+- [Pramnos_Console_Guide.md](Pramnos_Console_Guide.md) — `db:seed` command and Seeder base class
+- [Pramnos_Framework_Guide.md](Pramnos_Framework_Guide.md) — Middleware pipeline, Response Object
 
-- [v1.2 New Features — HTTP Testing Infrastructure](1.2-new-features.md#45-phase-20-http-testing-infrastructure)
-- [v1.2 New Features — Factories](1.2-new-features.md#51-factory--pramnos-database-factory)
-- [v1.2 New Features — Seeders](1.2-new-features.md#52-seeder--pramnos-database-seeder-updated)
-
-**Topics covered in detailed reference:**
-
+**Topics covered:**
 - HTTP test client API and all methods
 - Response assertions and JSON validation
 - Factory definition and customization
 - Seeder generation and execution
-- Database state management
-- Mocking and stubbing
-- Concurrent test execution
-- Performance profiling in tests
-- Coverage reporting
+- Database state management in integration tests
