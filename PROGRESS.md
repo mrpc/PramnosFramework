@@ -1,9 +1,87 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-05-29 (session 152) — All Existing Guides Updated with v1.2 References ✅
+## 📅 Last Updated: 2026-05-29 (session 154) — Complete 1.2-new-features content integration
 
-## 🏁 Session 152 — Update All Existing Guides with v1.2 References (2026-05-29)
+## 🏁 Session 154 — Full Content Integration from 1.2-new-features.md (2026-05-29)
+
+### ✅ docs: integrate 1.2-new-features content into all guides
+
+**All references to 1.2-new-features.md removed from all guides.**
+
+**Pramnos_Framework_Guide.md** — Added:
+- Middleware Pipeline section (MiddlewareInterface, MiddlewarePipeline, built-in middleware, custom middleware, execution order)
+- Response Object section (static factories, fluent mutators, accessors, send())
+- Exception Handler section (render formats, HTTP status mapping, API reference)
+
+**Pramnos_Security_Guide.md** — Replaced stubs with full content:
+- CSRF Hardening (256-bit token, HMAC-SHA256 fingerprint, CsrfMiddleware API, AJAX usage)
+- Session Cookie Hardening (session_regenerate_id, strict mode, isHttps() fix)
+- View Escaping Helpers (e(), View::escape(), View::e(), escaping table, context notes)
+
+**Pramnos_Authentication_Guide.md** — Added:
+- Loginlockout (thresholds, sliding window, full API reference)
+- TOTPHelper + TwoFactorAuthService (setup flow, verification, replay protection, backup codes, DB tables)
+- Scopes + OAuthPolicyHelper (scope registry, default grants, default auth methods)
+
+**Pramnos_Console_Guide.md** — Added:
+- CommandBase (lock guards, terminal control, progress bar, text utilities, dashboard rendering)
+- DaemonOrchestrator (abstract supervisor, process definition, reconcile engine)
+- db:seed command (usage, Seeder contract, exit codes)
+- Interactive Migration Wizard (wizard flow, UI-aware generation, fake data heuristics)
+
+**Pramnos_API_Guide.md** — Replaced reference links with real content:
+- JsonResponseMiddleware, ApiAuthMiddleware, UnifiedAuthMiddleware (SPA auth)
+- Api::exec() middleware pipeline
+- Database-driven CORS (CorsMiddleware::fromApplicationSettings, fromCorsData)
+
+**Pramnos_Routing_Guide.md** — Replaced reference links with real content:
+- Router::group() (attributes, nested groups, middleware ordering)
+- #[RouteGroup] attribute (parameters, RouteDiscovery integration)
+
+**Pramnos_Testing_Guide.md, Pramnos_ORM_Guide.md, Pramnos_Authorization_Guide.md** — Replaced reference links with cross-guide links
+
+**Commit:** 6283c94 — "docs: integrate 1.2-new-features content into all guides"
+
+---
+
+## 🏁 Session 153 — Integration of 1.2-new-features Content (2026-05-29)
+
+### ✅ docs: remove all v1.2-new-features.md links and prepare for content integration
+
+**Removed v1.2 feature references from 10 guides:**
+- Pramnos_Logging_Guide.md
+- Pramnos_Media_Guide.md
+- Pramnos_Cache_Guide.md
+- Pramnos_Validation_System_Guide.md
+- Pramnos_Theme_Guide.md
+- Pramnos_Email_Guide.md
+- Pramnos_Document_Output_Guide.md
+- Pramnos_Internationalization_Guide.md
+- Getting_Started.md
+- Pramnos_Environment_Variables_Guide.md
+
+**Enhanced Pramnos_QueryBuilder_Guide.md:**
+- Added Foundational Concepts section covering:
+  - Read/Write Replicas and auto-routing
+  - Connection Health & Auto-reconnect
+  - DatabaseCapabilities runtime detection
+  - Grammar layer overview
+
+**Commit:** 6f3414c — "docs: remove all v1.2-new-features.md links from guides"
+
+### Next Steps: Content Integration
+- Integrate full QueryBuilder API from 1.2-new-features.md sections 4-5
+- Integrate SchemaBuilder content from sections 6-7
+- Integrate Migration system content
+- Integrate Framework infrastructure content
+- Integrate other specialized guides
+
+**Status:** Foundation cleared. 1.2-new-features.md remains as reference copy for full integration.
+
+---
+
+## 📅 Previous: Session 152
 
 ### ✅ docs: update all existing guides with v1.2 feature references
 
