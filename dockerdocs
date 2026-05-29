@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#
+# dockerdocs — Pramnos Framework documentation CLI
+#
+# Runs MkDocs Material commands inside the Docker container so that no local
+# Python or pip installation is required on the host machine.
+#
+# Usage:
+#   ./dockerdocs serve    — Start the live-reload dev server on localhost:8000
+#   ./dockerdocs build    — Build the static HTML site into site/
+#   ./dockerdocs deploy   — Build and push to GitHub Pages (gh-deploy)
+#   ./dockerdocs <cmd>    — Pass any mkdocs sub-command directly
+
+set -euo pipefail
+
+COMMAND="${1:-serve}"
+shift || true
+
+# Ensure the docs container image is available
+if ! docker image inspect squidfunk/mkdocs-material:latest >/dev/null 2>&1; then
+    echo "Pulling squidfunk/mkdocs-material image..."
+    docker pull squidfunk/mkdocs-material:latest
+fi
+
+case "$COMMAND" in
+    serve)
+        echo "Starting MkDocs development server at http://localhost:8000 ..."
+        echo "Press Ctrl+C to stop."
+        docker run --rm -it \
+            -p 8000:8000 \
+            -v "$(pwd)":/docs \
+            squidfunk/mkdocs-material:latest \
+            serve -f mkdocs.local.yml --dev-addr=0.0.0.0:8000 "$@"
+        ;;
+    build)
+        echo "Building documentation site into site/ ..."
+        docker run --rm \
+            -v "$(pwd)":/docs \
+            squidfunk/mkdocs-material:latest \
+            build "$@"
+        echo "Done. Static files are in ./site/"
+        ;;
+    deploy)
+        echo "Deploying documentation to GitHub Pages ..."
+        docker run --rm -it \
+            -v "$(pwd)":/docs \
+            -v "$HOME/.ssh":/root/.ssh:ro \
+            squidfunk/mkdocs-material:latest \
+            gh-deploy --force "$@"
+        echo "Deployed."
+        ;;
+    *)
+        # Pass-through any other mkdocs sub-command
+        docker run --rm -it \
+            -v "$(pwd)":/docs \
+            squidfunk/mkdocs-material:latest \
+            "$COMMAND" "$@"
+        ;;
+esac

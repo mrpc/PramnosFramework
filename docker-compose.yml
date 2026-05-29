@@ -47,3 +47,12 @@ services:
     container_name: pramnos_redis
     ports:
       - "6379"
+
+  docs:
+    image: squidfunk/mkdocs-material:latest
+    container_name: pramnos_docs
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/docs
+    working_dir: /docs

@@ -1,0 +1,4 @@
+INHERIT: mkdocs.yml
+
+# Local development config (served at http://localhost:8000/)
+site_url: http://localhost:8000/

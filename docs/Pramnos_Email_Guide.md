@@ -431,7 +431,7 @@ if (defined('EMAIL_TEST_MODE') && EMAIL_TEST_MODE) {
 ## Related Documentation
 
 - [Framework Guide](Pramnos_Framework_Guide.md) - Core framework concepts
-- [Application Guide](Pramnos_Application_Guide.md) - Application structure and settings
+- [Framework Guide](Pramnos_Framework_Guide.md) - Application structure and settings
 - [Database Guide](Pramnos_Database_API_Guide.md) - Database operations for tracking
 - [Logging Guide](Pramnos_Logging_Guide.md) - Error logging and debugging
 - [Theme Guide](Pramnos_Theme_Guide.md) - Email templates and theming
