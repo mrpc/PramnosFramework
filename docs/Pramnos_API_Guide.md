@@ -320,20 +320,101 @@ $router->group(['prefix' => 'api/v2'], function ($router) {
 
 ## Reference
 
-For complete documentation on API features, see:
+**Related Guides:**
+- [Pramnos_Framework_Guide.md](Pramnos_Framework_Guide.md) — Middleware pipeline, Response Object, ExceptionHandler
+- [Pramnos_Routing_Guide.md](Pramnos_Routing_Guide.md) — Router::group(), #[RouteGroup] attribute
+- [Pramnos_Authentication_Guide.md](Pramnos_Authentication_Guide.md) — OAuth2 server, JWT, login lockout, 2FA
+- [Pramnos_Security_Guide.md](Pramnos_Security_Guide.md) — CSRF, session hardening
 
-- [v1.2 New Features — REST API Scaffolding](1.2-new-features.md#66-rest-api-scaffolding--pramnos-init---rest-api)
-- [v1.2 New Features — Response Object](1.2-new-features.md#18-phase-4-formal-response-object)
-- [v1.2 New Features — Database-Driven CORS](1.2-new-features.md#67-database-driven-cors-pf-43--phase-15-convergence-test)
+---
 
-**Topics covered in detailed reference:**
+## API Middleware
 
-- Complete API controller lifecycle and hooks
-- All HTTP methods and status codes
-- Request parsing and content negotiation
-- Response serialization and formatting
-- Pagination, filtering, and sorting strategies
-- API versioning and deprecation handling
-- Error handling and exception formatting
-- Rate limiting and throttling
-- API documentation generation
+### JsonResponseMiddleware
+
+Sets the `Content-Type` response header before passing to `$next`. Always a pass-through — never short-circuits.
+
+```php
+// Content-Type: application/json; charset=utf-8 (default)
+// Content-Type: application/xml; charset=utf-8  (when HTTP_ACCEPT=application/xml)
+new \Pramnos\Http\Middleware\JsonResponseMiddleware()
+```
+
+### ApiAuthMiddleware
+
+Validates the `HTTP_APIKEY` header via a caller-supplied checker callable, then (optionally) validates a JWT `HTTP_ACCESSTOKEN`. On success sets `$_SESSION['logged']` and `$_SESSION['user']`. On failure short-circuits and returns a JSON error envelope.
+
+```php
+new \Pramnos\Http\Middleware\ApiAuthMiddleware(
+    apiKeyChecker: fn(string $k) => $app->checkApiKey($k),
+    authKey:       $app->authenticationKey,
+    appNamespace:  $app->applicationInfo['namespace'] ?? null,
+)
+```
+
+| Condition | HTTP status | `error` key |
+|---|---|---|
+| `HTTP_APIKEY` missing | 403 | `APIKeyMissing` |
+| API key invalid | 401 | `APIKeyInvalid` |
+| JWT malformed / unreadable | 403 | `InvalidAccessToken` |
+| JWT valid but user not found | 403 | `InvalidAccessToken` |
+
+### UnifiedAuthMiddleware (SPA / same-origin auth)
+
+Accepts either a Bearer JWT **or** a session cookie + `X-CSRF-Token` header. Use this for first-party route groups where you don't require API keys.
+
+```php
+$router->group([
+    'prefix'     => '/api/v1',
+    'middleware' => [
+        new CorsMiddleware(['https://myapp.com']),
+        new JsonResponseMiddleware(),
+        new UnifiedAuthMiddleware(authKey: $app->authenticationKey),
+    ],
+], function (Router $r): void {
+    $r->get('/profile', [ProfileController::class, 'show']);
+});
+```
+
+**Auth resolution order:**
+1. `Authorization: Bearer <jwt>` — validates JWT, loads user from `usertokens` with explicit scopes
+2. Session cookie + `X-CSRF-Token` header — if session has an active `web_session` token and CSRF matches
+3. No credentials → 401 JSON envelope
+
+### Api::exec() middleware pipeline
+
+`Api::exec()` automatically runs:
+
+```
+CorsMiddleware → JsonResponseMiddleware → ApiAuthMiddleware → _executeCore()
+```
+
+Configure CORS via `app.php`:
+
+```php
+'api' => [
+    'cors_origins' => ['https://spa.example.com'],   // config-based
+    // OR:
+    'cors_from_db' => true,  // read from application_settings table
+],
+```
+
+---
+
+## Database-Driven CORS
+
+`CorsMiddleware::fromApplicationSettings(string $appName): self` queries `application_settings` joined with `applications` to load the CORS policy from the database. Falls back to `['*']` when:
+- DB is unavailable or `authserver` feature not enabled
+- No row found for `$appName`
+- `cors_enabled = false`
+
+```php
+// In Api::exec() — automatic when 'cors_from_db' => true
+$cors = CorsMiddleware::fromApplicationSettings($applicationInfo['name']);
+
+// Construct from pre-fetched data
+$cors = CorsMiddleware::fromCorsData(
+    enabled: true,
+    rawOrigins: ['https://app.example.com']
+);
+```
