@@ -15,7 +15,6 @@ use Pramnos\Database\Migration;
  * MySQL: replaces idx_settings_name with a UNIQUE index.
  * PostgreSQL: drops the plain index and creates a UNIQUE index.
  *
- * @package PramnosFramework
  */
 class AddUniqueConstraintToSettingsTable extends Migration
 {

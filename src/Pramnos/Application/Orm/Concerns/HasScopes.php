@@ -34,8 +34,6 @@ namespace Pramnos\Application\Orm\Concerns;
  * Post::addGlobalScope('tenant', fn($f) => "$f AND tenant_id = " . Auth::tenantId());
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Application\Orm\Concerns
  */
 trait HasScopes
 {

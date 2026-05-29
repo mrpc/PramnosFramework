@@ -10,8 +10,6 @@ namespace Pramnos\DevPanel;
  * Thin alias that re-exports the framework-level GitInfo so DevPanel code
  * can use the DevPanel namespace without coupling to Framework internals.
  *
- * @package PramnosFramework
- * @subpackage DevPanel
  */
 class GitInfo extends \Pramnos\Framework\GitInfo
 {

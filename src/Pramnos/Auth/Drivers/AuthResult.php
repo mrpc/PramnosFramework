@@ -10,7 +10,6 @@ namespace Pramnos\Auth\Drivers;
  * Named constructors (success / failure) ensure that callers always build a
  * fully-populated result without relying on positional array indices.
  *
- * @package PramnosFramework
  */
 readonly class AuthResult
 {

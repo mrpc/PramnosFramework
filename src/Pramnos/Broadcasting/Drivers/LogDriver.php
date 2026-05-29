@@ -13,8 +13,6 @@ namespace Pramnos\Broadcasting\Drivers;
  * The log path defaults to ROOT/logs/broadcasting.log when ROOT is defined;
  * otherwise the system temp directory is used.
  *
- * @package PramnosFramework
- * @subpackage Broadcasting\Drivers
  */
 class LogDriver implements DriverInterface
 {

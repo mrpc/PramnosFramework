@@ -24,8 +24,6 @@ namespace Pramnos\Messaging;
  *   Message::TYPE_NOTIFICATION_NEW = 8
  *   Message::TYPE_NOTIFICATION_READ= 9
  *
- * @package     PramnosFramework
- * @subpackage  Messaging
  *
  * @property int         $messageid
  * @property int|null    $massid          FK to massmessages.messageid; NULL for direct messages

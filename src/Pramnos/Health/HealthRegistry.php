@@ -25,8 +25,7 @@ namespace Pramnos\Health;
  * ```
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Health
+ * @license    MIT
  */
 class HealthRegistry
 {

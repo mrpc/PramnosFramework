@@ -12,7 +12,6 @@ namespace Pramnos\Debug\Collectors;
  * addEntry() for every Logger::log() call. Only the last $maxEntries are kept
  * to avoid unbounded memory growth on verbose requests.
  *
- * @package PramnosFramework
  */
 class LogCollector implements CollectorInterface
 {

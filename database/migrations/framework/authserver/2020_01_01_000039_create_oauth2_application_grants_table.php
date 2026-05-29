@@ -32,7 +32,6 @@ use Pramnos\Database\Migration;
  *   `applications_oauth2_application_permissions` and
  *   `applications_oauth2_active_tokens`.
  *
- * @package PramnosFramework
  */
 class CreateOauth2ApplicationGrantsTable extends Migration
 {

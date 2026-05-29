@@ -25,8 +25,6 @@ use Pramnos\Http\Request;
  * When the limit is exceeded, throws an Exception with code 429.
  * Application::exec() renders this as a 429 response.
  *
- * @package    PramnosFramework
- * @subpackage Http\Middleware
  */
 class ThrottleMiddleware implements MiddlewareInterface
 {

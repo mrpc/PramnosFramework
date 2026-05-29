@@ -28,8 +28,6 @@ use Psr\Http\Server\RequestHandlerInterface;
  * The pipeline itself implements `MiddlewareInterface`, so pipelines can
  * be nested.
  *
- * @package     PramnosFramework
- * @subpackage  Http\Psr
  * @see         https://www.php-fig.org/psr/psr-15/
  */
 class Pipeline implements MiddlewareInterface

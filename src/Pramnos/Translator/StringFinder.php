@@ -6,10 +6,9 @@ use Symfony\Component\Finder\Finder;
 
 /**
  * Finds strings for translation and imports them to the database
- * @package     PramnosFramework
- * @subpackage  Translator
- * @copyright   2005 - 2016 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class StringFinder
 {

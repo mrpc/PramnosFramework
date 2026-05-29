@@ -11,8 +11,6 @@ namespace Pramnos\Broadcasting\Drivers;
  * concrete transport is configured.  Also useful in unit tests that don't want
  * any side-effects.
  *
- * @package PramnosFramework
- * @subpackage Broadcasting\Drivers
  */
 class NullDriver implements DriverInterface
 {

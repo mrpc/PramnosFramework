@@ -17,8 +17,7 @@ namespace Pramnos\Database;
  * well — their migrations are sorted by class-name-derived slug.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Database
+ * @license    MIT
  */
 class MigrationLoader
 {

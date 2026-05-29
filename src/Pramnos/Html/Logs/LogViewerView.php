@@ -6,8 +6,6 @@ namespace Pramnos\Html\Logs;
  * LogViewer View Handler
  * Provides methods to render the log viewer interface
  * 
- * @package     PramnosFramework
- * @subpackage  Html/Logs
  */
 class LogViewerView
 {

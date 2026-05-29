@@ -4,10 +4,9 @@ namespace Pramnos\Theme;
 
 /**
  * Theme Object class
- * @package PramnosFramework
- * @subpackage Theme
- * @copyright  Copyright (C) 2005 - 2013 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright  (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Theme extends \Pramnos\Framework\Base
 {
@@ -23,8 +22,8 @@ class Theme extends \Pramnos\Framework\Base
      * @var string
      */
     public $thumbnail = '';
-    public $author = 'Pramnos Hosting Ltd.';
-    public $copyright = 'Pramnos Hosting Ltd.';
+    public $author = '';
+    public $copyright = '';
     public $url = 'http://www.pramhost.com';
     public $info = '';
 

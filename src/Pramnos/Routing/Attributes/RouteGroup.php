@@ -27,8 +27,6 @@ namespace Pramnos\Routing\Attributes;
  * });
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Routing\Attributes
  */
 #[\Attribute(\Attribute::TARGET_CLASS)]
 class RouteGroup

@@ -22,8 +22,6 @@ namespace Pramnos\Routing\Attributes;
  * RouteDiscovery::discover() reads these attributes and registers the routes
  * with the Router automatically.
  *
- * @package     PramnosFramework
- * @subpackage  Routing\Attributes
  */
 #[\Attribute(\Attribute::TARGET_METHOD | \Attribute::IS_REPEATABLE)]
 class Route

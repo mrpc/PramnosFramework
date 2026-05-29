@@ -12,7 +12,6 @@ use Pramnos\Database\Migration;
  * individual recipient delivery records are in massmessagerecipients and
  * individual copies in the messages table (via massid FK).
  *
- * @package PramnosFramework
  */
 class CreateMassmessagesTable extends Migration
 {

@@ -10,7 +10,6 @@ namespace Pramnos\Debug\Collectors;
  * Records are pushed via record() from DebugBar::recordMigration(), which is
  * called by Application::runAutoMigrations() for each migration that runs.
  *
- * @package PramnosFramework
  */
 class MigrationsCollector implements CollectorInterface
 {

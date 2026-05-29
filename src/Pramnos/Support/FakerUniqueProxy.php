@@ -10,8 +10,6 @@ namespace Pramnos\Support;
  * that method name. The registry is per-method, so unique()->email() and
  * unique()->name() track their values independently.
  *
- * @package    PramnosFramework
- * @subpackage Support
  */
 class FakerUniqueProxy
 {

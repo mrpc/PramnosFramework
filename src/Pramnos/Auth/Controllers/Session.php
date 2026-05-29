@@ -19,8 +19,6 @@ use Pramnos\Application\Controller;
  *   1. Session cookies (`$_SESSION`)
  *   2. Bearer tokens (`Authorization: Bearer <token>` header)
  *
- * @package     PramnosFramework
- * @subpackage  Auth\Controllers
  */
 class Session extends Controller
 {

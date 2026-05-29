@@ -36,8 +36,6 @@ use Pramnos\Http\Session;
  *
  * When the token is missing or invalid, throws an Exception with code 419.
  *
- * @package    PramnosFramework
- * @subpackage Http\Middleware
  */
 class CsrfMiddleware implements MiddlewareInterface
 {

@@ -9,8 +9,6 @@ namespace Pramnos\Http;
  * request, short-circuit the pipeline by returning early, or delegate to the
  * next handler via $next($request).
  *
- * @package    PramnosFramework
- * @subpackage Http
  */
 interface MiddlewareInterface
 {

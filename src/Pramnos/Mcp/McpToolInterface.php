@@ -11,7 +11,6 @@ namespace Pramnos\Mcp;
  * database tables, inspecting a migration status, or showing registered routes.
  * Apps register custom tools via McpServer::addTool().
  *
- * @package PramnosFramework
  */
 interface McpToolInterface
 {

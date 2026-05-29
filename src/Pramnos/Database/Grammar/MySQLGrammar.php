@@ -10,8 +10,6 @@ use Pramnos\Database\QueryBuilder;
  * - Identifier quoting: backtick
  * - Conflict handling: INSERT IGNORE, ON DUPLICATE KEY UPDATE
  *
- * @package     PramnosFramework
- * @subpackage  Database\Grammar
  */
 class MySQLGrammar extends Grammar
 {

@@ -11,7 +11,6 @@ use Pramnos\Database\Migration;
  * succeeded. One row per (massmessage, user) pair. The status column mirrors
  * the messages.type states so that delivery and read tracking are consistent.
  *
- * @package PramnosFramework
  */
 class CreateMassmessagerecepientsTable extends Migration
 {

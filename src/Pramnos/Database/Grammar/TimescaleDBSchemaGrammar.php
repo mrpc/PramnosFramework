@@ -9,8 +9,6 @@ namespace Pramnos\Database\Grammar;
  * time_bucket(), hypertable DDL, and continuous-aggregate syntax can be added
  * without touching the base PostgreSQL grammar.
  *
- * @package     PramnosFramework
- * @subpackage  Database\Grammar
  */
 class TimescaleDBSchemaGrammar extends PostgreSQLSchemaGrammar
 {

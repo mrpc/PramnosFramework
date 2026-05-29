@@ -4,10 +4,10 @@ namespace Pramnos\User;
 
 /**
  * User tokens
- * @package     PramnosFramework
- * @copyright   Copyright (C) 2017  Yannis - Pastis Glaros, Pramnos Hosting Ltd.
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  *
+ * @license    MIT
  */
 
 

@@ -11,7 +11,8 @@ namespace Pramnos\Cache\Adapter;
  * when their lifetime has elapsed.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   (C) 2024 Yannis - Pastis Glaros
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 class ArrayAdapter extends AbstractAdapter
 {

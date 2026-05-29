@@ -1,8 +1,6 @@
 <?php
 namespace Pramnos\Email;
 /**
- * @package     PramnosFramework
- * @subpackage  Email
  */
 class Email extends \Pramnos\Framework\Base
 {

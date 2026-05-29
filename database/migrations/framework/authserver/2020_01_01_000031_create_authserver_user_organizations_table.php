@@ -26,7 +26,6 @@ use Pramnos\Database\Migration;
  * overrides, the FK target is the application's own organisations table, which
  * should be added in an app-level migration.
  *
- * @package PramnosFramework
  */
 class CreateAuthserverUserOrganizationsTable extends Migration
 {

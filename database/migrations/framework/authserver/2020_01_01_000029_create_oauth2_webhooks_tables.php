@@ -25,7 +25,6 @@ use Pramnos\Database\Migration;
  * The create_webhook_event function is PostgreSQL-only; MySQL applications
  * must implement equivalent fanout logic in PHP.
  *
- * @package PramnosFramework
  */
 class CreateOauth2WebhooksTables extends Migration
 {

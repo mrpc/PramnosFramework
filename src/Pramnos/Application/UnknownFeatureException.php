@@ -10,8 +10,7 @@ namespace Pramnos\Application;
  * keys so developers can diagnose the problem immediately.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Application
+ * @license    MIT
  */
 class UnknownFeatureException extends \RuntimeException
 {

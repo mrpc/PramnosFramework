@@ -20,7 +20,6 @@ use Pramnos\Database\Migration;
  * lastuseragent, lastchannel, unlockreason) are now NOT NULL DEFAULT '' to
  * simplify query-side comparisons and match Urbanwater.
  *
- * @package PramnosFramework
  */
 class CreateLoginlockoutTable extends Migration
 {

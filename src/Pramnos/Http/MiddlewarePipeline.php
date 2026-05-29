@@ -14,8 +14,6 @@ namespace Pramnos\Http;
  * Middleware is called in registration order: first pipe()d = outermost = runs first.
  * Pass a FQCN string for lazy instantiation (no constructor args).
  *
- * @package    PramnosFramework
- * @subpackage Http
  */
 class MiddlewarePipeline
 {

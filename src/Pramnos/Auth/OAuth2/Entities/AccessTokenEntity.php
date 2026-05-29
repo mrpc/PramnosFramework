@@ -16,7 +16,6 @@ use League\OAuth2\Server\Entities\Traits\TokenEntityTrait;
  * grant flow. Persisted to `usertokens` by AccessTokenRepository.
  * The AccessTokenTrait provides JWT generation (RS256) via lcobucci/jwt.
  *
- * @package PramnosFramework
  */
 class AccessTokenEntity implements AccessTokenEntityInterface
 {

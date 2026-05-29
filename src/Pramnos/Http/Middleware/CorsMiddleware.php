@@ -21,8 +21,6 @@ use Pramnos\Http\Request;
  *
  * Preflight (OPTIONS) requests are answered with 204 and do not reach the action.
  *
- * @package    PramnosFramework
- * @subpackage Http\Middleware
  */
 class CorsMiddleware implements MiddlewareInterface
 {

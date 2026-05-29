@@ -14,8 +14,6 @@ use Pramnos\Application\Orm\Collection;
  * for a given parent instance.  Subclasses implement `getResults()` which
  * is called by `OrmModel::__get()` on first access of the relation name.
  *
- * @package     PramnosFramework
- * @subpackage  Application\Orm\Relations
  */
 abstract class Relation
 {

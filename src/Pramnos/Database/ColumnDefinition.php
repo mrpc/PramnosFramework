@@ -8,10 +8,9 @@ namespace Pramnos\Database;
  * Returned by all Blueprint column-type methods. Every modifier returns $this
  * so calls can be chained: $table->string('name', 100)->nullable()->default('').
  *
- * @package     PramnosFramework
- * @subpackage  Database
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   (C) 2026 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 class ColumnDefinition
 {

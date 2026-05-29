@@ -4,10 +4,9 @@ namespace Pramnos\Database;
 
 /**
  * Database result object
- * @package     PramnosFramework
- * @subpackage  Database
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   2005 - 2014 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 class Result implements \IteratorAggregate
 {

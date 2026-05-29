@@ -27,7 +27,6 @@ use Pramnos\Mcp\Tools\RouteListTool;
  * The `pramnos mcp:serve` command reads the server from the container when it
  * starts, so registrations done in boot() are included automatically.
  *
- * @package PramnosFramework
  */
 class McpServiceProvider extends ServiceProvider
 {

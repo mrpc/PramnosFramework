@@ -20,7 +20,6 @@ use Pramnos\Database\DatabaseCapabilities;
  * PostgreSQL gets partial indexes and a regex format check constraint.
  * MySQL gets a plain index on code_challenge and a CHECK on the method column.
  *
- * @package PramnosFramework
  */
 class CreateUsertokensTable extends Migration
 {

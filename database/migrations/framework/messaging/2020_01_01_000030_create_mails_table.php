@@ -11,7 +11,6 @@ use Pramnos\Database\Migration;
  * (queued) are picked up by the queue processor for delivery. Sent emails
  * (status=1) are retained for audit and resend capability.
  *
- * @package PramnosFramework
  */
 class CreateMailsTable extends Migration
 {

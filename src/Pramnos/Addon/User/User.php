@@ -4,8 +4,7 @@ namespace Pramnos\Addon\User;
 /**
  * Session lifecycle addon — sets session variables, cookies, and lastlogin on login/logout.
  *
- * @package     PramnosFramework
- * @copyright   2005 - 2020 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  *
  * @deprecated  Since v1.2 — the login/logout lifecycle is now built into
@@ -13,6 +12,7 @@ namespace Pramnos\Addon\User;
  *              Addon\User addon is registered.  Applications that still have
  *              this class in app.php continue to work unchanged (BC); you may
  *              remove it from app.php when ready.
+ * @license    MIT
  */
 
 class User extends \Pramnos\Addon\Addon

@@ -14,7 +14,6 @@ use Pramnos\Database\Migration;
  *
  * Notifications use types 8 (unread) and 9 (read) and have no fromuserid.
  *
- * @package PramnosFramework
  */
 class CreateMessagesTable extends Migration
 {

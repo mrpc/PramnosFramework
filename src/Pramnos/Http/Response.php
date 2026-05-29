@@ -17,8 +17,6 @@ namespace Pramnos\Http;
  *   return Response::json(['ok' => true])->send();
  *   return Response::redirect('/login')->send();
  *
- * @package    PramnosFramework
- * @subpackage Http
  */
 class Response
 {

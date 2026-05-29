@@ -5,10 +5,9 @@ use Pramnos\Application\Template\TemplateCompiler;
 use Pramnos\Application\Template\TemplateCache;
 
 /**
- * @package     PramnosFramework
- * @subpackage  Application
- * @copyright   2005 - 2020 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class View extends \Pramnos\Framework\Base
 {

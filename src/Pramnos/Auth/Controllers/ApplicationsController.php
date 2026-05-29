@@ -24,8 +24,6 @@ use Pramnos\Application\Controller;
  *
  * Scaffold wrappers at `src/Controllers/Applications.php` (authserver feature only).
  *
- * @package     PramnosFramework
- * @subpackage  Auth\Controllers
  */
 class ApplicationsController extends Controller
 {

@@ -43,8 +43,6 @@ namespace Pramnos\Support;
  *   // 4. Apply named states
  *   User::factory()->state('admin')->count(3)->create();
  *
- * @package PramnosFramework
- * @subpackage Support
  */
 abstract class ModelFactory
 {

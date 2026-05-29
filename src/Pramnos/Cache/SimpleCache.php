@@ -38,8 +38,6 @@ use Psr\SimpleCache\InvalidArgumentException;
  * Keys must be non-empty strings and must not contain any of the reserved
  * characters `{}()/\@:` (per PSR-16 spec).
  *
- * @package     PramnosFramework
- * @subpackage  Cache
  * @see         https://www.php-fig.org/psr/psr-16/
  */
 class SimpleCache implements CacheInterface

@@ -19,7 +19,6 @@ use Pramnos\Database\DatabaseCapabilities;
  * On MySQL: lives in the default database as
  *   applications_application_stats; same columns, regular table.
  *
- * @package PramnosFramework
  */
 class CreateApplicationStatsTable extends Migration
 {

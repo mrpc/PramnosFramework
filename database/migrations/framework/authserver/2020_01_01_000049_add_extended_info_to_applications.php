@@ -11,7 +11,6 @@ use Pramnos\Database\Migration;
  * legal URLs, version tracking, and logo display) matching the full
  * Urbanwater Application model.
  *
- * @package PramnosFramework
  */
 class AddExtendedInfoToApplications extends Migration
 {

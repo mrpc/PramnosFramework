@@ -512,7 +512,6 @@ MIT License - see the [LICENSE.txt](LICENSE.txt) file for details.
 
 **Yannis - Pastis Glaros**  
 Email: <mrpc@pramnoshosting.gr>  
-Company: Pramnos Hosting Ltd.
 
 ## 🤝 Contributing
 

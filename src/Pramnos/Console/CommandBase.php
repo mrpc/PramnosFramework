@@ -16,8 +16,6 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * Usage: extend this class and implement getJobName().
  *
- * @package     PramnosFramework
- * @subpackage  Console
  */
 abstract class CommandBase extends Command
 {

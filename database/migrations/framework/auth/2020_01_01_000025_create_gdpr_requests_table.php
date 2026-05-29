@@ -16,7 +16,6 @@ use Pramnos\Database\DatabaseCapabilities;
  *   - compression enabled; compress chunks older than 1 year
  *   - retention: drop chunks older than 7 years (GDPR compliance requirement)
  *
- * @package PramnosFramework
  */
 class CreateGdprRequestsTable extends Migration
 {

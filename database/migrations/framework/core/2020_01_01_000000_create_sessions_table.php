@@ -11,7 +11,6 @@ use Pramnos\Database\Migration;
  * a text token (visitorid) rather than an auto-increment integer, allowing the
  * application to generate session IDs in PHP before writing to the database.
  *
- * @package PramnosFramework
  */
 class CreateSessionsTable extends Migration
 {

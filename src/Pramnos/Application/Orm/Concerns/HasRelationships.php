@@ -49,8 +49,6 @@ use Pramnos\Application\Orm\Relations\HasOne;
  * $users = User::with('posts')->getList();
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Application\Orm\Concerns
  */
 trait HasRelationships
 {

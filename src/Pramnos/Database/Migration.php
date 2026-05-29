@@ -12,9 +12,8 @@ namespace Pramnos\Database;
  * changes.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Database
- * @copyright   (C) 2005 - 2020 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 abstract class Migration extends \Pramnos\Framework\Base
 {

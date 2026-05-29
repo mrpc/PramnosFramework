@@ -20,8 +20,6 @@ use Pramnos\Database\Database;
  * }
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Application\Orm\Relations
  */
 class HasOne extends Relation
 {

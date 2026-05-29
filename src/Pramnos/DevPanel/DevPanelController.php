@@ -29,8 +29,6 @@ use Pramnos\Application\Settings;
  * depend on the application's theme or document system.  This guarantees the
  * panel looks identical across all host applications.
  *
- * @package PramnosFramework
- * @subpackage DevPanel
  */
 class DevPanelController extends Controller
 {

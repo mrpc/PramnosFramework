@@ -26,8 +26,6 @@ use Pramnos\Application\Settings;
  * ],
  * ```
  *
- * @package PramnosFramework
- * @subpackage Webhook
  */
 class WebhookServiceProvider extends ServiceProvider
 {

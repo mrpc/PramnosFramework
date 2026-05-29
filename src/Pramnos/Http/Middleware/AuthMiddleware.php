@@ -20,8 +20,6 @@ use Pramnos\Http\Session;
  * The exception (code 401) is caught by Application::exec() which renders
  * the appropriate error page or JSON response depending on the document type.
  *
- * @package    PramnosFramework
- * @subpackage Http\Middleware
  */
 class AuthMiddleware implements MiddlewareInterface
 {

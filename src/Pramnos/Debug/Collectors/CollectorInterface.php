@@ -11,7 +11,6 @@ namespace Pramnos\Debug\Collectors;
  * (queries, timing, memory, routes, logs, session) and serialising it to an
  * array that the HTML renderer can display in a tab.
  *
- * @package PramnosFramework
  */
 interface CollectorInterface
 {

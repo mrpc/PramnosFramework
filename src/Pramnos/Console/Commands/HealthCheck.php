@@ -30,8 +30,7 @@ use Pramnos\Health\Checks\MemoryLimitCheck;
  *   2 — one or more checks down
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Console
+ * @license    MIT
  */
 class HealthCheck extends Command
 {

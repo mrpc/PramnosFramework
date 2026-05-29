@@ -32,10 +32,9 @@ namespace Pramnos\Database;
  *
  *   $this->call(PostSeeder::class);
  *
- * @package     PramnosFramework
- * @subpackage  Database
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   (C) 2026 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 abstract class Seeder
 {

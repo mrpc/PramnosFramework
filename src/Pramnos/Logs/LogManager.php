@@ -4,8 +4,6 @@ namespace Pramnos\Logs;
 
 /**
  * LogManager class for handling log file maintenance tasks
- * @package     PramnosFramework
- * @subpackage  Logs
  */
 class LogManager
 {

@@ -37,8 +37,6 @@ use Pramnos\Http\Request;
  * Usage — inject a Cache instance (useful for tests):
  *   new RateLimitMiddleware(10, 60, 'test:', $arrayBackedCache);
  *
- * @package    PramnosFramework
- * @subpackage Http\Middleware
  */
 class RateLimitMiddleware implements MiddlewareInterface
 {

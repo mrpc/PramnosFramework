@@ -13,7 +13,6 @@ use Pramnos\Database\Migration;
  * Columns: share_usage_analytics, marketing_emails (boolean, default false).
  * The old `data_processing` column was removed — it does not exist in Urbanwater.
  *
- * @package PramnosFramework
  */
 class CreateUserPrivacySettingsTable extends Migration
 {

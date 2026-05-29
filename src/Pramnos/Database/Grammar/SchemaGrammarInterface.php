@@ -12,8 +12,6 @@ use Pramnos\Database\ColumnDefinition;
  * Every method returns either a string (single statement) or an array of
  * strings (multiple statements — e.g. CREATE TABLE followed by CREATE INDEX).
  *
- * @package     PramnosFramework
- * @subpackage  Database\Grammar
  */
 interface SchemaGrammarInterface
 {

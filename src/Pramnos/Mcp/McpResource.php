@@ -11,7 +11,6 @@ namespace Pramnos\Mcp;
  * AI via resources/read. Typically used for config files, CLAUDE.md, views,
  * or any other read-only file the assistant might need for context.
  *
- * @package PramnosFramework
  */
 class McpResource
 {

@@ -6,8 +6,7 @@ namespace Pramnos\Health;
  * Immutable result returned by a single HealthCheck execution.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Health
+ * @license    MIT
  */
 class HealthCheckResult
 {

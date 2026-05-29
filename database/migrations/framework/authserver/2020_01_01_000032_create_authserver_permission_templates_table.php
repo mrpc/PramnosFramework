@@ -17,7 +17,6 @@ use Pramnos\Database\Migration;
  * are resolved at apply-time by the apply_permission_template() function.
  * The placeholder name matches authserver_organization_column Setting (default: organization_id).
  *
- * @package PramnosFramework
  */
 class CreateAuthserverPermissionTemplatesTable extends Migration
 {

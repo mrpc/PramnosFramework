@@ -26,8 +26,6 @@ use Pramnos\Http\Request;
  * Enable maintenance mode:  touch /path/to/maintenance.flag
  * Disable maintenance mode: rm /path/to/maintenance.flag
  *
- * @package    PramnosFramework
- * @subpackage Http\Middleware
  */
 class MaintenanceModeMiddleware implements MiddlewareInterface
 {

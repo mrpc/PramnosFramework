@@ -10,7 +10,6 @@ namespace Pramnos\Debug\Collectors;
  * The route data is set externally via setRoute() after the router resolves
  * the request — typically inside the Application dispatch pipeline.
  *
- * @package PramnosFramework
  */
 class RouteCollector implements CollectorInterface
 {

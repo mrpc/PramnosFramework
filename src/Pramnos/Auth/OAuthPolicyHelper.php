@@ -18,8 +18,6 @@ namespace Pramnos\Auth;
  *
  * 'password' grant is excluded (deprecated by RFC 9126 / OAuth 2.1).
  *
- * @package     PramnosFramework
- * @subpackage  Auth
  */
 class OAuthPolicyHelper
 {

@@ -28,8 +28,6 @@ use Pramnos\Notification\NotificationInterface;
  * The channel silently skips if the notification has no toMail() method or
  * the notifiable has no resolvable email address.
  *
- * @package     PramnosFramework
- * @subpackage  Notification\Channels
  */
 class MailChannel implements ChannelInterface
 {

@@ -6,8 +6,8 @@ namespace Pramnos\Cache;
  * Simple cache methods to be used in all applications created by PramnosFramework
  * @static
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @subpackage  Cache
- * @copyright   (C) 2024 Yannis - Pastis Glaros
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 class Cache extends \Pramnos\Framework\Base
 {

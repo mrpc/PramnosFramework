@@ -21,8 +21,6 @@ use Pramnos\Database\Database;
  * Returns empty/null on non-PostgreSQL databases or when TimescaleDB is not
  * installed.
  *
- * @package     PramnosFramework
- * @subpackage  Database\Inspector
  */
 class TimescaleInspector
 {

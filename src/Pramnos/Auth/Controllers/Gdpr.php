@@ -23,8 +23,6 @@ use Pramnos\Application\Controller;
  * Webhook events are queued via WebhookService::queueEvent() so that
  * registered application endpoints receive notifications asynchronously.
  *
- * @package     PramnosFramework
- * @subpackage  Auth\Controllers
  */
 class Gdpr extends Controller
 {

@@ -7,11 +7,10 @@ use Pramnos\Interfaces\Router as RouterInterface;
 
 /**
  * The router object class
- * @package     PramnosFramework
- * @subpackage  Routing
- * @copyright   2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @todo        Groups, Domains, Tokens, Regular Expressions
+ * @license    MIT
  */
 class Router extends Base implements RouterInterface
 {

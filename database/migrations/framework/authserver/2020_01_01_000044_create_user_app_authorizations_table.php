@@ -19,7 +19,6 @@ use Pramnos\Database\Migration;
  * On MySQL: lives in the default database as
  *   authserver_user_app_authorizations; scope stored as JSON.
  *
- * @package PramnosFramework
  */
 class CreateUserAppAuthorizationsTable extends Migration
 {

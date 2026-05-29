@@ -16,7 +16,6 @@ use Pramnos\Database\Migration;
  * the same subject+object+action combination. Deny entries automatically receive
  * priority + 1000 to ensure they dominate.
  *
- * @package PramnosFramework
  */
 class CreateAuthserverPermissionsTable extends Migration
 {

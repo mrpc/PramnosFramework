@@ -24,7 +24,6 @@ use Pramnos\Database\Database;
  * Request signing: X-Webhook-Signature: sha256=<HMAC-SHA256(secret, body)>
  * Retries: exponential back-off starting at 5 minutes (capped at 24 h).
  *
- * @package PramnosFramework
  */
 class WebhookService
 {

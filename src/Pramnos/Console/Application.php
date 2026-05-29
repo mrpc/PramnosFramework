@@ -2,10 +2,9 @@
 
 namespace Pramnos\Console;
 /**
- * @package     PramnosFramework
- * @subpackage  Console
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Application extends \Symfony\Component\Console\Application
 {

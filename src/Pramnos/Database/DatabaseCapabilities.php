@@ -8,10 +8,9 @@ namespace Pramnos\Database;
  * Results are cached per database-connection object (keyed by spl_object_hash)
  * so repeated has() calls incur no extra queries.
  *
- * @package     PramnosFramework
- * @subpackage  Database
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   (C) 2026 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 class DatabaseCapabilities
 {

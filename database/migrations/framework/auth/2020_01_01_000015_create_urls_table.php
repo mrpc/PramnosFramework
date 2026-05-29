@@ -12,7 +12,6 @@ use Pramnos\Database\Migration;
  * table references this table by urlid rather than storing the full URL string
  * in every row, keeping tokenactions compact for time-series storage.
  *
- * @package PramnosFramework
  */
 class CreateUrlsTable extends Migration
 {

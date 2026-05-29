@@ -18,7 +18,6 @@ use Pramnos\Database\Migration;
  * MySQL: the schema is translated to a prefix automatically by SchemaBuilder
  * (authserver.roles → authserver_roles, plus any configured table prefix).
  *
- * @package PramnosFramework
  */
 class CreateAuthserverRolesTable extends Migration
 {

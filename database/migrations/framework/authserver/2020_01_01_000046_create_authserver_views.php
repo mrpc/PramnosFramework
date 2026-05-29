@@ -27,7 +27,6 @@ use Pramnos\Database\Migration;
  *   oauth2_active_tokens      — active OAuth2 tokens with client name and user info
  *   recent_twofactor_attempts — 2FA activity last 24 h with SUCCESS/FAILED status label
  *
- * @package PramnosFramework
  */
 class CreateAuthserverViews extends Migration
 {

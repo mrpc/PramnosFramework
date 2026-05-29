@@ -12,8 +12,6 @@ use Pramnos\Database\QueryBuilder;
  * - RETURNING clause on INSERT / UPDATE / DELETE
  * - LIKE / ILIKE on non-text columns requires a ::text cast
  *
- * @package     PramnosFramework
- * @subpackage  Database\Grammar
  */
 class PostgreSQLGrammar extends Grammar
 {

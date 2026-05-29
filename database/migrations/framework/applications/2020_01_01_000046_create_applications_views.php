@@ -25,7 +25,6 @@ use Pramnos\Database\DatabaseCapabilities;
  *
  * On MySQL, each view is prefixed applications_ to simulate the schema.
  *
- * @package PramnosFramework
  */
 class CreateApplicationsViews extends Migration
 {

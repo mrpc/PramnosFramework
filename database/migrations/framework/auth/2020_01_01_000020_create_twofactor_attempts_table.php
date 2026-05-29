@@ -22,7 +22,6 @@ use Pramnos\Database\DatabaseCapabilities;
  * attempt_time is stored as a TIMESTAMPTZ (PostgreSQL/TimescaleDB) or DATETIME (MySQL).
  * TwoFactorAuthService::logAttempt() inserts formatted UTC strings for portability.
  *
- * @package PramnosFramework
  */
 class CreateTwofactorAttemptsTable extends Migration
 {

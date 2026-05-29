@@ -32,8 +32,6 @@ namespace Pramnos\Application\Orm\Concerns;
  * Post::on('created', function(Post $post) { ... });
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Application\Orm\Concerns
  */
 trait HasEvents
 {

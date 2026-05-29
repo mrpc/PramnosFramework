@@ -20,8 +20,6 @@ use Pramnos\Database\ForeignKeyDefinition;
  *   - compileColumnPosition()        — AFTER col / FIRST (MySQL only)
  *   - compileCreateMaterializedView/compileRefreshMaterializedView (PG only)
  *
- * @package     PramnosFramework
- * @subpackage  Database\Grammar
  */
 abstract class SchemaGrammar implements SchemaGrammarInterface
 {

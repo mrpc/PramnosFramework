@@ -26,8 +26,7 @@ use Pramnos\Application\ServiceProvider;
  *   Factory::getCache()
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Cache
+ * @license    MIT
  */
 class CacheServiceProvider extends ServiceProvider
 {

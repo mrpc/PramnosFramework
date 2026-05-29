@@ -11,8 +11,6 @@ namespace Pramnos\Queue;
  * for a specific task type. The Worker dispatches queue items to the
  * appropriate handler based on the task type string.
  *
- * @package     PramnosFramework
- * @subpackage  Queue
  */
 interface TaskInterface
 {

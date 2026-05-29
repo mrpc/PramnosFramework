@@ -22,8 +22,6 @@ use Pramnos\Application\Controller;
  *   - status   — JSON status endpoint (AJAX)
  *   - test     — debug: generate a TOTP code from a fresh secret (JSON)
  *
- * @package     PramnosFramework
- * @subpackage  Auth\Controllers
  */
 class TwoFactorAuth extends Controller
 {

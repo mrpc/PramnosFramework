@@ -22,8 +22,6 @@ use Pramnos\Application\Controller;
  *
  * Scaffold wrappers at `src/Controllers/Emails.php` (always scaffolded).
  *
- * @package     PramnosFramework
- * @subpackage  Application\Controllers
  */
 class EmailsController extends Controller
 {

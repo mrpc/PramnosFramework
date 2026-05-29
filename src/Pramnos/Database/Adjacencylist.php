@@ -4,9 +4,9 @@ namespace Pramnos\Database;
 
 /**
  * Adjacency List implementation class
- * @package     PramnosFramework
- * @copyright   2005 - 2014 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Adjacencylist extends \Pramnos\Framework\Base
 {

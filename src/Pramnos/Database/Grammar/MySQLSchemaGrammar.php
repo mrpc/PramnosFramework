@@ -14,8 +14,6 @@ use Pramnos\Database\ColumnDefinition;
  * - Table options: ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
  * - Foreign keys: declared inline inside CREATE TABLE
  *
- * @package     PramnosFramework
- * @subpackage  Database\Grammar
  */
 class MySQLSchemaGrammar extends SchemaGrammar
 {

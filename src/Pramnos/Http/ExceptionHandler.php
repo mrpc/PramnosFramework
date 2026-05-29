@@ -31,8 +31,6 @@ use Pramnos\Logs\Logger;
  * HTTP status mapping: uses the exception code when it is a valid 4xx/5xx;
  * falls back to 500 for anything else (0, negative, non-HTTP codes).
  *
- * @package    PramnosFramework
- * @subpackage Http
  */
 class ExceptionHandler
 {

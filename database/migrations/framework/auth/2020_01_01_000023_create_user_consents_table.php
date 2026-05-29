@@ -21,7 +21,6 @@ use Pramnos\Database\DatabaseCapabilities;
  * decisions. expires_at / revoked_at model time-bounded and explicitly revoked
  * consents respectively; NULL expires_at means the consent does not expire.
  *
- * @package PramnosFramework
  */
 class CreateUserConsentsTable extends Migration
 {

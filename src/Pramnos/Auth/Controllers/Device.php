@@ -17,8 +17,6 @@ use Pramnos\Application\Controller;
  * HTML views are resolved from the application view path under `device`.
  * Sub-views: display (form), confirmation, success, deny, errormessage.
  *
- * @package     PramnosFramework
- * @subpackage  Auth\Controllers
  */
 class Device extends Controller
 {

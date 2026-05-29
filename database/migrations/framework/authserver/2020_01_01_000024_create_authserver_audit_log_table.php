@@ -19,7 +19,6 @@ use Pramnos\Database\Migration;
  * This is a regular table (not a TimescaleDB hypertable). For high-volume
  * time-series logging, prefer user_activity_log or tokenactions.
  *
- * @package PramnosFramework
  */
 class CreateAuthserverAuditLogTable extends Migration
 {

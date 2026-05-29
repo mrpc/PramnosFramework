@@ -12,8 +12,6 @@ namespace Pramnos\Application\Statistics;
  * addon on every page request. The `guest` column is 0 for authenticated users and
  * 1 for anonymous visitors. The `time` column holds a Unix timestamp of last activity.
  *
- * @package     PramnosFramework
- * @subpackage  Application\Statistics
  */
 class ActiveUsersService
 {

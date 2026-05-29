@@ -12,8 +12,6 @@ use Pramnos\Application\Controller;
  *
  * All actions are public (no authentication required).
  *
- * @package     PramnosFramework
- * @subpackage  Auth\Controllers
  */
 class Discovery extends Controller
 {

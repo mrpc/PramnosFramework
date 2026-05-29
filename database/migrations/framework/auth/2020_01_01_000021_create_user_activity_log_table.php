@@ -17,7 +17,6 @@ use Pramnos\Database\DatabaseCapabilities;
  * The composite PK (id, created_at) satisfies TimescaleDB's requirement that
  * the partition key (created_at) be part of every unique/primary constraint.
  *
- * @package PramnosFramework
  */
 class CreateUserActivityLogTable extends Migration
 {

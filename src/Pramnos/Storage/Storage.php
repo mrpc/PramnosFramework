@@ -42,8 +42,6 @@ namespace Pramnos\Storage;
  * $signedUrl = Storage::disk('s3')->temporaryUrl('reports/q1.pdf', new DateTime('+1 hour'));
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Storage
  */
 class Storage
 {

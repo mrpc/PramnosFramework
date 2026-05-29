@@ -12,7 +12,6 @@ use Pramnos\Database\Migration;
  * Backup codes are stored as a JSON array of bcrypt hashes.
  * All timestamps are Unix integers for cross-DB portability.
  *
- * @package PramnosFramework
  */
 class CreateUserTwofactorTable extends Migration
 {

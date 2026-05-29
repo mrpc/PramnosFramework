@@ -10,7 +10,6 @@ use Pramnos\Database\Migration;
  * Allows administrators to attach free-form notes to a user's account that are
  * visible only in the admin panel. Not exposed to the end user.
  *
- * @package PramnosFramework
  */
 class CreateUsernotesTable extends Migration
 {

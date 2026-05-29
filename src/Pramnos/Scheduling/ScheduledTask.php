@@ -22,8 +22,7 @@ namespace Pramnos\Scheduling;
  * ```
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Scheduling
+ * @license    MIT
  */
 class ScheduledTask
 {

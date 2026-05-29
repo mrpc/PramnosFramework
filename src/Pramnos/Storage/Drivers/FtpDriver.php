@@ -22,8 +22,6 @@ use Pramnos\Storage\StorageInterface;
  *   - `timeout`  (int, optional, default 30) — connection timeout in seconds.
  *   - `url`      (string, optional) — public base URL for url().
  *
- * @package     PramnosFramework
- * @subpackage  Storage\Drivers
  */
 class FtpDriver implements StorageInterface
 {

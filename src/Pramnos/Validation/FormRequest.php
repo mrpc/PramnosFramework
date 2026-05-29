@@ -31,8 +31,6 @@ namespace Pramnos\Validation;
  * Override $redirectTo (or getRedirectUrl()) to redirect somewhere other than
  * HTTP_REFERER on validation failure.
  *
- * @package PramnosFramework
- * @subpackage Validation
  */
 abstract class FormRequest
 {

@@ -33,8 +33,6 @@ use Psr\Log\LogLevel;
  * Placeholder values in the form `{key}` are replaced with the
  * corresponding value from the $context array, per the PSR-3 spec.
  *
- * @package     PramnosFramework
- * @subpackage  Logs
  * @see         https://www.php-fig.org/psr/psr-3/
  */
 class PsrLogger extends AbstractLogger

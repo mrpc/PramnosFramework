@@ -27,8 +27,6 @@ namespace Pramnos\Support;
  *   $faker->name    // same as $faker->name()
  *   $faker->uuid    // same as $faker->uuid()
  *
- * @package    PramnosFramework
- * @subpackage Support
  *
  * @method string  word()
  * @method list<string> words(int $nb = 3)

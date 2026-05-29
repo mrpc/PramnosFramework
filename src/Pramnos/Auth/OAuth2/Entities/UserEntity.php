@@ -13,7 +13,6 @@ use League\OAuth2\Server\Entities\UserEntityInterface;
  * the Password grant flow. Hydrated by UserRepository after credential
  * validation against the `users` table.
  *
- * @package PramnosFramework
  */
 class UserEntity implements UserEntityInterface
 {

@@ -11,7 +11,6 @@ namespace Pramnos\Console\Make;
  *
  * Stateless and dependency-free — all methods are pure string transformations.
  *
- * @package PramnosFramework
  */
 class FakeDataGenerator
 {

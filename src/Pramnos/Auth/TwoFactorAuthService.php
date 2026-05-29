@@ -24,8 +24,6 @@ namespace Pramnos\Auth;
  * Password verification is intentionally NOT performed inside this service —
  * that concern belongs in the calling controller.
  *
- * @package     PramnosFramework
- * @subpackage  Auth
  */
 class TwoFactorAuthService
 {

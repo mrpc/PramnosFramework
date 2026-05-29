@@ -65,8 +65,6 @@ use Pramnos\Application\Orm\Relations\Relation;
  * $list = $user->applyScope('active')->_getList();
  * ```
  *
- * @package     PramnosFramework
- * @subpackage  Application
  */
 abstract class OrmModel extends Model
 {

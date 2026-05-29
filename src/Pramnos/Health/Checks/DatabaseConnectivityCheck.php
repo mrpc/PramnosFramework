@@ -11,8 +11,7 @@ use Pramnos\Health\HealthCheckResult;
  * a simple read query.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Health
+ * @license    MIT
  */
 class DatabaseConnectivityCheck implements HealthCheck
 {

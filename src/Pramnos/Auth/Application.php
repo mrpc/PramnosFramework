@@ -11,7 +11,6 @@ namespace Pramnos\Auth;
  * database table and provides the interface expected by the OAuth2 repositories
  * (getClientIdentifier, validateCredentials, etc.).
  *
- * @package PramnosFramework
  */
 class Application extends \Pramnos\Application\Model
 {

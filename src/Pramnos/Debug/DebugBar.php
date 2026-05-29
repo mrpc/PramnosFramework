@@ -28,7 +28,6 @@ use Pramnos\Debug\Collectors\TimeCollector;
  *   // ...
  *   DebugBar::stopTimer('auth-check');
  *
- * @package PramnosFramework
  */
 class DebugBar
 {

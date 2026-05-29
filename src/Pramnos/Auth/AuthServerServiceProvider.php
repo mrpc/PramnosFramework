@@ -21,7 +21,6 @@ use Pramnos\Application\ServiceProvider;
  * effects during request handling. Call OAuth2ServerFactory::generateKeyPair()
  * from `pramnos init` or a one-time setup command instead.
  *
- * @package PramnosFramework
  */
 class AuthServerServiceProvider extends ServiceProvider
 {

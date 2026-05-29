@@ -1,10 +1,9 @@
 <?php
 namespace Pramnos\Application;
 /**
- * @package      PramnosFramework
- * @subpackage   Application
- * @copyright    2005 - 2025 Yannis - Pastis Glaros
+ * @copyright    (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author       Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Model extends \Pramnos\Framework\Base
 {

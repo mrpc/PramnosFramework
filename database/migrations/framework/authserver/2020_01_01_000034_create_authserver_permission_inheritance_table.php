@@ -20,7 +20,6 @@ use Pramnos\Database\Migration;
  * Inheritance is resolved by check_permission_with_inheritance() on PostgreSQL.
  * On MySQL, application code must perform the inheritance walk manually.
  *
- * @package PramnosFramework
  */
 class CreateAuthserverPermissionInheritanceTable extends Migration
 {

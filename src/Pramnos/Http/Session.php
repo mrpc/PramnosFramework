@@ -6,10 +6,9 @@ use Pramnos\Framework\Base;
 
 /**
  * Get user request and translate it
- * @package     PramnosFramework
- * @subpackage  Request
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Session extends Base
 {

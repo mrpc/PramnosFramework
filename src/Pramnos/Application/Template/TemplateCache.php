@@ -17,10 +17,9 @@ namespace Pramnos\Application\Template;
  * Default cache directory: ROOT/var/viewcache (falls back to sys_get_temp_dir()
  * when ROOT is not defined, e.g. in unit tests).
  *
- * @package     PramnosFramework
- * @subpackage  Application\Template
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   (C) 2026 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 class TemplateCache
 {

@@ -28,8 +28,6 @@ use Pramnos\Application\ScaffoldingHelper;
  *   ./pramnos scaffold:views --group=oauth2 --theme=tailwind --force
  *   ./pramnos scaffold:views --list
  *
- * @package    PramnosFramework
- * @subpackage Console\Commands
  */
 class ScaffoldViews extends Command
 {

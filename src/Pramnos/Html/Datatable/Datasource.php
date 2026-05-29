@@ -10,10 +10,9 @@ use Pramnos\Framework\Base;
  * @todo        Add callback functions
  * @todo        Alternative method to count rows
  * @todo        Documentation ρε
- * @package     PramnosFramework
- * @subpackage  JSON
- * @copyright   2005 - 2014 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Datasource extends Base
 {

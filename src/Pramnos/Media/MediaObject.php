@@ -4,10 +4,11 @@ namespace Pramnos\Media;
 
 /**
  * Media Object Class
- * @copyright   Copyright (C) 2011-2016 Yannis - Pastis Glaros
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  *
  *
+ * @license    MIT
  */
 class MediaObject extends \Pramnos\Framework\Base
 {

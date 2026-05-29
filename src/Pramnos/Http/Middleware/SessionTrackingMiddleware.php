@@ -30,7 +30,6 @@ use Pramnos\Http\Request;
  * Or register on the pipeline directly:
  *   $app->middleware()->add(new SessionTrackingMiddleware());
  *
- * @package PramnosFramework
  *
  * @see Pramnos\Addon\System\Session  (deprecated — kept for BC)
  */

@@ -16,7 +16,6 @@ use League\OAuth2\Server\Repositories\ClientRepositoryInterface;
  * `applications` table. Also validates client secrets during confidential
  * client authentication.
  *
- * @package PramnosFramework
  */
 class ClientRepository implements ClientRepositoryInterface
 {

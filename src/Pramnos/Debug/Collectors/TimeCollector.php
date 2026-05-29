@@ -11,7 +11,6 @@ namespace Pramnos\Debug\Collectors;
  * collector. The request start time is set when the collector is created
  * (typically at middleware boot time).
  *
- * @package PramnosFramework
  */
 class TimeCollector implements CollectorInterface
 {

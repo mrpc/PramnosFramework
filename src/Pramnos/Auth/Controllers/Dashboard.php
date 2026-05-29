@@ -23,8 +23,6 @@ use Pramnos\Application\Controller;
  *   - security         — security overview (logins, sessions, 2FA status)
  *   - changepassword   — change password (POST with current + new password)
  *
- * @package     PramnosFramework
- * @subpackage  Auth\Controllers
  */
 class Dashboard extends Controller
 {

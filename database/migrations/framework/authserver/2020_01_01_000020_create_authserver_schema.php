@@ -13,7 +13,6 @@ use Pramnos\Database\Migration;
  * is a no-op (tables are created in the default database with the authserver_
  * prefix instead).
  *
- * @package PramnosFramework
  */
 class CreateAuthserverSchema extends Migration
 {

@@ -32,8 +32,6 @@ use Pramnos\Broadcasting\Drivers\NullDriver;
  * | `private-`  | Private channel — subscription requires auth             |
  * | `presence-` | Presence channel — member list exposed to subscribers   |
  *
- * @package PramnosFramework
- * @subpackage Broadcasting
  */
 class BroadcastingManager
 {

@@ -22,7 +22,6 @@ use League\OAuth2\Server\Repositories\ScopeRepositoryInterface;
  * - admin  — Full administrative access
  * - user   — Access to the user's own profile
  *
- * @package PramnosFramework
  */
 class ScopeRepository implements ScopeRepositoryInterface
 {

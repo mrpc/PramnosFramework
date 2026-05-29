@@ -13,7 +13,6 @@ use Pramnos\Database\Migration;
  *
  * Used by DatabaseChannel from Pramnos\Notification\Channels.
  *
- * @package PramnosFramework
  */
 class CreateNotificationsTable extends Migration
 {

@@ -21,6 +21,7 @@ namespace Pramnos\Application;
  * Both minUserType and permission must pass when set; the stricter always wins.
  *
  * @author  Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 readonly class NavItem
 {

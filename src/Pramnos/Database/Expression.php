@@ -5,8 +5,6 @@ namespace Pramnos\Database;
 /**
  * Wraps a raw SQL fragment that should be embedded verbatim (not bound as a parameter).
  *
- * @package     PramnosFramework
- * @subpackage  Database
  */
 class Expression
 {

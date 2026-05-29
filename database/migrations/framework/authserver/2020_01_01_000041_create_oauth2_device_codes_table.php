@@ -14,7 +14,6 @@ use Pramnos\Database\Migration;
  * The expires_at column stores a unix timestamp (INT) for direct comparison with
  * time() in PHP without time-zone conversion issues.
  *
- * @package PramnosFramework
  */
 class CreateOauth2DeviceCodesTable extends Migration
 {

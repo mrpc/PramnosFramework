@@ -13,6 +13,7 @@ namespace Pramnos\Application;
  * any hardcoded knowledge of which items exist.
  *
  * @author  Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 enum NavSection: string
 {

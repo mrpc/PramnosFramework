@@ -3,10 +3,9 @@
 namespace Pramnos\Document\DocumentTypes;
 /**
  * RSS Document
- * @package     PramnosFramework
- * @subpackage  Document
- * @copyright   Copyright (C) 2005 - 2011 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Rss extends \Pramnos\Document\Document
 {

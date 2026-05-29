@@ -25,7 +25,6 @@ namespace Pramnos\Broadcasting;
  *  - No authentication / presence channel metadata
  *  - Up to ~100 concurrent connections without tuning
  *
- * @package PramnosFramework
  */
 class LocalBroadcastServer
 {

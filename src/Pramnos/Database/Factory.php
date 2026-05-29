@@ -48,8 +48,6 @@ use Pramnos\Support\Faker;
  *                ->sequence(['role' => 'admin'], ['role' => 'user'])
  *                ->make();
  *
- * @package    PramnosFramework
- * @subpackage Database
  */
 abstract class Factory
 {

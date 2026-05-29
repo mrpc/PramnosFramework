@@ -24,6 +24,7 @@ use Pramnos\User\User;
  *   GET  /users/sessions/:id — sessions()       list active sessions
  *
  * @author  Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class UsersController extends Controller
 {

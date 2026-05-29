@@ -31,8 +31,6 @@ use Pramnos\Database\Inspector\TimescaleInspector;
  *
  * Thin wrappers in scaffolded apps live at src/Controllers/Dashboard.php.
  *
- * @package     PramnosFramework
- * @subpackage  Application\Controllers
  */
 class DashboardController extends Controller
 {

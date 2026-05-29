@@ -15,7 +15,6 @@ use Pramnos\Database\Migration;
  * On PostgreSQL: lives in the `applications` schema alongside other OAuth2
  * client management tables. On MySQL, the schema prefix is applications_.
  *
- * @package PramnosFramework
  */
 class CreateOauth2ClientAuthMethodsTable extends Migration
 {

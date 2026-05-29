@@ -21,7 +21,6 @@ namespace Pramnos\Mcp;
  *   $server->addResource(new McpResource('file://CLAUDE.md', 'Project guide', ROOT.'/CLAUDE.md'));
  *   $server->run();
  *
- * @package PramnosFramework
  */
 class McpServer
 {

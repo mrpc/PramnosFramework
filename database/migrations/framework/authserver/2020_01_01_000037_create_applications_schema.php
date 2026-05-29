@@ -18,7 +18,6 @@ use Pramnos\Database\Migration;
  * The `applications` TABLE (public.applications — the OAuth2 client registry)
  * is a separate concept from this schema and is created by create_applications_table.
  *
- * @package PramnosFramework
  */
 class CreateApplicationsSchema extends Migration
 {

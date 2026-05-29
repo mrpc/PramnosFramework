@@ -11,8 +11,6 @@ namespace Pramnos\Broadcasting\Drivers;
  * log file, null/no-op, etc.).  The BroadcastingManager selects the active
  * driver and delegates every broadcast() call to it.
  *
- * @package PramnosFramework
- * @subpackage Broadcasting\Drivers
  */
 interface DriverInterface
 {

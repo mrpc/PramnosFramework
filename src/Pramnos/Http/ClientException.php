@@ -7,8 +7,6 @@ namespace Pramnos\Http;
  * DNS failure, timeout, SSL error). NOT thrown for 4xx/5xx responses — those
  * are returned as ClientResponse objects so the caller can inspect them.
  *
- * @package    PramnosFramework
- * @subpackage Http
  */
 class ClientException extends \RuntimeException
 {

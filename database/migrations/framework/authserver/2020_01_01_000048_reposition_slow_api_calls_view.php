@@ -15,7 +15,6 @@ use Pramnos\Database\Migration;
  * This migration drops authserver.slow_api_calls so all slow-call analysis is
  * consolidated under the applications schema.
  *
- * @package PramnosFramework
  */
 class RepositionSlowApiCallsView extends Migration
 {

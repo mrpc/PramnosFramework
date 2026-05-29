@@ -13,7 +13,6 @@ use Pramnos\Mcp\McpToolInterface;
  * Returns a JSON array of objects with 'table' and 'rows' keys.
  * Works across MySQL and PostgreSQL.
  *
- * @package PramnosFramework
  */
 class ListTablesTool implements McpToolInterface
 {

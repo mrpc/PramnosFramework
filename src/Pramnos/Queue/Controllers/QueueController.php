@@ -27,8 +27,6 @@ use Pramnos\Application\Controller;
  *
  * Scaffold wrappers at `src/Controllers/Queue.php` (queue feature only).
  *
- * @package     PramnosFramework
- * @subpackage  Queue\Controllers
  */
 class QueueController extends Controller
 {

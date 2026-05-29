@@ -63,8 +63,7 @@ namespace Pramnos\Application;
  * ```
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Application
+ * @license    MIT
  */
 abstract class ServiceProvider
 {
