@@ -5,10 +5,9 @@ use Symfony\Component\Routing\Route as SymfonyRoute;
 
 /**
  * A Route
- * @package     PramnosFramework
- * @subpackage  Routing
- * @copyright   2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Route
 {

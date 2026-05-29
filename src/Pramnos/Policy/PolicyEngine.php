@@ -36,8 +36,7 @@ use Pramnos\Database\Database;
  * ```
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Policy
+ * @license    MIT
  */
 class PolicyEngine
 {

@@ -6,8 +6,6 @@ use Pramnos\Html\Logs\LogViewerView;
 
 /**
  * LogViewer class for handling log file viewing, searching, and pagination
- * @package     PramnosFramework
- * @subpackage  Logs
  */
 class LogViewer
 {

@@ -13,7 +13,6 @@ use Pramnos\Mcp\McpToolInterface;
  * Returns columns (name, type, nullable, default), indexes, and foreign keys.
  * Works across MySQL 8.0 and PostgreSQL 14+.
  *
- * @package PramnosFramework
  */
 class QuerySchemaTool implements McpToolInterface
 {

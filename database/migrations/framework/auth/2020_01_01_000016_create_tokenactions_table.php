@@ -23,7 +23,6 @@ use Pramnos\Database\DatabaseCapabilities;
  * bidirectionally, preserving backwards compatibility with code that writes
  * the legacy integer servertime column.
  *
- * @package PramnosFramework
  */
 class CreateTokenactionsTable extends Migration
 {

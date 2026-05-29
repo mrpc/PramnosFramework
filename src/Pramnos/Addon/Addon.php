@@ -14,10 +14,9 @@ namespace Pramnos\Addon;
  * -xmlrpc
  * -apps
  *
- * @package     PramnosFramework
- * @subpackage  Addons
- * @copyright   (c) 2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Addon extends \Pramnos\Framework\Base
 {

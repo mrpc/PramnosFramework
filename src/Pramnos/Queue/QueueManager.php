@@ -25,8 +25,6 @@ namespace Pramnos\Queue;
  *       $manager->markTaskAsCompleted($task, 'Sent OK');
  *   }
  *
- * @package     PramnosFramework
- * @subpackage  Queue
  */
 class QueueManager
 {

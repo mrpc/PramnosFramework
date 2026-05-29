@@ -16,7 +16,6 @@ namespace Pramnos\Debug\Collectors;
  * RedirectException is deliberately excluded — it is a control-flow
  * mechanism, not a genuine error condition.
  *
- * @package PramnosFramework
  */
 class ExceptionsCollector implements CollectorInterface
 {

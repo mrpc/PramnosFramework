@@ -23,8 +23,6 @@ use Pramnos\Http\Request;
  * });
  * ```
  *
- * @package    PramnosFramework
- * @subpackage Http\Middleware
  */
 class JsonResponseMiddleware implements MiddlewareInterface
 {

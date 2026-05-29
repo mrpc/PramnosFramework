@@ -30,10 +30,9 @@ namespace Pramnos\Application\Template;
  *   @empty / @endempty
  *   @php / @endphp         — raw PHP block
  *
- * @package     PramnosFramework
- * @subpackage  Application\Template
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   (C) 2026 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 class TemplateCompiler
 {

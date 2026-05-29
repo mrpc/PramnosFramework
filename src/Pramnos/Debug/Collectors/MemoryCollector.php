@@ -7,7 +7,6 @@ namespace Pramnos\Debug\Collectors;
 /**
  * Reports peak memory usage at render time.
  *
- * @package PramnosFramework
  */
 class MemoryCollector implements CollectorInterface
 {

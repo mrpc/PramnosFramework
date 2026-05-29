@@ -12,8 +12,6 @@ namespace Pramnos\Notification;
  * optional data — e.g. MailChannel silently skips when the notifiable has no
  * email address.
  *
- * @package     PramnosFramework
- * @subpackage  Notification
  */
 interface ChannelInterface
 {

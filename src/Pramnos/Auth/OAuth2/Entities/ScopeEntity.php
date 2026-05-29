@@ -14,7 +14,6 @@ use League\OAuth2\Server\Entities\Traits\EntityTrait;
  * Hydrated by ScopeRepository::getScopeEntityByIdentifier().
  * JSON-serialized to the scope identifier string for JWT embedding.
  *
- * @package PramnosFramework
  */
 class ScopeEntity implements ScopeEntityInterface
 {

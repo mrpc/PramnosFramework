@@ -48,8 +48,6 @@ use Pramnos\Broadcasting\Drivers\DriverInterface;
  * Laravel Reverb provides a Pusher-compatible WebSocket server. Point this
  * driver at Reverb by setting 'host', 'port', 'scheme' and 'encrypted'=false.
  *
- * @package     PramnosFramework
- * @subpackage  Broadcasting\Drivers
  */
 class PusherDriver implements DriverInterface
 {

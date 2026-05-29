@@ -9,7 +9,6 @@ namespace Pramnos\Console\Make;
  * $application->applicationInfo config array — no running application or
  * database connection is required, making this class fully unit-testable.
  *
- * @package PramnosFramework
  */
 class NamespaceResolver
 {

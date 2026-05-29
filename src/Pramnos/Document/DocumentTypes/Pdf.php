@@ -1,10 +1,9 @@
 <?php
 namespace Pramnos\Document\DocumentTypes;
 /**
- * @package     PramnosFramework
- * @subpackage  Document
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Pdf extends \Pramnos\Document\Document
 {
@@ -26,7 +25,7 @@ class Pdf extends \Pramnos\Document\Document
         );
         // set document information
         $pdf->SetCreator("PramnosFramework");
-        $pdf->SetAuthor('Pramnos Hosting LTD');
+        $pdf->SetAuthor(' LTD');
         if ($this->title == '') {
             $pdf->SetTitle('Report');
             $pdf->SetSubject('Report');

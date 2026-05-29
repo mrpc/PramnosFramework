@@ -9,8 +9,6 @@ namespace Pramnos\Support;
  * Registered as the sole provider for the 'el_GR' locale; because it extends
  * FakerBaseProvider it also carries all generic methods (lorem, email, uuid…).
  *
- * @package    PramnosFramework
- * @subpackage Support
  */
 class FakerGrProvider extends FakerBaseProvider
 {

@@ -9,7 +9,5 @@ use Psr\SimpleCache\InvalidArgumentException;
 /**
  * Thrown by SimpleCache when a cache key violates the PSR-16 specification.
  *
- * @package     PramnosFramework
- * @subpackage  Cache
  */
 class SimpleCacheInvalidArgumentException extends \InvalidArgumentException implements InvalidArgumentException {}

@@ -16,7 +16,6 @@ use Pramnos\Http\Request;
  *
  * JSON API responses and redirects are passed through untouched.
  *
- * @package PramnosFramework
  */
 class DebugBarMiddleware implements MiddlewareInterface
 {

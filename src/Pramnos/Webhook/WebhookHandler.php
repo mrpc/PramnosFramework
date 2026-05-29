@@ -44,8 +44,6 @@ namespace Pramnos\Webhook;
  * | workflow_run (completed success) | `workflow_run` | Execute head branch commands if mapped |
  * | Other events | * | Respond 204 No Content (silently ignored) |
  *
- * @package PramnosFramework
- * @subpackage Webhook
  */
 class WebhookHandler
 {

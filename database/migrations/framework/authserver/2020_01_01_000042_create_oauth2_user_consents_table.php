@@ -16,7 +16,6 @@ use Pramnos\Database\Migration;
  * authorization request includes additional scopes, the stored scope string is
  * updated to the union of old and new scopes.
  *
- * @package PramnosFramework
  */
 class CreateOauth2UserConsentsTable extends Migration
 {

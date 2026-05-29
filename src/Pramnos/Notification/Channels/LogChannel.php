@@ -23,8 +23,6 @@ use Pramnos\Notification\NotificationInterface;
  * The log file path defaults to LOGS/notifications.log (if the LOGS constant
  * is defined) or sys_get_temp_dir()/notifications.log.
  *
- * @package     PramnosFramework
- * @subpackage  Notification\Channels
  */
 class LogChannel implements ChannelInterface
 {

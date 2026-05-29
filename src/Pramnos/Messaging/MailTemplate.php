@@ -16,8 +16,6 @@ namespace Pramnos\Messaging;
  *   MailTemplate::TYPE_SMS   = 1
  *   MailTemplate::TYPE_PUSH  = 2
  *
- * @package     PramnosFramework
- * @subpackage  Messaging
  *
  * @property int         $templateid
  * @property string      $title           Human-readable name for admin panel

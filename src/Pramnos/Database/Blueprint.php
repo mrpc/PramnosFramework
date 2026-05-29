@@ -8,10 +8,9 @@ namespace Pramnos\Database;
  * Passed to the callback in SchemaBuilder::createTable() / alterTable().
  * The resulting Blueprint is handed to the SchemaGrammar for SQL compilation.
  *
- * @package     PramnosFramework
- * @subpackage  Database
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   (C) 2026 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 class Blueprint
 {

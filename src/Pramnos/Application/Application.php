@@ -3,10 +3,9 @@
 namespace Pramnos\Application;
 use Pramnos\Framework\Base;
 /**
- * @package     PramnosFramework
- * @subpackage  Application
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Application extends Base
 {

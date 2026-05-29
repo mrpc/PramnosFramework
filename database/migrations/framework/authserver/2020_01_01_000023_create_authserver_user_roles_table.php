@@ -11,7 +11,6 @@ use Pramnos\Database\Migration;
  * Assignments can be scoped to an organisation (deyaid) and may carry an
  * expiry timestamp for temporary role grants.
  *
- * @package PramnosFramework
  */
 class CreateAuthserverUserRolesTable extends Migration
 {

@@ -19,8 +19,6 @@ use Pramnos\Database\Seeder;
  *
  * Seeders must extend Pramnos\Database\Seeder and implement run().
  *
- * @package     PramnosFramework
- * @subpackage  Console\Commands
  */
 class DbSeed extends Command
 {

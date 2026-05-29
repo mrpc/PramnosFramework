@@ -5,7 +5,8 @@ namespace Pramnos\Cache\Adapter;
 /**
  * Memcache cache adapter (for older Memcache extension)
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   (C) 2024 Yannis - Pastis Glaros
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 class MemcacheAdapter extends AbstractAdapter
 {

@@ -15,7 +15,6 @@ use Pramnos\Database\Migration;
  * On PostgreSQL: lives in the `authserver` schema.
  * On MySQL, the schema is translated to a prefix: authserver_jwt_replay_prevention.
  *
- * @package PramnosFramework
  */
 class CreateJwtReplayPreventionTable extends Migration
 {

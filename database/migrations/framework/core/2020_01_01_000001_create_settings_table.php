@@ -11,7 +11,6 @@ use Pramnos\Database\Migration;
  * cached for the request lifetime. Rows with delete=0 are considered permanent
  * and are never removed by automated cleanup processes.
  *
- * @package PramnosFramework
  */
 class CreateSettingsTable extends Migration
 {

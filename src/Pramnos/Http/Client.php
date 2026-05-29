@@ -36,8 +36,6 @@ namespace Pramnos\Http;
  *   $users  = $api->make('GET',  '/users')->send()->json();
  *   $orders = $api->make('POST', '/orders')->json($payload)->send()->json();
  *
- * @package    PramnosFramework
- * @subpackage Http
  */
 class Client
 {

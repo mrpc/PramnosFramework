@@ -22,8 +22,6 @@ use Pramnos\Notification\NotificationInterface;
  *
  * Silently skips if the notification has no toBroadcast() method.
  *
- * @package     PramnosFramework
- * @subpackage  Notification\Channels
  */
 class BroadcastChannel implements ChannelInterface
 {

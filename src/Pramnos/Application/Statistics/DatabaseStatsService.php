@@ -13,8 +13,6 @@ namespace Pramnos\Application\Statistics;
  * All queries are wrapped in try/catch so a missing pg_monitor role or
  * restricted MySQL user degrades gracefully (returns null for the metric).
  *
- * @package     PramnosFramework
- * @subpackage  Application\Statistics
  */
 class DatabaseStatsService
 {

@@ -4,9 +4,8 @@ namespace Pramnos\Document\DocumentTypes;
 
 /**
  * AMP Document Type
- * @package     PramnosFramework
- * @subpackage  Document
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Amp extends \Pramnos\Document\Document
 {

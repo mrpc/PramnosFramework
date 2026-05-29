@@ -13,8 +13,6 @@ namespace Pramnos\Application;
  *  - Init command               — to know where scaffold assets live
  *  - scaffold:views command     — to copy bundled views into a project
  *
- * @package    PramnosFramework
- * @subpackage Application
  */
 class ScaffoldingHelper
 {

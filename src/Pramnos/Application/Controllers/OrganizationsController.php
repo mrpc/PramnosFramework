@@ -28,8 +28,6 @@ use Pramnos\Application\Settings;
  *
  * Scaffold wrappers at `src/Controllers/Organizations.php`.
  *
- * @package     PramnosFramework
- * @subpackage  Application\Controllers
  */
 class OrganizationsController extends Controller
 {

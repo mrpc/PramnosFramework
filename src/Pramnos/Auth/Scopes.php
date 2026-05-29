@@ -15,8 +15,6 @@ namespace Pramnos\Auth;
  * Framework scopes defined here cover standard OpenID Connect / OAuth 2.0 scopes.
  * Application-specific scopes should extend or override getScopes() in a subclass.
  *
- * @package     PramnosFramework
- * @subpackage  Auth
  */
 class Scopes
 {

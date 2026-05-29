@@ -22,8 +22,6 @@ use Pramnos\Storage\StorageInterface;
  *   - `endpoint` (string, optional) — custom endpoint for S3-compatible services (MinIO, etc.).
  *   - `use_path_style_endpoint` (bool, optional, default false) — use path-style URLs.
  *
- * @package     PramnosFramework
- * @subpackage  Storage\Drivers
  */
 class S3Driver implements StorageInterface
 {

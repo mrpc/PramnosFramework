@@ -12,8 +12,6 @@ namespace Pramnos\Notification;
  *
  * The default implementation is provided by NotifiableTrait.
  *
- * @package     PramnosFramework
- * @subpackage  Notification
  */
 interface NotifiableInterface
 {

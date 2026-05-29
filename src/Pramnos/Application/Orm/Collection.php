@@ -10,8 +10,6 @@ namespace Pramnos\Application\Orm;
  * Wraps an array of objects (typically OrmModel instances) and exposes
  * functional helpers: filter, map, pluck, groupBy, each, etc.
  *
- * @package     PramnosFramework
- * @subpackage  Application\Orm
  * @template    T
  */
 class Collection implements \Countable, \IteratorAggregate, \JsonSerializable

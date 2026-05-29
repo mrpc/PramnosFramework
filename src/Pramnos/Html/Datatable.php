@@ -7,10 +7,9 @@ use Pramnos\Html\Datatable;
 
 /**
  * Class for Datatable jquery library
- * @package     PramnosFramework
- * @subpackage  Html
- * @copyright   2020 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Datatable extends Base
 {

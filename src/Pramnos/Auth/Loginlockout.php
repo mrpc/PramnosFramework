@@ -29,8 +29,6 @@ namespace Pramnos\Auth;
  * namespace. Schema resolution and dialect-appropriate quoting is handled
  * automatically by QueryBuilder::table().
  *
- * @package     PramnosFramework
- * @subpackage  Auth
  */
 class Loginlockout
 {

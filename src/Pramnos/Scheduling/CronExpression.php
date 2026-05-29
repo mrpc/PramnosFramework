@@ -16,8 +16,7 @@ namespace Pramnos\Scheduling;
  *   - `1,3,5`    — comma-separated list (each item may itself be a range or step)
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @package     PramnosFramework
- * @subpackage  Scheduling
+ * @license    MIT
  */
 class CronExpression
 {

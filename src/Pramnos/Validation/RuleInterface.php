@@ -15,8 +15,6 @@ namespace Pramnos\Validation;
  *
  *   Validator::extend('strong_password', new StrongPasswordRule());
  *
- * @package     PramnosFramework
- * @subpackage  Validation
  */
 interface RuleInterface
 {

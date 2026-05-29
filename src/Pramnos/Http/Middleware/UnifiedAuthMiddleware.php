@@ -55,8 +55,6 @@ use Pramnos\Http\Request;
  * });
  * ```
  *
- * @package    PramnosFramework
- * @subpackage Http\Middleware
  */
 class UnifiedAuthMiddleware implements MiddlewareInterface
 {

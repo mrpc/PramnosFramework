@@ -15,7 +15,6 @@ use League\OAuth2\Server\Repositories\RefreshTokenRepositoryInterface;
  * The refresh token is linked to its parent access token via the
  * `usertokens.parentToken` column so that revocation can cascade.
  *
- * @package PramnosFramework
  */
 class RefreshTokenRepository implements RefreshTokenRepositoryInterface
 {

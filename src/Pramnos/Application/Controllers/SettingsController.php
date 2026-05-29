@@ -26,6 +26,7 @@ use Pramnos\Framework\Factory;
  *   GET  /settings/delete/:key — delete()     remove a raw setting
  *
  * @author  Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class SettingsController extends Controller
 {

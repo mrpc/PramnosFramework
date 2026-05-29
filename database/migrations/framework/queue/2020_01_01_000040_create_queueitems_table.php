@@ -24,7 +24,6 @@ use Pramnos\Database\Migration;
  * is already pending or processing will be rejected by QueueManager::addTask()
  * when $unique=true.
  *
- * @package PramnosFramework
  */
 class CreateQueueitemsTable extends Migration
 {

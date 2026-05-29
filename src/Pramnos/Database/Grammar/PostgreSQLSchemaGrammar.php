@@ -15,8 +15,6 @@ use Pramnos\Database\ColumnDefinition;
  * - Materialized views: full support
  * - RENAME TABLE: ALTER TABLE … RENAME TO
  *
- * @package     PramnosFramework
- * @subpackage  Database\Grammar
  */
 class PostgreSQLSchemaGrammar extends SchemaGrammar
 {

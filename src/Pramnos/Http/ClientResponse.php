@@ -5,8 +5,6 @@ namespace Pramnos\Http;
 /**
  * Immutable value object wrapping an HTTP response received by Client.
  *
- * @package    PramnosFramework
- * @subpackage Http
  */
 class ClientResponse
 {

@@ -32,7 +32,6 @@ use Pramnos\Database\Migration;
  *     Aggregates delivery statistics per webhook endpoint: total / successful /
  *     failed / pending event counts, last successful delivery, average attempts.
  *
- * @package PramnosFramework
  */
 class CreateOauth2HelperFunctions extends Migration
 {
