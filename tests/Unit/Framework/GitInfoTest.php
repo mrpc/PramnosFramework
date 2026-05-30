@@ -336,12 +336,12 @@ INI;
     public function testSmokeAgainstRealRepo(): void
     {
         // Arrange
-        $realGitDir = dirname(__DIR__, 4) . '/.git';
+        $realGitDir = dirname(__DIR__, 3) . '/.git';
         if (!is_dir($realGitDir)) {
             $this->markTestSkipped('No .git directory found — skipping real-repo smoke test.');
         }
 
-        $git = new GitInfo(dirname(__DIR__, 4));
+        $git = new GitInfo(dirname(__DIR__, 3));
 
         // Act
         $branch    = $git->getBranch();
