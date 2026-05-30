@@ -38,24 +38,28 @@ class MigrationRunnerHasPendingTest extends TestCase
      */
     private function makeRunner(array $ranSlugs = [], bool $throwOnQuery = false): MigrationRunner
     {
-        // Build a mock result object whose fetch() drains $ranSlugs one by one.
-        $resultMock = $this->getMockBuilder(\stdClass::class)
-            ->addMethods(['fetch'])
-            ->getMock();
+        // Build a fake result object whose fetch() drains $ranSlugs one by one.
+        // An anonymous class is used instead of getMockBuilder()->addMethods()
+        // because addMethods() is deprecated since PHPUnit 11.5 and removed in 12.
+        $resultFake = new class($ranSlugs) {
+            public array $fields = [];
+            private array $queue;
 
-        $fetchQueue        = $ranSlugs;
-        $resultMock->fields = [];
+            public function __construct(array $queue)
+            {
+                $this->queue = $queue;
+            }
 
-        $resultMock->method('fetch')->willReturnCallback(
-            function () use (&$fetchQueue, $resultMock) {
-                if (empty($fetchQueue)) {
-                    $resultMock->fields = [];
+            public function fetch(): bool
+            {
+                if (empty($this->queue)) {
+                    $this->fields = [];
                     return false;
                 }
-                $resultMock->fields = ['key' => array_shift($fetchQueue)];
+                $this->fields = ['key' => array_shift($this->queue)];
                 return true;
             }
-        );
+        };
 
         $dbMock = $this->getMockBuilder(Database::class)
             ->disableOriginalConstructor()
@@ -71,8 +75,8 @@ class MigrationRunnerHasPendingTest extends TestCase
             );
         } else {
             // hasPendingFromSlugs() calls getRanSlugs() which issues one SELECT.
-            // Return our mock result for that single query.
-            $dbMock->method('query')->willReturn($resultMock);
+            // Return our fake result for that single query.
+            $dbMock->method('query')->willReturn($resultFake);
         }
 
         $dbMock->method('prepareQuery')->willReturnArgument(0);

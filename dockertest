@@ -84,7 +84,7 @@ fi
 
 # Run tests
 echo -e "\e[32mRunning PHPUnit tests...\e[0m"
-extra_flags="--configuration phpunit.xml --display-deprecations --display-warnings --display-incomplete --display-skipped"
+extra_flags="--configuration phpunit.xml --display-deprecations --display-warnings --display-incomplete --display-skipped --display-phpunit-deprecations"
 [[ "$testdox" == true ]] && extra_flags="$extra_flags --testdox"
 
 if [[ "$coverage" == true ]]; then
