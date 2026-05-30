@@ -382,9 +382,6 @@ class UserCharacterizationTest extends TestCase
      * This was broken in v1.2 because the MD5 fallback in UserDatabase::onAuth
      * was gated behind legacyMd5=true, but User::setPassword() stores MD5 for
      * unsaved users. The fix stores a pending password and rehashes post-INSERT.
-     *
-     * @covers \Pramnos\User\User::save
-     * @covers \Pramnos\User\User::setPassword
      */
     public function testPasswordRehashesAfterInsertWithRealUserId(): void
     {
