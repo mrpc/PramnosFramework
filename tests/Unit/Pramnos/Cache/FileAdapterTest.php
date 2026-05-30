@@ -92,24 +92,25 @@ class FileAdapterTest extends TestCase
     }
 
     /**
-     * connect() returns false when no directory is configured.
+     * connect() returns false when cacheDir is empty.
      *
-     * Skipped when CACHE_PATH is defined because the constructor falls back to
-     * that path automatically — in that case '' is not a "no directory" scenario
-     * but rather "use the global default", which correctly returns true.
+     * Uses reflection to bypass the constructor's CACHE_PATH fallback so the
+     * test is independent of whether CACHE_PATH is defined in the environment
+     * (it gets defined by Application::__construct in the same test run).
      */
     public function testConnectReturnsFalseWhenNoCacheDir(): void
     {
-        // Arrange
-        if (defined('CACHE_PATH')) {
-            $this->markTestSkipped('CACHE_PATH is defined; FileAdapter("") uses it as fallback — skipping.');
-        }
-        $adapter = new FileAdapter('');
+        // Arrange — create adapter with a real path, then forcibly clear cacheDir
+        // to simulate the "no directory configured" state without relying on
+        // CACHE_PATH being absent.
+        $adapter = new FileAdapter('/dummy');
+        $prop = new \ReflectionProperty($adapter, 'cacheDir');
+        $prop->setValue($adapter, '');
 
         // Act
         $result = $adapter->connect();
 
-        // Assert
+        // Assert — connect() must short-circuit to false when cacheDir == ''
         $this->assertFalse($result);
     }
 
