@@ -592,4 +592,84 @@ class FileAdapterTest extends TestCase
         $this->assertSame('from A', $adapterA->load('shared_key'));
         $this->assertSame('from B', $adapterB->load('shared_key'));
     }
+
+    /**
+     * load() returns false when file exists but its content is empty.
+     */
+    public function testLoadReturnsFalseWhenFileContentIsEmpty(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+        $filePath = $this->cacheDir . DIRECTORY_SEPARATOR . 'emptykey';
+        file_put_contents($filePath, '');
+
+        // Act
+        $result = $adapter->load('emptykey');
+
+        // Assert
+        $this->assertFalse($result);
+    }
+
+    /**
+     * load() returns false when file exists but the serialized data array lacks a 'data' key.
+     */
+    public function testLoadReturnsFalseWhenDataNotSetInSerializedArray(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+        $filePath = $this->cacheDir . DIRECTORY_SEPARATOR . 'nodatakey';
+        file_put_contents($filePath, serialize(['time' => time()]));
+
+        // Act
+        $result = $adapter->load('nodatakey');
+
+        // Assert
+        $this->assertFalse($result);
+    }
+
+    /**
+     * getAllItems() correctly identifies and marks malformed serialized cache entries as expired/invalid.
+     */
+    public function testGetAllItemsHandlesMalformedSerializedData(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+        $filePath = $this->cacheDir . DIRECTORY_SEPARATOR . 'malformedkey';
+        file_put_contents($filePath, 'not-serialized-data');
+
+        // Act
+        $items = $adapter->getAllItems();
+
+        // Assert
+        $this->assertNotEmpty($items);
+        $found = false;
+        foreach ($items as $item) {
+            if ($item['key'] === 'malformedkey') {
+                $found = true;
+                $this->assertFalse($item['expired']);
+            }
+        }
+        $this->assertTrue($found);
+    }
+
+    /**
+     * _createCacheDir() private method is executed successfully via reflection.
+     */
+    public function testCreateCacheDirViaReflection(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+        $newDir = $this->cacheDir . '/reflection_created';
+        $prop = new \ReflectionProperty($adapter, 'cacheDir');
+        $prop->setValue($adapter, $newDir);
+
+        $method = new \ReflectionMethod(FileAdapter::class, '_createCacheDir');
+
+        // Act
+        $method->invoke($adapter);
+
+        // Assert — directory should exist
+        $this->assertDirectoryExists($newDir);
+    }
 }
+
