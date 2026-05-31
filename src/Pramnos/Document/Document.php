@@ -275,9 +275,10 @@ class Document extends \Pramnos\Framework\Base
             $instances = array();
         }
 
-        if ($type == '') {
+        $type = (string)($type ?? '');
+        if ($type === '') {
             $request = \Pramnos\Framework\Factory::getRequest();
-            $type = $request->get('format', self::$type, 'GET');
+            $type = (string)($request->get('format', self::$type, 'GET') ?? self::$type);
         } elseif ($setDefault === true) {
             self::$type = $type;
         }
