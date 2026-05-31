@@ -79,7 +79,7 @@ class MemcachedAdapter extends AbstractAdapter
                 );
             }
             catch (\Exception $exc) {
-                \pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
+                \Pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
                 $this->connected = false;
             }
         }
@@ -126,7 +126,7 @@ class MemcachedAdapter extends AbstractAdapter
             
             return $entry['data'];
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -187,7 +187,7 @@ class MemcachedAdapter extends AbstractAdapter
             
             return true;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -206,7 +206,7 @@ class MemcachedAdapter extends AbstractAdapter
                 $this->memcached->flush();
                 return true;
             } catch (\Exception $ex) {
-                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 return false;
             }
         } else {
@@ -235,7 +235,7 @@ class MemcachedAdapter extends AbstractAdapter
                 
                 return true;
             } catch (\Exception $ex) {
-                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 return false;
             }
         }
@@ -275,7 +275,7 @@ class MemcachedAdapter extends AbstractAdapter
             }
         } catch (\Exception $ex) {
             // Silently fail - key tracking is not critical
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
     }
     
@@ -318,7 +318,7 @@ class MemcachedAdapter extends AbstractAdapter
             }
         } catch (\Exception $ex) {
             // Silently fail - key tracking is not critical
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
     }
     
@@ -335,7 +335,7 @@ class MemcachedAdapter extends AbstractAdapter
             $tagsArray = $this->memcached->get(($prefix ? $prefix : $this->prefix) . $this->tagsKey);
             return is_array($tagsArray) ? array_keys($tagsArray) : [];
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
         
         return [];
@@ -372,7 +372,7 @@ class MemcachedAdapter extends AbstractAdapter
                 }
             }
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
         
         return $stats;
@@ -464,7 +464,7 @@ class MemcachedAdapter extends AbstractAdapter
                 }
             }
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             // Return limitation notice
             return [
                 [
