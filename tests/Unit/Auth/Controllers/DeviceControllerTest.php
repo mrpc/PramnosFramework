@@ -153,15 +153,21 @@ class DeviceControllerTest extends TestCase
      */
     public function testValidateCredentialsReturnTypeIsArray(): void
     {
-        if (!method_exists(\Pramnos\User\User::class, 'validateUserCredentials')) {
-            // DB fallback path — expect Throwable when DB is null
-            $this->expectException(\Throwable::class);
-            $this->callPrivate('validateCredentials', 'user', 'pass');
-        } else {
-            // User::validateUserCredentials() path — must return an array
-            $result = $this->callPrivate('validateCredentials', '__nonexistent__', '__bad__');
-            $this->assertIsArray($result,
-                'validateCredentials() must always return an array');
+        // Mock the Database singleton to ensure DB fallback path doesn't throw on connection issues
+        $dbMock = $this->createMock(\Pramnos\Database\Database::class);
+        $dbMock->method('prepareQuery')->willReturn('SELECT ...');
+        $dbMock->method('query')->willReturn(null);
+
+        $dbSingleton = &\Pramnos\Database\Database::getInstance();
+        $dbOriginal = $dbSingleton;
+        $dbSingleton = $dbMock;
+
+        try {
+            $result = $this->callPrivate('validateCredentials', 'user', 'pass');
+            $this->assertIsArray($result, 'validateCredentials() must always return an array');
+        } finally {
+            // Restore database singleton
+            $dbSingleton = $dbOriginal;
         }
     }
 

@@ -27,6 +27,16 @@ class Settings extends \Pramnos\Framework\Base
      */
     static protected $database = null;
 
+    /**
+     * Clear all settings and reset state
+     */
+    public static function clearSettings()
+    {
+        self::$settings = array();
+        self::$loaded = false;
+        self::$database = null;
+    }
+
 
 
     /**
