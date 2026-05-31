@@ -103,20 +103,25 @@ class SessionTest extends TestCase
         $appMock = $this->createMock(Application::class);
 
         // Backup and Swap Singletons via References
-        $this->dbOriginal = &Database::getInstance();
-        $this->dbOriginal = $dbMock;
+        $this->dbOriginal = Database::getInstance();
+        $dbSingleton = &Database::getInstance();
+        $dbSingleton = $dbMock;
 
-        $this->sessionOriginal = &Factory::getSession();
-        $this->sessionOriginal = $sessionMock;
+        $this->sessionOriginal = Factory::getSession();
+        $sessionSingleton = &Factory::getSession();
+        $sessionSingleton = $sessionMock;
 
-        $this->authOriginal = &Factory::getAuth();
-        $this->authOriginal = $authMock;
+        $this->authOriginal = Factory::getAuth();
+        $authSingleton = &Factory::getAuth();
+        $authSingleton = $authMock;
 
-        $this->requestOriginal = &Factory::getRequest();
-        $this->requestOriginal = $requestMock;
+        $this->requestOriginal = Factory::getRequest();
+        $requestSingleton = &Factory::getRequest();
+        $requestSingleton = $requestMock;
 
-        $this->appOriginal = &Application::getInstance();
-        $this->appOriginal = $appMock;
+        $this->appOriginal = Application::getInstance();
+        $appSingleton = &Application::getInstance();
+        $appSingleton = $appMock;
     }
 
     protected function tearDown(): void

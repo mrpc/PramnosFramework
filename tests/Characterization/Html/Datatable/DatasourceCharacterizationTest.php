@@ -41,9 +41,14 @@ class DatasourceCharacterizationTest extends TestCase
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
         }
 
+        Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         Settings::loadSettings($settingsFile);
         Application::getInstance();
+
+        // Reset the database singleton to ensure it picks up the clean settings
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
 
         $this->db = Factory::getDatabase();
         if (!$this->db->connected) {
@@ -61,6 +66,12 @@ class DatasourceCharacterizationTest extends TestCase
         $this->db->query('DROP TABLE IF EXISTS `dt_orders`');
         $this->db->query('DROP TABLE IF EXISTS `dt_customers`');
         $this->resetRequestState();
+
+        // Reset singleton to prevent leak to other tests
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+
+        Settings::clearSettings();
     }
 
     /**
