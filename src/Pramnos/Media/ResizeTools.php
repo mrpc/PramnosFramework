@@ -589,16 +589,16 @@ class ResizeTools extends \Pramnos\Framework\Base
         if (
                 $quality < 5 && (($dst_w * $quality) < $src_w || ($dst_h * $quality) < $src_h)
         ) {
-            $temp = imagecreatetruecolor($dst_w * $quality + 1,
-                    $dst_h * $quality + 1);
+            $temp = imagecreatetruecolor((int)($dst_w * $quality + 1),
+                    (int)($dst_h * $quality + 1));
             imagecopyresized($temp, $src_image, 0, 0, $src_x, $src_y,
-                    $dst_w * $quality + 1, $dst_h * $quality + 1, $src_w, $src_h);
+                    (int)($dst_w * $quality + 1), (int)($dst_h * $quality + 1), $src_w, $src_h);
             imagecopyresampled($dst_image, $temp, $dst_x, $dst_y, 0, 0, $dst_w,
-                    $dst_h, $dst_w * $quality, $dst_h * $quality);
+                    $dst_h, (int)($dst_w * $quality), (int)($dst_h * $quality));
             unset($temp);
         } else {
-            imagecopyresampled($dst_image, $src_image, $dst_x, $dst_y, $src_x,
-                    $src_y, $dst_w, $dst_h, $src_w, $src_h);
+            imagecopyresampled($dst_image, $src_image, (int)$dst_x, (int)$dst_y, (int)$src_x,
+                    (int)$src_y, (int)$dst_w, (int)$dst_h, (int)$src_w, (int)$src_h);
         }
         return true;
     }

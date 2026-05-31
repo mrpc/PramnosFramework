@@ -1557,7 +1557,7 @@ class MediaObject extends \Pramnos\Framework\Base
             return $this;
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
-        if ($this->userid == 0) {
+        if ($this->userid == 0 && isset($_SESSION['uid'])) {
             $this->userid = $_SESSION['uid'];
         }
         if ($this->date == 0) {
@@ -1587,7 +1587,7 @@ class MediaObject extends \Pramnos\Framework\Base
         );
         $database->cacheflush('media');
         $database->updateTableData(
-            $database->prefix . "mediause", $itemdata, 'update',
+            $database->prefix . "mediause", $itemdata,
             "`usageid` = '" . (int) $this->usageid . "'", false
         );
         return $this;
