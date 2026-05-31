@@ -176,6 +176,86 @@ class McpToolsTest extends TestCase
         $this->assertArrayHasKey('error', $result);
     }
 
+    // ── MigrationStatusTool ───────────────────────────────────────────────────
+
+    /**
+     * MigrationStatusTool must return its name/description and empty inputSchema properties.
+     */
+    public function testMigrationStatusToolMetadata(): void
+    {
+        $app = $this->createMock(\Pramnos\Application\Application::class);
+        $tool = new MigrationStatusTool($app);
+
+        $this->assertSame('migration-status', $tool->name());
+        $this->assertNotEmpty($tool->description());
+        $schema = $tool->inputSchema();
+        $this->assertSame('object', $schema['type']);
+        $this->assertSame([], $schema['properties']);
+    }
+
+    /**
+     * MigrationStatusTool::execute() must return an error when no database connection is available.
+     */
+    public function testMigrationStatusToolReturnsErrorWhenNoDatabase(): void
+    {
+        $app = $this->createMock(\Pramnos\Application\Application::class);
+        $app->database = null;
+        $tool = new MigrationStatusTool($app);
+
+        $result = $tool->execute([]);
+        $this->assertArrayHasKey('error', $result);
+        $this->assertSame('No database connection', $result['error']);
+    }
+
+    /**
+     * MigrationStatusTool::execute() must return pending and applied counts and lists.
+     */
+    public function testMigrationStatusToolExecuteSuccess(): void
+    {
+        $db = $this->createMockDatabase();
+        
+        $schemaMock = $this->getMockBuilder(\Pramnos\Database\SchemaBuilder::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $schemaMock->method('hasColumn')->willReturn(true);
+        $db->method('schema')->willReturn($schemaMock);
+
+        // Setup getHistory result
+        $db->method('query')->willReturnCallback(function ($sql) use ($db) {
+            $res = $this->createMock(\Pramnos\Database\Result::class);
+            $res->fields = [
+                'key' => 'add_missing_foreign_keys_to_existing_tables',
+                'result' => 1,
+                'batch' => 1,
+                'when' => '2026-05-31 12:00:00'
+            ];
+            $res->method('fetch')->willReturnCallback(function () use ($res) {
+                static $called = false;
+                if ($called) {
+                    return null;
+                }
+                $called = true;
+                return $res->fields;
+            });
+            return $res;
+        });
+
+        $app = $this->createMock(\Pramnos\Application\Application::class);
+        $app->database = $db;
+
+        $tool = new MigrationStatusTool($app);
+        $result = $tool->execute([]);
+
+        $this->assertIsArray($result);
+        $this->assertArrayHasKey('pending_count', $result);
+        $this->assertArrayHasKey('applied_count', $result);
+        $this->assertArrayHasKey('pending', $result);
+        $this->assertArrayHasKey('last_applied', $result);
+        
+        $this->assertGreaterThanOrEqual(1, $result['applied_count']);
+        $this->assertSame('add_missing_foreign_keys_to_existing_tables', $result['last_applied']['slug']);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private function createMockDatabase(): \Pramnos\Database\Database&\PHPUnit\Framework\MockObject\MockObject
