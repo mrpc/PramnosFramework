@@ -870,11 +870,11 @@ class User extends \Pramnos\Framework\Base
         $finalResult = $database->query($secondSql);
         $return = array();
         while ($finalResult->fetch()) {
-            if (trim($result->fields['itemtext']) != '') {
-                $return[$result->fields['itemid']] = array(
-                    'date' => $result->fields['date'],
-                    'itemtext' => $result->fields['itemtext'],
-                    'user' => new pramnoscms_user($result->fields['userid'])
+            if (trim($finalResult->fields['itemtext']) != '') {
+                $return[$finalResult->fields['itemid']] = array(
+                    'date' => $finalResult->fields['date'],
+                    'itemtext' => $finalResult->fields['itemtext'],
+                    'user' => new User($finalResult->fields['userid'])
                 );
             }
         }
