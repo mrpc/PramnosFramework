@@ -84,17 +84,6 @@ class MigrationStatusTool implements McpToolInterface
     private function resolveDirs(): array
     {
         $root = defined('ROOT') ? ROOT : getcwd();
-        $dirs = [$root . '/app/Migrations'];
-
-        $base = dirname(__DIR__, 5) . '/database/migrations/framework';
-        if (!is_dir($base)) {
-            $base = $root . '/vendor/mrpc/pramnosframework/database/migrations/framework';
-        }
-        if (is_dir($base)) {
-            foreach (glob($base . '/*', GLOB_ONLYDIR) ?: [] as $d) {
-                $dirs[] = $d;
-            }
-        }
-        return $dirs;
+        return MigrationLoader::resolveDefaultDirectories($root);
     }
 }
