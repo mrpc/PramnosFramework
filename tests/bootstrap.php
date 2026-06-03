@@ -8,6 +8,10 @@ date_default_timezone_set('UTC');
 // PHPUnit progress output.  The code-path is still executed — coverage is
 // unaffected — but the noise is discarded.
 ini_set('error_log', '/dev/null');
+
+if (!defined('PRAMNOS_TESTING')) {
+    define('PRAMNOS_TESTING', true);
+}
 /**
 * The following are REQUIRED by Pramnos Framework
 */

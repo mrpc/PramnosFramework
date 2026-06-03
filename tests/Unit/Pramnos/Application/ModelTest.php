@@ -125,9 +125,9 @@ class TestProductModel extends Model
      * @param bool $useGetData Format items using getData().
      * @return array Pagination and data envelope.
      */
-    public function getApiList($fields = array(), $search = '', $order = '', $filter = '', $join = '', $group = '', $table = null, $key = null, $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, $useGetData = false)
+    public function getApiList($fields = array(), $search = '', $order = '', $filter = '', $join = '', $group = '', $table = null, $key = null, $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, $useGetData = false, $format = '')
     {
-        return $this->_getApiList($fields, $search, $order, $filter, $join, $group, $table, $key, $page, $itemsPerPage, $debug, $returnAsModels, $useGetData);
+        return $this->_getApiList($fields, $search, $order, $filter, $join, $group, $table, $key, $page, $itemsPerPage, $debug, $returnAsModels, $useGetData, false, false, $format);
     }
 
     /**
@@ -141,6 +141,92 @@ class TestProductModel extends Model
     public function getJsonList($filter = NULL, $table = NULL, $key = NULL)
     {
         return $this->_getJsonList($filter, $table, $key);
+    }
+}
+
+class TestUserOrmModel extends \Pramnos\Application\OrmModel
+{
+    protected $_dbtable = '#PREFIX#test_users';
+    protected $_primaryKey = 'id';
+    protected array $fillable = ['name', 'email'];
+    protected bool $softDelete = true;
+
+    public $id = null;
+    public $name = null;
+    public $email = null;
+    public $deleted_at = null;
+
+    public function posts()
+    {
+        return $this->hasMany(TestPostOrmModel::class, 'user_id');
+    }
+
+    public function profile()
+    {
+        return $this->hasOne(TestProfileOrmModel::class, 'user_id');
+    }
+
+    public function load($primaryKey)
+    {
+        return $this->_load($primaryKey);
+    }
+
+    public function delete($primaryKey = null)
+    {
+        return $this->_delete($primaryKey ?: $this->id);
+    }
+
+    public function isNew(): bool
+    {
+        return $this->_isnew;
+    }
+}
+
+class TestPostOrmModel extends \Pramnos\Application\OrmModel
+{
+    protected $_dbtable = '#PREFIX#test_posts';
+    protected $_primaryKey = 'id';
+    protected array $fillable = ['user_id', 'title', 'body'];
+
+    public $id = null;
+    public $user_id = null;
+    public $title = null;
+    public $body = null;
+
+    public function author()
+    {
+        return $this->belongsTo(TestUserOrmModel::class, 'user_id');
+    }
+
+    public function load($primaryKey)
+    {
+        return $this->_load($primaryKey);
+    }
+
+    public function delete($primaryKey = null)
+    {
+        return $this->_delete($primaryKey ?: $this->id);
+    }
+}
+
+class TestProfileOrmModel extends \Pramnos\Application\OrmModel
+{
+    protected $_dbtable = '#PREFIX#test_profiles';
+    protected $_primaryKey = 'id';
+    protected array $fillable = ['user_id', 'bio'];
+
+    public $id = null;
+    public $user_id = null;
+    public $bio = null;
+
+    public function load($primaryKey)
+    {
+        return $this->_load($primaryKey);
+    }
+
+    public function delete($primaryKey = null)
+    {
+        return $this->_delete($primaryKey ?: $this->id);
     }
 }
 
@@ -190,11 +276,55 @@ class ModelTest extends TestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
 
+        $this->db->query('DROP TABLE IF EXISTS `test_users`');
+        $this->db->query('
+            CREATE TABLE `test_users` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `name` varchar(255) NOT NULL,
+                `email` varchar(255) NOT NULL,
+                `deleted_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ');
+
+        $this->db->query('DROP TABLE IF EXISTS `test_posts`');
+        $this->db->query('
+            CREATE TABLE `test_posts` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `user_id` int(11) NOT NULL,
+                `title` varchar(255) NOT NULL,
+                `body` text NOT NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ');
+
+        $this->db->query('DROP TABLE IF EXISTS `test_profiles`');
+        $this->db->query('
+            CREATE TABLE `test_profiles` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `user_id` int(11) NOT NULL,
+                `bio` text NOT NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ');
+
         // Setup mock controller
-        $this->controller = $this->getMockBuilder(Controller::class)
-            ->disableOriginalConstructor()
-            ->getMock();
-        $this->controller->application = Application::getInstance();
+        $this->controller = new class extends Controller {
+            public $expectedModelName = '';
+            public $returnedModelMock = null;
+            public $getModelCalled = 0;
+            public function __construct() {
+                $this->application = Application::getInstance();
+            }
+            public function & getModel($name = '') {
+                $this->getModelCalled++;
+                if ($name === $this->expectedModelName) {
+                    return $this->returnedModelMock;
+                }
+                $res =& parent::getModel($name);
+                return $res;
+            }
+        };
 
         // Clean global request globals
         $_POST = [];
@@ -211,6 +341,9 @@ class ModelTest extends TestCase
     protected function tearDown(): void
     {
         $this->db->query('DROP TABLE IF EXISTS `test_products`');
+        $this->db->query('DROP TABLE IF EXISTS `test_users`');
+        $this->db->query('DROP TABLE IF EXISTS `test_posts`');
+        $this->db->query('DROP TABLE IF EXISTS `test_profiles`');
         
         $singleton = &Factory::getDatabase();
         $singleton = null;
@@ -220,6 +353,11 @@ class ModelTest extends TestCase
         $_POST = [];
         $_GET = [];
         $_REQUEST = [];
+        
+        // Reset event listeners
+        TestUserOrmModel::flushEventListeners();
+        TestPostOrmModel::flushEventListeners();
+        TestProfileOrmModel::flushEventListeners();
     }
 
     /**
@@ -251,13 +389,13 @@ class ModelTest extends TestCase
             ->disableOriginalConstructor()
             ->getMock();
 
-        $this->controller->expects($this->once())
-            ->method('getModel')
-            ->with('OtherModel')
-            ->willReturn($otherModelMock);
+        $this->controller->expectedModelName = 'OtherModel';
+        $this->controller->returnedModelMock = $otherModelMock;
+        $this->controller->getModelCalled = 0;
 
         $returnedModel = $model->getModel('OtherModel');
         $this->assertSame($otherModelMock, $returnedModel);
+        $this->assertEquals(1, $this->controller->getModelCalled);
     }
 
     /**
@@ -428,5 +566,346 @@ class ModelTest extends TestCase
         $loaded->load($model->id);
         $this->assertSame('USB Drive', $loaded->name);
         $this->assertEquals(12.50, $loaded->price);
+    }
+
+    /**
+     * Tests getData() strips internal fields and returns valid object data.
+     */
+    public function testGetDataReturnsPublicFields(): void
+    {
+        $model = new TestProductModel($this->controller);
+        $model->id = 15;
+        $model->name = 'Flash Drive';
+        $model->price = 19.99;
+        $model->is_active = 1;
+
+        $data = $model->getData();
+
+        $this->assertArrayHasKey('id', $data);
+        $this->assertArrayHasKey('name', $data);
+        $this->assertArrayHasKey('price', $data);
+        $this->assertArrayHasKey('is_active', $data);
+        
+        $this->assertArrayNotHasKey('_primaryKey', $data);
+        $this->assertArrayNotHasKey('_dbtable', $data);
+        $this->assertSame(15, $data['id']);
+        $this->assertSame('Flash Drive', $data['name']);
+    }
+
+    /**
+     * Tests getChanges() tracks loaded entity state changes.
+     */
+    public function testGetChangesTracksModifications(): void
+    {
+        $model = new TestProductModel($this->controller);
+        $model->name = 'Initial Name';
+        $model->price = 100.00;
+        $model->save();
+
+        $loader = new TestProductModel($this->controller);
+        $loader->load($model->id);
+
+        // Before modification, changes should be empty
+        $this->assertEmpty($loader->getChanges());
+
+        // Modify
+        $loader->name = 'New Name';
+        $loader->price = 150.00;
+
+        $changes = $loader->getChanges();
+        
+        $this->assertArrayHasKey('name', $changes);
+        $this->assertSame('Initial Name', $changes['name']['old']);
+        $this->assertSame('New Name', $changes['name']['new']);
+        
+        $this->assertArrayHasKey('price', $changes);
+        $this->assertEquals(100.00, $changes['price']['old']);
+        $this->assertEquals(150.00, $changes['price']['new']);
+    }
+
+    /**
+     * Tests getLastSaveChanges() records differences after a save.
+     */
+    public function testGetLastSaveChanges(): void
+    {
+        $model = new TestProductModel($this->controller);
+        $model->name = 'Product A';
+        $model->price = 50.00;
+        $model->save();
+
+        $loader = new TestProductModel($this->controller);
+        $loader->load($model->id);
+        
+        $loader->price = 75.00;
+        $loader->save();
+
+        $lastChanges = $loader->getLastSaveChanges();
+        $this->assertArrayHasKey('price', $lastChanges);
+        $this->assertEquals(50.00, $lastChanges['price']['old']);
+        $this->assertEquals(75.00, $lastChanges['price']['new']);
+    }
+
+    /**
+     * Tests addJsonAction() properly populates _jsonactions array.
+     */
+    public function testAddJsonActionPopulatesArray(): void
+    {
+        $model = new class($this->controller) extends TestProductModel {
+            public function exposeAddJsonAction($action, $field='', $column='', $title='', $confirm=false) {
+                $this->addJsonAction($action, $field, $column, $title, $confirm);
+            }
+        };
+
+        $model->exposeAddJsonAction('edit', 'id', 'action_col', 'Edit Item', true);
+        
+        $reflection = new \ReflectionClass(Model::class);
+        $property = $reflection->getProperty('_jsonactions');
+        $actions = $property->getValue($model);
+
+        $this->assertArrayHasKey('edit', $actions);
+        $this->assertSame('edit', $actions['edit']['action']);
+        $this->assertSame('id', $actions['edit']['field']);
+        $this->assertSame('action_col', $actions['edit']['column']);
+        $this->assertSame('Edit Item', $actions['edit']['title']);
+        $this->assertTrue($actions['edit']['confirm']);
+    }
+
+    /**
+     * Tests save() with force=true skips getChanges check, and debug prints request mapping.
+     */
+    public function testSaveWithForceAndDebug(): void
+    {
+        $model = new TestProductModel($this->controller);
+        $model->name = 'Debug Item';
+        $model->price = 10.00;
+        $model->save();
+
+        // Ob_start to capture debug output
+        ob_start();
+        
+        // Force save without changing anything
+        $model->save(true, true, true);
+        
+        $output = ob_get_clean();
+        
+        $this->assertStringContainsString('Debug Item', $output);
+        $this->assertStringContainsString('10', $output);
+        // Ensure ID wasn't changed
+        $this->assertNotNull($model->id);
+    }
+
+    /**
+     * Tests getApiList with array filter, JSON fields/search, and datatables format.
+     */
+    public function testGetApiListAdvancedParameters(): void
+    {
+        // Seed
+        $this->db->query("INSERT INTO `test_products` (`name`, `price`, `is_active`) VALUES ('Apples', 1.50, 1)");
+        $this->db->query("INSERT INTO `test_products` (`name`, `price`, `is_active`) VALUES ('Bananas', 2.00, 1)");
+
+        $model = new TestProductModel($this->controller);
+
+        // Fields as comma-separated
+        $fieldsStr = 'id, name, price';
+        // Search as JSON array structure
+        $searchJson = json_encode(['name' => 'Apples']);
+        // Filter as structured array
+        $filterArr = [
+            ['field' => 'is_active', 'op' => '=', 'value' => 1]
+        ];
+
+        // Format = datatables
+        $result = $model->getApiList($fieldsStr, $searchJson, '`price` ASC', $filterArr, '', '', null, null, 1, 10, false, false, false, 'datatables');
+
+        $this->assertArrayHasKey('draw', $result);
+        $this->assertArrayHasKey('data', $result);
+        $this->assertArrayHasKey('recordsTotal', $result);
+        $this->assertArrayHasKey('recordsFiltered', $result);
+        
+        $this->assertEquals(1, $result['recordsFiltered']);
+        $this->assertCount(1, $result['data']);
+        $this->assertSame('Apples', $result['data'][0]['name']);
+        
+        // Now test fields as JSON and search as flat string, format empty
+        $fieldsJson = json_encode(['name']);
+        $result2 = $model->getApiList($fieldsJson, 'Bananas', '', '', '', '', null, null, 0, 10);
+        
+        $this->assertArrayHasKey('data', $result2);
+        $this->assertArrayHasKey('pagination', $result2);
+        $this->assertCount(1, $result2['data']);
+        $this->assertSame('Bananas', $result2['data'][0]['name']);
+    }
+
+    /**
+     * Tests ORM relationships resolution (HasOne, HasMany, BelongsTo) and eager loading.
+     */
+    public function testOrmRelationships(): void
+    {
+        // 1. Create and Save User
+        $user = new TestUserOrmModel($this->controller);
+        $user->name = 'ORM User';
+        $user->email = 'orm@example.com';
+        $user->save();
+        $userId = $user->id;
+        $this->assertNotNull($userId);
+
+        // 2. Create Profile
+        $profile = new TestProfileOrmModel($this->controller);
+        $profile->user_id = $userId;
+        $profile->bio = 'Developer bio';
+        $profile->save();
+
+        // 3. Create Posts
+        $post1 = new TestPostOrmModel($this->controller);
+        $post1->user_id = $userId;
+        $post1->title = 'Post Title 1';
+        $post1->body = 'Post Body 1';
+        $post1->save();
+
+        $post2 = new TestPostOrmModel($this->controller);
+        $post2->user_id = $userId;
+        $post2->title = 'Post Title 2';
+        $post2->body = 'Post Body 2';
+        $post2->save();
+
+        // 4. Resolve Relations dynamically
+        $loadedUser = new TestUserOrmModel($this->controller);
+        $loadedUser->load($userId);
+
+        $this->assertInstanceOf(TestProfileOrmModel::class, $loadedUser->profile);
+        $this->assertSame('Developer bio', $loadedUser->profile->bio);
+
+        $posts = $loadedUser->posts;
+        $this->assertCount(2, $posts);
+        $this->assertSame('Post Title 1', $posts->all()[0]->title);
+        $this->assertSame('Post Title 2', $posts->all()[1]->title);
+
+        $loadedPost = new TestPostOrmModel($this->controller);
+        $loadedPost->load($post1->id);
+        $this->assertInstanceOf(TestUserOrmModel::class, $loadedPost->author);
+        $this->assertSame('ORM User', $loadedPost->author->name);
+
+        // 5. Test eager loading
+        $checkUser = new TestUserOrmModel($this->controller);
+        $checkUser->load($userId);
+        $this->assertFalse($checkUser->isNew(), "Failed to load user normally before eager loading test");
+
+        $eagerUser = new TestUserOrmModel($this->controller);
+        $results = $eagerUser->with('posts')->_getList("a.id = " . (int)$userId);
+        if (empty($results)) {
+            $this->fail("eagerUser->_getList returned empty results. SQL Error: " . $eagerUser->sqlError);
+        }
+        $this->assertCount(1, $results);
+        $firstResult = array_values($results)[0];
+        $arr = $firstResult->toArray();
+        $this->assertArrayHasKey('posts', $arr);
+        $this->assertCount(2, $arr['posts']);
+    }
+
+    /**
+     * Tests ORM lifecycle events (creating, created, updating, updated, deleting, deleted).
+     */
+    public function testOrmEvents(): void
+    {
+        $eventsFired = [];
+
+        TestUserOrmModel::on('creating', function ($model) use (&$eventsFired) {
+            $eventsFired[] = 'creating';
+            return true;
+        });
+
+        TestUserOrmModel::on('created', function ($model) use (&$eventsFired) {
+            $eventsFired[] = 'created';
+        });
+
+        TestUserOrmModel::on('updating', function ($model) use (&$eventsFired) {
+            $eventsFired[] = 'updating';
+            return true;
+        });
+
+        TestUserOrmModel::on('updated', function ($model) use (&$eventsFired) {
+            $eventsFired[] = 'updated';
+        });
+
+        TestUserOrmModel::on('deleting', function ($model) use (&$eventsFired) {
+            $eventsFired[] = 'deleting';
+            return true;
+        });
+
+        TestUserOrmModel::on('deleted', function ($model) use (&$eventsFired) {
+            $eventsFired[] = 'deleted';
+        });
+
+        // 1. Create lifecycle
+        $user = new TestUserOrmModel($this->controller);
+        $user->name = 'Event User';
+        $user->email = 'event@example.com';
+        $user->save();
+
+        $this->assertContains('creating', $eventsFired);
+        $this->assertContains('created', $eventsFired);
+
+        // 2. Update lifecycle
+        $user->name = 'Updated Event User';
+        $user->save();
+
+        $this->assertContains('updating', $eventsFired);
+        $this->assertContains('updated', $eventsFired);
+
+        // 3. Delete lifecycle
+        $user->delete();
+
+        $this->assertContains('deleting', $eventsFired);
+        $this->assertContains('deleted', $eventsFired);
+
+        // 4. Test before-event cancellation
+        TestUserOrmModel::flushEventListeners();
+        TestUserOrmModel::on('creating', function ($model) {
+            return false; // Cancel save
+        });
+
+        $user2 = new TestUserOrmModel($this->controller);
+        $user2->name = 'Cancelled User';
+        $user2->email = 'cancel@example.com';
+        $user2->save();
+
+        $this->assertNull($user2->id); // Must not have been persisted
+    }
+
+    /**
+     * Tests ORM Soft Deleting.
+     */
+    public function testOrmSoftDeletes(): void
+    {
+        $user = new TestUserOrmModel($this->controller);
+        $user->name = 'SoftDelete User';
+        $user->email = 'soft@example.com';
+        $user->save();
+        $userId = $user->id;
+
+        // Perform Soft Delete
+        $user->delete();
+        $this->assertNotNull($user->deleted_at);
+
+        // Verify standard load treats it as not found
+        $loaded = new TestUserOrmModel($this->controller);
+        $loaded->load($userId);
+        $this->assertTrue($loaded->isNew());
+
+        // Verify withTrashed fetches it
+        $loadedWith = new TestUserOrmModel($this->controller);
+        $loadedWith->withTrashed();
+        $loadedWith->load($userId);
+        $this->assertFalse($loadedWith->isNew());
+        $this->assertSame('SoftDelete User', $loadedWith->name);
+
+        // Test restore
+        $loadedWith->restore();
+        $this->assertNull($loadedWith->deleted_at);
+
+        // Verify it can now be loaded normally
+        $normal = new TestUserOrmModel($this->controller);
+        $normal->load($userId);
+        $this->assertFalse($normal->isNew());
     }
 }
