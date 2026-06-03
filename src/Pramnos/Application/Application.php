@@ -163,12 +163,6 @@ class Application extends Base
         }
 
         parent::__construct();
-        if ($appName == '') {
-            self::$appInstances['default'] = $this;
-        } else {
-            self::$appInstances[$appName] = $this;
-        }
-        self::$lastUsedApplication = $appName;
     }
 
     /**
@@ -812,7 +806,19 @@ class Application extends Base
          */
         \Pramnos\Debug\DebugBar::startTimer('controller');
         try {
-            $doc->addContent($controllerObject->exec($this->action));
+            $controllerResult = $controllerObject->exec($this->action);
+            if ($controllerResult instanceof \Pramnos\Http\Response) {
+                $doc = \Pramnos\Framework\Factory::getDocument('raw');
+                http_response_code($controllerResult->getStatusCode());
+                if (!headers_sent()) {
+                    foreach ($controllerResult->getHeaders() as $headerName => $headerValue) {
+                        header($headerName . ': ' . $headerValue);
+                    }
+                }
+                $doc->setContent($controllerResult->getBody());
+            } else {
+                $doc->addContent($controllerResult);
+            }
             \Pramnos\Debug\DebugBar::stopTimer('controller');
         } catch (\Pramnos\Http\RedirectException $exception) {
             \Pramnos\Debug\DebugBar::stopTimer('controller');
@@ -889,7 +895,7 @@ class Application extends Base
                     if ($app == 'default') {
                         self::$appInstances['default'] = new $class();
                     } else {
-                        self::$appInstances['default'] = new $class($app);
+                        self::$appInstances[$app] = new $class($app);
                     }
                 }
 
@@ -1026,6 +1032,9 @@ class Application extends Base
                 \Pramnos\General\Helpers::varDumpToString(debug_backtrace()),
                 'exitAppLog'
             );
+        }
+        if (defined('PRAMNOS_TESTING')) {
+            throw new \Exception("Application::close() called with msg: " . $msg);
         }
         session_write_close();
         exit($msg);

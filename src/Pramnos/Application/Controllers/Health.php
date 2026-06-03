@@ -115,11 +115,8 @@ class Health extends Controller
             default    => 503,
         };
 
-        http_response_code($httpCode);
-        header('Content-Type: application/json; charset=UTF-8');
-        header('Cache-Control: no-cache, no-store');
-        echo json_encode($report, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        exit;
+        return \Pramnos\Http\Response::json($report, $httpCode, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            ->withHeader('Cache-Control', 'no-cache, no-store');
     }
 
     /**
