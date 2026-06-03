@@ -443,4 +443,95 @@ class AbstractAdapterTest extends TestCase
         // Assert
         $this->assertFalse($adapter->test());
     }
+
+    // =========================================================================
+    // save() / delete() — default throw paths
+    // =========================================================================
+
+    /**
+     * save() throws BadMethodCallException in the base class — concrete adapters
+     * must override it.  The exception signals a programming error (misconfigured
+     * adapter) rather than a runtime failure.
+     */
+    public function testSaveThrowsBadMethodCallExceptionWhenNotOverridden(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Act / Assert
+        $this->expectException(\BadMethodCallException::class);
+        $adapter->save('my-key', 'my-value');
+    }
+
+    /**
+     * delete() throws BadMethodCallException in the base class for the same reason.
+     */
+    public function testDeleteThrowsBadMethodCallExceptionWhenNotOverridden(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Act / Assert
+        $this->expectException(\BadMethodCallException::class);
+        $adapter->delete('my-key');
+    }
+
+    // =========================================================================
+    // generateKey() — edge cases
+    // =========================================================================
+
+    /**
+     * generateKey() without a prefix keeps the key clean — no leading underscore.
+     */
+    public function testGenerateKeyWithoutPrefixHasNoLeadingUnderscore(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter(); // no prefix
+
+        // Act
+        $key = $adapter->generateKey('item99', '', 'cache');
+
+        // Assert — the key starts directly with the id
+        $this->assertStringStartsWith('item99', $key);
+    }
+
+    /**
+     * generateKey() with a prefix that has special chars sanitises the prefix.
+     */
+    public function testGenerateKeyWithSpecialCharPrefixIsSanitised(): void
+    {
+        // Arrange — prefix with a space (should be replaced with '_')
+        $adapter = $this->makeAdapter('my app');
+
+        // Act
+        $key = $adapter->generateKey('id1', '', 'cache');
+
+        // Assert — space in prefix becomes underscore
+        $this->assertStringContainsString('my_app_', $key);
+    }
+
+    /**
+     * getCategories() with a prefix argument still returns an empty array in the
+     * default implementation.
+     */
+    public function testGetCategoriesWithPrefixReturnsEmptyArray(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert — default impl ignores the $prefix param
+        $this->assertSame([], $adapter->getCategories('some_prefix'));
+    }
+
+    /**
+     * getAllItems() with a category + limit still returns an empty array by default.
+     */
+    public function testGetAllItemsWithCategoryAndLimitReturnsEmptyArray(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+
+        // Assert
+        $this->assertSame([], $adapter->getAllItems('cat', 10));
+    }
 }

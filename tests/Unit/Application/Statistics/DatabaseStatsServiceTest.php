@@ -247,4 +247,198 @@ class DatabaseStatsServiceTest extends TestCase
         $this->assertSame('MySQL 8.0.36', $stats['version'],
             'MySQL version must be prefixed with "MySQL "');
     }
+
+    /**
+     * When TimescaleDB extension is detected, its version must be appended
+     * to the PostgreSQL version string.
+     */
+    public function testPostgreSQLVersionIncludesTimescaleDBWhenDetected(): void
+    {
+        // Arrange
+        $db = $this->createStub(\Pramnos\Database\Database::class);
+        $db->type = 'postgresql';
+
+        $versionResult          = new \stdClass();
+        $versionResult->numRows = 1;
+        $versionResult->fields  = ['ver' => 'PostgreSQL 15.3 on x86_64-linux'];
+
+        $tsResult          = new \stdClass();
+        $tsResult->numRows = 1;
+        $tsResult->fields  = ['extversion' => '2.11.1'];
+
+        $emptyResult          = new \stdClass();
+        $emptyResult->numRows = 0;
+
+        $db->method('query')->willReturnOnConsecutiveCalls(
+            $versionResult,  // SELECT version()
+            $tsResult,       // pg_extension timescaledb
+            $emptyResult,    // pg_database_size
+            $emptyResult,    // pg_stat_activity
+            $emptyResult     // pg_stat_database
+        );
+
+        $svc = new DatabaseStatsService($db);
+
+        // Act
+        $stats = $svc->getStats();
+
+        // Assert — version must include TimescaleDB indicator
+        $this->assertStringContainsString('TimescaleDB', $stats['version'],
+            'PostgreSQL version must include TimescaleDB version when extension is found');
+        $this->assertStringContainsString('2.11.1', $stats['version']);
+    }
+
+    /**
+     * MySQL cache_hit_ratio must be calculated correctly when InnoDB buffer stats
+     * are available.
+     */
+    public function testMySQLCacheHitRatioIsCalculatedCorrectly(): void
+    {
+        // Arrange — 1000 requests, 100 reads (disk) → 90% hit ratio
+        $db = $this->createStub(\Pramnos\Database\Database::class);
+        $db->type = 'mysql';
+
+        $makeVar = function(string $name, string $value): object {
+            $r = new \stdClass();
+            $r->numRows = 1;
+            $r->fields  = ['Variable_name' => $name, 'Value' => $value];
+            return $r;
+        };
+
+        $emptyResult          = new \stdClass();
+        $emptyResult->numRows = 0;
+
+        $db->method('query')->willReturnOnConsecutiveCalls(
+            $emptyResult,                                 // SELECT VERSION()
+            $emptyResult,                                 // information_schema size
+            $makeVar('Threads_connected', '5'),           // Threads_connected
+            $makeVar('Threads_running', '2'),             // Threads_running
+            $makeVar('Queries', '50000'),                 // Queries
+            $makeVar('Innodb_buffer_pool_reads', '100'),  // pool reads (disk)
+            $makeVar('Innodb_buffer_pool_read_requests', '1000')  // pool requests
+        );
+
+        $svc = new DatabaseStatsService($db);
+
+        // Act
+        $stats = $svc->getStats();
+
+        // Assert — (1 - 100/1000) * 100 = 90.0
+        $this->assertSame(90.0, $stats['cache_hit_ratio'],
+            'MySQL cache_hit_ratio must equal (1 - reads/requests) * 100');
+        $this->assertSame(5,     $stats['connections_total']);
+        $this->assertSame(2,     $stats['connections_active']);
+        $this->assertSame(50000, $stats['queries']);
+    }
+
+    /**
+     * PostgreSQL connection stats must be parsed when the query returns rows.
+     */
+    public function testPostgreSQLConnectionStatsAreParsedCorrectly(): void
+    {
+        // Arrange
+        $db = $this->createStub(\Pramnos\Database\Database::class);
+        $db->type = 'postgresql';
+
+        $emptyResult          = new \stdClass();
+        $emptyResult->numRows = 0;
+
+        $connResult          = new \stdClass();
+        $connResult->numRows = 1;
+        $connResult->fields  = ['total' => '12', 'active' => '3'];
+
+        $pgStatResult          = new \stdClass();
+        $pgStatResult->numRows = 1;
+        $pgStatResult->fields  = [
+            'blks_hit'      => '950',
+            'blks_read'     => '50',
+            'xact_commit'   => '4200',
+            'xact_rollback' => '8',
+        ];
+
+        $db->method('query')->willReturnOnConsecutiveCalls(
+            $emptyResult,   // SELECT version()
+            $emptyResult,   // TimescaleDB check
+            $emptyResult,   // pg_database_size
+            $connResult,    // pg_stat_activity
+            $pgStatResult   // pg_stat_database
+        );
+
+        $svc = new DatabaseStatsService($db);
+
+        // Act
+        $stats = $svc->getStats();
+
+        // Assert
+        $this->assertSame(12, $stats['connections_total']);
+        $this->assertSame(3,  $stats['connections_active']);
+        $this->assertSame(4200, $stats['xact_commit']);
+        $this->assertSame(8,    $stats['xact_rollback']);
+        // cache_hit_ratio = 950 / (950+50) * 100 = 95.0
+        $this->assertSame(95.0, $stats['cache_hit_ratio']);
+    }
+
+    /**
+     * PostgreSQL cache_hit_ratio must be null when blks_hit + blks_read = 0
+     * (brand-new database with no activity).
+     */
+    public function testPostgreSQLCacheHitRatioIsNullWhenNoActivity(): void
+    {
+        // Arrange — pg_stat_database returns zeros
+        $db = $this->createStub(\Pramnos\Database\Database::class);
+        $db->type = 'postgresql';
+
+        $emptyResult          = new \stdClass();
+        $emptyResult->numRows = 0;
+
+        $pgStatZero          = new \stdClass();
+        $pgStatZero->numRows = 1;
+        $pgStatZero->fields  = [
+            'blks_hit'      => '0',
+            'blks_read'     => '0',
+            'xact_commit'   => '0',
+            'xact_rollback' => '0',
+        ];
+
+        $db->method('query')->willReturnOnConsecutiveCalls(
+            $emptyResult,  // version
+            $emptyResult,  // timescaledb
+            $emptyResult,  // db_size
+            $emptyResult,  // connections
+            $pgStatZero    // pg_stat_database
+        );
+
+        $svc = new DatabaseStatsService($db);
+
+        // Act
+        $stats = $svc->getStats();
+
+        // Assert
+        $this->assertNull($stats['cache_hit_ratio']);
+    }
+
+    /**
+     * MySQL queries must be null when no Queries status var is returned.
+     */
+    public function testMySQLQueriesIsNullWhenStatusVarAbsent(): void
+    {
+        // Arrange
+        $db = $this->createStub(\Pramnos\Database\Database::class);
+        $db->type = 'mysql';
+
+        $emptyResult          = new \stdClass();
+        $emptyResult->numRows = 0;
+
+        $db->method('query')->willReturn($emptyResult);
+
+        $svc = new DatabaseStatsService($db);
+
+        // Act
+        $stats = $svc->getStats();
+
+        // Assert
+        $this->assertNull($stats['queries']);
+        $this->assertNull($stats['connections_total']);
+        $this->assertNull($stats['connections_active']);
+    }
 }

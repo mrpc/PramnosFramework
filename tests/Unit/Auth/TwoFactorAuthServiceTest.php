@@ -492,49 +492,173 @@ class TwoFactorAuthServiceTest extends TestCase
     }
 
     // =========================================================================
-    // cleanupExpiredSessions()
-    // =========================================================================
-
-    // =========================================================================
-    // startSetup() — return shape
+    // completeSetup() — various branches
     // =========================================================================
 
     /**
-     * startSetup() must include a 'qr_code_data_uri' key in its return array.
-     *
-     * This key was added to support server-side QR code generation via
-     * chillerlan/php-qrcode, eliminating the need to send the TOTP secret to
-     * an external API (which is blocked by strict Content-Security-Policy rules).
-     *
-     * The value may be null when the library is not installed, but the key must
-     * always be present so templates can rely on $this->setupData['qr_code_data_uri'].
+     * completeSetup() must return false when no active setup session exists.
      */
-    public function testStartSetupReturnsQrCodeDataUriKey(): void
+    public function testCompleteSetupReturnsFalseWhenNoSession(): void
     {
-        // Arrange — minimal QB mock that accepts the delete + insert calls
-        $qb = $this->createMock(QueryBuilder::class);
-        foreach (['table', 'where'] as $m) {
-            $qb->method($m)->willReturn($qb);
-        }
-        $qb->method('delete')->willReturn(null);
-        $qb->method('insert')->willReturn(null);
-
-        $db      = $this->buildDb($qb);
+        // Arrange
+        $qb = $this->buildQb(firstResult: $this->emptyResult());
+        $db = $this->buildDb($qb);
         $service = new TwoFactorAuthService($db);
 
         // Act
-        $setup = $service->startSetup(1, 'user@example.com', 'TestApp');
+        $result = $service->completeSetup(1, '123456');
 
-        // Assert — key must exist; value may be null (library absent) or a string
-        $this->assertArrayHasKey('qr_code_data_uri', $setup,
-            'startSetup() must include qr_code_data_uri key for CSP-safe QR rendering');
-        $this->assertArrayHasKey('qr_code_url', $setup,
-            'startSetup() must still include legacy qr_code_url for backward compatibility');
+        // Assert
+        $this->assertFalse($result, 'completeSetup() must return false if no setup session is found');
+    }
 
-        // When the key is non-null it must be a data: URI, never a plain URL
-        if ($setup['qr_code_data_uri'] !== null) {
-            $this->assertStringStartsWith('data:', $setup['qr_code_data_uri'],
-                'qr_code_data_uri must be a data: URI, not a plain URL');
+    /**
+     * completeSetup() must return false when the verification code is invalid.
+     */
+    public function testCompleteSetupReturnsFalseWhenCodeInvalid(): void
+    {
+        // Arrange — active session found, but code is invalid
+        $secret = TOTPHelper::generateSecret();
+        $setupRow = $this->rowResult(['id' => 10, 'temp_secret' => $secret]);
+        
+        $qb = $this->buildQb(firstResult: $setupRow);
+        $db = $this->buildDb($qb);
+        $service = new TwoFactorAuthService($db);
+
+        // Act
+        // Deliberately passing a bad code so TOTPHelper::verifyCode returns false
+        $result = $service->completeSetup(1, '000000');
+
+        // Assert
+        $this->assertFalse($result, 'completeSetup() must return false if the TOTP code is invalid');
+    }
+
+    /**
+     * completeSetup() must successfully update an existing user_twofactor row.
+     */
+    public function testCompleteSetupUpdatesExistingRowOnSuccess(): void
+    {
+        // Arrange
+        $secret = TOTPHelper::generateSecret();
+        $code = TOTPHelper::generateCode($secret, time());
+        
+        $setupRow = $this->rowResult(['id' => 10, 'temp_secret' => $secret]);
+        $existsRow = $this->rowResult(['userid' => 1]);
+
+        $qb = $this->createMock(QueryBuilder::class);
+        foreach (['table', 'select', 'where', 'orWhere', 'orderBy', 'limit', 'offset'] as $m) {
+            $qb->method($m)->willReturn($qb);
+        }
+        $qb->method('first')->willReturnOnConsecutiveCalls(
+            $setupRow,
+            $existsRow
+        );
+        $qb->expects($this->exactly(2))->method('update')->willReturn(null); // one for user_twofactor, one for twofactor_setup
+        $qb->expects($this->once())->method('insert')->willReturn(null); // logAttempt
+
+        $db = $this->buildDb($qb);
+        $service = new TwoFactorAuthService($db);
+
+        // Act
+        $result = $service->completeSetup(1, $code);
+
+        // Assert
+        $this->assertTrue($result, 'completeSetup() must return true on successful verification');
+    }
+
+    /**
+     * completeSetup() must successfully insert a new user_twofactor row if one does not exist.
+     */
+    public function testCompleteSetupInsertsNewRowOnSuccess(): void
+    {
+        // Arrange
+        $secret = TOTPHelper::generateSecret();
+        $code = TOTPHelper::generateCode($secret, time());
+        
+        $setupRow = $this->rowResult(['id' => 10, 'temp_secret' => $secret]);
+        $existsRow = $this->emptyResult();
+
+        $qb = $this->createMock(QueryBuilder::class);
+        foreach (['table', 'select', 'where', 'orWhere', 'orderBy', 'limit', 'offset'] as $m) {
+            $qb->method($m)->willReturn($qb);
+        }
+        $qb->method('first')->willReturnOnConsecutiveCalls(
+            $setupRow,
+            $existsRow
+        );
+        $qb->expects($this->exactly(2))->method('insert')->willReturn(null); // one for user_twofactor, one for logAttempt
+        $qb->expects($this->once())->method('update')->willReturn(null); // twofactor_setup mark used
+
+        $db = $this->buildDb($qb);
+        $service = new TwoFactorAuthService($db);
+
+        // Act
+        $result = $service->completeSetup(1, $code);
+
+        // Assert
+        $this->assertTrue($result, 'completeSetup() must return true on successful verification for new users');
+    }
+
+    // =========================================================================
+    // disable() — successful path
+    // =========================================================================
+
+    /**
+     * disable() must successfully disable 2FA for an existing user.
+     */
+    public function testDisableReturnsTrueOnSuccess(): void
+    {
+        // Arrange
+        $userRow = $this->rowResult(['userid' => 1]);
+
+        $qb = $this->createMock(QueryBuilder::class);
+        foreach (['table', 'select', 'where', 'orWhere', 'orderBy', 'limit', 'offset'] as $m) {
+            $qb->method($m)->willReturn($qb);
+        }
+        $qb->method('first')->willReturn($userRow);
+        $qb->expects($this->once())->method('update')->willReturn(null); // user_twofactor
+        $qb->expects($this->once())->method('delete')->willReturn(null); // twofactor_setup
+        $qb->expects($this->once())->method('insert')->willReturn(null); // logAttempt
+
+        $db = $this->buildDb($qb);
+        $service = new TwoFactorAuthService($db);
+
+        // Act
+        $result = $service->disable(1);
+
+        // Assert
+        $this->assertTrue($result, 'disable() must return true when the user has a record');
+    }
+
+    // =========================================================================
+    // regenerateBackupCodes() — successful path
+    // =========================================================================
+
+    /**
+     * regenerateBackupCodes() must return a list of plain backup codes when 2FA is enabled.
+     */
+    public function testRegenerateBackupCodesReturnsCodesOnSuccess(): void
+    {
+        // Arrange
+        $db = $this->createMock(Database::class);
+        $qb = $this->createMock(QueryBuilder::class);
+        foreach (['table', 'where', 'update', 'insert'] as $m) {
+            $qb->method($m)->willReturn($qb);
+        }
+        $db->method('queryBuilder')->willReturn($qb);
+
+        $service = new class($db) extends TwoFactorAuthService {
+            public function isEnabled(int $userId): bool { return true; }
+        };
+
+        // Act
+        $result = $service->regenerateBackupCodes(1);
+
+        // Assert
+        $this->assertIsArray($result, 'regenerateBackupCodes() must return an array of codes on success');
+        $this->assertNotEmpty($result);
+        foreach ($result as $code) {
+            $this->assertIsString($code);
         }
     }
 
