@@ -480,7 +480,7 @@ class LogViewer
         } else {
             // Forward reading
             $startIndex = ($this->page - 1) * $this->maxLines;
-            $matched = 0;
+            $matchedEntries = 0;
 
             while (!feof($handle)) {
                 $line = fgets($handle);
@@ -492,8 +492,8 @@ class LogViewer
                 if (preg_match('/^\[[0-9]{2}-[A-Za-z]{3}-[0-9]{4}/', $line)) {
                     if (!empty($currentEntry)) {
                         if ($this->searchInPhpErrorEntry($currentEntry, $this->search) && $this->matchesLogLevel($currentEntry)) {
-                            $matched++;
-                            if ($matched > $startIndex && count($entries) < $this->maxLines) {
+                            $matchedEntries++;
+                            if ($matchedEntries > $startIndex && count($entries) < $this->maxLines) {
                                 $entries[] = $this->formatPhpErrorEntry($currentEntry);
                             }
                         }
@@ -508,8 +508,8 @@ class LogViewer
             // Process final entry
             if (!empty($currentEntry)) {
                 if ($this->searchInPhpErrorEntry($currentEntry, $this->search) && $this->matchesLogLevel($currentEntry)) {
-                    $matched++;
-                    if ($matched > $startIndex && count($entries) < $this->maxLines) {
+                    $matchedEntries++;
+                    if ($matchedEntries > $startIndex && count($entries) < $this->maxLines) {
                         $entries[] = $this->formatPhpErrorEntry($currentEntry);
                     }
                 }

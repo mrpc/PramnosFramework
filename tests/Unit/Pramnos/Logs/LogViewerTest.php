@@ -1327,6 +1327,146 @@ class LogViewerTest extends TestCase
         }
     }
 
+    // ── File reader coverage ──────────────────────────────────────────────────
+
+    /**
+     * Coverage for readLargeFileChunked() forward reading.
+     */
+    public function testReadLargeFileChunkedForward(): void
+    {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'lv_chunk_');
+        file_put_contents($tmpFile, "line 1\nline 2\nline 3\n");
+        $this->setPrivate('filePath', $tmpFile);
+        $this->viewer->setParameters(false, 1, 10, '');
+
+        try {
+            $result = $this->callPrivate('readLargeFileChunked');
+            $this->assertCount(3, $result['lines']);
+            $this->assertSame('line 1', $result['lines'][0]);
+            $this->assertSame(3, $result['total']);
+            $this->assertSame(3, $result['matched_total']);
+        } finally {
+            unlink($tmpFile);
+        }
+    }
+
+    /**
+     * Coverage for readLargeFileChunked() reverse reading.
+     */
+    public function testReadLargeFileChunkedReverse(): void
+    {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'lv_chunk_');
+        file_put_contents($tmpFile, "line 1\nline 2\nline 3\n");
+        $this->setPrivate('filePath', $tmpFile);
+        $this->viewer->setParameters(true, 1, 10, '');
+
+        try {
+            $result = $this->callPrivate('readLargeFileChunked');
+            $this->assertCount(3, $result['lines']);
+            $this->assertSame('line 1', $result['lines'][0]);
+            $this->assertSame(3, $result['total']);
+            $this->assertSame(3, $result['matched_total']);
+        } finally {
+            unlink($tmpFile);
+        }
+    }
+
+    /**
+     * Coverage for readSmallPhpErrorFile() forward.
+     */
+    public function testReadSmallPhpErrorFileForward(): void
+    {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'lv_php_');
+        $logData = "[15-Jan-2025 10:00:00 UTC] PHP Notice: Some notice\n" .
+                   "[15-Jan-2025 10:01:00 UTC] PHP Fatal error: Boom\nStack trace:\n#0 func()";
+        file_put_contents($tmpFile, $logData);
+        $this->setPrivate('filePath', $tmpFile);
+        $this->viewer->setParameters(false, 1, 10, '');
+
+        try {
+            $fileObj = new \SplFileObject($tmpFile, 'r');
+            $result = $this->callPrivate('readSmallPhpErrorFile', $fileObj);
+            
+            $this->assertCount(2, $result['lines']);
+            $this->assertSame(2, $result['total']);
+            $this->assertSame(2, $result['matched_total']);
+            $this->assertStringContainsString('Some notice', $result['lines'][0]);
+            $this->assertStringContainsString('Stack trace', $result['lines'][1]);
+        } finally {
+            unlink($tmpFile);
+        }
+    }
+
+    /**
+     * Coverage for readSmallPhpErrorFile() reverse.
+     */
+    public function testReadSmallPhpErrorFileReverse(): void
+    {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'lv_php_');
+        $logData = "[15-Jan-2025 10:00:00 UTC] PHP Notice: Some notice\n" .
+                   "[15-Jan-2025 10:01:00 UTC] PHP Fatal error: Boom\nStack trace:\n#0 func()";
+        file_put_contents($tmpFile, $logData);
+        $this->setPrivate('filePath', $tmpFile);
+        $this->viewer->setParameters(true, 1, 10, '');
+
+        try {
+            $fileObj = new \SplFileObject($tmpFile, 'r');
+            $result = $this->callPrivate('readSmallPhpErrorFile', $fileObj);
+            
+            $this->assertCount(2, $result['lines']);
+            $this->assertStringContainsString('Stack trace', $result['lines'][0]);
+            $this->assertStringContainsString('Some notice', $result['lines'][1]);
+        } finally {
+            unlink($tmpFile);
+        }
+    }
+
+    /**
+     * Coverage for readLargePhpErrorFile() forward.
+     */
+    public function testReadLargePhpErrorFileForward(): void
+    {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'lv_php_l_');
+        $logData = "[15-Jan-2025 10:00:00 UTC] PHP Notice: Notice 1\n" .
+                   "[15-Jan-2025 10:01:00 UTC] PHP Notice: Notice 2\n";
+        file_put_contents($tmpFile, $logData);
+        $this->setPrivate('filePath', $tmpFile);
+        $this->viewer->setParameters(false, 1, 10, '');
+
+        try {
+            $result = $this->callPrivate('readLargePhpErrorFile');
+            $this->assertCount(2, $result['lines']);
+            $this->assertSame(2, $result['total']);
+            $this->assertSame(2, $result['matched_total']);
+            $this->assertStringContainsString('Notice 1', $result['lines'][0]);
+        } finally {
+            unlink($tmpFile);
+        }
+    }
+
+    /**
+     * Coverage for readLargePhpErrorFile() reverse.
+     */
+    public function testReadLargePhpErrorFileReverse(): void
+    {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'lv_php_l_');
+        $logData = "[15-Jan-2025 10:00:00 UTC] PHP Notice: Notice 1\n" .
+                   "[15-Jan-2025 10:01:00 UTC] PHP Notice: Notice 2\n";
+        file_put_contents($tmpFile, $logData);
+        $this->setPrivate('filePath', $tmpFile);
+        $this->viewer->setParameters(true, 1, 10, '');
+
+        try {
+            $result = $this->callPrivate('readLargePhpErrorFile');
+            $this->assertCount(2, $result['lines']);
+            $this->assertSame(2, $result['total']);
+            $this->assertSame(2, $result['matched_total']);
+            $this->assertStringContainsString('Notice 2', $result['lines'][0]);
+        } finally {
+            unlink($tmpFile);
+        }
+    }
+
     // ── Private reflection helper ─────────────────────────────────────────────
 
     /**

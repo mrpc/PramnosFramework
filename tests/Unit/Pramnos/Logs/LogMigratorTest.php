@@ -326,4 +326,63 @@ class LogMigratorTest extends TestCase
         $this->assertSame(0, $stats['processed_lines'],
             'migrateFile() must report 0 processed_lines for an empty file');
     }
+
+    /**
+     * migrateFile() must buffer PHP Warning lines and their continuation lines
+     * into a single JSON entry. Continuation lines after a PHP Warning must be
+     * appended to the multiline buffer.
+     */
+    public function testMigrateFileBuffersPhpWarningContinuations(): void
+    {
+        // Arrange — PHP Warning with continuation lines (non-stack-trace)
+        $content = "[01/01/2024 10:00:00] PHP Warning: include(missing.php): failed to open stream\n"
+                 . "in /var/www/html/index.php on line 42\n"
+                 . "[01/01/2024 10:00:01] Normal message after warning\n";
+        $path    = $this->writeTmpFile($content);
+
+        $migrator = new LogMigrator();
+
+        // Act
+        $stats = $migrator->migrateFile($path, false);
+
+        // Assert — all lines processed, output is valid JSON
+        $outputLines = array_filter(explode("\n", trim(file_get_contents($path))));
+        foreach ($outputLines as $line) {
+            $decoded = json_decode($line, true);
+            $this->assertIsArray($decoded, "Each output line must be valid JSON, got: $line");
+        }
+        $this->assertGreaterThanOrEqual(1, $stats['processed_lines']);
+    }
+
+    /**
+     * migrateFile() must handle stack trace lines starting with '#' by appending
+     * them to the multiline buffer when inside a PHP error block.
+     */
+    public function testMigrateFileHandlesStackTraceLines(): void
+    {
+        // Arrange — PHP Fatal error with numbered stack trace
+        $content = "[01/01/2024 10:00:00] PHP Fatal error: Uncaught RuntimeException in /app/foo.php:10\n"
+                 . "Stack trace:\n"
+                 . "#0 /app/bar.php(5): foo()\n"
+                 . "#1 {main}\n"
+                 . "  thrown in /app/foo.php on line 10\n"
+                 . "[01/01/2024 10:00:01] Application recovered\n";
+        $path    = $this->writeTmpFile($content);
+
+        $migrator = new LogMigrator();
+
+        // Act
+        $stats = $migrator->migrateFile($path, false);
+
+        // Assert — must complete without error
+        $this->assertGreaterThanOrEqual(1, $stats['processed_lines']);
+        $outputContent = file_get_contents($path);
+        $lines = array_filter(explode("\n", trim($outputContent)));
+        foreach ($lines as $line) {
+            $decoded = json_decode($line, true);
+            $this->assertIsArray($decoded, "Each line must be valid JSON, got: $line");
+        }
+    }
+
 }
+

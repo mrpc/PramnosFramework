@@ -60,6 +60,9 @@ class PermissionsPostgreSQLTest extends TestCase
             $this->markTestSkipped('PostgreSQL container not reachable (timescaledb:5432)');
         }
 
+        // Ensure clean state before setupDb (other tests like FrameworkMigrationsTimescaleDBTest might leave dirty state)
+        $this->db->execute('DROP TABLE IF EXISTS public.users CASCADE');
+        
         // Ensure users table exists so setupDb(true) FK reference is valid
         \Pramnos\User\User::setupDb();
     }

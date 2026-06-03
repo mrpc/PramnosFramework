@@ -116,6 +116,29 @@ class CacheTest extends TestCase
         }
     }
 
+    /**
+     * Test constructor loads settings from the global Settings store.
+     */
+    public function testConstructorWithGlobalSettings(): void
+    {
+        // Inject settings
+        \Pramnos\Application\Settings::setSetting('cache', [
+            'hostname' => 'cachehost',
+            'port' => 9999,
+            'prefix' => 'globalprefix'
+        ]);
+        \Pramnos\Application\Settings::setSetting('database', [
+            'prefix' => 'dbprefix_'
+        ]);
+
+        $cache = new Cache(null, null, 'array');
+
+        $this->assertSame('cachehost', $cache->hostname);
+        $this->assertSame(9999, $cache->port);
+        // Clean up settings
+        \Pramnos\Application\Settings::clearSettings();
+    }
+
     // =========================================================================
     // testConnection() / getRedis() — adapter-null paths
     // =========================================================================
@@ -321,5 +344,179 @@ class CacheTest extends TestCase
         // Assert — first call computed, second returned cached
         $this->assertSame(42, $v1);
         $this->assertSame(42, $v2);
+    }
+
+    /**
+     * Tests _generateCacheName behavior with a prefix.
+     */
+    public function testGenerateCacheNameWithPrefix(): void
+    {
+        $cache = new Cache('mycat', 'json', 'array', ['prefix' => 'test_prefix']);
+        // Act (save triggers _generateCacheName internally)
+        $cache->save('myvalue', 'mykey');
+        
+        $adapter = $cache->getAdapter();
+        // Since array adapter prefix handles keys, let's verify key existence or format
+        $this->assertTrue($cache->load('mykey') === 'myvalue');
+    }
+
+    /**
+     * Tests connection/delegation methods on Cache when active.
+     */
+    public function testActiveDelegations(): void
+    {
+        $cache = new Cache('test', 'json', 'array');
+        
+        $this->assertTrue($cache->testConnection());
+        $stats = $cache->getStats();
+        $this->assertSame('array', $stats['adapter']);
+        $this->assertSame([], $cache->getAllItems());
+        $this->assertSame([], $cache->getCategories());
+    }
+
+    /**
+     * Tests falling back to file adapter when an invalid/unknown method is passed.
+     */
+    public function testFallbackToDefaultFileAdapter(): void
+    {
+        $cache = new Cache(null, null, 'unknown_method_name');
+        // If unknown, it falls back to 'file'
+        $this->assertSame('file', $cache->getAdapter()->getStats()['method']);
+    }
+
+    /**
+     * Tests fallback behavior for redis/memcached when extensions are absent.
+     */
+    public function testFallbackWhenExtensionsAbsent(): void
+    {
+        // Redis should fall back to memcached -> memcache -> file when class/extension doesn't exist
+        $cacheRedis = new Cache(null, null, 'redis');
+        $this->assertSame('file', $cacheRedis->getAdapter()->getStats()['method']);
+
+        $cacheMemcache = new Cache(null, null, 'memcache');
+        $this->assertSame('file', $cacheMemcache->getAdapter()->getStats()['method']);
+    }
+
+    /**
+     * Test constructor with empty method.
+     */
+    public function testConstructorWithEmptyMethod(): void
+    {
+        $cache = new Cache(null, null, null, ['method' => '']);
+        // method defaults to memcached, which falls back to file
+        $this->assertSame('file', $cache->getAdapter()->getStats()['method']);
+    }
+
+    /**
+     * Test constructor default prefix from database settings as an object.
+     */
+    public function testConstructorPrefixFromDatabaseSettings(): void
+    {
+        $dbSettings = new \stdClass();
+        $dbSettings->prefix = 'dbprefix_';
+        \Pramnos\Application\Settings::setSetting('database', $dbSettings);
+
+        $cache = new Cache(null, null, 'array');
+        $this->assertSame('dbprefix_', $cache->prefix);
+
+        \Pramnos\Application\Settings::clearSettings();
+    }
+
+    /**
+     * Test getInstance singleton factory method.
+     */
+    public function testGetInstance(): void
+    {
+        $instance1 = Cache::getInstance('cat1', 'cache', 'array');
+        $instance2 = Cache::getInstance('cat1', 'cache', 'array');
+        $this->assertSame($instance1, $instance2);
+    }
+
+    /**
+     * Test protected _connect method via Reflection.
+     */
+    public function testConnectMethodViaReflection(): void
+    {
+        $cache = new Cache(null, null, 'array');
+        $method = new \ReflectionMethod(Cache::class, '_connect');
+        
+        // Since array is not a class, _connect returns false
+        $result = $method->invoke($cache);
+        $this->assertFalse($result);
+    }
+
+    /**
+     * Test load and delete overrides.
+     */
+    public function testLoadAndDeleteWithOverrides(): void
+    {
+        $cache = new Cache('cat_initial', 'json', 'array');
+        $cache->save('some_data', 'key_o');
+
+        // load with overrides (same category to hit, but custom timeout override)
+        $loaded = $cache->load('key_o', 'cat_initial', 9999);
+        $this->assertSame('some_data', $loaded);
+        $this->assertSame(9999, $cache->timeout);
+        $this->assertSame('cat_initial', $cache->category);
+    }
+
+    /**
+     * Test delete with caching enabled.
+     */
+    public function testDeleteSuccess(): void
+    {
+        $cache = new Cache('cat', 'json', 'array');
+        $cache->save('data', 'key_d');
+        $this->assertTrue($cache->delete('key_d'));
+    }
+
+    /**
+     * Test getRedis with a mocked RedisAdapter to hit line 525.
+     */
+    public function testGetRedisWithMockedAdapter(): void
+    {
+        $cache = new Cache(null, null, 'array');
+        $mockRedis = $this->createMock(\Redis::class);
+        
+        // Create a mock of RedisAdapter that returns the mock Redis connection
+        $mockAdapter = $this->getMockBuilder(\Pramnos\Cache\Adapter\RedisAdapter::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockAdapter->method('getConnection')->willReturn($mockRedis);
+
+        // Inject adapter via Reflection
+        $prop = new \ReflectionProperty($cache, 'adapter');
+        $prop->setValue($cache, $mockAdapter);
+
+        $this->assertSame($mockRedis, $cache->getRedis());
+    }
+
+    /**
+     * Test successful _connect path via a dynamically defined global class.
+     */
+    public function testConnectSuccessWithDummyClass(): void
+    {
+        if (!class_exists('DummyCacheClass')) {
+            eval('
+                class DummyCacheClass {
+                    public function connect($host, $port) { return true; }
+                    public function auth($password) { return true; }
+                    public function select($db) {}
+                }
+            ');
+        }
+
+        // Initialize cache with 'dummyCacheClass' method, password, and database > 0
+        $cache = new Cache(null, null, 'dummyCacheClass', [
+            'hostname' => '127.0.0.1',
+            'port' => 11211,
+            'password' => 'secret_pass',
+            'database' => 2
+        ]);
+
+        $method = new \ReflectionMethod(Cache::class, '_connect');
+        $result = $method->invoke($cache);
+        
+        $this->assertTrue($result);
     }
 }

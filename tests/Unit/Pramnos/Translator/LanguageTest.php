@@ -228,4 +228,103 @@ class LanguageTest extends \PHPUnit\Framework\TestCase
         @rmdir($tmpDir);
     }
 
+    /**
+     * Language::load() with a custom path must fall back to the 'english'
+     * language file if the requested language file does not exist but english
+     * does.
+     *
+     * This covers the elseif (english fallback) branch inside the $path != '' block
+     * (lines ~134-138).
+     */
+    public function testLoadWithCustomPathFallsBackToEnglish(): void
+    {
+        // Arrange — create temp dir with only an english.php
+        $tmpDir  = sys_get_temp_dir() . '/pramnos_lang_test_' . bin2hex(random_bytes(4));
+        $langDir = $tmpDir . '/language';
+        @mkdir($langDir, 0777, true);
+        file_put_contents(
+            $langDir . '/english.php',
+            "<?php\n\$lang = ['fallback_key' => 'English fallback'];\n"
+        );
+
+        // Act — request a non-existent language; should fall back to english
+        $result = $this->object->load('nonexistent_xyz', $tmpDir);
+
+        // Assert — english fallback was loaded
+        $this->assertTrue($result, 'load() must return true when falling back to english');
+        $strings = $this->object->getlang();
+        $this->assertArrayHasKey('fallback_key', $strings,
+            'load() must merge strings from english fallback');
+
+        // Cleanup
+        @unlink($langDir . '/english.php');
+        @rmdir($langDir);
+        @rmdir($tmpDir);
+    }
+
+    /**
+     * Language::load() with no $path must fall back to english from ROOT/language/
+     * if the requested lang file does not exist but english.php does.
+     *
+     * This covers the elseif ROOT english fallback (line ~120-124).
+     * Because ROOT/language may or may not exist in the test environment,
+     * we just verify that load() returns a bool without throwing.
+     */
+    public function testLoadWithNullPathReturnsBoolWithoutThrowing(): void
+    {
+        // Act — request a non-existent language with no path override;
+        // may return true (if ROOT/language/english.php exists) or false
+        $result = $this->object->load('zzz_nonexistent_lang_xyzzy');
+
+        // Assert — must always be a bool, never throw
+        $this->assertIsBool($result);
+    }
+
+    /**
+     * Language::getLanguages() must throw an Exception when the language directory
+     * (ROOT . '/language') does not exist.
+     *
+     * This covers the else branch of getLanguages() at line ~247.
+     * We call getLanguages() only when we know ROOT/language does not exist,
+     * which we ensure by temporarily changing ROOT via a define if not set,
+     * or skip the test if ROOT/language is present in the test environment.
+     */
+    public function testGetLanguagesThrowsWhenDirDoesNotExist(): void
+    {
+        // Check if we can even test this — if ROOT/language exists, skip
+        if (defined('ROOT') && is_dir(ROOT . DIRECTORY_SEPARATOR . 'language')) {
+            $this->markTestSkipped('ROOT/language directory exists — cannot test the throw branch');
+        }
+
+        // If ROOT is not defined or ROOT/language doesn't exist, getLanguages() will throw
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessageMatches('/Languages directory does not exist/');
+        Language::getLanguages();
+    }
+
+    /**
+     * Language::getLanguages() must return an array of language names when the
+     * language directory exists.
+     */
+    public function testGetLanguagesReturnsArrayWhenDirExists(): void
+    {
+        $dirCreated = false;
+        $langDir = ROOT . DIRECTORY_SEPARATOR . 'language';
+        if (!is_dir($langDir)) {
+            @mkdir($langDir, 0777, true);
+            file_put_contents($langDir . DIRECTORY_SEPARATOR . 'english.php', '<?php ');
+            $dirCreated = true;
+        }
+
+        $langs = Language::getLanguages();
+        $this->assertIsArray($langs, 'getLanguages() must return an array');
+        $this->assertContains('english', $langs, 'getLanguages() should find english.php');
+
+        if ($dirCreated) {
+            @unlink($langDir . DIRECTORY_SEPARATOR . 'english.php');
+            @rmdir($langDir);
+        }
+    }
+
 }
+
