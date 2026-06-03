@@ -1771,12 +1771,13 @@ class Database extends \Pramnos\Framework\Base
      */
     public function prepareInput($string)
     {
+        $connection = $this->_dbConnection ?: $this->getConnection(true);
         if (function_exists('mysqli_real_escape_string') && $this->type == 'mysql') {
-            return mysqli_real_escape_string($this->_dbConnection, $string);
+            return mysqli_real_escape_string($connection, $string);
         } elseif (function_exists('pg_escape_string') && $this->type == 'postgresql') {
-            return pg_escape_string($this->_dbConnection, $string);
+            return pg_escape_string($connection, $string);
         } elseif (function_exists('mysqli_escape_string')) {
-            return mysqli_real_escape_string($this->_dbConnection, $string);
+            return mysqli_real_escape_string($connection, $string);
         } else {
             return addslashes($string ?? '');
         }
