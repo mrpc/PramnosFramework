@@ -115,6 +115,7 @@ class DevPanelController extends Controller
             $panel   = static::$customPanels[$name];
             $content = (string) ($panel['renderer'])();
             $this->renderLayout($name, $content);
+        return null;
         }
         return null;
     }
@@ -134,6 +135,7 @@ class DevPanelController extends Controller
         }
 
         $this->renderLayout('overview', $this->renderOverview());
+        return null;
     }
 
     /**
@@ -147,6 +149,7 @@ class DevPanelController extends Controller
         }
 
         $this->renderLayout('db', $this->renderDb());
+        return null;
     }
 
     /**
@@ -169,6 +172,7 @@ class DevPanelController extends Controller
         }
 
         $this->renderLayout('cache', $this->renderCache());
+        return null;
     }
 
     /**
@@ -181,6 +185,7 @@ class DevPanelController extends Controller
         }
 
         $this->renderLayout('users', $this->renderUsers());
+        return null;
     }
 
     /**
@@ -193,6 +198,7 @@ class DevPanelController extends Controller
         }
 
         $this->renderLayout('performance', $this->renderPerformance());
+        return null;
     }
 
     /**
@@ -205,6 +211,7 @@ class DevPanelController extends Controller
         }
 
         $this->renderLayout('git', $this->renderGit());
+        return null;
     }
 
     /**
@@ -225,6 +232,7 @@ class DevPanelController extends Controller
         $phpInfoRaw = preg_replace('/<\/body>.*$/si', '', $phpInfoRaw);
 
         $this->renderLayout('phpinfo', '<div class="phpinfo-wrapper">' . $phpInfoRaw . '</div>');
+        return null;
     }
 
     // =========================================================================
@@ -372,7 +380,7 @@ class DevPanelController extends Controller
                      WHERE table_schema = ?
                      ORDER BY (data_length + index_length) DESC
                      LIMIT 30",
-                    [$dbName]
+                    $dbName
                 );
                 $tables = $res ? $res->fetchAll() : [];
             }
@@ -1063,7 +1071,7 @@ class DevPanelController extends Controller
         } catch (\Throwable $e) {
             echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
         }
-        exit;
+        $this->terminate();
     }
 
     /**
@@ -1080,7 +1088,7 @@ class DevPanelController extends Controller
 
         if ($rawKey === '') {
             echo json_encode(['ok' => false, 'error' => 'No key specified']);
-            exit;
+            $this->terminate();
         }
 
         try {
@@ -1089,7 +1097,7 @@ class DevPanelController extends Controller
 
             if ($adapter === null) {
                 echo json_encode(['ok' => false, 'error' => 'No cache adapter']);
-                exit;
+                $this->terminate();
             }
 
             // Redis stores keys with adapter prefix; getAllItems() strips it,
@@ -1109,7 +1117,7 @@ class DevPanelController extends Controller
         } catch (\Throwable $e) {
             echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
         }
-        exit;
+        $this->terminate();
     }
 
     // =========================================================================
@@ -1119,7 +1127,7 @@ class DevPanelController extends Controller
     /**
      * Outputs the full self-contained HTML page and exits.
      */
-    private function renderLayout(string $activeTab, string $content): void
+    protected function renderLayout(string $activeTab, string $content): void
     {
         $title    = 'DevPanel — ' . ucfirst($activeTab);
         $baseUrl  = defined('sURL') ? rtrim((string) sURL, '/') : '';
@@ -1185,23 +1193,29 @@ class DevPanelController extends Controller
         header('Content-Type: text/html; charset=UTF-8');
         header('X-Robots-Tag: noindex, nofollow');
         echo $html;
+        $this->terminate();
+    }
+
+    protected function terminate(): void
+    {
         exit;
     }
 
-    private function renderError(int $code, string $message): never
+    protected function renderError(int $code, string $message): never
     {
         http_response_code($code);
         header('Content-Type: text/html; charset=UTF-8');
         echo "<!DOCTYPE html><html><head><title>Error {$code}</title></head><body><h1>Error {$code}</h1><p>"
             . htmlspecialchars($message) . "</p></body></html>";
-        exit;
+        $this->terminate();
+        throw new \RuntimeException("Terminated: Error {$code}");
     }
 
     /**
      * Central access guard: feature enabled + dev mode + usertype.
      * Returns true if access is denied (caller should return early).
      */
-    private function guardAccess(): bool
+    protected function guardAccess(): bool
     {
         if (!FeatureRegistry::isEnabled('devpanel')) {
             $this->renderError(404, 'DevPanel feature is not enabled.');
