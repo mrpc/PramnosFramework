@@ -450,4 +450,53 @@ class EmailTest extends TestCase
         $this->assertSame('hidden@example.com',  $email->bcc);
         $this->assertFalse($email->debug);
     }
+
+    /**
+     * Test sending email with empty body.
+     * 
+     * Verifies that the send method returns false early and does not proceed
+     * if the email body has not been set or is empty.
+     */
+    public function testSendReturnsFalseOnEmptyBody(): void
+    {
+        $email = new Email();
+        $email->setBody('');
+        $this->assertFalse($email->send());
+    }
+
+    /**
+     * Test successful execution of the send logic including Exception catch.
+     * 
+     * Verifies that when the send method builds the mailer and attempts to send,
+     * it properly initializes the settings, assigns variables, and if the mailer
+     * fails (e.g. invalid settings mocked), it gracefully catches the TransportException
+     * and sets the internal error state rather than bubbling up a fatal error.
+     */
+    public function testSendWithSymfonyMailerExecutesAndCatchesException(): void
+    {
+        $email = new Email();
+        // Set invalid SMTP settings to ensure it fails at transport level
+        \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
+        \Pramnos\Application\Settings::setSetting('smtp_port', '99999'); // Invalid port
+        \Pramnos\Application\Settings::setSetting('smtp_tls', 'no');
+        
+        $email->setBody('Test body')
+            ->setTo('test@example.com')
+            ->setFrom('from@example.com')
+            ->setSubject('Test subject');
+        $email->attach = '/non/existent/file.txt';
+        $email->priority = 1;
+        $email->sendReceipt = true;
+        $email->unsubscribe = 'mailto:unsub@example.com';
+        $email->organization = 'Test Org';
+        $email->abuse = 'abuse@example.com';
+            
+        // Because port is invalid or no SMTP server is running,
+        // Symfony Mailer will throw a TransportException during send(),
+        // which will be caught by Email::send() and return false.
+        $this->assertFalse($email->send());
+        
+        // Assert that the error message was set
+        $this->assertNotEmpty($email->getLastError());
+    }
 }

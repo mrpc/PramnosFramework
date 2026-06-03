@@ -52,6 +52,9 @@ class MediaObjectTest extends TestCase
         \Pramnos\Application\Settings::loadSettings($settingsFile);
         \Pramnos\Application\Application::getInstance();
 
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+
         $this->db = Factory::getDatabase();
         if (!$this->db->connected) {
             $this->db->connect();
@@ -1213,4 +1216,80 @@ class MediaObjectTest extends TestCase
         $this->assertCount(1, $updated);
         $this->assertEquals($media2->mediaid, $updated[0]->mediaid);
     }
+
+    /**
+     * Test addRemoteImage fetches a remote file using a local file:// URL wrapper.
+     */
+    #[Test]
+    public function testAddRemoteImageFromLocalFileUri(): void
+    {
+        $dummyJpg = $this->createDummyJpg('remote_src.jpg', 10, 10);
+        $url = 'file://' . $dummyJpg;
+
+        $media = new MediaObject();
+        $media->addRemoteImage($url, 'test_media_module');
+        $media->save();
+
+        $this->assertFalse($media->error);
+        $this->assertEquals(1, $media->mediatype);
+        $this->assertGreaterThan(0, $media->mediaid);
+    }
+
+    /**
+     * Test that fixJpegOrientation corrects an image orientation when EXIF indicates orientation == 6.
+     */
+    #[Test]
+    public function testFixJpegOrientationRotatesImage(): void
+    {
+        $dummyJpg = $this->createDummyJpg('exif_test_6.jpg', 20, 10);
+
+        $media = new MediaObject();
+        $media->fixOrientation = true;
+        
+        // This will call fixJpegOrientation via the namespaces override
+        $media->addImage($dummyJpg, 'test_media_module');
+        
+        $this->assertFalse($media->error);
+        // Orientation 6 rotates by -90 deg, swapping dimensions (20x10 -> 10x20)
+        $this->assertEquals(10, $media->x);
+        $this->assertEquals(20, $media->y);
+    }
+
+    /**
+     * Test duplicate detection where the original file of the duplicate is missing.
+     * The framework should attempt to copy the new file over to restore the missing duplicate.
+     */
+    #[Test]
+    public function testAddImageMissingOriginalDuplicateCopy(): void
+    {
+        $img1 = $this->createDummyJpg('img1.jpg', 10, 10);
+        $img2 = $this->createDummyJpg('img2.jpg', 10, 10);
+
+        $media1 = new MediaObject();
+        $media1->addImage($img1, 'test_media_module');
+        $media1->save();
+
+        // Delete the original file from the filesystem to simulate missing original
+        unlink($media1->filename);
+
+        copy($img1, $img2);
+
+        $media2 = new MediaObject();
+        $media2->addImage($img2, 'test_media_module');
+
+        // File should be restored by copying to media1's target filename
+        $this->assertFileExists($media1->filename);
+        $this->assertEquals($media1->mediaid, $media2->medialink);
+    }
 }
+
+namespace Pramnos\Media;
+
+function exif_read_data($filename) {
+    if (strpos($filename, 'exif_test_6.jpg') !== false) {
+        return ['Orientation' => 6];
+    }
+    // Return empty array for default/non-exif jpeg
+    return [];
+}
+

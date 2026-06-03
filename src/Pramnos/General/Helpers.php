@@ -407,7 +407,7 @@ class Helpers
                     CURLOPT_RETURNTRANSFER => 1,
                     CURLOPT_TIMEOUT => 10,
                     CURLOPT_URL => $url,
-                    CURLOPT_HEADER, 0,
+                    CURLOPT_HEADER => 0,
                     CURLOPT_SSL_VERIFYPEER => false,
                     CURLOPT_FOLLOWLOCATION => true,     // follow redirects
                     CURLOPT_MAXREDIRS      => 10,
@@ -421,7 +421,7 @@ class Helpers
                     CURLOPT_RETURNTRANSFER => 1,
                     CURLOPT_TIMEOUT => 10,
                     CURLOPT_URL => $url,
-                    CURLOPT_HEADER, 0,
+                    CURLOPT_HEADER => 0,
                     CURLOPT_SSL_VERIFYPEER => false,
                     CURLOPT_FOLLOWLOCATION => true,     // follow redirects
                     CURLOPT_MAXREDIRS      => 10

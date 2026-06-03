@@ -1067,6 +1067,10 @@ HTML,
 
     private function downloadFile(string $url, string $dest): bool
     {
+        if (defined('PRAMNOS_TESTING') && PRAMNOS_TESTING) {
+            return file_put_contents($dest, "/* mocked download of $url */\n") !== false;
+        }
+
         $ctx = stream_context_create([
             'http' => [
                 'timeout'    => 15,
