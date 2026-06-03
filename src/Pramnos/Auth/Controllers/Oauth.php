@@ -28,6 +28,17 @@ use Nyholm\Psr7\Factory\Psr17Factory;
  */
 class Oauth extends Controller
 {
+    /**
+     * Terminate execution. Overridden in tests to prevent exit.
+     */
+    protected function terminate(): void
+    {
+        if (defined('PRAMNOS_TESTING')) {
+            throw new \Exception("OAuth controller terminated");
+        }
+        exit;
+    }
+
     private OAuth2ServerFactory $oauth2Factory;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
@@ -49,7 +60,7 @@ class Oauth extends Controller
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
             header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
             header('Access-Control-Allow-Headers: Content-Type, Authorization');
-            exit(0);
+            $this->terminate(); return;
         }
     }
 
@@ -146,12 +157,8 @@ class Oauth extends Controller
      * Supported grant types: authorization_code, client_credentials,
      * password, refresh_token.
      */
-    public function token(): void
+    public function token(): mixed
     {
-        header('Content-Type: application/json');
-        header('Cache-Control: no-store');
-        header('Pragma: no-cache');
-
         // JWT client assertion (RFC 7523) for client_credentials is handled manually
         // because League oauth2-server does not natively support private_key_jwt
         // client authentication.  The bypass also manages the per-application system
@@ -160,8 +167,10 @@ class Oauth extends Controller
             && isset($_POST['client_assertion'])
             && ($_POST['client_assertion_type'] ?? '') === 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
         ) {
-            echo $this->handleJwtClientCredentials();
-            exit;
+            $jsonStr = $this->handleJwtClientCredentials();
+            return \Pramnos\Http\Response::json(json_decode($jsonStr, true))
+                ->withHeader('Cache-Control', 'no-store')
+                ->withHeader('Pragma', 'no-cache');
         }
 
         try {
@@ -172,18 +181,16 @@ class Oauth extends Controller
             $authServer  = $this->oauth2Factory->createAuthorizationServer();
             $psrResponse = $authServer->respondToAccessTokenRequest($psrRequest, $psrResponse);
 
-            $this->emitPsrResponse($psrResponse);
+            return $this->emitPsrResponse($psrResponse);
 
         } catch (OAuthServerException $ex) {
-            $this->emitPsrResponse($ex->generateHttpResponse(new Psr17Factory()->createResponse()));
+            return $this->emitPsrResponse($ex->generateHttpResponse(new Psr17Factory()->createResponse()));
         } catch (\Exception $ex) {
-            http_response_code(500);
-            echo json_encode([
+            return \Pramnos\Http\Response::json([
                 'error'             => 'server_error',
                 'error_description' => $ex->getMessage(),
-            ]);
+            ], 500);
         }
-        exit;
     }
 
     // ── Revocation ────────────────────────────────────────────────────────────
@@ -194,21 +201,15 @@ class Oauth extends Controller
      * POST /oauth/revoke
      * Parameters: token, token_type_hint (optional)
      */
-    public function revoke(): void
+    public function revoke(): mixed
     {
-        header('Content-Type: application/json');
-
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo json_encode(['error' => 'method_not_allowed']);
-            exit;
+            return \Pramnos\Http\Response::json(['error' => 'method_not_allowed'], 405);
         }
 
         $token = $_POST['token'] ?? '';
         if ($token === '') {
-            http_response_code(400);
-            echo json_encode(['error' => 'invalid_request', 'error_description' => 'Missing token parameter']);
-            exit;
+            return \Pramnos\Http\Response::json(['error' => 'invalid_request', 'error_description' => 'Missing token parameter'], 400);
         }
 
         // RFC 7009: revocation always returns 200 (even for unknown tokens)
@@ -219,9 +220,7 @@ class Oauth extends Controller
             ->where('status', 1)
             ->update(['status' => 0]);
 
-        http_response_code(200);
-        echo json_encode(['success' => true]);
-        exit;
+        return \Pramnos\Http\Response::json(['success' => true]);
     }
 
     // ── Introspection ─────────────────────────────────────────────────────────
@@ -232,30 +231,21 @@ class Oauth extends Controller
      * POST /oauth/introspect
      * Requires client authentication (Basic or POST body).
      */
-    public function introspect(): void
+    public function introspect(): mixed
     {
-        header('Content-Type: application/json');
-        header('Cache-Control: no-store');
-
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            http_response_code(405);
-            echo json_encode(['error' => 'method_not_allowed']);
-            exit;
+            return \Pramnos\Http\Response::json(['error' => 'method_not_allowed'], 405);
         }
 
         $credentials = $this->extractClientCredentials();
         if ($credentials === null || !$this->validateClientCredentials($credentials)) {
-            http_response_code(401);
-            header('WWW-Authenticate: Basic realm="OAuth2"');
-            echo json_encode(['error' => 'invalid_client']);
-            exit;
+            return \Pramnos\Http\Response::json(['error' => 'invalid_client'], 401)
+                ->withHeader('WWW-Authenticate', 'Basic realm="OAuth2"');
         }
 
         $token = $_POST['token'] ?? '';
         if ($token === '') {
-            http_response_code(400);
-            echo json_encode(['error' => 'invalid_request', 'error_description' => 'Missing token parameter']);
-            exit;
+            return \Pramnos\Http\Response::json(['error' => 'invalid_request', 'error_description' => 'Missing token parameter'], 400);
         }
 
         $db     = \Pramnos\Framework\Factory::getDatabase();
@@ -268,8 +258,7 @@ class Oauth extends Controller
             ->first();
 
         if (!$result || $result->numRows == 0) {
-            echo json_encode(['active' => false]);
-            exit;
+            return \Pramnos\Http\Response::json(['active' => false]);
         }
 
         $row     = (array) $result->fields;
@@ -277,11 +266,10 @@ class Oauth extends Controller
                  && ((int) $row['expires'] === 0 || (int) $row['expires'] > time());
 
         if (!$isActive) {
-            echo json_encode(['active' => false]);
-            exit;
+            return \Pramnos\Http\Response::json(['active' => false]);
         }
 
-        echo json_encode([
+        return \Pramnos\Http\Response::json([
             'active'     => true,
             'scope'      => $row['scope']     ?? '',
             'client_id'  => $row['client_id'] ?? '',
@@ -290,8 +278,7 @@ class Oauth extends Controller
             'exp'        => (int) ($row['expires'] ?? 0),
             'iat'        => (int) ($row['created'] ?? 0),
             'sub'        => (string) ($row['userid'] ?? ''),
-        ]);
-        exit;
+        ])->withHeader('Cache-Control', 'no-store');
     }
 
     // ── UserInfo ──────────────────────────────────────────────────────────────
@@ -302,16 +289,12 @@ class Oauth extends Controller
      * GET/POST /oauth/userinfo
      * Requires Bearer token with the `openid` scope.
      */
-    public function userinfo(): void
+    public function userinfo(): mixed
     {
-        header('Content-Type: application/json');
-
         $token = $this->extractBearerToken();
         if ($token === null) {
-            http_response_code(401);
-            header('WWW-Authenticate: Bearer realm="oauth"');
-            echo json_encode(['error' => 'invalid_token']);
-            exit;
+            return \Pramnos\Http\Response::json(['error' => 'invalid_token'], 401)
+                ->withHeader('WWW-Authenticate', 'Bearer realm="oauth"');
         }
 
         $db     = \Pramnos\Framework\Factory::getDatabase();
@@ -325,23 +308,24 @@ class Oauth extends Controller
         if (!$result || $result->numRows == 0
             || (int) $result->fields['status'] !== 1
             || ((int) $result->fields['expires'] > 0 && (int) $result->fields['expires'] < time())) {
-            http_response_code(401);
-            echo json_encode(['error' => 'invalid_token', 'error_description' => 'Token expired or invalid']);
-            exit;
+            return \Pramnos\Http\Response::json([
+                'error' => 'invalid_token',
+                'error_description' => 'Token expired or invalid'
+            ], 401);
         }
 
         $userId = (int) $result->fields['userid'];
         $scopes = array_filter(explode(' ', (string) ($result->fields['scope'] ?? '')));
 
         if (!in_array('openid', $scopes, true)) {
-            http_response_code(403);
-            echo json_encode(['error' => 'insufficient_scope', 'error_description' => 'The openid scope is required']);
-            exit;
+            return \Pramnos\Http\Response::json([
+                'error' => 'insufficient_scope',
+                'error_description' => 'The openid scope is required'
+            ], 403);
         }
 
         $payload = $this->buildUserInfoPayload($userId, $scopes);
-        echo json_encode($payload);
-        exit;
+        return \Pramnos\Http\Response::json($payload);
     }
 
     // ── Logout ────────────────────────────────────────────────────────────────
@@ -353,15 +337,11 @@ class Oauth extends Controller
      * Revokes all tokens for the session associated with the presented access
      * token. For browser-session logout use the application's /logout route.
      */
-    public function logout(): void
+    public function logout(): mixed
     {
-        header('Content-Type: application/json');
-
         $token = $this->extractBearerToken();
         if ($token === null) {
-            http_response_code(401);
-            echo json_encode(['error' => 'invalid_token']);
-            exit;
+            return \Pramnos\Http\Response::json(['error' => 'invalid_token'], 401);
         }
 
         $db     = \Pramnos\Framework\Factory::getDatabase();
@@ -374,8 +354,7 @@ class Oauth extends Controller
 
         if (!$result || $result->numRows == 0) {
             // Token not found — still return success per RFC 7009 spirit
-            echo json_encode(['success' => true]);
-            exit;
+            return \Pramnos\Http\Response::json(['success' => true]);
         }
 
         $userId = (int) $result->fields['userid'];
@@ -393,8 +372,7 @@ class Oauth extends Controller
 
         $updateQb->update(['status' => 0]);
 
-        echo json_encode(['success' => true, 'user_id' => $userId]);
-        exit;
+        return \Pramnos\Http\Response::json(['success' => true, 'user_id' => $userId]);
     }
 
     // ── Device Authorization ──────────────────────────────────────────────────
@@ -403,17 +381,16 @@ class Oauth extends Controller
      * Device Authorization endpoint — RFC 8628 §3.1.
      * POST /oauth/deviceauthorization
      */
-    public function deviceauthorization(): void
+    public function deviceauthorization(): mixed
     {
-        header('Content-Type: application/json');
-
         $clientId = $_POST['client_id'] ?? null;
         $scope    = $_POST['scope']     ?? '';
 
         if ($clientId === null) {
-            http_response_code(400);
-            echo json_encode(['error' => 'invalid_request', 'error_description' => 'Missing client_id']);
-            exit;
+            return \Pramnos\Http\Response::json([
+                'error' => 'invalid_request',
+                'error_description' => 'Missing client_id'
+            ], 400);
         }
 
         try {
@@ -437,7 +414,7 @@ class Oauth extends Controller
 
             $verificationUri = sURL . 'device';
 
-            echo json_encode([
+            return \Pramnos\Http\Response::json([
                 'device_code'              => $deviceCode,
                 'user_code'                => $userCode,
                 'verification_uri'         => $verificationUri,
@@ -446,10 +423,11 @@ class Oauth extends Controller
                 'interval'                 => 5,
             ]);
         } catch (\Exception $ex) {
-            http_response_code(400);
-            echo json_encode(['error' => 'invalid_request', 'error_description' => $ex->getMessage()]);
+            return \Pramnos\Http\Response::json([
+                'error' => 'invalid_request',
+                'error_description' => $ex->getMessage()
+            ], 400);
         }
-        exit;
     }
 
     // ── Authorize helpers ─────────────────────────────────────────────────────
@@ -530,7 +508,7 @@ class Oauth extends Controller
                 $redirectParams['state'] = $params['state'];
             }
             header('Location: ' . $params['redirect_uri'] . '?' . http_build_query($redirectParams));
-            exit;
+            $this->terminate(); return;
         }
     }
 
@@ -553,7 +531,7 @@ class Oauth extends Controller
             $redirectParams['state'] = $params['state'];
         }
         header('Location: ' . $params['redirect_uri'] . '?' . http_build_query($redirectParams));
-        exit;
+        $this->terminate(); return;
     }
 
     /**
@@ -1122,16 +1100,19 @@ class Oauth extends Controller
     // ── PSR-7 response emitter ────────────────────────────────────────────────
 
     /**
-     * Emit a PSR-7 response to the PHP output buffer.
+     * Emit a PSR-7 response as a framework Response.
      */
-    private function emitPsrResponse(\Psr\Http\Message\ResponseInterface $response): void
+    private function emitPsrResponse(\Psr\Http\Message\ResponseInterface $psrResponse): \Pramnos\Http\Response
     {
-        http_response_code($response->getStatusCode());
-        foreach ($response->getHeaders() as $name => $values) {
+        $response = \Pramnos\Http\Response::make(
+            (string) $psrResponse->getBody(),
+            $psrResponse->getStatusCode()
+        );
+        foreach ($psrResponse->getHeaders() as $name => $values) {
             foreach ($values as $value) {
-                header("$name: $value", false);
+                $response = $response->withHeader($name, $value);
             }
         }
-        echo $response->getBody();
+        return $response;
     }
 }

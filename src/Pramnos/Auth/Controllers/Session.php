@@ -32,6 +32,9 @@ class Session extends Controller
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
             header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
             header('Access-Control-Allow-Headers: Content-Type, Authorization');
+            if (defined('PRAMNOS_TESTING')) {
+                throw new \Exception("CORS OPTIONS request");
+            }
             exit(0);
         }
     }
@@ -42,11 +45,8 @@ class Session extends Controller
      * Check whether the current session or Bearer token is active.
      * Safe to poll frequently — does not extend session lifetime.
      */
-    public function check(): void
+    public function check(): mixed
     {
-        header('Content-Type: application/json');
-        header('Cache-Control: no-cache, no-store, must-revalidate');
-
         $isBearerAuth = $this->extractBearerToken() !== null;
         $isLoggedIn   = $this->isUserLoggedIn();
 
@@ -57,7 +57,7 @@ class Session extends Controller
 
             $sessionData = $this->getSessionData();
 
-            echo json_encode([
+            $data = [
                 'status'        => 'active',
                 'logged_in'     => true,
                 'auth_method'   => $isBearerAuth ? 'bearer_token' : 'session',
@@ -65,26 +65,25 @@ class Session extends Controller
                 'username'      => $this->extractField($sessionData, 'username'),
                 'last_activity' => $isBearerAuth ? null : ($_SESSION['last_activity'] ?? null),
                 'expires_in'    => $this->getTimeRemaining(),
-            ]);
+            ];
         } else {
-            echo json_encode([
+            $data = [
                 'status'    => 'expired',
                 'logged_in' => false,
                 'message'   => 'Session expired or user not authenticated',
-            ]);
+            ];
         }
 
-        exit;
+        return \Pramnos\Http\Response::json($data)
+            ->withHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     }
 
     /**
      * Heartbeat — update `last_activity` to prevent session timeout.
      * For Bearer-token clients this is a no-op (tokens expire on their own).
      */
-    public function heartbeat(): void
+    public function heartbeat(): mixed
     {
-        header('Content-Type: application/json');
-
         $isBearerAuth = $this->extractBearerToken() !== null;
 
         if ($this->isUserLoggedIn()) {
@@ -92,35 +91,32 @@ class Session extends Controller
                 $_SESSION['last_activity'] = time();
             }
 
-            echo json_encode([
+            $data = [
                 'status'      => 'ok',
                 'auth_method' => $isBearerAuth ? 'bearer_token' : 'session',
                 'timestamp'   => time(),
                 'expires_in'  => $this->getTimeRemaining(),
-            ]);
+            ];
+            $status = 200;
         } else {
-            http_response_code(401);
-            echo json_encode([
+            $data = [
                 'status'  => 'unauthorized',
                 'message' => $isBearerAuth ? 'Invalid or expired token' : 'Session expired',
-            ]);
+            ];
+            $status = 401;
         }
 
-        exit;
+        return \Pramnos\Http\Response::json($data, $status);
     }
 
     /**
      * Return detailed information about the authenticated user and their active
      * OAuth2 tokens.
      */
-    public function info(): void
+    public function info(): mixed
     {
-        header('Content-Type: application/json');
-
         if (!$this->isUserLoggedIn()) {
-            http_response_code(401);
-            echo json_encode(['error' => 'Not authenticated']);
-            exit;
+            return \Pramnos\Http\Response::json(['error' => 'Not authenticated'], 401);
         }
 
         $isBearerAuth = $this->extractBearerToken() !== null;
@@ -152,8 +148,7 @@ class Session extends Controller
             ];
         }
 
-        echo json_encode($response);
-        exit;
+        return \Pramnos\Http\Response::json($response);
     }
 
     /**
@@ -161,37 +156,34 @@ class Session extends Controller
      * Returns HTTP 400 for Bearer-token clients — use the refresh_token grant
      * at the token endpoint instead.
      */
-    public function refresh(): void
+    public function refresh(): mixed
     {
-        header('Content-Type: application/json');
-
         if ($this->extractBearerToken() !== null) {
-            http_response_code(400);
-            echo json_encode([
+            return \Pramnos\Http\Response::json([
                 'status'  => 'error',
                 'message' => 'Bearer tokens cannot be refreshed through this endpoint. '
                            . 'Use the refresh_token grant type instead.',
-            ]);
-            exit;
+            ], 400);
         }
 
         if ($this->isUserLoggedIn()) {
             $_SESSION['last_activity'] = time();
 
-            echo json_encode([
+            $data = [
                 'status'     => 'refreshed',
                 'timestamp'  => time(),
                 'expires_in' => $this->getTimeRemaining(),
-            ]);
+            ];
+            $status = 200;
         } else {
-            http_response_code(401);
-            echo json_encode([
+            $data = [
                 'status'  => 'failed',
                 'message' => 'Cannot refresh expired session',
-            ]);
+            ];
+            $status = 401;
         }
 
-        exit;
+        return \Pramnos\Http\Response::json($data, $status);
     }
 
     // ── Auth helpers ──────────────────────────────────────────────────────────

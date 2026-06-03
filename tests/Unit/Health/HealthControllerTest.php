@@ -32,6 +32,14 @@ class HealthControllerTest extends TestCase
     {
         HealthRegistry::reset();
         NavRegistry::reset();
+        
+        // Mock Document theme so View can find the template in scaffolding/themes/plain-css
+        $doc = \Pramnos\Framework\Factory::getDocument('html');
+        $doc->themeObject = new class {
+            public $fullpath = '';
+            public function allowsViewOverrides() { return true; }
+        };
+        $doc->themeObject->fullpath = ROOT . DIRECTORY_SEPARATOR . 'scaffolding' . DIRECTORY_SEPARATOR . 'themes' . DIRECTORY_SEPARATOR . 'plain-css';
     }
 
     protected function tearDown(): void

@@ -138,7 +138,7 @@ class UsersController extends Controller
      * AJAX data endpoint for the users DataTable.
      * Reads DataTables server-side params from POST and returns paginated JSON.
      */
-    public function data(): void
+    public function data(): mixed
     {
         $this->requireMinUserType($this->requiredUserType);
         \Pramnos\Framework\Factory::getDocument('json');
@@ -168,8 +168,7 @@ class UsersController extends Controller
         }
         unset($row);
 
-        echo json_encode($result);
-        exit;
+        return \Pramnos\Http\Response::json($result);
     }
 
     /**

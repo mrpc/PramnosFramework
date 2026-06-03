@@ -75,10 +75,10 @@ class OrganizationsController extends Controller
     /**
      * AJAX data endpoint for the organizations DataTable.
      */
-    public function data(): void
+    public function data(): mixed
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
-            return;
+            return null;
         }
         \Pramnos\Framework\Factory::getDocument('json');
 
@@ -100,8 +100,7 @@ class OrganizationsController extends Controller
         }
         unset($row);
 
-        echo json_encode($result);
-        exit;
+        return \Pramnos\Http\Response::json($result);
     }
 
     /**
@@ -338,6 +337,11 @@ class OrganizationsController extends Controller
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    protected function terminate(): void
+    {
+        exit;
+    }
 
     /**
      * Redirects to sURL if the current user's usertype is below $minType.
