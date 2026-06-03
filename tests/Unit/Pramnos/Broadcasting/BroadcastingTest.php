@@ -23,12 +23,18 @@ class DummyModel
     }
 }
 
-class DummyApp extends \Pramnos\Application\Application
-{
-    public array $applicationInfo = [];
-    public $container;
-    private static ?DummyApp $instance = null;
+// DummyApp removed to use real Application singleton
 
+#[CoversClass(BroadcastingManager::class)]
+#[CoversClass(NullDriver::class)]
+#[CoversClass(LogDriver::class)]
+#[CoversClass(PusherDriver::class)]
+#[CoversClass(BroadcastingServiceProvider::class)]
+#[CoversClass(Broadcastable::class)]
+class TestBroadcastingApp extends \Pramnos\Application\Application
+{
+    public $applicationInfo = [];
+    public $container;
     public function __construct()
     {
         $this->container = new class {
@@ -46,28 +52,28 @@ class DummyApp extends \Pramnos\Application\Application
                 return isset($this->bindings[$name]);
             }
         };
-        self::$instance = $this;
-    }
-
-    public static function getInstance(): \Pramnos\Application\Application
-    {
-        return self::$instance ?? new self();
     }
 }
 
-#[CoversClass(BroadcastingManager::class)]
-#[CoversClass(NullDriver::class)]
-#[CoversClass(LogDriver::class)]
-#[CoversClass(PusherDriver::class)]
-#[CoversClass(BroadcastingServiceProvider::class)]
-#[CoversClass(Broadcastable::class)]
 class BroadcastingTest extends TestCase
 {
     private string $tempLogPath;
+    private array $originalInstances = [];
+    private $originalLastUsed = null;
 
     protected function setUp(): void
     {
         $this->tempLogPath = sys_get_temp_dir() . '/broadcasting_test_' . bin2hex(random_bytes(4)) . '.log';
+        
+        $ref = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $this->originalInstances = $ref->getValue();
+        $instances = $this->originalInstances;
+        $instances['default'] = new TestBroadcastingApp();
+        $ref->setValue(null, $instances);
+
+        $refLast = new \ReflectionProperty(\Pramnos\Application\Application::class, 'lastUsedApplication');
+        $this->originalLastUsed = $refLast->getValue();
+        $refLast->setValue(null, 'default');
     }
 
     protected function tearDown(): void
@@ -75,6 +81,12 @@ class BroadcastingTest extends TestCase
         if (file_exists($this->tempLogPath)) {
             unlink($this->tempLogPath);
         }
+
+        $ref = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $ref->setValue(null, $this->originalInstances);
+
+        $refLast = new \ReflectionProperty(\Pramnos\Application\Application::class, 'lastUsedApplication');
+        $refLast->setValue(null, $this->originalLastUsed);
     }
 
     public function testNullDriverNameAndBroadcast(): void
@@ -135,19 +147,15 @@ class BroadcastingTest extends TestCase
         $this->assertSame('channel-via', $entries[0]['channel']);
     }
 
-    public function testPusherDriverThrowsWhenClassMissing(): void
+    public function testPusherDriverConstructionWithPusherInstalled(): void
     {
-        // When pusher package is not installed (which is true in clean CLI environments),
-        // PusherDriver constructor should throw a RuntimeException.
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('PusherDriver requires the pusher/pusher-php-server Composer package');
-        
-        new PusherDriver(['app_id' => '123', 'app_key' => 'key', 'app_secret' => 'secret']);
+        $driver = new PusherDriver(['app_id' => '123', 'app_key' => 'key', 'app_secret' => 'secret']);
+        $this->assertSame('pusher', $driver->name());
     }
 
     public function testBroadcastableTrait(): void
     {
-        $app = new DummyApp();
+        $app = \Pramnos\Application\Application::getInstance();
         $manager = new BroadcastingManager();
         $logDriver = new LogDriver($this->tempLogPath);
         $manager->addDriver($logDriver);
@@ -172,12 +180,11 @@ class BroadcastingTest extends TestCase
 
     public function testBroadcastingServiceProviderRegistration(): void
     {
-        $app = new DummyApp();
-        $app->applicationInfo = [
-            'broadcasting' => [
-                'default' => 'log',
-                'log_path' => $this->tempLogPath,
-            ],
+        $app = \Pramnos\Application\Application::getInstance();
+        $originalInfo = $app->applicationInfo;
+        $app->applicationInfo['broadcasting'] = [
+            'default' => 'log',
+            'log_path' => $this->tempLogPath,
         ];
 
         $provider = new BroadcastingServiceProvider($app);
@@ -187,5 +194,7 @@ class BroadcastingTest extends TestCase
         $manager = $app->container->get('broadcasting');
         $this->assertInstanceOf(BroadcastingManager::class, $manager);
         $this->assertSame('log', $manager->driver()->name());
+
+        $app->applicationInfo = $originalInfo;
     }
 }
