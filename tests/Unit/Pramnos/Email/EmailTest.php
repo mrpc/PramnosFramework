@@ -499,4 +499,21 @@ class EmailTest extends TestCase
         // Assert that the error message was set
         $this->assertNotEmpty($email->getLastError());
     }
+
+    public function testEnableTracking(): void
+    {
+        $email = new Email();
+        $email->setBody('<p>Hello</p>');
+        $email->enableTracking('track_123');
+
+        $this->assertSame('track_123', $email->trackingId);
+        $this->assertStringContainsString('<img src="', $email->body);
+        $this->assertStringContainsString('track_123', $email->body);
+    }
+
+    public function testHandleTrackingRequestExitsWithGif(): void
+    {
+        $this->expectOutputString(base64_decode('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=='));
+        Email::handleTrackingRequest('track_123');
+    }
 }

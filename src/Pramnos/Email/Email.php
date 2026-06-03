@@ -663,13 +663,13 @@ class Email extends \Pramnos\Framework\Base
             }
             
             // Store tracking information
-            $db->insert('email_tracking', [
-                'tracking_id' => $trackingId,
-                'recipient' => $recipient,
-                'subject' => $this->subject,
-                'sent_at' => date('Y-m-d H:i:s'),
-                'opened' => 0,
-                'opened_at' => null
+            $db->insertDataToTable('email_tracking', [
+                ['fieldName' => 'tracking_id', 'value' => $trackingId, 'type' => 'string'],
+                ['fieldName' => 'recipient', 'value' => $recipient, 'type' => 'string'],
+                ['fieldName' => 'subject', 'value' => $this->subject, 'type' => 'string'],
+                ['fieldName' => 'sent_at', 'value' => date('Y-m-d H:i:s'), 'type' => 'string'],
+                ['fieldName' => 'opened', 'value' => 0, 'type' => 'integer'],
+                ['fieldName' => 'opened_at', 'value' => null, 'type' => 'string']
             ]);
             
         } catch (\Exception $e) {
@@ -731,14 +731,14 @@ class Email extends \Pramnos\Framework\Base
                 $db = \Pramnos\Database\Database::getInstance();
                 
                 // Update tracking record to mark as opened
-                $db->update('email_tracking', 
+                $db->updateTableData('email_tracking', 
                     [
-                        'opened' => 1, 
-                        'opened_at' => date('Y-m-d H:i:s'),
-                        'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
-                        'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null
+                        ['fieldName' => 'opened', 'value' => 1, 'type' => 'integer'],
+                        ['fieldName' => 'opened_at', 'value' => date('Y-m-d H:i:s'), 'type' => 'string'],
+                        ['fieldName' => 'ip_address', 'value' => $_SERVER['REMOTE_ADDR'] ?? null, 'type' => 'string'],
+                        ['fieldName' => 'user_agent', 'value' => $_SERVER['HTTP_USER_AGENT'] ?? null, 'type' => 'string']
                     ], 
-                    ['tracking_id' => $trackingId]
+                    "`tracking_id` = '" . $db->prepareInput($trackingId) . "'"
                 );
                 
                 // Optional: Log the event
@@ -759,6 +759,9 @@ class Email extends \Pramnos\Framework\Base
         
         // Output transparent 1x1 GIF
         echo base64_decode('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==');
+        if (defined('PRAMNOS_TESTING')) {
+            return;
+        }
         exit;
     }
 
