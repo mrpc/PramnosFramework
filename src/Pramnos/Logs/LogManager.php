@@ -465,9 +465,14 @@ class LogManager
             // Try to extract timestamp from standard log format [date/time]
             elseif (preg_match('/^\[([\d\/]+ [\d:]+)\]/', $line, $matches)) {
                 $timestampStr = $matches[1];
-                $parsedTime = strtotime($timestampStr);
-                if ($parsedTime !== false) {
-                    $timestamp = $parsedTime;
+                $dateObj = \DateTime::createFromFormat('d/m/Y H:i:s', $timestampStr);
+                if ($dateObj !== false) {
+                    $timestamp = $dateObj->getTimestamp();
+                } else {
+                    $parsedTime = strtotime($timestampStr);
+                    if ($parsedTime !== false) {
+                        $timestamp = $parsedTime;
+                    }
                 }
                 
                 $message = $line;
@@ -637,9 +642,14 @@ class LogManager
             // Try to extract timestamp from standard log format [date/time]
             elseif (preg_match('/^\[([\d\/]+ [\d:]+)\](.*)$/', $line, $matches)) {
                 $timestampStr = $matches[1];
-                $parsedTime = strtotime($timestampStr);
-                if ($parsedTime !== false) {
-                    $timestamp = $parsedTime;
+                $dateObj = \DateTime::createFromFormat('d/m/Y H:i:s', $timestampStr);
+                if ($dateObj !== false) {
+                    $timestamp = $dateObj->getTimestamp();
+                } else {
+                    $parsedTime = strtotime($timestampStr);
+                    if ($parsedTime !== false) {
+                        $timestamp = $parsedTime;
+                    }
                 }
                 
                 $message = $matches[2];
