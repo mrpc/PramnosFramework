@@ -671,5 +671,72 @@ class FileAdapterTest extends TestCase
         // Assert — directory should exist
         $this->assertDirectoryExists($newDir);
     }
+
+    /**
+     * Test getCategories with various prefix configurations.
+     */
+    public function testGetCategoriesWithPrefixes(): void
+    {
+        $adapter = new FileAdapter($this->cacheDir, 'myprefix');
+        $adapter->save('cat_item', 'value');
+
+        // getCategories with explicit prefix
+        $this->assertContains('cat', $adapter->getCategories('myprefix'));
+
+        // getCategories with default adapter prefix
+        $this->assertContains('cat', $adapter->getCategories());
+    }
+
+    /**
+     * Test getStats and clear when prefix is set.
+     */
+    public function testGetStatsAndClearWithPrefix(): void
+    {
+        $adapter = new FileAdapter($this->cacheDir, 'prefix_s');
+        $adapter->save('cat_item', 'value');
+
+        $stats = $adapter->getStats();
+        $this->assertSame(1, $stats['items']);
+
+        // clear with prefix
+        $adapter->clear('cat');
+        $this->assertSame(0, $adapter->getStats()['items']);
+    }
+
+    /**
+     * Test getCategories when directory does not exist.
+     */
+    public function testGetCategoriesWhenDirectoryMissing(): void
+    {
+        $adapter = new FileAdapter($this->cacheDir . '/missing_dir');
+        $this->assertSame([], $adapter->getCategories());
+    }
+
+    /**
+     * Test getAllItems when category directory does not exist.
+     */
+    public function testGetAllItemsWithMissingCategoryDir(): void
+    {
+        $adapter = $this->makeAdapter();
+        $this->assertSame([], $adapter->getAllItems('missing_category'));
+    }
+
+    /**
+     * Test cleanup deletes expired files.
+     */
+    public function testCleanupDeletesExpiredFiles(): void
+    {
+        $adapter = $this->makeAdapter();
+        // save expired file (timeout = 1)
+        $adapter->save('expkey', 'val', 1);
+        
+        $filePath = $this->cacheDir . DIRECTORY_SEPARATOR . 'expkey';
+        touch($filePath, time() - 10); // backdate
+
+        // clear triggers cleanup internally
+        $adapter->clear();
+
+        $this->assertFileDoesNotExist($filePath);
+    }
 }
 

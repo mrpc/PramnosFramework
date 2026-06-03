@@ -364,4 +364,207 @@ class ScheduledTaskTest extends TestCase
         // Assert
         $this->assertInstanceOf(CronExpression::class, $task->getCronExpression());
     }
+
+    // =========================================================================
+    // run() — job handler (object with handle() method)
+    // =========================================================================
+
+    /**
+     * run() with a 'job' handler that has a handle() method must invoke it.
+     */
+    public function testRunInvokesJobHandleMethod(): void
+    {
+        // Arrange — a minimal job object with a handle() method
+        $called = 0;
+        $job = new class($called) {
+            public function __construct(private int &$count) {}
+            public function handle(): void { $this->count++; }
+        };
+
+        $task = new ScheduledTask($job, 'job');
+
+        // Act
+        $task->run();
+
+        // Assert
+        $this->assertSame(1, $called);
+    }
+
+    /**
+     * run() with a callable 'job' handler must invoke it directly.
+     */
+    public function testRunInvokesCallableJobHandler(): void
+    {
+        // Arrange
+        $called = 0;
+        $task = new ScheduledTask(function () use (&$called) { $called++; }, 'job');
+
+        // Act
+        $task->run();
+
+        // Assert
+        $this->assertSame(1, $called);
+    }
+
+    /**
+     * run() with a 'job' handler that is neither callable nor has handle() must
+     * throw RuntimeException.
+     */
+    public function testRunThrowsForInvalidJobHandler(): void
+    {
+        // Arrange — a non-callable object without handle()
+        $invalidJob = new \stdClass();
+        $task = new ScheduledTask($invalidJob, 'job');
+
+        // Act / Assert
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/handle\(\)/');
+        $task->run();
+    }
+
+    /**
+     * run() with an unknown type must throw RuntimeException.
+     */
+    public function testRunThrowsForUnknownType(): void
+    {
+        // Arrange
+        $task = new ScheduledTask('some-handler', 'unknown_type');
+
+        // Act / Assert
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/Unknown scheduled task type/');
+        $task->run();
+    }
+
+    // =========================================================================
+    // Overlap prevention (lock files)
+    // =========================================================================
+
+    /**
+     * withoutOverlapping() skips execution when a lock file exists for an active PID.
+     * We fake this by writing the current process's PID to the lock file before run().
+     */
+    public function testRunSkipsWhenOverlapLockExists(): void
+    {
+        // Arrange — use a temp dir for the lock file
+        $lockDir = sys_get_temp_dir();
+        $called  = 0;
+        $task    = new ScheduledTask(function () use (&$called) { $called++; }, 'callable');
+        $task->withoutOverlapping($lockDir);
+
+        // Compute the expected lock file path using reflection
+        $lockFileRef = new \ReflectionMethod($task, 'lockFile');
+        $lockFile    = $lockFileRef->invoke($task);
+
+        // Write the current PID so isLocked() returns true
+        file_put_contents($lockFile, getmypid());
+
+        try {
+            // Act
+            $task->run();
+
+            // Assert — callable was NOT invoked because of the lock
+            $this->assertSame(0, $called, 'run() must skip execution when a valid lock exists');
+        } finally {
+            @unlink($lockFile);
+        }
+    }
+
+    /**
+     * withoutOverlapping() acquires a lock, runs the handler, and then releases
+     * the lock — the lock file must not exist after run() completes.
+     */
+    public function testRunAcquiresAndReleasesLock(): void
+    {
+        // Arrange
+        $lockDir = sys_get_temp_dir();
+        $task    = new ScheduledTask(fn() => null, 'callable');
+        $task->withoutOverlapping($lockDir);
+
+        // Compute lock path before run()
+        $lockFileRef = new \ReflectionMethod($task, 'lockFile');
+        $lockFile    = $lockFileRef->invoke($task);
+
+        // Pre-condition: no stale lock
+        @unlink($lockFile);
+
+        // Act
+        $task->run();
+
+        // Assert — lock was released after execution
+        $this->assertFileDoesNotExist($lockFile, 'Lock file must be deleted after run() completes');
+    }
+
+    /**
+     * withoutOverlapping() with a custom lockDir uses that directory.
+     */
+    public function testWithoutOverlappingUsesCustomLockDir(): void
+    {
+        // Arrange
+        $customDir = sys_get_temp_dir() . '/pramnos_sched_test_' . bin2hex(random_bytes(4));
+        @mkdir($customDir, 0777, true);
+
+        $task = new ScheduledTask(fn() => null, 'callable');
+        $ret  = $task->withoutOverlapping($customDir);
+
+        // Assert — fluent return
+        $this->assertSame($task, $ret);
+
+        // Cleanup
+        @rmdir($customDir);
+    }
+
+    // =========================================================================
+    // describeHandler() — various handler types
+    // =========================================================================
+
+    /**
+     * getSummary()['handler'] must describe a string command handler.
+     */
+    public function testSummaryHandlerDescribesStringCommand(): void
+    {
+        // Arrange
+        $task = new ScheduledTask('cleanup:temp', 'command');
+
+        // Assert
+        $this->assertSame('cleanup:temp', $task->getSummary()['handler']);
+    }
+
+    /**
+     * getSummary()['handler'] must describe a Closure as 'Closure'.
+     */
+    public function testSummaryHandlerDescribesClosure(): void
+    {
+        // Arrange
+        $task = new ScheduledTask(fn() => null, 'callable');
+
+        // Assert
+        $this->assertSame('Closure', $task->getSummary()['handler']);
+    }
+
+    /**
+     * getSummary()['handler'] must describe an object handler using its class name.
+     */
+    public function testSummaryHandlerDescribesObjectHandler(): void
+    {
+        // Arrange — non-closure object
+        $job = new \stdClass();
+        $task = new ScheduledTask($job, 'job');
+
+        // Assert
+        $this->assertStringContainsString('stdClass', $task->getSummary()['handler']);
+    }
+
+    /**
+     * Convenience aliases everyTenMinutes and everyThirtyMinutes must produce
+     * the correct step expressions.
+     */
+    public function testEveryTenAndThirtyMinutesAliases(): void
+    {
+        $ten    = self::callableTask(fn() => null)->everyTenMinutes();
+        $thirty = self::callableTask(fn() => null)->everyThirtyMinutes();
+
+        $this->assertStringStartsWith('*/10', $ten->getCronExpression()->getExpression());
+        $this->assertStringStartsWith('*/30', $thirty->getCronExpression()->getExpression());
+    }
 }

@@ -327,6 +327,131 @@ class FormRequestTest extends TestCase
         );
         parent::tearDown();
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // messages() and attributes() defaults
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The default messages() implementation returns an empty array.
+     * Subclasses override it to customise error messages.
+     */
+    public function testDefaultMessagesReturnsEmptyArray(): void
+    {
+        // Arrange
+        $req = $this->makeRequest(['name' => 'Alice', 'email' => 'a@b.com']);
+
+        // Act — call messages() via reflection (it is public)
+        $messages = $req->messages();
+
+        // Assert
+        $this->assertSame([], $messages, 'messages() must return [] by default');
+    }
+
+    /**
+     * The default attributes() implementation returns an empty array.
+     */
+    public function testDefaultAttributesReturnsEmptyArray(): void
+    {
+        // Arrange
+        $req = $this->makeRequest(['name' => 'Alice', 'email' => 'a@b.com']);
+
+        // Act
+        $attributes = $req->attributes();
+
+        // Assert
+        $this->assertSame([], $attributes, 'attributes() must return [] by default');
+    }
+
+    /**
+     * Custom messages passed through messages() must replace error strings
+     * for the specified field.rule combinations.
+     */
+    public function testCustomMessagesAreUsedInValidation(): void
+    {
+        // Arrange — subclass that overrides messages()
+        $req = new class([]) extends TestableFormRequest {
+            public function messages(): array
+            {
+                return ['name.required' => 'Το όνομα είναι υποχρεωτικό.'];
+            }
+        };
+
+        // Act
+        try {
+            $req->validated();
+            $this->fail('Expected FailException');
+        } catch (FailException $e) {
+            // Assert — custom message must appear in the errors
+            $nameErrors = $e->errors['name'] ?? [];
+            $this->assertNotEmpty($nameErrors);
+            $this->assertStringContainsString('Το όνομα', implode(' ', $nameErrors));
+        }
+    }
+
+    /**
+     * hasErrors() must return false when no session is active.
+     */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+    public function testHasErrorsReturnsFalseWhenSessionNotActive(): void
+    {
+        // This test is meaningful only when session is NOT active.
+        // If session is already active we verify the false-when-empty path instead.
+        if (session_status() !== PHP_SESSION_NONE) {
+            unset($_SESSION['_form_errors']);
+            $this->assertFalse(FormRequest::hasErrors(),
+                'hasErrors() must return false when session key is absent');
+            return;
+        }
+
+        // Session is inactive — hasErrors() must return false
+        $this->assertFalse(FormRequest::hasErrors());
+    }
+
+    /**
+     * errors() must return an empty array when no session is active.
+     */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+    public function testErrorsReturnsEmptyArrayWhenSessionNotActive(): void
+    {
+        if (session_status() !== PHP_SESSION_NONE) {
+            $this->markTestSkipped('Session is already active');
+        }
+
+        $this->assertSame([], FormRequest::errors());
+    }
+
+    /**
+     * old() must return $default when no session is active.
+     */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+    public function testOldReturnsDefaultWhenSessionNotActive(): void
+    {
+        if (session_status() !== PHP_SESSION_NONE) {
+            $this->markTestSkipped('Session is already active');
+        }
+
+        $this->assertSame('fallback', FormRequest::old('field', 'fallback'));
+    }
+
+    /**
+     * getRedirectUrl() falls back to HTTP_REFERER when $redirectTo is empty
+     * and HTTP_REFERER is set.
+     */
+    public function testGetRedirectUrlUsesHttpRefererWhenRedirectToIsEmpty(): void
+    {
+        // Arrange
+        $_SERVER['HTTP_REFERER'] = '/previous/page';
+        $req = $this->makeRequest([]);
+        $ref = new \ReflectionClass($req);
+        $m   = $ref->getMethod('getRedirectUrl');
+
+        // Act
+        $url = $m->invoke($req);
+
+        // Assert
+        $this->assertSame('/previous/page', $url);
+    }
 }
 
 // =============================================================================

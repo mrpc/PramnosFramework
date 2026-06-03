@@ -230,6 +230,17 @@ class TestProfileOrmModel extends \Pramnos\Application\OrmModel
     }
 }
 
+class TestPostgresDatabase extends \Pramnos\Database\Database
+{
+    public $type = 'postgresql';
+    public $prefix = 'pr_';
+    public $schema = 'public';
+    public function prepareInput($value)
+    {
+        return str_replace("'", "''", $value);
+    }
+}
+
 #[CoversClass(Model::class)]
 class ModelTest extends TestCase
 {
@@ -907,5 +918,352 @@ class ModelTest extends TestCase
         $normal = new TestUserOrmModel($this->controller);
         $normal->load($userId);
         $this->assertFalse($normal->isNew());
+    }
+
+    /**
+     * Tests PostgreSQL schema resolving and table prefixing branch in getFullTableName.
+     */
+    public function testPostgresqlSchemaAndTablePrefixing(): void
+    {
+        $db =& \Pramnos\Database\Database::getInstance();
+        $origType = $db->type;
+        $origSchema = $db->schema;
+        $origPrefix = $db->prefix;
+
+        try {
+            $db->type = 'postgresql';
+            $db->schema = 'public';
+            $db->prefix = 'pr_';
+
+            $model = new TestProductModel($this->controller);
+            $this->assertSame('public.pr_test_products', $model->getFullTableName());
+
+            $refSchema = new \ReflectionProperty($model, '_dbschema');
+            $refSchema->setValue($model, 'custom_schema');
+            $this->assertSame('custom_schema.pr_test_products', $model->getFullTableName());
+        } finally {
+            $db->type = $origType;
+            $db->schema = $origSchema;
+            $db->prefix = $origPrefix;
+        }
+    }
+
+    /**
+     * Tests resolving field names and aliases from raw SQL SELECT queries.
+     */
+    public function testResolveFieldResultNamesAndAliases(): void
+    {
+        $model = new TestProductModel($this->controller);
+        $refMethod = new \ReflectionMethod($model, '_resolveFieldResultName');
+
+        $this->assertSame('id', $refMethod->invoke($model, 'a.id'));
+        $this->assertSame('uid', $refMethod->invoke($model, 'a.id as uid'));
+        $this->assertSame('uid', $refMethod->invoke($model, 'a.id AS "uid"'));
+        $this->assertSame('name', $refMethod->invoke($model, '`name`'));
+    }
+
+    /**
+     * Tests mapping SQL database types to Pramnos internal types.
+     */
+    public function testFieldtypeMapping(): void
+    {
+        $model = new TestProductModel($this->controller);
+        $refMethod = new \ReflectionMethod($model, 'fieldtype');
+
+        $this->assertSame('geometry', $refMethod->invoke($model, 'geometry'));
+        $this->assertSame('boolean', $refMethod->invoke($model, 'boolean'));
+        $this->assertSame('boolean', $refMethod->invoke($model, 'bool'));
+        $this->assertSame('json', $refMethod->invoke($model, 'json'));
+        $this->assertSame('json', $refMethod->invoke($model, 'jsonb'));
+        $this->assertSame('timestamp', $refMethod->invoke($model, 'timestamptz'));
+        $this->assertSame('timestamp', $refMethod->invoke($model, 'timestamp without time zone'));
+        $this->assertSame('string', $refMethod->invoke($model, 'varchar(255)'));
+    }
+
+    /**
+     * Tests processing and decoding JSON column values dynamically based on column mapping.
+     */
+    public function testJsonFieldProcessingAndDecoding(): void
+    {
+        $model = new TestProductModel($this->controller);
+        
+        // Seed column cache directly to bypass DB inspection
+        $tableName = $model->getFullTableName();
+        Model::$columnCache[$tableName] = [
+            ['Field' => 'id', 'Type' => 'int', 'Null' => 'NO'],
+            ['Field' => 'name', 'Type' => 'varchar(255)', 'Null' => 'NO'],
+            ['Field' => 'metadata', 'Type' => 'json', 'Null' => 'YES']
+        ];
+
+        $refMethod = new \ReflectionMethod($model, '_processJsonFields');
+        
+        $rawRow = [
+            'id' => 1,
+            'name' => 'Widget',
+            'metadata' => '{"color":"red","tags":["new","sale"]}'
+        ];
+
+        $processed = $refMethod->invoke($model, $rawRow);
+
+        $this->assertIsArray($processed['metadata']);
+        $this->assertSame('red', $processed['metadata']['color']);
+        $this->assertSame(['new', 'sale'], $processed['metadata']['tags']);
+
+        // Test non-array fallback
+        $this->assertSame('string_data', $refMethod->invoke($model, 'string_data'));
+    }
+
+    /**
+     * Tests getJsonList output when legacy _jsonactions are configured.
+     */
+    public function testGetJsonListWithActionsAndConfirmations(): void
+    {
+        // Seed database
+        $this->db->query("INSERT INTO `test_products` (`name`, `price`, `is_active`) VALUES ('Special Laptop', 1200.00, 1)");
+
+        $model = new class($this->controller) extends TestProductModel {
+            public function addAction($action, $field='', $column='', $title='', $confirm=false) {
+                $this->addJsonAction($action, $field, $column, $title, $confirm);
+            }
+        };
+
+        // Add actions
+        $model->addAction('edit', 'id', '', 'Edit Product', true);
+        $model->addAction('delete', 'id', 'name', '', false);
+
+        $_POST['sEcho'] = '2';
+        $_REQUEST['sEcho'] = '2';
+
+        $jsonStr = $model->getJsonList("WHERE name = 'Special Laptop'");
+        $this->assertJson($jsonStr);
+
+        $data = json_decode($jsonStr, true);
+        $this->assertEquals(2, $data['sEcho']);
+        $this->assertNotEmpty($data['aaData']);
+
+        $row = $data['aaData'][0];
+        // The edit action should append a new column with 'data-confirm' attribute and link
+        $this->assertStringContainsString('data-confirm', $row[count($row)-1]);
+        $this->assertStringContainsString('Edit Product', $row[count($row)-1]);
+
+        // The delete action targeted the 'name' column and should wrap it in an <a> tag
+        $this->assertStringContainsString('/delete/', $row[1]);
+    }
+
+    /**
+     * Tests parsing JOIN table column metadata dynamically.
+     */
+    public function testJoinFieldTypesParsing(): void
+    {
+        $model = new TestProductModel($this->controller);
+        
+        // Cache table schema for joined tables under both the raw table name and the schema_columns cache key
+        $columns = [
+            ['Field' => 'id', 'Type' => 'int', 'Null' => 'NO'],
+            ['Field' => 'name', 'Type' => 'varchar(255)', 'Null' => 'NO'],
+            ['Field' => 'meta', 'Type' => 'json', 'Null' => 'YES']
+        ];
+        Model::$columnCache['test_users'] = $columns;
+        Model::$columnCache['schema_columns_test_users'] = $columns;
+
+        $refMethod = new \ReflectionMethod($model, '_getFieldTypes');
+        
+        $types = $refMethod->invoke($model, 'INNER JOIN test_users ON test_users.id = test_products.id');
+        
+        $this->assertArrayHasKey('meta', $types);
+        $this->assertSame('json', $types['meta']);
+    }
+
+    /**
+     * Tests buildSelectFields method with various formats and PostgreSQL quoting.
+     */
+    public function testBuildSelectFields(): void
+    {
+        $model = new TestProductModel($this->controller);
+        $ref = new \ReflectionMethod($model, '_buildSelectFields');
+
+        // 1. With AS clause
+        $this->assertSame('price AS cost', $ref->invoke($model, ['price AS cost'], false));
+
+        // 2. Duplicate field aliasing
+        $this->assertSame('a.`name`, b.`name` AS `b_name`', $ref->invoke($model, ['a.name', 'b.name'], true));
+
+        // 3. Under PostgreSQL
+        $db =& \Pramnos\Database\Database::getInstance();
+        $origType = $db->type;
+        try {
+            $db->type = 'postgresql';
+            $this->assertSame('a."name", b."name" AS "b_name"', $ref->invoke($model, ['a.name', 'b.name'], true));
+            $this->assertSame('"name"', $ref->invoke($model, ['name'], false));
+        } finally {
+            $db->type = $origType;
+        }
+    }
+
+    /**
+     * Tests building search conditions with Greek characters, wildcards, boolean mapping, and PostgreSQL dialects.
+     */
+    public function testSearchConditionsBuilding(): void
+    {
+        $model = new TestProductModel($this->controller);
+        $ref = new \ReflectionMethod($model, '_buildSearchConditions');
+
+        // MySQL branches
+        $resMySQL = $ref->invoke($model, ['name', 'price'], 'πατάτες', [], '');
+        $this->assertStringContainsString('LIKE', $resMySQL);
+        // Greek endings stripped ('πατάτες' -> 'πατάτε')
+        $this->assertStringContainsString('πατάτε', $resMySQL);
+
+        // PostgreSQL branches - use TestPostgresDatabase to mock postgresql type safely
+        $db =& \Pramnos\Database\Database::getInstance();
+        $origDb = $db;
+
+        $pgDb = new TestPostgresDatabase(\Pramnos\Framework\Factory::getSettings());
+        $pgDb->type = 'postgresql'; // Set it AFTER instantiation so constructor doesn't die
+        $db = $pgDb; // assign mock db to reference
+
+        try {
+            // Greek global search
+            $resGreek = $ref->invoke($model, ['name'], 'πατάτες', [], '');
+            $this->assertStringContainsString('unaccent', $resGreek);
+            $this->assertStringContainsString('ILIKE', $resGreek);
+
+            // Non-Greek global search
+            $resNonGreek = $ref->invoke($model, ['name'], 'widget', [], '');
+            $this->assertStringContainsString('ILIKE', $resNonGreek);
+            $this->assertStringNotContainsString('unaccent', $resNonGreek);
+
+            // Field searches with booleans and strings
+            $fieldSearches = [
+                'name' => 'apple',
+                'is_active' => true,
+                'invalid_field' => 'skip_me' // Skip fields not in $fields
+            ];
+            $resFields = $ref->invoke($model, ['name', 'is_active'], '', $fieldSearches, '');
+            $this->assertStringContainsString('name', $resFields);
+            $this->assertStringContainsString('"is_active" = 1', $resFields);
+            $this->assertStringNotContainsString('invalid_field', $resFields);
+        } finally {
+            $db = $origDb; // restore original db
+        }
+    }
+
+    /**
+     * Tests error handling in getApiList (paginated/unpaginated) and unpaginated datatables formatting.
+     */
+    public function testGetApiListErrorHandlingAndDatatablesFormat(): void
+    {
+        $model1 = new TestProductModel($this->controller);
+        // 1. Paginated error response when query fails (using invalid JOIN clause to trigger DB exception inside _getPaginated)
+        $resPaginatedError = $model1->_getApiList(fields: ['name'], join: 'INVALID JOIN EXPR', page: 1, itemsPerPage: 10);
+        $this->assertArrayHasKey('error', $resPaginatedError);
+        $this->assertStringContainsString('Database query failed', $resPaginatedError['error']);
+
+        $model2 = new TestProductModel($this->controller);
+        // 2. Unpaginated error response when query fails (page = 0, invalid JOIN clause to trigger DB exception inside _getList)
+        $resUnpaginatedError = $model2->_getApiList(fields: ['name'], join: 'INVALID JOIN EXPR', page: 0);
+        $this->assertArrayHasKey('error', $resUnpaginatedError);
+        $this->assertNotEmpty($resUnpaginatedError['error']);
+
+        $model3 = new TestProductModel($this->controller);
+        // 3. Unpaginated datatables format (page = 0)
+        $_REQUEST['draw'] = 3;
+        $resDatatables = $model3->_getApiList(fields: ['name'], page: 0, format: 'datatables');
+        $this->assertSame(3, $resDatatables['draw']);
+        $this->assertArrayHasKey('recordsTotal', $resDatatables);
+        $this->assertArrayHasKey('data', $resDatatables);
+    }
+
+    /**
+     * Tests _validateAndBuildOrder with prefix +/- sorting, missing columns, and PostgreSQL quotes.
+     */
+    public function testValidateAndBuildOrder(): void
+    {
+        $model = new TestProductModel($this->controller);
+        $ref = new \ReflectionMethod($model, '_validateAndBuildOrder');
+
+        // Available fields
+        $fields = ['id', 'price', 'b.name'];
+
+        // 1. Empty order -> defaults to primaryKey DESC (MySQL)
+        $this->assertSame('ORDER BY `id` DESC', $ref->invoke($model, '', $fields, false));
+        $this->assertSame('ORDER BY a.`id` DESC', $ref->invoke($model, '', $fields, true));
+
+        // 2. Prefixes (+ / -)
+        $this->assertSame('ORDER BY `price` ASC', $ref->invoke($model, '+price', $fields, false));
+        $this->assertSame('ORDER BY `price` DESC', $ref->invoke($model, '-price', $fields, false));
+
+        // 3. Invalid field names / SQL injections skipped -> falls back to default PK order
+        $this->assertSame('ORDER BY `id` DESC', $ref->invoke($model, 'price; DROP TABLE test', $fields, false));
+
+        // 4. Joined table reference with PostgreSQL
+        $db =& \Pramnos\Database\Database::getInstance();
+        $origDb = $db;
+        $pgDb = new TestPostgresDatabase(\Pramnos\Framework\Factory::getSettings());
+        $pgDb->type = 'postgresql';
+        $db = $pgDb;
+        try {
+            $this->assertSame('ORDER BY b."name" ASC', $ref->invoke($model, 'b.name', $fields, false));
+            $this->assertSame('ORDER BY a."price" ASC', $ref->invoke($model, 'price', $fields, true));
+        } finally {
+            $db = $origDb;
+        }
+    }
+
+    /**
+     * Tests building filters and individual SQL condition operators (IN, NOT IN, IS NULL, LIKE, ILIKE).
+     */
+    public function testBuildFilterConditionsAndSingleCondition(): void
+    {
+        $model = new TestProductModel($this->controller);
+        $ref = new \ReflectionMethod($model, '_buildFilterFromConditions');
+
+        $availableFields = ['price', 'is_active', 'name'];
+
+        // 1. Raw SQL fragment
+        $condsRaw = [['raw' => 'a.price > 10.00']];
+        $this->assertSame('a.price > 10.00', $ref->invoke($model, $condsRaw, $availableFields));
+
+        // 2. OR group
+        $condsOr = [[
+            'or' => [
+                ['field' => 'price', 'op' => '=', 'value' => 10],
+                ['field' => 'price', 'op' => '=', 'value' => 20]
+            ]
+        ]];
+        $this->assertSame('(`price` = 10 OR `price` = 20)', $ref->invoke($model, $condsOr, $availableFields));
+
+        // 3. Single conditions (IS NULL, IN, LIKE, ILIKE)
+        $condsOps = [
+            ['field' => 'name', 'op' => 'IS NULL'],
+            ['field' => 'price', 'op' => 'IN', 'value' => [10, 20]],
+            ['field' => 'name', 'op' => 'LIKE', 'value' => 'apple%'],
+            ['field' => 'is_active', 'op' => '=', 'value' => null]
+        ];
+        $resOps = $ref->invoke($model, $condsOps, $availableFields);
+        $this->assertStringContainsString('`name` IS NULL', $resOps);
+        $this->assertStringContainsString("`price` IN ('10', '20')", $resOps);
+        $this->assertStringContainsString("`name` LIKE 'apple%'", $resOps);
+        $this->assertStringContainsString('`is_active` IS NULL', $resOps);
+
+        // 4. Invalid operation skipped
+        $condsInvalid = [['field' => 'price', 'op' => 'INVALID_OP', 'value' => 10]];
+        $this->assertSame('', $ref->invoke($model, $condsInvalid, $availableFields));
+
+        // 5. PostgreSQL conditions
+        $db =& \Pramnos\Database\Database::getInstance();
+        $origDb = $db;
+        $pgDb = new TestPostgresDatabase(\Pramnos\Framework\Factory::getSettings());
+        $pgDb->type = 'postgresql';
+        $db = $pgDb;
+        try {
+            $condsPg = [
+                ['field' => 'name', 'op' => 'ILIKE', 'value' => 'apple%']
+            ];
+            $resPg = $ref->invoke($model, $condsPg, $availableFields);
+            $this->assertSame('"name" ILIKE \'apple%\'', $resPg);
+        } finally {
+            $db = $origDb;
+        }
     }
 }
