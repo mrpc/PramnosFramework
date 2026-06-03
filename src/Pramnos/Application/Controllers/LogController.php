@@ -17,6 +17,38 @@ use Pramnos\Logs\Logger;
 class LogController extends Controller
 {
     /**
+     * Terminate the execution of the request (useful for testing redirects and file downloads)
+     */
+    protected function terminate(): void
+    {
+        exit;
+    }
+
+    /**
+     * Send header (wrapper for testing)
+     */
+    protected function sendHeader(string $header): void
+    {
+        if (php_sapi_name() !== 'cli') {
+            header($header);
+        }
+    }
+
+    /**
+     * Clear output buffers
+     */
+    protected function clearOutputBuffers(): void
+    {
+        // Don't close buffers during PHPUnit tests as PHPUnit depends on ob
+        if (defined('PHPUNIT_COMPOSER_INSTALL') || defined('__PHPUNIT_PHAR__')) {
+            return;
+        }
+        while (ob_get_level()) {
+            ob_end_clean();
+        }
+    }
+
+    /**
      * Whitelist of log files - by default is auto-populated from logs directory
      * Child classes can override this with a specific list if needed
      * @var array
@@ -860,7 +892,7 @@ class LogController extends Controller
         $ext = $pathInfo['extension'] ?? 'log';
 
         // Clear the log file
-        LogManager::clearLog($filename, $ext);
+        Logger::clearLog($filename, $ext);
         
         // Redirect back to stats or logs
         $referer = $_SERVER['HTTP_REFERER'] ?? '';
@@ -1034,8 +1066,8 @@ class LogController extends Controller
         
         // Set headers for download
         if ($format === 'csv') {
-            header('Content-Type: text/csv');
-            header('Content-Disposition: attachment; filename="' . $name . '_' . $startDate . '_to_' . $endDate . '.csv"');
+            $this->sendHeader('Content-Type: text/csv');
+            $this->sendHeader('Content-Disposition: attachment; filename="' . $name . '_' . $startDate . '_to_' . $endDate . '.csv"');
             
             // Open output stream
             $output = fopen('php://output', 'w');
@@ -1072,8 +1104,8 @@ class LogController extends Controller
             };
             
         } else { // JSON format
-            header('Content-Type: application/json');
-            header('Content-Disposition: attachment; filename="' . $name . '_' . $startDate . '_to_' . $endDate . '.json"');
+            $this->sendHeader('Content-Type: application/json');
+            $this->sendHeader('Content-Disposition: attachment; filename="' . $name . '_' . $startDate . '_to_' . $endDate . '.json"');
             
             $logs = [];
             
@@ -1117,7 +1149,7 @@ class LogController extends Controller
         if ($format === 'csv') {
             fclose($output);
         }
-        exit;
+        $this->terminate();
     }
 
     /**
@@ -1192,15 +1224,13 @@ class LogController extends Controller
         }
         
         // Set headers for download
-        header('Content-Type: text/csv');
-        header('Content-Disposition: attachment; filename="' . $name . '-' . date('Y-m-d') . '.csv"');
-        header('Pragma: no-cache');
-        header('Expires: 0');
+        $this->sendHeader('Content-Type: text/csv');
+        $this->sendHeader('Content-Disposition: attachment; filename="' . $name . '-' . date('Y-m-d') . '.csv"');
+        $this->sendHeader('Pragma: no-cache');
+        $this->sendHeader('Expires: 0');
         
         // Force flush all output buffers
-        while (ob_get_level()) {
-            ob_end_clean();
-        }
+        $this->clearOutputBuffers();
         
         // Open output stream
         $output = fopen('php://output', 'w');
@@ -1252,7 +1282,7 @@ class LogController extends Controller
         }
         
         fclose($output);
-        exit;
+        $this->terminate();
     }
 
     /**
@@ -1273,15 +1303,13 @@ class LogController extends Controller
         }
         
         // Set headers for download
-        header('Content-Type: application/json');
-        header('Content-Disposition: attachment; filename="' . $name . '-' . date('Y-m-d') . '.json"');
-        header('Pragma: no-cache');
-        header('Expires: 0');
+        $this->sendHeader('Content-Type: application/json');
+        $this->sendHeader('Content-Disposition: attachment; filename="' . $name . '-' . date('Y-m-d') . '.json"');
+        $this->sendHeader('Pragma: no-cache');
+        $this->sendHeader('Expires: 0');
         
         // Force flush all output buffers
-        while (ob_get_level()) {
-            ob_end_clean();
-        }
+        $this->clearOutputBuffers();
         
         $logs = [];
         
@@ -1332,7 +1360,7 @@ class LogController extends Controller
         }
         
         echo json_encode(['logs' => $logs], JSON_PRETTY_PRINT);
-        exit;
+        $this->terminate();
     }
 
     /**
@@ -1400,15 +1428,15 @@ class LogController extends Controller
         $zip->close();
         
         // Set headers for download
-        header('Content-Type: application/zip');
-        header('Content-Disposition: attachment; filename="logs_export_' . date('Y-m-d') . '.zip"');
-        header('Content-Length: ' . filesize($zipFile));
-        header('Pragma: no-cache');
-        header('Expires: 0');
+        $this->sendHeader('Content-Type: application/zip');
+        $this->sendHeader('Content-Disposition: attachment; filename="logs_export_' . date('Y-m-d') . '.zip"');
+        $this->sendHeader('Content-Length: ' . filesize($zipFile));
+        $this->sendHeader('Pragma: no-cache');
+        $this->sendHeader('Expires: 0');
         
         readfile($zipFile);
         unlink($zipFile);
-        exit;
+        $this->terminate();
     }
 
     /**
@@ -2082,25 +2110,24 @@ class LogController extends Controller
         $filepath = Logger::getLogPath($name, $ext);
         
         if (!file_exists($filepath)) {
-            header('Content-Type: text/plain');
+            $this->sendHeader('Content-Type: text/plain');
             echo "Error: Log file not found.";
-            exit;
+            $this->terminate();
+            return;
         }
         
         // Force disable any output buffering
-        while (ob_get_level()) {
-            ob_end_clean();
-        }
+        $this->clearOutputBuffers();
         
         // Set headers for download
-        header('Content-Description: File Transfer');
-        header('Content-Type: text/plain');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Content-Length: ' . filesize($filepath));
-        header('Content-Transfer-Encoding: binary');
-        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
-        header('Expires: 0');
-        header('Pragma: public');
+        $this->sendHeader('Content-Description: File Transfer');
+        $this->sendHeader('Content-Type: text/plain');
+        $this->sendHeader('Content-Disposition: attachment; filename="' . $filename . '"');
+        $this->sendHeader('Content-Length: ' . filesize($filepath));
+        $this->sendHeader('Content-Transfer-Encoding: binary');
+        $this->sendHeader('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+        $this->sendHeader('Expires: 0');
+        $this->sendHeader('Pragma: public');
         
         // Read file in chunks to handle large files
         $handle = fopen($filepath, 'rb');
@@ -2114,7 +2141,7 @@ class LogController extends Controller
             fclose($handle);
         }
         
-        exit;
+        $this->terminate();
     }
     
 }
