@@ -46,6 +46,17 @@ class MakeCommandBaseTest extends TestCase
         }
 
         $this->command = new DummyMakeCommand();
+        
+        $consoleApp = new class extends \Symfony\Component\Console\Application {
+            public $internalApplication;
+        };
+        $consoleApp->internalApplication = new class extends \Pramnos\Application\Application {
+            public $applicationInfo = ['namespace' => 'App'];
+            public $appName = '';
+            public function __construct() {}
+            public function init($settingsFile = '') {}
+        };
+        $this->command->setApplication($consoleApp);
     }
 
     protected function tearDown(): void
@@ -1374,12 +1385,15 @@ class MakeCommandBaseTest extends TestCase
         $db->schema = 'public';
 
         $capturedSql = null;
-        $db->method('query')
-           ->willReturnCallback(function (string $sql) use (&$capturedSql): never {
-               $capturedSql = $sql;
-               // Throw so we skip result iteration — we only need the SQL string
-               throw new \RuntimeException('Simulated');
-           });
+        $db->method('query')->willReturnCallback(function (string $sql) use (&$capturedSql) {
+            $capturedSql = $sql;
+            // Return a mock result object instead of throwing
+            $res = new class {
+                public array $fields = [];
+                public function fetch(): bool { return false; }
+            };
+            return $res;
+        });
 
         // Act
         $this->callPrivate('fetchTableNames', [$db]);
@@ -1408,6 +1422,98 @@ class MakeCommandBaseTest extends TestCase
         // setAccessible() is a no-op since PHP 8.1 and deprecated in 8.5 — omitted intentionally
         $method = new \ReflectionMethod($this->command, $name);
         return $method->invokeArgs($this->command, $args);
+    }
+
+    public function testCreateMiddlewareWritesFile(): void
+    {
+        $srcFile = ROOT . '/src/Middleware/AuthCheck.php';
+        $testFile = ROOT . '/tests/Unit/AuthCheckMiddlewareTest.php';
+        if (file_exists($srcFile)) unlink($srcFile);
+        if (file_exists($testFile)) unlink($testFile);
+
+        $result = $this->command->createMiddleware('AuthCheck');
+        $this->assertStringContainsString('AuthCheck', $result);
+        $this->assertFileExists($srcFile);
+        $this->assertFileExists($testFile);
+
+        unlink($srcFile);
+        unlink($testFile);
+    }
+
+    public function testCreateEventWritesFile(): void
+    {
+        $srcFile = ROOT . '/src/Events/OrderShipped.php';
+        $testFile = ROOT . '/tests/Unit/OrderShippedEventTest.php';
+        if (file_exists($srcFile)) unlink($srcFile);
+        if (file_exists($testFile)) unlink($testFile);
+
+        $result = $this->command->createEvent('OrderShipped');
+        $this->assertStringContainsString('OrderShipped', $result);
+        $this->assertFileExists($srcFile);
+        $this->assertFileExists($testFile);
+
+        unlink($srcFile);
+        unlink($testFile);
+    }
+
+    public function testCreateListenerWritesFile(): void
+    {
+        $srcFile = ROOT . '/src/Listeners/NotifyCustomer.php';
+        $testFile = ROOT . '/tests/Unit/NotifyCustomerListenerTest.php';
+        if (file_exists($srcFile)) unlink($srcFile);
+        if (file_exists($testFile)) unlink($testFile);
+
+        $result = $this->command->createListener('NotifyCustomer');
+        $this->assertStringContainsString('NotifyCustomer', $result);
+        $this->assertFileExists($srcFile);
+        $this->assertFileExists($testFile);
+
+        unlink($srcFile);
+        unlink($testFile);
+    }
+
+    public function testCreateMigrationWritesFile(): void
+    {
+        // Define directory to hold migrations
+        $migrationDir = APP_PATH . '/migrations';
+        if (!is_dir($migrationDir)) {
+            mkdir($migrationDir, 0777, true);
+        }
+
+        // Mock Settings migration path
+        \Pramnos\Application\Settings::clearSettings();
+        \Pramnos\Application\Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
+
+        $result = $this->command->createMigration('create_products_table');
+        $this->assertNotEmpty($result);
+        
+        // Cleanup migration files generated during test
+        $files = glob($migrationDir . '/*_create_products_table.php');
+        foreach ($files as $file) {
+            unlink($file);
+        }
+    }
+
+    public function testCreateSeederWritesFile(): void
+    {
+        // Define directory to hold seeders
+        $seederDir = APP_PATH . '/seeders';
+        if (!is_dir($seederDir)) {
+            mkdir($seederDir, 0777, true);
+        }
+
+        $srcFile = $seederDir . '/UserSeeder.php';
+        $testFile = ROOT . '/tests/Unit/UserSeederTest.php';
+        if (file_exists($srcFile)) unlink($srcFile);
+        if (file_exists($testFile)) unlink($testFile);
+
+        $result = $this->command->createSeeder('User', [], 'users');
+        $this->assertNotEmpty($result);
+        
+        $this->assertFileExists($srcFile);
+        $this->assertFileExists($testFile);
+        unlink($srcFile);
+        unlink($testFile);
     }
 
     private function rmdir(string $dir): void

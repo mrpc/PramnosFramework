@@ -58,6 +58,7 @@ abstract class PermissionsCharacterizationBase extends TestCase
 
         // Create the permissions table (no FK — users table may not exist)
         Permissions::setupDb(false);
+        User::setupDb();
 
         // Use a per-test unique resource string to prevent cross-test leakage
         $this->resource = 'char_perm_res_' . bin2hex(random_bytes(4));
