@@ -156,7 +156,7 @@ class WebhookHandler
 
         $failed = array_filter($results, fn($r) => $r['exit_code'] !== 0);
 
-        $this->log('info', "Webhook deploy: branch={$branch} commands={$results} elapsed={$elapsed}ms");
+        $this->log('info', "Webhook deploy: branch={$branch} commands=" . json_encode($results) . " elapsed={$elapsed}ms");
 
         if (!empty($failed)) {
             $this->log('error', "Webhook deploy failed on branch={$branch}: " . json_encode($failed));
@@ -355,7 +355,7 @@ class WebhookHandler
      * @param int   $code HTTP status code.
      * @param array $data Response body (encoded as JSON; empty array = no body for 204).
      */
-    private function respond(int $code, array $data): never
+    protected function respond(int $code, array $data): never
     {
         http_response_code($code);
         header('Content-Type: application/json; charset=UTF-8');
