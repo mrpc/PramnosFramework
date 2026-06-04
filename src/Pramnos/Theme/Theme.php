@@ -607,13 +607,12 @@ class Theme extends \Pramnos\Framework\Base
 
         $return = "";
         if (isset($this->widgetAreas[$widgetArea])) {
-
-            #$widgets = $this->getWidgets($widgetArea);
+            $widgets = $this->getWidgets($widgetArea);
             foreach ($widgets as $widgetData) {
-                #$widget = pramnos_theme_widget::getWidget(array_merge($args, $widgetData));
-                #if (method_exists($widget, 'display')) {
-                 #   $return .= $widget->display($widgetData);
-                #}
+                // $widget = pramnos_theme_widget::getWidget(array_merge($args, $widgetData));
+                // if (method_exists($widget, 'display')) {
+                //    $return .= $widget->display($widgetData);
+                // }
             }
         }
         return $return;

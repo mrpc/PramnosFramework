@@ -477,7 +477,9 @@ class EmailTest extends TestCase
         $email = new Email();
         // Set invalid SMTP settings to ensure it fails at transport level
         \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
-        \Pramnos\Application\Settings::setSetting('smtp_port', '99999'); // Invalid port
+        \Pramnos\Application\Settings::setSetting('smtp_port', '2525'); // Invalid port
+        \Pramnos\Application\Settings::setSetting('smtp_user', 'user');
+        \Pramnos\Application\Settings::setSetting('smtp_pass', 'pass');
         \Pramnos\Application\Settings::setSetting('smtp_tls', 'no');
         
         $email->setBody('Test body')
@@ -515,5 +517,82 @@ class EmailTest extends TestCase
     {
         $this->expectOutputString(base64_decode('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=='));
         Email::handleTrackingRequest('track_123');
+    }
+
+    public function testSetFromAddressAndAddRecipientsWithReflection(): void
+    {
+        $email = new Email();
+        $email->setFrom(['from@example.com' => 'From Name']);
+        $email->setTo(['to@example.com' => 'To Name']);
+        $email->setCc('cc@example.com');
+        $email->setBcc(['bcc1@example.com', 'bcc2@example.com']);
+        
+        $mimeEmail = new \Symfony\Component\Mime\Email();
+        
+        $ref = new \ReflectionClass($email);
+        
+        $setFrom = $ref->getMethod('setFromAddress');
+        $setFrom->setAccessible(true);
+        $setFrom->invoke($email, $mimeEmail);
+        
+        $addRecip = $ref->getMethod('addRecipients');
+        $addRecip->setAccessible(true);
+        $addRecip->invoke($email, $mimeEmail, $email->to, 'to');
+        $addRecip->invoke($email, $mimeEmail, $email->cc, 'cc');
+        $addRecip->invoke($email, $mimeEmail, $email->bcc, 'bcc');
+        
+        $froms = $mimeEmail->getFrom();
+        $this->assertCount(1, $froms);
+        $this->assertEquals('from@example.com', $froms[0]->getAddress());
+        $this->assertEquals('From Name', $froms[0]->getName());
+        
+        $tos = $mimeEmail->getTo();
+        $this->assertCount(1, $tos);
+        $this->assertEquals('to@example.com', $tos[0]->getAddress());
+        $this->assertEquals('To Name', $tos[0]->getName());
+        
+        $ccs = $mimeEmail->getCc();
+        $this->assertCount(1, $ccs);
+        $this->assertEquals('cc@example.com', $ccs[0]->getAddress());
+        
+        $bccs = $mimeEmail->getBcc();
+        $this->assertCount(2, $bccs);
+        $this->assertEquals('bcc1@example.com', $bccs[0]->getAddress());
+        $this->assertEquals('bcc2@example.com', $bccs[1]->getAddress());
+    }
+    
+    public function testSetFromAddressEmptyUsesSettings(): void
+    {
+        \Pramnos\Application\Settings::setSetting('admin_mail', 'admin@pramnos.test');
+        \Pramnos\Application\Settings::setSetting('sitename', 'Test Site');
+        
+        $email = new Email();
+        $mimeEmail = new \Symfony\Component\Mime\Email();
+        
+        $ref = new \ReflectionClass($email);
+        $setFrom = $ref->getMethod('setFromAddress');
+        $setFrom->setAccessible(true);
+        $setFrom->invoke($email, $mimeEmail);
+        
+        $froms = $mimeEmail->getFrom();
+        $this->assertCount(1, $froms);
+        $this->assertEquals('admin@pramnos.test', $froms[0]->getAddress());
+        $this->assertEquals('Test Site', $froms[0]->getName());
+    }
+    
+    public function testSetFromAddressString(): void
+    {
+        $email = new Email();
+        $email->setFrom('stringfrom@example.com');
+        $mimeEmail = new \Symfony\Component\Mime\Email();
+        
+        $ref = new \ReflectionClass($email);
+        $setFrom = $ref->getMethod('setFromAddress');
+        $setFrom->setAccessible(true);
+        $setFrom->invoke($email, $mimeEmail);
+        
+        $froms = $mimeEmail->getFrom();
+        $this->assertCount(1, $froms);
+        $this->assertEquals('stringfrom@example.com', $froms[0]->getAddress());
     }
 }
