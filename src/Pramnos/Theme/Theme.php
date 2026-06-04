@@ -129,11 +129,12 @@ class Theme extends \Pramnos\Framework\Base
         $this->document = \Pramnos\Framework\Factory::getDocument();
         $this->init();
         $this->loadSettings();
-        $this->widgets = unserialize(
+        $widgetsData = unserialize(
             \Pramnos\Application\Settings::getSetting(
                 'theme_' . $this->theme . '_widgets'
             )
         );
+        $this->widgets = is_array($widgetsData) ? $widgetsData : [];
         if ($theme != 'default'){
             $this->theme = $theme;
         }
