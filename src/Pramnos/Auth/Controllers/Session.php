@@ -223,15 +223,14 @@ class Session extends Controller
      *
      * @return array<string, mixed>
      */
-    private function getSessionData(): array
+    private function getSessionData(): mixed
     {
         $bearerUser = $this->authenticateWithBearerToken();
         if ($bearerUser !== null) {
             return $bearerUser;
         }
 
-        $user = $_SESSION['user'] ?? [];
-        return is_array($user) ? $user : [];
+        return $_SESSION['user'] ?? [];
     }
 
     /**

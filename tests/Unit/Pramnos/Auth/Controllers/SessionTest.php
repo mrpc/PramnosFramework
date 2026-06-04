@@ -287,6 +287,83 @@ class SessionTest extends TestCase
         $this->assertEquals('error', $dataRefresh['status']);
     }
 
+    public function testInfoWithoutSessionFails(): void
+    {
+        $controller = $this->getController();
+        $response = $controller->info();
+        $this->assertEquals(401, $response->getStatusCode());
+    }
+
+    public function testBearerTokenInvalidFormat(): void
+    {
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Basic YmFzaWM6YXV0aA==';
+        $controller = $this->getController();
+        $response = $controller->check();
+        $this->assertEquals('expired', json_decode($response->getBody(), true)['status']);
+    }
+
+    public function testBearerTokenNotInDB(): void
+    {
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer token_not_in_db';
+        $controller = $this->getController();
+        $response = $controller->check();
+        $this->assertEquals('expired', json_decode($response->getBody(), true)['status']);
+    }
+
+    public function testBearerTokenInvalidSignature(): void
+    {
+        $this->db->query("DELETE FROM `applications` WHERE `appid` = 2");
+        $this->db->query("DELETE FROM `usertokens` WHERE `userid` = 55 AND `applicationid` = 2");
+        $this->db->query("INSERT IGNORE INTO `users` (`userid`, `username`, `email`, `active`) VALUES (55, 'tokenguy', 'guy@token.com', 1)");
+        $this->db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`) VALUES (2, 'App2', 'key')");
+        $this->db->query("INSERT INTO `usertokens` (`userid`, `applicationid`, `tokentype`, `token`, `expires`, `status`, `created`) VALUES (55, 2, 'access_token', 'bad_token', " . (time()+3600) . ", 1, " . time() . ")");
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer bad_token';
+        $controller = $this->getController();
+        $response = $controller->check();
+        $this->assertEquals('expired', json_decode($response->getBody(), true)['status']);
+        $this->db->query("DELETE FROM `usertokens` WHERE `userid` = 55");
+        $this->db->query("DELETE FROM `applications` WHERE `appid` = 2");
+        $this->db->query("DELETE FROM `users` WHERE `userid` = 55");
+    }
+
+    public function testSessionWithObjectData(): void
+    {
+        $_SESSION['user'] = (object)[
+            'userid' => 99,
+            'username' => 'objuser',
+            'email' => 'obj@example.com'
+        ];
+        $_SESSION['last_activity'] = time();
+
+        $controller = $this->getController();
+        $response = $controller->check();
+        
+        $data = json_decode($response->getBody(), true);
+        $this->assertEquals('active', $data['status']);
+        $this->assertEquals(99, $data['user_id']);
+        $this->assertEquals('objuser', $data['username']);
+    }
+
+    public function testSessionWithCurrentUserManagerViaSession(): void
+    {
+        // Test the path where $_SESSION['user'] returns a User object
+        // (the same object branch that isUserLoggedIn syncs via getCurrentUser)
+        $user = new \Pramnos\User\User();
+        $user->userid = 77;
+        $user->username = 'objsession';
+
+        $_SESSION['user'] = $user;
+        $_SESSION['last_activity'] = time();
+
+        $controller = $this->getController();
+        $response = $controller->check();
+
+        $data = json_decode($response->getBody(), true);
+        $this->assertEquals('active', $data['status']);
+        $this->assertEquals(77, $data['user_id']);
+        $this->assertEquals('objsession', $data['username']);
+    }
+
     public function testOptionsMethod(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'OPTIONS';

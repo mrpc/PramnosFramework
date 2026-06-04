@@ -604,7 +604,7 @@ class Oauth extends Controller
                 'applicationid'       => $appId,
                 'tokentype'           => 'auth_code',
                 'scope'               => $scope,
-                'redirect_uri'        => $redirectUri,
+                'notes'               => $redirectUri,
                 'code_challenge'      => $codeChallenge       ?? '',
                 'code_challenge_method' => $codeChallengeMethod ?? 'plain',
                 'expires'             => $expires,
