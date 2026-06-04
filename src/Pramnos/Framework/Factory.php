@@ -92,33 +92,7 @@ class Factory
 
 
 
-    /**
-     * Get pramnos_search
-     * @staticvar pramnos_search $instance
-     * @return pramnos_search
-     */
-    public static function &getSearch()
-    {
-        static $instance=null;
-        if (!is_object($instance)) {
-            $instance = & pramnos_search::getInstance();
-        }
-        return $instance;
-    }
 
-    /**
-     * Return a pramnos_html_form object
-     * @staticvar pramnos_html_form $instance
-     * @return pramnos_html_form
-     */
-    public static function &getForm()
-    {
-        static $instance=null;
-        if (!is_object($instance)) {
-            $instance = & pramnos_html_form::getInstance();
-        }
-        return $instance;
-    }
 
     /**
      * Returns a pramnos_permissions object
@@ -182,29 +156,15 @@ class Factory
     }
 
     /**
-     * Return a pramnos_jquery object
-     * @staticvar pramnos_jquery $instance
-     * @return pramnos_jquery
-     */
-    public static function &getJquery()
-    {
-        static $instance=null;
-        if (!is_object($instance)) {
-            $instance = & pramnos_jquery::getInstance();
-        }
-        return $instance;
-    }
-
-    /**
-     * Return a pramnos_email object
-     * @staticvar pramnos_email $instance
-     * @return pramnos_email
+     * Return a \Pramnos\Email\Email object
+     * @staticvar \Pramnos\Email\Email $instance
+     * @return \Pramnos\Email\Email
      */
     public static function &getEmail()
     {
         static $instance=null;
         if (!is_object($instance)) {
-            $instance = & pramnos_email::getInstance();
+            $instance = & \Pramnos\Email\Email::getInstance();
         }
         return $instance;
     }
