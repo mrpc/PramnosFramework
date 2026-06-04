@@ -78,6 +78,9 @@ class SessionTest extends TestCase
         // Clear superglobals
         $_SESSION = [];
         $_SERVER = [];
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
         ini_set('session.gc_maxlifetime', '1440');
     }
 

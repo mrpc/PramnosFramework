@@ -99,18 +99,127 @@ class OAuth2ServerFactoryTest extends TestCase
         $this->assertInstanceOf(ScopeRepository::class, $repo);
     }
 
-    public function testLoadOrGenerateEncryptionKeyCreatesNewKeyIfMissing(): void
+    public function testLoadOrGenerateEncryptionKeyLoadsExistingKey(): void
     {
+        // Pre-create the encryption key file
+        $encKeyPath = $this->tempDir . '/encryption.key';
+        $expectedKey = base64_encode(random_bytes(32));
+        file_put_contents($encKeyPath, $expectedKey);
+
+        $factory = new OAuth2ServerFactory(
+            $this->controller,
+            $this->privateKeyPath,
+            $this->publicKeyPath,
+            null // triggers loadOrGenerateEncryptionKey
+        );
+
+        // The factory will read the existing key
+        $this->assertEquals($expectedKey, $factory->getEncryptionKey());
+    }
+
+    public function testGenerateKeyPairCreatesDirectoryWhenMissing(): void
+    {
+        // Use a path in a non-existent directory
+        $nestedDir = $this->tempDir . '/nested/keys';
+        $privatePath = $nestedDir . '/private.key';
+        $publicPath  = $nestedDir . '/public.key';
+
+        $factory = new OAuth2ServerFactory($this->controller, $privatePath, $publicPath);
+        $factory->generateKeyPair();
+
+        // After generation, keys should exist (directory was created)
+        $this->assertFileExists($privatePath);
+        $this->assertFileExists($publicPath);
+
+        // Cleanup
+        unlink($privatePath);
+        unlink($publicPath);
+        unlink(dirname($privatePath) . '/encryption.key');
+        rmdir($nestedDir);
+        rmdir(dirname($nestedDir));
+    }
+
+    public function testGenerateKeyPairSkipsWhenPrivateKeyOnlyExists(): void
+    {
+        // Only private key exists — should regenerate
+        file_put_contents($this->privateKeyPath, 'private_placeholder');
+        // Public key does NOT exist
+
         $factory = new OAuth2ServerFactory($this->controller, $this->privateKeyPath, $this->publicKeyPath);
-        
-        $encKeyPath = dirname($this->privateKeyPath) . '/encryption.key';
-        $this->assertFileExists($encKeyPath);
-        $key1 = file_get_contents($encKeyPath);
-        $this->assertNotEmpty($key1);
-        
-        $factory2 = new OAuth2ServerFactory($this->controller, $this->privateKeyPath, $this->publicKeyPath);
-        $key2 = file_get_contents($encKeyPath);
-        
+        $factory->generateKeyPair();
+
+        // After generation, both keys should exist
+        $this->assertFileExists($this->privateKeyPath);
+        $this->assertFileExists($this->publicKeyPath);
+        // Private key should have been regenerated (not the placeholder)
+        $this->assertNotEquals('private_placeholder', file_get_contents($this->privateKeyPath));
+    }
+
+    public function testCreateAuthorizationServerWithGeneratedKeys(): void
+    {
+        $factory = new OAuth2ServerFactory(
+            $this->controller,
+            $this->privateKeyPath,
+            $this->publicKeyPath
+        );
+        $factory->generateKeyPair();
+
+        $server = $factory->createAuthorizationServer();
+        $this->assertInstanceOf(\League\OAuth2\Server\AuthorizationServer::class, $server);
+    }
+
+    public function testCreateResourceServerWithGeneratedKeys(): void
+    {
+        $factory = new OAuth2ServerFactory(
+            $this->controller,
+            $this->privateKeyPath,
+            $this->publicKeyPath
+        );
+        $factory->generateKeyPair();
+
+        $server = $factory->createResourceServer();
+        $this->assertInstanceOf(\League\OAuth2\Server\ResourceServer::class, $server);
+    }
+
+    public function testGettersReturnConfiguredValues(): void
+    {
+        $factory = new OAuth2ServerFactory(
+            $this->controller,
+            $this->privateKeyPath,
+            $this->publicKeyPath,
+            'my-encryption-key'
+        );
+
+        $this->assertEquals($this->privateKeyPath, $factory->getPrivateKeyPath());
+        $this->assertEquals($this->publicKeyPath, $factory->getPublicKeyPath());
+        $this->assertEquals('my-encryption-key', $factory->getEncryptionKey());
+    }
+
+    public function testEncryptionKeyIsPersistedOnFirstGeneration(): void
+    {
+        // Remove any existing encryption key
+        $encKeyPath = $this->tempDir . '/encryption.key';
+        if (file_exists($encKeyPath)) {
+            unlink($encKeyPath);
+        }
+
+        // First factory construction triggers loadOrGenerateEncryptionKey
+        $factory1 = new OAuth2ServerFactory(
+            $this->controller,
+            $this->privateKeyPath,
+            $this->publicKeyPath
+        );
+        $key1 = $factory1->getEncryptionKey();
+
+        // Second factory construction should load the same persisted key
+        $factory2 = new OAuth2ServerFactory(
+            $this->controller,
+            $this->privateKeyPath,
+            $this->publicKeyPath
+        );
+        $key2 = $factory2->getEncryptionKey();
+
         $this->assertEquals($key1, $key2);
+        $this->assertNotEmpty($key1);
     }
 }
