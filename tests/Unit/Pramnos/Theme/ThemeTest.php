@@ -153,4 +153,152 @@ class ThemeTest extends TestCase
         // Non-existent location
         $this->assertFalse($this->theme->setBannerLocation('missing', 10));
     }
+
+    public function testAddAndGetWidgets(): void
+    {
+        $this->theme->registerWidgetArea('Sidebar 1', 'Main Sidebar', 'sidebar1');
+        $this->theme->addWidget('sidebar1', 'widgetId=123&class=TestWidget');
+        
+        $widgets = $this->theme->getWidgets('sidebar1');
+        $this->assertCount(1, $widgets);
+        $this->assertSame('TestWidget', $widgets[0]['class']);
+        
+        $this->theme->addWidget('sidebar1', 'widgetId=124&class=TestWidget2');
+        $widgets = $this->theme->getWidgets('sidebar1');
+        $this->assertCount(2, $widgets);
+        
+        // Reset widgets
+        $this->theme->resetWidgets('sidebar1');
+        $this->assertCount(0, $this->theme->getWidgets('sidebar1'));
+    }
+
+    public function testRenderWidgetArea(): void
+    {
+        $this->theme->registerWidgetArea('Test Sidebar', 'Desc', 'test_sidebar');
+        
+        // Output should be buffered
+        ob_start();
+        $result = $this->theme->renderWidgetArea('test_sidebar');
+        $output = ob_get_clean();
+        
+        $this->assertIsString($result);
+        
+        // No widgets added, so shouldn't output much except empty or wrappers, but we don't know exactly what without DB.
+        
+        // Test non-existent widget area
+        $result = $this->theme->renderWidgetArea('missing');
+        $this->assertSame('', $result);
+    }
+    
+    public function testGetElementFunctions(): void
+    {
+        $app = $this->createMock(\Pramnos\Application\Application::class);
+        
+        $theme = new Theme('default', '', $app);
+        
+        ob_start();
+        $theme->getElement('header');
+        $theme->getElement('footer');
+        $theme->get_header();
+        $theme->get_footer();
+        $theme->get_sidebar();
+        $theme->get_search_form();
+        $output = ob_get_clean();
+        
+        $this->assertEmpty($output); // Since getView is empty
+    }
+    
+    public function testCmsLocationFunctions(): void
+    {
+        $this->assertEmpty($this->theme->getCmsLocation('missing'));
+    }
+
+    public function testRemoveBannerLocation(): void
+    {
+        $this->theme->registerBannerLocation('top', 'Top Banner');
+        $this->assertTrue($this->theme->hasBannerLocations());
+        
+        $this->theme->removeBannerLocation('top');
+        $this->assertFalse($this->theme->hasBannerLocations());
+        
+        $this->assertSame($this->theme, $this->theme->removeBannerLocation('missing'));
+    }
+    
+    public function testGetHeadAndFoot(): void
+    {
+        $ref = new \ReflectionProperty($this->theme, 'body');
+        $ref->setValue($this->theme, "<html><head>test</head><body>start[MODULE]end</body></html>");
+        
+        $this->assertStringContainsString('start', $this->theme->gethead());
+        $this->assertStringContainsString('end', $this->theme->getfoot());
+    }
+
+    public function testGetThemesReturnsArray(): void
+    {
+        // Should return an array even if path is invalid or empty
+        $themes = Theme::getThemes('/invalid/path/that/does/not/exist');
+        $this->assertIsArray($themes);
+    }
+    
+    public function testSettingsFunctions(): void
+    {
+        // Mock the form since Settings relies on form object internally
+        $mockForm = new class {
+            public array $_fields = [];
+            public function addField($name, $title, $type, $options, $description, $required, $default, $value) {
+                $field = new \stdClass();
+                $field->value = $value;
+                $this->_fields[$name] = $field;
+            }
+        };
+        
+        $ref = new \ReflectionProperty($this->theme, '_form');
+        $ref->setValue($this->theme, $mockForm);
+        
+        $this->assertFalse($this->theme->hasSettings());
+        
+        $this->theme->addSetting('test_setting', 'Test', 'textfield', null, 'Desc', false, 'def', 'val');
+        $this->assertTrue($this->theme->hasSettings());
+        $this->assertSame('val', $this->theme->getSetting('test_setting'));
+        $this->assertNull($this->theme->getSetting('missing'));
+    }
+
+    public function testGetheader(): void
+    {
+        $ref = new \ReflectionProperty($this->theme, 'contents');
+        $ref->setValue($this->theme, "<html><head>test_header</head><body>start[MODULE]end</body></html>");
+        
+        $this->assertSame('test_header', $this->theme->getheader());
+        
+        $ref->setValue($this->theme, "<html><body>start[MODULE]end</body></html>");
+        $this->assertSame('', $this->theme->getheader());
+    }
+
+    public function testDisplayMenuWithMockClass(): void
+    {
+        $this->theme->register_nav_menu('primary', 'Primary Menu', 1);
+        
+        ob_start();
+        try {
+            $this->theme->displayMenu('primary', ['menu' => 1]);
+            $output = ob_get_clean();
+        } catch (\Throwable $e) {
+            ob_end_clean();
+            throw $e;
+        }
+        
+        $this->assertSame('rendered_menu', $output);
+        
+        // Test with echo = false
+        $result = $this->theme->displayMenu('primary', ['echo' => false]);
+        $this->assertSame('rendered_menu', $result);
+    }
+}
+
+if (!class_exists('Pramnos\Theme\pramnoscms_menu')) {
+    eval("namespace Pramnos\Theme { class pramnoscms_menu {
+        public \$options;
+        public function __construct(\$id) {}
+        public function render() { return 'rendered_menu'; }
+    } }");
 }

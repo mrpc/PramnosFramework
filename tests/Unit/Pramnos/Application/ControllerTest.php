@@ -417,4 +417,268 @@ class ControllerTest extends TestCase
         // Assert
         $this->assertFalse($result);
     }
+
+    // =========================================================================
+    // auth() and _throwAuthFailure()
+    // =========================================================================
+
+    public function testAuthReturnsTrueForPublicAction(): void
+    {
+        $ctrl = $this->makeController();
+        $this->assertTrue($ctrl->auth('public_action'));
+    }
+
+    public function testAuthChecksUserPermissions(): void
+    {
+        $ctrl = new class(null, ['user:read']) extends Controller {
+            public function __construct($app, $perms) {
+                parent::__construct($app, $perms);
+                $this->addActionPermission('secure_action', 'admin:read');
+            }
+        };
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('You do not have the required permissions');
+        $ctrl->auth('secure_action');
+    }
+
+    public function testAuthFailsForAuthActionWhenNotLogged(): void
+    {
+        $ctrl = clone $this->makeController();
+        $ctrl->addAuthAction('auth_action');
+        
+        // Mock session to return isLogged = false
+        $sessionMock = $this->createMock(\Pramnos\Http\Session::class);
+        $sessionMock->method('isLogged')->willReturn(false);
+        // We can't inject session directly, but we can set it in the singleton?
+        // Actually, without modifying Session class, we just let it use the real one,
+        // which defaults to false in CLI.
+        
+        $this->assertFalse($ctrl->auth('auth_action'));
+    }
+
+    // =========================================================================
+    // exec()
+    // =========================================================================
+
+    public function testExecCallsDisplayByDefault(): void
+    {
+        $ctrl = new class(null) extends Controller {
+            public $displayCalled = false;
+            public function display() { $this->displayCalled = true; return 'displayed'; }
+        };
+
+        $result = $ctrl->exec('');
+        $this->assertTrue($ctrl->displayCalled);
+        $this->assertEquals('displayed', $result);
+    }
+
+    public function testExecCallsActionIfInActions(): void
+    {
+        $ctrl = new class(null) extends Controller {
+            public $customCalled = false;
+            public function __construct($app) { parent::__construct($app); $this->addaction('custom'); }
+            public function custom() { $this->customCalled = true; return 'custom_result'; }
+        };
+
+        $result = $ctrl->exec('custom');
+        $this->assertTrue($ctrl->customCalled);
+        $this->assertEquals('custom_result', $result);
+    }
+
+    public function testExecThrowsAuthFailureIfUnauthorized(): void
+    {
+        $ctrl = new class(null) extends Controller {
+            public function __construct($app) { parent::__construct($app); $this->addAuthAction('protected'); }
+            public function protected() { }
+        };
+
+        $this->expectException(\Pramnos\Http\RedirectException::class);
+        $this->expectExceptionCode(302);
+        $ctrl->exec('protected');
+    }
+
+    // =========================================================================
+    // getModel()
+    // =========================================================================
+
+    public function testGetModelThrowsExceptionIfNotFound(): void
+    {
+        $app = new Application();
+        $ctrl = new Controller($app);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot find model');
+        $ctrl->getModel('NonExistentModel123');
+    }
+
+    public function testGetModelFindsClassByNamespace(): void
+    {
+        $app = new Application();
+        $app->applicationInfo['namespace'] = 'Pramnos\Tests\Fixtures';
+        $app->appName = 'MyApp';
+        $ctrl = new Controller($app);
+
+        // We can just assert the logic tries to find it.
+        // It will fail, but we'll see the exception message to verify it built the path right.
+        try {
+            $ctrl->getModel('TestModel');
+            $this->fail('Expected exception');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('\Pramnos\Tests\Fixtures\MyApp\Models\TestModel', $e->getMessage());
+        }
+    }
+
+    // =========================================================================
+    // getView()
+    // =========================================================================
+
+    public function testGetViewThrowsExceptionIfNotFound(): void
+    {
+        $app = new Application();
+        $ctrl = new Controller($app);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot find view');
+        $ctrl->getView('NonExistentView', 'html');
+    }
+
+    public function testGetViewReturnsInstantiatedViewClass(): void
+    {
+        $app = new Application();
+        $ctrl = clone $this->makeController();
+        $ctrl->application = $app;
+        
+        // Controller::_getView checks for physical directory $path/Views/$name
+        $testPath = sys_get_temp_dir() . '/pramnos_test_views_' . uniqid();
+        @mkdir($testPath . '/Views/MyMockView', 0777, true);
+        
+        // Add this path to priority paths via reflection since it's protected
+        $ref = new \ReflectionClass($ctrl);
+        $prop = $ref->getProperty('_priorityPaths');
+        $prop->setValue($ctrl, [$testPath]);
+        
+        if (!class_exists('\Pramnos\Views\MyMockView')) {
+            eval('namespace Pramnos\Views; class MyMockView { public $ctrl; public function __construct($ctrl) { $this->ctrl = $ctrl; } }');
+        }
+        
+        try {
+            $view = $ctrl->getView('MyMockView', 'html');
+            $this->assertIsObject($view);
+            $this->assertSame($ctrl, $view->ctrl);
+        } finally {
+            @rmdir($testPath . '/Views/MyMockView');
+            @rmdir($testPath . '/Views');
+            @rmdir($testPath);
+        }
+    }
+
+    // =========================================================================
+    // exec() with Middleware
+    // =========================================================================
+
+    public function testExecRunsMiddleware(): void
+    {
+        $ctrl = new class(null) extends Controller {
+            public $customCalled = false;
+            public function __construct($app) { parent::__construct($app); $this->addaction('custom'); }
+            public function custom() { $this->customCalled = true; return 'custom_result'; }
+        };
+
+        $GLOBALS['middleware_called'] = false;
+        $mw = new class implements \Pramnos\Http\MiddlewareInterface {
+            public function handle(\Pramnos\Http\Request $req, callable $next): mixed { 
+                $GLOBALS['middleware_called'] = true;
+                return $next($req); 
+            }
+        };
+
+        $ctrl->addMiddleware('custom', $mw);
+        $result = $ctrl->exec('custom');
+        
+        $this->assertTrue($GLOBALS['middleware_called']);
+        $this->assertTrue($ctrl->customCalled);
+        $this->assertEquals('custom_result', $result);
+    }
+
+    // =========================================================================
+    // redirect()
+    // =========================================================================
+
+    public function testRedirectCallsApplicationRedirect(): void
+    {
+        $app = new class('test_app') extends Application {
+            public $redirectUrl;
+            public function __construct($name) { parent::__construct($name); }
+            public function redirect($url = '', $exit = true, $status = 302) {
+                $this->redirectUrl = $url;
+            }
+        };
+        $ctrl = new Controller($app);
+        $ctrl->redirect('/test');
+        
+        $this->assertEquals('/test', $app->redirectUrl);
+    }
+
+    // =========================================================================
+    // exec() variations
+    // =========================================================================
+
+    public function testExecWithPostMethodCallsPostAction(): void
+    {
+        $ctrl = new class(null) extends Controller {
+            public $postCalled = false;
+            public function __construct($app) { parent::__construct($app); }
+            public function postCustom() { $this->postCalled = true; return 'post_res'; }
+        };
+
+        // Fake the request method
+        \Pramnos\Http\Request::$requestMethod = 'POST';
+        
+        // Add the action for auth pass
+        $ctrl->addaction('postCustom');
+        $ctrl->addaction('custom'); // Needs this too usually for method-based routing? Wait, exec checks auth on both.
+        
+        $result = $ctrl->exec('custom');
+        
+        // Reset it back
+        \Pramnos\Http\Request::$requestMethod = 'GET';
+        
+        $this->assertTrue($ctrl->postCalled);
+        $this->assertEquals('post_res', $result);
+    }
+
+    public function testExecCallsDisplayIfActionNotFoundButDisplayIsAllowed(): void
+    {
+        $ctrl = new class(null) extends Controller {
+            public $displayCalled = false;
+            public function display() { $this->displayCalled = true; return 'display_res'; }
+        };
+
+        $result = $ctrl->exec('unknown_action');
+        $this->assertTrue($ctrl->displayCalled);
+        $this->assertEquals('display_res', $result);
+    }
+
+    // =========================================================================
+    // setContentType()
+    // =========================================================================
+
+    public function testSetContentType(): void
+    {
+        // This is mainly a smoke test to ensure no errors and code runs
+        $doc = \Pramnos\Document\Document::getInstance();
+        $doc->themeObject = new class {
+            public $type;
+            public function setContentType($type) { $this->type = $type; }
+        };
+        
+        $ctrl = $this->makeController();
+        $ctrl->setContentType('application/json');
+        
+        $this->assertEquals('application/json', $doc->themeObject->type);
+        
+        // Reset singleton impact
+        $doc->themeObject = null;
+    }
 }
