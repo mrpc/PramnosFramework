@@ -23,6 +23,9 @@ use PHPUnit\Framework\TestCase;
 #[CoversFunction('envvar')]
 #[CoversFunction('parseEnvValue')]
 #[CoversFunction('e')]
+#[CoversFunction('loadDotenv')]
+#[CoversFunction('getUrl')]
+#[CoversFunction('l')]
 class GlobalHelpersTest extends TestCase
 {
     // ── env() ─────────────────────────────────────────────────────────────────
@@ -336,5 +339,69 @@ class GlobalHelpersTest extends TestCase
     {
         // Assert
         $this->assertSame('hello world', e('hello world'));
+    }
+    // ── loadDotenv() ──────────────────────────────────────────────────────────
+
+    public function testLoadDotenvReturnsFalseIfFileDoesNotExist(): void
+    {
+        $tempDir = sys_get_temp_dir() . '/helpers_test_' . uniqid();
+        mkdir($tempDir);
+        $result = loadDotenv($tempDir, 'nonexistent.env');
+        $this->assertFalse($result);
+        rmdir($tempDir);
+    }
+
+    public function testLoadDotenvLoadsEnvAndReturnsTrue(): void
+    {
+        $tempDir = sys_get_temp_dir() . '/helpers_test_' . uniqid();
+        mkdir($tempDir);
+        $envContent = "PRAMNOS_TEST_LOAD_ENV=12345\n";
+        file_put_contents($tempDir . '/.env', $envContent);
+
+        $result = loadDotenv($tempDir);
+        $this->assertTrue($result);
+        $this->assertEquals('12345', $_ENV['PRAMNOS_TEST_LOAD_ENV'] ?? null);
+
+        // A second call should return true immediately without reloading
+        $result2 = loadDotenv($tempDir);
+        $this->assertTrue($result2);
+
+        unlink($tempDir . '/.env');
+        rmdir($tempDir);
+    }
+
+    // ── getUrl() ──────────────────────────────────────────────────────────────
+
+    public function testGetUrlHttp(): void
+    {
+        $_SERVER['HTTPS'] = 'off';
+        $_SERVER['SERVER_PORT'] = '80';
+        $_SERVER['SERVER_NAME'] = 'example.com';
+        $_SERVER['SCRIPT_NAME'] = '/test/index.php';
+        
+        $url = getUrl();
+        $this->assertEquals('http://example.com/test/', $url);
+    }
+
+    public function testGetUrlHttps(): void
+    {
+        $_SERVER['HTTPS'] = 'on';
+        $_SERVER['SERVER_PORT'] = '443';
+        $_SERVER['SERVER_NAME'] = 'secure.example.com';
+        $_SERVER['SCRIPT_NAME'] = '/index.php';
+        
+        $url = getUrl();
+        $this->assertEquals('https://secure.example.com/', $url);
+    }
+
+    // ── l() ───────────────────────────────────────────────────────────────────
+
+    public function testLFunctionOutput(): void
+    {
+        ob_start();
+        l('test_string');
+        $output = ob_get_clean();
+        
+        $this->assertNotEmpty($output);
     }
 }
