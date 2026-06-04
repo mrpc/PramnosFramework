@@ -88,9 +88,12 @@ class ScopesMySQLIntegrationTest extends TestCase
             `name`      VARCHAR(191) NOT NULL,
             `apikey`    VARCHAR(191) NOT NULL,
             `apisecret` VARCHAR(191) NOT NULL DEFAULT '',
-            `status`    INT NOT NULL DEFAULT 0,
-            `scope`     TEXT NULL
+            `status`    INT NOT NULL DEFAULT 0
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        try {
+            $this->db->query("ALTER TABLE `applications` ADD COLUMN `scope` TEXT NULL");
+        } catch (\Throwable $e) {}
     }
 
     /**
