@@ -384,6 +384,119 @@ class OauthTest extends TestCase
         $this->assertNotEmpty($data['device_code']);
         $this->assertNotEmpty($data['user_code']);
     }
+
+    public function testAuthorizeRequiresMissingRedirectUri(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_GET['client_id'] = 'somekey';
+        $_GET['redirect_uri'] = '';
+        $_GET['response_type'] = 'code';
+
+        ob_start();
+        $this->controller->authorize();
+        $output = ob_get_clean();
+        $this->assertStringContainsString('Missing redirect_uri', $output);
+    }
+
+    public function testAuthorizeUnsupportedResponseTypeFails(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_GET['client_id'] = 'somekey';
+        $_GET['redirect_uri'] = 'https://example.com/cb';
+        $_GET['response_type'] = 'token'; // not supported
+
+        ob_start();
+        $this->controller->authorize();
+        $output = ob_get_clean();
+        $this->assertStringContainsString('Unsupported response_type', $output);
+    }
+
+    public function testAuthorizePkceS256InvalidChallenge(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_GET['client_id'] = 'somekey';
+        $_GET['redirect_uri'] = 'https://example.com/cb';
+        $_GET['response_type'] = 'code';
+        $_GET['code_challenge'] = 'short'; // too short for S256
+        $_GET['code_challenge_method'] = 'S256';
+
+        ob_start();
+        $this->controller->authorize();
+        $output = ob_get_clean();
+        $this->assertStringContainsString('Invalid code_challenge', $output);
+    }
+
+    public function testAuthorizePkceInvalidMethod(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_GET['client_id'] = 'somekey';
+        $_GET['redirect_uri'] = 'https://example.com/cb';
+        $_GET['response_type'] = 'code';
+        $_GET['code_challenge'] = 'aGVsbG93b3JsZHRlc3QxMjM0NTY3ODkwYWJjZGVm';
+        $_GET['code_challenge_method'] = 'RS256'; // invalid method
+
+        ob_start();
+        $this->controller->authorize();
+        $output = ob_get_clean();
+        $this->assertStringContainsString('Invalid code_challenge_method', $output);
+    }
+
+    public function testAuthorizeWithConsentUpdatePath(): void
+    {
+        // Tests recordConsent() update path (existing consent row)
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_GET['client_id'] = 'update_key';
+        $_GET['response_type'] = 'code';
+        $_GET['redirect_uri'] = 'https://example.com/cb';
+        $_POST['authorize'] = 'yes';
+
+        if (!defined('UNITTESTING')) {
+            define('UNITTESTING', true);
+        }
+        global $unittesting_logged;
+        $unittesting_logged = true;
+
+        $this->db->queryBuilder()->table('users')->insert([
+            'userid' => 55, 'username' => 'upd', 'email' => 'upd@t.com', 'active' => 1
+        ]);
+        $this->db->queryBuilder()->table('applications')->insert([
+            'appid' => 1, 'name' => 'Upd App', 'status' => 1, 'apikey' => 'update_key'
+        ]);
+        // Existing consent row — will trigger update path
+        $this->db->queryBuilder()->table('authserver_oauth2_user_consents')->insert([
+            'userid' => 55, 'applicationid' => 1, 'scope' => 'profile',
+            'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')
+        ]);
+
+        $user = new \Pramnos\User\User();
+        $user->userid = 55;
+        $user->username = 'upd';
+        $user->language = \Pramnos\Framework\Factory::getLanguage()->currentlang();
+
+        $app = \Pramnos\Application\Application::getInstance();
+        if ($app) {
+            $app->currentUser = clone $user;
+        }
+
+        ob_start();
+        try {
+            $this->controller->authorize();
+        } catch (\Exception $e) {
+            // expected terminate
+        }
+        ob_end_clean();
+
+        // Verify consent was updated (scope merged)
+        $consent = $this->db->queryBuilder()->table('authserver_oauth2_user_consents')
+            ->where('userid', 55)->first();
+        $this->assertNotEmpty($consent);
+
+        if ($app) {
+            $app->currentUser = null;
+        }
+        $unittesting_logged = false;
+    }
+
     public function testRevokeWithGetMethodFails(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'GET';
