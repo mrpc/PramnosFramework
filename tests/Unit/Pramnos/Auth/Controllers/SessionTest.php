@@ -43,12 +43,13 @@ class SessionTest extends TestCase
                 `appid` int(11) NOT NULL AUTO_INCREMENT,
                 `name` varchar(255) NOT NULL,
                 `apikey` varchar(255) DEFAULT NULL,
+                `apisecret` varchar(255) DEFAULT NULL,
                 PRIMARY KEY (`appid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
         $this->db->query('
             CREATE TABLE IF NOT EXISTS `users` (
-                `userid` int(11) NOT NULL AUTO_INCREMENT,
+                `userid` bigint NOT NULL AUTO_INCREMENT,
                 `username` varchar(255) NOT NULL,
                 `email` varchar(255) NOT NULL,
                 `active` tinyint(1) NOT NULL DEFAULT 1,
@@ -58,7 +59,7 @@ class SessionTest extends TestCase
         $this->db->query('
             CREATE TABLE IF NOT EXISTS `usertokens` (
                 `tokenid` int(11) NOT NULL AUTO_INCREMENT,
-                `userid` int(11) NOT NULL,
+                `userid` bigint NOT NULL,
                 `applicationid` int(11) NOT NULL,
                 `tokentype` varchar(50) NOT NULL,
                 `token` text NOT NULL,
@@ -234,7 +235,7 @@ class SessionTest extends TestCase
     {
         $secretKey = 'super_secret_key_0123456789abcde';
         // Setup DB
-        $this->db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`) VALUES (1, 'Test App', '{$secretKey}')");
+        $this->db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`, `apisecret`) VALUES (1, 'Test App', '{$secretKey}', '')");
         $this->db->query("INSERT INTO `users` (`userid`, `username`, `email`, `active`) VALUES (55, 'tokenguy', 'guy@token.com', 1)");
         
         // Create a JWT
@@ -318,7 +319,7 @@ class SessionTest extends TestCase
         $this->db->query("DELETE FROM `applications` WHERE `appid` = 2");
         $this->db->query("DELETE FROM `usertokens` WHERE `userid` = 55 AND `applicationid` = 2");
         $this->db->query("INSERT IGNORE INTO `users` (`userid`, `username`, `email`, `active`) VALUES (55, 'tokenguy', 'guy@token.com', 1)");
-        $this->db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`) VALUES (2, 'App2', 'key')");
+        $this->db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`, `apisecret`) VALUES (2, 'App2', 'key', '')");
         $this->db->query("INSERT INTO `usertokens` (`userid`, `applicationid`, `tokentype`, `token`, `expires`, `status`, `created`) VALUES (55, 2, 'access_token', 'bad_token', " . (time()+3600) . ", 1, " . time() . ")");
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer bad_token';
         $controller = $this->getController();

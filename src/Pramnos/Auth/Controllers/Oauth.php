@@ -144,6 +144,9 @@ class Oauth extends Controller
         } catch (OAuthServerException $ex) {
             $this->showErrorPage($ex->getMessage());
         } catch (\Exception $ex) {
+            if ($ex->getMessage() === 'OAuth controller terminated') {
+                throw $ex;
+            }
             $this->showErrorPage($ex->getMessage());
         }
     }
