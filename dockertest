@@ -9,10 +9,41 @@
 # The only way the lock can be "stuck" is if the process is still alive but
 # hanging (e.g. docker-compose exec frozen). In that case we detect a stale
 # PID: if the recorded PID no longer exists, we clear the lock and proceed.
+nobrowser=false
+coverage=false
+testdox=false
+resetdb=false
+force=false
+passthrough=()
+for arg in "$@"; do
+    if [[ "$arg" == "--nobrowser" ]]; then
+        nobrowser=true
+    elif [[ "$arg" == "--coverage" ]]; then
+        coverage=true
+    elif [[ "$arg" == "--testdox" ]]; then
+        testdox=true
+    elif [[ "$arg" == "--reset-db" ]]; then
+        resetdb=true
+    elif [[ "$arg" == "--force" ]]; then
+        force=true
+    else
+        passthrough+=("$arg")
+    fi
+done
+
 LOCK_FILE="/tmp/dockertest-pramnos.lock"
 
+if [[ "$force" == true ]]; then
+    existing_pid=$(cat "$LOCK_FILE" 2>/dev/null)
+    if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+        echo "Killing existing dockertest process (PID: $existing_pid) due to --force..." >&2
+        kill -9 "$existing_pid" 2>/dev/null
+    fi
+    rm -f "$LOCK_FILE"
+fi
+
 _acquire_lock() {
-    exec 9>"$LOCK_FILE"
+    exec 9>>"$LOCK_FILE"
     flock -n 9
 }
 
@@ -25,31 +56,13 @@ if ! _acquire_lock; then
         _acquire_lock || { echo "Could not acquire lock after clearing stale entry." >&2; exit 1; }
     else
         echo "Another ./dockertest run is already in progress (PID: ${existing_pid:-unknown})." >&2
-        [[ -n "$existing_pid" ]] && echo "  To kill it:  kill $existing_pid" >&2
+        [[ -n "$existing_pid" ]] && echo "  To kill it:  kill $existing_pid  or run with --force" >&2
         exit 1
     fi
 fi
 # Record our PID so a subsequent caller can detect staleness.
+> "$LOCK_FILE"
 echo $$ >"$LOCK_FILE"
-
-nobrowser=false
-coverage=false
-testdox=false
-resetdb=false
-passthrough=()
-for arg in "$@"; do
-    if [[ "$arg" == "--nobrowser" ]]; then
-        nobrowser=true
-    elif [[ "$arg" == "--coverage" ]]; then
-        coverage=true
-    elif [[ "$arg" == "--testdox" ]]; then
-        testdox=true
-    elif [[ "$arg" == "--reset-db" ]]; then
-        resetdb=true
-    else
-        passthrough+=("$arg")
-    fi
-done
 
 # Check if containers are running
 if ! docker-compose ps | grep -q "pramnos_php.*Up"; then
