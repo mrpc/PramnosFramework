@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "pramnos": {
-      "command": "php",
-      "args": ["./bin/pramnos", "mcp:serve"]
-    }
-  }
-}
