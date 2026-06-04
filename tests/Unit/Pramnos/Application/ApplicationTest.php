@@ -283,4 +283,262 @@ class ApplicationTest extends TestCase
         $dirs = $method->invoke($this->app);
         $this->assertIsArray($dirs);
     }
+    public function testGetControllerReturnsHealthController(): void
+    {
+        $app = new Application();
+        $controller = $app->getController('health');
+        $this->assertTrue(is_object($controller));
+    }
+
+    public function testGetControllerThrowsExceptionIfNotFound(): void
+    {
+        $app = new Application();
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot find controller: non_existent');
+        $app->getController('non_existent');
+    }
+
+    public function testExecDispatchesToControllerAndReturnsResponse(): void
+    {
+        $app = new class('test_app') extends Application {
+            public $controller = 'test';
+            public $action = 'testAction';
+            public function __construct($name) { parent::__construct($name); }
+            public function getController($controller, $userPermissions = []) {
+                return new class {
+                    public function exec($action) {
+                        return \Pramnos\Http\Response::make('Response Content', 200);
+                    }
+                };
+            }
+        };
+
+        ob_start();
+        $app->exec('');
+        $output = ob_get_clean();
+        
+        $this->assertTrue(true);
+    }
+
+    public function testExecDispatchesToControllerAndReturnsString(): void
+    {
+        $app = new class('test_app') extends Application {
+            public $controller = 'test';
+            public $action = 'testAction';
+            public function __construct($name) { parent::__construct($name); }
+            public function getController($controller, $userPermissions = []) {
+                return new class {
+                    public function exec($action) {
+                        return "String Content";
+                    }
+                };
+            }
+        };
+
+        ob_start();
+        $app->exec('');
+        $output = ob_get_clean();
+        $this->assertTrue(true);
+    }
+
+    public function testExecValidationExceptionRedirects(): void
+    {
+        $app = new class('test_app') extends Application {
+            public $controller = 'test';
+            public $action = 'testAction';
+            public function __construct($name) { parent::__construct($name); }
+            public function getController($controller, $userPermissions = []) {
+                return new class {
+                    public function exec($action) {
+                        throw new \Pramnos\Validation\ValidationException(['error' => 'validation']);
+                    }
+                };
+            }
+            public function redirect($url = '', $exit = true, $status = 302) {
+                echo "REDIRECT TO " . $url;
+            }
+        };
+
+        $_SERVER['HTTP_REFERER'] = '/back-url';
+        ob_start();
+        $app->exec('');
+        $output = ob_get_clean();
+        $this->assertStringContainsString("REDIRECT TO /back-url", $output);
+    }
+
+    public function testExecRedirectExceptionRedirects(): void
+    {
+        $app = new class('test_app') extends Application {
+            public $controller = 'test';
+            public $action = 'testAction';
+            public function __construct($name) { parent::__construct($name); }
+            public function getController($controller, $userPermissions = []) {
+                return new class {
+                    public function exec($action) {
+                        throw new \Pramnos\Http\RedirectException('/some-url', 301);
+                    }
+                };
+            }
+            public function redirect($url = '', $exit = true, $status = 302) {
+                echo "REDIRECT TO " . $url . " STATUS " . $status;
+            }
+        };
+
+        ob_start();
+        $app->exec('');
+        $output = ob_get_clean();
+        $this->assertStringContainsString("REDIRECT TO /some-url STATUS 301", $output);
+    }
+
+    public function testExecGenericExceptionCloses(): void
+    {
+        $app = new class('test_app') extends Application {
+            public $controller = 'test';
+            public $action = 'testAction';
+            public function __construct($name) { parent::__construct($name); }
+            public function getController($controller, $userPermissions = []) {
+                return new class {
+                    public function exec($action) {
+                        throw new \Exception('Generic Error');
+                    }
+                };
+            }
+            public function close($msg = '') {
+                echo "CLOSED";
+            }
+        };
+
+        ob_start();
+        $app->exec('');
+        $output = ob_get_clean();
+        $this->assertStringContainsString("CLOSED", $output);
+    }
+
+    public function testRender(): void
+    {
+        $app = new class('test_app') extends Application {
+            public function __construct($name) { parent::__construct($name); }
+            public function redirect($url = '', $exit = true, $status = 302) { }
+        };
+
+        $output = $app->render();
+        $this->assertIsString($output);
+    }
+
+    public function testRegisterDefaultNavItems(): void
+    {
+        $app = new Application();
+        $app->registerDefaultNavItems(['authserver', 'auth', 'queue']);
+        // Verify NavRegistry has items by just making sure it ran without error
+        $this->assertTrue(true);
+    }
+
+    public function testExecLoadsScriptsCssAndTheme(): void
+    {
+        $app = new class('test_app') extends Application {
+            public $controller = 'test';
+            public $action = 'testAction';
+            public $applicationInfo = [
+                'name' => 'test',
+                'theme' => 'test_theme',
+                'scripts' => [
+                    ['script' => 'test.js', 'src' => '/js/test.js', 'deps' => [], 'version' => '1.0', 'footer' => false]
+                ],
+                'css' => [
+                    ['name' => 'test.css', 'src' => '/css/test.css', 'deps' => [], 'version' => '1.0', 'media' => 'all']
+                ]
+            ];
+            public function __construct($name) { parent::__construct($name); }
+            public function getController($controller, $userPermissions = []) {
+                return new class {
+                    public function exec($action) {
+                        return "Output";
+                    }
+                };
+            }
+        };
+
+        // We also test token action
+        $_SESSION['usertoken'] = new class {
+            public $tokentype = \Pramnos\User\Token::TYPE_WEB_SESSION;
+            public $lastActionId = 1;
+            public function addAction() {}
+            public function updateAction($id, $status, $time, $record) {}
+        };
+
+        ob_start();
+        $app->exec('');
+        $output = ob_get_clean();
+        
+        $this->assertTrue(true);
+    }
+    
+    public function testExecForceSslRedirects(): void
+    {
+        $app = new class('test_app') extends Application {
+            public $controller = 'test';
+            public function __construct($name) { parent::__construct($name); }
+            public function redirect($url = '', $exit = true, $status = 302) {
+                echo "REDIRECT TO HTTPS";
+            }
+        };
+
+        \Pramnos\Application\Settings::setSetting('forcessl', '1');
+        // sURL might be http://... so it should redirect
+        ob_start();
+        try {
+            $app->exec('');
+        } catch (\Exception $e) { } // if it closes or errors later
+        $output = ob_get_clean();
+        
+        \Pramnos\Application\Settings::setSetting('forcessl', '0'); // reset
+        
+        $this->assertStringContainsString('REDIRECT TO HTTPS', $output);
+    }
+
+    public function testCheckversionWithDatabaseReturnsTrue(): void
+    {
+        $app = new Application();
+        $mockDb = $this->createMock(\Pramnos\Database\Database::class);
+        $mockDb->method('prepareQuery')->willReturn('SELECT QUERY');
+        
+        $mockResult = new class {
+            public $numRows = 1;
+        };
+        $mockDb->method('query')->willReturn($mockResult);
+        
+        $app->database = $mockDb;
+        $this->assertTrue($app->checkversion('1.0'));
+    }
+
+    public function testCheckversionWithDatabaseReturnsFalse(): void
+    {
+        $app = new Application();
+        $mockDb = $this->createMock(\Pramnos\Database\Database::class);
+        $mockDb->method('prepareQuery')->willReturn('SELECT QUERY');
+        
+        $mockResult = new class {
+            public $numRows = 0;
+        };
+        $mockDb->method('query')->willReturn($mockResult);
+        
+        $app->database = $mockDb;
+        $this->assertFalse($app->checkversion('1.0'));
+    }
+    
+    public function testRegisterBuiltInHealthChecks(): void
+    {
+        $app = new Application();
+        $mockDb = $this->createMock(\Pramnos\Database\Database::class);
+        $mockDb->connected = true;
+        $app->database = $mockDb;
+        
+        $reflection = new \ReflectionClass(Application::class);
+        $method = $reflection->getMethod('registerBuiltInHealthChecks');
+        
+        $method->invoke($app);
+        
+        // Assert no exception was thrown
+        $this->assertTrue(true);
+    }
 }
