@@ -70,7 +70,7 @@ class OAuth2ServerFactory
             $clientRepo,
             $accessTokenRepo,
             $scopeRepo,
-            new CryptKey($this->privateKeyPath),
+            new CryptKey($this->privateKeyPath, null, false),
             $this->encryptionKey
         );
 
@@ -105,7 +105,7 @@ class OAuth2ServerFactory
     {
         return new ResourceServer(
             new AccessTokenRepository($this->controller),
-            new CryptKey($this->publicKeyPath)
+            new CryptKey($this->publicKeyPath, null, false)
         );
     }
 
@@ -164,7 +164,7 @@ class OAuth2ServerFactory
             );
             return;
         }
-        @chmod($this->publicKeyPath, 0644);
+        @chmod($this->publicKeyPath, 0600);
     }
 
     /**
