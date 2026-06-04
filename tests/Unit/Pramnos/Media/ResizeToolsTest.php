@@ -26,7 +26,6 @@ class ResizeToolsTest extends TestCase
         imagefilledrectangle($img, 0, 0, 1000, 1000, $color);
         imagejpeg($img, $this->srcFileJpg);
         imagepng($img, $this->srcFilePng);
-        imagedestroy($img);
     }
 
     protected function tearDown(): void
@@ -130,9 +129,6 @@ class ResizeToolsTest extends TestCase
         $result = ResizeTools::fastimagecopyresampled($imgDst, $imgSrc, 0, 0, 0, 0, 50, 50, 100, 100, 2);
         
         $this->assertTrue($result);
-        
-        imagedestroy($imgSrc);
-        imagedestroy($imgDst);
     }
     
     public function testDebugModeOutput(): void
@@ -196,7 +192,6 @@ class ResizeToolsTest extends TestCase
         $srcFileGif = $this->tempDir . '/test.gif';
         $img = imagecreatetruecolor(10, 10);
         imagegif($img, $srcFileGif);
-        imagedestroy($img);
         
         $tool = new ResizeTools();
         $tool->exportpath = $this->tempDir . '/';

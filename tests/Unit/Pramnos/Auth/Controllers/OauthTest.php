@@ -310,7 +310,6 @@ class OauthTest extends TestCase
             
         $reflection = new \ReflectionClass($this->controller);
         $property = $reflection->getProperty('oauth2Factory');
-        $property->setAccessible(true);
         $property->setValue($this->controller, $mockFactory);
         
         $response = $this->controller->token();
@@ -758,6 +757,7 @@ class OauthTest extends TestCase
     public function testAuthorizeShowsConsentFormWhenNoPriorConsent(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/oauth/authorize?client_id=consent_key';
         $_GET['client_id'] = 'consent_key';
         $_GET['response_type'] = 'code';
         $_GET['redirect_uri'] = 'https://example.com/cb';

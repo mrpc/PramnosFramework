@@ -532,11 +532,9 @@ class EmailTest extends TestCase
         $ref = new \ReflectionClass($email);
         
         $setFrom = $ref->getMethod('setFromAddress');
-        $setFrom->setAccessible(true);
         $setFrom->invoke($email, $mimeEmail);
-        
+
         $addRecip = $ref->getMethod('addRecipients');
-        $addRecip->setAccessible(true);
         $addRecip->invoke($email, $mimeEmail, $email->to, 'to');
         $addRecip->invoke($email, $mimeEmail, $email->cc, 'cc');
         $addRecip->invoke($email, $mimeEmail, $email->bcc, 'bcc');
@@ -571,7 +569,6 @@ class EmailTest extends TestCase
         
         $ref = new \ReflectionClass($email);
         $setFrom = $ref->getMethod('setFromAddress');
-        $setFrom->setAccessible(true);
         $setFrom->invoke($email, $mimeEmail);
         
         $froms = $mimeEmail->getFrom();
@@ -588,7 +585,6 @@ class EmailTest extends TestCase
         
         $ref = new \ReflectionClass($email);
         $setFrom = $ref->getMethod('setFromAddress');
-        $setFrom->setAccessible(true);
         $setFrom->invoke($email, $mimeEmail);
         
         $froms = $mimeEmail->getFrom();
