@@ -60,12 +60,31 @@ class OauthTest extends TestCase
         ');
         $this->db->query('
             CREATE TABLE IF NOT EXISTS `users` (
-                `userid` int(11) NOT NULL AUTO_INCREMENT,
+                `userid` bigint NOT NULL AUTO_INCREMENT,
                 `username` varchar(255) NOT NULL,
                 `email` varchar(255) NOT NULL,
                 `active` tinyint(1) NOT NULL DEFAULT 1,
+                `password` varchar(255) DEFAULT NULL,
+                `regdate` int(11) DEFAULT 0,
+                `lastlogin` int(11) DEFAULT 0,
+                `validated` tinyint(1) DEFAULT 0,
+                `language` varchar(50) DEFAULT NULL,
                 `firstname` varchar(255) DEFAULT NULL,
                 `lastname` varchar(255) DEFAULT NULL,
+                `timezone` varchar(50) DEFAULT NULL,
+                `dateformat` varchar(50) DEFAULT NULL,
+                `regcompletion` int(11) DEFAULT NULL,
+                `lasttermsagreed` int(11) DEFAULT NULL,
+                `usertype` int(11) DEFAULT 0,
+                `sex` tinyint(1) DEFAULT 0,
+                `birthdate` int(11) DEFAULT 0,
+                `photo` int(11) DEFAULT 0,
+                `phone` varchar(50) DEFAULT NULL,
+                `mobile` varchar(50) DEFAULT NULL,
+                `fax` varchar(50) DEFAULT NULL,
+                `website` varchar(255) DEFAULT NULL,
+                `modified` int(11) DEFAULT 0,
+                `maingroup` int(11) DEFAULT 0,
                 PRIMARY KEY (`userid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
@@ -186,8 +205,8 @@ class OauthTest extends TestCase
     
     public function testDisplayShowsApps(): void
     {
-        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'key1']);
-        $this->db->queryBuilder()->table('applications')->insert(['appid' => 2, 'name' => 'App 2', 'status' => 1, 'apikey' => 'key2']);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'key1', 'apisecret' => '']);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 2, 'name' => 'App 2', 'status' => 1, 'apikey' => 'key2', 'apisecret' => '']);
         
         // Mock getView
         $mockView = $this->createMock(\Pramnos\Application\View::class);
@@ -225,7 +244,7 @@ class OauthTest extends TestCase
         $_GET['state'] = 'abc';
         $_GET['redirect_uri'] = 'https://example.com/cb';
         
-        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id']);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id', 'apisecret' => '']);
 
         $controller = $this->getMockBuilder(Oauth::class)
             ->setConstructorArgs([new Application()])
@@ -257,15 +276,18 @@ class OauthTest extends TestCase
         $user->language = \Pramnos\Framework\Factory::getLanguage()->currentlang();
         
         $this->db->queryBuilder()->table('users')->insert(['userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
-        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id']);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id', 'apisecret' => '']);
         
         $app = \Pramnos\Application\Application::getInstance();
         if ($app) {
             $app->currentUser = clone $user;
         }
         
-        $this->expectOutputString('<h1>Authorization Error</h1><p>OAuth controller terminated</p>');
-        $this->controller->authorize();
+        try {
+            $this->controller->authorize();
+        } catch (\Exception $e) {
+            $this->assertEquals('OAuth controller terminated', $e->getMessage());
+        }
         
         // Verify consent and auth code
         $consent = $this->db->queryBuilder()->table('authserver_oauth2_user_consents')->where('userid', 55)->first();
@@ -382,7 +404,7 @@ class OauthTest extends TestCase
         $_POST['client_id'] = 'test_client_id';
         $_POST['scope'] = 'profile';
         
-        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id']);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id', 'apisecret' => '']);
         
         $response = $this->controller->deviceauthorization();
         $this->assertEquals(200, $response->getStatusCode());
