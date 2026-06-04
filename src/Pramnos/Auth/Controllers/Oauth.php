@@ -167,8 +167,7 @@ class Oauth extends Controller
             && isset($_POST['client_assertion'])
             && ($_POST['client_assertion_type'] ?? '') === 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
         ) {
-            $jsonStr = $this->handleJwtClientCredentials();
-            return \Pramnos\Http\Response::json(json_decode($jsonStr, true))
+            return $this->handleJwtClientCredentials()
                 ->withHeader('Cache-Control', 'no-store')
                 ->withHeader('Pragma', 'no-cache');
         }
@@ -840,7 +839,7 @@ class Oauth extends Controller
      * the absence of a SELECT before the INSERT that caused a new sys_* user to
      * be created on every repeated token request for the same client.
      */
-    private function handleJwtClientCredentials(): string
+    private function handleJwtClientCredentials(): \Pramnos\Http\Response
     {
         $clientId  = $_POST['client_id'] ?? null;
         $assertion = $_POST['client_assertion'];
@@ -855,22 +854,20 @@ class Oauth extends Controller
         }
 
         if (!$clientId) {
-            http_response_code(400);
-            return (string) json_encode([
+            return \Pramnos\Http\Response::json([
                 'error'             => 'invalid_request',
                 'error_description' => 'Missing client_id',
-            ]);
+            ], 400);
         }
 
         // Validate assertion — returns a fully-hydrated Application object so we
         // already have systemuser without a second SELECT (regression fix UW-461).
         $app = $this->validateJwtClientAssertion($assertion, $clientId);
         if ($app === null) {
-            http_response_code(401);
-            return (string) json_encode([
+            return \Pramnos\Http\Response::json([
                 'error'             => 'invalid_client',
                 'error_description' => 'JWT client assertion validation failed',
-            ]);
+            ], 401);
         }
 
         // systemuser is already populated by loadByApiKey() — no extra SELECT needed.
@@ -891,11 +888,10 @@ class Oauth extends Controller
             $systemUserId = (int) $user->userid;
 
             if (!$app->assignSystemUser($systemUserId)) {
-                http_response_code(500);
-                return (string) json_encode([
+                return \Pramnos\Http\Response::json([
                     'error'             => 'server_error',
                     'error_description' => 'Failed to assign system user to application',
-                ]);
+                ], 500);
             }
         }
 
@@ -939,7 +935,7 @@ class Oauth extends Controller
                 'deviceinfo'    => 'jwt_bearer',
             ]);
 
-        return (string) json_encode([
+        return \Pramnos\Http\Response::json([
             'access_token'       => $token,
             'token_type'         => 'Bearer',
             'expires_in'         => 3600,
