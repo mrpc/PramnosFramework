@@ -53,6 +53,8 @@ class OauthTest extends TestCase
                 `status` tinyint(1) NOT NULL DEFAULT 1,
                 `created` bigint(20) NOT NULL DEFAULT 0,
                 `redirect_uri` varchar(255) DEFAULT NULL,
+                `public_key` text DEFAULT NULL,
+                `systemuser` int(11) DEFAULT NULL,
                 PRIMARY KEY (`appid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
@@ -115,6 +117,12 @@ class OauthTest extends TestCase
         // MySQL does not support ALTER TABLE ... ADD COLUMN IF NOT EXISTS — suppress errors
         try {
             $this->db->query('ALTER TABLE `applications` ADD COLUMN `apisecret` varchar(255) DEFAULT NULL');
+        } catch (\Throwable $e) {}
+        try {
+            $this->db->query('ALTER TABLE `applications` ADD COLUMN `public_key` text DEFAULT NULL');
+        } catch (\Throwable $e) {}
+        try {
+            $this->db->query('ALTER TABLE `applications` ADD COLUMN `systemuser` int(11) DEFAULT NULL');
         } catch (\Throwable $e) {}
         try {
             $this->db->query('ALTER TABLE `usertokens` ADD COLUMN `sid` varchar(255) DEFAULT NULL');
@@ -526,20 +534,22 @@ class OauthTest extends TestCase
     public function testIntrospectWithMissingTokenFails(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
-        // Use Basic auth with a valid app
+        // Use plain-text secret (validateCredentials does direct DB comparison)
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 1, 'name' => 'Test App', 'status' => 1,
-            'apikey' => 'testkey', 'apisecret' => password_hash('testsecret', PASSWORD_DEFAULT)
+            'apikey' => 'testkey', 'apisecret' => 'testsecret'
         ]);
-        $encoded = base64_encode('testkey:testsecret');
-        $_SERVER['HTTP_AUTHORIZATION'] = 'Basic ' . $encoded;
+        $_POST['client_id'] = 'testkey';
+        $_POST['client_secret'] = 'testsecret';
+        // No token in POST body
 
         $response = $this->controller->introspect();
-        // Without a valid secret match this returns 401 (invalid_client) or 400 (missing token)
-        $this->assertContains($response->getStatusCode(), [400, 401]);
+        $this->assertEquals(400, $response->getStatusCode());
+        $data = json_decode($response->getBody(), true);
+        $this->assertEquals('invalid_request', $data['error']);
     }
 
-    public function testIntrospectWithValidToken(): void
+    public function testIntrospectWithValidActiveToken(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $this->db->queryBuilder()->table('users')->insert([
@@ -547,21 +557,26 @@ class OauthTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 1, 'name' => 'Introspect App', 'status' => 1,
-            'apikey' => 'mykey', 'apisecret' => password_hash('mysecret', PASSWORD_DEFAULT)
+            'apikey' => 'mykey', 'apisecret' => 'mysecret'
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
-            'token' => 'introspect_tok', 'expires' => time() + 3600, 'status' => 1, 'created' => time()
+            'token' => 'introspect_tok', 'expires' => time() + 3600, 'status' => 1,
+            'created' => time(), 'scope' => 'profile'
         ]);
 
-        $encoded = base64_encode('mykey:mysecret');
-        $_SERVER['HTTP_AUTHORIZATION'] = 'Basic ' . $encoded;
+        // Use POST body credentials (plain text match)
+        $_POST['client_id'] = 'mykey';
+        $_POST['client_secret'] = 'mysecret';
         $_POST['token'] = 'introspect_tok';
 
-        // validateClientCredentials uses Pramnos\Auth\Application internally which
-        // may not find the secret — result is 401 (invalid_client) or 200 (active)
         $response = $this->controller->introspect();
-        $this->assertContains($response->getStatusCode(), [200, 401]);
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getBody(), true);
+        $this->assertTrue($data['active']);
+        $this->assertEquals('55', $data['sub']);
+        $this->assertEquals('itest', $data['username']);
+        $this->assertEquals('Bearer', $data['token_type']);
     }
 
     public function testIntrospectWithExpiredToken(): void
@@ -571,19 +586,38 @@ class OauthTest extends TestCase
             'userid' => 55, 'username' => 'exp', 'email' => 'e@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
-            'appid' => 1, 'name' => 'App', 'status' => 1, 'apikey' => 'k', 'apisecret' => password_hash('s', PASSWORD_DEFAULT)
+            'appid' => 1, 'name' => 'App', 'status' => 1, 'apikey' => 'k', 'apisecret' => 's'
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
-            'token' => 'expired_tok', 'expires' => time() - 100, 'status' => 1, 'created' => time() - 200
+            'token' => 'expired_tok', 'expires' => time() - 100, 'status' => 1,
+            'created' => time() - 200
         ]);
 
-        $encoded = base64_encode('k:s');
-        $_SERVER['HTTP_AUTHORIZATION'] = 'Basic ' . $encoded;
+        $_POST['client_id'] = 'k';
+        $_POST['client_secret'] = 's';
         $_POST['token'] = 'expired_tok';
 
         $response = $this->controller->introspect();
-        $this->assertContains($response->getStatusCode(), [200, 401]);
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getBody(), true);
+        $this->assertFalse($data['active']);
+    }
+
+    public function testIntrospectUnknownTokenReturnsInactive(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->db->queryBuilder()->table('applications')->insert([
+            'appid' => 1, 'name' => 'App', 'status' => 1, 'apikey' => 'kk', 'apisecret' => 'ss'
+        ]);
+        $_POST['client_id'] = 'kk';
+        $_POST['client_secret'] = 'ss';
+        $_POST['token'] = 'not_a_real_token_xyz';
+
+        $response = $this->controller->introspect();
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getBody(), true);
+        $this->assertFalse($data['active']);
     }
 
     public function testUserinfoWithoutTokenFails(): void
@@ -812,5 +846,93 @@ class OauthTest extends TestCase
             }
             $unittesting_logged = false;
         }
+    }
+
+    public function testJwtClientCredentialsMissingClientId(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['grant_type'] = 'client_credentials';
+        $_POST['client_assertion'] = 'some.jwt.assertion';
+        $_POST['client_assertion_type'] = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
+        // Missing client_id entirely
+
+        $response = $this->controller->token();
+        $this->assertEquals(400, $response->getStatusCode());
+        $data = json_decode($response->getBody(), true);
+        $this->assertEquals('invalid_request', $data['error']);
+        $this->assertEquals('Missing client_id', $data['error_description']);
+    }
+
+    public function testJwtClientCredentialsInvalidAssertion(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['grant_type'] = 'client_credentials';
+        $_POST['client_assertion'] = 'invalid.jwt.assertion';
+        $_POST['client_assertion_type'] = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
+        $_POST['client_id'] = 'myclient';
+
+        // Add client with a dummy public key
+        $this->db->queryBuilder()->table('applications')->insert([
+            'appid' => 1, 'name' => 'App', 'status' => 1, 'apikey' => 'myclient', 'public_key' => 'dummy_key'
+        ]);
+
+        $response = $this->controller->token();
+        $this->assertEquals(401, $response->getStatusCode());
+        $data = json_decode($response->getBody(), true);
+        $this->assertEquals('invalid_client', $data['error']);
+        $this->assertEquals('JWT client assertion validation failed', $data['error_description']);
+    }
+
+    public function testJwtClientCredentialsValidCreatesSystemUserAndToken(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+
+        // Generate an RSA key pair for the test
+        $res = openssl_pkey_new(['digest_alg' => 'sha256', 'private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkey_export($res, $privateKey);
+        $pubKey = openssl_pkey_get_details($res)['key'];
+
+        // Add application with the public key
+        $this->db->queryBuilder()->table('applications')->insert([
+            'appid' => 2, 'name' => 'JWT App', 'status' => 1, 'apikey' => 'jwt_client', 'public_key' => $pubKey
+        ]);
+
+        // Create a valid JWT assertion
+        $payload = [
+            'iss' => 'jwt_client',
+            'sub' => 'jwt_client',
+            'aud' => 'https://localhost', // or whatever
+            'exp' => time() + 60,
+            'iat' => time()
+        ];
+        $assertion = \Pramnos\Auth\JWT::encode($payload, $privateKey, 'RS256');
+
+        $_POST['grant_type'] = 'client_credentials';
+        $_POST['client_assertion'] = $assertion;
+        $_POST['client_assertion_type'] = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
+        $_POST['client_id'] = 'jwt_client';
+        $_POST['scope'] = 'test_scope';
+
+        $response = $this->controller->token();
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertArrayHasKey('access_token', $data);
+        $this->assertEquals('Bearer', $data['token_type']);
+        $this->assertEquals('test_scope', $data['scope']);
+        $this->assertEquals('jwt_bearer', $data['client_auth_method']);
+
+        // Check that a system user was created
+        $app = $this->db->queryBuilder()->table('applications')->where('apikey', 'jwt_client')->first();
+        $this->assertNotEmpty($app->fields['systemuser']);
+
+        $user = $this->db->queryBuilder()->table('users')->where('userid', $app->fields['systemuser'])->first();
+        $this->assertNotEmpty($user);
+        $this->assertStringStartsWith('sys_', $user->fields['username']);
+
+        // Check that token was persisted
+        $token = $this->db->queryBuilder()->table('usertokens')->where('applicationid', 2)->first();
+        $this->assertNotEmpty($token);
+        $this->assertEquals('test_scope', $token->fields['scope']);
     }
 }
