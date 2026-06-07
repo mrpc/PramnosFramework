@@ -19,6 +19,23 @@ use Pramnos\Html\Datatable;
 #[CoversClass(Datatable::class)]
 class DatatableTest extends TestCase
 {
+    /** @var object Original Document singleton saved before each test that replaces it. */
+    private object $originalDoc;
+
+    protected function setUp(): void
+    {
+        // Save the current Document singleton so it can be restored in tearDown.
+        // Tests that replace the singleton via reference must not pollute later tests.
+        $this->originalDoc = \Pramnos\Framework\Factory::getDocument('html');
+    }
+
+    protected function tearDown(): void
+    {
+        // Restore the Document singleton to prevent test pollution.
+        $singleton = &\Pramnos\Framework\Factory::getDocument('html');
+        $singleton = $this->originalDoc;
+    }
+
     // =========================================================================
     // Constructor
     // =========================================================================
@@ -315,5 +332,136 @@ class DatatableTest extends TestCase
         $this->assertStringNotContainsString('table-striped', $html);
         // Base 'display' class still present
         $this->assertStringContainsString('class="display', $html);
+    }
+
+    // =========================================================================
+    // renderJs() and render() and renderExistingTable()
+    // =========================================================================
+
+    public function testRenderJsProducesScriptTagAndEnqueuesScripts(): void
+    {
+        $dt = new Datatable('myTable');
+        $dt->addColumn('Name');
+        $dt->jui = true;
+        
+        $doc = new class {
+            public array $styles = [];
+            public array $scripts = [];
+            public function enqueueStyle(string $style): void { $this->styles[] = $style; }
+            public function enqueueScript(string $script): void { $this->scripts[] = $script; }
+        };
+        $singleton = &\Pramnos\Framework\Factory::getDocument('html');
+        $singleton = $doc;
+
+        $js = $dt->renderJs();
+        
+        $this->assertStringContainsString('<script>', $js);
+        $this->assertStringContainsString('window.addEventListener("load"', $js);
+        $this->assertStringContainsString('jQuery(\'#myTable\').dataTable', $js);
+        
+        $this->assertContains('datatables-ui', $doc->styles);
+        $this->assertContains('jquery-ui', $doc->styles);
+        $this->assertContains('datatables', $doc->scripts);
+    }
+
+    public function testRenderCombinesTableAndJs(): void
+    {
+        $dt = new Datatable('myTable2');
+        $dt->addColumn('Name');
+        
+        $doc = new class {
+            public function enqueueStyle(string $style): void {}
+            public function enqueueScript(string $script): void {}
+        };
+        $singleton = &\Pramnos\Framework\Factory::getDocument('html');
+        $singleton = $doc;
+
+        $html = $dt->render();
+        
+        $this->assertStringContainsString('<table id="myTable2"', $html);
+        $this->assertStringContainsString('<script>', $html);
+    }
+
+    public function testRenderExistingTable(): void
+    {
+        $dt = new Datatable();
+        $dt->tableTools = true;
+        
+        $doc = new class {
+            public function enqueueStyle(string $style): void {}
+            public function enqueueScript(string $script): void {}
+        };
+        $singleton = &\Pramnos\Framework\Factory::getDocument('html');
+        $singleton = $doc;
+
+        $html = $dt->renderExistingTable('myExistingTable');
+        
+        $this->assertStringContainsString('jQuery(\'#myExistingTable\').dataTable', $html);
+        $this->assertStringContainsString('"dom": \'T<"clear">lfrtip\'', $html);
+    }
+
+    public function testGroupBySelector(): void
+    {
+        $dt = new Datatable('myTableGroup');
+        $dt->addColumn('Name');
+        $dt->groupBySelector = true;
+        
+        $doc = new class {
+            public function enqueueStyle(string $style): void {}
+            public function enqueueScript(string $script): void {}
+        };
+        $singleton = &\Pramnos\Framework\Factory::getDocument('html');
+        $singleton = $doc;
+
+        $html = $dt->render();
+        
+        $this->assertStringContainsString('id="pf40_groupby_myTableGroup"', $html);
+        $this->assertStringContainsString('pf40_doGroup_myTableGroup', $html);
+    }
+
+    public function testFixColumnSearch(): void
+    {
+        $dt = new Datatable('mySearchTable');
+        $dt->addColumn('Name', true, true, true, '', '', true, 'left', true, 'searchme');
+        $dt->addColumn('Email', true, true, true, '', '', true, 'left', 'emailsearch', 'foo');
+        $dt->stateSave = true;
+        
+        $doc = new class {
+            public function enqueueStyle(string $style): void {}
+            public function enqueueScript(string $script): void {}
+        };
+        $singleton = &\Pramnos\Framework\Factory::getDocument('html');
+        $singleton = $doc;
+
+        $html = $dt->render();
+        
+        $this->assertStringContainsString('id="autofootsearch_0"', $html);
+        $this->assertStringContainsString('value="searchme"', $html);
+        $this->assertStringContainsString('mySearchTable.fnFilter( \'searchme\', 0 )', $html);
+        $this->assertStringContainsString('jQuery(\'#emailsearch\').change', $html);
+        $this->assertStringContainsString('$("tfoot input").keyup(', $html);
+    }
+
+    public function testRenderJsServerSideAndEditable(): void
+    {
+        $dt = new Datatable('myServerTable', '/api/data');
+        $dt->addColumn('Name');
+        $dt->editable = true;
+        $dt->sortOrder = 'asc';
+        
+        $doc = new class {
+            public function enqueueStyle(string $style): void {}
+            public function enqueueScript(string $script): void {}
+        };
+        $singleton = &\Pramnos\Framework\Factory::getDocument('html');
+        $singleton = $doc;
+
+        $js = $dt->renderJs();
+        
+        $this->assertStringContainsString('"serverSide": true', $js);
+        $this->assertStringContainsString('url": "/api/data"', $js);
+        $this->assertStringContainsString('fnDrawCallback', $js);
+        $this->assertStringContainsString('.editable(', $js);
+        $this->assertStringContainsString('"order": [[0, "asc"]]', $js);
     }
 }
