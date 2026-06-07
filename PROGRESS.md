@@ -1,6 +1,28 @@
 
 # Project Progress - Pramnos Framework v1.2
 
+## 📅 Last Updated: 2026-06-07 (session 155) — Fix all test errors/failures/warnings/deprecations
+
+## 🏁 Session 155 — Test Suite Green (2026-06-07)
+
+### ✅ fix(tests): resolve all errors, failures, warnings, PHPUnit deprecations
+
+Starting point: Tests: 6240, Errors: 3, Failures: 11, Warnings: 3, Deprecations: 1, PHPUnit Deprecations: 9
+Result: **Tests: 6240, Assertions: 15287, Skipped: 3 — ZERO errors, ZERO failures**
+
+Key fixes:
+- **Test pollution**: DatatableTest anonymous class replaced Document singleton; HealthControllerTest
+  didn't reset themeObject; ApplicationTest leaked `lastUsedApplication='test_app'` and `Document::$type='raw'`
+- **DB schema isolation**: 5 test classes recreating users/sessions/usertokens with minimal schemas
+  causing FK violations and `Unknown column` errors in subsequent tests — fixed with proper DROP+CREATE
+  and bigint userid throughout
+- **PHPUnit deprecations**: GdprControllerIntegrationTest replaced `addMethods()` with anonymous classes
+- **Production code**: Request.php undefined array key for REQUEST_URI; Controller.php non-array applicationInfo guard
+- **Assertion fixes**: DevPanelControllerTest used wrong CSS selector (class vs id), wrong content strings
+
+Commit: ecc858a
+
+---
 ## 📅 Last Updated: 2026-05-29 (session 154) — Complete 1.2-new-features content integration
 
 ## 🏁 Session 154 — Full Content Integration from 1.2-new-features.md (2026-05-29)
