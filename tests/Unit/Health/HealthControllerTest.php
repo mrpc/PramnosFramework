@@ -46,6 +46,10 @@ class HealthControllerTest extends TestCase
     {
         HealthRegistry::reset();
         NavRegistry::reset();
+        // Remove the anonymous themeObject to prevent subsequent tests from
+        // calling loadTheme() on an object that doesn't have that method.
+        $doc = \Pramnos\Framework\Factory::getDocument('html');
+        $doc->themeObject = null;
     }
 
     // ── Class structure ───────────────────────────────────────────────────────

@@ -453,12 +453,12 @@ class Request extends Base
             if (isset($_SERVER["SERVER_PORT"])
                 && $_SERVER["SERVER_PORT"] != "80") {
                 $pageURL .= $_SERVER["SERVER_NAME"] . ":"
-                    . $_SERVER["SERVER_PORT"] . $_SERVER["REQUEST_URI"];
+                    . $_SERVER["SERVER_PORT"] . ($_SERVER["REQUEST_URI"] ?? '');
             } elseif (isset($_SERVER['SERVER_NAME'])) {
-                $pageURL .= $_SERVER["SERVER_NAME"] . $_SERVER["REQUEST_URI"];
+                $pageURL .= $_SERVER["SERVER_NAME"] . ($_SERVER["REQUEST_URI"] ?? '');
             }
         } else {
-            $pageURL = $_SERVER["REQUEST_URI"];
+            $pageURL = $_SERVER["REQUEST_URI"] ?? '';
         }
 
         return $pageURL;

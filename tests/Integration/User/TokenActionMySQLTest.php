@@ -61,6 +61,10 @@ class TokenActionMySQLTest extends TestCase
             $this->db->connect(true);
         }
 
+        // Flush the query cache so stale cached rows from prior test runs
+        // (Token::load() caches for 3600 s) cannot contaminate our fresh rows.
+        $this->db->cacheflush();
+
         $this->dropTestTables();
         $this->runMigrations();
         $this->seedRows();
