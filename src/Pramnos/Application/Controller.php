@@ -630,7 +630,8 @@ class Controller extends \Pramnos\Framework\Base
      */
     private function _getScaffoldingFallbackDirs(): array
     {
-        $info         = $this->application->applicationInfo ?? [];
+        $raw          = $this->application->applicationInfo ?? [];
+        $info         = is_array($raw) ? $raw : [];
         $scaffoldTheme = \Pramnos\Application\ScaffoldingHelper::getScaffoldTheme($info);
         if ($scaffoldTheme !== null) {
             $dir = \Pramnos\Application\ScaffoldingHelper::getThemeDir($scaffoldTheme);

@@ -9,11 +9,39 @@ class ApplicationTest extends TestCase
 {
     private Application $app;
 
+    /** @var string|null The last-used app name before the test ran, to be restored. */
+    private ?string $savedLastUsed = null;
+
     protected function setUp(): void
     {
+        // Save the global singleton state so tearDown can restore it.
+        $ref = new \ReflectionClass(Application::class);
+        $prop = $ref->getProperty('lastUsedApplication');
+        $this->savedLastUsed = $prop->getValue();
+
         // Avoid calling standard getInstance() which triggers huge initialization
         $this->app = new Application('test_app');
         // Reset properties manually if needed, but new instance should be fresh
+    }
+
+    protected function tearDown(): void
+    {
+        // Restore the last-used application so subsequent tests using
+        // Application::getInstance() without arguments still get 'default'.
+        $ref  = new \ReflectionClass(Application::class);
+        $prop = $ref->getProperty('lastUsedApplication');
+        $prop->setValue(null, $this->savedLastUsed);
+
+        // Remove the test_app instance from the global registry.
+        $instances = $ref->getProperty('appInstances');
+        $current   = $instances->getValue();
+        unset($current['test_app']);
+        $instances->setValue(null, $current);
+
+        // exec() calls Factory::getDocument('raw') which permanently sets
+        // Document::$type = 'raw' via the setDefault flag.  Restore the
+        // default so downstream tests receive an html document.
+        \Pramnos\Document\Document::$type = 'html';
     }
 
     /**
