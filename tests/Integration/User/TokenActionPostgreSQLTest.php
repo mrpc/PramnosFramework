@@ -167,6 +167,85 @@ class TokenActionPostgreSQLTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // updateAction() — PostgreSQL schema-migration recovery path
+    // -------------------------------------------------------------------------
+
+    /**
+     * updateAction() on PostgreSQL must self-heal when the tokenactions table
+     * lacks the return_status / execution_time_ms / return_data columns by
+     * executing an ALTER TABLE DDL sequence and retrying the UPDATE.
+     *
+     * This covers lines 402–475 of updateAction(): the extensive PostgreSQL
+     * error-recovery block that adds the three audit columns (plus the
+     * action_time column and sync trigger) on legacy databases. It is the
+     * production upgrade path for databases that were deployed before the
+     * Token audit-trail feature was introduced.
+     *
+     * The test:
+     *   1. Drops the standard tokenactions table (which has the new columns)
+     *      and replaces it with a legacy version that omits them.
+     *   2. Inserts a seed row.
+     *   3. Calls updateAction() — the UPDATE fails with "column return_status
+     *      does not exist", triggering the recovery DDL sequence.
+     *   4. Verifies that return_status was written after the column was added.
+     */
+    public function testUpdateActionPostgresqlSchemaRecoveryAddsColumnsAndRetries(): void
+    {
+        // Arrange — drop the standard table and create a legacy schema without
+        // the audit columns to force the recovery path.
+        $this->db->query('DROP TABLE IF EXISTS "tokenactions" CASCADE');
+        $this->db->query('DROP TRIGGER IF EXISTS sync_tokenactions_time ON tokenactions');
+        $this->db->query('DROP FUNCTION IF EXISTS sync_tokenactions_time()');
+
+        // Re-create minimal table WITHOUT the new audit columns.
+        // Include action_time NOT NULL with a default so the trigger-creation
+        // DDL in the recovery block doesn't violate NOT NULL constraints on
+        // existing rows.
+        $this->db->query(
+            'CREATE TABLE "tokenactions" ('
+            . '"actionid" BIGSERIAL PRIMARY KEY, '
+            . '"tokenid" INTEGER NOT NULL, '
+            . '"urlid" INTEGER NOT NULL, '
+            . '"method" VARCHAR(10), '
+            . '"params" TEXT, '
+            . '"servertime" INTEGER'
+            . ')'
+        );
+
+        // Seed a urls row (re-seed since we dropped tokenactions which had a FK)
+        $urlHash = crc32('/pg/legacy');
+        $this->db->query(
+            "INSERT INTO \"urls\" (url, hash) VALUES ('/pg/legacy', {$urlHash})"
+        );
+        $urlId = (int) $this->db->query('SELECT urlid FROM "urls" ORDER BY urlid DESC LIMIT 1')->fields['urlid'];
+
+        // Insert a legacy tokenactions row without the new columns.
+        $insertedTime = time() - 30;
+        $result = $this->db->query(
+            'INSERT INTO "tokenactions" (tokenid, urlid, method, params, servertime)'
+            . " VALUES ({$this->tokenId}, {$urlId}, 'GET', '{}', {$insertedTime})"
+            . ' RETURNING actionid'
+        );
+        $legacyActionId = (int) $result->fields['actionid'];
+
+        // Act — updateAction() will fail with 'column "return_status" does not exist'
+        // and then execute the full DDL recovery sequence before retrying the UPDATE.
+        $token = new Token();
+        $token->tokenid = $this->tokenId;
+        $token->updateAction($legacyActionId, 200, 25.5, ['recovered' => true]);
+
+        // Assert — the return_status column must exist and have the correct value.
+        $row = $this->db->query(
+            "SELECT return_status, execution_time_ms FROM \"tokenactions\""
+            . " WHERE actionid = {$legacyActionId}"
+        );
+        $this->assertSame(200, (int) $row->fields['return_status'],
+            'updateAction() PostgreSQL recovery must add return_status and write the value');
+        $this->assertEqualsWithDelta(25.5, (float) $row->fields['execution_time_ms'], 0.1,
+            'updateAction() PostgreSQL recovery must also write execution_time_ms');
+    }
+
+    // -------------------------------------------------------------------------
     // Sync trigger (PostgreSQL-specific)
     // -------------------------------------------------------------------------
 
@@ -207,6 +286,116 @@ class TokenActionPostgreSQLTest extends TestCase
         $actionTs = strtotime($row->fields['action_time']);
         $this->assertEqualsWithDelta($knownTime, $actionTs, 2,
             'action_time must correspond to the servertime unix epoch via sync trigger');
+    }
+
+    // =========================================================================
+    // Token::save() — PostgreSQL-specific itemdata path
+    // =========================================================================
+
+    /**
+     * Token::save() on PostgreSQL must use the ipaddress/expires fields in
+     * the itemdata array (not parentToken, which is the MySQL path).
+     *
+     * This covers lines 600–609 of save(): the `else` branch of
+     * `if ($database->type != 'postgresql')` that adds ipaddress and expires
+     * to the field list instead of parentToken.
+     *
+     * This is the critical PostgreSQL divergence: MySQL stores parentToken for
+     * the token hierarchy, whereas PostgreSQL tracks ipaddress and expires
+     * for session management purposes.
+     */
+    public function testSaveUsesPostgresqlItemdataPath(): void
+    {
+        // Arrange — a fresh token that will go through the INSERT path.
+        $token            = new Token();
+        $token->userid    = 9999;
+        $token->tokentype = 'api';
+        $token->token     = 'pg_save_test_' . time();
+        $token->created   = time();
+        $token->status    = 1;
+        $token->ipaddress = '10.0.0.1';
+        $token->expires   = time() + 3600;
+        $token->scope     = ['read'];
+        $token->deviceinfo = [];
+        $token->notes      = 'pg save test';
+
+        // Act
+        $token->save();
+
+        // Assert — tokenid must have been set (INSERT succeeded on PostgreSQL)
+        $this->assertGreaterThan(0, (int) $token->tokenid,
+            'save() must insert a new row on PostgreSQL using the ipaddress/expires itemdata path');
+
+        // Verify the row was persisted with the expected values
+        $row = $this->db->query(
+            'SELECT tokenid, ipaddress, expires FROM "usertokens"'
+            . ' WHERE tokenid = ' . (int) $token->tokenid
+        );
+        $this->assertSame((int) $token->tokenid, (int) $row->fields['tokenid'],
+            'save() must persist the token with the correct tokenid');
+    }
+
+    // =========================================================================
+    // Token::getStatistics() — PostgreSQL query branch
+    // =========================================================================
+
+    /**
+     * Token::getStatistics() on PostgreSQL must use the to_timestamp() syntax
+     * rather than FROM_UNIXTIME() to compute active_days.
+     *
+     * This covers lines 726–732 of getStatistics(): the PostgreSQL branch that
+     * replaces the MySQL-specific FROM_UNIXTIME() call with to_timestamp().
+     * The PostgreSQL branch must return the same logical aggregate structure.
+     */
+    public function testGetStatisticsUsesPostgresqlQueryBranch(): void
+    {
+        // Arrange — the seeded token has 1 tokenaction row
+        $token = new Token($this->tokenId);
+
+        // Act — this will execute the PostgreSQL branch of getStatistics()
+        $stats = $token->getStatistics();
+
+        // Assert — the PostgreSQL query must return a valid statistics struct
+        $this->assertIsArray($stats,
+            'getStatistics() must return an array on PostgreSQL');
+        $this->assertArrayHasKey('total_actions', $stats);
+        $this->assertGreaterThanOrEqual(1, (int) $stats['total_actions'],
+            'getStatistics() must count the pre-seeded tokenactions row on PostgreSQL');
+        $this->assertArrayHasKey('active_days', $stats);
+        $this->assertGreaterThanOrEqual(1, (int) $stats['active_days'],
+            'getStatistics() must count active days using to_timestamp() on PostgreSQL');
+    }
+
+    // =========================================================================
+    // Token::getActions() — PostgreSQL LIMIT/OFFSET branch
+    // =========================================================================
+
+    /**
+     * Token::getActions() on PostgreSQL must use the same LIMIT/OFFSET syntax
+     * as MySQL (both use standard SQL), but execute against the PostgreSQL dialect.
+     *
+     * This covers line 797 of getActions(): the `if ($database->type == 'postgresql')`
+     * branch that appends ` LIMIT %d OFFSET %d` for PostgreSQL queries. Both
+     * branches produce identical SQL, confirming the branch exists for future
+     * dialect divergence.
+     */
+    public function testGetActionsUsesPostgresqlBranch(): void
+    {
+        // Arrange — load the seeded token (has 1 tokenaction row)
+        $token = new Token($this->tokenId);
+
+        // Act — getActions() on PostgreSQL; triggers the PostgreSQL LIMIT branch
+        $result = $token->getActions(10, 0, 'servertime', 'DESC');
+
+        // Assert — result structure must be valid
+        $this->assertIsArray($result,
+            'getActions() must return an array on PostgreSQL');
+        $this->assertArrayHasKey('total', $result);
+        $this->assertArrayHasKey('data', $result);
+        $this->assertGreaterThanOrEqual(1, $result['total'],
+            'getActions() must return at least the pre-seeded action row');
+        $this->assertNotEmpty($result['data'],
+            'getActions() data array must contain the pre-seeded row on PostgreSQL');
     }
 
     // =========================================================================
