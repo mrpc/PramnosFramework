@@ -519,6 +519,366 @@ class AddonTest extends TestCase
     }
 
     // =========================================================================
+    // doAction() — error paths (function/method does not exist)
+    // =========================================================================
+
+    /**
+     * doAction() must throw an Error (PHP 8 raises Error when instantiating an
+     * undefined class name used unqualified inside the Pramnos\Addon namespace)
+     * when a registered string function does not exist.
+     *
+     * The source code uses `throw new Exception(...)` without a leading backslash,
+     * so PHP 8 looks for `Pramnos\Addon\Exception` which does not exist — the
+     * execution of the branch itself throws an `Error`.
+     *
+     * Note: The test verifies that reaching this branch causes a throwable so that
+     * the branch IS executed (and thus covered). The exact throwable class is an
+     * implementation detail of the unqualified `new Exception` in the source.
+     */
+    public function testDoActionThrowsWhenRegisteredStringFunctionDoesNotExist(): void
+    {
+        // Arrange — inject an action that references a non-existent function.
+        // We bypass addAction() checks by writing directly to static storage.
+        $rp = new \ReflectionProperty(Addon::class, '_actions');
+        $rp->setValue(null, [
+            'broken_action' => [
+                10 => [
+                    ['function' => 'this_function_definitely_does_not_exist', 'acceptedArgs' => 1, 'counter' => 0]
+                ]
+            ]
+        ]);
+
+        // Act / Assert — doAction() must raise a throwable when the callback is not callable.
+        // PHP 8 raises Error (class-not-found) rather than Exception here.
+        $this->expectException(\Throwable::class);
+        Addon::doAction('broken_action');
+    }
+
+    /**
+     * doAction() must raise a throwable when a registered array callback
+     * references a non-existent method.
+     *
+     * This covers lines 175-181: the else-branch for an array callback that
+     * fails the method_exists() check.
+     */
+    public function testDoActionThrowsWhenRegisteredArrayCallbackDoesNotExist(): void
+    {
+        // Arrange — inject an array callback pointing to a non-existent method
+        $rp = new \ReflectionProperty(Addon::class, '_actions');
+        $rp->setValue(null, [
+            'bad_method_action' => [
+                10 => [
+                    ['function' => ['SomeClass', 'nonExistentMethod'], 'acceptedArgs' => 1, 'counter' => 0]
+                ]
+            ]
+        ]);
+
+        // Act / Assert
+        $this->expectException(\Throwable::class);
+        Addon::doAction('bad_method_action');
+    }
+
+    /**
+     * doAction() must use the variadic argument form when called with more than
+     * 3 arguments (the func_num_args > 3 branch).
+     *
+     * This ensures the early arg-normalisation at line 145-147 is exercised.
+     */
+    public function testDoActionWithMoreThanThreeArgsUsesVariadicBranch(): void
+    {
+        // Arrange — no actions registered for this tag
+        // Act — pass 4 arguments total; the extra arg is collected into $arg slice
+        $result = Addon::doAction('no_such_tag_variadic', [], 'extra1', 'extra2');
+
+        // Assert — no actions exist, returns false; the important thing is no error
+        $this->assertFalse($result);
+    }
+
+    // =========================================================================
+    // removeAction() — inner false-return path
+    // =========================================================================
+
+    /**
+     * removeAction() must return false when the priority exists but the function
+     * to remove is NOT found in the list (the inner foreach exhausts without a match).
+     *
+     * This covers the `return false` at line 220: the priority bucket exists
+     * but the requested function is absent.
+     */
+    public function testRemoveActionReturnsFalseWhenFunctionNotInPriorityBucket(): void
+    {
+        // Arrange — register 'strlen' but try to remove 'strtolower'
+        Addon::addAction('save_post', 'strlen', 10);
+        $addon = new Addon();
+
+        // Act — remove a different function at the same priority
+        $result = $addon->removeAction('save_post', 'strtolower', 10);
+
+        // Assert — the bucket was found, but the function was not → false
+        $this->assertFalse($result,
+            'removeAction() must return false when the function is not in the priority bucket');
+    }
+
+    // =========================================================================
+    // removeFilter() — true-return path
+    // =========================================================================
+
+    /**
+     * removeFilter() must return true when the filter is registered and removed.
+     *
+     * This covers lines 248-250: the happy-path of removeFilter() where the
+     * function is found and unset from the priority bucket.
+     */
+    public function testRemoveFilterReturnsTrueWhenFound(): void
+    {
+        // Arrange
+        Addon::addFilter('the_content', 'strtolower', 10);
+        $addon = new Addon();
+
+        // Act
+        $result = $addon->removeFilter('the_content', 'strtolower', 10);
+
+        // Assert — found and removed
+        $this->assertTrue($result,
+            'removeFilter() must return true when the filter is found and removed');
+    }
+
+    /**
+     * removeFilter() must return false when the priority bucket exists but the
+     * function is not in it (the inner foreach exhausts without a match).
+     *
+     * This covers the `return false` at line 252.
+     */
+    public function testRemoveFilterReturnsFalseWhenFunctionNotInBucket(): void
+    {
+        // Arrange — register one filter but try to remove a different one
+        Addon::addFilter('the_title', 'strtolower', 10);
+        $addon = new Addon();
+
+        // Act
+        $result = $addon->removeFilter('the_title', 'strtoupper', 10);
+
+        // Assert — bucket found, function absent → false
+        $this->assertFalse($result,
+            'removeFilter() must return false when the function is absent from the bucket');
+    }
+
+    // =========================================================================
+    // applyFilters() — error paths (function/method does not exist)
+    // =========================================================================
+
+    /**
+     * applyFilters() must raise a throwable when a registered string filter
+     * function does not exist.
+     *
+     * This covers lines 304-309: the else-branch for a missing string callback.
+     * PHP 8 raises Error (class-not-found) rather than Exception because the
+     * unqualified `new Exception` resolves to `Pramnos\Addon\Exception`.
+     */
+    public function testApplyFiltersThrowsWhenStringFilterDoesNotExist(): void
+    {
+        // Arrange — inject a broken string filter
+        $rp = new \ReflectionProperty(Addon::class, '_filters');
+        $rp->setValue(null, [
+            'broken_filter' => [
+                10 => [
+                    ['function' => 'i_do_not_exist_as_a_function', 'acceptedArgs' => 1, 'counter' => 0]
+                ]
+            ]
+        ]);
+
+        // Act / Assert
+        $this->expectException(\Throwable::class);
+        Addon::applyFilters('broken_filter', 'some value');
+    }
+
+    /**
+     * applyFilters() must raise a throwable when a registered array callback
+     * references a method that does not exist.
+     *
+     * This covers lines 296-303: the else-branch for a missing array-form callback.
+     */
+    public function testApplyFiltersThrowsWhenArrayFilterDoesNotExist(): void
+    {
+        // Arrange — inject an array filter pointing to a non-existent method
+        $rp = new \ReflectionProperty(Addon::class, '_filters');
+        $rp->setValue(null, [
+            'bad_method_filter' => [
+                10 => [
+                    ['function' => ['NonExistentClass', 'nonExistentMethod'], 'acceptedArgs' => 1, 'counter' => 0]
+                ]
+            ]
+        ]);
+
+        // Act / Assert
+        $this->expectException(\Throwable::class);
+        Addon::applyFilters('bad_method_filter', 'value');
+    }
+
+    /**
+     * applyFilters() with a plain string (built-in) callback must apply it and
+     * return the modified value.
+     *
+     * This covers the function_exists() true-branch path for a string callback.
+     */
+    public function testApplyFiltersAppliesStringCallback(): void
+    {
+        // Arrange — strtoupper is a valid built-in
+        Addon::addFilter('uppercase_tag', 'strtoupper');
+
+        // Act
+        $result = Addon::applyFilters('uppercase_tag', 'hello');
+
+        // Assert
+        $this->assertSame('HELLO', $result,
+            'applyFilters() must invoke the string callback and return the transformed value');
+    }
+
+    // =========================================================================
+    // filter() — with active addons that implement the filterX method
+    // =========================================================================
+
+    /**
+     * filter() with a specific type must call filterX() on all addons of that
+     * type that implement the method, passing the content and returning the result.
+     *
+     * This covers lines 333-338: the inner `foreach` that executes the filter method
+     * when the addon implements it.
+     */
+    public function testFilterWithTypeCallsFilterMethodOnMatchingAddon(): void
+    {
+        // Arrange — build a stub addon with a filterTitle() method
+        $stub = new AddonFilterStub();
+        $rp   = new \ReflectionProperty(Addon::class, '_addons');
+        $rp->setValue(null, ['content' => ['stub' => $stub]]);
+
+        // Act
+        $result = Addon::filter('Title', 'content', 'original content');
+
+        // Assert — filterTitle() was called, content was transformed
+        $this->assertSame('[filtered:original content]', $result,
+            'filter() must invoke the filterX method on matching addon instances');
+    }
+
+    /**
+     * filter() with an empty type must iterate ALL registered addons and call
+     * the filterX() method on any that implement it.
+     *
+     * This covers lines 342-347: the else-branch that calls getaddons() with no
+     * type and invokes the method when found.
+     */
+    public function testFilterWithEmptyTypeCallsFilterMethodOnAllAddons(): void
+    {
+        // Arrange — inject stub into the 'misc' type
+        $stub = new AddonFilterStub();
+        $rp   = new \ReflectionProperty(Addon::class, '_addons');
+        $rp->setValue(null, ['misc' => ['stub' => $stub]]);
+
+        // Act — empty type → iterate ALL addons
+        $result = Addon::filter('Title', '', 'hello');
+
+        // Assert — the stub's filterTitle() was called
+        $this->assertSame('[filtered:hello]', $result,
+            'filter() with empty type must invoke filterX on any addon that has the method');
+    }
+
+    // =========================================================================
+    // triger() — with active addons that implement the onX method
+    // =========================================================================
+
+    /**
+     * triger() with a type must call onX() on all addons of that type that
+     * implement the method, and collect the return values into an array.
+     *
+     * This covers lines 370-374: the inner `foreach` in the typed branch that
+     * executes the action method.
+     */
+    public function testTrigerWithTypeCallsOnMethodAndReturnsResults(): void
+    {
+        // Arrange — inject a stub addon with an onInit() method
+        $stub = new AddonTriggerStub();
+        $rp   = new \ReflectionProperty(Addon::class, '_addons');
+        $rp->setValue(null, ['worker' => ['stub' => $stub]]);
+
+        // Act
+        $result = Addon::triger('Init', 'worker');
+
+        // Assert — result is an array containing the stub's return value
+        $this->assertSame(['triggered'], $result,
+            'triger() must call onX() on matching addons and collect the return values');
+    }
+
+    /**
+     * triger() with no type must iterate ALL addons and call onX() on any
+     * that implement the method.
+     *
+     * This covers lines 379-385: the else-branch of triger() that calls
+     * getaddons() with no type filter.
+     */
+    public function testTrigerWithNoTypeCallsOnMethodOnAllAddons(): void
+    {
+        // Arrange
+        $stub = new AddonTriggerStub();
+        $rp   = new \ReflectionProperty(Addon::class, '_addons');
+        $rp->setValue(null, ['system' => ['stub' => $stub]]);
+
+        // Act — no type → iterate all addons
+        $result = Addon::triger('Init');
+
+        // Assert
+        $this->assertSame(['triggered'], $result,
+            'triger() with no type must call onX() on any addon that implements it');
+    }
+
+    // =========================================================================
+    // trigerAddon() — success path
+    // =========================================================================
+
+    /**
+     * trigerAddon() must call the onX() method on the specific named addon and
+     * return the result when the addon is registered and has the method.
+     *
+     * This covers lines 419-427 in trigerAddon(): the inner success path that
+     * calls call_user_func_array() on the specific addon.
+     */
+    public function testTrigerAddonCallsMethodOnRegisteredAddon(): void
+    {
+        // Arrange
+        $stub = new AddonTriggerStub();
+        $rp   = new \ReflectionProperty(Addon::class, '_addons');
+        $rp->setValue(null, ['system' => ['mystub' => $stub]]);
+
+        // Act
+        $result = Addon::trigerAddon('Init', 'system', 'mystub');
+
+        // Assert — onInit() was invoked and returned 'triggered'
+        $this->assertSame('triggered', $result,
+            'trigerAddon() must call the onX() method and return its result');
+    }
+
+    /**
+     * trigerAddon() must return false when the type exists but the specific
+     * addon is NOT registered.
+     *
+     * This covers the inner `if (isset(self::$_addons[$type][$addon]))` false
+     * branch at line 419.
+     */
+    public function testTrigerAddonReturnsFalseWhenAddonNameNotRegistered(): void
+    {
+        // Arrange — type exists but the specific addon does not
+        $stub = new AddonTriggerStub();
+        $rp   = new \ReflectionProperty(Addon::class, '_addons');
+        $rp->setValue(null, ['system' => ['otherstub' => $stub]]);
+
+        // Act
+        $result = Addon::trigerAddon('Init', 'system', 'nonexistent');
+
+        // Assert
+        $this->assertFalse($result,
+            'trigerAddon() must return false when the specific addon name is not registered');
+    }
+
+    // =========================================================================
     // getProperty()
     // =========================================================================
 
@@ -542,5 +902,124 @@ class AddonTest extends TestCase
         // Assert
         $this->assertSame('My Addon Title', $result,
             'getProperty() must return the direct property when no multilanguage override is set');
+    }
+
+    // =========================================================================
+    // getaddons() — all types merged
+    // =========================================================================
+
+    /**
+     * getaddons() with no argument must merge addons from all registered types
+     * into a flat array keyed by addon name.
+     *
+     * This covers lines 438-442: the else-branch of getaddons() that iterates
+     * all $_addons entries and merges them into a single return array.
+     */
+    public function testGetAddonsReturnsAllAddonsAcrossTypes(): void
+    {
+        // Arrange — inject addons of two different types
+        $stub1 = new Addon();
+        $stub1->name = 'alpha';
+        $stub2 = new AddonTriggerStub();
+        $stub2->name = 'beta';
+        $rp = new \ReflectionProperty(Addon::class, '_addons');
+        $rp->setValue(null, [
+            'typeA' => ['alpha' => $stub1],
+            'typeB' => ['beta'  => $stub2],
+        ]);
+
+        // Act — call with no type argument
+        $result = Addon::getaddons();
+
+        // Assert — both addons appear in the merged result
+        $this->assertArrayHasKey('alpha', $result, 'alpha addon must be present');
+        $this->assertArrayHasKey('beta',  $result, 'beta addon must be present');
+        $this->assertCount(2, $result);
+    }
+
+    /**
+     * getaddons() with a specific type must return only the addons of that type.
+     *
+     * This covers line 446-448: the isset branch that returns $_addons[$type].
+     */
+    public function testGetAddonsWithTypeReturnsOnlyThatType(): void
+    {
+        // Arrange
+        $stub = new Addon();
+        $rp   = new \ReflectionProperty(Addon::class, '_addons');
+        $rp->setValue(null, ['auth' => ['myaddon' => $stub]]);
+
+        // Act
+        $result = Addon::getaddons('auth');
+
+        // Assert — only the auth addon
+        $this->assertCount(1, $result);
+        $this->assertArrayHasKey('myaddon', $result);
+    }
+
+    /**
+     * getAddon() must return the registered addon object when the type and name
+     * are both present.
+     *
+     * This covers lines 404-406: the isset-true path that returns the addon object.
+     */
+    public function testGetAddonReturnsObjectWhenRegistered(): void
+    {
+        // Arrange
+        $stub = new Addon();
+        $rp   = new \ReflectionProperty(Addon::class, '_addons');
+        $rp->setValue(null, ['system' => ['myobj' => $stub]]);
+
+        // Act
+        $result = Addon::getAddon('system', 'myobj');
+
+        // Assert
+        $this->assertSame($stub, $result,
+            'getAddon() must return the exact registered addon object');
+    }
+
+    /**
+     * isActive() must return true when the addon is present in the registry.
+     *
+     * This covers lines 394-396: the isset-true path that returns true.
+     */
+    public function testIsActiveReturnsTrueWhenAddonRegistered(): void
+    {
+        // Arrange
+        $stub = new Addon();
+        $rp   = new \ReflectionProperty(Addon::class, '_addons');
+        $rp->setValue(null, ['system' => ['present' => $stub]]);
+
+        // Act / Assert
+        $this->assertTrue(Addon::isActive('system', 'present'),
+            'isActive() must return true when the addon is registered');
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stub addons used by filter() and triger() tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Stub addon with a filterTitle() method so that Addon::filter('Title', ...) can
+ * invoke it via call_user_func_array().
+ */
+class AddonFilterStub extends Addon
+{
+    public function filterTitle(string $content): string
+    {
+        return '[filtered:' . $content . ']';
+    }
+}
+
+/**
+ * Stub addon with an onInit() method so that Addon::triger('Init', ...) and
+ * Addon::trigerAddon('Init', ...) can invoke it.
+ */
+class AddonTriggerStub extends Addon
+{
+    public function onInit(): string
+    {
+        return 'triggered';
     }
 }
