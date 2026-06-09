@@ -43,8 +43,13 @@ class OauthTest extends TestCase
             $this->db->connect();
         }
 
+        // DROP + CREATE (not IF NOT EXISTS) so the test-specific schema (with `created`)
+        // always wins over the framework migration schema (which uses `added` instead).
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+        $this->db->query('DROP TABLE IF EXISTS `applications`');
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
         $this->db->query('
-            CREATE TABLE IF NOT EXISTS `applications` (
+            CREATE TABLE `applications` (
                 `appid` int(11) NOT NULL AUTO_INCREMENT,
                 `name` varchar(255) NOT NULL,
                 `description` text,
@@ -166,11 +171,17 @@ class OauthTest extends TestCase
     protected function tearDown(): void
     {
         $this->cleanDb();
-        
+
+        // Drop the test-specific applications table so subsequent tests (like
+        // OauthCoverageTest in OauthCoverageTest.php) do not inherit our schema.
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+        $this->db->query('DROP TABLE IF EXISTS `applications`');
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+
         $singleton = &Factory::getDatabase();
         $singleton = null;
         Settings::clearSettings();
-        
+
         $_SESSION = [];
         $_SERVER = [];
         $_POST = [];
