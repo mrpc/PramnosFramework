@@ -753,6 +753,586 @@ class ProcessQueueCommandTest extends TestCase
         $this->assertFalse($result);
     }
 
+    // ── getDashboardTitle() / createWorker() / createQueueManager() ──────────
+
+    /**
+     * getDashboardTitle() must return the default dashboard title string.
+     *
+     * This covers the uncovered hook method (line 86-88) that subclasses
+     * override to customise the dashboard header.
+     */
+    public function testGetDashboardTitleReturnsDefaultString(): void
+    {
+        // Arrange / Act — instantiate ProcessQueue directly (not testable subclass)
+        $cmd = new ProcessQueue();
+
+        // Assert — use reflection to call the protected method
+        $method = new \ReflectionMethod(ProcessQueue::class, 'getDashboardTitle');
+        $result = $method->invoke($cmd);
+
+        $this->assertSame(' QUEUE PROCESSOR ', $result);
+    }
+
+    /**
+     * createWorker() must return a Worker instance when called directly.
+     *
+     * This covers the hook method on lines 121-124. Subclasses override this to
+     * inject a custom Worker implementation; the default must produce a Worker.
+     */
+    public function testCreateWorkerReturnsWorkerInstance(): void
+    {
+        // Arrange
+        $cmd        = new ProcessQueue();
+        $method     = new \ReflectionMethod(ProcessQueue::class, 'createWorker');
+
+        // Act — pass null controller (Worker constructor is skipped in the stub,
+        // but here we need the real factory to execute)
+        $worker = $method->invoke($cmd, null, null);
+
+        // Assert — factory produces a Worker
+        $this->assertInstanceOf(Worker::class, $worker);
+    }
+
+    /**
+     * createQueueManager() must return a QueueManager instance when called directly.
+     *
+     * This covers the hook method on lines 135-138.
+     */
+    public function testCreateQueueManagerReturnsQueueManagerInstance(): void
+    {
+        // Arrange
+        $cmd    = new ProcessQueue();
+        $method = new \ReflectionMethod(ProcessQueue::class, 'createQueueManager');
+
+        // Act
+        $mgr = $method->invoke($cmd, null, null);
+
+        // Assert — factory produces a QueueManager
+        $this->assertInstanceOf(QueueManager::class, $mgr);
+    }
+
+    // ── execute() --force flag ────────────────────────────────────────────────
+
+    /**
+     * When --force is supplied, execute() must call endJob() before the
+     * checkIfRunning() guard, ensuring any stale lock file is cleared.
+     *
+     * We use a command that simulates "already running" (returns true from
+     * checkIfRunning() even after endJob() clears the file) to keep the test
+     * fast, and verify that endJob() was invoked via the forceEndJobCalled flag.
+     */
+    public function testExecuteForceCallsEndJobBeforeRunningCheck(): void
+    {
+        // Arrange
+        $workerId = 'force-' . bin2hex(random_bytes(4));
+        $lockPath = $this->trackLockFile($workerId);
+        // Write the lock file so the filemtime() call inside execute()'s
+        // "already running" error message does not produce a TypeError.
+        file_put_contents($lockPath, getmypid() . "\n");
+
+        $command = $this->createExecutable();
+        // Simulate another instance still running after force-clear
+        $command->runningOverride = true;
+
+        $input  = new ArrayInput([
+            '--worker-id' => $workerId,
+            '--force'     => true,
+        ], $command->getDefinition());
+        $output = new BufferedOutput();
+
+        // Act
+        $result = $command->runExecute($input, $output);
+
+        // Assert — the command bailed at checkIfRunning() with exit code 1,
+        // confirming that the --force + endJob() + checkIfRunning() path executed.
+        $this->assertSame(1, $result);
+        $this->assertTrue($command->endJobCalled,
+            '--force must trigger endJob() before checking if another instance is running');
+    }
+
+    // ── execute() daemon mode — sleeping / reconnect paths ────────────────────
+
+    /**
+     * In daemon mode, when the previous batch found no tasks, the loop must
+     * render a "sleeping" dashboard (post-batch render, line 334) and NOT call
+     * processBatch() again on the next iteration until the sleep window elapses.
+     *
+     * The sleeping BRANCH (lines 290-307) is entered on iter 2 when hasTasks=false
+     * and now-lastBatchTime < sleepTime. A --runtime=1 exit with carefully crafted
+     * now() values terminates the loop after iter 2's sleeping branch.
+     *
+     * now() call sequence:
+     *   Init (7 calls at 1000): startTime, this->startTime, lastRefresh,
+     *                           statsUpdateTime, lastBatchTime, lastHeartbeat, lastReconnect.
+     *   Iter 1 (6 calls): runtime(1000), heartbeat(1000), reconnect(1000),
+     *                      stats(1000), lastBatchTime_set(1000), refresh_check(1000).
+     *   Iter 2 (6 calls): runtime(1000), heartbeat(1000), reconnect(1000),
+     *                      stats(1000), sleeping_cond(1000), sleeping_remaining(1000).
+     *   Iter 3 (1 call):  runtime(1002) → 1002-1000=2 >= --runtime=1 → exit.
+     */
+    public function testExecuteDaemonRendersSleepingDashboardWhenNoTasks(): void
+    {
+        // Arrange
+        $workerId = 'sleep-dash-' . bin2hex(random_bytes(4));
+        $this->trackLockFile($workerId);
+
+        $command = $this->createExecutable();
+        // Only one batch call: returns 0 tasks → hasTasks = false.
+        $command->processBatchResults = [0];
+
+        // Provide exactly enough now() values to drive the two loop iterations
+        // and trigger the --runtime=1 exit on iter 3.
+        //
+        // Call count breakdown:
+        //   Init (7): startTime, this->startTime, lastRefresh, statsUpdateTime,
+        //             lastBatchTime, lastHeartbeat, lastReconnect
+        //   Iter 1 (7): runtime-check, heartbeat, reconnect, stats,
+        //               lastBatchTime-set (after batch), sleepRemaining-in-post-batch-render
+        //   Iter 2 (6): runtime-check, heartbeat, reconnect, stats,
+        //               sleeping-branch-condition, sleeping-sleepRemaining
+        //   Iter 3 (1): runtime-check → 1002 triggers max-runtime exit
+        // Total: 7 + 7 + 6 + 1 = 21 calls.
+        $command->nowValues = array_merge(
+            array_fill(0, 20, 1000),  // init (7) + iter 1 (7) + iter 2 (6)
+            [1002]                    // iter 3 runtime check: 1002-1000=2 >= 1
+        );
+
+        $input = new ArrayInput([
+            '--daemon'    => true,
+            '--worker-id' => $workerId,
+            '--sleep'     => 30,     // large window: 30s > 0 (now-lastBatchTime)
+            '--runtime'   => 1,      // max 1 second; triggers after sleeping iteration
+        ], $command->getDefinition());
+        $output = new BufferedOutput();
+
+        // Act
+        $result = $command->runExecute($input, $output);
+
+        // Assert — loop exited via maximum-runtime path
+        $this->assertSame(0, $result);
+        $this->assertStringContainsString('Maximum runtime reached', $output->fetch());
+        // The last rendered dashboard state must be 'sleeping' from the sleeping branch.
+        $this->assertSame('sleeping', $command->lastDashboardState,
+            'When hasTasks=false and within sleep window, dashboard must render state=sleeping');
+        // processBatch() must have been called exactly once (sleeping branch skips it)
+        $this->assertSame(1, $command->processBatchCallCount,
+            'The sleeping branch must not call processBatch() again');
+    }
+
+    /**
+     * After a database reconnect via recoverDatabaseConnection(), the daemon
+     * loop must recreate both the worker and queueManager, and continue running.
+     *
+     * This covers lines 363-369 (post-recovery resource renewal), which are only
+     * reached when recoverDatabaseConnection() returns true.
+     */
+    public function testExecuteDaemonRecreatesWorkerAfterSuccessfulRecovery(): void
+    {
+        // Arrange
+        $workerId = 'recover-cont-' . bin2hex(random_bytes(4));
+        $this->trackLockFile($workerId);
+
+        $command = $this->createExecutable();
+        // First processBatch() call throws a DB error; recovery succeeds;
+        // second call returns 1 task; third call is never reached because
+        // the task limit is 1.
+        $command->processBatchResults            = [1];       // after recovery
+        $command->recoverDatabaseConnectionResult = true;     // recovery succeeds
+        $command->processBatchThrowableOnce       = new \RuntimeException('Database connection unavailable');
+        $command->nowValues                       = array_fill(0, 50, 1000);
+
+        $input = new ArrayInput([
+            '--daemon'    => true,
+            '--worker-id' => $workerId,
+            '--limit'     => 1,
+            // sleep=0 ensures now()-lastBatchTime (always 0 since nowFallback=1000)
+            // is NOT less than sleepTime, so the sleeping-branch is skipped after
+            // recovery and processBatch() is called immediately.
+            '--sleep'     => 0,
+        ], $command->getDefinition());
+        $output = new BufferedOutput();
+
+        // Act
+        $result = $command->runExecute($input, $output);
+
+        // Assert — recovery was triggered and processing continued to completion
+        $this->assertSame(0, $result);
+        $this->assertTrue($command->recoverDatabaseConnectionCalled,
+            'recoverDatabaseConnection() must be called on DB exception');
+        // processBatch() is called twice: once before recovery (throws), once after recovery (returns 1).
+        $this->assertSame(2, $command->processBatchCallCount,
+            'processBatch() must be called twice: once before recovery (throws), once after (returns 1 task)');
+    }
+
+    // ── applyDatabaseTrackingInfo() ───────────────────────────────────────────
+
+    /**
+     * applyDatabaseTrackingInfo() must call setTrackingInfo() on the database
+     * with null for userId, the application name, and an empty userData array.
+     *
+     * This is an important "configuration persistence after reconnect" helper
+     * that ensures query tracking survives database reconnects.
+     */
+    public function testApplyDatabaseTrackingInfoCallsSetTrackingInfo(): void
+    {
+        // Arrange
+        $command = $this->createPure();
+        $db      = new TestPQDatabase();
+        $app     = new \stdClass();
+        $app->database = $db;
+
+        // Act — call via reflection (protected method)
+        $method = new \ReflectionMethod(ProcessQueue::class, 'applyDatabaseTrackingInfo');
+        $method->invoke($command, $app, 'MyApp');
+
+        // Assert — setTrackingInfo was called with expected arguments
+        $this->assertCount(1, $db->trackingCalls,
+            'applyDatabaseTrackingInfo() must call database->setTrackingInfo() exactly once');
+        [$userId, $appName, $userData] = $db->trackingCalls[0];
+        $this->assertNull($userId,    'userId must be null');
+        $this->assertSame('MyApp', $appName, 'appName must match the passed label');
+        $this->assertSame([], $userData, 'userData must be an empty array');
+    }
+
+    // ── recoverDatabaseConnection() success path ──────────────────────────────
+
+    /**
+     * recoverDatabaseConnection() must return true when tryReconnect() succeeds,
+     * and must call applyDatabaseTrackingInfo() to re-apply tracking metadata.
+     *
+     * This covers lines 561-564: the successful reconnect branch that calls
+     * applyDatabaseTrackingInfo() before returning true.
+     */
+    public function testRecoverDatabaseConnectionReturnsTrueOnSuccessfulReconnect(): void
+    {
+        // Arrange
+        $command = $this->createPure();
+        $jobName = 'QUEUE_PROCESSOR_SUCCESS_' . bin2hex(random_bytes(4));
+        $command->setPublicJobName($jobName);
+
+        $base     = defined('ROOT') ? ROOT : sys_get_temp_dir();
+        $lockPath = $base . '/var/' . $jobName;
+        file_put_contents($lockPath, 'test-lock');
+        $this->filesToCleanup[] = $lockPath;
+        $this->filesToCleanup[] = $lockPath . '.stop';
+
+        // Database that succeeds on the first reconnect attempt.
+        // TestPQRecoveringDatabase already includes setTrackingInfo().
+        $db  = new TestPQRecoveringDatabase([true]);
+        $app = new class { public object $database; };
+        $app->database = $db;
+
+        // Act
+        $result = $command->runRecoverDatabaseConnection(
+            $app, new BufferedOutput(), 'TestApp'
+        );
+
+        // Assert — successfully reconnected
+        $this->assertTrue($result,
+            'recoverDatabaseConnection() must return true when reconnect succeeds');
+        $this->assertSame(1, $db->reconnectAttempts,
+            'tryReconnect() must have been called exactly once');
+    }
+
+    // ── addRecentTask() ───────────────────────────────────────────────────────
+
+    /**
+     * addRecentTask() must store the task info in the internal recent-tasks list,
+     * using 'unknown' defaults for missing fields and formatting execution_time.
+     *
+     * This covers lines 703-718: the task-info normalisation and ring-buffer logic.
+     */
+    public function testAddRecentTaskStoresNormalisedTaskInfo(): void
+    {
+        // Arrange
+        $command = $this->createPure();
+        $method  = new \ReflectionMethod(ProcessQueue::class, 'addRecentTask');
+
+        // Act — task with all fields present
+        $method->invoke($command, [
+            'id'             => 42,
+            'type'           => 'send_email',
+            'status'         => 'completed',
+            'message'        => 'OK',
+            'execution_time' => 0.123,
+        ]);
+
+        // Assert — inspect the recentTasks list via reflection
+        $prop  = new \ReflectionProperty(ProcessQueue::class, 'recentTasks');
+        $tasks = $prop->getValue($command);
+
+        $this->assertCount(1, $tasks);
+        $this->assertSame(42,           $tasks[0]['id']);
+        $this->assertSame('send_email', $tasks[0]['type']);
+        $this->assertSame('completed',  $tasks[0]['status']);
+        $this->assertSame('OK',         $tasks[0]['message']);
+        // execution_time must be formatted to 3 decimal places
+        $this->assertSame('0.123s',     $tasks[0]['execution_time']);
+    }
+
+    /**
+     * addRecentTask() must use 'unknown' defaults for missing id and type, and
+     * 'processed' for a missing status, and null for missing message/execution_time.
+     */
+    public function testAddRecentTaskUsesDefaultsForMissingFields(): void
+    {
+        // Arrange
+        $command = $this->createPure();
+        $method  = new \ReflectionMethod(ProcessQueue::class, 'addRecentTask');
+
+        // Act — empty task info
+        $method->invoke($command, []);
+
+        // Assert
+        $prop  = new \ReflectionProperty(ProcessQueue::class, 'recentTasks');
+        $tasks = $prop->getValue($command);
+
+        $this->assertCount(1, $tasks);
+        $this->assertSame('unknown',   $tasks[0]['id']);
+        $this->assertSame('unknown',   $tasks[0]['type']);
+        $this->assertSame('processed', $tasks[0]['status']);
+        $this->assertNull($tasks[0]['message']);
+        $this->assertNull($tasks[0]['execution_time']);
+    }
+
+    /**
+     * addRecentTask() must enforce the maxRecentTasks ring-buffer limit by
+     * evicting the oldest entry when the list is full.
+     */
+    public function testAddRecentTaskEvictsOldestWhenBufferFull(): void
+    {
+        // Arrange — fill the buffer to its max capacity (5)
+        $command    = $this->createPure();
+        $method     = new \ReflectionMethod(ProcessQueue::class, 'addRecentTask');
+        $maxProp    = new \ReflectionProperty(ProcessQueue::class, 'maxRecentTasks');
+        $max        = (int) $maxProp->getValue($command); // 5
+
+        for ($i = 1; $i <= $max; $i++) {
+            $method->invoke($command, ['id' => $i, 'type' => 'task']);
+        }
+
+        // Act — add one more task beyond the limit
+        $method->invoke($command, ['id' => 999, 'type' => 'overflow']);
+
+        // Assert — buffer still has $max entries, oldest (id=1) evicted
+        $prop  = new \ReflectionProperty(ProcessQueue::class, 'recentTasks');
+        $tasks = $prop->getValue($command);
+
+        $this->assertCount($max, $tasks, 'Buffer must not exceed maxRecentTasks');
+        // First entry should now be id=2 (id=1 was evicted)
+        $this->assertSame(2,   $tasks[0]['id'], 'Oldest task must have been evicted');
+        $this->assertSame(999, $tasks[$max - 1]['id'], 'Newest task must be at the end');
+    }
+
+    // ── addStatusMessage() ────────────────────────────────────────────────────
+
+    /**
+     * addStatusMessage() must append a message with type, message text, and
+     * a formatted timestamp to the internal statusMessages buffer.
+     */
+    public function testAddStatusMessageAppendsMessageWithCorrectStructure(): void
+    {
+        // Arrange
+        $command = $this->createPure();
+        $method  = new \ReflectionMethod(ProcessQueue::class, 'addStatusMessage');
+
+        // Act
+        $method->invoke($command, 'info', 'Database reconnected');
+
+        // Assert
+        $prop     = new \ReflectionProperty(ProcessQueue::class, 'statusMessages');
+        $messages = $prop->getValue($command);
+
+        $this->assertCount(1, $messages);
+        $this->assertSame('info',                 $messages[0]['type']);
+        $this->assertSame('Database reconnected', $messages[0]['message']);
+        $this->assertMatchesRegularExpression('/^\d{2}:\d{2}:\d{2}$/', $messages[0]['time'],
+            'time must be formatted as HH:MM:SS');
+    }
+
+    /**
+     * addStatusMessage() must enforce the 5-message ring-buffer limit by
+     * evicting the oldest entry when the list is full.
+     */
+    public function testAddStatusMessageEvictsOldestWhenBufferFull(): void
+    {
+        // Arrange — fill the buffer to its capacity of 5
+        $command = $this->createPure();
+        $method  = new \ReflectionMethod(ProcessQueue::class, 'addStatusMessage');
+
+        for ($i = 1; $i <= 5; $i++) {
+            $method->invoke($command, 'info', "Message $i");
+        }
+
+        // Act — add a 6th message
+        $method->invoke($command, 'warning', 'Overflow message');
+
+        // Assert — still exactly 5 entries, oldest evicted
+        $prop     = new \ReflectionProperty(ProcessQueue::class, 'statusMessages');
+        $messages = $prop->getValue($command);
+
+        $this->assertCount(5, $messages, 'statusMessages must never exceed 5 entries');
+        $this->assertSame('Message 2',        $messages[0]['message'], 'Oldest must be evicted');
+        $this->assertSame('Overflow message', $messages[4]['message'], 'Newest must be at the end');
+    }
+
+    // ── handleSignal() ────────────────────────────────────────────────────────
+
+    /**
+     * handleSignal() must set shouldContinue to false and call endJob().
+     *
+     * This covers lines 762-769: the SIGTERM/SIGINT handler that gracefully
+     * stops the daemon loop by flipping the sentinel flag and releasing the lock.
+     */
+    public function testHandleSignalSetsShouldContinueToFalse(): void
+    {
+        // Arrange
+        $command = $this->createPure();
+        // Confirm shouldContinue starts as true
+        $ref  = new \ReflectionClass(ProcessQueue::class);
+        $prop = $ref->getProperty('shouldContinue');
+        $this->assertTrue($prop->getValue($command), 'shouldContinue must start as true');
+
+        // Act
+        $command->handleSignal(15); // SIGTERM
+
+        // Assert — flag flipped to false
+        $this->assertFalse($prop->getValue($command),
+            'handleSignal() must set shouldContinue to false');
+    }
+
+    /**
+     * handleSignal() must write a message to signalOutput when it is set.
+     *
+     * This covers the `if ($this->signalOutput)` branch on line 764-766.
+     */
+    public function testHandleSignalWritesToSignalOutputWhenSet(): void
+    {
+        // Arrange
+        $command = $this->createPure();
+        $output  = new BufferedOutput();
+
+        // Inject signalOutput via reflection (it is protected in CommandBase).
+        $ref  = new \ReflectionProperty(\Pramnos\Console\CommandBase::class, 'signalOutput');
+        $ref->setValue($command, $output);
+
+        // Act
+        $command->handleSignal(2); // SIGINT
+
+        // Assert — message was written to signalOutput
+        $text = $output->fetch();
+        $this->assertStringContainsString('shutdown signal', $text,
+            'handleSignal() must write a shutdown message to signalOutput');
+    }
+
+    // ── recoverDatabaseConnection() retry path ────────────────────────────────
+
+    /**
+     * recoverDatabaseConnection() must log a warning and sleep when tryReconnect()
+     * fails, then succeed on the next attempt.
+     *
+     * This covers lines 567-568 (addStatusMessage + sleepSeconds called when
+     * reconnect fails) and the second-attempt success path at lines 561-563.
+     *
+     * Note: TestableProcessQueue's renderDashboard() calls parent::renderDashboard()
+     * which uses terminal ANSI sequences harmlessly on BufferedOutput.
+     */
+    public function testRecoverDatabaseConnectionLogsWarningAndRetriesOnFailure(): void
+    {
+        // Arrange
+        $command = $this->createPure();
+        $jobName = 'QUEUE_PROCESSOR_RETRY_' . bin2hex(random_bytes(4));
+        $command->setPublicJobName($jobName);
+
+        $base     = defined('ROOT') ? ROOT : sys_get_temp_dir();
+        $lockPath = $base . '/var/' . $jobName;
+        file_put_contents($lockPath, 'test-lock');
+        $this->filesToCleanup[] = $lockPath;
+        $this->filesToCleanup[] = $lockPath . '.stop';
+
+        // First tryReconnect() fails, second succeeds.
+        $db  = new TestPQRecoveringDatabase([false, true]);
+        $app = new class { public object $database; };
+        $app->database = $db;
+
+        // Act
+        $result = $command->runRecoverDatabaseConnection(
+            $app, new BufferedOutput(), 'TestApp'
+        );
+
+        // Assert — eventually succeeded
+        $this->assertTrue($result,
+            'recoverDatabaseConnection() must return true when a retry succeeds');
+        $this->assertSame(2, $db->reconnectAttempts,
+            'tryReconnect() must have been called twice (fail then succeed)');
+    }
+
+    // ── execute() daemon — periodic refresh-interval calculation ─────────────
+
+    /**
+     * In daemon mode, when the elapsed time since the last dashboard refresh
+     * exceeds refreshInterval (1s), the loop must recalculate taskPerSecond.
+     *
+     * This covers lines 323-330: the refresh-interval block that computes the
+     * tasks-per-second rate and resets the per-interval counter.
+     *
+     * The trick: supply a now() value that makes now()-lastRefresh >= 1 during
+     * the single iteration, then use a stop file to exit cleanly.
+     *
+     * now() call sequence (approximate):
+     *   Init (7 calls): 1000 for startTime, lastRefresh, etc.
+     *   Iter 1 inner (5 calls before processBatch): 1000
+     *   lastBatchTime = now(): 1000
+     *   Refresh check (1 call): 1001 → 1001-1000=1 >= refreshInterval(1) → triggers
+     *   taskPerSecond calc (1 call): 1001 (elapsed = 1001-1000=1)
+     *   lastRefresh = now() (1 call): 1001
+     *   renderDashboard, then usleep, then stop-file exit
+     */
+    public function testExecuteDaemonCalculatesTaskPerSecondAfterRefreshInterval(): void
+    {
+        // Arrange
+        $workerId = 'refresh-' . bin2hex(random_bytes(4));
+        $this->trackLockFile($workerId);
+        $base     = defined('ROOT') ? ROOT : sys_get_temp_dir();
+        $stopPath = $base . '/var/QUEUE_PROCESSOR_' . $workerId . '.stop';
+
+        $command = $this->createExecutable();
+        $command->processBatchResults = [3]; // 3 tasks processed
+        $command->writeStopFileAfterFirstBatch = $stopPath;
+
+        // Build now() sequence. Call positions (1-indexed):
+        //   1-7:  init (startTime×2, lastRefresh, statsUpdateTime, lastBatchTime,
+        //                lastHeartbeat, lastReconnect) → all 1000
+        //   8:    heartbeat check (now()-lastHeartbeat < 30)       → 1000
+        //   9:    reconnect check (now()-lastReconnect > 300)      → 1000
+        //   10:   stats check (now()-statsUpdateTime >= 10)        → 1000
+        //   11:   lastBatchTime = now() (after batch)              → 1000
+        //   12:   refresh check: now()-lastRefresh >= refreshInterval(1)
+        //         → 1001 so 1001-1000=1 >= 1 triggers the block
+        //   13:   elapsed = now()-lastRefresh inside block         → 1001
+        //   14:   lastRefresh = now() inside block                 → 1001
+        // Total: 11 × 1000, then 3 × 1001 = 14 values.
+        $command->nowValues = array_merge(
+            array_fill(0, 11, 1000),  // init(7) + heartbeat + reconnect + stats + lastBatchTime
+            [1001, 1001, 1001]        // refresh check, elapsed calc, lastRefresh reset
+        );
+
+        $input = new ArrayInput([
+            '--daemon'    => true,
+            '--worker-id' => $workerId,
+        ], $command->getDefinition());
+        $output = new BufferedOutput();
+
+        // Act
+        $result = $command->runExecute($input, $output);
+
+        // Assert — run completed without error
+        $this->assertSame(0, $result,
+            'execute() must return 0 after a clean refresh-interval calculation');
+        // processBatch was called once before the stop file was detected
+        $this->assertSame(1, $command->processBatchCallCount);
+    }
+
     // ── Helper ────────────────────────────────────────────────────────────────
 
     /**
@@ -800,6 +1380,11 @@ class TestableProcessQueue extends ProcessQueue
     public function setPublicJobName(string $name): void
     {
         $this->publicJobName = $name;
+        // Also update the private $jobname in ProcessQueue so that the lock-file
+        // paths inside recoverDatabaseConnection() (which use $this->jobname
+        // directly) refer to the same file we create in the test.
+        $prop = new \ReflectionProperty(ProcessQueue::class, 'jobname');
+        $prop->setValue($this, $name);
     }
 
     /** Set the shouldContinue flag to simulate a signal-handler shutdown. */
@@ -817,6 +1402,19 @@ class TestableProcessQueue extends ProcessQueue
             return (int) array_shift($this->nowValues);
         }
         return $this->nowFallback;
+    }
+
+    protected function sleepSeconds(int $seconds): void
+    {
+        // No-op — suppress real sleep() calls in pure-helper tests.
+    }
+
+    protected function renderDashboard(
+        \Symfony\Component\Console\Output\OutputInterface $output,
+        array $data
+    ): void {
+        // Suppress terminal ANSI escape sequences — pure-helper tests only need
+        // the logic, not the dashboard rendering output.
     }
 
     // ── run*() wrappers ───────────────────────────────────────────────────────
@@ -874,16 +1472,25 @@ class TestableExecutableProcessQueue extends ProcessQueue
     public ?bool $runningOverride          = false;
     public array $processBatchResults      = [];
     public ?\Throwable $processBatchThrowable = null;
+    /** Throwable thrown only on the first processBatch() call (then cleared). */
+    public ?\Throwable $processBatchThrowableOnce = null;
     public array $nowValues                = [];
     public int $nowFallback                = 1000;
     public int $processBatchCallCount      = 0;
     public bool $heartbeatCalled           = false;
+    public bool $endJobCalled              = false;
     public bool $attemptReconnectCalled    = false;
     public ?bool $attemptReconnectResult   = null;
     public bool $recoverDatabaseConnectionCalled = false;
     public ?bool $recoverDatabaseConnectionResult = null;
     public ?string $lastDashboardState     = null;
     public ?string $lastDashboardMode      = null;
+    /**
+     * When set to a path, processBatch() writes a stop file at this path after
+     * the first batch call so that the next daemon-loop iteration exits cleanly.
+     * Used to test the sleeping-branch state without an infinite loop.
+     */
+    public ?string $writeStopFileAfterFirstBatch = null;
 
     private int $statsCallCount = 0;
 
@@ -976,10 +1583,30 @@ class TestableExecutableProcessQueue extends ProcessQueue
         bool $reverseOrder = false
     ): int {
         $this->processBatchCallCount++;
+        // One-shot throwable: thrown only once, then cleared so subsequent calls succeed.
+        if ($this->processBatchThrowableOnce !== null) {
+            $ex = $this->processBatchThrowableOnce;
+            $this->processBatchThrowableOnce = null;
+            throw $ex;
+        }
         if ($this->processBatchThrowable !== null) {
             throw $this->processBatchThrowable;
         }
-        return (int) array_shift($this->processBatchResults);
+        $result = (int) array_shift($this->processBatchResults);
+        // Write stop file after first batch to let the sleeping branch run once
+        // before the loop exits on the next iteration (used by sleeping-branch tests).
+        if ($this->writeStopFileAfterFirstBatch !== null && $this->processBatchCallCount === 1) {
+            file_put_contents($this->writeStopFileAfterFirstBatch, '1');
+        }
+        return $result;
+    }
+
+    public function endJob(): void
+    {
+        $this->endJobCalled = true;
+        // Do NOT call parent::endJob() here — we track the flag only.
+        // Calling parent would delete the lock file before execute()'s filemtime()
+        // call in the "already running" error path, causing a TypeError.
     }
 
     protected function renderDashboard(

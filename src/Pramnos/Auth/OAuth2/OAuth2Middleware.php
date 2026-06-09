@@ -163,7 +163,7 @@ class OAuth2Middleware
         return '';
     }
 
-    private function sendUnauthorized(string $message): void
+    protected function sendUnauthorized(string $message): void
     {
         http_response_code(401);
         header('Content-Type: application/json');
@@ -172,7 +172,7 @@ class OAuth2Middleware
         exit;
     }
 
-    private function sendForbidden(string $message): void
+    protected function sendForbidden(string $message): void
     {
         http_response_code(403);
         header('Content-Type: application/json');
