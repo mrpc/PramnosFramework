@@ -202,12 +202,17 @@ class UsersControllerTest extends TestCase
             ob_end_clean();
         }
 
-        // Drop all three test tables so subsequent tests start with a known-good schema.
+        // Drop all three test tables, then immediately recreate users+usertokens
+        // using the framework's full schema so subsequent tests (OauthCoverageTest,
+        // MediaObjectTest, SessionTest, etc.) find the tables in the expected state.
         $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         $this->db->query('DROP TABLE IF EXISTS `users`');
         $this->db->query('DROP TABLE IF EXISTS `sessions`');
         $this->db->query('DROP TABLE IF EXISTS `usertokens`');
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+
+        // Restore the framework schema for tables that other test suites depend on.
+        \Pramnos\User\User::setupDb();
         
         $singleton = &Factory::getDatabase();
         $singleton = null;
