@@ -69,9 +69,17 @@ class TokensControllerTest extends TestCase
             `email` varchar(255) NOT NULL,
             PRIMARY KEY (`userid`)
         )");
-        $db->query("CREATE TABLE IF NOT EXISTS `applications` (
+        $db->query("DROP TABLE IF EXISTS `applications`");
+        $db->query("CREATE TABLE `applications` (
             `appid` int(11) NOT NULL AUTO_INCREMENT,
             `name` varchar(255) NOT NULL,
+            `apikey` varchar(255) DEFAULT NULL,
+            `apisecret` varchar(255) DEFAULT NULL,
+            `status` tinyint(1) NOT NULL DEFAULT 1,
+            `created` bigint(20) NOT NULL DEFAULT 0,
+            `redirect_uri` varchar(255) DEFAULT NULL,
+            `public_key` text DEFAULT NULL,
+            `systemuser` int(11) DEFAULT NULL,
             PRIMARY KEY (`appid`)
         )");
         $db->query("CREATE TABLE `#PREFIX#usertokens` (
@@ -138,6 +146,9 @@ class TokensControllerTest extends TestCase
         $db->query("SET FOREIGN_KEY_CHECKS=0");
         $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
         $db->query("DROP TABLE IF EXISTS `#PREFIX#users`");
+        // Drop applications too — this test creates a minimal schema (no `created`
+        // column) that breaks OauthTest when it relies on CREATE TABLE IF NOT EXISTS.
+        $db->query("DROP TABLE IF EXISTS `applications`");
         $db->query("SET FOREIGN_KEY_CHECKS=1");
     }
 

@@ -1396,10 +1396,16 @@ class UserCoverageTest extends TestCase
     #[Test]
     public function testGetCurrentUserReturnsFalseWhenNotLoggedIn(): void
     {
-        // Arrange: ensure the session is cleared so staticIsLogged() returns false
+        // Arrange: ensure the session is cleared so staticIsLogged() returns false.
+        // Also clear $app->currentUser — prior tests (e.g. UsersControllerTest) may
+        // have set it on the Application singleton and not restored it.
         unset($_SESSION['uid']);
         unset($_SESSION['logged']);
         unset($_SESSION['auth']);
+        $app = \Pramnos\Application\Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
 
         // Act
         $result = User::getCurrentUser();
