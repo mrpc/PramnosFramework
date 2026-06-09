@@ -106,10 +106,20 @@ class TokenTest extends TestCase
         );
 
         // Stub applications table required by Token::getDetails() LEFT JOIN.
+        // Drop first so we always get the schema this test needs (previous tests
+        // may have left a different schema; ScopesMySQLIntegrationTest needs apikey).
+        $db->query("DROP TABLE IF EXISTS `" . $db->prefix . "applications`");
         $db->query(
-            "CREATE TABLE IF NOT EXISTS `" . $db->prefix . "applications` (
+            "CREATE TABLE `" . $db->prefix . "applications` (
                 `appid` INT NOT NULL AUTO_INCREMENT,
                 `name` VARCHAR(255) NOT NULL DEFAULT '',
+                `apikey` VARCHAR(255) DEFAULT NULL,
+                `apisecret` VARCHAR(255) DEFAULT NULL,
+                `status` TINYINT(1) NOT NULL DEFAULT 1,
+                `created` BIGINT(20) NOT NULL DEFAULT 0,
+                `redirect_uri` VARCHAR(255) DEFAULT NULL,
+                `public_key` TEXT DEFAULT NULL,
+                `systemuser` INT DEFAULT NULL,
                 PRIMARY KEY (`appid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8"
         );
@@ -146,6 +156,9 @@ class TokenTest extends TestCase
         $db->query("DROP TABLE IF EXISTS `" . $db->prefix . "tokenactions`");
         $db->query("DROP TABLE IF EXISTS `" . $db->prefix . "urls`");
         $db->query("DROP TABLE IF EXISTS `" . $db->prefix . "usertokens`");
+        // Drop applications too so ScopesMySQLIntegrationTest creates it fresh
+        // with the schema it needs (including apikey).
+        $db->query("DROP TABLE IF EXISTS `" . $db->prefix . "applications`");
         $db->query("SET FOREIGN_KEY_CHECKS = 1");
         $db->cacheflush();
     }
