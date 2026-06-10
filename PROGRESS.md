@@ -1,6 +1,62 @@
 
 # Project Progress - Pramnos Framework v1.2
 
+## 📅 Last Updated: 2026-06-10 — Final coverage push: 87.13%, ZERO test issues
+
+## 🏁 Final State (2026-06-10)
+
+**Tests: 7188 | Errors: 0 | Failures: 0 | Warnings: 0 | Deprecations: 0 | Skipped: 6**
+**Code Coverage: 87.13%** (29383/33725 statements)
+
+All PHP deprecations fixed:
+- LogController.php: explicit `$escape` param to all `fputcsv()` calls
+- LogController.php: `unlink()` tempnam before `ZipArchive::CREATE`
+- ResizeTools.php: explicit `(int)` casts in `imagecopyresampled()`
+- User.php: guard `isset($_SESSION['uid'])` + null DB result guard
+
+New coverage tests (87.13% total):
+- Datatable: 33%→99%, LogController: 74%→89%, Token: 69%→91%
+- Database: 83%→86%, Device: 28%→75%, Helpers: 83%→90%
+- Theme: 79%→89%, Application: 79%→86%, Migrate*: all >80%
+- Base.php: 15%→96%, OAuth2Middleware: 0%→83%, TimescaleInspector: 0%→100%
+- QueueController: 47%→96%, Document: 83%→94%, RedisAdapter: 50%→82%
+- MakeCommandBase: 62%→87%, DaemonOrchestrator: 60%→75%
+- TwoFactorAuth: 50%→86%, Datasource: 68%→85%
+- Addon/User: 0%→100%, RefreshTokenRepository: 3.6%→98%
+- BroadcastServe: 26%→85%, PolicyEngine: 27%→91%, QuerySchemaTool: 24%→100%
+
+---
+## 📅 Last Updated: 2026-06-09 (session 156) — Console command and Base coverage tests
+
+## 🏁 Session 156 — PHPUnit Coverage Tests for Console Commands + Base (2026-06-09)
+
+### ✅ test(console): add coverage tests for Migrate, MigrateRefresh, MigrateStatus, Base
+
+Created 4 new test files targeting the lowest-coverage production classes:
+
+| File | Before | After |
+|------|--------|-------|
+| `Console/Commands/Migrate.php` | 33.6% | **90.8%** (129/142 elements) |
+| `Console/Commands/MigrateRefresh.php` | 25.8% | **72.3%** (68/94 elements) |
+| `Console/Commands/MigrateStatus.php` | 20.7% | **82.4%** (70/85 elements) |
+| `Framework/Base.php` | 15.1% | **95.5%** (85/89 elements) |
+
+New test files:
+- `tests/Unit/Pramnos/Console/Commands/MigrateTest.php` — guard tests, configure() coverage, filter branches, DB mock
+- `tests/Unit/Pramnos/Console/Commands/MigrateRefreshTest.php` — guard tests, confirmation prompt abort/force
+- `tests/Unit/Pramnos/Console/Commands/MigrateStatusTest.php` — guard tests, pending/removed migration rendering
+- `tests/Unit/Pramnos/Framework/BaseExtendedTest.php` — addError/Message, getErrors/Messages (session + no-session), print, has*, _set, parent object
+
+All 60 new tests pass. Full suite (312 tests in targeted run) green.
+
+Key techniques:
+- Anonymous `\Pramnos\Console\Application` subclass with empty constructor bypasses heavy init
+- Anonymous `\Pramnos\Application\Application` subclass satisfies MigrationLoader type check
+- DB mock stubs: `query()` → no-row result with `$numRows`, `schema()` → stub with `hasColumn()`/`hasTable()`
+- Migration files written to tmpDir without redeclaring typed base-class properties (PHP 8.5 enforcement)
+
+---
+
 ## 📅 Last Updated: 2026-06-07 (session 155) — Fix all test errors/failures/warnings/deprecations
 
 ## 🏁 Session 155 — Test Suite Green (2026-06-07)
