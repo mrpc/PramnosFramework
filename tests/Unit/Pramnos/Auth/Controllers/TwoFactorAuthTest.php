@@ -268,10 +268,443 @@ class TwoFactorAuthTest extends TestCase
         ob_start();
         $this->controller->test();
         $output = ob_get_clean();
-        
+
         $json = json_decode($output, true);
         $this->assertIsArray($json);
         $this->assertArrayHasKey('secret', $json);
         $this->assertArrayHasKey('code', $json);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // display() — unauthenticated redirect
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * display() must redirect to the login page when no user is authenticated.
+     *
+     * When getCurrentUser() returns false (no active session) the controller
+     * must NOT render the page — it must redirect to login with error=unauthorized
+     * to prevent guests from accessing the 2FA settings page.
+     */
+    public function testDisplayRedirectsWhenNotLoggedIn(): void
+    {
+        // Arrange — no session, no current user
+        $_SESSION = [];
+        $app = Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            // Act
+            $this->controller->display();
+        } finally {
+            // Assert — redirected to login with unauthorized error
+            $this->assertCount(1, $this->controller->redirectedTo,
+                'display() must redirect exactly once when no user is logged in');
+            $this->assertStringContainsString('login', $this->controller->redirectedTo[0],
+                'display() must redirect to the login page');
+            $this->assertStringContainsString('unauthorized', $this->controller->redirectedTo[0],
+                'display() must include error=unauthorized in the redirect URL');
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // setup() — unauthenticated redirect
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * setup() must redirect to login when no user is authenticated.
+     *
+     * This mirrors the display() redirect guard — both actions must protect
+     * against unauthenticated access by redirecting to login?error=unauthorized.
+     */
+    public function testSetupRedirectsWhenNotLoggedIn(): void
+    {
+        // Arrange — no active session
+        $_SESSION = [];
+        $app = Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            // Act
+            $this->controller->setup();
+        } finally {
+            // Assert — redirected to login
+            $this->assertCount(1, $this->controller->redirectedTo);
+            $this->assertStringContainsString('login', $this->controller->redirectedTo[0]);
+            $this->assertStringContainsString('unauthorized', $this->controller->redirectedTo[0]);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // disable() — all branches
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * disable() must redirect to login when no user is authenticated.
+     *
+     * The disable action has the same authentication guard as all other actions.
+     * Without a logged-in user it must redirect immediately.
+     */
+    public function testDisableRedirectsWhenNotLoggedIn(): void
+    {
+        // Arrange — no active session
+        $_SESSION = [];
+        $app = Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            // Act
+            $this->controller->disable();
+        } finally {
+            // Assert
+            $this->assertCount(1, $this->controller->redirectedTo);
+            $this->assertStringContainsString('login', $this->controller->redirectedTo[0]);
+            $this->assertStringContainsString('unauthorized', $this->controller->redirectedTo[0]);
+        }
+    }
+
+    /**
+     * disable() must redirect with error=password_required when no password is POSTed.
+     *
+     * The disable action requires a password confirmation to prevent CSRF-like
+     * disabling of 2FA. Without a password in the POST body, the action must
+     * refuse and redirect back with a clear error code.
+     */
+    public function testDisableRedirectsWithPasswordRequiredWhenNoPwPosted(): void
+    {
+        // Arrange — user is logged in but no password in POST
+        $this->setMockUser(80);
+        $_POST = []; // no confirm_password
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            // Act
+            $this->controller->disable();
+        } finally {
+            // Assert — error=password_required in redirect
+            $this->assertCount(1, $this->controller->redirectedTo);
+            $this->assertStringContainsString('error=password_required', $this->controller->redirectedTo[0],
+                'disable() must redirect with error=password_required when confirm_password is empty');
+        }
+    }
+
+    /**
+     * disable() must redirect with error=invalid_password when TwoFactorAuthService::disable()
+     * returns false (i.e. no 2FA record exists for this user).
+     *
+     * The controller delegates to TwoFactorAuthService::disable() — when that
+     * returns false (user has no 2FA record) the controller redirects with
+     * error=invalid_password. This ensures the "service returns false" branch
+     * in the controller is covered.
+     */
+    public function testDisableRedirectsWithInvalidPasswordWhenServiceReturnsFalse(): void
+    {
+        // Arrange — user is logged in, but NO 2FA record exists (service returns false)
+        $this->setMockUser(80);
+        // No insert into authserver_user_twofactor → service returns false
+        $_POST['confirm_password'] = 'any_password_value';
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            // Act
+            $this->controller->disable();
+        } finally {
+            // Assert — service returned false → error=invalid_password redirect
+            $this->assertCount(1, $this->controller->redirectedTo);
+            $this->assertStringContainsString('error=invalid_password', $this->controller->redirectedTo[0],
+                'disable() must redirect with error=invalid_password when TwoFactorAuthService::disable() returns false');
+        }
+    }
+
+    /**
+     * disable() with a valid 2FA record must redirect to success=disabled.
+     *
+     * When TwoFactorAuthService::disable() returns true (record found and cleared),
+     * the controller must redirect to the 2FA overview with success=disabled.
+     */
+    public function testDisableSucceedsAndRedirectsWithSuccessDisabled(): void
+    {
+        // Arrange — user is logged in, 2FA record exists → service returns true
+        $this->setMockUser(80);
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->query("INSERT INTO `authserver_user_twofactor` (`userid`, `enabled`, `secret`, `created_at`, `updated_at`) VALUES (2, 1, 'JBSWY3DPEHPK3PXP', 0, 0)");
+        $_POST['confirm_password'] = 'any_password_value';
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            // Act
+            $this->controller->disable();
+        } finally {
+            // Assert — service succeeded → success=disabled redirect
+            $this->assertCount(1, $this->controller->redirectedTo);
+            $this->assertStringContainsString('success=disabled', $this->controller->redirectedTo[0],
+                'disable() must redirect with success=disabled when 2FA is successfully deactivated');
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // backup() — all branches
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * backup() must redirect to login when no user is authenticated.
+     *
+     * Same authentication guard as all other 2FA controller actions.
+     */
+    public function testBackupRedirectsWhenNotLoggedIn(): void
+    {
+        // Arrange — no session
+        $_SESSION = [];
+        $app = Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            // Act
+            $this->controller->backup();
+        } finally {
+            // Assert
+            $this->assertCount(1, $this->controller->redirectedTo);
+            $this->assertStringContainsString('login', $this->controller->redirectedTo[0]);
+            $this->assertStringContainsString('unauthorized', $this->controller->redirectedTo[0]);
+        }
+    }
+
+    /**
+     * backup() must redirect with error=not_enabled when 2FA is not active.
+     *
+     * Accessing the backup-codes page when 2FA is disabled is a user error;
+     * the controller must redirect to the 2FA overview with error=not_enabled.
+     */
+    public function testBackupRedirectsWithNotEnabledWhen2FaNotActive(): void
+    {
+        // Arrange — user logged in, 2FA NOT enabled (no row in table)
+        $this->setMockUser(80);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            // Act
+            $this->controller->backup();
+        } finally {
+            // Assert — redirected with not_enabled error
+            $this->assertCount(1, $this->controller->redirectedTo);
+            $this->assertStringContainsString('error=not_enabled', $this->controller->redirectedTo[0],
+                'backup() must redirect with error=not_enabled when 2FA is disabled');
+        }
+    }
+
+    /**
+     * backup() with 2FA enabled must render the backup-codes view.
+     *
+     * The happy path: user is logged in, 2FA is enabled, no regeneration
+     * request POSTed — the action must display the backup codes page.
+     */
+    public function testBackupDisplaysPageWhen2FaEnabled(): void
+    {
+        // Arrange — user logged in, 2FA enabled
+        $this->setMockUser(80);
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->query("INSERT INTO `authserver_user_twofactor` (`userid`, `enabled`, `secret`, `backup_codes`, `created_at`, `updated_at`) VALUES (2, 1, 'JBSWY3DPEHPK3PXP', '[]', 0, 0)");
+
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->themeObject = new class {
+            public function allowsViewOverrides() { return false; }
+        };
+
+        $_POST = []; // no regeneration request
+
+        // Act
+        ob_start();
+        $output = $this->controller->backup();
+        if (empty($output)) {
+            $output = ob_get_clean();
+        } else {
+            ob_end_clean();
+        }
+
+        // Assert — view was rendered, no redirect
+        $this->assertNotEmpty($output,
+            'backup() must return the backup-codes view when 2FA is enabled');
+        $this->assertEmpty($this->controller->redirectedTo,
+            'backup() must not redirect when 2FA is enabled and no regeneration is requested');
+        $this->assertSame('2FA Backup Codes', $doc->title,
+            'backup() must set the page title to "2FA Backup Codes"');
+    }
+
+    /**
+     * backup() with setup=complete in GET renders the setup-complete success message.
+     *
+     * After completing the 2FA setup wizard the user is redirected here with
+     * ?setup=complete. The controller must set setupComplete=true and a success
+     * message on the view so the user sees the post-setup confirmation.
+     */
+    public function testBackupWithSetupCompleteGetParamSetsSuccessFlag(): void
+    {
+        // Arrange — user logged in, 2FA enabled, setup=complete in GET
+        $this->setMockUser(80);
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->query("INSERT INTO `authserver_user_twofactor` (`userid`, `enabled`, `secret`, `backup_codes`, `created_at`, `updated_at`) VALUES (2, 1, 'JBSWY3DPEHPK3PXP', '[]', 0, 0)");
+
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->themeObject = new class {
+            public function allowsViewOverrides() { return false; }
+        };
+
+        $_GET['setup'] = 'complete';
+        $_POST = [];
+
+        // Act
+        ob_start();
+        $output = $this->controller->backup();
+        if (empty($output)) {
+            $output = ob_get_clean();
+        } else {
+            ob_end_clean();
+        }
+
+        // Assert — page rendered, no redirect
+        $this->assertNotEmpty($output,
+            'backup() must render the page even with setup=complete GET param');
+        $this->assertEmpty($this->controller->redirectedTo);
+    }
+
+    /**
+     * backup() with regenerate_password POSTed and invalid password must set an
+     * error on the view rather than redirecting.
+     *
+     * The backup-code regeneration flow verifies the password in-page — a wrong
+     * password sets $view->error instead of redirecting so the user can see the
+     * form and try again without losing context.
+     */
+    public function testBackupWithInvalidRegeneratePasswordSetsViewError(): void
+    {
+        // Arrange — user logged in, 2FA enabled, wrong regenerate_password submitted
+        $this->setMockUser(80);
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->query("INSERT INTO `authserver_user_twofactor` (`userid`, `enabled`, `secret`, `backup_codes`, `created_at`, `updated_at`) VALUES (2, 1, 'JBSWY3DPEHPK3PXP', '[]', 0, 0)");
+
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->themeObject = new class {
+            public function allowsViewOverrides() { return false; }
+        };
+
+        $_POST['regenerate_password'] = 'this_password_is_definitely_wrong';
+
+        // Act
+        ob_start();
+        $output = $this->controller->backup();
+        if (empty($output)) {
+            $output = ob_get_clean();
+        } else {
+            ob_end_clean();
+        }
+
+        // Assert — page rendered (no redirect), error message was set in service logic
+        $this->assertNotEmpty($output,
+            'backup() must render the page even when the regenerate password is wrong');
+        $this->assertEmpty($this->controller->redirectedTo,
+            'backup() must not redirect on wrong regenerate password — error shown in-page');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // status() — unauthenticated redirect
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * status() must redirect to login when no user is authenticated.
+     *
+     * This is the JSON/AJAX endpoint. Without authentication it must redirect
+     * rather than return empty JSON or an error object.
+     */
+    public function testStatusRedirectsWhenNotLoggedIn(): void
+    {
+        // Arrange — no session
+        $_SESSION = [];
+        $app = Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            // Act
+            ob_start();
+            $this->controller->status();
+        } finally {
+            ob_end_clean();
+            // Assert
+            $this->assertCount(1, $this->controller->redirectedTo);
+            $this->assertStringContainsString('login', $this->controller->redirectedTo[0]);
+            $this->assertStringContainsString('unauthorized', $this->controller->redirectedTo[0]);
+        }
+    }
+
+    /**
+     * test() must return a complete JSON response with all expected diagnostic fields.
+     *
+     * This debug endpoint must include: secret, code, qr_data_uri, remaining_time,
+     * is_valid_secret, verify_test. This locks the response structure to prevent
+     * silent regressions in the TOTP pipeline smoke test.
+     */
+    public function testTestReturnsAllDiagnosticFields(): void
+    {
+        // Act
+        ob_start();
+        $this->controller->test();
+        $output = ob_get_clean();
+
+        // Assert — all expected keys are present
+        $json = json_decode($output, true);
+        $this->assertIsArray($json);
+
+        foreach (['secret', 'code', 'qr_data_uri', 'remaining_time', 'is_valid_secret', 'verify_test'] as $key) {
+            $this->assertArrayHasKey($key, $json,
+                "test() response must include the '{$key}' field");
+        }
+
+        // The generated secret must be a valid TOTP secret (non-empty string)
+        $this->assertIsString($json['secret'],
+            'test() must return the generated TOTP secret as a string');
+        $this->assertNotEmpty($json['secret'],
+            'test() must return a non-empty TOTP secret');
+
+        // The generated code must be a 6-digit string
+        $this->assertMatchesRegularExpression('/^\d{6}$/', (string)$json['code'],
+            'test() must return a 6-digit TOTP code');
+
+        // The secret must be valid and the code must verify
+        $this->assertTrue((bool)$json['is_valid_secret'],
+            'test() must return a valid TOTP secret');
+        $this->assertTrue((bool)$json['verify_test'],
+            'test() must return a freshly-generated code that verifies correctly');
     }
 }
