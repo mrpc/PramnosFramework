@@ -593,8 +593,8 @@ class ResizeTools extends \Pramnos\Framework\Base
                     (int)($dst_h * $quality + 1));
             imagecopyresized($temp, $src_image, 0, 0, $src_x, $src_y,
                     (int)($dst_w * $quality + 1), (int)($dst_h * $quality + 1), $src_w, $src_h);
-            imagecopyresampled($dst_image, $temp, $dst_x, $dst_y, 0, 0, $dst_w,
-                    $dst_h, (int)($dst_w * $quality), (int)($dst_h * $quality));
+            imagecopyresampled($dst_image, $temp, (int)$dst_x, (int)$dst_y, 0, 0, (int)$dst_w,
+                    (int)$dst_h, (int)($dst_w * $quality), (int)($dst_h * $quality));
             unset($temp);
         } else {
             imagecopyresampled($dst_image, $src_image, (int)$dst_x, (int)$dst_y, (int)$src_x,

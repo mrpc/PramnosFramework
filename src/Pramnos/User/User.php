@@ -655,7 +655,7 @@ class User extends \Pramnos\Framework\Base
             ->table('users')
             ->where('userid', $uid)
             ->get(true, 10, 'userlist');
-        if ($result === false || $result->numRows == 0) {
+        if ($result === false || $result === null || $result->numRows == 0) {
             return false;
         }
         $this->_isnew = false;
@@ -922,8 +922,8 @@ class User extends \Pramnos\Framework\Base
     {
         if (\Pramnos\Http\Session::staticIsLogged() == true) {
             $app = \Pramnos\Application\Application::getInstance();
-            if (is_object($app->currentUser)) {
-                if (!isset($_SESSION['ad_minlogin'])
+            if ($app && is_object($app->currentUser)) {
+                if (!isset($_SESSION['adminlogin'])
                     || (int) $_SESSION['adminlogin'] == 0
                     || (int) $_SESSION['adminlogin']
                     == $app->currentUser->userid) {
@@ -938,7 +938,10 @@ class User extends \Pramnos\Framework\Base
                 return $app->currentUser;
             }
              // Try to find an override user class
-            if (isset($app->applicationInfo['namespace'])
+            if (!isset($_SESSION['uid'])) {
+                return false;
+            }
+            if ($app && isset($app->applicationInfo['namespace'])
                 && $app->applicationInfo['namespace'] != ''
                 && class_exists(
                     '\\'
@@ -948,11 +951,14 @@ class User extends \Pramnos\Framework\Base
                 $className = '\\'
                     . $app->applicationInfo['namespace']
                     . '\\User';
-                $app->currentUser = new $className($_SESSION['uid']);
+                $user = new $className($_SESSION['uid']);
             } else {
-                $app->currentUser = new User($_SESSION['uid']);
+                $user = new User($_SESSION['uid']);
             }
-            return $app->currentUser;
+            if ($app) {
+                $app->currentUser = $user;
+            }
+            return $user;
         }
 
         return false;
