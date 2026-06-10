@@ -1072,8 +1072,8 @@ class LogController extends Controller
             // Open output stream
             $output = fopen('php://output', 'w');
             
-            // Write CSV header
-            fputcsv($output, ['Timestamp', 'Level', 'Message', 'Context']);
+            // Write CSV header (explicit escape='' avoids PHP 8.4 deprecation)
+            fputcsv($output, ['Timestamp', 'Level', 'Message', 'Context'], ',', '"', '');
             
             // Callback for processing each line
             $callback = function($line, $timestamp) use ($output, $startTimestamp, $endTimestamp) {
@@ -1091,7 +1091,7 @@ class LogController extends Controller
                             $message = $data['message'] ?? '';
                             $context = json_encode($data['context'] ?? []);
                             
-                            fputcsv($output, [$timestamp, $level, $message, $context]);
+                            fputcsv($output, [$timestamp, $level, $message, $context], ',', '"', '');
                             return;
                         }
                     } catch (\Exception $e) {
@@ -1099,8 +1099,8 @@ class LogController extends Controller
                     }
                 }
                 
-                // Handle plain text log lines
-                fputcsv($output, ['', '', $line, '']);
+                // Handle plain text log lines (explicit escape='' avoids PHP 8.4 deprecation)
+                fputcsv($output, ['', '', $line, ''], ',', '"', '');
             };
             
         } else { // JSON format
@@ -1397,10 +1397,11 @@ class LogController extends Controller
             return;
         }
         
-        // Create temporary file
+        // Create temporary file path (delete it first so ZipArchive creates fresh)
         $zipFile = tempnam(sys_get_temp_dir(), 'log_export_');
+        @unlink($zipFile); // Remove empty file; ZipArchive::CREATE needs non-existent path
         $zip = new \ZipArchive();
-        
+
         if ($zip->open($zipFile, \ZipArchive::CREATE) !== true) {
             Factory::getDocument();
             echo '<div class="alert alert-danger">Failed to create ZIP archive.</div>';
