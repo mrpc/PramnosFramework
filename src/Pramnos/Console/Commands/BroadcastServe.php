@@ -110,7 +110,7 @@ class BroadcastServe extends CommandBase
         $output->writeln("  Press <comment>Ctrl+C</comment> to stop.");
         $output->writeln('');
 
-        $this->wsServer = new LocalBroadcastServer($appKey, $logFile !== '' ? $logFile : null);
+        $this->wsServer = $this->createServer($appKey, $logFile !== '' ? $logFile : null);
 
         // Register SIGTERM / SIGINT handlers so Ctrl-C or systemd stop cleanly
         if (function_exists('pcntl_signal')) {
@@ -152,11 +152,22 @@ class BroadcastServe extends CommandBase
     }
 
     /**
+     * Factory method for the WebSocket server.
+     *
+     * Extracted to a protected method so tests can override it to inject a
+     * stub instead of creating a real TCP socket.
+     */
+    protected function createServer(string $appKey, ?string $logFile): LocalBroadcastServer
+    {
+        return new LocalBroadcastServer($appKey, $logFile);
+    }
+
+    /**
      * Determine the default log file path from the application configuration.
      *
      * Falls back to `var/broadcast.jsonl` relative to the project root.
      */
-    private function resolveDefaultLogFile(string $appKey): string
+    protected function resolveDefaultLogFile(string $appKey): string
     {
         $app = Application::getInstance();
 
