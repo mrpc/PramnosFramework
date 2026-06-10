@@ -100,6 +100,11 @@ class QueueControllerTest extends TestCase
     {
         $_GET  = [];
         $_POST = [];
+
+        // Restore the DB singleton so subsequent tests (especially integration
+        // tests) don't inherit the mock.
+        $dbRef = &Database::getInstance();
+        $dbRef = null;
     }
 
     // =========================================================================
