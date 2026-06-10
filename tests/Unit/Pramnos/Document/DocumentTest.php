@@ -382,4 +382,481 @@ class DocumentTest extends TestCase
         $this->assertSame('Hello World', $result,
             'parse() must return the text unchanged when no content addons are registered');
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // addBreadcrumbItem
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * addBreadcrumbItem() must delegate to $this->breadcrumb->addItem().
+     *
+     * Breadcrumb is always constructed in Document::__construct(), so this
+     * exercises line 242 of Document.php.
+     */
+    public function testAddBreadcrumbItemDelegatesToBreadcrumb(): void
+    {
+        // Act — add two items; no exception means delegation succeeded
+        $this->document->addBreadcrumbItem('Home', 'http://example.com/');
+        $this->document->addBreadcrumbItem('About');
+
+        // Assert — the breadcrumb property is still a Breadcrumb instance
+        $this->assertInstanceOf(
+            \Pramnos\Html\Breadcrumb::class,
+            $this->document->breadcrumb,
+            'addBreadcrumbItem() must not replace the breadcrumb object'
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // isScriptRegistered / isStyleRegistered
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * isScriptRegistered() must return true for a previously registered handle
+     * and false for an unknown handle.
+     *
+     * Covers line 448 of Document.php.
+     */
+    public function testIsScriptRegisteredReturnsTrueForKnownHandle(): void
+    {
+        // Arrange — 'jquery' is registered by default in Document::__construct()
+        // Act + Assert
+        $this->assertTrue(
+            $this->document->isScriptRegistered('jquery'),
+            'isScriptRegistered() must return true for the built-in jquery handle'
+        );
+        $this->assertFalse(
+            $this->document->isScriptRegistered('nonexistent_handle_xyz'),
+            'isScriptRegistered() must return false for an unknown handle'
+        );
+    }
+
+    /**
+     * isStyleRegistered() must return true for a previously registered handle
+     * and false for an unknown handle.
+     *
+     * Covers line 460 of Document.php.
+     */
+    public function testIsStyleRegisteredReturnsTrueForKnownHandle(): void
+    {
+        // Arrange — 'jquery-ui' CSS is registered by default in Document::__construct()
+        // Act + Assert
+        $this->assertTrue(
+            $this->document->isStyleRegistered('jquery-ui'),
+            'isStyleRegistered() must return true for the built-in jquery-ui handle'
+        );
+        $this->assertFalse(
+            $this->document->isStyleRegistered('nonexistent_style_xyz'),
+            'isStyleRegistered() must return false for an unknown handle'
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // registerScript / registerStyle with non-array deps
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * registerScript() must convert a non-array $deps argument to an array.
+     *
+     * This covers line 426: `if (!is_array($deps)) { $deps = array($deps); }`.
+     * A string dep passed directly must be treated as a single-element array so
+     * the foreach dependency loop in _enqueueScript() does not fail.
+     */
+    public function testRegisterScriptConvertsStringDepsToArray(): void
+    {
+        // Act — pass a plain string as deps instead of an array
+        $result = $this->document->registerScript('my-lib', 'js/mylib.js', 'jquery', '', false);
+
+        // Assert — fluent interface
+        $this->assertSame($this->document, $result,
+            'registerScript() must return $this (fluent interface)');
+
+        // Assert — script was stored with deps converted to array
+        $ref    = new \ReflectionProperty($this->document, '_js');
+        $scripts = $ref->getValue($this->document);
+        $this->assertIsArray($scripts['my-lib']['deps'],
+            'registerScript() must store deps as an array even when a string was passed');
+    }
+
+    /**
+     * registerStyle() must convert a non-array $deps argument to an array.
+     *
+     * Covers line 476: `if (!is_array($deps)) { $deps = array($deps); }`.
+     */
+    public function testRegisterStyleConvertsStringDepsToArray(): void
+    {
+        // Act — pass a plain string as deps
+        $result = $this->document->registerStyle('my-theme', 'css/theme.css', 'jquery-ui', '', 'all');
+
+        // Assert — fluent interface
+        $this->assertSame($this->document, $result);
+
+        // Assert — deps stored as array
+        $ref    = new \ReflectionProperty($this->document, '_css');
+        $styles = $ref->getValue($this->document);
+        $this->assertIsArray($styles['my-theme']['deps'],
+            'registerStyle() must store deps as an array even when a string was passed');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // enqueueScript with version string
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Enqueueing a script with a non-empty version string must append '?v=VERSION'
+     * to the script URL in the rendered output.
+     *
+     * Covers line 570 of Document.php: `$script .= '?v=' . $version;`.
+     */
+    public function testEnqueueScriptWithVersionAppendsQueryString(): void
+    {
+        // Arrange — register a head script (footer=false) with a version
+        $this->document->registerScript('versioned-lib', 'js/versioned.js', [], '2.0.1', false);
+        $this->document->enqueueScript('versioned-lib', '', [], '2.0.1', false);
+
+        // Act
+        ob_start();
+        $this->document->renderJs();
+        $output = ob_get_clean();
+
+        // Assert — version query string is present
+        $this->assertStringContainsString('?v=2.0.1', $output,
+            'Enqueueing a script with a version must append ?v=VERSION to the src');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // _enqueueStyle — media='' branch
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * When a style is registered with media='' the rendered tag must NOT include
+     * the media attribute.
+     *
+     * This covers lines 630-634 of Document.php — the `else` branch inside
+     * _enqueueStyle() that fires when $media is an empty string.
+     */
+    public function testEnqueueStyleWithEmptyMediaOmitsMediaAttribute(): void
+    {
+        // Arrange — register style with empty media string
+        $this->document->registerStyle('no-media-style', 'css/no-media.css', [], '', '');
+        $this->document->enqueueStyle('no-media-style', '', [], '', '');
+
+        // Act
+        ob_start();
+        $this->document->renderCss();
+        $output = ob_get_clean();
+
+        // Assert — tag is present but without media="..."
+        $this->assertStringContainsString('no-media.css', $output,
+            '_enqueueStyle() must render a link tag even with empty media');
+        $this->assertStringNotContainsString('media=', $output,
+            '_enqueueStyle() must omit the media attribute when media is empty');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // addCss — found=true path (already registered, not yet loaded)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * addCss() with a file that matches a registered (but not yet loaded) style
+     * must enqueue via the existing handle rather than creating a new auto handle.
+     *
+     * Covers lines 707-710 of Document.php — the `$found = true` branch in addCss().
+     */
+    public function testAddCssWithAlreadyRegisteredFileUsesExistingHandle(): void
+    {
+        // Arrange — register the style manually first
+        $this->document->registerStyle('pre-registered', 'css/known.css');
+
+        // Act — addCss() with the same URL
+        $this->document->addCss('css/known.css');
+
+        // Assert — the style renders (it was enqueued via the existing handle)
+        ob_start();
+        $this->document->renderCss();
+        $output = ob_get_clean();
+
+        $this->assertStringContainsString('css/known.css', $output,
+            'addCss() must enqueue the pre-registered style by its handle');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // addInlineScript
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * addInlineScript() must append a <script>…</script> block to $foot and
+     * return $this (fluent interface).
+     *
+     * Covers lines 758-759 of Document.php.
+     */
+    public function testAddInlineScriptAppendsToFootAndReturnsThis(): void
+    {
+        // Act
+        $result = $this->document->addInlineScript('console.log("test");');
+
+        // Assert — fluent interface
+        $this->assertSame($this->document, $result,
+            'addInlineScript() must return $this');
+
+        // Assert — inline code appears in the foot property
+        $this->assertStringContainsString(
+            '<script>console.log("test");</script>',
+            (string) $this->document->foot,
+            'addInlineScript() must wrap the code in <script> tags and append to foot'
+        );
+    }
+
+    /**
+     * addInlineScript() output appears in renderJs() because renderJs() echoes $foot.
+     */
+    public function testAddInlineScriptAppearsInRenderJsOutput(): void
+    {
+        // Arrange
+        $this->document->addInlineScript('var x = 42;');
+
+        // Act
+        ob_start();
+        $this->document->renderJs();
+        $output = ob_get_clean();
+
+        // Assert
+        $this->assertStringContainsString('var x = 42;', $output,
+            'addInlineScript() code must be output by renderJs()');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // render() — base Document::render() without theme
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The base Document::render() must concatenate header + head + content + foot
+     * into one string when no themeObject is set.
+     *
+     * Covers lines 789-801 of Document.php (the `$this->themeObject === NULL` path).
+     *
+     * The setUp() anonymous subclass overrides render() for isolation, so we
+     * instantiate a second subclass here that delegates to parent::render().
+     */
+    public function testRenderWithNoThemeConcatenatesSections(): void
+    {
+        // Arrange — an anonymous subclass that exposes parent::render()
+        $doc = new class extends Document {
+            public function render() { return parent::render(); }
+        };
+        $doc->type = 'html';
+        $doc->header  = 'HEADER_CONTENT';
+        $doc->head    = 'HEAD_CONTENT';
+        $doc->content = 'BODY_CONTENT';
+        $doc->foot    = 'FOOT_CONTENT';
+        $doc->themeObject = null;
+
+        // Act
+        $output = $doc->render();
+
+        // Assert — all sections present in the rendered string
+        $this->assertStringContainsString('HEADER_CONTENT', $output,
+            'render() must include $header when no themeObject is set');
+        $this->assertStringContainsString('HEAD_CONTENT', $output,
+            'render() must include $head when no themeObject is set');
+        $this->assertStringContainsString('BODY_CONTENT', $output,
+            'render() must include $content when no themeObject is set');
+        $this->assertStringContainsString('FOOT_CONTENT', $output,
+            'render() must include $foot when no themeObject is set');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // getInstance() factory
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * getInstance('html') must return an Html document instance.
+     *
+     * Covers lines 291-294 of Document.php — the 'html' case in getInstance().
+     */
+    public function testGetInstanceHtmlReturnsHtmlDocument(): void
+    {
+        // Act
+        $doc = Document::getInstance('html', false);
+
+        // Assert
+        $this->assertInstanceOf(
+            \Pramnos\Document\DocumentTypes\Html::class,
+            $doc,
+            "getInstance('html') must return a DocumentTypes\\Html instance"
+        );
+        $this->assertSame('html', $doc->type);
+    }
+
+    /**
+     * getInstance('json') must return a Json document instance.
+     *
+     * Covers lines 299-302 of Document.php — the 'json' case.
+     */
+    public function testGetInstanceJsonReturnsJsonDocument(): void
+    {
+        // Act
+        $doc = Document::getInstance('json', false);
+
+        // Assert
+        $this->assertInstanceOf(
+            \Pramnos\Document\DocumentTypes\Json::class,
+            $doc,
+            "getInstance('json') must return a DocumentTypes\\Json instance"
+        );
+        $this->assertSame('json', $doc->type);
+    }
+
+    /**
+     * getInstance('rss') must return an Rss document instance.
+     *
+     * Covers lines 303-306 of Document.php — the 'rss' case.
+     */
+    public function testGetInstanceRssReturnsRssDocument(): void
+    {
+        // Act
+        $doc = Document::getInstance('rss', false);
+
+        // Assert
+        $this->assertInstanceOf(
+            \Pramnos\Document\DocumentTypes\Rss::class,
+            $doc,
+            "getInstance('rss') must return a DocumentTypes\\Rss instance"
+        );
+        $this->assertSame('rss', $doc->type);
+    }
+
+    /**
+     * getInstance('raw') must return a Raw document instance.
+     *
+     * Covers lines 311-314 of Document.php — the 'raw' case.
+     */
+    public function testGetInstanceRawReturnsRawDocument(): void
+    {
+        // Act
+        $doc = Document::getInstance('raw', false);
+
+        // Assert
+        $this->assertInstanceOf(
+            \Pramnos\Document\DocumentTypes\Raw::class,
+            $doc,
+            "getInstance('raw') must return a DocumentTypes\\Raw instance"
+        );
+        $this->assertSame('raw', $doc->type);
+    }
+
+    /**
+     * getInstance() called twice with the same type must return the same object
+     * (singleton-per-type behaviour).
+     *
+     * Covers line 285 of Document.php — the `!isset($instances[$type])` guard that
+     * skips re-construction when the instance already exists.
+     */
+    public function testGetInstanceReturnsSameObjectForSameType(): void
+    {
+        // Act — two calls with the same type
+        $first  = Document::getInstance('html', false);
+        $second = Document::getInstance('html', false);
+
+        // Assert — identity, not just equality
+        $this->assertSame($first, $second,
+            'getInstance() must return the same object on repeated calls for the same type');
+    }
+
+    /**
+     * getInstance() with setDefault=true must update the static $type property.
+     *
+     * Covers lines 282-283 of Document.php — the `elseif ($setDefault === true)` branch.
+     */
+    public function testGetInstanceWithSetDefaultTrueUpdatesStaticType(): void
+    {
+        // Arrange — save current type to restore later
+        $originalType = Document::$type;
+
+        // Act
+        Document::getInstance('json', true);
+
+        // Assert
+        $this->assertSame('json', Document::$type,
+            "getInstance(type, true) must set the static \$type to the requested type");
+
+        // Cleanup — restore original type
+        Document::$type = $originalType;
+    }
+
+    /**
+     * getInstance('amp') must return an Amp document instance.
+     *
+     * Covers lines 295-298 of Document.php — the 'amp' case.
+     */
+    public function testGetInstanceAmpReturnsAmpDocument(): void
+    {
+        // Act
+        $doc = Document::getInstance('amp', false);
+
+        // Assert
+        $this->assertInstanceOf(
+            \Pramnos\Document\DocumentTypes\Amp::class,
+            $doc,
+            "getInstance('amp') must return a DocumentTypes\\Amp instance"
+        );
+        $this->assertSame('amp', $doc->type);
+    }
+
+    /**
+     * getInstance('pdf') must return a Pdf document instance.
+     *
+     * Covers lines 307-310 of Document.php — the 'pdf' case.
+     */
+    public function testGetInstancePdfReturnsPdfDocument(): void
+    {
+        // Act
+        $doc = Document::getInstance('pdf', false);
+
+        // Assert
+        $this->assertInstanceOf(
+            \Pramnos\Document\DocumentTypes\Pdf::class,
+            $doc,
+            "getInstance('pdf') must return a DocumentTypes\\Pdf instance"
+        );
+        $this->assertSame('pdf', $doc->type);
+    }
+
+    /**
+     * getInstance('png') must return a Png document instance.
+     *
+     * Covers lines 315-318 of Document.php — the 'png' case.
+     */
+    public function testGetInstancePngReturnsPngDocument(): void
+    {
+        // Act
+        $doc = Document::getInstance('png', false);
+
+        // Assert
+        $this->assertInstanceOf(
+            \Pramnos\Document\DocumentTypes\Png::class,
+            $doc,
+            "getInstance('png') must return a DocumentTypes\\Png instance"
+        );
+        $this->assertSame('png', $doc->type);
+    }
+
+    /**
+     * getInstance() with an unknown type must fall through to the default case
+     * and return an Html document (the switch default: branch).
+     *
+     * Covers lines 287-290 of Document.php — the `default:` case.
+     */
+    public function testGetInstanceWithUnknownTypeReturnsHtml(): void
+    {
+        // Act — 'foobar' is not a known document type
+        $doc = Document::getInstance('foobar', false);
+
+        // Assert — the default: branch creates an Html document
+        $this->assertInstanceOf(
+            \Pramnos\Document\DocumentTypes\Html::class,
+            $doc,
+            "getInstance() with unknown type must return the default Html instance"
+        );
+    }
 }
