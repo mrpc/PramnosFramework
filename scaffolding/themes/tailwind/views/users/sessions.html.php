@@ -21,11 +21,11 @@
                 <tbody>
                 <?php foreach (($this->sessionList ?? []) as $s): ?>
                     <tr>
-                        <td><code><?php echo htmlspecialchars(substr($s['sessionid'] ?? '', 0, 16)) . '…'; ?></code></td>
-                        <td><?php echo htmlspecialchars($s['ip_address'] ?? ''); ?></td>
-                        <td class="text-gray-400 text-xs"><?php echo htmlspecialchars(substr($s['user_agent'] ?? '', 0, 60)); ?></td>
-                        <td><?php echo htmlspecialchars($s['created_at'] ?? ''); ?></td>
-                        <td><?php echo htmlspecialchars($s['last_active'] ?? ''); ?></td>
+                        <td class="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-500"><?php echo htmlspecialchars(substr($s['sessionid'] ?? '', 0, 16)) . '…'; ?></td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900"><?php echo htmlspecialchars($s['ip'] ?? ''); ?></td>
+                        <td class="px-6 py-4 text-sm text-gray-500"><?php echo htmlspecialchars(substr($s['useragent'] ?? '', 0, 60)); ?></td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?php echo htmlspecialchars(isset($s['date']) ? date('d/m/Y H:i', $s['date']) : ''); ?></td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"></td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->sessionList)): ?>
