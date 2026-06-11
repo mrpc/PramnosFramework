@@ -1089,6 +1089,7 @@ class DevPanelController extends Controller
         if ($rawKey === '') {
             echo json_encode(['ok' => false, 'error' => 'No key specified']);
             $this->terminate();
+            return; // terminate() may be a no-op in tests — never fall through
         }
 
         try {
@@ -1098,6 +1099,7 @@ class DevPanelController extends Controller
             if ($adapter === null) {
                 echo json_encode(['ok' => false, 'error' => 'No cache adapter']);
                 $this->terminate();
+                return;
             }
 
             // Redis stores keys with adapter prefix; getAllItems() strips it,
