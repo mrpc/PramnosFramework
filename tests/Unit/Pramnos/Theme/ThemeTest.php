@@ -1004,6 +1004,103 @@ class ThemeTest extends TestCase
     }
 
     /**
+     * Test the element alias trio: get_footer() / get_sidebar() delegate to
+     * getElement() and include the corresponding file, while
+     * get_search_form() always returns false because 'search_form' is not a
+     * registered element key (only 'search' is).
+     */
+    public function testElementAliasesDelegateToGetElement(): void
+    {
+        // Arrange: temp theme with footer.php and sidebar.php present
+        $themeName = 'aliastrio';
+        $baseDir   = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'at_' . uniqid();
+        $themeDir  = $baseDir . DIRECTORY_SEPARATOR . $themeName;
+        mkdir($themeDir, 0755, true);
+        file_put_contents($themeDir . DIRECTORY_SEPARATOR . 'footer.php', '<?php /* footer */ ?>');
+        file_put_contents($themeDir . DIRECTORY_SEPARATOR . 'sidebar.php', '<?php /* sidebar */ ?>');
+
+        $app   = $this->createMock(\Pramnos\Application\Application::class);
+        $theme = new Theme($themeName, $baseDir, $app);
+
+        // Act / Assert — existing element files are included → true
+        ob_start();
+        $footer  = $theme->get_footer();
+        $sidebar = $theme->get_sidebar();
+        $search  = $theme->get_search_form();
+        ob_end_clean();
+
+        $this->assertTrue($footer, 'footer.php exists, get_footer() must include it');
+        $this->assertTrue($sidebar, 'sidebar.php exists, get_sidebar() must include it');
+        // 'search_form' is not a registered element key → always false
+        $this->assertFalse($search);
+
+        // Cleanup
+        unlink($themeDir . DIRECTORY_SEPARATOR . 'footer.php');
+        unlink($themeDir . DIRECTORY_SEPARATOR . 'sidebar.php');
+        rmdir($themeDir);
+        rmdir($baseDir);
+    }
+
+    /**
+     * Test the WordPress-compatibility global functions get_header(),
+     * get_footer(), get_search_form() and get_sidebar(): each resolves the
+     * active theme via Theme::getTheme() and delegates to the corresponding
+     * method. They must run without errors even when the element files are
+     * missing (getElement() then simply returns false).
+     */
+    public function testWordpressCompatGlobalFunctionsUseActiveTheme(): void
+    {
+        // Arrange: register a bare theme (no element files) as the active one
+        $app   = $this->createMock(\Pramnos\Application\Application::class);
+        $theme = new Theme('default', '', $app);
+
+        $ref     = new \ReflectionProperty(Theme::class, 'instances');
+        $current = $ref->getValue() ?? [];
+        $current['default'] = $theme;
+        $ref->setValue(null, $current);
+        $activeRef = new \ReflectionProperty(Theme::class, 'activeTheme');
+        $activeRef->setValue(null, 'default');
+
+        // Act — the compat layer must not throw or output anything.
+        // Theme.php declares them inside its own namespace (the file-level
+        // `namespace Pramnos\Theme;` applies to the function definitions too).
+        ob_start();
+        \Pramnos\Theme\get_header();
+        \Pramnos\Theme\get_footer();
+        \Pramnos\Theme\get_search_form();
+        \Pramnos\Theme\get_sidebar();
+        $output = ob_get_clean();
+
+        // Assert — no element files exist, so nothing may be emitted
+        $this->assertSame('', $output);
+    }
+
+    /**
+     * Test getThemeObjects() with an explicit path argument: entries that are
+     * not directories under ROOT/themes (the repository has no such tree in
+     * the test environment) are skipped, so the result is an empty array —
+     * but the directory scan itself must complete without errors.
+     */
+    public function testGetThemeObjectsScansPathAndSkipsNonThemeEntries(): void
+    {
+        // Arrange — temp dir with a plain file and a subdirectory
+        $path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'tobj_' . uniqid();
+        mkdir($path . DIRECTORY_SEPARATOR . 'sometheme', 0755, true);
+        file_put_contents($path . DIRECTORY_SEPARATOR . 'stray.txt', 'x');
+
+        // Act
+        $objects = Theme::getThemeObjects($path);
+
+        // Assert — 'sometheme' is not a dir under ROOT/themes → filtered out
+        $this->assertSame([], $objects);
+
+        // Cleanup
+        unlink($path . DIRECTORY_SEPARATOR . 'stray.txt');
+        rmdir($path . DIRECTORY_SEPARATOR . 'sometheme');
+        rmdir($path);
+    }
+
+    /**
      * Test addSetting() with a numeric name prefixes with underscore.
      *
      * Field names that start with a digit are invalid PHP identifiers, so
