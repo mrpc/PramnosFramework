@@ -228,7 +228,7 @@ class Dashboard extends Controller
             header('Cache-Control: no-cache, must-revalidate');
 
             echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-            exit;
+            $this->terminate();
 
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::log('Error exporting user data: ' . $ex->getMessage());
@@ -627,11 +627,20 @@ class Dashboard extends Controller
     {
         if ($isAjax) {
             echo json_encode(['success' => $success, 'message' => $message]);
-            exit;
+            $this->terminate();
+            return;
         }
 
         if (!$success) {
             $this->redirect(sURL . $this->routeBase . '/applications?error=' . urlencode($message));
         }
+    }
+
+    /**
+     * Terminate the request. Can be mocked in tests.
+     */
+    protected function terminate(): void
+    {
+        exit;
     }
 }

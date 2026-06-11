@@ -170,7 +170,7 @@ class TokenActionsController extends Controller
         header('Cache-Control: no-cache, must-revalidate');
 
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['id', 'username', 'tokenid', 'urlid', 'method', 'return_status', 'execution_time_ms', 'servertime']);
+        fputcsv($out, ['id', 'username', 'tokenid', 'urlid', 'method', 'return_status', 'execution_time_ms', 'servertime'], ',', '"', "\\");
 
         if ($result) {
             while ($result->fetch()) {
@@ -183,12 +183,12 @@ class TokenActionsController extends Controller
                     $result->fields['return_status'],
                     $result->fields['execution_time_ms'],
                     $result->fields['servertime'],
-                ]);
+                ], ',', '"', "\\");
             }
         }
 
         fclose($out);
-        exit;
+        return;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -237,7 +237,7 @@ class TokenActionsController extends Controller
     {
         $user = \Pramnos\User\User::getCurrentUser();
 
-        if ($user === null || (int) $user->usertype < $minType) {
+        if ($user === null || $user === false || (int) $user->usertype < $minType) {
             $this->redirect(sURL);
             return true;
         }

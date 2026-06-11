@@ -158,6 +158,14 @@ class ApplicationsController extends Controller
         unset($row);
 
         echo json_encode($result);
+        $this->terminate();
+    }
+
+    /**
+     * Terminate the request. Can be mocked in tests.
+     */
+    protected function terminate(): void
+    {
         exit;
     }
 

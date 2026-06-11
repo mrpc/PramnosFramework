@@ -83,7 +83,7 @@ class Discovery extends Controller
         ];
 
         echo json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        exit;
+        return;
     }
 
     /**
@@ -105,7 +105,7 @@ class Discovery extends Controller
 
         if (!file_exists($publicKeyPath)) {
             echo json_encode(['keys' => []], JSON_PRETTY_PRINT);
-            exit;
+            return;
         }
 
         try {
@@ -142,7 +142,7 @@ class Discovery extends Controller
         }
 
         echo json_encode($jwks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        exit;
+        return;
     }
 
     /**
@@ -176,7 +176,7 @@ class Discovery extends Controller
         ];
 
         echo json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        exit;
+        return;
     }
 
     /**
@@ -219,6 +219,6 @@ class Discovery extends Controller
         }
 
         echo json_encode($health, JSON_PRETTY_PRINT);
-        exit;
+        return;
     }
 }

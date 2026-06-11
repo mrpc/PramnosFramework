@@ -145,7 +145,7 @@ class EmailsController extends Controller
     {
         $user = \Pramnos\User\User::getCurrentUser();
 
-        if ($user === null || (int) $user->usertype < $minType) {
+        if ($user === null || $user === false || (int) $user->usertype < $minType) {
             $this->redirect(sURL);
             return true;
         }
