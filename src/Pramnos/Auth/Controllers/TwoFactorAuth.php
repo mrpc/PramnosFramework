@@ -41,6 +41,10 @@ class TwoFactorAuth extends Controller
     public function display(): mixed
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
+        if ($currentUser === false) {
+            $this->redirect(sURL . 'login?error=unauthorized');
+            return null;
+        }
         $view        = $this->getView('twofactor');
 
         $view->user   = $currentUser;
@@ -64,6 +68,10 @@ class TwoFactorAuth extends Controller
     public function setup(): mixed
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
+        if ($currentUser === false) {
+            $this->redirect(sURL . 'login?error=unauthorized');
+            return null;
+        }
 
         if ($this->twoFactorService->isEnabled($currentUser->userid)) {
             $this->redirect(sURL . 'TwoFactorAuth?error=already_enabled');
@@ -100,6 +108,10 @@ class TwoFactorAuth extends Controller
     private function verifySetup(): void
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
+        if ($currentUser === false) {
+            $this->redirect(sURL . 'login?error=unauthorized');
+            return;
+        }
         $request     = new \Pramnos\Http\Request();
         $code        = $request->get('verify_code', '', 'post');
 
@@ -122,6 +134,10 @@ class TwoFactorAuth extends Controller
     public function disable(): void
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
+        if ($currentUser === false) {
+            $this->redirect(sURL . 'login?error=unauthorized');
+            return;
+        }
         $request     = new \Pramnos\Http\Request();
         $password    = $request->get('confirm_password', '', 'post');
 
@@ -146,6 +162,10 @@ class TwoFactorAuth extends Controller
     public function backup(): mixed
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
+        if ($currentUser === false) {
+            $this->redirect(sURL . 'login?error=unauthorized');
+            return null;
+        }
 
         if (!$this->twoFactorService->isEnabled($currentUser->userid)) {
             $this->redirect(sURL . 'TwoFactorAuth?error=not_enabled');
@@ -190,10 +210,14 @@ class TwoFactorAuth extends Controller
     public function status(): void
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
+        if ($currentUser === false) {
+            $this->redirect(sURL . 'login?error=unauthorized');
+            return;
+        }
 
         header('Content-Type: application/json');
         echo json_encode($this->twoFactorService->getStatus($currentUser->userid));
-        exit;
+        return;
     }
 
     /**
@@ -216,6 +240,6 @@ class TwoFactorAuth extends Controller
             'is_valid_secret'  => TOTPHelper::isValidSecret($secret),
             'verify_test'      => TOTPHelper::verifyCode($secret, $code),
         ]);
-        exit;
+        return;
     }
 }

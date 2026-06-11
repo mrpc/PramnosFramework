@@ -406,7 +406,7 @@ class Gdpr extends Controller
      *
      * @return array<string, mixed>
      */
-    private function readJsonBody(): array
+    protected function readJsonBody(): array
     {
         $raw = file_get_contents('php://input');
         if ($raw === false || $raw === '') {
