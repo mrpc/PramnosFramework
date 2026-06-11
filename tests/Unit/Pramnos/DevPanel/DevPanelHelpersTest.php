@@ -450,15 +450,11 @@ class DevPanelHelpersTest extends TestCase
      * development settings are truthy, the panel must treat the environment as
      * production and deny access.
      */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
     public function testIsDevModeReturnsFalseWhenNoDevIndicatorIsSet(): void
     {
         // Arrange — clear settings so no Settings-based flag applies
         \Pramnos\Application\Settings::clearSettings();
-
-        // We cannot undefine DEVELOPMENT if it's already true, so skip if so.
-        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
-            $this->markTestSkipped('Cannot un-define DEVELOPMENT=true in this environment');
-        }
 
         // Temporarily clear APP_DEBUG env var
         $orig = getenv('APP_DEBUG');
