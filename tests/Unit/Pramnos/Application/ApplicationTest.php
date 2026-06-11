@@ -664,15 +664,9 @@ class ApplicationTest extends TestCase
      * The value "0" is explicitly excluded from the truthy set in isDebugMode()
      * so it should not trigger debug mode.
      */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
     public function testIsDebugModeFalseWhenZero(): void
     {
-        // The DEVELOPMENT constant is defined as true by earlier tests (DevPanel setUp)
-        // and constants cannot be undefined — skip rather than assert false incorrectly.
-        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
-            $this->markTestSkipped(
-                'DEVELOPMENT constant is already true; isDebugMode() always returns true.'
-            );
-        }
 
         // Arrange: make sure Settings doesn't accidentally enable debug
         putenv('APP_DEBUG=0');

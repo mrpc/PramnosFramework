@@ -150,10 +150,24 @@ class MakeCommandBaseRegistryAndWizardTest extends TestCase
 
         // Remove view dirs
         $viewsBase = ROOT . DS . INCLUDES . DS . 'Views';
-        foreach (['regwiz_entity'] as $n) {
+        foreach (['regwiz_entity', 'regwizentity'] as $n) {
             $dir = $viewsBase . DS . $n;
             if (is_dir($dir)) {
                 $this->rmdirRecursive($dir);
+            }
+        }
+
+        // Remove empty Models, Controllers, and Views directories so they don't linger
+        foreach ([
+            ROOT . DS . INCLUDES . DS . 'Models',
+            ROOT . DS . INCLUDES . DS . 'Controllers',
+            ROOT . DS . INCLUDES . DS . 'Views',
+        ] as $dir) {
+            if (is_dir($dir)) {
+                $files = array_diff(scandir($dir), ['.', '..']);
+                if (empty($files)) {
+                    @rmdir($dir);
+                }
             }
         }
     }

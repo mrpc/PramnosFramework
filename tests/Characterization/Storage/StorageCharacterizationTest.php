@@ -652,21 +652,20 @@ class StorageCharacterizationTest extends TestCase
     /**
      * S3Driver constructor throws a clear RuntimeException when the AWS SDK
      * is not installed, rather than a cryptic class-not-found error.
-     *
-     * We test this only when the SDK is actually absent; skip otherwise.
      */
     public function testS3DriverThrowsWhenSdkAbsent(): void
     {
-        if (class_exists(\Aws\S3\S3Client::class)) {
-            $this->markTestSkipped('AWS SDK is installed — SDK-absent path cannot be tested.');
+        $GLOBALS['mock_s3_absent'] = true;
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessageMatches('/aws\/aws-sdk-php/');
+
+            new \Pramnos\Storage\Drivers\S3Driver([
+                'key' => 'k', 'secret' => 's', 'region' => 'eu-west-1', 'bucket' => 'test',
+            ]);
+        } finally {
+            unset($GLOBALS['mock_s3_absent']);
         }
-
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/aws\/aws-sdk-php/');
-
-        new \Pramnos\Storage\Drivers\S3Driver([
-            'key' => 'k', 'secret' => 's', 'region' => 'eu-west-1', 'bucket' => 'test',
-        ]);
     }
 
     // =========================================================================
@@ -679,15 +678,16 @@ class StorageCharacterizationTest extends TestCase
      */
     public function testFtpDriverThrowsWhenExtensionAbsent(): void
     {
-        if (extension_loaded('ftp')) {
-            $this->markTestSkipped('ext-ftp is loaded — absent-extension path cannot be tested.');
+        $GLOBALS['mock_ftp_absent'] = true;
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessageMatches('/ftp/');
+
+            new \Pramnos\Storage\Drivers\FtpDriver([
+                'host' => 'ftp.example.com', 'username' => 'user',
+            ]);
+        } finally {
+            unset($GLOBALS['mock_ftp_absent']);
         }
-
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/ftp/');
-
-        new \Pramnos\Storage\Drivers\FtpDriver([
-            'host' => 'ftp.example.com', 'username' => 'user',
-        ]);
     }
 }
