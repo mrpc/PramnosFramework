@@ -1,7 +1,35 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-06-10 — Final coverage push: 87.13%, ZERO test issues
+## 📅 Last Updated: 2026-06-12 — Coverage milestone: **90.25%** (>90% reached)
+
+## 🏁 Coverage Push to 90%+ (2026-06-12)
+
+**Tests: 7340 | Errors: 0 | Failures: 0**
+**Code Coverage: 90.25%** (30407/33690 statements, ήταν 89.41%)
+
+31 νέα tests σε 7 commits (+285 covered statements):
+- `Mcp/Tools/RouteListTool`: 10%→~100% — execute() με πραγματικό Router, action formats, filter
+- `Console/Commands/McpServe`: 5.6%→~95% — container-bound server, fallback builder με built-in tools/resources
+- `Http/Middleware/ApiAuthMiddleware`: 51%→~95% — HS256 happy path με DB-free User fixture
+  (`tests/Fixtures/ApiAuthApp/User.php`), unknown user, expiry+data, RS256 branch, legacy USERAUTH
+- `Queue/QueueItem`: 5.7%→~95% — MySQL integration: CRUD round-trip, getList filter, getJsonList DataTable
+- `Application/Controllers/DashboardController`: 73.6%→~95% — cacheitem success/B-KB-MB formats,
+  early-return guards όλων των actions (non-quitting redirect), cache aggregation
+- `Auth/Controllers/Device`: 75%→~90% — constructor, logged-in confirmation, session-user
+  approve/deny/expired (webhook expectations)
+- `Auth/Controllers/Dashboard`: deleteaccount POST — invalid password, confirmation guard,
+  full 7-table erasure + logout, deletion failure
+- `Theme/Theme`: element aliases, WordPress-compat namespaced functions, getThemeObjects
+
+Σημειώσεις τεχνικής:
+- Mocks του `Application` χρειάζονται stub και στο `__isset` (όχι μόνο `__get`) όταν ο κώδικας
+  κάνει `$app->prop ?? null` — το `??` περνάει πρώτα από `__isset`.
+- Το web-token απαιτεί HMAC keys ≥ 32 bytes για HS256.
+- Οι WordPress-compat functions του Theme.php ορίζονται στο namespace `Pramnos\Theme`.
+
+---
+## 📅 2026-06-10 — Final coverage push: 87.13%, ZERO test issues
 
 ## 🏁 Final State (2026-06-10)
 
