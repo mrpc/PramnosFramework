@@ -352,4 +352,124 @@ class DashboardControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
         $this->assertStringContainsString('message=password_changed', $echoed);
     }
+
+    // ── deleteaccount() POST branches ─────────────────────────────────────────
+
+    /**
+     * Stage a stored password row so verifyUserPassword() can compare against
+     * a known plaintext (legacy SHA-256 format, matching the framework default
+     * for pre-v1.2 rows).
+     */
+    private function stubStoredPassword(string $plaintext): void
+    {
+        $row          = new \stdClass();
+        $row->numRows = 1;
+        $row->fields  = ['password' => hash('sha256', $plaintext)];
+        $this->queryBuilderMock->method('first')->willReturn($row);
+    }
+
+    /**
+     * POST with a wrong password must redirect back with
+     * error=invalid_password and must NOT delete anything.
+     *
+     * This is the primary safety guard of account deletion: possession of a
+     * logged-in session alone must not be enough to destroy the account.
+     */
+    public function testDeleteAccountPostWrongPasswordRedirectsWithError(): void
+    {
+        // Arrange — stored password differs from the submitted one
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['password']         = 'wrong-password';
+        $_POST['confirmation']     = 'DELETE';
+        $this->stubStoredPassword('the-real-password');
+
+        // delete() must never run on a failed password check
+        $this->queryBuilderMock->expects($this->never())->method('delete');
+
+        // Act
+        ob_start();
+        $this->controller->deleteaccount();
+        $echoed = ob_get_clean();
+
+        // Assert
+        $this->assertStringContainsString('error=invalid_password', $echoed);
+    }
+
+    /**
+     * POST with the correct password but without typing the literal
+     * confirmation word 'DELETE' must redirect with
+     * error=confirmation_required — the second deletion safeguard.
+     */
+    public function testDeleteAccountPostWrongConfirmationRedirectsWithError(): void
+    {
+        // Arrange — correct password, wrong confirmation token
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['password']         = 'the-real-password';
+        $_POST['confirmation']     = 'delete'; // must be exactly 'DELETE'
+        $this->stubStoredPassword('the-real-password');
+
+        $this->queryBuilderMock->expects($this->never())->method('delete');
+
+        // Act
+        ob_start();
+        $this->controller->deleteaccount();
+        $echoed = ob_get_clean();
+
+        // Assert
+        $this->assertStringContainsString('error=confirmation_required', $echoed);
+    }
+
+    /**
+     * Fully confirmed POST must erase the user's data (one delete per GDPR
+     * table + the users row = 7 deletes), log the user out, and redirect to
+     * the site root with message=account_deleted.
+     */
+    public function testDeleteAccountPostSuccessErasesDataAndRedirects(): void
+    {
+        // Arrange — correct password and exact confirmation word
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['password']         = 'the-real-password';
+        $_POST['confirmation']     = 'DELETE';
+        $this->stubStoredPassword('the-real-password');
+
+        // 6 GDPR-related tables + users = 7 delete() calls expected
+        $this->queryBuilderMock->expects($this->exactly(7))
+            ->method('delete')
+            ->willReturn(1);
+
+        // Act
+        ob_start();
+        $this->controller->deleteaccount();
+        $echoed = ob_get_clean();
+
+        // Assert — redirected to the site root with the success message
+        $this->assertStringContainsString('message=account_deleted', $echoed);
+        // logout() must have flipped the session flag
+        $this->assertFalse($_SESSION['logged']);
+    }
+
+    /**
+     * If the data-erasure step throws, the exception must be caught, logged,
+     * and answered with a redirect to error=deletion_failed — never a white
+     * page or a half-deleted account with an unhandled exception.
+     */
+    public function testDeleteAccountPostDeletionFailureRedirectsWithError(): void
+    {
+        // Arrange — delete() blows up mid-erasure
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['password']         = 'the-real-password';
+        $_POST['confirmation']     = 'DELETE';
+        $this->stubStoredPassword('the-real-password');
+
+        $this->queryBuilderMock->method('delete')
+            ->willThrowException(new \Exception('FK constraint boom'));
+
+        // Act
+        ob_start();
+        $this->controller->deleteaccount();
+        $echoed = ob_get_clean();
+
+        // Assert — graceful failure path
+        $this->assertStringContainsString('error=deletion_failed', $echoed);
+    }
 }
