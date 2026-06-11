@@ -22,10 +22,10 @@
                 <?php foreach (($this->sessionList ?? []) as $s): ?>
                     <tr>
                         <td><code><?php echo htmlspecialchars(substr($s['sessionid'] ?? '', 0, 16)) . '…'; ?></code></td>
-                        <td><?php echo htmlspecialchars($s['ip_address'] ?? ''); ?></td>
-                        <td style="color:#888;font-size:0.8em"><?php echo htmlspecialchars(substr($s['user_agent'] ?? '', 0, 60)); ?></td>
-                        <td><?php echo htmlspecialchars($s['created_at'] ?? ''); ?></td>
-                        <td><?php echo htmlspecialchars($s['last_active'] ?? ''); ?></td>
+                        <td><?php echo htmlspecialchars($s['ip'] ?? ''); ?></td>
+                        <td style="color:#888;font-size:0.8em"><?php echo htmlspecialchars(substr($s['useragent'] ?? '', 0, 60)); ?></td>
+                        <td><?php echo htmlspecialchars(isset($s['date']) ? date('d/m/Y H:i', $s['date']) : ''); ?></td>
+                        <td></td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->sessionList)): ?>
