@@ -509,6 +509,100 @@ class HelpersTest extends TestCase
         }
     }
 
+    /**
+     * fileGetContents() with $debug=true must echo the URL and CURL
+     * diagnostics (covers the debug echo block).
+     */
+    public function testFileGetContentsDebugEchoesDiagnostics(): void
+    {
+        // Skip if CURL is not available
+        if (!function_exists('curl_version')) {
+            $this->markTestSkipped('CURL is not available in this environment');
+        }
+
+        // Act — capture the debug output for a fast-failing URL
+        ob_start();
+        Helpers::fileGetContents('http://0.0.0.0:65000/dbg', true, false, false);
+        $output = ob_get_clean();
+
+        // Assert — the requested URL is echoed as part of the diagnostics
+        $this->assertStringContainsString('http://0.0.0.0:65000/dbg', $output,
+            'debug=true must echo the URL being fetched');
+    }
+
+    // =========================================================================
+    // checkUrlStatus()
+    // =========================================================================
+
+    /**
+     * checkUrlStatus() against an unreachable host must report offline with
+     * the (zero) HTTP status — the full CURL setup path plus the offline
+     * branch.
+     */
+    public function testCheckUrlStatusOfflineForUnreachableHost(): void
+    {
+        // Skip if CURL is not available
+        if (!function_exists('curl_version')) {
+            $this->markTestSkipped('CURL is not available in this environment');
+        }
+
+        // Act — connection refused immediately on the reserved port
+        $result = Helpers::checkUrlStatus('http://0.0.0.0:65000/', null, false, 2);
+
+        // Assert — offline envelope with a non-2xx status
+        $this->assertFalse($result['online'],
+            'An unreachable host must be reported as offline');
+        $this->assertArrayHasKey('status', $result);
+        $this->assertLessThan(200, (int) $result['status']);
+    }
+
+    /**
+     * checkUrlStatus() with $debug=true must throw on a failed check after
+     * dumping diagnostics (the debug branch raises the status as exception).
+     */
+    public function testCheckUrlStatusDebugThrowsOnFailure(): void
+    {
+        // Skip if CURL is not available
+        if (!function_exists('curl_version')) {
+            $this->markTestSkipped('CURL is not available in this environment');
+        }
+
+        // Arrange
+        $this->expectException(\Exception::class);
+
+        // Act — debug mode dumps the handler then throws the status code
+        ob_start();
+        try {
+            Helpers::checkUrlStatus('http://0.0.0.0:65000/', 'TestAgent/1.0', true, 2);
+        } finally {
+            ob_end_clean(); // discard the var_dump noise
+        }
+    }
+
+    /**
+     * checkUrlStatus() against the local web server must take the online
+     * branch when the server answers 2xx (skipped when no local server).
+     */
+    public function testCheckUrlStatusOnlineForLocalServer(): void
+    {
+        // Skip if CURL is not available
+        if (!function_exists('curl_version')) {
+            $this->markTestSkipped('CURL is not available in this environment');
+        }
+
+        // Act — Apache inside the test container answers on localhost:80
+        $result = Helpers::checkUrlStatus('http://localhost/', null, false, 5);
+
+        // Assert — envelope shape always; online=true only when 2xx
+        $this->assertIsArray($result);
+        $this->assertArrayHasKey('online', $result);
+        $this->assertArrayHasKey('status', $result);
+        if ($result['status'] >= 200 && $result['status'] < 300) {
+            $this->assertTrue($result['online'],
+                'A 2xx response must be reported as online');
+        }
+    }
+
     // =========================================================================
     // greeklish() — comprehensive default-mode coverage
     // =========================================================================
