@@ -258,4 +258,201 @@ class SessionTrackingMiddlewareMySQLTest extends TestCase
         // Assert
         $this->assertSame('downstream_response', $result);
     }
+
+    // -------------------------------------------------------------------------
+    // Cloudflare / language headers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build a stub Request with an arbitrary cookie map (more flexible than
+     * makeRequest, needed for the logged-in / authCheck branches).
+     *
+     * @param array<string, string|null> $cookies
+     */
+    private function makeRequestWithCookies(array $cookies): Request
+    {
+        $request = $this->createMock(Request::class);
+        $request->method('cookieget')->willReturnCallback(
+            fn(string $key) => $cookies[$key] ?? null
+        );
+        $request->method('cookieset')->willReturn(null);
+        $request->method('getURL')->willReturn('/test');
+        return $request;
+    }
+
+    /**
+     * When Cloudflare headers are present, track() must store the
+     * CF-Connecting-IP (the real visitor IP) in host_addr instead of the
+     * proxy's REMOTE_ADDR, and read country / language without errors.
+     */
+    public function testTrackUsesCloudflareConnectingIpAndHeaders(): void
+    {
+        // Arrange — simulate a request routed through Cloudflare
+        $_SERVER['HTTP_CF_CONNECTING_IP'] = '203.0.113.77';
+        $_SERVER['HTTP_CF_IPCOUNTRY']     = 'GR';
+        $_SERVER['HTTP_ACCEPT_LANGUAGE']  = 'el-GR,el;q=0.9,en;q=0.8';
+        $visitorid = 'aaaa111122223333';
+        $request   = $this->makeRequest(visitorid: $visitorid);
+        $middleware = new SessionTrackingMiddleware();
+
+        // Act
+        $middleware->track($request);
+
+        // Assert — host_addr must be the CF-Connecting-IP, not REMOTE_ADDR
+        $row = $this->fetchRow($visitorid);
+        $this->assertSame('203.0.113.77', $row['host_addr'] ?? '',
+            'host_addr must record the Cloudflare CF-Connecting-IP');
+    }
+
+    // -------------------------------------------------------------------------
+    // Logged-in user branch
+    // -------------------------------------------------------------------------
+
+    /**
+     * For a logged-in session with auth/username cookies present, track()
+     * must record guest=0, the username in uname, the numeric uid in userid,
+     * and refresh the login cookies.
+     */
+    public function testTrackRecordsLoggedInUser(): void
+    {
+        // Arrange — logged-in session for uid=42
+        $_SESSION['logged']   = true;
+        $_SESSION['uid']      = 42;
+        $_SESSION['username'] = 'mrpc';
+        $_SESSION['auth']     = 'authhash';
+        $visitorid = 'bbbb111122223333';
+        $request   = $this->makeRequestWithCookies([
+            'visitorid' => $visitorid,
+            'auth'      => 'authhash',
+            'username'  => 'mrpc',
+        ]);
+        $middleware = new SessionTrackingMiddleware();
+
+        // Act
+        $middleware->track($request);
+
+        // Assert — row reflects the authenticated identity
+        $row = $this->fetchRow($visitorid);
+        $this->assertSame('mrpc', $row['uname'] ?? '');
+        $this->assertSame('0', (string) ($row['guest'] ?? ''),
+            'A logged-in visitor must be recorded with guest=0');
+        $this->assertSame('42', (string) ($row['userid'] ?? ''),
+            'userid must hold the session uid for authenticated visitors');
+    }
+
+    /**
+     * A logged-in session with uid=1 (anonymous placeholder) must store NULL
+     * in userid — uid 1 is the Guest account and must not be linked.
+     */
+    public function testTrackStoresNullUserIdForUidOne(): void
+    {
+        // Arrange — "logged in" as the placeholder uid 1
+        $_SESSION['logged']   = true;
+        $_SESSION['uid']      = 1;
+        $_SESSION['username'] = 'ghost';
+        $visitorid = 'cccc111122223333';
+        $request   = $this->makeRequest(visitorid: $visitorid);
+        $middleware = new SessionTrackingMiddleware();
+
+        // Act
+        $middleware->track($request);
+
+        // Assert — userid column must be NULL (uid 1 is never linked)
+        $row = $this->fetchRow($visitorid);
+        $this->assertNull($row['userid'],
+            'uid=1 must be stored as NULL in the sessions table');
+    }
+
+    /**
+     * Usernames longer than 128 characters must be truncated before the
+     * INSERT — uname is a VARCHAR(128) column.
+     */
+    public function testTrackTruncatesLongUsername(): void
+    {
+        // Arrange — 200-char username
+        $_SESSION['logged']   = true;
+        $_SESSION['uid']      = 7;
+        $_SESSION['username'] = str_repeat('x', 200);
+        $visitorid = 'dddd111122223333';
+        $request   = $this->makeRequest(visitorid: $visitorid);
+        $middleware = new SessionTrackingMiddleware();
+
+        // Act
+        $middleware->track($request);
+
+        // Assert
+        $row = $this->fetchRow($visitorid);
+        $this->assertSame(128, strlen($row['uname'] ?? ''),
+            'uname must be truncated to 128 characters');
+    }
+
+    // -------------------------------------------------------------------------
+    // authCheck branch (cookies without active session)
+    // -------------------------------------------------------------------------
+
+    /**
+     * A visitor with auth/username cookies but no active session must trigger
+     * Auth::authCheck() (cookie-based re-login attempt). With no auth addons
+     * registered the call is a no-op, and the visitor is recorded as guest.
+     */
+    public function testTrackTriggersAuthCheckForCookieOnlyVisitor(): void
+    {
+        // Arrange — no $_SESSION['logged'], but auth cookies present
+        $visitorid = 'eeee111122223333';
+        $request   = $this->makeRequestWithCookies([
+            'visitorid' => $visitorid,
+            'auth'      => 'somehash',
+            'username'  => 'cookieuser',
+        ]);
+        $middleware = new SessionTrackingMiddleware();
+
+        // Act — must not throw even though no auth addon is registered
+        $middleware->track($request);
+
+        // Assert — row written; authCheck() no-op leaves the visitor a guest
+        $row = $this->fetchRow($visitorid);
+        $this->assertNotEmpty($row, 'Session row must be written after authCheck path');
+        $this->assertSame('1', (string) ($row['guest'] ?? ''),
+            'Visitor remains guest when authCheck cannot re-authenticate');
+    }
+
+    // -------------------------------------------------------------------------
+    // Force-logout branch
+    // -------------------------------------------------------------------------
+
+    /**
+     * When the existing session row has logout=1 (admin kicked the visitor),
+     * track() must reset the session, log the user out, and record the
+     * visitor as "Kicked Out".
+     */
+    public function testTrackForceLogoutKicksVisitorOut(): void
+    {
+        // Arrange — pre-insert a row flagged logout=1 for this visitor
+        $visitorid = 'ffff111122223333';
+        $this->db->query($this->db->prepareQuery(
+            "INSERT INTO `testst_sessions`
+             (`visitorid`, `uname`, `time`, `host_addr`, `guest`, `agent`,
+              `userid`, `url`, `logout`, `sid`, `history`)
+             VALUES (%s, 'victim', %d, '1.2.3.4', 0, 'agent', NULL, '/x', 1, 'sid', '')",
+            base64_encode(hex2bin($visitorid)),
+            time()
+        ));
+        $_SESSION['logged']   = true;
+        $_SESSION['uid']      = 9;
+        $_SESSION['username'] = 'victim';
+        $request   = $this->makeRequest(visitorid: $visitorid);
+        $middleware = new SessionTrackingMiddleware();
+
+        // Act
+        $middleware->track($request);
+
+        // Assert — uname rewritten to "Kicked Out", guest forced back to 1,
+        // and the logout flag cleared by the upsert (one-shot kick).
+        $row = $this->fetchRow($visitorid);
+        $this->assertSame('Kicked Out', $row['uname'] ?? '');
+        $this->assertSame('1', (string) ($row['guest'] ?? ''),
+            'Force-logout must demote the visitor to guest');
+        $this->assertSame('0', (string) ($row['logout'] ?? ''),
+            'The logout flag must be reset after the kick is applied');
+    }
 }
