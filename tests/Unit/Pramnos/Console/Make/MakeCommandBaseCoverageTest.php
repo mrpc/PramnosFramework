@@ -159,7 +159,7 @@ class MakeCommandBaseCoverageTest extends TestCase
         // Remove any view directories created under ROOT/src/Views/ by these tests.
         $viewsBase = ROOT . DS . INCLUDES . DS . 'Views';
         foreach ([
-            'wcov_item', 'wcov_product', 'wcov_doc', 'wcov_art', 'wcov_thing',
+            'wcov_item', 'wcov_product', 'wcov_doc', 'wcovdoc', 'wcov_art', 'wcov_thing',
             'wcov_simple', 'wcov_nodbview',
         ] as $name) {
             $dir = $viewsBase . DS . $name;
@@ -173,12 +173,16 @@ class MakeCommandBaseCoverageTest extends TestCase
             ROOT . DS . INCLUDES . DS . 'Models'      . DS . 'WcovWizardItem.php',
             ROOT . DS . INCLUDES . DS . 'Models'      . DS . 'WcovJsonModel.php',
             ROOT . DS . INCLUDES . DS . 'Models'      . DS . 'WcovSchemaModel.php',
+            ROOT . DS . INCLUDES . DS . 'Models'      . DS . 'WcovDoc.php',
             ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovWizarditems.php',
             ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovWizardproducts.php',
             ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovFkctrl.php',
+            ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovDocs.php',
             ROOT . DS . 'tests'  . DS . 'Unit'        . DS . 'WcovWizardItemTest.php',
             ROOT . DS . 'tests'  . DS . 'Unit'        . DS . 'WcovJsonModelTest.php',
             ROOT . DS . 'tests'  . DS . 'Unit'        . DS . 'WcovSchemaModelTest.php',
+            ROOT . DS . 'tests'  . DS . 'Unit'        . DS . 'WcovDocTest.php',
+            ROOT . DS . 'tests'  . DS . 'Unit'        . DS . 'WcovWizardItemSeederTest.php',
             ROOT . DS . 'tests'  . DS . 'Feature'     . DS . 'WcovWizarditemsTest.php',
             ROOT . DS . 'tests'  . DS . 'Feature'     . DS . 'WcovWizardproductsTest.php',
             ROOT . DS . 'tests'  . DS . 'Feature'     . DS . 'WcovFkctrlTest.php',
@@ -195,7 +199,7 @@ class MakeCommandBaseCoverageTest extends TestCase
         if (file_exists($registryFile)) {
             $data = json_decode(file_get_contents($registryFile), true) ?? [];
             $testClasses = [
-                'WcovWizardItem', 'WcovJsonModel', 'WcovSchemaModel',
+                'WcovWizardItem', 'WcovJsonModel', 'WcovSchemaModel', 'WcovDoc',
                 'WcovWizardproducts', 'WcovWizarditems',
             ];
             $filtered = array_values(array_filter($data, function ($e) use ($testClasses) {
@@ -205,6 +209,20 @@ class MakeCommandBaseCoverageTest extends TestCase
                 @unlink($registryFile);
             } else {
                 file_put_contents($registryFile, json_encode($filtered, JSON_PRETTY_PRINT));
+            }
+        }
+
+        // Remove the empty Models, Controllers, and Views directories so they don't linger
+        foreach ([
+            ROOT . DS . INCLUDES . DS . 'Models',
+            ROOT . DS . INCLUDES . DS . 'Controllers',
+            ROOT . DS . INCLUDES . DS . 'Views',
+        ] as $dir) {
+            if (is_dir($dir)) {
+                $files = array_diff(scandir($dir), ['.', '..']);
+                if (empty($files)) {
+                    @rmdir($dir);
+                }
             }
         }
     }
