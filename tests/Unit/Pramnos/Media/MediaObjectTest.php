@@ -1655,22 +1655,26 @@ class MediaObjectTest extends TestCase
     #[Test]
     public function testAddImageSetsErrorWhenCopyFails(): void
     {
-        // Skip on root (Docker) – root can read any file regardless of permissions
-        if (function_exists('posix_getuid') && posix_getuid() === 0) {
-            $this->markTestSkipped('Running as root; chmod restriction is ineffective.');
-        }
-
-        // Arrange – create file then make it unreadable
-        $srcFile = $this->createDummyJpg('unreadable.jpg', 5, 5);
-        chmod($srcFile, 0000);
+        // Use a directory as the source path so copy() fails.
+        // This works even when running as root (Docker).
+        $srcDir = sys_get_temp_dir() . DS . 'unreadable_dir_' . uniqid();
+        mkdir($srcDir);
 
         $media = new MediaObject();
 
-        // Act
-        $result = $media->addImage($srcFile, 'test_media_module');
+        // Convert warnings (like copy() directory warning) into ErrorExceptions so they are caught by the try-catch block
+        set_error_handler(static function (int $errno, string $errstr, string $errfile, int $errline) {
+            throw new \ErrorException($errstr, 0, $errno, $errfile, $errline);
+        }, E_WARNING);
 
-        // Restore permissions for cleanup
-        chmod($srcFile, 0644);
+        try {
+            // Act
+            $result = $media->addImage($srcDir, 'test_media_module');
+        } finally {
+            restore_error_handler();
+            // Cleanup
+            rmdir($srcDir);
+        }
 
         // Assert – error should be set, fluent return
         $this->assertNotFalse($media->error);

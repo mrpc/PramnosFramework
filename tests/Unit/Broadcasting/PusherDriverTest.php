@@ -35,21 +35,22 @@ class PusherDriverTest extends TestCase
      */
     public function testConstructorThrowsWhenPusherPackageNotInstalled(): void
     {
-        // Guard — skip this test if Pusher IS installed (inverse of the usual pattern)
-        if (class_exists('Pusher\\Pusher')) {
-            $this->markTestSkipped('pusher/pusher-php-server is installed — runtime guard test is not applicable.');
+        $GLOBALS['mock_pusher_absent'] = true;
+
+        try {
+            // Assert — RuntimeException with helpful message
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessageMatches('/pusher\/pusher-php-server/');
+
+            // Act
+            new PusherDriver([
+                'app_id'     => 'test-id',
+                'app_key'    => 'test-key',
+                'app_secret' => 'test-secret',
+            ]);
+        } finally {
+            unset($GLOBALS['mock_pusher_absent']);
         }
-
-        // Assert — RuntimeException with helpful message
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/pusher\/pusher-php-server/');
-
-        // Act
-        new PusherDriver([
-            'app_id'     => 'test-id',
-            'app_key'    => 'test-key',
-            'app_secret' => 'test-secret',
-        ]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

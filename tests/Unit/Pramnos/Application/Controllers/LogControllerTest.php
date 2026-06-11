@@ -87,6 +87,14 @@ class TestableLogController extends LogController
     {
         $this->autoPopulateWhitelist();
     }
+
+    /**
+     * Set a custom LogViewer (e.g. mock).
+     */
+    public function setLogViewer($logViewer): void
+    {
+        $this->logViewer = $logViewer;
+    }
 }
 
 /**
@@ -95,6 +103,14 @@ class TestableLogController extends LogController
 class BlacklistedLogController extends TestableLogController
 {
     protected $blacklist = ['php_dev_error.log'];
+}
+
+/**
+ * A variant of the controller with an empty whitelist to test default fallback.
+ */
+class EmptyWhitelistLogController extends TestableLogController
+{
+    protected $whitelist = [];
 }
 
 #[CoversClass(LogController::class)]
@@ -1648,5 +1664,266 @@ class LogControllerTest extends TestCase
         // Assert — clearList entries are visible
         $this->assertStringContainsString('pramnosframework.log', $output);
         $this->assertStringContainsString('php_error.log', $output);
+    }
+
+    // -------------------------------------------------------------------------
+    // Additional Coverage Tests
+    // -------------------------------------------------------------------------
+
+    public function testSendHeaderNonCli(): void
+    {
+        $GLOBALS['mock_sapi_name'] = 'apache2';
+        
+        $controller = new class(null) extends LogController {
+            public array $headers = [];
+            public function callSendHeader(string $header): void
+            {
+                $this->sendHeader($header);
+            }
+            protected function sendHeader(string $header): void
+            {
+                $this->headers[] = $header;
+                // Suppress header warnings on CLI
+                @parent::sendHeader($header);
+            }
+        };
+
+        $controller->callSendHeader('Location: /');
+        $this->assertContains('Location: /', $controller->headers);
+
+        unset($GLOBALS['mock_sapi_name']);
+    }
+
+    public function testClearOutputBuffersNonCli(): void
+    {
+        $GLOBALS['mock_defined']['PHPUNIT_COMPOSER_INSTALL'] = false;
+        $GLOBALS['mock_defined']['__PHPUNIT_PHAR__'] = false;
+        $GLOBALS['mock_ob_get_level'] = 1; // loop runs once
+        $GLOBALS['mock_ob_end_clean'] = true;
+
+        $controller = new class(null) extends LogController {
+            public function callClearOutputBuffers(): void
+            {
+                $this->clearOutputBuffers();
+            }
+        };
+
+        $controller->callClearOutputBuffers();
+        // Since we mock ob_get_level and ob_end_clean, it ran once and exited without closing actual buffers
+        $this->assertEquals(0, $GLOBALS['mock_ob_get_level']);
+
+        unset($GLOBALS['mock_defined']);
+        unset($GLOBALS['mock_ob_get_level']);
+        unset($GLOBALS['mock_ob_end_clean']);
+    }
+
+    public function testAutoPopulateWhitelistDirMissing(): void
+    {
+        $GLOBALS['mock_is_dir'][$this->logDir] = false;
+
+        $appMock = $this->createMock(Application::class);
+        $controller = new EmptyWhitelistLogController($appMock);
+        
+        $whitelist = $controller->getWhitelist();
+        $this->assertContains('php_dev_error.log', $whitelist);
+
+        unset($GLOBALS['mock_is_dir']);
+    }
+
+    public function testAutoPopulateWhitelistAddsGitSpecialFiles(): void
+    {
+        $gitDeploy = ROOT . DS . 'www' . DS . 'api' . DS . 'GitDeploy';
+        $gitWebhook = ROOT . DS . 'www' . DS . 'api' . DS . 'GitWebhookDebug';
+        
+        $apiDir = ROOT . DS . 'www' . DS . 'api';
+        if (!is_dir($apiDir)) {
+            mkdir($apiDir, 0777, true);
+        }
+        
+        file_put_contents($gitDeploy, "dummy");
+        file_put_contents($gitWebhook, "dummy");
+
+        try {
+            $appMock = $this->createMock(Application::class);
+            $controller = new TestableLogController($appMock);
+            
+            $whitelist = $controller->getWhitelist();
+            $this->assertContains('GitDeploy', $whitelist);
+            $this->assertContains('GitWebhookDebug', $whitelist);
+        } finally {
+            @unlink($gitDeploy);
+            @unlink($gitWebhook);
+        }
+    }
+
+    public function testRawThrowsException(): void
+    {
+        $_GET['file'] = 'php_error.log';
+
+        $mockViewer = $this->createMock(\Pramnos\Logs\LogViewer::class);
+        $mockViewer->method('setFile')->willReturnSelf();
+        $mockViewer->method('setParameters')->willReturnSelf();
+        $mockViewer->method('getLogContent')->willThrowException(new \Exception('Reader error'));
+        $mockViewer->method('renderError')->willReturnCallback(fn($msg) => $msg);
+
+        $this->controller->setLogViewer($mockViewer);
+        $output = $this->controller->raw();
+
+        $this->assertStringContainsString('Error reading log file', $output);
+    }
+
+    public function testArchiveZipArchiveAbsent(): void
+    {
+        $GLOBALS['mock_ziparchive_absent'] = true;
+        $_POST['action'] = 'archive';
+        $_POST['days'] = 30;
+
+        $output = $this->captureOutput(fn() => $this->controller->archive());
+        $this->assertStringContainsString('ZipArchive not available', $output);
+
+        unset($GLOBALS['mock_ziparchive_absent']);
+    }
+
+    public function testExportDateRangeJsonWithJsonLines(): void
+    {
+        $jsonEntry = json_encode([
+            'timestamp' => '2026-06-08 10:00:00',
+            'level' => 'warning',
+            'message' => 'Json warning message',
+            'context' => ['user' => 1]
+        ]);
+        file_put_contents($this->logDir . DS . 'php_error.log', $jsonEntry . "\n");
+
+        $_POST['file']       = 'php_error.log';
+        $_POST['format']     = 'json';
+        $_POST['start_date'] = '2026-06-01';
+        $_POST['end_date']   = '2026-06-30';
+
+        $output = $this->captureOutput(fn() => $this->controller->export());
+        $this->assertStringContainsString('Json warning message', $output);
+    }
+
+    public function testExportCsvJsonDecodeThrow(): void
+    {
+        $jsonEntry = '{"timestamp":"2026-06-08 10:00:00"}';
+        file_put_contents($this->logDir . DS . 'php_error.log', $jsonEntry . "\n");
+
+        $GLOBALS['mock_json_decode_throw'] = true;
+
+        $_GET['format'] = 'csv';
+        $_GET['file']   = 'php_error.log';
+
+        $output = $this->captureOutput(fn() => $this->controller->export());
+        // Since json_decode throws, it falls back to raw line parsing
+        $this->assertStringContainsString('Timestamp', $output);
+
+        unset($GLOBALS['mock_json_decode_throw']);
+    }
+
+    public function testExportJsonJsonDecodeThrow(): void
+    {
+        $jsonEntry = '{"timestamp":"2026-06-08 10:00:00"}';
+        file_put_contents($this->logDir . DS . 'php_error.log', $jsonEntry . "\n");
+
+        $GLOBALS['mock_json_decode_throw'] = true;
+
+        $_GET['format'] = 'json';
+        $_GET['file']   = 'php_error.log';
+
+        $output = $this->captureOutput(fn() => $this->controller->export());
+        $this->assertStringContainsString('logs', $output);
+
+        unset($GLOBALS['mock_json_decode_throw']);
+    }
+
+    public function testExportZipTempnamFail(): void
+    {
+        $GLOBALS['mock_tempnam_fail'] = true;
+
+        $_POST['multiple_files'] = ['php_error.log'];
+        $_POST['format'] = 'zip';
+
+        $output = $this->captureOutput(fn() => $this->controller->export());
+        $this->assertStringContainsString('Failed to create ZIP archive', $output);
+
+        unset($GLOBALS['mock_tempnam_fail']);
+    }
+
+    public function testFilterJsonDecodeThrow(): void
+    {
+        $jsonEntry = '{"timestamp":"2026-06-08 10:00:00"}';
+        file_put_contents($this->logDir . DS . 'php_error.log', $jsonEntry . "\n");
+
+        $GLOBALS['mock_json_decode_throw'] = true;
+
+        $_POST['file']  = 'php_error.log';
+        $_POST['query'] = 'timestamp';
+
+        $output = $this->controller->filter();
+        $this->assertStringContainsString('Filter Results', $output);
+
+        unset($GLOBALS['mock_json_decode_throw']);
+    }
+
+    public function testFilterStandardLogInvalidDateFormat(): void
+    {
+        // standard log regex matching with ISO format instead of d/m/Y H:i:s
+        // E.g. [2026-06-08 10:00:00] message
+        file_put_contents(
+            $this->logDir . DS . 'php_error.log',
+            "[2026-06-08 10:00:00] ISO format log message\n"
+        );
+
+        $_POST['file']       = 'php_error.log';
+        $_POST['start_date'] = '2026-06-01';
+        $_POST['end_date']   = '2026-06-30';
+
+        $output = $this->controller->filter();
+        $this->assertStringContainsString('ISO format log message', $output);
+    }
+
+    public function testExportCsvGitSpecialFile(): void
+    {
+        $this->controller->addToWhitelist('GitDeploy');
+        $path = \Pramnos\Logs\Logger::getLogPath('GitDeploy', '');
+        file_put_contents($path, "special log\n");
+
+        $_GET['format'] = 'csv';
+        $_GET['file']   = 'GitDeploy';
+
+        $output = $this->captureOutput(fn() => $this->controller->export());
+        $this->assertStringContainsString('special log', $output);
+
+        @unlink($path);
+    }
+
+    public function testExportJsonGitSpecialFile(): void
+    {
+        $this->controller->addToWhitelist('GitDeploy');
+        $path = \Pramnos\Logs\Logger::getLogPath('GitDeploy', '');
+        file_put_contents($path, "special log\n");
+
+        $_GET['format'] = 'json';
+        $_GET['file']   = 'GitDeploy';
+
+        $output = $this->captureOutput(fn() => $this->controller->export());
+        $this->assertStringContainsString('special log', $output);
+
+        @unlink($path);
+    }
+
+    public function testExportRawGitSpecialFile(): void
+    {
+        $this->controller->addToWhitelist('GitDeploy');
+        $path = \Pramnos\Logs\Logger::getLogPath('GitDeploy', '');
+        file_put_contents($path, "special log\n");
+
+        $_GET['format'] = 'raw';
+        $_GET['file']   = 'GitDeploy';
+
+        $output = $this->captureOutput(fn() => $this->controller->export());
+        $this->assertStringContainsString('special log', $output);
+
+        @unlink($path);
     }
 }

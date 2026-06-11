@@ -71,3 +71,9 @@ if (!defined('DB_PERMISSIONSTABLE')) {
 if (!class_exists('Pramnos\Auth\pramnos_factory')) {
     require __DIR__ . '/stubs/pramnos_factory_stub.php';
 }
+
+require __DIR__ . '/stubs/broadcasting_shadows.php';
+require __DIR__ . '/stubs/storage_shadows.php';
+require __DIR__ . '/stubs/console_shadows.php';
+require __DIR__ . '/stubs/console_test_shadows.php';
+require __DIR__ . '/stubs/log_controller_shadows.php';

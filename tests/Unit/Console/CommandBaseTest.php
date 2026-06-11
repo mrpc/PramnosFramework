@@ -755,25 +755,30 @@ class CommandBaseTest extends TestCase
      */
     public function testSetupSignalHandlerWithPcntlIsSilent(): void
     {
-        if (!function_exists('pcntl_signal')) {
-            $this->markTestSkipped('PCNTL not available in this environment');
+        $GLOBALS['mock_pcntl_support'] = true;
+        try {
+            if (!function_exists('pcntl_signal')) {
+                $this->markTestSkipped('PCNTL not available in this environment');
+            }
+
+            foreach ([true, false] as $orchestrated) {
+                // Arrange
+                $cmd    = $this->makeProbeCommand(pcntl: true, orchestrated: $orchestrated);
+                $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+                // Act
+                $cmd->publicSetupSignalHandler($output);
+
+                // Assert — no warning text either way
+                $this->assertSame('', $output->fetch(),
+                    'PCNTL signal installation must be silent (orchestrated=' . var_export($orchestrated, true) . ')');
+            }
+
+            // Restore default SIGINT behaviour so the test runner stays interruptible
+            pcntl_signal(SIGINT, SIG_DFL);
+        } finally {
+            unset($GLOBALS['mock_pcntl_support']);
         }
-
-        foreach ([true, false] as $orchestrated) {
-            // Arrange
-            $cmd    = $this->makeProbeCommand(pcntl: true, orchestrated: $orchestrated);
-            $output = new \Symfony\Component\Console\Output\BufferedOutput();
-
-            // Act
-            $cmd->publicSetupSignalHandler($output);
-
-            // Assert — no warning text either way
-            $this->assertSame('', $output->fetch(),
-                'PCNTL signal installation must be silent (orchestrated=' . var_export($orchestrated, true) . ')');
-        }
-
-        // Restore default SIGINT behaviour so the test runner stays interruptible
-        pcntl_signal(SIGINT, SIG_DFL);
     }
 
     /**
