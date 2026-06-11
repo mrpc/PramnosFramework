@@ -131,7 +131,73 @@ class DeviceTest extends TestCase
         return $rm->invoke($this->device, ...$args);
     }
 
+    /**
+     * Put a real, active User into the Application singleton and mark the
+     * session as logged-in so that User::getCurrentUser() returns it.
+     *
+     * staticIsLogged() requires $_SESSION['logged'] AND $_SESSION['uid'] > 1;
+     * the user's language is pre-synced with the current language so
+     * getCurrentUser() does not try to save() the user (DB write).
+     */
+    private function makeSessionUser(int $userid = 5): void
+    {
+        $_SESSION['logged'] = true;
+        $_SESSION['uid']    = $userid;
+
+        $app = \Pramnos\Application\Application::getInstance();
+        if (!$app) {
+            $app = new \Pramnos\Application\Application();
+        }
+
+        $user           = new \Pramnos\User\User(0);
+        $user->userid   = $userid;
+        $user->active   = 1;
+        $user->username = 'alice';
+        $user->email    = 'alice@example.com';
+        $lang           = \Pramnos\Framework\Factory::getLanguage();
+        $user->language = $lang ? $lang->currentlang() : 'en';
+
+        $app->currentUser = $user;
+    }
+
+    /**
+     * Remove the session user installed by makeSessionUser().
+     */
+    private function clearSessionUser(): void
+    {
+        $app = \Pramnos\Application\Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+        $_SESSION = [];
+    }
+
     // ── Class contract ────────────────────────────────────────────────────────
+
+    /**
+     * The real constructor must wire up the WebhookService (with the Factory
+     * database) and run the parent Controller initialization. All other tests
+     * bypass the constructor, so this is its only coverage.
+     */
+    public function testConstructorInitializesWebhookService(): void
+    {
+        // Arrange — minimal application stub for parent::__construct()
+        $mockApp = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getExtraPaths'])
+            ->getMock();
+        $mockApp->method('getExtraPaths')->willReturn([]);
+
+        // Act
+        $device = new Device($mockApp);
+
+        // Assert — the private webhookService property holds a real service
+        $rf = new \ReflectionProperty(Device::class, 'webhookService');
+        $this->assertInstanceOf(
+            \Pramnos\Auth\WebhookService::class,
+            $rf->getValue($device)
+        );
+    }
 
     /**
      * Device must extend Controller so it has access to the view system and
@@ -622,6 +688,187 @@ class DeviceTest extends TestCase
         }
 
         $this->assertFalse($runtimeLeaked, 'handleVerification() deny path must not leak RuntimeException');
+    }
+
+    // ── Logged-in user paths (real session user via getCurrentUser()) ────────
+
+    /**
+     * showVerificationForm() with an authenticated, active user must route to
+     * the confirmation screen (title 'Authorize Device') instead of the code
+     * entry form — the user only confirms, they do not re-enter the code.
+     *
+     * Covers: showVerificationForm() logged-in branch (lines 61-68).
+     */
+    public function testShowVerificationFormForLoggedInUserShowsConfirmation(): void
+    {
+        // Arrange — active session user
+        $this->makeSessionUser(5);
+
+        // Act — view rendering may throw in the unit env; the title is set first
+        $levelBefore = ob_get_level();
+        try {
+            $this->callPrivate('showVerificationForm', 'CODE-1234');
+        } catch (\Throwable $e) {
+            $this->addToAssertionCount(1);
+        } finally {
+            while (ob_get_level() > $levelBefore) {
+                ob_end_clean();
+            }
+            $this->clearSessionUser();
+        }
+
+        // Assert — confirmation page was selected, not the entry form
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $this->assertSame('Authorize Device', $doc->title);
+    }
+
+    /**
+     * handleVerification() with a logged-in session user and a valid pending
+     * device row must take the session-user branch (no credential check),
+     * approve the device, and queue a 'device_authorized' webhook event with
+     * the session user's id.
+     *
+     * Covers: handleVerification() session-user branch (lines 100-106),
+     * device lookup (lines 118-130) and authorize dispatch (lines 132-134).
+     */
+    public function testHandleVerificationAuthorizeWithSessionUserApprovesDevice(): void
+    {
+        // Arrange — logged-in user + pending device row from the mock DB
+        $this->makeSessionUser(5);
+        $_POST = [
+            'user_code'     => 'SESS-REAL',
+            'verify_action' => 'authorize',
+        ];
+
+        $deviceRow          = new \stdClass();
+        $deviceRow->numRows = 1;
+        $deviceRow->fields  = [
+            'user_code'   => 'SESS-REAL',
+            'device_code' => 'dev-real-001',
+            'client_id'   => 'client-x',
+            'scope'       => 'openid',
+        ];
+        $this->injectMockDb($deviceRow);
+
+        // The approve path must queue exactly one event for userid=5
+        $webhookMock = $this->getMockBuilder(\Pramnos\Auth\WebhookService::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['queueEvent'])
+            ->getMock();
+        $webhookMock->expects($this->once())
+            ->method('queueEvent')
+            ->with('device_authorized', 5, $this->anything(), 'dev-real-001');
+        (new \ReflectionProperty(Device::class, 'webhookService'))
+            ->setValue($this->device, $webhookMock);
+
+        // Act
+        $levelBefore = ob_get_level();
+        try {
+            $this->callPrivate('handleVerification');
+        } catch (\Throwable $e) {
+            // View-layer error after the approve logic — acceptable
+            $this->addToAssertionCount(1);
+        } finally {
+            while (ob_get_level() > $levelBefore) {
+                ob_end_clean();
+            }
+            $this->clearSessionUser();
+        }
+
+        // Assert — webhook expectation (verified on mock teardown) proves the
+        // session-user branch reached approveDevice() with the right userid
+        $this->assertTrue(true);
+    }
+
+    /**
+     * handleVerification() with a logged-in session user and
+     * verify_action='deny' must take the deny dispatch and queue a
+     * 'device_deauthorized' webhook event.
+     *
+     * Covers: handleVerification() deny dispatch (lines 136-138) reached
+     * through the session-user branch.
+     */
+    public function testHandleVerificationDenyWithSessionUserDeniesDevice(): void
+    {
+        // Arrange
+        $this->makeSessionUser(5);
+        $_POST = [
+            'user_code'     => 'SESS-DENY',
+            'verify_action' => 'deny',
+        ];
+
+        $deviceRow          = new \stdClass();
+        $deviceRow->numRows = 1;
+        $deviceRow->fields  = [
+            'user_code'   => 'SESS-DENY',
+            'device_code' => 'dev-real-002',
+            'client_id'   => 'client-y',
+            'scope'       => '',
+        ];
+        $this->injectMockDb($deviceRow);
+
+        $webhookMock = $this->getMockBuilder(\Pramnos\Auth\WebhookService::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['queueEvent'])
+            ->getMock();
+        $webhookMock->expects($this->once())
+            ->method('queueEvent')
+            ->with('device_deauthorized', 0, $this->anything(), 'dev-real-002');
+        (new \ReflectionProperty(Device::class, 'webhookService'))
+            ->setValue($this->device, $webhookMock);
+
+        // Act
+        $levelBefore = ob_get_level();
+        try {
+            $this->callPrivate('handleVerification');
+        } catch (\Throwable $e) {
+            $this->addToAssertionCount(1);
+        } finally {
+            while (ob_get_level() > $levelBefore) {
+                ob_end_clean();
+            }
+            $this->clearSessionUser();
+        }
+
+        // Assert — deny event queued exactly once (verified by the mock)
+        $this->assertTrue(true);
+    }
+
+    /**
+     * handleVerification() with a logged-in session user but an expired /
+     * unknown device code (lookup returns 0 rows) must surface the
+     * 'Invalid or expired device code' error page — proving the lookup guard
+     * runs after the session-user branch.
+     *
+     * Covers: handleVerification() lookup guard (lines 126-128) via the
+     * session-user branch, and showErrorPage() title.
+     */
+    public function testHandleVerificationExpiredCodeWithSessionUserShowsError(): void
+    {
+        // Arrange — logged-in user, mock DB returns no pending row
+        $this->makeSessionUser(5);
+        $_POST = [
+            'user_code'     => 'GONE-CODE',
+            'verify_action' => 'authorize',
+        ];
+        $this->injectMockDb(); // first() → numRows = 0
+
+        // Act
+        $levelBefore = ob_get_level();
+        try {
+            $this->callPrivate('handleVerification');
+        } catch (\Throwable $e) {
+            $this->addToAssertionCount(1);
+        } finally {
+            while (ob_get_level() > $levelBefore) {
+                ob_end_clean();
+            }
+            $this->clearSessionUser();
+        }
+
+        // Assert — the error page was selected (title set before rendering)
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $this->assertSame('Authorization Error', $doc->title);
     }
 
     // ── validateCredentials() ─────────────────────────────────────────────────
