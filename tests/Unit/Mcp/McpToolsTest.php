@@ -176,6 +176,98 @@ class McpToolsTest extends TestCase
         $this->assertArrayHasKey('error', $result);
     }
 
+    /**
+     * RouteListTool metadata: name, description and the optional 'filter'
+     * string parameter in the input schema. Verifies the MCP contract that
+     * AI clients rely on for tool discovery.
+     */
+    public function testRouteListToolMetadata(): void
+    {
+        // Arrange
+        $app  = $this->createMock(\Pramnos\Application\Application::class);
+        $tool = new RouteListTool($app);
+
+        // Assert
+        $this->assertSame('route-list', $tool->name());
+        $this->assertNotEmpty($tool->description());
+        $schema = $tool->inputSchema();
+        $this->assertSame('object', $schema['type']);
+        $this->assertSame('string', $schema['properties']['filter']['type']);
+    }
+
+    /**
+     * RouteListTool::execute() with a real router must list every registered
+     * route with method, uri, action string, permissions and name — sorted by
+     * URI (then method). Verifies the three action-format conversions:
+     * Closure → '(Closure)', array → 'Class@method', string → cast as-is.
+     */
+    public function testRouteListToolListsAllRouteActionFormats(): void
+    {
+        // Arrange — a real Router with three routes using different action types
+        $router = new \Pramnos\Routing\Router(new \Pramnos\Application\Container());
+        $router->get('/zebra', function () {
+            return 'z';
+        })->name('zebra.index');
+        $router->post('/alpha', [\stdClass::class, 'handle']);
+        $router->get('/middle', 'PagesController@show');
+
+        // The Application mock exposes the router via Base magic accessors.
+        // __isset must also be stubbed: `$app->router ?? null` calls __isset
+        // first, and an unstubbed mock would report the property as unset.
+        $app = $this->createMockAppWithRouter($router);
+
+        $tool = new RouteListTool($app);
+
+        // Act
+        $routes = $tool->execute([]);
+
+        // Assert — all three routes returned, sorted by URI
+        $this->assertCount(3, $routes);
+        $this->assertSame(['/alpha', '/middle', '/zebra'], array_column($routes, 'uri'));
+
+        // Array action → 'Class@method'
+        $alpha = $routes[0];
+        $this->assertSame('POST', $alpha['method']);
+        $this->assertSame('stdClass@handle', $alpha['action']);
+
+        // String action → cast verbatim
+        $middle = $routes[1];
+        $this->assertSame('GET', $middle['method']);
+        $this->assertSame('PagesController@show', $middle['action']);
+
+        // Closure action → '(Closure)' placeholder, route name carried through
+        $zebra = $routes[2];
+        $this->assertSame('(Closure)', $zebra['action']);
+        $this->assertSame('zebra.index', $zebra['name']);
+        $this->assertIsArray($zebra['permissions']);
+    }
+
+    /**
+     * RouteListTool::execute() with a 'filter' input must keep only routes
+     * whose URI *or* action string contains the substring (case-insensitive),
+     * dropping everything else. This is the navigation aid the AI uses to
+     * narrow large route maps.
+     */
+    public function testRouteListToolFiltersByUriOrAction(): void
+    {
+        // Arrange — one route matching by URI, one by action, one not at all
+        $router = new \Pramnos\Routing\Router(new \Pramnos\Application\Container());
+        $router->get('/users/list', function () {
+        });
+        $router->get('/posts', 'UsersController@index'); // matches 'users' via action
+        $router->get('/health', function () {
+        });
+
+        $app  = $this->createMockAppWithRouter($router);
+        $tool = new RouteListTool($app);
+
+        // Act — mixed case to prove case-insensitive matching
+        $routes = $tool->execute(['filter' => '  UsErS ']);
+
+        // Assert — '/health' filtered out, the other two kept
+        $this->assertSame(['/posts', '/users/list'], array_column($routes, 'uri'));
+    }
+
     // ── MigrationStatusTool ───────────────────────────────────────────────────
 
     /**
@@ -257,6 +349,24 @@ class McpToolsTest extends TestCase
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Application mock whose Base::__get/__isset magic exposes a real Router.
+     * Both magic methods must be stubbed because `$app->router ?? null`
+     * triggers __isset before __get.
+     */
+    private function createMockAppWithRouter(
+        \Pramnos\Routing\Router $router
+    ): \Pramnos\Application\Application {
+        $app = $this->createMock(\Pramnos\Application\Application::class);
+        $app->method('__isset')->willReturnCallback(
+            fn(string $name) => $name === 'router'
+        );
+        $app->method('__get')->willReturnCallback(
+            fn(string $name) => $name === 'router' ? $router : null
+        );
+        return $app;
+    }
 
     private function createMockDatabase(): \Pramnos\Database\Database&\PHPUnit\Framework\MockObject\MockObject
     {
