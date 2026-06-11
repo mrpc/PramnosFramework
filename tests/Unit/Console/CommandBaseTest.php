@@ -568,6 +568,232 @@ class CommandBaseTest extends TestCase
         $this->assertFileDoesNotExist($lockFile);
     }
 
+    /**
+     * checkIfRunning() with a lock file whose recorded PID is no longer
+     * alive must delete the stale lock and report "not running" so the
+     * command can start.
+     */
+    public function testCheckIfRunningRemovesLockOfDeadProcess(): void
+    {
+        // Arrange — write a lock with an (almost certainly) unused PID
+        $lockFile = $this->tmpDir . '/var/test_job';
+        file_put_contents($lockFile, "999999\nCommand started.");
+
+        // Act
+        $running = $this->cmd->publicCheckIfRunning();
+
+        // Assert — dead-PID lock cleaned up, not considered running
+        $this->assertFalse($running,
+            'A lock held by a dead process must not block startup');
+        $this->assertFileDoesNotExist($lockFile,
+            'The stale lock file must be removed');
+    }
+
+    /**
+     * checkIfRunning() with a lock recorded by a live process (our own PID)
+     * must report "running" and keep the lock in place.
+     */
+    public function testCheckIfRunningDetectsLiveProcess(): void
+    {
+        // Arrange — our own PID is definitely alive
+        $lockFile = $this->tmpDir . '/var/test_job';
+        file_put_contents($lockFile, getmypid() . "\nCommand started.");
+
+        // Act + Assert
+        $this->assertTrue($this->cmd->publicCheckIfRunning(),
+            'A lock held by a live process must block a second instance');
+        $this->assertFileExists($lockFile);
+    }
+
+    /**
+     * checkIfRunning() with a PID-less lock file younger than 5 minutes must
+     * conservatively assume the job is running (grace window).
+     */
+    public function testCheckIfRunningPidlessYoungLockAssumesRunning(): void
+    {
+        // Arrange — fresh lock without any numeric PID line
+        $lockFile = $this->tmpDir . '/var/test_job';
+        file_put_contents($lockFile, "no pid here\njust text");
+
+        // Act + Assert — within the 300s grace window → assumed running
+        $this->assertTrue($this->cmd->publicCheckIfRunning());
+    }
+
+    /**
+     * checkIfRunning() with a PID-less lock file older than the grace window
+     * (but younger than the stale limit) must remove it and report
+     * "not running".
+     */
+    public function testCheckIfRunningPidlessOldLockIsRemoved(): void
+    {
+        // Arrange — PID-less lock aged past the 300s grace window
+        $lockFile = $this->tmpDir . '/var/test_job';
+        file_put_contents($lockFile, "no pid here");
+        touch($lockFile, time() - 600);
+
+        // Act + Assert
+        $this->assertFalse($this->cmd->publicCheckIfRunning(),
+            'An aged PID-less lock must not block startup');
+        $this->assertFileDoesNotExist($lockFile);
+    }
+
+    /**
+     * checkIfRunning() with a lock older than getLockStaleSeconds() must be
+     * treated as stale: removed immediately, command may start.
+     */
+    public function testCheckIfRunningStaleLockIsRemoved(): void
+    {
+        // Arrange — lock aged past the 2-hour stale limit
+        $lockFile = $this->tmpDir . '/var/test_job';
+        file_put_contents($lockFile, getmypid() . "\nold");
+        touch($lockFile, time() - (3600 * 3));
+
+        // Act + Assert — even a live PID does not save a stale lock
+        $this->assertFalse($this->cmd->publicCheckIfRunning());
+        $this->assertFileDoesNotExist($lockFile);
+    }
+
+    /**
+     * readPidFromLockFile() must return 0 when the file has no numeric line
+     * and when the file is empty/unreadable.
+     */
+    public function testReadPidFromLockFileNonNumericReturnsZero(): void
+    {
+        // Arrange
+        $noPid = $this->tmpDir . '/var/nopid.lock';
+        file_put_contents($noPid, "alpha\nbeta gamma\n");
+        $empty = $this->tmpDir . '/var/empty.lock';
+        file_put_contents($empty, '');
+
+        // Act + Assert
+        $this->assertSame(0, $this->cmd->publicReadPidFromLockFile($noPid),
+            'A lock without a numeric line must yield PID 0');
+        $this->assertSame(0, $this->cmd->publicReadPidFromLockFile($empty),
+            'An empty lock must yield PID 0');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Signal handler + orchestrator detection
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Build a CommandBase subclass whose OS probes are overridable per test
+     * (pcntl support, parent-process cmdline, etc.).
+     */
+    private function makeProbeCommand(
+        bool $pcntl,
+        bool $orchestrated,
+        string $parentCmdline = ''
+    ): CommandBase {
+        return new class($this->tmpDir, $pcntl, $orchestrated, $parentCmdline) extends CommandBase {
+            public function __construct(
+                private string $baseDir,
+                private bool $pcntlFlag,
+                private bool $orchFlag,
+                private string $cmdline
+            ) {
+                parent::__construct();
+            }
+
+            protected function getJobName(): string { return 'probe_job'; }
+            protected function getJobLockFilePath(): string
+            {
+                return $this->baseDir . '/var/probe_job';
+            }
+            protected function configure(): void { $this->setName('probe:command'); }
+
+            protected function supportsPcntl(): bool { return $this->pcntlFlag; }
+            protected function supportsPosixGetParentPid(): bool { return true; }
+            protected function getParentProcessId(): int { return 12345; }
+            protected function hasParentCmdline(int $ppid): bool
+            {
+                return $this->cmdline !== '';
+            }
+            protected function readParentCmdline(int $ppid): string
+            {
+                return $this->cmdline;
+            }
+            protected function isRunningUnderOrchestrator(): bool
+            {
+                // For the signal-handler tests we force the flag directly;
+                // the cmdline-based detection is tested separately below.
+                return $this->cmdline === '' ? $this->orchFlag : parent::isRunningUnderOrchestrator();
+            }
+
+            public function publicSetupSignalHandler($output): void
+            {
+                $this->configureInterruptHandling($output);
+            }
+            public function publicIsOrchestrated(): bool
+            {
+                return parent::isRunningUnderOrchestrator();
+            }
+        };
+    }
+
+    /**
+     * setupSignalHandler() without PCNTL must warn the operator that Ctrl+C
+     * will not shut down cleanly.
+     */
+    public function testSetupSignalHandlerWithoutPcntlWarns(): void
+    {
+        // Arrange
+        $cmd    = $this->makeProbeCommand(pcntl: false, orchestrated: false);
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $cmd->publicSetupSignalHandler($output);
+
+        // Assert
+        $this->assertStringContainsString('PCNTL extension not available', $output->fetch());
+    }
+
+    /**
+     * setupSignalHandler() with PCNTL available must install the handler
+     * silently — under an orchestrator SIGINT is ignored, standalone it is
+     * routed to the interrupt handler. Both paths must produce no output.
+     */
+    public function testSetupSignalHandlerWithPcntlIsSilent(): void
+    {
+        if (!function_exists('pcntl_signal')) {
+            $this->markTestSkipped('PCNTL not available in this environment');
+        }
+
+        foreach ([true, false] as $orchestrated) {
+            // Arrange
+            $cmd    = $this->makeProbeCommand(pcntl: true, orchestrated: $orchestrated);
+            $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+            // Act
+            $cmd->publicSetupSignalHandler($output);
+
+            // Assert — no warning text either way
+            $this->assertSame('', $output->fetch(),
+                'PCNTL signal installation must be silent (orchestrated=' . var_export($orchestrated, true) . ')');
+        }
+
+        // Restore default SIGINT behaviour so the test runner stays interruptible
+        pcntl_signal(SIGINT, SIG_DFL);
+    }
+
+    /**
+     * isRunningUnderOrchestrator() must detect the orchestrator name in the
+     * parent process cmdline and reject unrelated parents.
+     */
+    public function testIsRunningUnderOrchestratorChecksParentCmdline(): void
+    {
+        // Arrange — parent cmdline contains the orchestrator command name
+        $needle   = $this->cmd->publicGetOrchestratorCommandName();
+        $match    = $this->makeProbeCommand(true, false, "php pramnos {$needle} --daemon");
+        $noMatch  = $this->makeProbeCommand(true, false, 'bash -c sleep');
+
+        // Act + Assert
+        $this->assertTrue($match->publicIsOrchestrated(),
+            'A parent whose cmdline contains the orchestrator name must be detected');
+        $this->assertFalse($noMatch->publicIsOrchestrated(),
+            'An unrelated parent must not be detected as the orchestrator');
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
