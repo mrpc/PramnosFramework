@@ -188,6 +188,13 @@ class Token extends \Pramnos\Framework\Base
         } else {
             $this->deviceinfo = array();
         }
+        if (is_string($this->scope) && json_decode($this->scope) !== null) {
+            $this->scope = json_decode($this->scope, true);
+        } elseif (is_string($this->scope) && strpos($this->scope, ',') !== false) {
+            $this->scope = explode(',', $this->scope);
+        } elseif (!is_array($this->scope)) {
+            $this->scope = empty($this->scope) ? array() : array($this->scope);
+        }
     }
 
     /**
@@ -579,7 +586,7 @@ class Token extends \Pramnos\Framework\Base
             ),
             array(
                 'fieldName' => 'scope',
-                'value' => $this->scope,
+                'value' => is_array($this->scope) ? json_encode($this->scope) : $this->scope,
                 'type' => 'string'
             )
         );
