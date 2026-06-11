@@ -369,6 +369,206 @@ class UnifiedAuthMiddlewareTest extends TestCase
     // csrfMeta helper
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // Bearer extraction edge cases
+    // -------------------------------------------------------------------------
+
+    /**
+     * The middleware must also read the REDIRECT_HTTP_AUTHORIZATION header —
+     * Apache/FastCGI setups often forward Authorization under that name.
+     * An invalid JWT in the redirect header proves extraction succeeded
+     * (the response is InvalidToken, not Unauthenticated).
+     */
+    public function testBearerExtractedFromRedirectHttpAuthorization(): void
+    {
+        // Arrange — only the REDIRECT_ variant is set
+        $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] = 'Bearer not-a-real-jwt';
+        $mw = $this->make();
+
+        // Act
+        $response = $mw->handle($this->request, $this->nextOk());
+
+        // Assert — Bearer path was entered (InvalidToken), not the 401 fallback
+        $decoded = json_decode($response, true);
+        $this->assertSame('InvalidToken', $decoded['error'],
+            'REDIRECT_HTTP_AUTHORIZATION must be honoured as a Bearer source');
+    }
+
+    /**
+     * An Authorization header of exactly "Bearer " (empty token) must NOT be
+     * treated as a credential — the middleware falls through to the
+     * no-credentials 401.
+     */
+    public function testEmptyBearerValueFallsThroughToUnauthenticated(): void
+    {
+        // Arrange — "Bearer " with no token after the space
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ';
+        $mw = $this->make();
+
+        // Act
+        $response = $mw->handle($this->request, $this->nextOk());
+
+        // Assert — generic Unauthenticated, not the Bearer-path InvalidToken
+        $decoded = json_decode($response, true);
+        $this->assertSame('Unauthenticated', $decoded['error'],
+            'An empty Bearer value must not enter the Bearer validation path');
+    }
+
+    /**
+     * An RS256-signed token must trigger the public-key lookup branch; with no
+     * key file installed in this project the HS256 fallback key fails the
+     * signature check and the error envelope must carry the decode detail.
+     */
+    public function testRs256TokenTriggersKeyLookupAndDetailInError(): void
+    {
+        // Arrange — well-formed JWT with alg=RS256 (signature is garbage)
+        $header  = rtrim(strtr(base64_encode(json_encode(
+            ['typ' => 'JWT', 'alg' => 'RS256']
+        )), '+/', '-_'), '=');
+        $payload = rtrim(strtr(base64_encode(json_encode(
+            ['sub' => 1, 'exp' => time() + 3600]
+        )), '+/', '-_'), '=');
+        $_SERVER['HTTP_AUTHORIZATION'] = "Bearer {$header}.{$payload}.invalidsig";
+        $mw = $this->make();
+
+        // Act
+        $response = $mw->handle($this->request, $this->nextOk());
+
+        // Assert — Bearer validation failed and the exception detail is exposed
+        $decoded = json_decode($response, true);
+        $this->assertSame(401, $decoded['status']);
+        $this->assertSame('InvalidToken', $decoded['error']);
+        $this->assertSame('Bearer token validation failed.', $decoded['message']);
+        $this->assertArrayHasKey('data', $decoded,
+            'The decode exception message must be returned as detail');
+    }
+
+    // -------------------------------------------------------------------------
+    // Bearer path with valid JWTs (real database)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Ensure the test database connection and the users/usertokens schema
+     * exist for the JWT round-trip tests below.
+     */
+    private function bootDatabase(): \Pramnos\Database\Database
+    {
+        \Pramnos\Application\Settings::clearSettings();
+        \Pramnos\Application\Settings::loadSettings(
+            ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php'
+        );
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        if (!$db->connected) {
+            $db->connect();
+        }
+        \Pramnos\User\User::setupDb();
+        return $db;
+    }
+
+    /**
+     * A correctly signed HS256 JWT that matches an active usertokens row must
+     * authenticate the user: $next is called and the session is marked logged.
+     *
+     * Full happy path: extractBearer → JWT::decode OK → loadByToken finds the
+     * row → userid > 1 → pipeline continues.
+     */
+    public function testValidBearerTokenWithDbRowAuthenticates(): void
+    {
+        // Arrange — real DB row whose token column holds the JWT itself
+        $db  = $this->bootDatabase();
+        $jwt = \Pramnos\Auth\JWT::encode(
+            ['sub' => 661, 'exp' => time() + 3600], 'test-key-0123456789-0123456789-0123'
+        );
+        $db->query("SET FOREIGN_KEY_CHECKS=0");
+        $db->query("DELETE FROM `usertokens` WHERE `userid` = 661");
+        $db->query("DELETE FROM `users` WHERE `userid` = 661");
+        $db->query(
+            "INSERT INTO `users` (`userid`, `username`, `email`, `active`)
+             VALUES (661, 'jwtuser', 'jwt@test.com', 1)"
+        );
+        $db->query($db->prepareQuery(
+            "INSERT INTO `usertokens`
+             (`userid`, `tokentype`, `token`, `created`, `status`, `expires`)
+             VALUES (661, 'auth', %s, %d, 1, 0)",
+            $jwt, time()
+        ));
+        $db->query("SET FOREIGN_KEY_CHECKS=1");
+
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $jwt;
+        $mw = $this->make('test-key-0123456789-0123456789-0123');
+
+        try {
+            // Act
+            $result = $mw->handle($this->request, $this->nextOk());
+
+            // Assert — pipeline continued and the session was authenticated
+            $this->assertSame('OK', $result,
+                'A valid Bearer token backed by an active DB row must pass');
+            $this->assertTrue($_SESSION['logged'] ?? false);
+            $this->assertSame(661, (int) ($_SESSION['user']->userid ?? 0),
+                'The matched user must be stored in the session');
+        } finally {
+            // Cleanup — remove the rows and session state we created
+            $db->query("DELETE FROM `usertokens` WHERE `userid` = 661");
+            $db->query("DELETE FROM `users` WHERE `userid` = 661");
+            unset($_SESSION['logged'], $_SESSION['user'], $_SESSION['usertoken']);
+        }
+    }
+
+    /**
+     * A correctly signed JWT with NO matching usertokens row must be rejected
+     * with "Token not found or expired" — signature validity alone is not
+     * enough; the token must also be active in the database.
+     */
+    public function testValidJwtWithoutDbRowIsRejected(): void
+    {
+        // Arrange — valid signature, no DB row inserted
+        $this->bootDatabase();
+        $jwt = \Pramnos\Auth\JWT::encode(
+            ['sub' => 999999, 'exp' => time() + 3600], 'test-key-0123456789-0123456789-0123'
+        );
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $jwt;
+        $mw = $this->make('test-key-0123456789-0123456789-0123');
+
+        // Act
+        $response = $mw->handle($this->request, $this->nextOk());
+
+        // Assert
+        $decoded = json_decode($response, true);
+        $this->assertSame(401, $decoded['status']);
+        $this->assertSame('InvalidToken', $decoded['error']);
+        $this->assertSame('Token not found or expired.', $decoded['message']);
+        unset($_SESSION['usertoken']);
+    }
+
+    /**
+     * resolveUser() with an appNamespace whose User class does not exist must
+     * fall back to the framework \Pramnos\User\User — verified indirectly via
+     * the rejected-JWT path (no fatal "class not found" error).
+     */
+    public function testUnknownAppNamespaceFallsBackToFrameworkUser(): void
+    {
+        // Arrange
+        $this->bootDatabase();
+        $jwt = \Pramnos\Auth\JWT::encode(
+            ['sub' => 999998, 'exp' => time() + 3600], 'test-key-0123456789-0123456789-0123'
+        );
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $jwt;
+        $mw = $this->make('test-key-0123456789-0123456789-0123', 'TotallyMissingNamespace12345');
+
+        // Act — must not fatal on the missing class
+        $response = $mw->handle($this->request, $this->nextOk());
+
+        // Assert — normal rejection envelope, proving the fallback was used
+        $decoded = json_decode($response, true);
+        $this->assertSame('InvalidToken', $decoded['error']);
+        unset($_SESSION['usertoken']);
+    }
+
+    // -------------------------------------------------------------------------
+    // csrfMeta helper
+    // -------------------------------------------------------------------------
+
     /**
      * CsrfMiddleware::csrfMeta() must return a valid <meta> tag that JS can
      * read to populate the X-CSRF-Token header (Phase 16 pattern).
