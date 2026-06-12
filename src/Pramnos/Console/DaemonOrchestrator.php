@@ -547,7 +547,7 @@ abstract class DaemonOrchestrator extends CommandBase
                 $output->writeln('<comment>[stopping]</comment> soft stop requested for ' . $id . ' pid=' . $pid);
             } elseif ((time() - (int)strtotime((string)$stoppingAt)) >= static::STOP_GRACE_SECONDS) {
                 if (function_exists('posix_kill')) {
-                    @posix_kill($pid, SIGTERM);
+                    @posix_kill($pid, defined('SIGTERM') ? \SIGTERM : 15);
                 }
                 unset($this->announcedHealthyPids[$id]);
                 unset($stateById[$id]);
@@ -787,7 +787,7 @@ abstract class DaemonOrchestrator extends CommandBase
                     continue;
                 }
                 if (function_exists('posix_kill')) {
-                    @posix_kill($runningPid, SIGTERM);
+                    @posix_kill($runningPid, defined('SIGTERM') ? \SIGTERM : 15);
                 }
                 $output->writeln(
                     '<comment>[dedup]</comment> killed duplicate '
