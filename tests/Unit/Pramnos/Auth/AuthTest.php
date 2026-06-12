@@ -21,13 +21,26 @@ class AuthTest extends TestCase
     {
         // Reset Auth instance drivers and callbacks
         $auth = Auth::getInstance();
-        $auth->clearDrivers();
         
         $reflection = new \ReflectionClass($auth);
+        
+        $driversProp = $reflection->getProperty('drivers');
+        $driversProp->setValue($auth, null); // Reset to default null state
+        
         $loginProp = $reflection->getProperty('afterLoginCallbacks');
         $loginProp->setValue($auth, []);
+        
         $logoutProp = $reflection->getProperty('afterLogoutCallbacks');
         $logoutProp->setValue($auth, []);
+    }
+
+    protected function tearDown(): void
+    {
+        // Clean up Auth instance drivers to avoid leaking mutated state to other tests
+        $auth = Auth::getInstance();
+        $reflection = new \ReflectionClass($auth);
+        $driversProp = $reflection->getProperty('drivers');
+        $driversProp->setValue($auth, null);
     }
 
     public function testGetInstance(): void
