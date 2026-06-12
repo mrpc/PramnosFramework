@@ -118,10 +118,7 @@ class Factory
      */
     public static function &getAuth()
     {
-        static $instance=null;
-        if (!is_object($instance)) {
-            $instance = & \Pramnos\Auth\Auth::getInstance();
-        }
+        $instance = & \Pramnos\Auth\Auth::getInstance();
         return $instance;
     }
 
