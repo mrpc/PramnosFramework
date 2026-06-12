@@ -66,7 +66,7 @@ class DatabaseAuthDriver implements AuthDriverInterface
 
         $result = $database->query($sql);
 
-        if ($result->numRows == 0) {
+        if (!$result || !isset($result->numRows) || $result->numRows == 0) {
             return AuthResult::failure("User doesn't exist", 404);
         }
 
