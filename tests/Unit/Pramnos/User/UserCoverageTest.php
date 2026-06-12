@@ -48,7 +48,7 @@ class UserCoverageTest extends TestCase
         \Pramnos\Application\Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         \Pramnos\Application\Settings::loadSettings($settingsFile);
-        \Pramnos\Application\Application::getInstance();
+        new \Pramnos\Application\Application();
 
         $db = Factory::getDatabase();
         if (!$db->connected) {
@@ -89,7 +89,7 @@ class UserCoverageTest extends TestCase
         Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         Settings::loadSettings($settingsFile);
-        Application::getInstance();
+        new Application();
 
         $this->db = Factory::getDatabase();
         if (!$this->db->connected) {
@@ -1587,5 +1587,133 @@ class UserCoverageTest extends TestCase
         // Assert
         $this->assertGreaterThanOrEqual(0, $stats['unique_apps'],
             'getDataUsageStats() unique_apps must always be >= 0');
+    }
+
+    // -----------------------------------------------------------------------
+    // deleteuser() (lines 109-127)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Tests that deleteuser() deletes an existing user from the database.
+     */
+    #[Test]
+    public function testDeleteUserRemovesDatabaseRecord(): void
+    {
+        // Arrange
+        $user = $this->createUser();
+        $uid = $user->userid;
+        
+        $ref = new \ReflectionClass(User::class);
+        $prop = $ref->getProperty('_isnew');
+        $this->assertEquals(0, $prop->getValue($user));
+
+        // Act
+        $user->deleteuser();
+
+        // Assert
+        $this->assertEquals(1, $prop->getValue($user), 'deleteuser() must set _isnew to 1');
+        
+        $db = Factory::getDatabase();
+        $res = $db->query("SELECT COUNT(*) as cnt FROM users WHERE userid = {$uid}");
+        $this->assertEquals(0, (int)$res->fields['cnt'], 'User record must be deleted from the database');
+    }
+
+    // -----------------------------------------------------------------------
+    // activate() / deactivate() on existing user (lines 132-145, 154-167)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Tests activate() and deactivate() on an existing saved user.
+     */
+    #[Test]
+    public function testActivateDeactivateExistingUser(): void
+    {
+        // Arrange
+        $user = $this->createUser();
+        $uid = $user->userid;
+        $this->assertEquals(1, $user->active);
+
+        // Act: deactivate
+        $user->deactivate();
+        $this->assertEquals(0, $user->active);
+
+        // Assert: status is updated in database
+        $db = Factory::getDatabase();
+        $res = $db->query("SELECT active FROM users WHERE userid = {$uid}");
+        $this->assertEquals(0, (int)$res->fields['active']);
+
+        // Act: activate
+        $user->activate();
+        $this->assertEquals(1, $user->active);
+
+        // Assert: status is updated in database
+        $res = $db->query("SELECT active FROM users WHERE userid = {$uid}");
+        $this->assertEquals(1, (int)$res->fields['active']);
+    }
+
+    // -----------------------------------------------------------------------
+    // getUsers() (lines 213-232)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Tests getUsers() retrieves users based on a filter.
+     */
+    #[Test]
+    public function testGetUsersFilter(): void
+    {
+        // Arrange
+        $user1 = $this->createUser();
+        $user2 = $this->createUser();
+
+        // Act
+        $filtered = User::getUsers("userid IN ({$user1->userid}, {$user2->userid})");
+
+        // Assert
+        $this->assertCount(2, $filtered);
+        $this->assertArrayHasKey($user1->userid, $filtered);
+        $this->assertArrayHasKey($user2->userid, $filtered);
+    }
+
+    // -----------------------------------------------------------------------
+    // validateUserCredentials() (lines 241-255)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Tests that validateUserCredentials() delegates to the Auth object.
+     */
+    #[Test]
+    public function testValidateUserCredentialsDelegatesToAuth(): void
+    {
+        // Arrange: mock the Auth object and inject it via Factory::getAuth reference assignment
+        $mockAuth = $this->createMock(\Pramnos\Auth\Auth::class);
+        
+        $mockAuth->expects($this->exactly(2))
+            ->method('verifyCredentials')
+            ->willReturnMap([
+                ['valid_user', 'correct_pass', ['uid' => 456, 'username' => 'valid_user', 'email' => 'valid@example.com']],
+                ['invalid_user', 'wrong_pass', false],
+            ]);
+
+        $authRef = &Factory::getAuth();
+        $originalAuth = $authRef;
+        $authRef = $mockAuth;
+
+        try {
+            // Act: valid credentials path
+            $validRes = User::validateUserCredentials('valid_user', 'correct_pass');
+            $this->assertEquals([
+                'userid'   => 456,
+                'username' => 'valid_user',
+                'email'    => 'valid@example.com',
+            ], $validRes);
+
+            // Act: invalid credentials path
+            $invalidRes = User::validateUserCredentials('invalid_user', 'wrong_pass');
+            $this->assertFalse($invalidRes);
+
+        } finally {
+            // Restore the original Auth instance unconditionally
+            $authRef = $originalAuth;
+        }
     }
 }
