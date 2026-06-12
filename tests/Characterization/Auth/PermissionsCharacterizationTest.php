@@ -39,6 +39,10 @@ class PermissionsCharacterizationTest extends PermissionsCharacterizationBase
         Settings::loadSettings($settingsFile);
         Application::getInstance();
 
+        // Recreate Database singleton with loaded settings to prevent stale empty configuration
+        $dbRef = &\Pramnos\Database\Database::getInstance();
+        $dbRef = null;
+
         $this->db = Factory::getDatabase();
         if (!$this->db->connected) {
             $this->db->connect();
