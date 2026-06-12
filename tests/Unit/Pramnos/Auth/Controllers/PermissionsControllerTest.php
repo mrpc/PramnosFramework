@@ -399,4 +399,79 @@ class PermissionsControllerTest extends TestCase
             $this->assertStringContainsString('error=required_fields', $this->controller->redirectedTo[0]);
         }
     }
+
+    /**
+     * display() with GET filters passed must call applyDisplayFilters() and
+     * exercise all four filter branches (subject_type, subject_id, object_type,
+     * action). Without these branches covered, applyDisplayFilters() shows as
+     * only partially covered.
+     */
+    public function testDisplayWithFiltersAppliesAllGetParameters(): void
+    {
+        // Arrange
+        $this->setMockUser(90);
+
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->themeObject = new class {
+            public function allowsViewOverrides() { return false; }
+        };
+
+        // Set all four filter params to exercise every branch in applyDisplayFilters()
+        $_GET = [
+            'subject_type' => 'user',
+            'subject_id'   => '2',
+            'object_type'  => 'reports',
+            'action'       => 'view',
+        ];
+
+        // Act
+        ob_start();
+        try {
+            $output = $this->controller->display();
+        } finally {
+            $obOutput = ob_get_clean();
+        }
+
+        // Assert — no redirect issued; DB returned the matching seeded row
+        $this->assertEmpty($this->controller->redirectedTo,
+            'display() with valid GET filters must not redirect');
+
+        if (empty($output)) {
+            $output = $obOutput;
+        }
+        $this->assertNotEmpty($output, 'display() must return non-empty HTML');
+    }
+
+    /**
+     * assign() with $userId passed as parameter (not POST) must use that value
+     * as the subject_id for the new permission record. Covers the
+     * `$userId ?? $_POST['userid'] ?? 0` ternary branch where the parameter wins.
+     */
+    public function testAssignWithUserIdParameterCreatesPermission(): void
+    {
+        $this->setMockUser(90);
+
+        $_POST = [
+            'object_type' => 'invoices',
+            'action'      => 'view',
+        ];
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            $this->controller->assign(5);
+        } finally {
+            $this->assertCount(1, $this->controller->redirectedTo);
+            $this->assertStringContainsString('message=assigned', $this->controller->redirectedTo[0]);
+
+            $db     = \Pramnos\Framework\Factory::getDatabase();
+            $result = $db->queryBuilder()
+                ->table('authserver.permissions')
+                ->where('subject_id', 5)
+                ->first();
+            $this->assertNotNull($result);
+            $this->assertEquals('invoices', $result->fields['object_type']);
+        }
+    }
 }

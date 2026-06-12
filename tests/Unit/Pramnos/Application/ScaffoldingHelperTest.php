@@ -334,4 +334,66 @@ class ScaffoldingHelperTest extends TestCase
         // Assert
         $this->assertArrayHasKey('login', $groups, "The 'login' view group must be present in every theme");
     }
+
+    /**
+     * listViewGroups() must skip:
+     *  - files at the views-root level (not directories)         → `if (!is_dir($groupDir)) continue`
+     *  - non-file entries inside a group directory (e.g. subdir) → `if (is_file(...))` false branch
+     *  - empty group directories (no files inside)               → `if (!empty($files))` false branch
+     *
+     * Tested using a synthetic temp directory structure so the test is
+     * deterministic regardless of what themes are bundled.
+     */
+    public function testListViewGroupsSkipsEdgeCases(): void
+    {
+        // Arrange — build a temp scaffolding/themes/synthetic-edge/views/ tree
+        $tmpBase  = sys_get_temp_dir() . '/pramnos_scaffold_edge_' . bin2hex(random_bytes(4));
+        $viewsDir = $tmpBase . '/themes/synthetic-edge/views';
+        mkdir($viewsDir, 0777, true);
+
+        // Case 1: a plain file at the views-root level (must be skipped)
+        file_put_contents($viewsDir . '/not_a_group.txt', 'ignored');
+
+        // Case 2: an empty group directory (has no files → must be excluded from result)
+        mkdir($viewsDir . '/empty_group', 0777, true);
+
+        // Case 3: a group directory that has a subdirectory instead of files
+        mkdir($viewsDir . '/group_with_subdir/a_subdir', 0777, true);
+
+        // Case 4: a normal group with a real file (must appear in result)
+        mkdir($viewsDir . '/login', 0777, true);
+        file_put_contents($viewsDir . '/login/login.html.php', '<?php // stub');
+
+        // Wire up ScaffoldingHelper to use this temp tree by overriding resolveScaffoldingDir
+        // via the protected static late-binding. We subclass ScaffoldingHelper in-line so
+        // getThemeDir() calls our resolveScaffoldingDir().
+        $syntheticHelper = new class ($tmpBase) extends ScaffoldingHelper {
+            private static string $root;
+            public function __construct(string $root) { static::$root = $root; }
+            public static function resolveScaffoldingDir(): string { return static::$root; }
+        };
+
+        // Act
+        $groups = $syntheticHelper::listViewGroups('synthetic-edge');
+
+        // Cleanup
+        foreach (glob($viewsDir . '/group_with_subdir/a_subdir') ?: [] as $d) @rmdir($d);
+        foreach (glob($viewsDir . '/*/*.html.php') ?: [] as $f) @unlink($f);
+        foreach (glob($viewsDir . '/*.txt') ?: [] as $f) @unlink($f);
+        foreach (glob($viewsDir . '/*') ?: [] as $d) @rmdir($d);
+        @rmdir($viewsDir);
+        @rmdir(dirname($viewsDir));
+        @rmdir(dirname($viewsDir, 2));
+        @rmdir($tmpBase);
+
+        // Assert — only the 'login' group (with a real file) must appear
+        $this->assertArrayHasKey('login', $groups,
+            "'login' group with a real file must appear in result");
+        $this->assertArrayNotHasKey('empty_group', $groups,
+            "Empty group directory must be excluded from result");
+        $this->assertArrayNotHasKey('group_with_subdir', $groups,
+            "Group with only subdirectories must be excluded (is_file() branch)");
+        $this->assertArrayNotHasKey('not_a_group.txt', $groups,
+            "Plain files at views-root level must be skipped (is_dir() branch)");
+    }
 }
