@@ -2804,6 +2804,441 @@ class DaemonOrchestratorTest extends TestCase
 
         $this->rmdirRecursive($tmpDir);
     }
+
+    /**
+     * Grace period expired on an orphan process should invoke posix_kill and output [killed].
+     */
+    public function testReconcileGracePeriodExpiredAndKillsProcess(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_KILL';
+        $orch->processRunning = [12345 => true];
+        $orch->desiredProcesses = [];
+        $orch->publicSaveState([
+            [
+                'id' => 'queue-kill',
+                'daemon' => 'queue',
+                'workerId' => 'queue-kill',
+                'lockFile' => $lockFile,
+                'pid' => 12345,
+                'stoppingAt' => date('c', time() - 40),
+                'updatedAt' => date('c'),
+            ]
+        ]);
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert
+        $out = $output->fetch();
+        $this->assertStringContainsString('[killed]', $out);
+        $this->assertStringContainsString('grace period expired', $out);
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * Grace period not yet expired on an orphan process should wait and output [stopping].
+     */
+    public function testReconcileGracePeriodNotExpiredWaiting(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_WAIT';
+        $orch->processRunning = [12345 => true];
+        $orch->desiredProcesses = [];
+        $orch->publicSaveState([
+            [
+                'id' => 'queue-wait',
+                'daemon' => 'queue',
+                'workerId' => 'queue-wait',
+                'lockFile' => $lockFile,
+                'pid' => 12345,
+                'stoppingAt' => date('c', time() - 5),
+                'updatedAt' => date('c'),
+            ]
+        ]);
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert
+        $out = $output->fetch();
+        $this->assertStringContainsString('[stopping]', $out);
+        $this->assertStringContainsString('waiting for graceful exit', $out);
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * When a process does not require a lock file and is running, shouldAnnounceHealthyProcess
+     * should cause it to output [ok] on reconciliation.
+     */
+    public function testReconcileAnnounceHealthyForNoLockProcess(): void
+    {
+        // Arrange
+        [$orch, $tmpDir] = $this->buildReconcileOrchestrator();
+        $lockFile = $tmpDir . '/var/QUEUE_NOLOCK';
+        $orch->processRunning = [12345 => true];
+        $orch->desiredProcesses = [
+            [
+                'id' => 'queue-nolock',
+                'daemon' => 'queue',
+                'workerId' => 'queue-nolock',
+                'lockFile' => $lockFile,
+                'tokens' => [],
+                'requireLockFile' => false,
+            ]
+        ];
+        $orch->publicSaveState([
+            [
+                'id' => 'queue-nolock',
+                'daemon' => 'queue',
+                'workerId' => 'queue-nolock',
+                'lockFile' => $lockFile,
+                'pid' => 12345,
+                'updatedAt' => date('c'),
+            ]
+        ]);
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicReconcile('php', false, $output);
+
+        // Assert
+        $out = $output->fetch();
+        $this->assertStringContainsString('[ok]', $out);
+        $this->assertStringContainsString('lock active', $out);
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * execute() should detect a change in git hash, call requestStopAll() and output git notice.
+     */
+    public function testExecuteGitHashChangeRestart(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_gitcheck_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+        $orch = new TestableDaemonOrchestratorGitCheck($tmpDir);
+        $orch->desiredProcesses = [];
+        $orch->processRunning = [];
+        $orch->setShouldContinue(false);
+
+        $app = new \Symfony\Component\Console\Application();
+        $app->add($orch);
+        $input = new ArrayInput([], $orch->getDefinition());
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicExecute($input, $output);
+
+        // Assert
+        $out = $output->fetch();
+        $this->assertStringContainsString('[git] New deployment detected', $out);
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * execute() should run deduplication and print [dedup] messages in non-interactive mode.
+     */
+    public function testExecutePrintsDeduplicateMessagesInNonInteractiveMode(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_dedupmsg_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+        $orch = new TestableDaemonOrchestratorDedupScan($tmpDir);
+        $orch->desiredProcesses = [
+            [
+                'id' => 'q-dup',
+                'daemon' => 'queue',
+                'workerId' => 'q-dup',
+                'tokens' => ['queue:process', '--worker-id', 'q-dup'],
+            ],
+        ];
+        $orch->publicSaveState([
+            ['id' => 'q-dup', 'pid' => 55555],
+        ]);
+        $orch->setShouldContinue(false);
+        $app = new \Symfony\Component\Console\Application();
+        $app->add($orch);
+        $input = new ArrayInput([], $orch->getDefinition());
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicExecute($input, $output);
+
+        // Assert
+        $out = $output->fetch();
+        $this->assertStringContainsString('[dedup]', $out);
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * tryAcquireOrchestratorLock should fail when contested by a background process.
+     */
+    public function testTryAcquireLockFailsContestedByBackgroundProcess(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_lock_contest_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var', 0777, true);
+        $lockFile = $tmpDir . '/var/ORCH.lock';
+        file_put_contents($lockFile, '12345');
+
+        // Start a background PHP command that flocks the file and sleeps.
+        $cmd = PHP_BINARY . ' -r ' . escapeshellarg('
+            $h = fopen("' . $lockFile . '", "r+");
+            if ($h && flock($h, LOCK_EX)) {
+                sleep(5);
+            }
+        ') . ' > /dev/null 2>&1 & echo $!';
+
+        $bgPid = (int)trim((string)shell_exec($cmd));
+        $this->assertProjectBackgroundProcessStarted($bgPid);
+
+        // Give it a moment to start and acquire the lock
+        usleep(150000);
+
+        $orch = new class($tmpDir) extends DaemonOrchestrator {
+            public string $dir;
+            public function __construct(string $d) { parent::__construct(); $this->dir = $d; }
+            protected function buildDesiredProcesses(): array { return []; }
+            protected function getDashboardTitle(): string { return "TEST"; }
+            protected function getEntryPoint(): string { return "/dev/null"; }
+            protected function getJobName(): string { return "test"; }
+            protected function getOrchestratorLockFile(): string { return $this->dir . "/var/ORCH.lock"; }
+            protected function getStateFile(): string { return $this->dir . "/var/state.json"; }
+            protected function configure(): void { $this->setName("test:contest"); }
+            protected function isProcessRunning(int $pid): bool {
+                if ($pid === 12345) return true;
+                return parent::isProcessRunning($pid);
+            }
+            public function publicTryAcquire(\Symfony\Component\Console\Output\OutputInterface $o): bool {
+                return $this->tryAcquireOrchestratorLock($o);
+            }
+        };
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $result = $orch->publicTryAcquire($output);
+
+        // Cleanup
+        if (function_exists('posix_kill')) {
+            @posix_kill($bgPid, 9);
+        } else {
+            shell_exec('kill -9 ' . $bgPid);
+        }
+
+        // Assert
+        $this->assertFalse($result);
+        $out = $output->fetch();
+        $this->assertStringContainsString('Another orchestrator instance is already running', $out);
+        $this->assertStringContainsString('PID 12345', $out);
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    private function assertProjectBackgroundProcessStarted(int $pid): void
+    {
+        $this->assertGreaterThan(0, $pid);
+    }
+
+    /**
+     * readWorkerPidFromLockFile should return 0 for empty files.
+     */
+    public function testReadWorkerPidFromLockFileEmpty(): void
+    {
+        // Arrange
+        $lockFile = $this->tmpDir . '/var/EMPTY_LOCK';
+        file_put_contents($lockFile, '');
+
+        // Act & Assert
+        $this->assertSame(0, $this->orch->publicReadWorkerPidFromLockFile($lockFile));
+    }
+
+    /**
+     * confirmProcessStartup should exercise various success and fail paths.
+     */
+    public function testConfirmProcessStartupPaths(): void
+    {
+        // Arrange
+        $orch = new class($this->tmpDir) extends DaemonOrchestrator {
+            public string $dir;
+            public function __construct(string $d) { parent::__construct(); $this->dir = $d; }
+            protected function buildDesiredProcesses(): array { return []; }
+            protected function getDashboardTitle(): string { return "TEST"; }
+            protected function getEntryPoint(): string { return "/dev/null"; }
+            protected function getJobName(): string { return "test"; }
+            protected function configure(): void { $this->setName("test:confirm"); }
+            public bool $processIsRunning = true;
+            protected function isProcessRunning(int $pid): bool { return $this->processIsRunning; }
+            public function publicConfirm(array $desired, int $pid): bool {
+                return $this->confirmProcessStartup($desired, $pid);
+            }
+        };
+
+        // Act & Assert
+        // 1. pid <= 0 -> false
+        $this->assertFalse($orch->publicConfirm([], 0));
+
+        // 2. requireLockFile = false, pid alive -> true
+        $this->assertTrue($orch->publicConfirm(['requireLockFile' => false], 123));
+
+        // 3. requireLockFile = true, lock file has correct PID -> true
+        $lockFile = $this->tmpDir . '/var/CONFIRM_LOCK';
+        file_put_contents($lockFile, '123');
+        $this->assertTrue($orch->publicConfirm(['requireLockFile' => true, 'lockFile' => $lockFile], 123));
+
+        // 4. requireLockFile = true, lock file has wrong PID -> false (timeout)
+        file_put_contents($lockFile, '456');
+        $orch->processIsRunning = false;
+        $this->assertFalse($orch->publicConfirm(['requireLockFile' => true, 'lockFile' => $lockFile], 123));
+
+        @unlink($lockFile);
+    }
+
+    /**
+     * getProcessLogFile should use sys_get_temp_dir when ROOT is not defined.
+     */
+    public function testGetProcessLogFileDefault(): void
+    {
+        // Arrange
+        $orch = new MinimalDaemonOrchestrator();
+        $ref = new \ReflectionMethod($orch, 'getProcessLogFile');
+
+        // Act
+        $path = $ref->invoke($orch, ['daemon' => 'testd', 'workerId' => 'testw']);
+
+        // Assert
+        $this->assertStringContainsString('testd-testw.log', $path);
+    }
+
+    /**
+     * readStartupFailureDetails should excerpt and truncate long tail logs.
+     */
+    public function testReadStartupFailureDetailsLongLogExcerpt(): void
+    {
+        // Arrange
+        $logFile = $this->tmpDir . '/var/logs/queue-longworker.log';
+        $longLine = str_repeat('A', 700);
+        file_put_contents($logFile, $longLine);
+        $proc = ['daemon' => 'queue', 'workerId' => 'longworker'];
+        $ref = new \ReflectionMethod($this->orch, 'readStartupFailureDetails');
+
+        // Act
+        $result = $ref->invoke($this->orch, $proc);
+
+        // Assert
+        $this->assertStringContainsString('log tail:', $result);
+        $this->assertSame(612, strlen($result));
+    }
+
+    /**
+     * renderInteractiveDashboard should show lock-no-pid and stopped statuses.
+     */
+    public function testRenderInteractiveDashboardLockNoPidAndStopped(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_dash_no_pid_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+        $lockFile = $tmpDir . '/var/QUEUE_LOCK_NOPID';
+        file_put_contents($lockFile, '');
+
+        $orch = new TestableDaemonOrchestrator($tmpDir);
+        $orch->desiredProcesses = [
+            [
+                'id' => 'queue-nopid',
+                'daemon' => 'queue',
+                'workerId' => 'queue-nopid',
+                'lockFile' => $lockFile,
+                'tokens' => [],
+                'requireLockFile' => true,
+            ],
+            [
+                'id' => 'queue-stopped',
+                'daemon' => 'queue',
+                'workerId' => 'queue-stopped',
+                'lockFile' => $tmpDir . '/var/NONEXISTENT_LOCK',
+                'tokens' => [],
+                'requireLockFile' => true,
+            ]
+        ];
+
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicRenderInteractiveDashboard($output, false, []);
+
+        // Assert
+        $out = $output->fetch();
+        $this->assertStringContainsString('lock-no-pid', $out);
+        $this->assertStringContainsString('stopped', $out);
+
+        @unlink($lockFile);
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * readLastLogLine should return log empty if log is zero size.
+     */
+    public function testReadLastLogLineEmptyLogFile(): void
+    {
+        // Arrange
+        $logFile = $this->tmpDir . '/var/logs/queue-empty.log';
+        file_put_contents($logFile, '');
+        $proc = ['daemon' => 'queue', 'workerId' => 'empty'];
+
+        // Act & Assert
+        $this->assertSame('(log empty)', $this->orch->publicReadLastLogLine($proc));
+    }
+
+    /**
+     * pcntl signals should turn shouldContinue to false on dispatch.
+     */
+    public function testSignalHandlingSetsShouldContinueFalse(): void
+    {
+        if (!function_exists('pcntl_signal')) {
+            $this->markTestSkipped('pcntl_signal is not available');
+        }
+
+        // Arrange
+        $orch = new TestableDaemonOrchestrator($this->tmpDir);
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+        $ref = new \ReflectionMethod($orch, 'registerSignalHandlers');
+        $ref->invoke($orch, $output);
+
+        $oldInt = pcntl_signal_get_handler(SIGINT);
+        $oldTerm = pcntl_signal_get_handler(SIGTERM);
+
+        try {
+            $this->assertTrue($orch->shouldContinue);
+
+            // Act & Assert SIGINT
+            posix_kill(getmypid(), SIGINT);
+            pcntl_signal_dispatch();
+            $this->assertFalse($orch->shouldContinue);
+
+            // Act & Assert SIGTERM
+            $orch->setShouldContinue(true);
+            posix_kill(getmypid(), SIGTERM);
+            pcntl_signal_dispatch();
+            $this->assertFalse($orch->shouldContinue);
+        } finally {
+            if ($oldInt) {
+                pcntl_signal(SIGINT, $oldInt);
+            }
+            if ($oldTerm) {
+                pcntl_signal(SIGTERM, $oldTerm);
+            }
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3138,5 +3573,31 @@ class TestableDaemonOrchestratorDuplicates extends TestableDaemonOrchestrator
                 );
             }
         }
+    }
+}
+
+/**
+ * Subclass to test git hash changes.
+ */
+class TestableDaemonOrchestratorGitCheck extends TestableDaemonOrchestrator
+{
+    protected const GIT_CHECK_SECONDS = -1;
+    private int $gitCalls = 0;
+    protected function getCurrentGitHash(): string
+    {
+        $this->gitCalls++;
+        return $this->gitCalls === 1 ? 'hash1' : 'hash2';
+    }
+}
+
+/**
+ * Subclass to test non-interactive deduplication output.
+ */
+class TestableDaemonOrchestratorDedupScan extends TestableDaemonOrchestrator
+{
+    protected const DEDUP_SCAN_INTERVAL = 1;
+    protected function findRunningPidsByWorkerSignature(string $workerId): array
+    {
+        return [44444, 55555];
     }
 }
