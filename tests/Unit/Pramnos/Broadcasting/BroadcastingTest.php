@@ -178,6 +178,120 @@ class BroadcastingTest extends TestCase
         $this->assertSame('dummy_model.deleted', $entries[2]['event']);
     }
 
+    /**
+     * broadcastCreated/Updated/Deleted must silently do nothing when the
+     * application container has no 'broadcasting' binding.
+     * Covers resolveBroadcastingManager() returning null and the early-return
+     * branch inside broadcastEvent() at lines 99-101.
+     */
+    public function testBroadcastableDoesNothingWhenManagerNotRegistered(): void
+    {
+        // Arrange — app container has no 'broadcasting' binding
+        $app = \Pramnos\Application\Application::getInstance();
+        // Ensure 'broadcasting' is absent (fresh TestBroadcastingApp has empty bindings)
+        $model = new DummyModel();
+
+        // Act + Assert — none of these must throw
+        $model->broadcastCreated();
+        $model->broadcastUpdated();
+        $model->broadcastDeleted();
+
+        // If we reach here without exceptions, the null manager path is correct
+        $this->assertTrue(true, 'No exception expected when broadcasting is not registered');
+    }
+
+    /**
+     * When a model using Broadcastable does NOT implement toArray(), broadcastEvent()
+     * must use an empty array as payload base (the ternary `[] else` branch at line 108).
+     * The manager still receives the broadcast — only _model and $extra appear in payload.
+     */
+    public function testBroadcastableUsesEmptyArrayPayloadWhenModelLacksToArray(): void
+    {
+        // Arrange — model WITHOUT toArray()
+        $modelWithoutToArray = new class {
+            use Broadcastable;
+        };
+
+        $app = \Pramnos\Application\Application::getInstance();
+        $manager = new BroadcastingManager();
+        $logDriver = new LogDriver($this->tempLogPath);
+        $manager->addDriver($logDriver);
+        $manager->setDefault('log');
+        $app->container->singleton('broadcasting', fn() => $manager);
+
+        // Act
+        $modelWithoutToArray->broadcastEvent('ping', ['extra_key' => 'val']);
+
+        // Assert — payload contains only _model and extra_key (no model fields)
+        $entries = $logDriver->getEntries();
+        $this->assertCount(1, $entries);
+        $this->assertArrayHasKey('_model', $entries[0]['payload'],
+            '_model key must always be present in broadcast payload');
+        $this->assertSame('val', $entries[0]['payload']['extra_key'],
+            '$extra keys must appear in the payload');
+        $this->assertArrayNotHasKey('id', $entries[0]['payload'],
+            'payload must NOT contain id when model has no toArray()');
+    }
+
+    /**
+     * broadcastEvent() with an explicit broadcastChannel set must use that
+     * channel name instead of the auto-derived snake_case model name.
+     * Covers the `$this->broadcastChannel ?: $shortName` ternary true branch.
+     */
+    public function testBroadcastEventUsesExplicitChannelWhenSet(): void
+    {
+        // Arrange
+        $app = \Pramnos\Application\Application::getInstance();
+        $manager = new BroadcastingManager();
+        $logDriver = new LogDriver($this->tempLogPath);
+        $manager->addDriver($logDriver);
+        $manager->setDefault('log');
+        $app->container->singleton('broadcasting', fn() => $manager);
+
+        $model = new DummyModel();
+        // Force a specific channel name via reflection
+        $ref = new \ReflectionProperty($model, 'broadcastChannel');
+        $ref->setValue($model, 'my_custom_channel');
+
+        // Act
+        $model->broadcastCreated();
+
+        // Assert — the explicit channel was used, not the class-derived name
+        $entries = $logDriver->getEntries();
+        $this->assertSame('my_custom_channel', $entries[0]['channel'],
+            'broadcastChannel property must override the auto-derived model name');
+    }
+
+    /**
+     * broadcastCreated/Updated/Deleted must not broadcast when the respective
+     * broadcastOn* flag is false. Covers the false branch of each guard if.
+     */
+    public function testBroadcastableDoesNotBroadcastWhenFlagIsFalse(): void
+    {
+        // Arrange
+        $app = \Pramnos\Application\Application::getInstance();
+        $manager = new BroadcastingManager();
+        $logDriver = new LogDriver($this->tempLogPath);
+        $manager->addDriver($logDriver);
+        $manager->setDefault('log');
+        $app->container->singleton('broadcasting', fn() => $manager);
+
+        $model = new DummyModel();
+        $ref = new \ReflectionClass($model);
+        $ref->getProperty('broadcastOnCreate')->setValue($model, false);
+        $ref->getProperty('broadcastOnUpdate')->setValue($model, false);
+        $ref->getProperty('broadcastOnDelete')->setValue($model, false);
+
+        // Act — none of these should fire a broadcast
+        $model->broadcastCreated();
+        $model->broadcastUpdated();
+        $model->broadcastDeleted();
+
+        // Assert — log driver received no entries
+        $this->assertEmpty($logDriver->getEntries(),
+            'No events must be broadcast when all broadcastOn* flags are false');
+    }
+
     public function testBroadcastingServiceProviderRegistration(): void
     {
         $app = \Pramnos\Application\Application::getInstance();

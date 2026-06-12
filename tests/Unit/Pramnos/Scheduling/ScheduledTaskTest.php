@@ -567,4 +567,85 @@ class ScheduledTaskTest extends TestCase
         $this->assertStringStartsWith('*/10', $ten->getCronExpression()->getExpression());
         $this->assertStringStartsWith('*/30', $thirty->getCronExpression()->getExpression());
     }
+
+    /**
+     * everyFifteenMinutes() must produce the correct step expression (every 15 min).
+     * Covers the alias method which delegates to everyNMinutes(15).
+     */
+    public function testEveryFifteenMinutesAlias(): void
+    {
+        // Arrange / Act
+        $task = self::callableTask(fn() => null)->everyFifteenMinutes();
+
+        // Assert
+        $this->assertStringStartsWith('*/15', $task->getCronExpression()->getExpression());
+    }
+
+    /**
+     * getSummary()['handler'] must describe an array handler as 'ClassName::method'.
+     * The array form — [$object_or_class, 'method'] — is a standard PHP callable
+     * pattern. Both the string-class and object-class variants must be rendered.
+     * Covers the `is_array($this->handler)` branch in describeHandler().
+     */
+    public function testSummaryHandlerDescribesArrayHandlerWithStringClass(): void
+    {
+        // Arrange — [string class, method]
+        $task = new ScheduledTask(['stdClass', 'create'], 'callable');
+
+        // Act
+        $desc = $task->getSummary()['handler'];
+
+        // Assert — format is ClassName::method
+        $this->assertSame('stdClass::create', $desc,
+            'Array handler with string class must be described as ClassName::method');
+    }
+
+    /**
+     * Array handler where first element is an object instance must use get_class()
+     * for the class name. Covers the ternary true branch inside describeHandler().
+     */
+    public function testSummaryHandlerDescribesArrayHandlerWithObjectClass(): void
+    {
+        // Arrange — [object instance, method]
+        $obj  = new \stdClass();
+        $task = new ScheduledTask([$obj, 'someMethod'], 'callable');
+
+        // Act
+        $desc = $task->getSummary()['handler'];
+
+        // Assert — format is ClassName::method using get_class()
+        $this->assertSame('stdClass::someMethod', $desc,
+            'Array handler with object instance must use get_class() for class name');
+    }
+
+    /**
+     * isLocked() must treat the task as locked when the lock file contains pid=0
+     * (i.e., when posix_kill cannot verify — safe to assume locked).
+     * Covers the `return true` branch when PID is 0.
+     */
+    public function testRunSkipsWhenLockFileContainsPidZero(): void
+    {
+        // Arrange — lock file with pid=0
+        $lockDir = sys_get_temp_dir();
+        $called  = 0;
+        $task    = new ScheduledTask(function () use (&$called) { $called++; }, 'callable');
+        $task->withoutOverlapping($lockDir);
+
+        $lockFileRef = new \ReflectionMethod($task, 'lockFile');
+        $lockFile    = $lockFileRef->invoke($task);
+
+        // Write pid=0 so isLocked() hits the 'return true' fallback
+        file_put_contents($lockFile, '0');
+
+        try {
+            // Act
+            $task->run();
+
+            // Assert — callable was skipped because lock is considered held
+            $this->assertSame(0, $called,
+                'run() must skip execution when lock file exists even with pid=0');
+        } finally {
+            @unlink($lockFile);
+        }
+    }
 }

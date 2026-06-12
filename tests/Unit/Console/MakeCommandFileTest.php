@@ -387,6 +387,66 @@ class MakeCommandFileTest extends TestCase
         $tester->execute(['name' => $name]);
     }
 
+    /**
+     * create:event must throw InvalidArgumentException when no name is provided,
+     * covering the missing-name guard branch in MakeEvent::execute().
+     */
+    public function testMakeEventThrowsForMissingName(): void
+    {
+        // Arrange
+        $command = $this->consoleApp->find('create:event');
+        $tester  = new CommandTester($command);
+
+        // Assert + Act
+        $this->expectException(\InvalidArgumentException::class);
+        $tester->execute([]);
+    }
+
+    /**
+     * create:listener must throw InvalidArgumentException when no name is provided,
+     * covering the missing-name guard branch in MakeListener::execute().
+     */
+    public function testMakeListenerThrowsForMissingName(): void
+    {
+        // Arrange
+        $command = $this->consoleApp->find('create:listener');
+        $tester  = new CommandTester($command);
+
+        // Assert + Act
+        $this->expectException(\InvalidArgumentException::class);
+        $tester->execute([]);
+    }
+
+    /**
+     * create:seeder must throw InvalidArgumentException when no name is provided,
+     * covering the missing-name guard branch in MakeSeeder::execute().
+     */
+    public function testMakeSeederThrowsForMissingName(): void
+    {
+        // Arrange
+        $command = $this->consoleApp->find('create:seeder');
+        $tester  = new CommandTester($command);
+
+        // Assert + Act
+        $this->expectException(\InvalidArgumentException::class);
+        $tester->execute([]);
+    }
+
+    /**
+     * create:view must throw InvalidArgumentException when no name is provided,
+     * covering the missing-name guard branch in MakeView::execute().
+     */
+    public function testMakeViewThrowsForMissingName(): void
+    {
+        // Arrange
+        $command = $this->consoleApp->find('create:view');
+        $tester  = new CommandTester($command);
+
+        // Assert + Act
+        $this->expectException(\InvalidArgumentException::class);
+        $tester->execute([]);
+    }
+
     // ── MakeApi ──────────────────────────────────────────────────────────────
 
     /**
