@@ -16,22 +16,65 @@ namespace Pramnos\Auth;
  * Loaded unconditionally from tests/bootstrap.php.
  */
 
-/** @internal test stub only */
+/**
+ * Permissions mock class used for stubbing access checks in Unit Tests.
+ *
+ * Simulates permission persistence and validation logic.
+ *
+ * @internal test stub only
+ */
 class PramnosTestPermissionsStub
 {
-    /** @param mixed $elementid */
+    /**
+     * Grants a permission to a user or group.
+     *
+     * @param int $id The user or group ID.
+     * @param string $moduleid The module identifier.
+     * @param string $what The action to allow.
+     * @param mixed $elementid Optional specific entity identifier.
+     * @param string $moduletype The type of access level (user, group, etc).
+     * @param string $onwhat Additional target description.
+     */
     public function allow(int $id, string $moduleid, string $what,
         $elementid, string $moduletype, string $onwhat): void {}
 
-    /** @param mixed $elementid */
+    /**
+     * Revokes or denies a permission.
+     *
+     * @param int $id The user or group ID.
+     * @param string $moduleid The module identifier.
+     * @param string $what The action to deny.
+     * @param mixed $elementid Optional specific entity identifier.
+     * @param string $moduletype The type of access level (user, group, etc).
+     * @param string $onwhat Additional target description.
+     */
     public function deny(int $id, string $moduleid, string $what,
         $elementid, string $moduletype, string $onwhat): void {}
 
-    /** @param mixed $elementid */
+    /**
+     * Removes a permission entry entirely.
+     *
+     * @param int $id The user or group ID.
+     * @param string $moduleid The module identifier.
+     * @param string $what The action to remove.
+     * @param mixed $elementid Optional specific entity identifier.
+     * @param string $moduletype The type of access level (user, group, etc).
+     * @param string $onwhat Additional target description.
+     */
     public function removePermission(int $id, string $moduleid, string $what,
         $elementid, string $moduletype, string $onwhat): void {}
 
-    /** @param mixed $elementid */
+    /**
+     * Checks if a user/group has permission for a specific action.
+     *
+     * @param int $id The user or group ID.
+     * @param string $moduleid The module identifier.
+     * @param string $what The action.
+     * @param mixed $elementid Optional specific entity identifier.
+     * @param string $moduletype The type of access level (user, group, etc).
+     * @param string $check The specific verification rule.
+     * @return bool True if allowed, false otherwise.
+     */
     public function isAllowed(int $id, string $moduleid, string $what,
         $elementid, string $moduletype, string $check): bool
     {
@@ -39,11 +82,21 @@ class PramnosTestPermissionsStub
     }
 }
 
-/** @internal test stub only */
+/**
+ * Mock factory providing permissions service class.
+ *
+ * @internal test stub only
+ */
 class pramnos_factory
 {
+    /** @var PramnosTestPermissionsStub|null Static instance representing permission manager. */
     private static ?PramnosTestPermissionsStub $permissions = null;
 
+    /**
+     * Returns the singleton permissions stub instance.
+     *
+     * @return PramnosTestPermissionsStub
+     */
     public static function &getPermissions(): PramnosTestPermissionsStub
     {
         if (self::$permissions === null) {
