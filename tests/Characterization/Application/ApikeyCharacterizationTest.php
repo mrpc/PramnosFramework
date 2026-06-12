@@ -234,4 +234,68 @@ class ApikeyCharacterizationTest extends TestCase
         $this->assertSame(date('c', 1700000000), $data['added']);
         $this->assertSame($this->namePrefix . '_data', $data['name']);
     }
+
+    /**
+     * getList() must return an array of Apikey objects — one per row in the
+     * applications table. Rows are inserted directly via SQL (bypassing
+     * Apikey::save() which has DB pre-condition dependencies) to keep this test
+     * self-contained regardless of insert-path state.
+     */
+    public function testGetListReturnsArrayOfApikeyObjects(): void
+    {
+        // Arrange — insert two known rows directly using only the columns guaranteed
+        // to exist on both the test-fixture table and the production schema.
+        foreach (['_list_a', '_list_b'] as $suffix) {
+            $sql = $this->db->prepareQuery(
+                "INSERT INTO `applications` (`name`, `apikey`, `apisecret`, `status`) "
+                . "VALUES (%s, %s, %s, 1)",
+                $this->namePrefix . $suffix,
+                'key_' . bin2hex(random_bytes(4)),
+                'sec'
+            );
+            $this->db->query($sql);
+        }
+
+        // Act
+        $list = (new Apikey())->getList();
+
+        // Assert — returned collection contains Apikey objects
+        $this->assertIsArray($list, 'getList() must return an array');
+        $this->assertNotEmpty($list, 'getList() must return at least the two inserted rows');
+        $this->assertContainsOnlyInstancesOf(Apikey::class, $list,
+            'Every element returned by getList() must be an Apikey instance');
+
+        $names = array_map(fn($a) => $a->name, $list);
+        $this->assertContains($this->namePrefix . '_list_a', $names);
+        $this->assertContains($this->namePrefix . '_list_b', $names);
+    }
+
+    /**
+     * getData() with a non-zero owner must resolve the owner User and replace
+     * the scalar owner id with the User's getData() array.
+     *
+     * We use owner id 99999 (which does not exist), so User::getUser() returns
+     * an empty User whose getData() produces an array. The important invariant is
+     * that $data['owner'] is transformed from an int to an array.
+     */
+    public function testGetDataWithNonZeroOwnerResolvesUserData(): void
+    {
+        // Arrange
+        $app = new Apikey([
+            'appid'     => 8,
+            'name'      => $this->namePrefix . '_owner',
+            'apikey'    => 'keyy',
+            'apisecret' => 'secrety',
+            'status'    => 1,
+            'added'     => 1700000000,
+            'owner'     => 99999, // non-zero → triggers User::getUser() lookup
+        ]);
+
+        // Act
+        $data = $app->getData();
+
+        // Assert — owner was replaced with user data array (even if empty user)
+        $this->assertIsArray($data['owner'],
+            'getData() with non-zero owner must replace the integer with a User data array');
+    }
 }
