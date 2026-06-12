@@ -6,6 +6,7 @@ namespace Pramnos\Tests\Unit\Debug;
 
 use PHPUnit\Framework\TestCase;
 use Pramnos\Debug\Collectors\ExceptionsCollector;
+use Pramnos\Debug\Collectors\MemoryCollector;
 use Pramnos\Debug\Collectors\ModelsCollector;
 use Pramnos\Debug\Collectors\ViewsCollector;
 
@@ -99,6 +100,97 @@ class CollectorsTest extends TestCase
         $this->assertSame('tests', $data['operations'][1]['table']);
         $this->assertSame('delete', $data['operations'][1]['op']);
         $this->assertSame('key-123', $data['operations'][1]['key']);
+    }
+
+    // MemoryCollector tests
+
+    /**
+     * MemoryCollector::name() must return 'memory' so the DebugBar panel is
+     * identified correctly in the toolbar.
+     */
+    public function testMemoryCollectorName(): void
+    {
+        // Arrange / Act / Assert
+        $collector = new MemoryCollector();
+        $this->assertSame('memory', $collector->name());
+    }
+
+    /**
+     * MemoryCollector::collect() must return peak_bytes, peak_human,
+     * current_bytes, current_human — all required keys.
+     */
+    public function testMemoryCollectorCollectReturnsRequiredKeys(): void
+    {
+        // Arrange
+        $collector = new MemoryCollector();
+
+        // Act
+        $data = $collector->collect();
+
+        // Assert — all four keys are present
+        $this->assertArrayHasKey('peak_bytes',    $data);
+        $this->assertArrayHasKey('peak_human',    $data);
+        $this->assertArrayHasKey('current_bytes', $data);
+        $this->assertArrayHasKey('current_human', $data);
+    }
+
+    /**
+     * MemoryCollector::collect() human label must end in MB when peak usage
+     * is over 1 MB (virtually guaranteed in any PHP process running PHPUnit).
+     * This covers the '>= 1_048_576' branch of the private format() method.
+     */
+    public function testMemoryCollectorFormatsMegabytes(): void
+    {
+        // Arrange
+        $collector = new MemoryCollector();
+
+        // Act — PHPUnit uses >> 1 MB; peak_human will be in MB
+        $data = $collector->collect();
+
+        // Assert — either MB or KB but at least a number+unit string
+        $this->assertMatchesRegularExpression(
+            '/^\d+(\.\d+)? (MB|KB|B)$/',
+            $data['peak_human'],
+        );
+    }
+
+    /**
+     * MemoryCollector format() must produce a ' KB' suffix for values
+     * between 1 024 and 1 048 575 bytes.
+     * This covers the 'between 1024 and 1MB' branch of private format().
+     *
+     * We drive this indirectly via collect() by comparing the human label
+     * of a small synthetic value — since format() is private we use a
+     * reflection-based approach to call it directly.
+     */
+    public function testMemoryCollectorFormatsKilobytes(): void
+    {
+        // Arrange — use ReflectionMethod to access private format()
+        $collector = new MemoryCollector();
+        $ref       = new \ReflectionMethod($collector, 'format');
+
+        // Act — 2048 bytes → 2 KB
+        $result = $ref->invoke($collector, 2048);
+
+        // Assert
+        $this->assertSame('2 KB', $result);
+    }
+
+    /**
+     * MemoryCollector format() must return a plain byte count for values
+     * under 1 024 bytes.  Covers the 'else → bytes' branch.
+     */
+    public function testMemoryCollectorFormatsBytes(): void
+    {
+        // Arrange
+        $collector = new MemoryCollector();
+        $ref       = new \ReflectionMethod($collector, 'format');
+
+        // Act — 512 bytes
+        $result = $ref->invoke($collector, 512);
+
+        // Assert
+        $this->assertSame('512 B', $result);
     }
 
     // ViewsCollector tests

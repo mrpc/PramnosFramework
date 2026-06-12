@@ -555,4 +555,71 @@ class NavRegistryTest extends TestCase
         $_SESSION['uid']    = 42;
         return $user;
     }
+
+    // ── PermissionEngine RBAC path ────────────────────────────────────────────
+
+    /**
+     * When PermissionEngine exists and userHas() returns false, an item with
+     * a permission requirement must be hidden for the logged-in user.
+     *
+     * This covers lines 171-173 of NavRegistry::isVisible() — the code path
+     * that runs only when the optional PermissionEngine class is present.
+     */
+    public function testPermissionItemHiddenWhenPermissionEngineDenies(): void
+    {
+        // Arrange — configure the stub to deny all permission checks
+        \Pramnos\Auth\PermissionEngine::$allow = false;
+
+        NavRegistry::register(new NavItem(
+            'admin.secret',
+            'Secret',
+            '/secret',
+            NavSection::Main,
+            0,
+            requireAuth: true,
+            permission: 'admin.secret',
+        ));
+
+        $user = $this->makeUser(90);
+
+        // Act — PermissionEngine::userHas() returns false → item must be hidden
+        $nav   = NavRegistry::getForUser($user);
+        $items = $nav[NavSection::Main->value] ?? [];
+        $ids   = array_column($items, 'id');
+
+        // Assert — item is hidden because RBAC denies it
+        $this->assertNotContains('admin.secret', $ids,
+            'Item with permission must be hidden when PermissionEngine denies it');
+    }
+
+    /**
+     * When PermissionEngine exists and userHas() returns true, an item with
+     * a permission requirement must be visible for the logged-in user.
+     */
+    public function testPermissionItemVisibleWhenPermissionEngineAllows(): void
+    {
+        // Arrange — configure the stub to allow all permission checks
+        \Pramnos\Auth\PermissionEngine::$allow = true;
+
+        NavRegistry::register(new NavItem(
+            'admin.allowed',
+            'Allowed',
+            '/allowed',
+            NavSection::Main,
+            0,
+            requireAuth: true,
+            permission: 'admin.allowed',
+        ));
+
+        $user = $this->makeUser(90);
+
+        // Act — PermissionEngine::userHas() returns true → item must be visible
+        $nav   = NavRegistry::getForUser($user);
+        $items = $nav[NavSection::Main->value] ?? [];
+        $ids   = array_column($items, 'id');
+
+        // Assert — item is visible because RBAC allows it
+        $this->assertContains('admin.allowed', $ids,
+            'Item with permission must be visible when PermissionEngine allows it');
+    }
 }

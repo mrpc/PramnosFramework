@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Pramnos\Document\DocumentTypes\Amp;
 use Pramnos\Document\DocumentTypes\Json;
 use Pramnos\Document\DocumentTypes\Png;
+use Pramnos\Document\DocumentTypes\Raw;
 use Pramnos\Framework\Factory;
 use Pramnos\Http\Request;
 
@@ -103,12 +104,33 @@ class DocumentTypesTest extends TestCase
     {
         $png = new Png();
         \Pramnos\Document\Document::_setContent('png-binary-data');
-        
+
         ob_start();
         $output = $png->render();
         ob_end_clean();
-        
+
         $this->assertSame('png-binary-data', $output);
+        \Pramnos\Document\Document::_setContent('');
+    }
+
+    /**
+     * Raw::render() must return whatever is in the document static buffer
+     * unchanged — no HTML wrapping, no headers, no encoding.
+     */
+    public function testRawRenderReturnsBufferContent(): void
+    {
+        // Arrange
+        $raw     = new Raw();
+        $content = 'raw-output: no wrapping';
+        \Pramnos\Document\Document::_setContent($content);
+
+        // Act
+        $output = $raw->render();
+
+        // Assert — identical to what was placed in the buffer
+        $this->assertSame($content, $output);
+
+        // Cleanup
         \Pramnos\Document\Document::_setContent('');
     }
 }

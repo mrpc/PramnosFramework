@@ -170,6 +170,27 @@ class NotifierTest extends TestCase
     }
 
     /**
+     * NotifiableTrait::notify() default implementation (line 36) must call
+     * Notifier::sendNow() directly. Uses StubNotifiable (no override) so the
+     * trait's own body runs. Uses the 'log' built-in channel which writes to
+     * a temp path — no side effects on test infrastructure.
+     */
+    public function testNotifiableTraitDefaultNotifyBodyRuns(): void
+    {
+        // Arrange — StubNotifiable uses the trait's unoverridden notify()
+        $notifiable = new StubNotifiable();
+
+        // Act — calls NotifiableTrait::notify() directly (line 36).
+        // LogChannelNotification routes to the built-in 'log' channel so the
+        // fresh Notifier constructed inside notify() can resolve it without
+        // custom registration.
+        $notifiable->notify(new LogChannelNotification());
+
+        // Assert — no exception thrown means line 36 was reached and executed
+        $this->addToAssertionCount(1);
+    }
+
+    /**
      * NotifiableTrait::routeNotificationFor('mail') returns $this->email.
      */
     public function testNotifiableTraitRoutesMailToEmailProperty(): void

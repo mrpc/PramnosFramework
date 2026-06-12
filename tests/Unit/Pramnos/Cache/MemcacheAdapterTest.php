@@ -401,4 +401,68 @@ class MemcacheAdapterTest extends TestCase
         $this->assertSame('memcache_limitation', $items[0]['key']);
         $this->assertSame('info', $items[0]['type']);
     }
+
+    /**
+     * connect() called a second time on an already-connected adapter must return
+     * the current $connected status without re-creating the \Memcache instance.
+     * Covers the `if ($this->memcache === null)` false branch (line 59).
+     */
+    public function testConnectIsIdempotent(): void
+    {
+        // Arrange — first connect() creates the instance
+        $adapter = $this->makeConnectedAdapter();
+
+        // Act — second call must not throw and must return true
+        $result = $adapter->connect();
+
+        // Assert
+        $this->assertTrue($result, 'Second connect() call must return the existing connected status');
+    }
+
+    /**
+     * getCategories() with a custom prefix must use that prefix for the tags key
+     * lookup instead of the adapter's own prefix.
+     * Covers the `$prefix ? $prefix : $this->prefix` ternary at line 188.
+     */
+    public function testGetCategoriesWithCustomPrefixUsesProvidedPrefix(): void
+    {
+        // Arrange
+        $adapter = $this->makeConnectedAdapter();
+        $mock    = \Memcache::$mockInstance;
+        // Return an empty array for the tags key — the result doesn't matter,
+        // what matters is that get() is called (the prefix branch is exercised).
+        $mock->expects($this->once())
+             ->method('get')
+             ->willReturn([]);
+
+        // Act
+        $result = $adapter->getCategories('custom_prefix_');
+
+        // Assert — empty categories returned when tags array is empty
+        $this->assertSame([], $result);
+    }
+
+    /**
+     * getStats() when the server stats array has entries WITHOUT a 'curr_items' key
+     * must leave $stats['items'] at 0 (the key-missing branch at line 221).
+     */
+    public function testGetStatsWhenServerHasNoCurrentItemsKey(): void
+    {
+        // Arrange — server returns stats without curr_items
+        $adapter = $this->makeConnectedAdapter();
+        $mock    = \Memcache::$mockInstance;
+        $mock->expects($this->once())
+             ->method('get')
+             ->willReturn([]); // empty tags
+        $mock->expects($this->once())
+             ->method('getExtendedStats')
+             ->willReturn(['127.0.0.1:11211' => ['uptime' => 12345]]); // no curr_items
+
+        // Act
+        $stats = $adapter->getStats();
+
+        // Assert — items stays at 0 when curr_items is absent
+        $this->assertSame(0, $stats['items'],
+            'items must remain 0 when the server stats do not contain curr_items');
+    }
 }
