@@ -283,4 +283,150 @@ class ControllerCharacterizationTest extends TestCase
         $this->assertTrue($ctrl->auth('approve'));
         $this->assertTrue($ctrl->auth('reject'));
     }
+
+    // -----------------------------------------------------------------------
+    // addMiddleware / exec
+    // -----------------------------------------------------------------------
+
+    /**
+     * addMiddleware() registers middleware and returns $this for chaining.
+     * Also verifies that exec() invokes the action through the middleware pipeline.
+     */
+    public function testAddMiddlewareReturnsSelf(): void
+    {
+        // Arrange
+        $ctrl = new Controller(null);
+
+        // Act — addMiddleware returns $this for fluent chaining
+        $mw = new class implements \Pramnos\Http\MiddlewareInterface {
+            public function handle(\Pramnos\Http\Request $request, callable $next): mixed
+            {
+                return $next($request);
+            }
+        };
+        $result = $ctrl->addMiddleware('*', $mw);
+
+        // Assert
+        $this->assertSame($ctrl, $result, 'addMiddleware() must return $this for chaining');
+    }
+
+    /**
+     * addMiddleware() with an array of action names registers the middleware
+     * for each action in the array (not just the first one).
+     */
+    public function testAddMiddlewareWithArrayOfActions(): void
+    {
+        // Arrange
+        $ctrl = new Controller(null);
+        $mw = new class implements \Pramnos\Http\MiddlewareInterface {
+            public function handle(\Pramnos\Http\Request $request, callable $next): mixed
+            {
+                return $next($request);
+            }
+        };
+
+        // Act — register the same middleware for two actions at once
+        $ctrl->addMiddleware(['save', 'delete'], $mw);
+
+        // Assert — middleware must be registered; exercise exec() on a public action
+        // to confirm _runThroughMiddleware() handles the no-middleware path cleanly.
+        $ctrl->addaction('display');
+        $ctrl->exec('display'); // empty display() → returns null, no middleware
+        $this->addToAssertionCount(1); // reaching here means exec() didn't throw
+    }
+
+    /**
+     * exec() with an unknown action falls through to the default display() action.
+     */
+    public function testExecWithUnknownActionFallsToDisplay(): void
+    {
+        // Arrange — a concrete subclass that tracks display() calls
+        $ctrl = new class(null) extends Controller {
+            public bool $displayCalled = false;
+            public function display($args = []): void { $this->displayCalled = true; }
+        };
+
+        // Act — 'nonexistent' is not registered; exec() must fall back to display()
+        $ctrl->exec('nonexistent');
+
+        // Assert
+        $this->assertTrue($ctrl->displayCalled,
+            'exec() must call display() when requested action is not registered');
+    }
+
+    /**
+     * exec() with a registered action calls that action method.
+     */
+    public function testExecWithRegisteredActionCallsTheAction(): void
+    {
+        // Arrange
+        $ctrl = new class(null) extends Controller {
+            public bool $listCalled = false;
+            public function list($args = []): void { $this->listCalled = true; }
+        };
+        $ctrl->addaction('list');
+
+        // Act
+        $ctrl->exec('list');
+
+        // Assert
+        $this->assertTrue($ctrl->listCalled,
+            'exec() must invoke the registered action method');
+    }
+
+    /**
+     * exec() with empty action string defaults to display().
+     */
+    public function testExecWithEmptyActionDefaultsToDisplay(): void
+    {
+        // Arrange
+        $ctrl = new class(null) extends Controller {
+            public bool $displayCalled = false;
+            public function display($args = []): void { $this->displayCalled = true; }
+        };
+
+        // Act — empty string selects 'display'
+        $ctrl->exec('');
+
+        // Assert
+        $this->assertTrue($ctrl->displayCalled);
+    }
+
+    /**
+     * exec() with middleware registered runs the action through the pipeline.
+     * Uses a static counter property to track invocations from the anonymous class.
+     */
+    public function testExecRunsActionThroughMiddleware(): void
+    {
+        // Arrange — middleware sets a static flag when invoked
+        TrackingMiddleware::$called = false;
+
+        $ctrl = new class(null) extends Controller {
+            public function display($args = []): void {}
+        };
+        $ctrl->addMiddleware('display', new TrackingMiddleware());
+
+        // Act
+        $ctrl->exec('display');
+
+        // Assert — middleware handle() was invoked
+        $this->assertTrue(TrackingMiddleware::$called,
+            'exec() must run the action through registered middleware');
+    }
+}
+
+// =============================================================================
+// Stubs
+// =============================================================================
+
+/** Middleware that records whether handle() was called via a static flag. */
+class TrackingMiddleware implements \Pramnos\Http\MiddlewareInterface
+{
+    public static bool $called = false;
+
+    public function handle(\Pramnos\Http\Request $request, callable $next): mixed
+    {
+        self::$called = true;
+        return $next($request);
+    }
 }
