@@ -63,6 +63,74 @@ class McpToolsTest extends TestCase
         $this->assertArrayHasKey('error', $result);
     }
 
+    public function testListTablesToolExecuteMySql(): void
+    {
+        // Arrange
+        $db = $this->createMockDatabase();
+        $db->connected = true;
+        $db->type = 'mysql';
+
+        $res = $this->createMock(\Pramnos\Database\Result::class);
+        $res->method('fetchAll')->willReturn([
+            ['name' => 'users', 'row_count' => 10],
+            ['name' => 'settings', 'row_count' => 5],
+        ]);
+        $db->method('query')->willReturn($res);
+
+        $tool = new ListTablesTool($db);
+
+        // Act
+        $result = $tool->execute([]);
+
+        // Assert
+        $this->assertIsArray($result);
+        $this->assertCount(2, $result);
+        $this->assertSame('users', $result[0]['table']);
+        $this->assertSame(10, $result[0]['rows']);
+    }
+
+    public function testListTablesToolExecutePostgres(): void
+    {
+        // Arrange
+        $db = $this->createMockDatabase();
+        $db->connected = true;
+        $db->type = 'postgresql';
+
+        $res = $this->createMock(\Pramnos\Database\Result::class);
+        $res->method('fetchAll')->willReturn([
+            ['name' => 'logs', 'row_count' => 100],
+        ]);
+        $db->method('query')->willReturn($res);
+
+        $tool = new ListTablesTool($db);
+
+        // Act
+        $result = $tool->execute([]);
+
+        // Assert
+        $this->assertIsArray($result);
+        $this->assertCount(1, $result);
+        $this->assertSame('logs', $result[0]['table']);
+        $this->assertSame(100, $result[0]['rows']);
+    }
+
+    public function testListTablesToolExecuteNullResult(): void
+    {
+        // Arrange
+        $db = $this->createMockDatabase();
+        $db->connected = true;
+        $db->method('query')->willReturn(false);
+
+        $tool = new ListTablesTool($db);
+
+        // Act
+        $result = $tool->execute([]);
+
+        // Assert
+        $this->assertSame([], $result);
+    }
+
+
     // ── QuerySchemaTool ───────────────────────────────────────────────────────
 
     /**
@@ -94,6 +162,71 @@ class McpToolsTest extends TestCase
 
         // Act
         $result = $tool->execute(['table' => '']);
+
+        // Assert
+        $this->assertArrayHasKey('error', $result);
+    }
+
+    public function testQuerySchemaToolExecuteMySql(): void
+    {
+        // Arrange
+        $db = $this->createMockDatabase();
+        $db->connected = true;
+        $db->type = 'mysql';
+        $db->method('prepareQuery')->willReturn('SQL QUERY');
+
+        $res = $this->createMock(\Pramnos\Database\Result::class);
+        $res->method('fetchAll')->willReturn([
+            ['column_name' => 'id', 'data_type' => 'int'],
+        ]);
+        $db->method('query')->willReturn($res);
+
+        $tool = new QuerySchemaTool($db);
+
+        // Act
+        $result = $tool->execute(['table' => 'users']);
+
+        // Assert
+        $this->assertIsArray($result);
+        $this->assertSame('users', $result['table']);
+        $this->assertCount(1, $result['columns']);
+        $this->assertSame('id', $result['columns'][0]['column_name']);
+    }
+
+    public function testQuerySchemaToolExecutePostgres(): void
+    {
+        // Arrange
+        $db = $this->createMockDatabase();
+        $db->connected = true;
+        $db->type = 'postgresql';
+        $db->method('prepareQuery')->willReturn('SQL QUERY');
+
+        $res = $this->createMock(\Pramnos\Database\Result::class);
+        $res->method('fetchAll')->willReturn([
+            ['column_name' => 'id', 'data_type' => 'int'],
+        ]);
+        $db->method('query')->willReturn($res);
+
+        $tool = new QuerySchemaTool($db);
+
+        // Act
+        $result = $tool->execute(['table' => 'users']);
+
+        // Assert
+        $this->assertIsArray($result);
+        $this->assertSame('users', $result['table']);
+        $this->assertCount(1, $result['columns']);
+    }
+
+    public function testQuerySchemaToolReturnsErrorWhenNotConnected(): void
+    {
+        // Arrange
+        $db = $this->createMockDatabase();
+        $db->connected = false;
+        $tool = new QuerySchemaTool($db);
+
+        // Act
+        $result = $tool->execute(['table' => 'users']);
 
         // Assert
         $this->assertArrayHasKey('error', $result);
