@@ -23,14 +23,19 @@ use Pramnos\Application\Settings;
 #[CoversClass(UserRepository::class)]
 class UserRepositoryTest extends TestCase
 {
+    private ?Database $originalDb = null;
+
     protected function setUp(): void
     {
         Settings::clearSettings();
+        $this->originalDb = Database::getInstance();
     }
 
     protected function tearDown(): void
     {
         Settings::clearSettings();
+        $dbRef = &Database::getInstance();
+        $dbRef = $this->originalDb;
     }
 
     /**

@@ -54,6 +54,10 @@ class DashboardCharacterizationTest extends TestCase
         Settings::loadSettings($settingsFile);
         Application::getInstance();
 
+        // Recreate Database singleton with loaded settings to prevent stale empty configuration
+        $dbRef = &\Pramnos\Database\Database::getInstance();
+        $dbRef = null;
+
         $this->db = Factory::getDatabase();
         if (!$this->db->connected) {
             $this->db->connect();
@@ -98,13 +102,15 @@ class DashboardCharacterizationTest extends TestCase
         $p = $this->db->prefix;
 
         // applications — referenced by makeApp(), getAuthorizedApplications(), eraseUserData()
+        $this->db->query("DROP TABLE IF EXISTS `{$p}applications`");
         $this->db->query(
             "CREATE TABLE IF NOT EXISTS `{$p}applications` (
                 `appid`      INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `name`       VARCHAR(255) NOT NULL DEFAULT '',
                 `apikey`     VARCHAR(255) NOT NULL DEFAULT '',
                 `apisecret`  VARCHAR(255) NOT NULL DEFAULT '',
-                `status`     TINYINT      NOT NULL DEFAULT 1
+                `status`     TINYINT      NOT NULL DEFAULT 1,
+                `description` TEXT NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 
