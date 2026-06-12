@@ -3208,36 +3208,34 @@ class DaemonOrchestratorTest extends TestCase
             $this->markTestSkipped('pcntl_signal is not available');
         }
 
-        // Arrange
-        $orch = new TestableDaemonOrchestrator($this->tmpDir);
         $output = new \Symfony\Component\Console\Output\BufferedOutput();
-        $ref = new \ReflectionMethod($orch, 'registerSignalHandlers');
-        $ref->invoke($orch, $output);
+        
+        $ref = new \ReflectionMethod($this->orch, 'registerSignalHandlers');
+        $ref->invoke($this->orch, $output);
 
-        $oldInt = pcntl_signal_get_handler(SIGINT);
-        $oldTerm = pcntl_signal_get_handler(SIGTERM);
-
-        try {
-            $this->assertTrue($orch->shouldContinue);
-
-            // Act & Assert SIGINT
-            posix_kill(getmypid(), SIGINT);
-            pcntl_signal_dispatch();
-            $this->assertFalse($orch->shouldContinue);
-
-            // Act & Assert SIGTERM
-            $orch->setShouldContinue(true);
-            posix_kill(getmypid(), SIGTERM);
-            pcntl_signal_dispatch();
-            $this->assertFalse($orch->shouldContinue);
-        } finally {
-            if ($oldInt) {
-                pcntl_signal(SIGINT, $oldInt);
-            }
-            if ($oldTerm) {
-                pcntl_signal(SIGTERM, $oldTerm);
-            }
-        }
+        // Verify SIGINT handler
+        $handler = pcntl_signal_get_handler(SIGINT);
+        $this->assertInstanceOf(\Closure::class, $handler, 'Expected SIGINT handler to be a Closure');
+        
+        $refShould = new \ReflectionProperty($this->orch, 'shouldContinue');
+        
+        // Assert initial state is true
+        $this->assertTrue($refShould->getValue($this->orch));
+        
+        // Execute SIGINT handler and assert shouldContinue becomes false
+        $handler();
+        $this->assertFalse($refShould->getValue($this->orch));
+        
+        // Reset shouldContinue to true for testing SIGTERM
+        $refShould->setValue($this->orch, true);
+        
+        // Verify SIGTERM handler
+        $handlerTerm = pcntl_signal_get_handler(SIGTERM);
+        $this->assertInstanceOf(\Closure::class, $handlerTerm, 'Expected SIGTERM handler to be a Closure');
+        
+        // Execute SIGTERM handler and assert shouldContinue becomes false
+        $handlerTerm();
+        $this->assertFalse($refShould->getValue($this->orch));
     }
 }
 
@@ -3430,6 +3428,11 @@ class TestableDaemonOrchestrator extends DaemonOrchestrator
     public function setShouldContinue(bool $value): void
     {
         $this->shouldContinue = $value;
+    }
+
+    public function getShouldContinue(): bool
+    {
+        return $this->shouldContinue;
     }
 }
 
