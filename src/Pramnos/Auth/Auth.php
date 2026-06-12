@@ -217,7 +217,8 @@ class Auth extends \Pramnos\Framework\Base
         string $username,
         string $password,
         bool   $encryptedPassword = false,
-        bool   $remember = false
+        bool   $remember = false,
+        bool   $validate = true
     ): array|false {
         // 1. Try legacy addon system first
         $addons = \Pramnos\Addon\Addon::getaddons('auth');
@@ -225,8 +226,9 @@ class Auth extends \Pramnos\Framework\Base
             foreach ($addons as $addon) {
                 if (method_exists($addon, 'onAuth')) {
                     $response = $addon->onAuth(
-                        $username, $password, $remember, $encryptedPassword
+                        $username, $password, $remember, $encryptedPassword, $validate
                     );
+                    $this->lastResponse = $response;
                     if ($response && !empty($response['status']) && $response['status'] == true) {
                         return $response;
                     }
@@ -250,8 +252,10 @@ class Auth extends \Pramnos\Framework\Base
 
         foreach ($drivers as $driver) {
             $result = $driver->verify($username, $password, $encryptedPassword);
+            $response = $result->toArray($remember);
+            $this->lastResponse = $response;
             if ($result->success) {
-                return $result->toArray($remember);
+                return $response;
             }
         }
         return false;
@@ -279,7 +283,8 @@ class Auth extends \Pramnos\Framework\Base
             (string) $username,
             (string) $password,
             (bool) $encryptedPassword,
-            (bool) $remember
+            (bool) $remember,
+            (bool) $validate
         );
 
         if ($response === false) {
