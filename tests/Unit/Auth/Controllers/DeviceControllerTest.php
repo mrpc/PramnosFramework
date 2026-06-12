@@ -156,7 +156,10 @@ class DeviceControllerTest extends TestCase
         // Mock the Database singleton to ensure DB fallback path doesn't throw on connection issues
         $dbMock = $this->createMock(\Pramnos\Database\Database::class);
         $dbMock->method('prepareQuery')->willReturn('SELECT ...');
-        $dbMock->method('query')->willReturn(null);
+        
+        $resMock = $this->createMock(\Pramnos\Database\Result::class);
+        $resMock->numRows = 0;
+        $dbMock->method('query')->willReturn($resMock);
 
         $dbSingleton = &\Pramnos\Database\Database::getInstance();
         $dbOriginal = $dbSingleton;
