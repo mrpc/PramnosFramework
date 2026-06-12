@@ -1,7 +1,18 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-06-12 — Coverage milestone: **90.25%** (>90% reached)
+## 📅 Last Updated: 2026-06-12 — Zero Test Failures / Warnings
+
+## 🏁 Regression Fixes & Test Validation (2026-06-12)
+
+**Tests: 338 | Errors: 0 | Failures: 0 | Warnings: 0 | Deprecations: 0 (Auth/Characterization)**
+- Resolved mock database leakage in `UserRepositoryTest.php` by backing up and restoring `Database::getInstance()` in `setUp`/`tearDown`.
+- Solved stale database configuration/connections in `DashboardCharacterizationTest` and `PermissionsCharacterizationTest` by recreating the `Database` singleton on settings reload.
+- Restored `$validate` parameter to `verifyCredentials` in `Auth.php` to maintain 100% addon backward-compatibility.
+- Preserved failed addon responses in `$this->lastResponse` in `verifyCredentials` to align with legacy behavior and pass characterization checks.
+- Fixed `AuthTest` static state leakage of `$drivers` in `setUp`/`tearDown`.
+- Removed redundant static caching inside `Factory::getAuth()`.
+- Cleaned up private/protected reflection deprecations in `AuthTest.php`.
 
 ## 🏁 Coverage Push to 90%+ (2026-06-12)
 
