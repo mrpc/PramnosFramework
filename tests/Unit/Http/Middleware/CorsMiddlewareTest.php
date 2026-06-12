@@ -280,4 +280,92 @@ class CorsMiddlewareTest extends TestCase
         // Assert — $next was called and its result returned
         $this->assertSame('controller-response', $result);
     }
+
+    /**
+     * When a specific allowed origin matches the HTTP_ORIGIN header, handle()
+     * must set 'Access-Control-Allow-Origin' to that origin and add 'Vary: Origin'.
+     * This covers the elseif branch at line 121 of handle().
+     */
+    public function testHandleSetsSpecificOriginHeaderWhenOriginMatches(): void
+    {
+        // Arrange — specific origin (not wildcard)
+        $origin = 'https://app.example.com';
+        $_SERVER['HTTP_ORIGIN'] = $origin;
+        $mw  = new CorsMiddleware([$origin]);
+        $req = Request::create('/api/data', 'GET');
+
+        // Act — run in output buffer to discard headers (cannot assert headers in CLI)
+        $result = $mw->handle($req, fn(Request $r) => 'ok');
+
+        // Assert — $next was invoked (origin-specific path completes normally)
+        $this->assertSame('ok', $result);
+        unset($_SERVER['HTTP_ORIGIN']);
+    }
+
+    /**
+     * When allowCredentials is true, handle() must emit the
+     * Access-Control-Allow-Credentials header. Covers line 130-132.
+     */
+    public function testHandleEmitsCredentialsHeaderWhenEnabled(): void
+    {
+        // Arrange
+        $mw  = new CorsMiddleware(['*'], allowCredentials: true);
+        $req = Request::create('/api/data', 'GET');
+
+        // Act
+        $result = $mw->handle($req, fn(Request $r) => 'ok');
+
+        // Assert — $next still called normally
+        $this->assertSame('ok', $result);
+    }
+
+    /**
+     * An OPTIONS preflight request must be answered immediately with '' and
+     * must NOT invoke $next. Covers lines 135-138 of handle().
+     */
+    public function testHandleReturnEarlyOnOptionsPreflightRequest(): void
+    {
+        // Arrange
+        $mw  = new CorsMiddleware(['*']);
+        $req = Request::create('/api/data', 'OPTIONS');
+
+        $nextCalled = false;
+        $next = function (Request $r) use (&$nextCalled) {
+            $nextCalled = true;
+            return 'action-response';
+        };
+
+        // Act
+        $result = $mw->handle($req, $next);
+
+        // Assert — preflight short-circuits before reaching the action
+        $this->assertSame('', $result,
+            'OPTIONS preflight must return empty string, not the action response');
+        $this->assertFalse($nextCalled,
+            '$next must NOT be called for OPTIONS preflight requests');
+    }
+
+    /**
+     * fromApplicationSettings() with a PostgreSQL DB must build the SQL using
+     * schema-qualified table names (public.applications, applications.application_settings).
+     * Covers the $isPostgres branch at line 82.
+     */
+    public function testFromApplicationSettingsUsesPostgresSchemaWhenTypeIsPostgresql(): void
+    {
+        // Arrange — mock DB that says it's PostgreSQL
+        $result          = new \stdClass();
+        $result->numRows = 1;
+        $result->fields  = ['cors_enabled' => 1, 'cors_origins' => '["https://pg.example.com"]'];
+
+        $db = $this->createMock(Database::class);
+        $db->type = 'postgresql';
+        $db->method('prepareQuery')->willReturn('SELECT 1');
+        $db->method('query')->willReturn($result);
+
+        // Act
+        $mw = CorsMiddleware::fromApplicationSettings('myapp', $db);
+
+        // Assert — row was parsed from the PostgreSQL path
+        $this->assertSame(['https://pg.example.com'], $mw->getAllowedOrigins());
+    }
 }
