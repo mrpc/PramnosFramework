@@ -163,6 +163,24 @@ class LogChannelTest extends TestCase
         // Assert
         $this->assertSame('/tmp/test.log', $channel->getLogPath());
     }
+
+    /**
+     * When no logPath is provided and LOGS is not defined, the constructor
+     * must fall back to sys_get_temp_dir() + '/notifications.log'.
+     * This covers line 36 of the constructor ternary.
+     */
+    public function testDefaultPathFallsBackToTempDir(): void
+    {
+        // Arrange — LOGS constant is not defined in the test bootstrap
+        $this->assertFalse(defined('LOGS'), 'Precondition: LOGS must not be defined for this test');
+
+        // Act — no argument → uses the else branch of the inner ternary
+        $channel = new LogChannel();
+
+        // Assert — path is under sys_get_temp_dir()
+        $this->assertStringStartsWith(sys_get_temp_dir(), $channel->getLogPath());
+        $this->assertStringEndsWith('notifications.log', $channel->getLogPath());
+    }
 }
 
 // =============================================================================

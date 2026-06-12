@@ -441,4 +441,78 @@ class DatabaseStatsServiceTest extends TestCase
         $this->assertNull($stats['connections_total']);
         $this->assertNull($stats['connections_active']);
     }
+
+    /**
+     * When the PostgreSQL version string is non-empty but does not match the
+     * "PostgreSQL X.Y" pattern, getStats() must use the raw string as the
+     * version value. Covers the `$raw !== '' ? $raw : 'PostgreSQL'` branch (line 70).
+     */
+    public function testPostgreSQLVersionFallsBackToRawStringWhenPatternDoesNotMatch(): void
+    {
+        // Arrange — version returns a string that doesn't match "PostgreSQL X.Y"
+        $db = $this->createStub(\Pramnos\Database\Database::class);
+        $db->type = 'postgresql';
+
+        $versionResult          = new \stdClass();
+        $versionResult->numRows = 1;
+        $versionResult->fields  = ['ver' => 'CockroachDB CCL v22.2'];
+
+        $emptyResult          = new \stdClass();
+        $emptyResult->numRows = 0;
+
+        $db->method('query')->willReturnOnConsecutiveCalls(
+            $versionResult,  // SELECT version()
+            $emptyResult,    // TimescaleDB check
+            $emptyResult,    // pg_database_size
+            $emptyResult,    // pg_stat_activity
+            $emptyResult     // pg_stat_database
+        );
+
+        $svc = new DatabaseStatsService($db);
+
+        // Act
+        $stats = $svc->getStats();
+
+        // Assert — raw string used as-is when pattern doesn't match
+        $this->assertSame('CockroachDB CCL v22.2', $stats['version'],
+            'Non-matching version must be stored verbatim');
+    }
+
+    /**
+     * When MySQL returns a real version row, the version string must be prefixed
+     * with "MySQL " and stored in the stats array.
+     * Covers the `$ver !== null ? 'MySQL ' . $ver : 'MySQL'` branch.
+     */
+    public function testMySQLVersionIsPrefixedWithMySQLWhenRowFound(): void
+    {
+        // Arrange — first query (VERSION()) returns a row; all others return empty
+        $db = $this->createStub(\Pramnos\Database\Database::class);
+        $db->type = 'mysql';
+
+        $versionResult          = new \stdClass();
+        $versionResult->numRows = 1;
+        $versionResult->fields  = ['ver' => '8.0.36'];
+
+        $emptyResult          = new \stdClass();
+        $emptyResult->numRows = 0;
+
+        $db->method('query')->willReturnOnConsecutiveCalls(
+            $versionResult,  // SELECT VERSION()
+            $emptyResult,    // information_schema size
+            $emptyResult,    // Threads_connected
+            $emptyResult,    // Threads_running
+            $emptyResult,    // Queries
+            $emptyResult,    // Innodb_buffer_pool_reads
+            $emptyResult     // Innodb_buffer_pool_read_requests
+        );
+
+        $svc = new DatabaseStatsService($db);
+
+        // Act
+        $stats = $svc->getStats();
+
+        // Assert
+        $this->assertSame('MySQL 8.0.36', $stats['version'],
+            'MySQL version must be prefixed with "MySQL " when a version row is returned');
+    }
 }
