@@ -205,6 +205,59 @@ class Auth extends \Pramnos\Framework\Base
     }
 
     /**
+     * Verify user credentials without performing login actions.
+     *
+     * @param string $username          Username or email address
+     * @param string $password          Plain-text password
+     * @param boolean $encryptedPassword The password is already a bcrypt hash
+     * @param boolean $remember          Include remember flag in driver response array
+     * @return array|false The verification response array on success, or false on failure.
+     */
+    public function verifyCredentials(
+        string $username,
+        string $password,
+        bool   $encryptedPassword = false,
+        bool   $remember = false
+    ): array|false {
+        // 1. Try legacy addon system first
+        $addons = \Pramnos\Addon\Addon::getaddons('auth');
+        if (!empty($addons)) {
+            foreach ($addons as $addon) {
+                if (method_exists($addon, 'onAuth')) {
+                    $response = $addon->onAuth(
+                        $username, $password, $remember, $encryptedPassword
+                    );
+                    if ($response && !empty($response['status']) && $response['status'] == true) {
+                        return $response;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // 2. Try registered drivers (or default DatabaseAuthDriver)
+        $drivers = $this->drivers ?? [new DatabaseAuthDriver()];
+
+        if (empty($drivers)) {
+            \Pramnos\Logs\Logger::log(
+                'Auth::verifyCredentials() — no auth handlers registered. '
+                . 'Add an auth addon (e.g. Pramnos\\Addon\\Auth\\UserDatabase) '
+                . "to your app.php 'addons' array.",
+                'auth'
+            );
+            return false;
+        }
+
+        foreach ($drivers as $driver) {
+            $result = $driver->verify($username, $password, $encryptedPassword);
+            if ($result->success) {
+                return $result->toArray($remember);
+            }
+        }
+        return false;
+    }
+
+    /**
      * Authenticate and login.
      *
      * Resolution order:
@@ -222,47 +275,20 @@ class Auth extends \Pramnos\Framework\Base
     public function auth($username, $password = '',
         $remember = true, $encryptedPassword = false, $validate = true)
     {
-        // Try legacy addon system first — existing apps with UserDatabase addon
-        // registered in app.php continue to work without any changes.
-        $addons = \Pramnos\Addon\Addon::getaddons('auth');
-        if (!empty($addons)) {
-            foreach ($addons as $addon) {
-                if (method_exists($addon, 'onAuth')) {
-                    $response = $addon->onAuth(
-                        $username, $password, $remember, $encryptedPassword, $validate
-                    );
-                    $this->lastResponse = $response;
-                    if ($response['status'] == true) {
-                        $this->triggerLogin($response);
-                        return true;
-                    }
-                }
-            }
+        $response = $this->verifyCredentials(
+            (string) $username,
+            (string) $password,
+            (bool) $encryptedPassword,
+            (bool) $remember
+        );
+
+        if ($response === false) {
             return false;
         }
 
-        // No addons — resolve drivers (null = auto-create default DatabaseAuthDriver)
-        $drivers = $this->drivers ?? [new DatabaseAuthDriver()];
-
-        if (empty($drivers)) {
-            \Pramnos\Logs\Logger::log(
-                'Auth::auth() — no auth handlers registered. '
-                . 'Add an auth addon (e.g. Pramnos\\Addon\\Auth\\UserDatabase) '
-                . "to your app.php 'addons' array.",
-                'auth'
-            );
-            return false;
-        }
-
-        foreach ($drivers as $driver) {
-            $result = $driver->verify($username, $password, (bool) $encryptedPassword);
-            $this->lastResponse = $result->toArray((bool) $remember);
-            if ($result->success) {
-                $this->triggerLogin($this->lastResponse);
-                return true;
-            }
-        }
-        return false;
+        $this->lastResponse = $response;
+        $this->triggerLogin($response);
+        return true;
     }
 
     /**

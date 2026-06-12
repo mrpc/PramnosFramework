@@ -91,6 +91,25 @@ $auth->logout();
 // This triggers the 'Logout' addon events and clears the session
 ```
 
+### Credential Verification (Without Session)
+
+If you need to verify a user's credentials (username/password) without actually logging them in (e.g. for API tokens, OAuth2 Password Grants, or verifying a password before sensitive actions), use the central static method `User::validateUserCredentials()`:
+
+```php
+$credentials = \Pramnos\User\User::validateUserCredentials($username, $password);
+
+if ($credentials !== false) {
+    // Credentials match!
+    $userId = $credentials['userid'];
+    $username = $credentials['username'];
+    $email = $credentials['email'];
+} else {
+    // Invalid credentials
+}
+```
+
+This method delegates to `Auth::getInstance()->verifyCredentials($username, $password)` which resolves the active authentication logic in the proper priority order (respecting any registered addons like `UserDatabase` or custom `AuthDriverInterface` drivers).
+
 ## User Management
 
 ### Creating Users

@@ -232,6 +232,29 @@ class User extends \Pramnos\Framework\Base
     }
 
     /**
+     * Validate user credentials and return user info.
+     *
+     * @param string $username
+     * @param string $password
+     * @return array{userid: int, username: string, email: string}|false
+     */
+    public static function validateUserCredentials(string $username, string $password)
+    {
+        $auth = \Pramnos\Framework\Factory::getAuth();
+        $response = $auth->verifyCredentials($username, $password);
+
+        if ($response === false) {
+            return false;
+        }
+
+        return [
+            'userid'   => (int) ($response['uid'] ?? 0),
+            'username' => (string) ($response['username'] ?? ''),
+            'email'    => (string) ($response['email'] ?? ''),
+        ];
+    }
+
+    /**
      * Get a non-standard user field
      * @param string $name
      * @return mixed
