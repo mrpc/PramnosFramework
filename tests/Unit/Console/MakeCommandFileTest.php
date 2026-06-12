@@ -14,6 +14,9 @@ use Pramnos\Console\Commands\Make\MakeMigration;
 use Pramnos\Console\Commands\Make\MakeSeeder;
 use Pramnos\Console\Commands\Make\MakeController;
 use Pramnos\Console\Commands\Make\MakeView;
+use Pramnos\Console\Commands\Make\MakeApi;
+use Pramnos\Console\Commands\Make\MakeCrud;
+use Pramnos\Console\Commands\Make\MakeModel;
 
 /**
  * File-system integration tests for the Make sub-commands.
@@ -26,6 +29,16 @@ use Pramnos\Console\Commands\Make\MakeView;
  * A random testId suffix ensures parallel test runs can't collide on file names.
  */
 #[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\MakeCommandBase::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\Make\MakeMiddleware::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\Make\MakeEvent::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\Make\MakeListener::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\Make\MakeMigration::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\Make\MakeSeeder::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\Make\MakeController::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\Make\MakeView::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\Make\MakeApi::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\Make\MakeCrud::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\Make\MakeModel::class)]
 class MakeCommandFileTest extends TestCase
 {
     private array $filesToCleanup = [];
@@ -63,6 +76,9 @@ class MakeCommandFileTest extends TestCase
         $this->consoleApp->add(new MakeSeeder());
         $this->consoleApp->add(new MakeController());
         $this->consoleApp->add(new MakeView());
+        $this->consoleApp->add(new MakeApi());
+        $this->consoleApp->add(new MakeCrud());
+        $this->consoleApp->add(new MakeModel());
     }
 
     protected function tearDown(): void
@@ -369,5 +385,53 @@ class MakeCommandFileTest extends TestCase
         // Assert + Act — second call must throw
         $this->expectException(\Exception::class);
         $tester->execute(['name' => $name]);
+    }
+
+    // ── MakeApi ──────────────────────────────────────────────────────────────
+
+    /**
+     * create:api must throw InvalidArgumentException when no name is provided.
+     */
+    public function testMakeApiThrowsForMissingName(): void
+    {
+        // Arrange
+        $command = $this->consoleApp->find('create:api');
+        $tester  = new CommandTester($command);
+
+        // Assert + Act
+        $this->expectException(\InvalidArgumentException::class);
+        $tester->execute([]);
+    }
+
+    // ── MakeCrud ─────────────────────────────────────────────────────────────
+
+    /**
+     * create:crud must throw InvalidArgumentException when no name is provided.
+     */
+    public function testMakeCrudThrowsForMissingName(): void
+    {
+        // Arrange
+        $command = $this->consoleApp->find('create:crud');
+        $tester  = new CommandTester($command);
+
+        // Assert + Act
+        $this->expectException(\InvalidArgumentException::class);
+        $tester->execute([]);
+    }
+
+    // ── MakeModel ────────────────────────────────────────────────────────────
+
+    /**
+     * create:model must throw InvalidArgumentException when no name is provided.
+     */
+    public function testMakeModelThrowsForMissingName(): void
+    {
+        // Arrange
+        $command = $this->consoleApp->find('create:model');
+        $tester  = new CommandTester($command);
+
+        // Assert + Act
+        $this->expectException(\InvalidArgumentException::class);
+        $tester->execute([]);
     }
 }

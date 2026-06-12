@@ -204,6 +204,27 @@ class AbstractTaskTest extends TestCase
         $this->assertSame('hello from task', $task->lastMessage);
     }
 
+    /**
+     * The real log() method (lines 100-104) must set $lastMessage AND call
+     * Logger::log(). Logger writes to /dev/null in the test environment
+     * (bootstrap.php redirects error_log), so no file side-effects occur.
+     * Calling publicLogReal() exercises the full protected log() body.
+     */
+    public function testRealLogSetsLastMessageAndCallsLogger(): void
+    {
+        // Arrange
+        $task      = new ConcreteTask($this->controller);
+        $item      = $this->makeQueueItem('{}');
+        $item->taskid = 7;
+        $item->type   = 'email_task';
+
+        // Act — calls the real log() including Logger::log()
+        $task->publicLogReal('real log message', $item);
+
+        // Assert — $lastMessage was updated by the real implementation
+        $this->assertSame('real log message', $task->lastMessage);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
@@ -258,5 +279,11 @@ class ConcreteTask extends AbstractTask
     {
         // Bypass the Pramnos\Logs\Logger call — just write to $lastMessage.
         $this->lastMessage = $message;
+    }
+
+    /** Expose the real protected log() (including Logger::log call) for coverage. */
+    public function publicLogReal(string $message, QueueItem $queueItem): void
+    {
+        $this->log($message, $queueItem);
     }
 }

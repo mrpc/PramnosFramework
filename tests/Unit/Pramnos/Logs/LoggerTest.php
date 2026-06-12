@@ -462,4 +462,69 @@ class LoggerTest extends TestCase
         $this->assertStringContainsString('\\n', $data['message'],
             'Newlines must be escaped as \\n in the stored message');
     }
+
+    // =========================================================================
+    // truncateLogFile() — rotate=true (rotation path)
+    // =========================================================================
+
+    /**
+     * truncateLogFile() with rotate=true (the default) must rename the current
+     * log to .1 and return true. The rotation notice is written to the default
+     * log file, not the rotated one. This covers lines 371-392 of Logger.php.
+     */
+    public function testTruncateLogFileRotatesWhenOverLimit(): void
+    {
+        // Arrange — create a "big" log file (we'll override maxSize to 1 byte)
+        $logName = 'test_rotate_' . bin2hex(random_bytes(3));
+        Logger::log('content that will trigger rotation', $logName);
+        $logPath    = Logger::getLogPath($logName);
+        $backupPath = $logPath . '.1';
+
+        // Precondition: file exists and exceeds maxSize=1
+        $this->assertFileExists($logPath, 'Precondition: log file must exist');
+
+        // Act — rotate=true is the default; maxSize=1 forces rotation
+        $result = Logger::truncateLogFile($logName, 'log', 1, true, 3);
+
+        // Assert — returns true; old log was renamed to .1
+        $this->assertTrue($result, 'truncateLogFile() must return true after rotation');
+        $this->assertFileExists($backupPath,
+            'Original log file must be renamed to .1 after rotation');
+
+        // Cleanup
+        @unlink($logPath);
+        @unlink($backupPath);
+    }
+
+    /**
+     * truncateLogFile() rotation with maxBackups=1 must delete the existing .1
+     * backup (the oldest) before renaming the current log to .1.
+     * Exercises the $i == $maxBackups branch at line 377 where the oldest is deleted.
+     */
+    public function testTruncateLogFileRotationDeletesOldestBackup(): void
+    {
+        // Arrange
+        $logName = 'test_rotate_old_' . bin2hex(random_bytes(3));
+        Logger::log('initial content', $logName);
+        $logPath = Logger::getLogPath($logName);
+        $originalContent = file_get_contents($logPath);
+
+        // Pre-create .1 backup (will be deleted since maxBackups=1)
+        file_put_contents($logPath . '.1', 'old backup 1');
+
+        // Act — maxBackups=1: deletes .1, then renames current to .1
+        $result = Logger::truncateLogFile($logName, 'log', 1, true, 1);
+
+        // Assert — rotation succeeded; .1 now contains the original log content
+        $this->assertTrue($result);
+        $this->assertFileExists($logPath . '.1',
+            'Current log must be renamed to .1 after rotation');
+        // The new .1 should have the original content (not the old backup)
+        $this->assertSame($originalContent, file_get_contents($logPath . '.1'),
+            '.1 must contain the original log content after rotation');
+
+        // Cleanup
+        @unlink($logPath);
+        @unlink($logPath . '.1');
+    }
 }

@@ -166,4 +166,35 @@ class GeolocationCharacterizationTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->geo->getDistance(999, 0, 0, 0, 'K');
     }
+
+    // -----------------------------------------------------------------------
+    // getInstance() — factory / singleton
+    // -----------------------------------------------------------------------
+
+    /**
+     * getInstance() must return a General object on first call.
+     * This covers lines 23-25 (static initialisation) and line 28 (return).
+     */
+    public function testGetInstanceReturnsGeneralObject(): void
+    {
+        // Act
+        $instance = General::getInstance();
+
+        // Assert — correct type
+        $this->assertInstanceOf(General::class, $instance);
+    }
+
+    /**
+     * getInstance() must return the SAME object on subsequent calls — the
+     * static local variable acts as a singleton within the PHP process.
+     */
+    public function testGetInstanceReturnsSameInstance(): void
+    {
+        // Act — call twice
+        $first  = General::getInstance();
+        $second = General::getInstance();
+
+        // Assert — same object identity
+        $this->assertSame($first, $second);
+    }
 }

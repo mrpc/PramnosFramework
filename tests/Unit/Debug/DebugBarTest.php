@@ -374,6 +374,64 @@ class DebugBarTest extends TestCase
         $this->assertSame($json, $result);
     }
 
+    /**
+     * DebugBarMiddleware must pass non-string responses through unchanged
+     * (covers the early-return at line 29: !is_string || empty).
+     * Redirects and raw integers from controllers must flow through untouched.
+     */
+    public function testMiddlewarePassesThroughNonStringResponse(): void
+    {
+        // Arrange
+        $bar        = DebugBar::getInstance();
+        $middleware = new DebugBarMiddleware($bar);
+        $request    = $this->createMock(\Pramnos\Http\Request::class);
+
+        // Act — non-string return (e.g. redirect returns null or integer)
+        $result = $middleware->handle($request, fn() => null);
+
+        // Assert — returned as-is, not modified or cast
+        $this->assertNull($result);
+    }
+
+    /**
+     * DebugBarMiddleware must pass empty-string responses through unchanged.
+     * Empty responses cannot have a widget appended meaningfully.
+     */
+    public function testMiddlewarePassesThroughEmptyStringResponse(): void
+    {
+        // Arrange
+        $bar        = DebugBar::getInstance();
+        $middleware = new DebugBarMiddleware($bar);
+        $request    = $this->createMock(\Pramnos\Http\Request::class);
+
+        // Act
+        $result = $middleware->handle($request, fn() => '');
+
+        // Assert
+        $this->assertSame('', $result);
+    }
+
+    /**
+     * DebugBarMiddleware must pass HTML responses through unchanged when the
+     * DebugBar widget is empty (no collectors registered).
+     * Covers line 39: when render() returns '' the response is not modified.
+     */
+    public function testMiddlewarePassesThroughWhenWidgetIsEmpty(): void
+    {
+        // Arrange — fresh DebugBar with no collectors → render() returns ''
+        DebugBar::reset();
+        $bar        = DebugBar::getInstance(); // no collectors added
+        $middleware = new DebugBarMiddleware($bar);
+        $request    = $this->createMock(\Pramnos\Http\Request::class);
+        $html       = '<html><body><p>Content</p></body></html>';
+
+        // Act
+        $result = $middleware->handle($request, fn() => $html);
+
+        // Assert — response unchanged because widget render returned empty string
+        $this->assertSame($html, $result);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private function makeMockCollector(string $name, array $collectResult = []): CollectorInterface
