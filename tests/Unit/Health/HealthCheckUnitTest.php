@@ -534,6 +534,35 @@ class HealthCheckUnitTest extends TestCase
     }
 
     /**
+     * parseMemoryLimit() must handle 'M' (megabytes) and 'K' (kilobytes) suffixes
+     * when called directly via reflection, guaranteeing line 102 and 103 are hit
+     * regardless of whether ini_set actually changes ini_get's return value.
+     *
+     * The indirect approach (via ini_set + run()) may be skipped by PHP's internal
+     * memory-limit caching; this direct test ensures coverage of lines 102-103.
+     */
+    public function testParseMemoryLimitDirectlyForMAndKSuffixes(): void
+    {
+        // Arrange — expose private parseMemoryLimit() via reflection
+        $ref   = new \ReflectionMethod(MemoryLimitCheck::class, 'parseMemoryLimit');
+        $check = new MemoryLimitCheck();
+
+        // Act + Assert — 'M' arm (line 102): 128M = 128 * 1 048 576 bytes
+        $this->assertSame(
+            128 * 1_048_576,
+            $ref->invoke($check, '128M'),
+            'parseMemoryLimit must convert 128M to 134217728 bytes (M arm, line 102)'
+        );
+
+        // Act + Assert — 'K' arm (line 103): 131072K = 128 MB in kilobytes
+        $this->assertSame(
+            131072 * 1_024,
+            $ref->invoke($check, '131072K'),
+            'parseMemoryLimit must convert 131072K to 134217728 bytes (K arm, line 103)'
+        );
+    }
+
+    /**
      * parseMemoryLimit() must return the raw integer value when no unit suffix
      * is present (plain byte count). Covers the `default` match arm at line 104.
      *
