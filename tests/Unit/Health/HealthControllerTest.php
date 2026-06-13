@@ -12,12 +12,32 @@ use Pramnos\Health\HealthStatus;
 use Pramnos\Application\Controllers\Health;
 use Pramnos\Application\NavRegistry;
 use Pramnos\Application\Application;
+use Pramnos\Http\Response;
+
+/**
+ * Testable subclass of Health that exposes the private humanBytes() helper.
+ *
+ * humanBytes() is a private method called inside display(). Depending on how
+ * much memory the test process uses, not all four size branches (B / KB / MB / GB)
+ * may be exercised by display() alone.  This subclass allows direct invocation
+ * so all branches are explicitly covered.
+ */
+class InspectableHealthController extends Health
+{
+    /** Expose humanBytes() for direct branch testing. */
+    public function pubHumanBytes(int $bytes): string
+    {
+        $ref = new \ReflectionMethod($this, 'humanBytes');
+        return $ref->invoke($this, $bytes);
+    }
+}
 
 /**
  * Unit tests for the HealthController.
  *
- * The controller's check() action uses header() + echo + exit, so it cannot
- * be tested end-to-end in a unit test.  These tests verify:
+ * NOTE: check() returns a Response object (no exit()), so it IS directly
+ * testable.  The original comment saying it cannot be called was inaccurate.
+ * These tests now verify:
  *
  * - Health extends Controller (framework routing works).
  * - The 'check' action is in $actions (public, no auth required).
@@ -375,6 +395,181 @@ class HealthControllerTest extends TestCase
         $this->assertSame(503, $codeFor('degraded'));
         $this->assertSame(503, $codeFor('down'));
         $this->assertSame(503, $codeFor('unknown'));
+    }
+
+    // ── check() — directly callable, returns Response ────────────────────────
+
+    /**
+     * check() returns an HTTP 200 Response with JSON body when all checks pass.
+     *
+     * check() does NOT call exit() — it returns a Response object that the
+     * framework router sends.  This makes it directly testable.
+     */
+    public function testCheckReturnsOkResponseWhenAllChecksPass(): void
+    {
+        // Arrange — register a passing check
+        $check = new class implements HealthCheck {
+            public function run(): HealthCheckResult {
+                return HealthCheckResult::ok('svc', 'fine');
+            }
+            public function getName(): string { return 'svc'; }
+        };
+        HealthRegistry::register($check);
+
+        // Act
+        $ctrl     = new Health();
+        $response = $ctrl->check();
+
+        // Assert — 200 OK with JSON body
+        $this->assertInstanceOf(Response::class, $response,
+            'check() must return a Response instance');
+        $this->assertSame(200, $response->getStatusCode(),
+            'check() must return HTTP 200 when status is ok');
+
+        $data = json_decode($response->getBody(), true);
+        $this->assertSame('ok', $data['status'],
+            'JSON body status must be ok');
+        $this->assertArrayHasKey('svc', $data['checks'],
+            'JSON body must include the registered check');
+    }
+
+    /**
+     * check() returns HTTP 503 when at least one check is degraded.
+     *
+     * Monitoring systems (Uptime Robot, Grafana) use the HTTP status code to
+     * trigger alerts, so 503 is the correct code for any non-ok state.
+     */
+    public function testCheckReturnsDegradedResponseWhenCheckIsDegraded(): void
+    {
+        // Arrange
+        $check = new class implements HealthCheck {
+            public function run(): HealthCheckResult {
+                return HealthCheckResult::degraded('mem', 'High memory');
+            }
+            public function getName(): string { return 'mem'; }
+        };
+        HealthRegistry::register($check);
+
+        // Act
+        $ctrl     = new Health();
+        $response = $ctrl->check();
+
+        // Assert — 503 for degraded
+        $this->assertSame(503, $response->getStatusCode(),
+            'check() must return HTTP 503 when any check is degraded');
+
+        $data = json_decode($response->getBody(), true);
+        $this->assertSame('degraded', $data['status']);
+    }
+
+    /**
+     * check() returns HTTP 503 when a check is down.
+     */
+    public function testCheckReturnsDownResponseWhenCheckIsDown(): void
+    {
+        // Arrange
+        $check = new class implements HealthCheck {
+            public function run(): HealthCheckResult {
+                return HealthCheckResult::down('db', 'Cannot connect');
+            }
+            public function getName(): string { return 'db'; }
+        };
+        HealthRegistry::register($check);
+
+        // Act
+        $response = (new Health())->check();
+
+        // Assert
+        $this->assertSame(503, $response->getStatusCode(),
+            'check() must return HTTP 503 when any check is down');
+        $this->assertSame('down', json_decode($response->getBody(), true)['status']);
+    }
+
+    /**
+     * check() sets the Cache-Control header to prevent caching of health results.
+     *
+     * Stale cached results could mask a real outage, so the response must never
+     * be stored by intermediate proxies.
+     */
+    public function testCheckResponseHasNoCacheHeader(): void
+    {
+        // Arrange — empty registry (always ok)
+
+        // Act
+        $response = (new Health())->check();
+
+        // Assert — Cache-Control: no-cache, no-store
+        $this->assertStringContainsString('no-cache', $response->getHeaderLine('Cache-Control') ?? '',
+            'check() must set Cache-Control: no-cache to prevent stale results');
+    }
+
+    // ── phpinfo() access control ──────────────────────────────────────────────
+
+    /**
+     * phpinfo() must return 403 + access denied message when no user is logged in.
+     *
+     * User::getCurrentUser() returns null in test environments (no session),
+     * so the guard at line 130 is always triggered here.  This covers the
+     * http_response_code(403) + return path without needing a real session.
+     */
+    public function testPhpinfoReturnsDeniedWhenNoUserLoggedIn(): void
+    {
+        // Arrange — no session user (default in tests)
+        $ctrl = new Health();
+
+        // Act
+        $result = $ctrl->phpinfo();
+
+        // Assert — access denied string (not phpinfo() HTML)
+        $this->assertSame('<p>Access denied.</p>', $result,
+            'phpinfo() must return access denied when no user is authenticated');
+    }
+
+    // ── humanBytes() — private helper, all four size branches ────────────────
+
+    /**
+     * humanBytes() formats a byte count into a human-readable string.
+     *
+     * There are four code paths based on the magnitude:
+     *   < 1024          → "N B"
+     *   < 1 048 576     → "N KB"
+     *   < 1 073 741 824 → "N MB"
+     *   otherwise       → "N GB"
+     *
+     * display() calls this with memory_get_peak_usage(), which in test runs is
+     * typically a few MB — so only the MB branch is reached via display().
+     * These tests exercise all four branches directly.
+     */
+    public function testHumanBytesBranches(): void
+    {
+        // Arrange — expose private method via testable subclass
+        $ctrl = new InspectableHealthController();
+
+        // Act + Assert — bytes
+        $this->assertSame('0 B', $ctrl->pubHumanBytes(0),
+            '0 bytes must render as "0 B"');
+        $this->assertSame('512 B', $ctrl->pubHumanBytes(512),
+            '512 bytes must render as "512 B"');
+        $this->assertSame('1023 B', $ctrl->pubHumanBytes(1023),
+            '1023 bytes must render as "1023 B" (just under 1 KB)');
+
+        // Act + Assert — kilobytes
+        $this->assertStringContainsString('KB', $ctrl->pubHumanBytes(1024),
+            '1024 bytes must render with KB suffix');
+        $this->assertStringContainsString('KB', $ctrl->pubHumanBytes(1048575),
+            '1 048 575 bytes must render with KB suffix');
+
+        // Act + Assert — megabytes
+        $this->assertStringContainsString('MB', $ctrl->pubHumanBytes(1048576),
+            '1 MiB must render with MB suffix');
+        $this->assertStringContainsString('MB', $ctrl->pubHumanBytes(1073741823),
+            'Just under 1 GiB must render with MB suffix');
+
+        // Act + Assert — gigabytes
+        $this->assertStringContainsString('GB', $ctrl->pubHumanBytes(1073741824),
+            '1 GiB must render with GB suffix');
+        $this->assertStringContainsString('GB', $ctrl->pubHumanBytes(2147483648),
+            '2 GiB must render with GB suffix');
     }
 
     // ── Navigation — admin.health NavItem ────────────────────────────────────

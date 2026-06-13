@@ -2012,6 +2012,45 @@ class DaemonOrchestratorTest extends TestCase
         $this->rmdirRecursive($tmpDir);
     }
 
+    /**
+     * Calling the REAL ensureLogsDir() when var/logs already exists must not
+     * throw and must leave the directory intact (no-op path).
+     *
+     * The existing testEnsureLogsDirCreatesDirectoryWhenMissing() overrides the
+     * method to use a temp-dir so ROOT does not matter. That override is the right
+     * thing for that test, but it means the real production lines 991-992 of
+     * DaemonOrchestrator are never executed. This test calls the unoverridden
+     * real implementation through a subclass that only exposes ensureLogsDir()
+     * publicly, covering both the evaluated `$dir` assignment and the `is_dir`
+     * check (which is false → mkdir() is NOT called because the directory exists).
+     */
+    public function testEnsureLogsDirIsNoopWhenDirectoryAlreadyExists(): void
+    {
+        // Arrange — a minimal subclass that does NOT override ensureLogsDir()
+        $tmpDir = $this->tmpDir; // has var/logs already created in setUp
+        $orch   = new class($tmpDir) extends DaemonOrchestrator {
+            public string $baseDir;
+            public function __construct(string $d) { parent::__construct(); $this->baseDir = $d; }
+            protected function buildDesiredProcesses(): array { return []; }
+            protected function getDashboardTitle(): string { return ' TEST '; }
+            protected function getEntryPoint(): string { return '/dev/null'; }
+            protected function getJobName(): string { return 'test'; }
+            protected function getOrchestratorLockFile(): string { return $this->baseDir . '/var/ORCH.lock'; }
+            protected function getStateFile(): string { return $this->baseDir . '/var/state.json'; }
+            protected function configure(): void { $this->setName('test:noop-logsdir'); }
+            // intentionally NO override of ensureLogsDir() — calls the real implementation
+            public function callEnsureLogsDir(): void { $this->ensureLogsDir(); }
+        };
+
+        // Act — calls the real ensureLogsDir(); ROOT/var/logs exists so is_dir === true
+        // and the mkdir() branch is NOT entered. Lines 991-992 are covered.
+        $orch->callEnsureLogsDir();
+
+        // Assert — no exception; var/logs still exists (no-op did not remove it)
+        $this->assertDirectoryExists(defined('ROOT') ? ROOT . '/var/logs' : sys_get_temp_dir() . '/var/logs',
+            'ensureLogsDir() must leave an existing var/logs directory intact');
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // cleanupStaleLockFiles() — real implementation
     // ─────────────────────────────────────────────────────────────────────────

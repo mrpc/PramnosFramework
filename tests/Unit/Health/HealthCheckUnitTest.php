@@ -415,6 +415,125 @@ class HealthCheckUnitTest extends TestCase
         $this->assertNotSame(HealthStatus::Down, $result->status);
     }
 
+    /**
+     * MemoryLimitCheck must report Degraded when usage exceeds the degraded
+     * threshold but remains below the down threshold.
+     *
+     * Uses degradedPct=0.0 (any usage triggers degraded) and downPct=100.0
+     * (usage never reaches 100% in tests), so the result is always Degraded
+     * in a normally-configured environment.
+     *
+     * Covers the `if ($pct >= $this->degradedPct)` true branch at lines 67–72.
+     */
+    public function testMemoryLimitCheckReportsDegradedBetweenThresholds(): void
+    {
+        // Arrange — degraded at 0%, down only at 100% (never reached in tests)
+        $check = new MemoryLimitCheck(0.0, 100.0);
+
+        // Act
+        $result = $check->run();
+
+        // Assert — if memory_limit is set, usage ≥ 0% triggers Degraded (not Down)
+        $limitBytes = (int) ini_get('memory_limit');
+        if ($limitBytes === -1) {
+            // No limit configured — check returns OK; accept it
+            $this->assertSame('memory_limit', $result->name);
+        } else {
+            $this->assertSame(HealthStatus::Degraded, $result->status,
+                'With degraded=0% and down=100%, any memory usage must be reported as Degraded');
+        }
+    }
+
+    /**
+     * MemoryLimitCheck must return OK with "No memory limit configured" when
+     * the PHP memory_limit is set to -1 (unlimited).
+     *
+     * Covers the `if ($limitBytes <= 0)` true branch at lines 40–46 and the
+     * parseMemoryLimit() -1 path at lines 93–94.
+     */
+    public function testMemoryLimitCheckReturnsOkWhenLimitIsUnlimited(): void
+    {
+        // Arrange — temporarily override memory_limit to simulate unlimited
+        $original = ini_get('memory_limit');
+        ini_set('memory_limit', '-1');
+
+        try {
+            $check  = new MemoryLimitCheck();
+            $result = $check->run();
+
+            // Assert — unlimited memory is treated as OK with a descriptive message
+            $this->assertSame(HealthStatus::Ok, $result->status,
+                'Unlimited memory_limit must be reported as OK');
+            $this->assertStringContainsString('No memory limit', $result->message,
+                'Message must mention that no memory limit is configured');
+        } finally {
+            ini_set('memory_limit', $original);
+        }
+    }
+
+    /**
+     * parseMemoryLimit() must correctly convert 'M' (megabytes) and 'K' (kilobytes)
+     * suffixes to their byte equivalents. Covers the 'M' and 'K' match arms at
+     * lines 102–103 in parseMemoryLimit().
+     *
+     * The private method is exercised indirectly by manipulating php.ini.
+     */
+    public function testMemoryLimitCheckParsesMegabytesAndKilobytes(): void
+    {
+        // Arrange — memory limit in megabytes; thresholds at 100% so we get OK
+        $original = ini_get('memory_limit');
+
+        try {
+            // Test M suffix
+            ini_set('memory_limit', '128M');
+            $checkM = new MemoryLimitCheck(100.0, 100.0);
+            $resultM = $checkM->run();
+            $this->assertSame(HealthStatus::Ok, $resultM->status,
+                '128M limit with high thresholds must produce OK');
+            $this->assertArrayHasKey('limit_mb', $resultM->details,
+                'Result must include limit_mb in details');
+            $this->assertEqualsWithDelta(128.0, $resultM->details['limit_mb'], 0.01,
+                '128M must be parsed as 128 MB');
+
+            // Test K suffix
+            ini_set('memory_limit', '131072K'); // 128 MB in kilobytes
+            $checkK = new MemoryLimitCheck(100.0, 100.0);
+            $resultK = $checkK->run();
+            $this->assertSame(HealthStatus::Ok, $resultK->status,
+                '131072K limit with high thresholds must produce OK');
+            $this->assertEqualsWithDelta(128.0, $resultK->details['limit_mb'], 0.01,
+                '131072K must be parsed as 128 MB');
+        } finally {
+            ini_set('memory_limit', $original);
+        }
+    }
+
+    /**
+     * parseMemoryLimit() must return the raw integer value when no unit suffix
+     * is present (plain byte count). Covers the `default` match arm at line 104.
+     *
+     * Uses a 128 MB limit expressed as raw bytes to verify the no-suffix path.
+     */
+    public function testMemoryLimitCheckParsesPlainByteCount(): void
+    {
+        // Arrange — limit expressed as plain byte count (no G/M/K suffix)
+        $original = ini_get('memory_limit');
+        $limitBytes = 134217728; // 128 MB in bytes
+
+        try {
+            ini_set('memory_limit', (string) $limitBytes);
+            $check  = new MemoryLimitCheck(100.0, 100.0);
+            $result = $check->run();
+
+            // Assert — limit is treated as raw bytes; limit_mb ≈ 128 MB
+            $this->assertSame(HealthStatus::Ok, $result->status);
+            $this->assertEqualsWithDelta(128.0, $result->details['limit_mb'], 0.01,
+                'Plain byte-count limit must be parsed correctly by the default match arm');
+        } finally {
+            ini_set('memory_limit', $original);
+        }
+    }
+
     // =========================================================================
     // DatabaseConnectivityCheck (tested with fake DB double)
     // =========================================================================

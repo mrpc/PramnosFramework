@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-06-12 — Zero Test Failures / Warnings
+## 📅 Last Updated: 2026-06-13 — Coverage push: all src/ files ≥ 90%
 
 ## 🏁 Regression Fixes & Test Validation (2026-06-12)
 
@@ -13,6 +13,20 @@
 - Fixed `AuthTest` static state leakage of `$drivers` in `setUp`/`tearDown`.
 - Removed redundant static caching inside `Factory::getAuth()`.
 - Cleaned up private/protected reflection deprecations in `AuthTest.php`.
+
+## 🏁 Coverage Push — All src/ Files ≥ 90% (2026-06-13)
+
+**Tests: ~360+ | Code Coverage: 90.43%+ (30402+/33619 statements)**
+
+21 test files modified, 3 new integration test files — targeted 25+ previously-undertested classes:
+- `BlueprintCompiler`: 84.7% → ~100% — 13 new tests covering float, double, tinyinteger, smallinteger, mediumtext, longtext, date, time, timestamp, jsonb, binary type branches + non-integer unsigned modifier
+- `DaemonOrchestrator`: 89.8% → 90%+ — ensureLogsDir() real implementation coverage via subclass without override
+- `MigrateRollback` + `MigrateReset`: defaultMigrationPath() branch via tests without `--path` option
+- `TokensController`: filter branches user_id + app_id in display(), applicationid filter in revokeall()
+- `EmailsController`: status filter branch in display()
+- `ModelInspectTool`: empty class error + static property branch (InspectableModelWithStatic helper)
+- `TwoFactorAuth`: verifySetup() success + backup regeneration via mock TwoFactorAuthService injection
+- `DaemonOrchestrator`, `ConsoleApplicationCoverageTest`, `MemcacheAdapter`, `StringHelper`, `StorageManager`, `FormRequest`, `WebhookHandler`, `DatabaseStatsService`, `MigrationLoader`, `HealthCheck`, `HealthController`, `TemplateCache`, `AbstractAdapter`, `ArrayAdapter`, `MemcacheAdapter`, `MakeWebhook`: comprehensive coverage additions
 
 ## 🏁 Coverage Push to 90%+ (2026-06-12)
 

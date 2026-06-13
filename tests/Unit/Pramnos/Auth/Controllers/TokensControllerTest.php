@@ -296,4 +296,110 @@ class TokensControllerTest extends TestCase
             $this->assertStringContainsString('error=filter_required', $this->controller->redirectedTo[0]);
         }
     }
+
+    /**
+     * display() with a user_id GET filter must add WHERE ut.userid = ? to the query.
+     *
+     * The $filterUserId > 0 branch (line 68 in TokensController) is only reached
+     * when $_GET['user_id'] is a positive integer.  The existing testDisplayShowsTokens
+     * does not set this parameter, leaving the branch uncovered.
+     */
+    public function testDisplayWithUserIdFilterRendersPage(): void
+    {
+        // Arrange — admin user, user_id filter set in GET
+        $this->setMockUser(90);
+        $_GET['user_id'] = '1'; // positive → exercises the filterUserId > 0 branch
+
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->themeObject = new class {
+            public function allowsViewOverrides() { return false; }
+        };
+
+        // Act
+        ob_start();
+        try {
+            $output = $this->controller->display();
+        } finally {
+            $obOutput = ob_get_clean();
+        }
+
+        if (empty($output)) {
+            $output = $obOutput;
+        }
+
+        // Assert — page rendered, filter branch was executed
+        $this->assertNotEmpty($output,
+            'display() must render the tokens view when a user_id filter is applied');
+        $this->assertEmpty($this->controller->redirectedTo,
+            'display() must not redirect when a valid user_id filter is set');
+    }
+
+    /**
+     * display() with an app_id GET filter must add WHERE ut.applicationid = ? to the query.
+     *
+     * The $filterAppId > 0 branch (line 71 in TokensController) mirrors the
+     * user_id branch. This test covers it independently to ensure both filters
+     * are independently functional.
+     */
+    public function testDisplayWithAppIdFilterRendersPage(): void
+    {
+        // Arrange — admin user, app_id filter set in GET
+        $this->setMockUser(90);
+        $_GET['app_id'] = '5'; // positive → exercises the filterAppId > 0 branch
+
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->themeObject = new class {
+            public function allowsViewOverrides() { return false; }
+        };
+
+        // Act
+        ob_start();
+        try {
+            $output = $this->controller->display();
+        } finally {
+            $obOutput = ob_get_clean();
+        }
+
+        if (empty($output)) {
+            $output = $obOutput;
+        }
+
+        // Assert — page rendered, filter branch was executed
+        $this->assertNotEmpty($output,
+            'display() must render the tokens view when an app_id filter is applied');
+        $this->assertEmpty($this->controller->redirectedTo,
+            'display() must not redirect when a valid app_id filter is set');
+    }
+
+    /**
+     * revokeall() with both userid AND applicationid POST filters must apply
+     * both WHERE conditions — the $appId > 0 branch (line 144) is only reached
+     * when both filters are present.
+     *
+     * testRevokeallUpdatesStatus only passes userid, leaving the applicationid
+     * branch uncovered. This test passes both to exercise the AND path.
+     */
+    public function testRevokeallWithBothFiltersAppliesBothConditions(): void
+    {
+        // Arrange — admin user, both userid and applicationid set
+        $this->setMockUser(90);
+        $_POST = [
+            'userid'        => 1,
+            'applicationid' => 1,
+        ];
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            // Act — revokeall() will apply WHERE userid=1 AND applicationid=1
+            $this->controller->revokeall();
+        } finally {
+            // Assert — redirected with revoked_all message (both filters were applied)
+            $this->assertCount(1, $this->controller->redirectedTo,
+                'revokeall() must redirect exactly once after bulk revocation');
+            $this->assertStringContainsString('message=revoked_all', $this->controller->redirectedTo[0],
+                'revokeall() must redirect with message=revoked_all when both filters are provided');
+        }
+    }
 }

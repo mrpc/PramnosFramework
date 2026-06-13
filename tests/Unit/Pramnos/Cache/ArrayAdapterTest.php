@@ -315,4 +315,114 @@ class ArrayAdapterTest extends TestCase
         // Assert — A still has its entry
         $this->assertSame('from-A', $adapterA->load('shared'));
     }
+
+    // ── getCategories ─────────────────────────────────────────────────────────
+
+    /**
+     * getCategories() with an empty prefix returns the first segment of every
+     * stored key as a category label. Keys are split on '_'; the prefix segment
+     * before the first underscore identifies the category.
+     */
+    public function testGetCategoriesReturnsAllCategoryPrefixes(): void
+    {
+        // Arrange — two keys in two distinct categories
+        $this->adapter->save('posts_123', 'post data', 3600);
+        $this->adapter->save('users_456', 'user data', 3600);
+
+        // Act
+        $categories = $this->adapter->getCategories('');
+
+        // Assert — both category labels are present (order is unspecified)
+        $this->assertIsArray($categories);
+        $this->assertContains('posts', $categories,
+            'getCategories() must extract the "posts" prefix from "posts_123"');
+        $this->assertContains('users', $categories,
+            'getCategories() must extract the "users" prefix from "users_456"');
+    }
+
+    /**
+     * getCategories() with a non-empty prefix skips keys that do not start with
+     * that prefix, honouring the str_starts_with() guard inside the method.
+     */
+    public function testGetCategoriesWithPrefixFiltersKeys(): void
+    {
+        // Arrange — one key matching the prefix, one that does not
+        $this->adapter->save('app_posts_1', 'a', 3600);
+        $this->adapter->save('other_thing', 'b', 3600);
+
+        // Act — only keys starting with 'app_' should contribute categories
+        $categories = $this->adapter->getCategories('app_');
+
+        // Assert — 'app_posts_1' starts with 'app_' → its prefix 'app' is returned;
+        // 'other_thing' does NOT start with 'app_' → its prefix must be absent.
+        $this->assertContains('app', $categories,
+            '"app_posts_1" starts with prefix "app_", so "app" must appear');
+        $this->assertNotContains('other', $categories,
+            '"other_thing" does not start with prefix "app_", so "other" must be excluded');
+    }
+
+    // ── getAllItems — category filter & limit ─────────────────────────────────
+
+    /**
+     * getAllItems() with a non-empty $category skips entries whose key does not
+     * contain the category substring. Only matching items are returned.
+     */
+    public function testGetAllItemsWithCategoryFilterSkipsNonMatchingKeys(): void
+    {
+        // Arrange
+        $this->adapter->save('posts_1', 'post', 3600);
+        $this->adapter->save('users_1', 'user', 3600);
+
+        // Act — only 'posts' category
+        $items = $this->adapter->getAllItems('posts');
+
+        // Assert — exactly the posts entry is returned, users entry is skipped
+        $this->assertCount(1, $items,
+            'getAllItems("posts") must skip the "users_1" key');
+        $this->assertStringContainsString('posts', $items[0]['key']);
+    }
+
+    /**
+     * getAllItems() stops after $limit results, covering the break inside the
+     * counting loop. Verifies that excess items are excluded from the result.
+     */
+    public function testGetAllItemsLimitCutsOffResults(): void
+    {
+        // Arrange — three items, limit is 2
+        $this->adapter->save('item_a', 'a', 3600);
+        $this->adapter->save('item_b', 'b', 3600);
+        $this->adapter->save('item_c', 'c', 3600);
+
+        // Act
+        $items = $this->adapter->getAllItems('', 2);
+
+        // Assert — at most 2 items returned despite 3 being in store
+        $this->assertCount(2, $items,
+            'getAllItems() must respect the $limit parameter and stop after 2 items');
+    }
+
+    // ── pruneExpired (via getStats) ───────────────────────────────────────────
+
+    /**
+     * getStats() calls pruneExpired() before counting; entries that have already
+     * expired are removed from the store and excluded from the item count.
+     * This covers the unset() branch inside pruneExpired() that is not reachable
+     * through load() alone.
+     */
+    public function testGetStatsExcludesExpiredItems(): void
+    {
+        // Arrange — save one item, then backdate its expiry via reflection
+        $this->adapter->save('stale', 'old value', 3600);
+        $reflection = new \ReflectionProperty(ArrayAdapter::class, 'store');
+        $store = $reflection->getValue($this->adapter);
+        $store['stale'] = ['data' => 'old value', 'expires' => time() - 1];
+        $reflection->setValue($this->adapter, $store);
+
+        // Act — getStats() triggers pruneExpired() internally
+        $stats = $this->adapter->getStats();
+
+        // Assert — the expired entry was pruned; item count must be 0
+        $this->assertSame(0, $stats['items'],
+            'pruneExpired() must remove the expired entry before getStats() counts items');
+    }
 }

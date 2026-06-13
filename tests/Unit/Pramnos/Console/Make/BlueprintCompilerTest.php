@@ -290,6 +290,256 @@ class BlueprintCompilerTest extends TestCase
         $this->assertStringContainsString("->onDelete('cascade')", $result);
     }
 
+    /**
+     * buildMigrationUpBody() with a non-empty onUpdate key must emit
+     * ->onUpdate('...') in the foreign-key chain.
+     *
+     * The true branch of the $onUpdate ternary (line 155 in BlueprintCompiler)
+     * is only reached when onUpdate is present and non-empty.  The existing FK
+     * test passes an empty string, leaving this branch unexercised.
+     */
+    public function testBuildMigrationUpBodyForeignKeyWithOnUpdate(): void
+    {
+        // Arrange
+        $fks = [[
+            'column'     => 'user_id',
+            'references' => 'userid',
+            'on'         => '#PREFIX#users',
+            'onDelete'   => 'cascade',
+            'onUpdate'   => 'cascade',   // non-empty → exercises the true branch
+        ]];
+
+        // Act
+        $result = $this->compiler->buildMigrationUpBody(
+            'posts', false, [], false, false, $fks
+        );
+
+        // Assert — onUpdate clause appears in the generated chain
+        $this->assertStringContainsString("->onUpdate('cascade')", $result,
+            'buildMigrationUpBody() must emit ->onUpdate() when onUpdate is set');
+    }
+
+    // =========================================================================
+    // blueprintCall() — additional column types
+    // =========================================================================
+
+    /**
+     * float type must emit $table->float() with precision and scale.
+     *
+     * The float match-arm constructs a call identical to decimal; without this
+     * test the arm stays uncovered and a future typo would silently fall through
+     * to the default arm and produce $table->string() instead.
+     */
+    public function testBlueprintCallFloatType(): void
+    {
+        // Arrange
+        $col = ['name' => 'score', 'type' => 'float',
+                'options' => ['total' => 6, 'places' => 2],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => false, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert
+        $this->assertStringContainsString("\$table->float('score', 6, 2)", $result,
+            'float type must produce $table->float() with precision and scale');
+    }
+
+    /**
+     * double type must emit $table->double().
+     */
+    public function testBlueprintCallDoubleType(): void
+    {
+        // Arrange
+        $col = ['name' => 'amount', 'type' => 'double', 'options' => [],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => false, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert
+        $this->assertStringContainsString("\$table->double('amount')", $result);
+    }
+
+    /**
+     * tinyinteger type must emit $table->tinyInteger().
+     */
+    public function testBlueprintCallTinyIntegerType(): void
+    {
+        // Arrange
+        $col = ['name' => 'flag', 'type' => 'tinyinteger', 'options' => [],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => false, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert
+        $this->assertStringContainsString("\$table->tinyInteger('flag')", $result);
+    }
+
+    /**
+     * smallinteger type must emit $table->smallInteger().
+     */
+    public function testBlueprintCallSmallIntegerType(): void
+    {
+        // Arrange
+        $col = ['name' => 'rank', 'type' => 'smallinteger', 'options' => [],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => false, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert
+        $this->assertStringContainsString("\$table->smallInteger('rank')", $result);
+    }
+
+    /**
+     * mediumtext type must emit $table->mediumText().
+     */
+    public function testBlueprintCallMediumTextType(): void
+    {
+        // Arrange
+        $col = ['name' => 'content', 'type' => 'mediumtext', 'options' => [],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => false, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert
+        $this->assertStringContainsString("\$table->mediumText('content')", $result);
+    }
+
+    /**
+     * longtext type must emit $table->longText().
+     */
+    public function testBlueprintCallLongTextType(): void
+    {
+        // Arrange
+        $col = ['name' => 'body', 'type' => 'longtext', 'options' => [],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => false, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert
+        $this->assertStringContainsString("\$table->longText('body')", $result);
+    }
+
+    /**
+     * date type must emit $table->date().
+     */
+    public function testBlueprintCallDateType(): void
+    {
+        // Arrange
+        $col = ['name' => 'birthday', 'type' => 'date', 'options' => [],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => false, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert
+        $this->assertStringContainsString("\$table->date('birthday')", $result);
+    }
+
+    /**
+     * time type must emit $table->time().
+     */
+    public function testBlueprintCallTimeType(): void
+    {
+        // Arrange
+        $col = ['name' => 'start_time', 'type' => 'time', 'options' => [],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => false, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert
+        $this->assertStringContainsString("\$table->time('start_time')", $result);
+    }
+
+    /**
+     * timestamp type must emit $table->timestamp().
+     */
+    public function testBlueprintCallTimestampType(): void
+    {
+        // Arrange
+        $col = ['name' => 'logged_at', 'type' => 'timestamp', 'options' => [],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => false, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert
+        $this->assertStringContainsString("\$table->timestamp('logged_at')", $result);
+    }
+
+    /**
+     * jsonb type must emit $table->jsonb().
+     */
+    public function testBlueprintCallJsonbType(): void
+    {
+        // Arrange
+        $col = ['name' => 'settings', 'type' => 'jsonb', 'options' => [],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => false, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert
+        $this->assertStringContainsString("\$table->jsonb('settings')", $result);
+    }
+
+    /**
+     * binary type must emit $table->binary().
+     */
+    public function testBlueprintCallBinaryType(): void
+    {
+        // Arrange
+        $col = ['name' => 'data', 'type' => 'binary', 'options' => [],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => false, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert
+        $this->assertStringContainsString("\$table->binary('data')", $result);
+    }
+
+    /**
+     * Non-integer unsigned types must append ->unsigned() to the chain.
+     *
+     * The guard on line 98 skips ->unsigned() for the integer family (they use
+     * unsignedInteger/unsignedBigInteger methods instead).  For any other type
+     * that carries the unsigned flag, ->unsigned() must be appended explicitly.
+     * A float column is used here as a representative non-integer unsigned type.
+     */
+    public function testBlueprintCallNonIntegerUnsignedAppendsModifier(): void
+    {
+        // Arrange — float with unsigned=true (not in the integer family)
+        $col = ['name' => 'weight', 'type' => 'float',
+                'options' => ['total' => 8, 'places' => 2],
+                'nullable' => false, 'default' => null, 'unique' => false,
+                'unsigned' => true, 'comment' => ''];
+
+        // Act
+        $result = $this->compiler->blueprintCall($col);
+
+        // Assert — ->unsigned() is present (non-integer unsigned branch)
+        $this->assertStringContainsString('->unsigned()', $result,
+            'blueprintCall() must append ->unsigned() for non-integer types with unsigned=true');
+    }
+
     // =========================================================================
     // buildMigrationDownBody()
     // =========================================================================

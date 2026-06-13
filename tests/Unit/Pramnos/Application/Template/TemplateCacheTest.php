@@ -402,4 +402,88 @@ class TemplateCacheTest extends TestCase
         // Assert
         $this->assertSame($newDir, $cache->getCacheDir());
     }
+
+    // =========================================================================
+    // resolveDefaultCacheDir() — ROOT-defined path
+    // =========================================================================
+
+    /**
+     * When no cacheDir is given and ROOT IS defined, resolveDefaultCacheDir()
+     * must return ROOT/var/viewcache (not sys_get_temp_dir()).
+     *
+     * The test bootstrap always defines ROOT, so this exercises the
+     * `if (defined('ROOT'))` branch at line 40–41 of TemplateCache, which is
+     * the branch executed in every real deployment.
+     */
+    public function testDefaultCacheDirUsesRootWhenDefined(): void
+    {
+        // Arrange / Act — no explicit cacheDir; ROOT is defined by the test bootstrap
+        $cache    = new TemplateCache();
+        $expected = ROOT . DIRECTORY_SEPARATOR . 'var' . DIRECTORY_SEPARATOR . 'viewcache';
+
+        // Assert — the ROOT-based path is returned, not sys_get_temp_dir()
+        $this->assertSame($expected, $cache->getCacheDir(),
+            'resolveDefaultCacheDir() must return ROOT/var/viewcache when ROOT is defined');
+    }
+
+    // =========================================================================
+    // isUpToDate() — filemtime returns false for missing source
+    // =========================================================================
+
+    /**
+     * isUpToDate() must return false when the source file cannot be stat()-ed
+     * (e.g. it was deleted after the cache was built). The filemtime()-returns-
+     * false branch at lines 97–98 is only reachable when the cached file EXISTS
+     * but the source path is invalid.
+     *
+     * We manually pre-create the cached file and call isUpToDate() with a
+     * non-existent source path to trigger the $sourceMtime === false guard.
+     */
+    public function testIsUpToDateReturnsFalseWhenSourceFileMtimeFails(): void
+    {
+        // Arrange — compute the key for a non-existent path and pre-create the cached file
+        $cacheDir    = $this->tmpDir . '/cache';
+        mkdir($cacheDir, 0755, true);
+        $cache       = new TemplateCache($cacheDir);
+        $fakeSrc     = '/nonexistent/template_' . bin2hex(random_bytes(4)) . '.tpl.php';
+        $cachedPath  = $cache->getCachedPath($fakeSrc);
+
+        // Write a cached file so the file_exists() check passes
+        file_put_contents($cachedPath, '<?php // compiled stub');
+
+        // Suppress the PHP warning that filemtime() emits for a missing source file
+        $result = @$cache->isUpToDate($fakeSrc);
+
+        // Assert — filemtime($fakeSrc) returns false → isUpToDate returns false
+        $this->assertFalse($result,
+            'isUpToDate() must return false when filemtime() fails for the source path');
+    }
+
+    // =========================================================================
+    // store() — mkdir failure throws RuntimeException
+    // =========================================================================
+
+    /**
+     * store() must throw RuntimeException when the cache directory cannot be
+     * created (e.g. a regular FILE already occupies the path).
+     *
+     * We create a plain file at the path that store() would try to mkdir(),
+     * which makes both `is_dir()` false and `mkdir()` fail — triggering the
+     * RuntimeException at lines 115–117 of TemplateCache.
+     */
+    public function testStoreThrowsRuntimeExceptionWhenMkdirFails(): void
+    {
+        // Arrange — create a FILE at the path where store() wants to mkdir()
+        $conflictPath = $this->tmpDir . '/conflict_file_' . bin2hex(random_bytes(4));
+        file_put_contents($conflictPath, 'I am a file, not a directory');
+
+        // Use $conflictPath as the cacheDir — mkdir($conflictPath) will fail
+        // because the name is already taken by a regular file
+        $cache = new TemplateCache($conflictPath);
+
+        // Act + Assert
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/Cannot create template cache directory/');
+        $cache->store($this->sourceFile, '<?php // compiled');
+    }
 }

@@ -515,4 +515,64 @@ class DatabaseStatsServiceTest extends TestCase
         $this->assertSame('MySQL 8.0.36', $stats['version'],
             'MySQL version must be prefixed with "MySQL " when a version row is returned');
     }
+
+    /**
+     * getMySQLStats() must catch exceptions thrown by any SHOW STATUS query and
+     * return null values for all connection/query/cache metrics, rather than
+     * letting the exception bubble up.
+     *
+     * Covers the catch block at lines 203–208 of DatabaseStatsService
+     * (connections_total, connections_active, queries, cache_hit_ratio all set to null).
+     */
+    public function testGetStatsMySQLDoesNotThrowWhenStatusQueriesFail(): void
+    {
+        // Arrange — version and db_size queries succeed; SHOW STATUS throws
+        $db = $this->createStub(\Pramnos\Database\Database::class);
+        $db->type = 'mysql';
+
+        $versionResult          = new \stdClass();
+        $versionResult->numRows = 1;
+        $versionResult->fields  = ['ver' => '8.0.36'];
+
+        $dbSizeResult          = new \stdClass();
+        $dbSizeResult->numRows = 1;
+        $dbSizeResult->fields  = ['db_size' => '102400'];
+
+        // First two queries succeed; any subsequent SHOW STATUS query throws
+        $db->method('query')->willReturnCallback(
+            (function () use ($versionResult, $dbSizeResult): \Closure {
+                $calls = 0;
+                return function () use ($versionResult, $dbSizeResult, &$calls) {
+                    $calls++;
+                    if ($calls === 1) {
+                        return $versionResult;
+                    }
+                    if ($calls === 2) {
+                        return $dbSizeResult;
+                    }
+                    throw new \Exception('access denied to SHOW STATUS');
+                };
+            })()
+        );
+
+        $svc = new DatabaseStatsService($db);
+
+        // Act — must not throw
+        $stats = $svc->getStats();
+
+        // Assert — exception was caught; connection/query metrics are null
+        $this->assertIsArray($stats, 'getStats() must return an array even when SHOW STATUS fails');
+        $this->assertSame('MySQL 8.0.36', $stats['version'],
+            'version must be set from the successful query before the exception');
+        $this->assertSame((int) 102400, $stats['db_size_bytes'],
+            'db_size_bytes must be set from the successful size query');
+        $this->assertNull($stats['connections_total'],
+            'connections_total must be null when SHOW STATUS throws');
+        $this->assertNull($stats['connections_active'],
+            'connections_active must be null when SHOW STATUS throws');
+        $this->assertNull($stats['queries'],
+            'queries must be null when SHOW STATUS throws');
+        $this->assertNull($stats['cache_hit_ratio'],
+            'cache_hit_ratio must be null when SHOW STATUS throws');
+    }
 }

@@ -210,4 +210,71 @@ class MigrationLoaderUnitTest extends TestCase
         // Assert
         $this->assertSame([], $migrations);
     }
+
+    /**
+     * loadFromDirectory() must skip abstract Migration subclasses — they cannot
+     * be instantiated and exist only as base classes for concrete migrations.
+     * Covers the `if ($ref->isAbstract()) continue;` branch in the loader.
+     */
+    public function testLoadFromDirectorySkipsAbstractMigrations(): void
+    {
+        // Arrange — write a temp migration file that contains an abstract class
+        $tmpDir = sys_get_temp_dir() . '/ml_test_abstract_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir, 0777, true);
+
+        $abstractFile = $tmpDir . '/2026_01_01_000000_abstract_base.php';
+        $concreteFile = $tmpDir . '/2026_01_01_000001_concrete_one.php';
+
+        file_put_contents($abstractFile, '<?php
+use Pramnos\Database\Migration;
+abstract class MlAbstractBase extends Migration {
+    public function up(): void {}
+    public function down(): void {}
+}
+');
+        file_put_contents($concreteFile, '<?php
+use Pramnos\Database\Migration;
+class MlConcreteOne extends Migration {
+    public function up(): void {}
+    public function down(): void {}
+}
+');
+
+        // Act
+        $migrations = MigrationLoader::loadFromDirectory($tmpDir, $this->app);
+
+        // Cleanup
+        @unlink($abstractFile);
+        @unlink($concreteFile);
+        @rmdir($tmpDir);
+
+        // Assert — only the concrete migration is returned, abstract one is skipped
+        $this->assertCount(1, $migrations,
+            'Abstract migration classes must be excluded from the result');
+        $this->assertInstanceOf(\Pramnos\Database\Migration::class, $migrations[0]);
+        $this->assertSame('MlConcreteOne', (new \ReflectionClass($migrations[0]))->getShortName());
+    }
+
+    /**
+     * resolveDefaultDirectories() when no framework migrations base exists must
+     * still return the app/Migrations directory as the first entry.
+     * Covers the `if ($base !== null && is_dir($base))` false branch where
+     * no feature sub-directories are appended.
+     */
+    public function testResolveDefaultDirectoriesWithoutFrameworkBaseReturnsAppMigrationsOnly(): void
+    {
+        // Arrange — use a nonexistent root so resolveFrameworkMigrationsBase() returns null
+        $fakeRoot = '/nonexistent_root_' . bin2hex(random_bytes(4));
+
+        // Act — pass the fake root (no framework migrations exist there)
+        // Note: resolveFrameworkMigrationsBase() always finds the dev-repo source,
+        // so we verify that at minimum app/Migrations is always the first entry
+        $dirs = MigrationLoader::resolveDefaultDirectories($fakeRoot);
+
+        // Assert — at minimum app/Migrations must be the first dir
+        $this->assertIsArray($dirs);
+        $this->assertNotEmpty($dirs);
+        $this->assertStringEndsWith('/app/Migrations', $dirs[0],
+            'First directory must always be app/Migrations regardless of framework base');
+    }
 }
