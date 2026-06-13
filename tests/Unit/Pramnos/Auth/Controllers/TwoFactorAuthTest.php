@@ -694,7 +694,7 @@ class TwoFactorAuthTest extends TestCase
         $mockService->method('startSetup')->willReturn(['secret' => 'FAKESECRET', 'qr_uri' => '']);
         $mockService->method('completeSetup')->willReturn(true);
 
-        $ref = new \ReflectionProperty($this->controller, 'twoFactorService');
+        $ref = new \ReflectionProperty(TwoFactorAuth::class, 'twoFactorService');
         $ref->setValue($this->controller, $mockService);
 
         $this->expectException(\RuntimeException::class);
@@ -739,7 +739,7 @@ class TwoFactorAuthTest extends TestCase
         $mockService->method('regenerateBackupCodes')->willReturn($newCodes);
         $mockService->method('getRemainingBackupCodes')->willReturn(0);
 
-        $ref = new \ReflectionProperty($this->controller, 'twoFactorService');
+        $ref = new \ReflectionProperty(TwoFactorAuth::class, 'twoFactorService');
         $ref->setValue($this->controller, $mockService);
 
         $doc = \Pramnos\Framework\Factory::getDocument();
