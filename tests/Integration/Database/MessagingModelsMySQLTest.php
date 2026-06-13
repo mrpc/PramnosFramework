@@ -363,6 +363,70 @@ class MessagingModelsMySQLTest extends TestCase
         $this->assertStringContainsString('internal', $loaded->request);
     }
 
+    /**
+     * MassMessage::delete() must remove the row, getData() must return properties
+     * as an array, and getList() must return all matching rows.
+     *
+     * These three single-line wrapper methods (lines 115, 125, 138 of MassMessage.php)
+     * delegate to parent Model methods. Covering them proves that the delegation is
+     * wired correctly and that a future accidental override does not silently break
+     * the CRUD contract.
+     */
+    public function testMassMessageDeleteGetDataAndGetList(): void
+    {
+        // Arrange — create two broadcast records
+        $mass1          = new MassMessage($this->controller);
+        $mass1->subject = 'Delete Test';
+        $mass1->message = 'body';
+        $mass1->type    = MassMessage::TYPE_EMAIL;
+        $mass1->sender  = 1;
+        $mass1->status  = MassMessage::STATUS_PENDING;
+        $mass1->created = time();
+        $mass1->scheduled      = 0;
+        $mass1->totalrecipients = 0;
+        $mass1->save();
+        $id1 = $mass1->messageid;
+        $this->assertNotEmpty($id1, 'save() must assign a messageid before delete() is tested');
+
+        $mass2          = new MassMessage($this->controller);
+        $mass2->subject = 'GetList Test';
+        $mass2->message = 'body';
+        $mass2->type    = MassMessage::TYPE_MESSAGE;
+        $mass2->sender  = 1;
+        $mass2->status  = MassMessage::STATUS_SENT;
+        $mass2->created = time();
+        $mass2->scheduled      = 0;
+        $mass2->totalrecipients = 5;
+        $mass2->save();
+
+        // Act — getData() on a loaded instance (covers MassMessage.php line 125)
+        $loaded = (new MassMessage($this->controller))->load($id1);
+        $data   = $loaded->getData();
+
+        // Assert — getData() returns an array with the correct subject
+        $this->assertIsArray($data, 'MassMessage::getData() must return an array');
+        $this->assertSame('Delete Test', $data['subject'] ?? null,
+            'getData() must include the subject field');
+
+        // Act — getList() without filter (covers MassMessage.php line 138)
+        $list = (new MassMessage($this->controller))->getList();
+
+        // Assert — at least the two rows we just inserted are present
+        $this->assertIsArray($list, 'MassMessage::getList() must return an array');
+        $this->assertGreaterThanOrEqual(2, count($list),
+            'getList() must return at least the two broadcast records');
+
+        // Act — delete() (covers MassMessage.php line 115)
+        (new MassMessage($this->controller))->delete($id1);
+
+        // Assert — row is gone from the database
+        $result = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM `massmessages` WHERE messageid = {$id1}"
+        );
+        $this->assertSame(0, (int) $result->fields['cnt'],
+            'MassMessage::delete() must remove the row from the database');
+    }
+
     // -------------------------------------------------------------------------
     // MassMessageRecipient model
     // -------------------------------------------------------------------------
