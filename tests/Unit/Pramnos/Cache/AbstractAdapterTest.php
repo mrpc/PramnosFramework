@@ -534,4 +534,96 @@ class AbstractAdapterTest extends TestCase
         // Assert
         $this->assertSame([], $adapter->getAllItems('cat', 10));
     }
+
+    // =========================================================================
+    // test() — success and failure paths
+    // =========================================================================
+
+    /**
+     * Helper: build a concrete adapter whose save/load/delete work correctly.
+     * This allows us to exercise the test() method's happy path.
+     */
+    private function makeWorkingAdapter(string $prefix = ''): AbstractAdapter
+    {
+        return new class($prefix) extends AbstractAdapter {
+            private array $store = [];
+
+            public function save($key, $data, $timeout = 3600): bool
+            {
+                $this->store[$key] = $data;
+                return true;
+            }
+
+            public function load($key, $timeout = null): mixed
+            {
+                return $this->store[$key] ?? null;
+            }
+
+            public function delete($key): bool
+            {
+                unset($this->store[$key]);
+                return true;
+            }
+        };
+    }
+
+    /**
+     * test() must return true when save/load/delete all succeed — the cache
+     * connection is healthy. Covers the full success path of test()
+     * (lines 144-161 in AbstractAdapter).
+     */
+    public function testTestReturnsTrueWhenCacheIsFullyFunctional(): void
+    {
+        // Arrange — working adapter with save/load/delete implemented
+        $adapter = $this->makeWorkingAdapter();
+
+        // Act
+        $result = $adapter->test();
+
+        // Assert — happy path returns true
+        $this->assertTrue($result, 'test() must return true when the cache is functional');
+    }
+
+    /**
+     * test() must return false when save() succeeds but load() returns the wrong
+     * value (e.g., cache is write-only or the key expired instantly).
+     * Covers the `if ($loadedValue !== $testValue) return false` branch.
+     */
+    public function testTestReturnsFalseWhenLoadReturnsWrongValue(): void
+    {
+        // Arrange — adapter where load() always returns something different
+        $adapter = new class extends AbstractAdapter {
+            public function save($key, $data, $timeout = 3600): bool { return true; }
+            public function load($key, $timeout = null): mixed { return 'WRONG_VALUE'; }
+            public function delete($key): bool { return true; }
+        };
+
+        // Act
+        $result = $adapter->test();
+
+        // Assert — load returned wrong value → test fails
+        $this->assertFalse($result,
+            'test() must return false when load() does not return the saved value');
+    }
+
+    /**
+     * test() must return false immediately when save() returns false.
+     * Covers the `if (!$saveResult) return false` branch.
+     */
+    public function testTestReturnsFalseWhenSaveFails(): void
+    {
+        // Arrange — adapter where save() always fails
+        $adapter = new class extends AbstractAdapter {
+            public function save($key, $data, $timeout = 3600): bool { return false; }
+            public function load($key, $timeout = null): mixed { return null; }
+            public function delete($key): bool { return true; }
+        };
+
+        // Act
+        $result = $adapter->test();
+
+        // Assert — save returned false → test must short-circuit and return false
+        $this->assertFalse($result,
+            'test() must return false immediately when save() reports failure');
+    }
 }

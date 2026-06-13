@@ -443,6 +443,54 @@ class MemcacheAdapterTest extends TestCase
     }
 
     /**
+     * getCategories() must return an empty array when the memcache tags key holds
+     * a non-array value (e.g. false, null, string). Covers the ternary false
+     * branch `is_array($tagsArray) ? array_keys($tagsArray) : []` at line 189.
+     */
+    public function testGetCategoriesReturnsEmptyWhenTagsKeyIsNotAnArray(): void
+    {
+        // Arrange — get() returns false (key not found / expired)
+        $adapter = $this->makeConnectedAdapter();
+        $mock    = \Memcache::$mockInstance;
+        $mock->expects($this->once())
+             ->method('get')
+             ->willReturn(false); // not an array → is_array = false
+
+        // Act
+        $result = $adapter->getCategories();
+
+        // Assert — must return empty array, not throw
+        $this->assertSame([], $result,
+            'getCategories() must return [] when the stored tags value is not an array');
+    }
+
+    /**
+     * getStats() when getCategories() tags key returns a non-array value must
+     * set categories to 0. Covers the ternary false branch
+     * `is_array($tagsArray) ? count($tagsArray) : 0` at line 215.
+     */
+    public function testGetStatsWhenTagsKeyIsNotAnArray(): void
+    {
+        // Arrange — tags get() returns false; server stats returns no curr_items
+        $adapter = $this->makeConnectedAdapter();
+        $mock    = \Memcache::$mockInstance;
+        $mock->expects($this->once())
+             ->method('get')
+             ->willReturn(false); // not an array → categories = 0
+        $mock->expects($this->once())
+             ->method('getExtendedStats')
+             ->willReturn(['localhost:11211' => ['curr_items' => 7]]);
+
+        // Act
+        $stats = $adapter->getStats();
+
+        // Assert — categories stays at 0 when tags are not an array
+        $this->assertSame(0, $stats['categories'],
+            'categories must be 0 when the tags key does not hold an array');
+        $this->assertSame(7, $stats['items']);
+    }
+
+    /**
      * getStats() when the server stats array has entries WITHOUT a 'curr_items' key
      * must leave $stats['items'] at 0 (the key-missing branch at line 221).
      */

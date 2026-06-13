@@ -235,6 +235,50 @@ class McpToolsTest extends TestCase
     // ── ModelInspectTool ──────────────────────────────────────────────────────
 
     /**
+     * ModelInspectTool::execute() with an empty string for 'class' must return
+     * an error immediately rather than attempting reflection.
+     *
+     * This guards the early validation branch at the top of execute() — if the
+     * caller omits the class name or passes an empty string, the tool must
+     * return an error without calling class_exists() or ReflectionClass.
+     */
+    public function testModelInspectToolReturnsErrorForEmptyClass(): void
+    {
+        // Arrange
+        $tool = new ModelInspectTool();
+
+        // Act — empty string (also covers missing key via null-coalesce)
+        $result = $tool->execute(['class' => '']);
+
+        // Assert
+        $this->assertArrayHasKey('error', $result,
+            'execute() must return an error array when class is empty');
+        $this->assertStringContainsString('required', $result['error'],
+            'execute() must say the class parameter is required');
+    }
+
+    /**
+     * ModelInspectTool::execute() on a class with a static property must read
+     * it via ReflectionProperty::getValue() (the static branch of readProperty).
+     *
+     * The InspectableModel helper uses instance properties. This test uses a
+     * distinct class that has a public static property to exercise the
+     * $prop->isStatic() === true path in readProperty().
+     */
+    public function testModelInspectToolReadsStaticProperty(): void
+    {
+        // Arrange — InspectableModelWithStatic has a static $table
+        $tool   = new ModelInspectTool();
+
+        // Act
+        $result = $tool->execute(['class' => InspectableModelWithStatic::class]);
+
+        // Assert — static $table was read via getValue()
+        $this->assertSame('static_models', $result['table'],
+            'ModelInspectTool must read static properties via ReflectionProperty::getValue()');
+    }
+
+    /**
      * ModelInspectTool must require the 'class' parameter in its inputSchema.
      */
     public function testModelInspectToolHasRequiredClassParam(): void
@@ -524,4 +568,13 @@ class InspectableModel
     {
         return true;
     }
+}
+
+/**
+ * Helper class used by testModelInspectToolReadsStaticProperty.
+ * Has a public static $table so the isStatic() branch in readProperty() is hit.
+ */
+class InspectableModelWithStatic
+{
+    public static string $table = 'static_models';
 }

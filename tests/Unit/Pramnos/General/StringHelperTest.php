@@ -490,4 +490,66 @@ class StringHelperTest extends TestCase
         // Assert
         $this->assertNotFalse($result);
     }
+
+    // =========================================================================
+    // Extra coverage: singularize -i block and fallback, isPlural -a ending
+    // =========================================================================
+
+    /**
+     * singularize() must convert Latin -i plurals (e.g. 'stimuli') back to -us
+     * via the possibleSingulars table at lines 177–180.
+     *
+     * 'cacti' is in $irregularPlurals and uses the flip-map shortcut, so it
+     * never reaches this block. Words like 'stimuli' and 'alumni' that are NOT
+     * in $irregularPlurals are the only way to exercise lines 176–182.
+     */
+    public function testSingularizeConvertsLatinIPluralsToUs(): void
+    {
+        // Arrange / Act
+        $stimuli = StringHelper::singularize('stimuli');
+        $alumni  = StringHelper::singularize('alumni');
+
+        // Assert — -i → -us via possibleSingulars lookup
+        $this->assertSame('stimulus', $stimuli,
+            'stimuli is a Latin -i plural not in $irregularPlurals; must use the possibleSingulars table');
+        $this->assertSame('alumnus', $alumni,
+            'alumni is a Latin -i plural not in $irregularPlurals; must use the possibleSingulars table');
+    }
+
+    /**
+     * singularize() must return the word unchanged when isPlural() recognised it
+     * as plural but none of the suffix-stripping rules can revert it.
+     *
+     * Words ending in '-a' (like 'trivia', 'trilobita') satisfy isPlural() via
+     * the -a suffix match but have no singular rule to apply → hit line 201.
+     */
+    public function testSingularizeFallsBackToOriginalForUnsupportedPlural(): void
+    {
+        // Arrange — 'trivia' ends in 'a' so isPlural() returns true, but
+        // singularize() has no reverse rule for it.
+        $result = StringHelper::singularize('trivia');
+
+        // Assert — must not throw; returns the word as-is (line 201 fallback)
+        $this->assertSame('trivia', $result,
+            'singularize() must return the word unchanged when no suffix rule applies');
+    }
+
+    /**
+     * isPlural() must return true for words ending in '-a' (Latin/Greek neuter
+     * plurals like 'media', 'criteria').
+     *
+     * Covers the substr($word, -1) === 'a' branch at line 227.
+     */
+    public function testIsPluralReturnsTrueForWordsEndingInA(): void
+    {
+        // Arrange / Act
+        $media    = StringHelper::isPlural('media');
+        $criteria = StringHelper::isPlural('criteria');
+
+        // Assert — both end in 'a' so isPlural() must return true
+        $this->assertTrue((bool) $media,
+            'isPlural() must recognise -a ending (Latin/Greek plural) as plural');
+        $this->assertTrue((bool) $criteria,
+            'isPlural() must recognise -a ending (Latin/Greek plural) as plural');
+    }
 }
