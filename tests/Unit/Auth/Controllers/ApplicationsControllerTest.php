@@ -98,4 +98,42 @@ class ApplicationsControllerTest extends TestCase
             );
         }
     }
+
+    /**
+     * requireMinUserType() must redirect and return true when no user is
+     * logged in (User::getCurrentUser() returns null).
+     *
+     * This covers the true-branch of requireMinUserType() (redirect + return true)
+     * which the integration tests never exercise because they always provide an
+     * admin-level user.
+     */
+    public function testRequireMinUserTypeRedirectsAndReturnsTrueWhenNoUser(): void
+    {
+        // Arrange — clear session so getCurrentUser() returns null
+        $_SESSION = [];
+
+        $ctrl = $this->getMockBuilder(ApplicationsController::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect'])
+            ->getMock();
+
+        // The mock must receive exactly one redirect call
+        $ctrl->expects($this->once())->method('redirect');
+
+        // Act — invoke the protected method directly via reflection
+        $ref    = new \ReflectionMethod($ctrl, 'requireMinUserType');
+        $result = $ref->invoke($ctrl, 90);
+
+        // Assert
+        $this->assertTrue(
+            $result,
+            'requireMinUserType() must return true when the user is not logged in'
+        );
+    }
+
+    protected function tearDown(): void
+    {
+        $_SESSION = [];
+        parent::tearDown();
+    }
 }
