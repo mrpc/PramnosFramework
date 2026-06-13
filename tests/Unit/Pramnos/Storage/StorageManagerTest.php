@@ -202,4 +202,113 @@ class StorageManagerTest extends TestCase
         // Assert – explicit and default are identical
         $this->assertSame($manager->disk('uploads'), $manager->defaultDisk());
     }
+
+    // =========================================================================
+    // createDriver() — factory paths
+    // =========================================================================
+
+    /**
+     * When an unknown driver type is configured, createDriver() must throw a
+     * RuntimeException identifying the bad driver name.
+     * Covers lines 96–105: config lookup, strtolower, match default branch.
+     */
+    public function testCreateDriverThrowsRuntimeExceptionForUnknownDriver(): void
+    {
+        // Arrange — configure a disk with a driver type that is not 'local', 's3', or 'ftp'
+        $manager = new StorageManager([
+            'disks' => ['myDisk' => ['driver' => 'redis']],
+        ]);
+
+        // Act + Assert — RuntimeException from the match default case
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/Unknown storage driver \[redis\]/');
+        $manager->disk('myDisk');
+    }
+
+    // =========================================================================
+    // Proxy methods — all 20 convenience methods on the default disk
+    // =========================================================================
+
+    /**
+     * Every proxy method on StorageManager must delegate to the default disk.
+     * This single test exercises all 20 one-liner proxy methods to ensure they
+     * actually forward the call rather than silently returning null/false.
+     *
+     * A stub driver with known return values is injected via extend() so no
+     * real filesystem, S3 bucket, or FTP server is needed.
+     */
+    public function testProxyMethodsDelegateToDefaultDisk(): void
+    {
+        // Arrange — inject a stub as the default ('local') disk
+        $manager = new StorageManager();
+        $driver  = $this->makeDriver();
+        $manager->extend('local', $driver);
+
+        // Act + Assert — call every proxy method and verify delegation works
+        // (return values are the stub's defaults; we verify no exception is thrown
+        //  and the correct type is returned)
+
+        $this->assertSame('', $manager->get('file.txt'),
+            'get() must delegate to the default disk');
+
+        $this->assertNull($manager->readStream('file.txt'),
+            'readStream() must delegate to the default disk');
+
+        $this->assertTrue($manager->put('file.txt', 'data'),
+            'put() must delegate to the default disk');
+
+        $this->assertTrue($manager->prepend('file.txt', 'prefix'),
+            'prepend() must delegate to the default disk');
+
+        $this->assertTrue($manager->append('file.txt', 'suffix'),
+            'append() must delegate to the default disk');
+
+        $this->assertFalse($manager->exists('file.txt'),
+            'exists() must delegate to the default disk');
+
+        $this->assertTrue($manager->missing('file.txt'),
+            'missing() must delegate to the default disk');
+
+        $this->assertSame(0, $manager->size('file.txt'),
+            'size() must delegate to the default disk');
+
+        $this->assertSame(0, $manager->lastModified('file.txt'),
+            'lastModified() must delegate to the default disk');
+
+        $this->assertFalse($manager->mimeType('file.txt'),
+            'mimeType() must delegate to the default disk');
+
+        $this->assertTrue($manager->delete('file.txt'),
+            'delete() must delegate to the default disk');
+
+        $this->assertTrue($manager->move('a.txt', 'b.txt'),
+            'move() must delegate to the default disk');
+
+        $this->assertTrue($manager->copy('a.txt', 'b.txt'),
+            'copy() must delegate to the default disk');
+
+        $this->assertSame([], $manager->files('dir/'),
+            'files() must delegate to the default disk');
+
+        $this->assertSame([], $manager->allFiles('dir/'),
+            'allFiles() must delegate to the default disk');
+
+        $this->assertSame([], $manager->directories('dir/'),
+            'directories() must delegate to the default disk');
+
+        $this->assertTrue($manager->makeDirectory('dir/'),
+            'makeDirectory() must delegate to the default disk');
+
+        $this->assertTrue($manager->deleteDirectory('dir/'),
+            'deleteDirectory() must delegate to the default disk');
+
+        $this->assertSame('', $manager->url('file.txt'),
+            'url() must delegate to the default disk');
+
+        $this->assertSame(
+            '',
+            $manager->temporaryUrl('file.txt', new \DateTimeImmutable('+1 hour')),
+            'temporaryUrl() must delegate to the default disk'
+        );
+    }
 }

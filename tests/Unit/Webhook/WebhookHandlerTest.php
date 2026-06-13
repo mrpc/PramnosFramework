@@ -8,6 +8,32 @@ use PHPUnit\Framework\TestCase;
 use Pramnos\Webhook\WebhookHandler;
 
 /**
+ * Exception thrown by TestableWebhookHandler instead of calling exit().
+ * Carries the HTTP status code and response data so tests can inspect them.
+ */
+class WebhookResponseCapturedException extends \RuntimeException
+{
+    public function __construct(
+        public readonly int   $statusCode,
+        public readonly array $data,
+    ) {
+        parent::__construct("respond({$statusCode})");
+    }
+}
+
+/**
+ * Testable subclass: overrides respond() to throw instead of exit()-ing.
+ * This allows handle() to be exercised end-to-end without aborting the process.
+ */
+class TestableWebhookHandler extends WebhookHandler
+{
+    protected function respond(int $code, array $data): never
+    {
+        throw new WebhookResponseCapturedException($code, $data);
+    }
+}
+
+/**
  * Unit tests for WebhookHandler.
  *
  * The handler calls exit() to send HTTP responses, so tests exercise the
@@ -593,6 +619,187 @@ class WebhookHandlerTest extends TestCase
 
         // Assert
         $this->assertFalse($result);
+    }
+
+    // ── handle() end-to-end via TestableWebhookHandler ───────────────────────
+
+    /**
+     * handle() must respond 403 when the HMAC signature is invalid or missing.
+     *
+     * This covers the first guard in handle(): verifySignature() → false → respond(403).
+     */
+    public function testHandleResponds403WhenSignatureInvalid(): void
+    {
+        // Arrange — unsigned body; handler expects a valid HMAC
+        $handler = new TestableWebhookHandler('real-secret');
+        $body    = '{"ref":"refs/heads/main"}';
+        $headers = ['x-hub-signature-256' => 'sha256=badsig'];
+
+        // Act
+        $this->expectException(WebhookResponseCapturedException::class);
+        try {
+            $handler->handle($body, $headers);
+        } catch (WebhookResponseCapturedException $e) {
+            // Assert — invalid signature → 403 Forbidden
+            $this->assertSame(403, $e->statusCode,
+                'handle() must respond 403 when signature verification fails');
+            throw $e;
+        }
+    }
+
+    /**
+     * handle() must respond 400 when the request body is not valid JSON.
+     *
+     * Signature must be valid so the handler proceeds to JSON decoding.
+     */
+    public function testHandleResponds400WhenPayloadIsNotJson(): void
+    {
+        // Arrange — valid signature, but body is not JSON
+        $secret  = 'real-secret';
+        $body    = 'not-json-at-all';
+        $sig     = 'sha256=' . hash_hmac('sha256', $body, $secret);
+        $headers = ['x-hub-signature-256' => $sig];
+        $handler = new TestableWebhookHandler($secret);
+
+        // Act
+        $this->expectException(WebhookResponseCapturedException::class);
+        try {
+            $handler->handle($body, $headers);
+        } catch (WebhookResponseCapturedException $e) {
+            $this->assertSame(400, $e->statusCode,
+                'handle() must respond 400 for a non-JSON body');
+            throw $e;
+        }
+    }
+
+    /**
+     * handle() must respond 204 when the event type is not deployable (e.g. pull_request).
+     */
+    public function testHandleResponds204WhenEventIsIgnored(): void
+    {
+        // Arrange — valid signature, valid JSON, but an event that is not push/release/workflow_run
+        $secret  = 'real-secret';
+        $payload = json_encode(['action' => 'opened']);
+        $sig     = 'sha256=' . hash_hmac('sha256', $payload, $secret);
+        $headers = [
+            'x-hub-signature-256' => $sig,
+            'x-github-event'      => 'pull_request',
+        ];
+        $handler = new TestableWebhookHandler($secret);
+
+        // Act
+        $this->expectException(WebhookResponseCapturedException::class);
+        try {
+            $handler->handle($payload, $headers);
+        } catch (WebhookResponseCapturedException $e) {
+            $this->assertSame(204, $e->statusCode,
+                'handle() must respond 204 for an ignored event type');
+            throw $e;
+        }
+    }
+
+    /**
+     * handle() must respond 204 when the branch is not in the branch map.
+     */
+    public function testHandleResponds204WhenBranchNotMapped(): void
+    {
+        // Arrange — push to 'develop' but handler only maps 'main'
+        $secret  = 'real-secret';
+        $payload = json_encode(['ref' => 'refs/heads/develop']);
+        $sig     = 'sha256=' . hash_hmac('sha256', $payload, $secret);
+        $headers = [
+            'x-hub-signature-256' => $sig,
+            'x-github-event'      => 'push',
+        ];
+        $handler = new TestableWebhookHandler($secret);
+        $handler->onBranch('main', ['echo ok']);
+
+        // Act
+        $this->expectException(WebhookResponseCapturedException::class);
+        try {
+            $handler->handle($payload, $headers);
+        } catch (WebhookResponseCapturedException $e) {
+            $this->assertSame(204, $e->statusCode,
+                'handle() must respond 204 for a push to an unmapped branch');
+            throw $e;
+        }
+    }
+
+    /**
+     * handle() must respond 200 after executing commands for a mapped branch.
+     *
+     * This is the golden path: valid signature → push event → known branch → success.
+     */
+    public function testHandleResponds200AfterSuccessfulDeploy(): void
+    {
+        // Arrange — push to 'main' with a trivially successful command
+        $secret  = 'real-secret';
+        $payload = json_encode(['ref' => 'refs/heads/main']);
+        $sig     = 'sha256=' . hash_hmac('sha256', $payload, $secret);
+        $headers = [
+            'x-hub-signature-256' => $sig,
+            'x-github-event'      => 'push',
+        ];
+        $handler = new TestableWebhookHandler($secret, sys_get_temp_dir(), '');
+        $handler->onBranch('main', ['php -r "exit(0);"']);
+
+        // Act
+        $this->expectException(WebhookResponseCapturedException::class);
+        try {
+            $handler->handle($payload, $headers);
+        } catch (WebhookResponseCapturedException $e) {
+            // Assert — all commands succeeded → 200 OK
+            $this->assertSame(200, $e->statusCode,
+                'handle() must respond 200 when all commands succeed');
+            $this->assertSame('ok', $e->data['status']);
+            $this->assertSame('main', $e->data['branch']);
+            throw $e;
+        }
+    }
+
+    /**
+     * handle() must respond 500 when a command exits with a non-zero code.
+     */
+    public function testHandleResponds500WhenCommandFails(): void
+    {
+        // Arrange — push to 'main' with a deliberately failing command
+        $secret  = 'real-secret';
+        $payload = json_encode(['ref' => 'refs/heads/main']);
+        $sig     = 'sha256=' . hash_hmac('sha256', $payload, $secret);
+        $headers = [
+            'x-hub-signature-256' => $sig,
+            'x-github-event'      => 'push',
+        ];
+        $handler = new TestableWebhookHandler($secret, sys_get_temp_dir(), '');
+        $handler->onBranch('main', ['php -r "exit(1);"']);
+
+        // Act
+        $this->expectException(WebhookResponseCapturedException::class);
+        try {
+            $handler->handle($payload, $headers);
+        } catch (WebhookResponseCapturedException $e) {
+            // Assert — command failed → 500 with error status
+            $this->assertSame(500, $e->statusCode,
+                'handle() must respond 500 when a command exits non-zero');
+            $this->assertSame('error', $e->data['status']);
+            throw $e;
+        }
+    }
+
+    /**
+     * log() with a non-empty channel must attempt to write to Logs without
+     * propagating exceptions — logging is best-effort and must never break
+     * the webhook response flow.
+     */
+    public function testLogWithNonEmptyChannelAttemptsThenSuppressesException(): void
+    {
+        // Arrange — handler with a channel name; Logs is not bootstrapped in unit
+        // tests, so getInstance()->write() will likely throw, but log() must catch it.
+        $handler = new TestableWebhookHandler('secret', '', 'webhook');
+
+        // Act — must not throw despite Logs not being configured
+        $this->expectNotToPerformAssertions();
+        $this->callPrivate($handler, 'log', ['info', 'deployment complete']);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
