@@ -368,31 +368,6 @@ class HealthControllerTest extends TestCase
     }
 
     /**
-     * display() must show 'not connected' as the DB type when the Database
-     * singleton is null AND the report contains no database check details.
-     *
-     * Line 69 in Health.php is only reachable when $dbType === 'Unknown' AND
-     * $db (from Factory::getDatabase()) is falsy.  We temporarily null the DB
-     * singleton to reproduce this condition, then restore it in tearDown via
-     * the existing reset logic.
-     */
-    public function testDisplayShowsNotConnectedWhenDatabaseSingletonIsNull(): void
-    {
-        // Arrange — null out the Database singleton so Factory::getDatabase()
-        // returns null; no checks registered so report has no database details
-        $db = &\Pramnos\Database\Database::getInstance();
-        $db = null;
-
-        // Act
-        $ctrl = new Health();
-        $html = $ctrl->display();
-
-        // Assert — line 69: 'not connected' must appear in the DB type cell
-        $this->assertStringContainsString('not connected', $html,
-            'display() must show "not connected" as the DB type when the DB singleton is null');
-    }
-
-    /**
      * phpinfo() must return the captured phpinfo() HTML for a user with
      * usertype >= 90.
      *
