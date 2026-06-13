@@ -289,7 +289,32 @@ class McpToolsTest extends TestCase
 
         // Assert
         $this->assertSame('model-inspect', $tool->name());
+        $this->assertNotEmpty($tool->description(), 'description() must return a non-empty string (line 26)');
         $this->assertContains('class', $schema['required']);
+    }
+
+    /**
+     * ModelInspectTool::findRelations() must detect methods whose source body
+     * contains ORM relation keywords (hasOne, hasMany, belongsTo, etc.) and
+     * include them in the 'relations' array (line 94).
+     *
+     * InspectableModelWithRelations has one such method — belongsTo() — whose
+     * body contains the keyword, causing the regex branch at line 94 to fire.
+     */
+    public function testModelInspectToolDetectsRelationMethods(): void
+    {
+        // Arrange
+        $tool = new ModelInspectTool();
+
+        // Act
+        $result = $tool->execute(['class' => InspectableModelWithRelations::class]);
+
+        // Assert — the relation method appears in the 'relations' array
+        $this->assertContains(
+            'author',
+            $result['relations'],
+            'findRelations() must include methods whose body matches the relation keyword pattern'
+        );
     }
 
     /**
@@ -577,4 +602,20 @@ class InspectableModel
 class InspectableModelWithStatic
 {
     public static string $table = 'static_models';
+}
+
+/**
+ * Helper class used by testModelInspectToolDetectsRelationMethods.
+ * Has a method whose body contains 'belongsTo', which triggers the relation
+ * keyword regex in ModelInspectTool::findRelations() (line 94).
+ */
+class InspectableModelWithRelations
+{
+    public string $table = 'posts';
+
+    public function author(): object
+    {
+        // belongsTo User via author_id
+        return (object) [];
+    }
 }
