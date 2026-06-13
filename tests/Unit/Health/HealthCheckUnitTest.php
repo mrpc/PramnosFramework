@@ -362,6 +362,31 @@ class HealthCheckUnitTest extends TestCase
     }
 
     /**
+     * DiskSpaceCheck must return a Down result with "Could not read disk space"
+     * when disk_free_space() returns false for the given path.
+     *
+     * Line 43 in DiskSpaceCheck.php is only reachable when the path argument
+     * causes disk_free_space() to return false (e.g. a non-existent path).
+     * An E_WARNING is emitted but suppressed so PHPUnit does not flag it.
+     */
+    public function testDiskSpaceCheckReturnsDownWhenPathIsInvalid(): void
+    {
+        // Arrange — pass a non-existent path; disk_free_space() returns false
+        // (emits E_WARNING which we suppress to keep test output clean)
+        $invalidPath = '/tmp/pramnos_disk_space_nonexistent_path_' . bin2hex(random_bytes(4));
+        $check = new DiskSpaceCheck($invalidPath);
+
+        // Act — PHP warning is suppressed; the check must handle the false return
+        $result = @$check->run();
+
+        // Assert — line 43: HealthCheckResult::down('disk_space', 'Could not read disk space')
+        $this->assertSame(HealthStatus::Down, $result->status,
+            'DiskSpaceCheck must report Down when disk_free_space() returns false');
+        $this->assertStringContainsString('Could not read disk space', $result->message,
+            'DiskSpaceCheck must include "Could not read disk space" in the Down message');
+    }
+
+    /**
      * MemoryLimitCheck must return a result without throwing.
      */
     public function testMemoryLimitCheckRuns(): void
