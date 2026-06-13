@@ -384,5 +384,113 @@ class LogMigratorTest extends TestCase
         }
     }
 
+    /**
+     * migrateFile() must process the trailing content of a file that does not
+     * end with a newline character.
+     *
+     * The processFileContents() loop accumulates content in $buffer and only
+     * flushes complete lines (up to the last "\n").  When the file ends without
+     * a trailing newline, the remaining content sits in $buffer after the loop.
+     * Line 142 of LogMigrator flushes that buffer — this test ensures it is hit.
+     */
+    public function testMigrateFileHandlesFileWithoutTrailingNewline(): void
+    {
+        // Arrange — two log lines; the last one has NO trailing newline
+        $content = "[01/01/2024 09:00:00] First line with newline\n"
+                 . "[01/01/2024 09:00:01] Last line without newline";
+
+        $path = $this->writeTmpFile($content);
+
+        $migrator = new LogMigrator();
+
+        // Act — must not throw even though the file has no trailing newline
+        $stats = $migrator->migrateFile($path, false);
+
+        // Assert — both lines were processed; output is valid JSON
+        $this->assertGreaterThanOrEqual(1, $stats['processed_lines'],
+            'migrateFile() must process the final line even without a trailing newline');
+
+        $outputContent = file_get_contents($path);
+        $outputLines   = array_filter(explode("\n", trim((string) $outputContent)));
+        foreach ($outputLines as $line) {
+            $decoded = json_decode($line, true);
+            $this->assertIsArray($decoded,
+                'Every output line must be valid JSON after processing a no-trailing-newline file');
+        }
+    }
+
+    /**
+     * migrateFile() must silently skip log entries whose message portion is
+     * entirely whitespace (empty message after the timestamp).
+     *
+     * Line 200 of LogMigrator is the `continue` that discards these entries.
+     * Without coverage this skip could silently be broken (e.g. an empty
+     * entry triggering a fwrite of an empty JSON line).
+     */
+    public function testMigrateFileSkipsEntriesWithEmptyMessage(): void
+    {
+        // Arrange — one entry with a real message, one with only whitespace message
+        $content = "[01/01/2024 10:00:00] Real message here\n"
+                 . "[01/01/2024 10:00:01]   \n"   // timestamp + whitespace only
+                 . "[01/01/2024 10:00:02] Another real message\n";
+
+        $path = $this->writeTmpFile($content);
+
+        $migrator = new LogMigrator();
+
+        // Act
+        $stats = $migrator->migrateFile($path, false);
+
+        // Assert — at least the two real messages are processed
+        $this->assertGreaterThanOrEqual(2, $stats['processed_lines'],
+            'migrateFile() must process the two entries with non-empty messages');
+
+        // Output must still be valid JSON — the empty-message entry is not written
+        $outputLines = array_filter(explode("\n", trim((string) file_get_contents($path))));
+        foreach ($outputLines as $line) {
+            $decoded = json_decode($line, true);
+            $this->assertIsArray($decoded,
+                "Every output line must be valid JSON; empty-message entries must be skipped: $line");
+        }
+    }
+
+    /**
+     * migrateFile() must flush the multiline PHP error buffer when the file ends
+     * immediately after a PHP error entry (no subsequent normal log line to
+     * trigger the flush mid-stream).
+     *
+     * Lines 240-244 of LogMigrator write the buffered error to the output file
+     * at the very end of processLines().  Without this test those lines remain
+     * uncovered, and a regression (dropping the last error entry) would go
+     * undetected.
+     */
+    public function testMigrateFileFlushesPhpErrorBufferAtEndOfFile(): void
+    {
+        // Arrange — a PHP Warning is the LAST entry; no subsequent timestamped line
+        $content = "[01/01/2024 11:00:00] Normal message before error\n"
+                 . "[01/01/2024 11:00:01] PHP Warning: some_function(): argument 1 must be string\n";
+
+        $path = $this->writeTmpFile($content);
+
+        $migrator = new LogMigrator();
+
+        // Act
+        $stats = $migrator->migrateFile($path, false);
+
+        // Assert — at least 1 line processed; output is valid JSON
+        $this->assertGreaterThanOrEqual(1, $stats['processed_lines'],
+            'migrateFile() must process entries when a PHP error is the last log line');
+
+        $outputContent = file_get_contents($path);
+        $outputLines   = array_filter(explode("\n", trim((string) $outputContent)));
+        $this->assertNotEmpty($outputLines,
+            'migrateFile() must produce at least one JSON line when the file ends with a PHP error');
+        foreach ($outputLines as $line) {
+            $decoded = json_decode($line, true);
+            $this->assertIsArray($decoded,
+                "Every output line must be valid JSON after a final PHP error flush: $line");
+        }
+    }
+
 }
 
