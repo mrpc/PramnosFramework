@@ -639,6 +639,147 @@ class ConsoleApplicationCoverageTest extends TestCase
     }
 
     // =========================================================================
+    // MigrateStatus — table with history rows (Ran / Failed / Pending + Orphan)
+    // =========================================================================
+
+    /**
+     * MigrateStatus must render a table that mixes "Ran", "Failed", "Pending",
+     * and "orphan" (removed) rows correctly.
+     *
+     * Lines 88-99 are only reachable when a loaded migration slug is found in
+     * the history map (isset($historyMap[$slug]) === true).  Lines 116-128
+     * are only reachable when the history map still contains entries after
+     * processing all loaded migrations (orphans — slugs in history with no
+     * corresponding class on disk).
+     *
+     * The test mocks the DB's getHistory() query to return three rows:
+     *   - create_sessions_table, result=1 → "Ran"   (covers line 89 true branch)
+     *   - create_settings_table, result=0 → "Failed" (covers line 89 false branch)
+     *   - orphan_migration_xyz, result=1  → no class → orphan table section (lines 116-128)
+     *
+     * The remaining real migrations in the core directory are shown as "Pending",
+     * covering line 134 ($hasPending branch).
+     */
+    public function testMigrateStatusShowsMigrationsWithHistoryAndOrphans(): void
+    {
+        // Arrange — history rows that match two real migration slugs + one orphan
+        $historyRows = [
+            [
+                'key'            => 'create_sessions_table',
+                'result'         => '1',
+                'scope'          => 'framework',
+                'feature'        => 'core',
+                'batch'          => '1',
+                'execution_time' => '0.0500',
+                'when'           => '2024-01-01 00:00:00',
+            ],
+            [
+                'key'            => 'create_settings_table',
+                'result'         => '0',
+                'scope'          => 'framework',
+                'feature'        => 'core',
+                'batch'          => '1',
+                'execution_time' => '0.0100',
+                'when'           => '2024-01-01 00:00:01',
+            ],
+            [
+                'key'            => 'orphan_migration_xyz',
+                'result'         => '1',
+                'scope'          => 'app',
+                'feature'        => null,
+                'batch'          => '2',
+                'execution_time' => null,
+                'when'           => '2024-01-01 00:00:02',
+            ],
+        ];
+
+        $historyResult = new class ($historyRows) {
+            private array $rows;
+            private int $index = 0;
+            public array $fields = [];
+            public function __construct(array $rows) { $this->rows = $rows; }
+            public function fetch(): bool {
+                if ($this->index < count($this->rows)) {
+                    $this->fields = $this->rows[$this->index++];
+                    return true;
+                }
+                return false;
+            }
+        };
+
+        $genericResult = new class {
+            public array $fields = ['max_batch' => null, 'key' => ''];
+            public function fetch(): bool { return false; }
+        };
+
+        $mockSchema = new class {
+            public function hasColumn(string $table, string $col): bool { return true; }
+        };
+
+        $mockDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockDb->type = 'mysql';
+        $mockDb->method('prepareQuery')->willReturnArgument(0);
+        $mockDb->method('schema')->willReturn($mockSchema);
+        $mockDb->method('query')->willReturnCallback(
+            function (string $sql) use ($historyResult, $genericResult): object {
+                // getHistory() issues a SELECT * query
+                if (stripos($sql, 'SELECT *') !== false) {
+                    return $historyResult;
+                }
+                return $genericResult;
+            }
+        );
+
+        $mockApp = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockApp->database = $mockDb;
+
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = $mockApp;
+
+        $coreDir = dirname(__DIR__, 3) . '/database/migrations/framework/core';
+
+        $cmd = new MigrateStatus();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act — --path points to the real core directory so migrations are loaded
+        $exit = $tester->execute(['--path' => $coreDir]);
+
+        // Assert
+        $this->assertSame(0, $exit,
+            'MigrateStatus must return 0 when rendering the status table');
+        $display = $tester->getDisplay();
+
+        // Lines 88-99: history-match branch for result=1 ("Ran")
+        $this->assertStringContainsString('Ran', $display,
+            'MigrateStatus must show "Ran" for migrations with result=1 in history');
+
+        // Lines 88-99: history-match branch for result=0 ("Failed")
+        $this->assertStringContainsString('Failed', $display,
+            'MigrateStatus must show "Failed" for migrations with result=0 in history');
+
+        // Lines 101-110: pending branch (migrations not in history)
+        $this->assertStringContainsString('Pending', $display,
+            'MigrateStatus must show "Pending" for migrations not yet in history');
+
+        // Lines 116-128: orphan section (history rows with no matching class)
+        $this->assertStringContainsString('orphan_migration_xyz', $display,
+            'MigrateStatus must show orphan migrations from history with no matching class');
+        $this->assertStringContainsString('(removed)', $display,
+            'MigrateStatus must label orphan entries with "(removed)"');
+
+        // Line 134: $hasPending branch
+        $this->assertStringContainsString('migrate', $display,
+            'MigrateStatus must print the "run migrate" hint when pending migrations exist');
+    }
+
+    // =========================================================================
     // MigrateReset (early-return guards)
     // =========================================================================
 
@@ -1486,6 +1627,207 @@ class ConsoleApplicationCoverageTest extends TestCase
         };
 
         return $consoleApp;
+    }
+
+    // =========================================================================
+    // MigrateReset — successful rollback path (foreach body, "Reset complete.")
+    // =========================================================================
+
+    /**
+     * MigrateReset must print "<info>Rolled back:</info>  slug" for each rolled-back
+     * migration and then print "Reset complete." at the end.
+     *
+     * Lines 87-94 in MigrateReset.php are only reachable when rollbackAll()
+     * returns a non-empty rolledBack list.  This test mocks the DB to claim
+     * that batch 1 contains "create_sessions_table" (a real framework
+     * migration whose down() calls schema()->dropTableIfExists()).  The
+     * enhanced $mockSchema accepts that call so down() succeeds, the history
+     * row is "deleted" (mock), and the foreach body executes.
+     */
+    public function testMigrateResetRollsBackMigrationsAndPrintsSummary(): void
+    {
+        // Arrange — mock schema handles both hasColumn (for ensureHistoryTable)
+        // and dropTableIfExists (called by CreateSessionsTable::down())
+        $mockSchema = new class {
+            public function hasColumn(string $table, string $col): bool { return true; }
+            public function hasTable(string $table): bool { return true; }
+            public function dropTableIfExists(string $table): void {}
+            public function createTable(string $name, callable $fn): void {}
+        };
+
+        $slug         = 'create_sessions_table'; // slug from 2020_01_01_000000_create_sessions_table.php
+        $batchRowResult = new class ($slug) {
+            private string $slug;
+            private int $calls = 0;
+            public array $fields = [];
+            public function __construct(string $s) { $this->slug = $s; }
+            public function fetch(): bool {
+                if ($this->calls++ === 0) {
+                    $this->fields['key'] = $this->slug;
+                    return true;
+                }
+                return false;
+            }
+        };
+
+        $maxBatchResult = new class {
+            public array $fields = ['max_batch' => 1, 'key' => ''];
+            public function fetch(): bool { return false; }
+        };
+
+        $genericResult = new class {
+            public array $fields = ['max_batch' => null, 'key' => ''];
+            public function fetch(): bool { return false; }
+        };
+
+        $mockDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockDb->type = 'mysql';
+        $mockDb->method('prepareQuery')->willReturnArgument(0);
+        $mockDb->method('schema')->willReturn($mockSchema);
+        $mockDb->method('query')->willReturnCallback(
+            function (string $sql) use ($maxBatchResult, $batchRowResult, $genericResult): object {
+                // getLastBatch() query contains MAX(batch)
+                if (stripos($sql, 'MAX') !== false) {
+                    return $maxBatchResult;
+                }
+                // fetchBatchRows() query contains ORDER BY `when`
+                if (stripos($sql, 'ORDER BY') !== false) {
+                    return $batchRowResult;
+                }
+                // Everything else: CREATE TABLE, ALTER TABLE, DELETE, etc.
+                return $genericResult;
+            }
+        );
+
+        $mockApp = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockApp->database = $mockDb;
+
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = $mockApp;
+
+        // Use the real core migration directory so MigrationLoader loads the
+        // CreateSessionsTable class (its down() is a no-op through our mock schema)
+        $coreDir = dirname(__DIR__, 3) . '/database/migrations/framework/core';
+
+        $cmd = new MigrateReset();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act — --force skips confirmation; --path points to the core migrations directory
+        $exit = $tester->execute(['--force' => true, '--path' => $coreDir]);
+
+        // Assert — foreach body (lines 87-88) and "Reset complete." (lines 91-94) were hit
+        $this->assertSame(0, $exit,
+            'MigrateReset must return 0 after successfully rolling back migrations');
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('Rolled back', $display,
+            'MigrateReset must print "Rolled back:" for each migration slug');
+        $this->assertStringContainsString($slug, $display,
+            'MigrateReset must include the migration slug in the "Rolled back:" output');
+        $this->assertStringContainsString('Reset complete', $display,
+            'MigrateReset must print "Reset complete." summary after rolling back all migrations');
+    }
+
+    // =========================================================================
+    // MigrateRollback — successful rollback path (foreach body)
+    // =========================================================================
+
+    /**
+     * MigrateRollback must print "<info>Rolled back:</info>  slug" for each migration
+     * that was rolled back by the last batch.
+     *
+     * Lines 78-82 in MigrateRollback.php are only reachable when rollback()
+     * returns a non-empty rolledBack list.  Same mock-DB approach as the
+     * MigrateReset test above — batch 1 contains "create_sessions_table",
+     * down() is handled by the enhanced mock schema.
+     */
+    public function testMigrateRollbackPrintsRolledBackSlug(): void
+    {
+        // Arrange — same enhanced schema mock as the MigrateReset test
+        $mockSchema = new class {
+            public function hasColumn(string $table, string $col): bool { return true; }
+            public function hasTable(string $table): bool { return true; }
+            public function dropTableIfExists(string $table): void {}
+            public function createTable(string $name, callable $fn): void {}
+        };
+
+        $slug           = 'create_sessions_table';
+        $batchRowResult = new class ($slug) {
+            private string $slug;
+            private int $calls = 0;
+            public array $fields = [];
+            public function __construct(string $s) { $this->slug = $s; }
+            public function fetch(): bool {
+                if ($this->calls++ === 0) {
+                    $this->fields['key'] = $this->slug;
+                    return true;
+                }
+                return false;
+            }
+        };
+
+        $maxBatchResult = new class {
+            public array $fields = ['max_batch' => 1, 'key' => ''];
+            public function fetch(): bool { return false; }
+        };
+
+        $genericResult = new class {
+            public array $fields = ['max_batch' => null, 'key' => ''];
+            public function fetch(): bool { return false; }
+        };
+
+        $mockDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockDb->type = 'mysql';
+        $mockDb->method('prepareQuery')->willReturnArgument(0);
+        $mockDb->method('schema')->willReturn($mockSchema);
+        $mockDb->method('query')->willReturnCallback(
+            function (string $sql) use ($maxBatchResult, $batchRowResult, $genericResult): object {
+                if (stripos($sql, 'MAX') !== false) {
+                    return $maxBatchResult;
+                }
+                if (stripos($sql, 'ORDER BY') !== false) {
+                    return $batchRowResult;
+                }
+                return $genericResult;
+            }
+        );
+
+        $mockApp = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockApp->database = $mockDb;
+
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = $mockApp;
+
+        $coreDir = dirname(__DIR__, 3) . '/database/migrations/framework/core';
+
+        $cmd = new MigrateRollback();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act — point to the core migrations directory so MigrationLoader loads real
+        // migration classes; mock DB returns batch 1 = create_sessions_table
+        $exit = $tester->execute(['--path' => $coreDir]);
+
+        // Assert — foreach body (lines 78-82) executed and slug appeared in output
+        $this->assertSame(0, $exit,
+            'MigrateRollback must return 0 after successfully rolling back the last batch');
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('Rolled back', $display,
+            'MigrateRollback must print "Rolled back:" for each rolled-back slug');
+        $this->assertStringContainsString($slug, $display,
+            'MigrateRollback must include the migration slug in the output');
     }
 
     private function rmdirRecursive(string $dir): void

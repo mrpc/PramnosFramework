@@ -367,6 +367,85 @@ class HealthControllerTest extends TestCase
             'Peak memory row must appear in the info table');
     }
 
+    /**
+     * display() must show 'not connected' as the DB type when the Database
+     * singleton is null AND the report contains no database check details.
+     *
+     * Line 69 in Health.php is only reachable when $dbType === 'Unknown' AND
+     * $db (from Factory::getDatabase()) is falsy.  We temporarily null the DB
+     * singleton to reproduce this condition, then restore it in tearDown via
+     * the existing reset logic.
+     */
+    public function testDisplayShowsNotConnectedWhenDatabaseSingletonIsNull(): void
+    {
+        // Arrange — null out the Database singleton so Factory::getDatabase()
+        // returns null; no checks registered so report has no database details
+        $db = &\Pramnos\Database\Database::getInstance();
+        $db = null;
+
+        // Act
+        $ctrl = new Health();
+        $html = $ctrl->display();
+
+        // Assert — line 69: 'not connected' must appear in the DB type cell
+        $this->assertStringContainsString('not connected', $html,
+            'display() must show "not connected" as the DB type when the DB singleton is null');
+    }
+
+    /**
+     * phpinfo() must return the captured phpinfo() HTML for a user with
+     * usertype >= 90.
+     *
+     * Lines 139-145 in Health.php are only reachable when the user is
+     * authorized.  We set up an Application singleton with a User object whose
+     * usertype=90 and mark the session as logged-in.
+     */
+    public function testPhpinfoReturnsHtmlForAuthorizedUser(): void
+    {
+        // Arrange — session logged-in state
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $_SESSION['logged'] = true;
+        $_SESSION['login']  = true;
+        $_SESSION['userid'] = 99;
+        $_SESSION['uid']    = 99; // staticIsLogged() checks uid > 1
+
+        // Build a minimal Application singleton with a User set as currentUser
+        $appRef = new \ReflectionClass(Application::class);
+        $instances = $appRef->getProperty('appInstances');
+        $instances->setValue(null, []);
+        $lastUsed = $appRef->getProperty('lastUsedApplication');
+        $lastUsed->setValue(null, null);
+
+        $app = new Application();
+        $initProp = $appRef->getProperty('initialized');
+        $initProp->setValue($app, true);
+
+        $user = new \Pramnos\User\User(0);
+        $user->userid   = 99;
+        $user->usertype = 90;
+        $lang = \Pramnos\Framework\Factory::getLanguage();
+        $user->language = $lang ? $lang->currentlang() : 'en';
+
+        $app->currentUser = $user;
+
+        // Act — phpinfo() must detect the authorized user and return content
+        $ctrl   = new Health();
+        $result = $ctrl->phpinfo();
+
+        // Assert — lines 139-145 executed; actual phpinfo HTML was captured
+        $this->assertIsString($result,
+            'phpinfo() must return a string when the user is authorized');
+        $this->assertNotSame('<p>Access denied.</p>', $result,
+            'phpinfo() must not return "Access denied" for a usertype=90 user');
+
+        // Teardown session and app state
+        $_SESSION = [];
+        $instances->setValue(null, []);
+        $lastUsed->setValue(null, null);
+    }
+
     // ── check() HTTP code mapping ──────────────────────────────────────────────
 
     /**
