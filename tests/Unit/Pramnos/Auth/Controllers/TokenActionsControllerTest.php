@@ -289,4 +289,43 @@ class TokenActionsControllerTest extends TestCase
         $this->assertStringContainsString('id,username,tokenid,urlid,method,return_status,execution_time_ms,servertime', $output);
         $this->assertStringContainsString('100,testuser,10,/api/test,GET,200', $output);
     }
+
+    /**
+     * applyDisplayFilters() must add WHERE clauses for status_code, date_from,
+     * and date_to filters when all three GET parameters are provided.
+     *
+     * These three branches (lines 218, 221-224, 225-228) are not exercised by
+     * the basic display test because it runs without any GET filters set.
+     * Setting all three at once covers all five uncovered statements in one pass.
+     */
+    public function testDisplayWithStatusCodeAndDateFiltersAppliesAllConditions(): void
+    {
+        // Arrange — set all three filter params that are not covered elsewhere
+        $this->setMockUser(80);
+        $_GET['status_code'] = '200';
+        $_GET['date_from']   = '2024-01-01';
+        $_GET['date_to']     = '2024-12-31';
+
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->themeObject = new class {
+            public function allowsViewOverrides(): bool { return false; }
+        };
+
+        // Act
+        ob_start();
+        try {
+            $output = $this->controller->display();
+        } finally {
+            $obOutput = ob_get_clean();
+        }
+        if (empty($output)) {
+            $output = $obOutput;
+        }
+
+        // Assert — the filtered query ran without error
+        $this->assertNotEmpty($output,
+            'display() with status_code + date_from + date_to filters must return output');
+        $this->assertEmpty($this->controller->redirectedTo,
+            'No redirect must be issued for a valid filter request');
+    }
 }

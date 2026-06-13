@@ -7,6 +7,7 @@ namespace Pramnos\Tests\Unit\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Controllers\OrganizationsController;
+use Pramnos\Application\Settings;
 
 /**
  * Unit tests for OrganizationsController structural contracts.
@@ -138,6 +139,78 @@ class OrganizationsControllerTest extends TestCase
 
         // Act
         $ctrl->save();
+    }
+
+    // -------------------------------------------------------------------------
+    // requireMinUserType() — access-denied path
+    // -------------------------------------------------------------------------
+
+    /**
+     * requireMinUserType() must redirect and return true when no user is
+     * logged in (User::getCurrentUser() returns null/false).
+     *
+     * This covers the true-branch at line 353 (redirect + return true) which
+     * is never exercised by the integration tests because they always run with
+     * a properly-authenticated admin user.
+     */
+    public function testRequireMinUserTypeRedirectsAndReturnsTrueWhenNoUser(): void
+    {
+        // Arrange — no session, so getCurrentUser() returns null/false
+        if (session_status() !== PHP_SESSION_NONE) {
+            session_write_close();
+        }
+        $_SESSION = [];
+
+        $ctrl = $this->getMockBuilder(OrganizationsController::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['redirect'])
+            ->getMock();
+
+        $ctrl->expects($this->once())->method('redirect');
+
+        // Act — invoke protected requireMinUserType() via reflection
+        $ref    = new \ReflectionMethod($ctrl, 'requireMinUserType');
+        $result = $ref->invoke($ctrl, 80);
+
+        // Assert — method must report that it issued a redirect
+        $this->assertTrue(
+            $result,
+            'requireMinUserType() must return true when no user is logged in'
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // resolveOrgMembershipTable() — configurable table name
+    // -------------------------------------------------------------------------
+
+    /**
+     * resolveOrgMembershipTable() must prefix the table name with 'authserver.'
+     * when the authserver_organization_table setting is configured.
+     *
+     * Without this branch, custom tenant configurations that override the
+     * membership table name would silently fall back to the hard-coded default.
+     * Covers lines 370-371 in OrganizationsController.
+     */
+    public function testResolveOrgMembershipTableUsesSettingWhenConfigured(): void
+    {
+        // Arrange — set a custom table name without writing to DB
+        Settings::setSetting('authserver_organization_table', 'custom_orgs', false);
+
+        $ctrl = new OrganizationsController(null);
+        $ref  = new \ReflectionMethod($ctrl, 'resolveOrgMembershipTable');
+
+        // Act
+        $result = $ref->invoke($ctrl);
+
+        // Assert
+        $this->assertSame(
+            'authserver.custom_orgs',
+            $result,
+            'resolveOrgMembershipTable() must return authserver.<setting> when configured'
+        );
+
+        // Cleanup — restore default so other tests are not affected
+        Settings::setSetting('authserver_organization_table', '', false);
     }
 
     // -------------------------------------------------------------------------
