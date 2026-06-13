@@ -723,6 +723,327 @@ class ConsoleApplicationCoverageTest extends TestCase
     }
 
     // =========================================================================
+    // MigrateReset — main execution paths
+    // =========================================================================
+
+    /**
+     * MigrateReset without --force runs in non-interactive mode, which makes
+     * QuestionHelper return the default answer (false = "no").  The command must
+     * output "Aborted." and return 0.
+     *
+     * This covers lines 64–73: the confirmation-prompt block including the helper
+     * instantiation, ConfirmationQuestion, ask(), writeln("Aborted."), and return.
+     * No real database queries are made because the command exits before
+     * reaching MigrationRunner.
+     */
+    public function testMigrateResetAbortsWhenUserDeclinesConfirmation(): void
+    {
+        // Arrange — ConsoleApplication whose internalApplication has a non-null
+        // database so the db-null guard is skipped.  stdClass is sufficient because
+        // MigrationRunner is never instantiated on the "aborted" code path.
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = new class {
+            public string $appName         = '';
+            public array  $applicationInfo = ['namespace' => 'App'];
+            // Any non-null object passes the ?? null check; MigrationRunner is
+            // never reached because the command exits in the confirmation block.
+            public $database;
+            public function __construct() { $this->database = new \stdClass(); }
+            public function init(): void {}
+        };
+
+        $cmd = new MigrateReset();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act — CommandTester defaults to non-interactive; QuestionHelper returns
+        // the ConfirmationQuestion default (false) without prompting → "Aborted."
+        $exit = $tester->execute([]);
+
+        // Assert — soft abort (exit 0), no roll-back attempt
+        $this->assertSame(0, $exit,
+            'MigrateReset must return 0 when the user declines the confirmation');
+        $this->assertStringContainsString('Aborted', $tester->getDisplay(),
+            'MigrateReset must print "Aborted." when the user says no');
+    }
+
+    /**
+     * MigrateReset with --force skips the confirmation prompt, loads migrations
+     * from an empty directory, and outputs "Nothing to roll back."
+     *
+     * This covers lines 76–85: path resolution (defaultMigrationPath),
+     * MigrationLoader::loadFromDirectory, MigrationRunner instantiation,
+     * rollbackAll(), the empty-result branch, and the "Nothing to roll back" output.
+     *
+     * The database mock returns null from getLastBatch() so rollbackAll() takes
+     * the early-return path without inserting or deleting any history rows.
+     */
+    public function testMigrateResetWithForceOutputsNothingToRollBackForEmptyPath(): void
+    {
+        // Arrange — Application mock (satisfies loadFromDirectory type-hint) with
+        // a Database mock that makes getLastBatch() return null.
+        $mockResult = new class {
+            // max_batch = null → getLastBatch() returns null → rollback() exits early
+            public array $fields = ['max_batch' => null, 'key' => ''];
+            public function fetch(): bool { return false; }
+        };
+
+        // ensureHistoryTable() calls $db->schema()->hasColumn() on MySQL.
+        // Return true so no ALTER TABLE is issued (no missing columns to add).
+        $mockSchema = new class {
+            public function hasColumn(string $table, string $col): bool { return true; }
+        };
+
+        $mockDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockDb->type = 'mysql';
+        $mockDb->method('query')->willReturn($mockResult);
+        $mockDb->method('prepareQuery')->willReturnArgument(0);
+        $mockDb->method('schema')->willReturn($mockSchema);
+
+        $mockApp = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockApp->database = $mockDb;
+
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = $mockApp;
+
+        $cmd = new MigrateReset();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act — --force skips confirmation; --path points to an empty temp dir
+        // so MigrationLoader returns [] and rollbackAll returns ['rolledBack'=>[]]
+        $exit = $tester->execute(['--force' => true, '--path' => $this->tmpDir]);
+
+        // Assert — "Nothing to roll back." is the expected output for an empty batch
+        $this->assertSame(0, $exit,
+            'MigrateReset --force on an empty dir must return 0');
+        $this->assertStringContainsString('Nothing to roll back', $tester->getDisplay(),
+            'MigrateReset must report "Nothing to roll back." when no migrations ran');
+    }
+
+    /**
+     * MigrateReset without --path uses defaultMigrationPath() to resolve the
+     * migration directory (lines 104-105 in MigrateReset.php).
+     *
+     * The private defaultMigrationPath() is only called when the caller does not
+     * supply an explicit --path option. This test passes --force (skip confirmation)
+     * but omits --path so the command resolves to ROOT/app/Migrations. With mock
+     * database returning null for max_batch, rollback() returns early.
+     */
+    public function testMigrateResetWithoutPathUsesDefaultMigrationPath(): void
+    {
+        // Arrange
+        $mockResult = new class {
+            public array $fields = ['max_batch' => null, 'key' => ''];
+            public function fetch(): bool { return false; }
+        };
+
+        $mockSchema = new class {
+            public function hasColumn(string $table, string $col): bool { return true; }
+        };
+
+        $mockDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockDb->type = 'mysql';
+        $mockDb->method('query')->willReturn($mockResult);
+        $mockDb->method('prepareQuery')->willReturnArgument(0);
+        $mockDb->method('schema')->willReturn($mockSchema);
+
+        $mockApp = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockApp->database = $mockDb;
+
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = $mockApp;
+
+        $cmd = new MigrateReset();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act — no --path → defaultMigrationPath() called (lines 104-105)
+        $exit = $tester->execute(['--force' => true]);
+
+        // Assert
+        $this->assertSame(0, $exit,
+            'MigrateReset without --path must return 0');
+        $this->assertStringContainsString('Nothing to roll back', $tester->getDisplay(),
+            'MigrateReset must report "Nothing to roll back." when no history exists');
+    }
+
+    // =========================================================================
+    // MigrateRollback — main execution paths
+    // =========================================================================
+
+    /**
+     * MigrateRollback with an empty migrations directory and no batch history
+     * outputs "Nothing to roll back." and returns 0.
+     *
+     * This covers lines 62–76: path resolution, MigrationLoader call, options
+     * initialisation, MigrationRunner instantiation, rollback(), and the
+     * empty-result branch.
+     *
+     * The database mock returns null from getLastBatch() so rollback() exits via
+     * the `$targetBatch === null` guard without touching any real rows.
+     */
+    public function testMigrateRollbackOutputsNothingToRollBackForEmptyPath(): void
+    {
+        // Arrange — same mock setup as MigrateReset above
+        $mockResult = new class {
+            public array $fields = ['max_batch' => null, 'key' => ''];
+            public function fetch(): bool { return false; }
+        };
+
+        $mockSchema = new class {
+            public function hasColumn(string $table, string $col): bool { return true; }
+        };
+
+        $mockDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockDb->type = 'mysql';
+        $mockDb->method('query')->willReturn($mockResult);
+        $mockDb->method('prepareQuery')->willReturnArgument(0);
+        $mockDb->method('schema')->willReturn($mockSchema);
+
+        $mockApp = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockApp->database = $mockDb;
+
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = $mockApp;
+
+        $cmd = new MigrateRollback();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act
+        $exit = $tester->execute(['--path' => $this->tmpDir]);
+
+        // Assert
+        $this->assertSame(0, $exit,
+            'MigrateRollback on an empty dir must return 0');
+        $this->assertStringContainsString('Nothing to roll back', $tester->getDisplay(),
+            'MigrateRollback must report "Nothing to roll back." when no migrations ran');
+    }
+
+    /**
+     * MigrateRollback with --batch option sets $options['batch'] and targets
+     * that specific batch number.  With an empty batch (no history rows for batch 99)
+     * it still outputs "Nothing to roll back."
+     *
+     * This covers lines 66–68: the `if ($batch = ...)` extraction and cast.
+     */
+    public function testMigrateRollbackWithBatchOptionCoversOptionExtraction(): void
+    {
+        // Arrange — same mock setup; fetch() returns false = empty batch rows
+        $mockResult = new class {
+            public array $fields = ['max_batch' => null, 'key' => ''];
+            public function fetch(): bool { return false; }
+        };
+
+        $mockSchema = new class {
+            public function hasColumn(string $table, string $col): bool { return true; }
+        };
+
+        $mockDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockDb->type = 'mysql';
+        $mockDb->method('query')->willReturn($mockResult);
+        $mockDb->method('prepareQuery')->willReturnArgument(0);
+        $mockDb->method('schema')->willReturn($mockSchema);
+
+        $mockApp = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockApp->database = $mockDb;
+
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = $mockApp;
+
+        $cmd = new MigrateRollback();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act — --batch=99 sets options['batch']=99; batch 99 has no rows → empty
+        $exit = $tester->execute(['--batch' => '99', '--path' => $this->tmpDir]);
+
+        // Assert
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('Nothing to roll back', $tester->getDisplay());
+    }
+
+    /**
+     * MigrateRollback without --path uses defaultMigrationPath() to resolve the
+     * migration directory (lines 90-91 in MigrateRollback.php).
+     *
+     * This exercises the private defaultMigrationPath() method — that path is only
+     * reached when the caller does not supply an explicit --path option. With the
+     * mock database returning null for max_batch, rollback() returns early with an
+     * empty rolledBack array and the command outputs "Nothing to roll back."
+     */
+    public function testMigrateRollbackWithoutPathUsesDefaultMigrationPath(): void
+    {
+        // Arrange — same mock DB as other rollback tests
+        $mockResult = new class {
+            public array $fields = ['max_batch' => null, 'key' => ''];
+            public function fetch(): bool { return false; }
+        };
+
+        $mockSchema = new class {
+            public function hasColumn(string $table, string $col): bool { return true; }
+        };
+
+        $mockDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockDb->type = 'mysql';
+        $mockDb->method('query')->willReturn($mockResult);
+        $mockDb->method('prepareQuery')->willReturnArgument(0);
+        $mockDb->method('schema')->willReturn($mockSchema);
+
+        $mockApp = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockApp->database = $mockDb;
+
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = $mockApp;
+
+        $cmd = new MigrateRollback();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act — no --path → defaultMigrationPath() is called (lines 90-91)
+        $exit = $tester->execute([]);
+
+        // Assert
+        $this->assertSame(0, $exit,
+            'MigrateRollback without --path must return 0');
+        $this->assertStringContainsString('Nothing to roll back', $tester->getDisplay(),
+            'MigrateRollback must report "Nothing to roll back." when no history exists');
+    }
+
+    // =========================================================================
     // MigrateRefresh (early-return guards)
     // =========================================================================
 
@@ -762,6 +1083,252 @@ class ConsoleApplicationCoverageTest extends TestCase
         // Assert
         $this->assertSame(1, $exit);
         $this->assertStringContainsString('No database connection', $tester->getDisplay());
+    }
+
+    // =========================================================================
+    // MigrateRefresh — main execution paths and private helpers
+    // =========================================================================
+
+    /**
+     * MigrateRefresh without --force aborts in non-interactive mode (QuestionHelper
+     * returns the ConfirmationQuestion default = false) → "Aborted." / exit 0.
+     *
+     * Covers lines 64–73: confirmation block, ask(), writeln("Aborted."), return 0.
+     */
+    public function testMigrateRefreshAbortsWhenUserDeclinesConfirmation(): void
+    {
+        // Arrange — non-null database (stdClass) so the db-null guard is skipped.
+        // MigrationRunner is never reached because the command exits in the
+        // confirmation block (non-interactive → default = false → "Aborted.").
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = new class {
+            public string $appName         = '';
+            public array  $applicationInfo = ['namespace' => 'App'];
+            public $database;
+            public function __construct() { $this->database = new \stdClass(); }
+            public function init(): void {}
+        };
+
+        $cmd = new MigrateRefresh();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act
+        $exit = $tester->execute([]);
+
+        // Assert
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('Aborted', $tester->getDisplay());
+    }
+
+    /**
+     * MigrateRefresh with --force and an empty migrations directory runs both
+     * rollbackAll() and run() (both returning empty arrays) and calls printSummary().
+     *
+     * This covers lines 76–101 (execute path) and lines 110–155 (printSummary, zero
+     * failures branch).  formatDbType() is also exercised via the summary output.
+     */
+    public function testMigrateRefreshWithForceAndEmptyPathPrintsSummary(): void
+    {
+        // Arrange — same Database / Application mock setup as MigrateReset force tests
+        $mockResult = new class {
+            public array $fields = ['max_batch' => null, 'key' => ''];
+            public function fetch(): bool { return false; }
+        };
+        $mockSchema = new class {
+            public function hasColumn(string $table, string $col): bool { return true; }
+            public function getCapabilities(): object {
+                return new class {
+                    public function hasTimescaleDB(): bool { return false; }
+                };
+            }
+        };
+        $mockDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockDb->type = 'mysql';
+        $mockDb->method('query')->willReturn($mockResult);
+        $mockDb->method('prepareQuery')->willReturnArgument(0);
+        $mockDb->method('schema')->willReturn($mockSchema);
+
+        $mockApp = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockApp->database = $mockDb;
+
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = $mockApp;
+
+        $cmd = new MigrateRefresh();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act — --force skips confirmation; empty tmpDir yields no migrations
+        $exit = $tester->execute(['--force' => true, '--path' => $this->tmpDir]);
+
+        // Assert — summary is printed, exit 0 (no failures)
+        $display = $tester->getDisplay();
+        $this->assertSame(0, $exit,
+            'MigrateRefresh with --force and no migrations must return 0');
+        $this->assertStringContainsString('Rolling back all migrations', $display);
+        $this->assertStringContainsString('Re-running migrations', $display);
+        // printSummary() outputs the separator and migration counts
+        $this->assertStringContainsString('rolled back', $display);
+        $this->assertStringContainsString('migrated', $display);
+    }
+
+    /**
+     * formatDbType() (private) returns 'PostgreSQL' for postgresql type, 'MySQL' for
+     * mysql type, and ucfirst(type) for any other value.
+     *
+     * When schema()->getCapabilities()->hasTimescaleDB() returns true, the suffix
+     * ' · TimescaleDB' is appended.  When it throws, only the base label is returned.
+     *
+     * Covers all match arms in lines 163–167 and the try/catch in lines 169–173.
+     */
+    public function testMigrateRefreshFormatDbTypeBranches(): void
+    {
+        // Arrange
+        $cmd = new MigrateRefresh();
+        $ref = new \ReflectionMethod($cmd, 'formatDbType');
+
+        // ── postgresql ────────────────────────────────────────────────────
+        $pgDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $pgDb->type = 'postgresql';
+        $noTsSchema = new class {
+            public function getCapabilities(): object {
+                return new class {
+                    public function hasTimescaleDB(): bool { return false; }
+                };
+            }
+        };
+        $pgDb->method('schema')->willReturn($noTsSchema);
+        $this->assertSame('PostgreSQL', $ref->invoke($cmd, $pgDb),
+            'postgresql type must map to "PostgreSQL"');
+
+        // ── mysql ─────────────────────────────────────────────────────────
+        $myDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $myDb->type = 'mysql';
+        $myDb->method('schema')->willReturn($noTsSchema);
+        $this->assertSame('MySQL', $ref->invoke($cmd, $myDb),
+            'mysql type must map to "MySQL"');
+
+        // ── unknown / default ─────────────────────────────────────────────
+        $unkDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $unkDb->type = 'sqlite';
+        $unkDb->method('schema')->willReturn($noTsSchema);
+        $this->assertSame('Sqlite', $ref->invoke($cmd, $unkDb),
+            'unknown type must be returned as ucfirst(type)');
+
+        // ── TimescaleDB detected ──────────────────────────────────────────
+        $tsSchema = new class {
+            public function getCapabilities(): object {
+                return new class {
+                    public function hasTimescaleDB(): bool { return true; }
+                };
+            }
+        };
+        $tsDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $tsDb->type = 'postgresql';
+        $tsDb->method('schema')->willReturn($tsSchema);
+        $this->assertSame('PostgreSQL · TimescaleDB', $ref->invoke($cmd, $tsDb),
+            'TimescaleDB detection must append " · TimescaleDB" suffix');
+
+        // ── TimescaleDB check throws ──────────────────────────────────────
+        $exSchema = new class {
+            public function getCapabilities(): object {
+                throw new \RuntimeException('schema not available');
+            }
+        };
+        $exDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $exDb->type = 'postgresql';
+        $exDb->method('schema')->willReturn($exSchema);
+        $this->assertSame('PostgreSQL', $ref->invoke($cmd, $exDb),
+            'formatDbType() must silently ignore TimescaleDB check exceptions');
+    }
+
+    /**
+     * printSummary() (private) outputs a separator, summary line with counts,
+     * and database type.  When failures exist it also prints the failure section.
+     *
+     * Covers lines 116–155: zero-failure branch (lines 124–128) and
+     * non-zero-failure branch (lines 130–152).
+     */
+    public function testMigrateRefreshPrintSummaryBranches(): void
+    {
+        // Arrange — testable via ReflectionMethod; use a BufferedOutput to capture
+        $cmd = new MigrateRefresh();
+        $ref = new \ReflectionMethod($cmd, 'printSummary');
+
+        $mockDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $mockDb->type = 'mysql';
+        $noTsSchema = new class {
+            public function getCapabilities(): object {
+                return new class {
+                    public function hasTimescaleDB(): bool { return false; }
+                };
+            }
+        };
+        $mockDb->method('schema')->willReturn($noTsSchema);
+
+        // ── zero-failure path ─────────────────────────────────────────────
+        $output1 = new \Symfony\Component\Console\Output\BufferedOutput();
+        $ref->invoke(
+            $cmd,
+            $output1,
+            $mockDb,
+            ['rolledBack' => ['mig_001', 'mig_002']],
+            ['ran'        => ['mig_001', 'mig_002'], 'failed' => []]
+        );
+        $text1 = $output1->fetch();
+        $this->assertStringContainsString('2 rolled back', $text1,
+            'printSummary() must show the rolled-back count');
+        $this->assertStringContainsString('2 migrated', $text1,
+            'printSummary() must show the migrated count');
+        $this->assertStringNotContainsString('Failed migrations', $text1,
+            'printSummary() must NOT show the failed section when failedCount is 0');
+        $this->assertStringContainsString('MySQL', $text1,
+            'printSummary() must show the database type');
+
+        // ── one-failure path ──────────────────────────────────────────────
+        $output2 = new \Symfony\Component\Console\Output\BufferedOutput();
+        $ref->invoke(
+            $cmd,
+            $output2,
+            $mockDb,
+            ['rolledBack' => ['mig_001']],
+            [
+                'ran'    => ['mig_001'],
+                'failed' => ['mig_fail' => "Table already exists\nExtra error line"],
+            ]
+        );
+        $text2 = $output2->fetch();
+        $this->assertStringContainsString('1 failed', $text2,
+            'printSummary() must show the failure count when failures exist');
+        $this->assertStringContainsString('Failed migrations', $text2,
+            'printSummary() must show the failure section header');
+        $this->assertStringContainsString('mig_fail', $text2,
+            'printSummary() must list the failed migration slug');
+        $this->assertStringContainsString('Table already exists', $text2,
+            'printSummary() must include the first line of the error message');
+        $this->assertStringContainsString('Extra error line', $text2,
+            'printSummary() must include multi-line error messages');
     }
 
     // =========================================================================

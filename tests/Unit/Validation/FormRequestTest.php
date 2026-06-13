@@ -435,6 +435,45 @@ class FormRequestTest extends TestCase
     }
 
     /**
+     * The real input() implementation (not overridden) merges $_GET and $_POST
+     * with POST taking precedence. This test uses a FormRequest subclass that
+     * does NOT override input() to exercise the default merging at line 89.
+     *
+     * It DOES override failWith() to throw instead of exit, because failWith()
+     * with the real header()/exit() cannot be tested in-process.
+     */
+    public function testRealInputMergesGetAndPost(): void
+    {
+        // Arrange — set GET and POST superglobals; POST 'name' should win
+        $_GET  = ['name' => 'from-get',   'extra' => 'x'];
+        $_POST = ['name' => 'from-post',  'email' => 'a@b.com'];
+
+        // A concrete subclass that exercises the real input() but overrides failWith()
+        $req = new class extends FormRequest {
+            public function rules(): array
+            {
+                return ['name' => 'required', 'email' => 'required|email'];
+            }
+            protected function failWith(array $errors, array $oldInput = []): never
+            {
+                throw new \RuntimeException('failWith called unexpectedly: ' . json_encode($errors));
+            }
+        };
+
+        // Act — calls real input() → array_merge($_GET, $_POST) at line 89
+        $data = $req->validated();
+
+        // Assert — POST value of 'name' wins over GET; 'extra' is stripped
+        $this->assertSame('from-post',  $data['name'],  'POST must win over GET in input()');
+        $this->assertSame('a@b.com',    $data['email'], 'email from POST must be present');
+        $this->assertArrayNotHasKey('extra', $data, 'undeclared keys must be stripped');
+
+        // Cleanup
+        $_GET  = [];
+        $_POST = [];
+    }
+
+    /**
      * getRedirectUrl() falls back to HTTP_REFERER when $redirectTo is empty
      * and HTTP_REFERER is set.
      */

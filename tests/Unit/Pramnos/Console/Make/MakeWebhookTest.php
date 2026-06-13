@@ -221,4 +221,102 @@ class MakeWebhookTest extends TestCase
         $this->assertStringContainsString('Next steps:', $out);
         $this->assertStringContainsString('webhook.php', $out);
     }
+
+    // =========================================================================
+    // detectCliName() — private helper coverage
+    // =========================================================================
+
+    /**
+     * detectCliName() must return the lowercase namespace when app/app.php
+     * exists and returns an array with a 'namespace' key that has a matching
+     * entry-point .php file in root.
+     *
+     * Covers the "namespace found + matching root PHP file exists" branch
+     * inside detectCliName() (lines 97–100 of MakeWebhook).
+     */
+    public function testDetectCliNameUsesNamespaceWhenAppPhpExistsAndEntryFilePresent(): void
+    {
+        // Arrange — build a synthetic root that has:
+        //   app/app.php  → returns ['namespace' => 'MyApp']
+        //   myapp.php    → the entry-point file
+        $root = sys_get_temp_dir() . '/mkwh_test_' . bin2hex(random_bytes(4));
+        mkdir($root . '/app', 0777, true);
+        file_put_contents($root . '/app/app.php', '<?php return ["namespace" => "MyApp"];');
+        file_put_contents($root . '/myapp.php', '<?php // entry point');
+
+        try {
+            // Act — call via reflection
+            $command  = new MakeWebhook();
+            $ref      = new \ReflectionMethod($command, 'detectCliName');
+            $cliName  = $ref->invoke($command, $root);
+
+            // Assert — namespace 'MyApp' lowercased → 'myapp', matching myapp.php
+            $this->assertSame('myapp', $cliName,
+                'detectCliName() must return the lowercased namespace when a matching entry file exists');
+        } finally {
+            @unlink($root . '/app/app.php');
+            @unlink($root . '/myapp.php');
+            @rmdir($root . '/app');
+            @rmdir($root);
+        }
+    }
+
+    /**
+     * detectCliName() must return the namespace (without an entry-point file)
+     * when app/app.php has a namespace key but no matching .php file in root.
+     *
+     * Covers the branch at line 102: `return $candidate ?: 'pramnos'`.
+     */
+    public function testDetectCliNameReturnsNamespaceWhenEntryFileAbsent(): void
+    {
+        // Arrange — app.php exists with namespace, but no matching root .php file
+        $root = sys_get_temp_dir() . '/mkwh_test_' . bin2hex(random_bytes(4));
+        mkdir($root . '/app', 0777, true);
+        file_put_contents($root . '/app/app.php', '<?php return ["namespace" => "Acme"];');
+        // No acme.php in root
+
+        try {
+            // Act
+            $command  = new MakeWebhook();
+            $ref      = new \ReflectionMethod($command, 'detectCliName');
+            $cliName  = $ref->invoke($command, $root);
+
+            // Assert — namespace used even though file doesn't exist
+            $this->assertSame('acme', $cliName,
+                'detectCliName() must return the lowercased namespace even when no entry file exists');
+        } finally {
+            @unlink($root . '/app/app.php');
+            @rmdir($root . '/app');
+            @rmdir($root);
+        }
+    }
+
+    /**
+     * detectCliName() must fall through to the glob path and pick the first
+     * non-excluded .php file in root when app/app.php is absent.
+     *
+     * Covers lines 109–116 in detectCliName(): glob scan, excluded-list check,
+     * return by filename stem.
+     */
+    public function testDetectCliNameUsesGlobWhenNoAppPhpExists(): void
+    {
+        // Arrange — root with one non-excluded .php file and no app/app.php
+        $root = sys_get_temp_dir() . '/mkwh_test_' . bin2hex(random_bytes(4));
+        mkdir($root, 0777, true);
+        file_put_contents($root . '/mywebapp.php', '<?php // entry point');
+
+        try {
+            // Act
+            $command = new MakeWebhook();
+            $ref     = new \ReflectionMethod($command, 'detectCliName');
+            $cliName = $ref->invoke($command, $root);
+
+            // Assert — file mywebapp.php found → returns 'mywebapp'
+            $this->assertSame('mywebapp', $cliName,
+                'detectCliName() must use the stem of the first non-excluded .php file when app.php is absent');
+        } finally {
+            @unlink($root . '/mywebapp.php');
+            @rmdir($root);
+        }
+    }
 }
