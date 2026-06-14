@@ -87,6 +87,91 @@ class DocumentTypesTest extends TestCase
         \Pramnos\Document\Document::_setContent('');
     }
 
+    /**
+     * Html::render() must include all meta-property tags, meta-name tags,
+     * og:image, and the body class when those properties are populated.
+     *
+     * Covers: meta foreach (lines 88-93), metanames foreach (96-101),
+     * og_image branch (104-105), bodyclasses foreach (117-118), and the
+     * else branch that emits class="..." (lines 125-127).
+     */
+    public function testHtmlRenderWithMetaTagsAndBodyClass(): void
+    {
+        // Arrange
+        $html = new \Pramnos\Document\DocumentTypes\Html();
+        $html->title       = 'Meta Test';
+        $html->og_image    = 'http://example.com/og.jpg'; // triggers lines 104-105
+
+        $html->addMetaTag('custom:property', 'prop-value');        // fills $this->meta
+        $html->addMetaTag('keywords', 'php, framework', true);      // fills $this->metanames
+        $html->addBodyClass('main-body');                           // fills $this->bodyclasses
+
+        \Pramnos\Document\Document::_setContent('<p>html body</p>');
+
+        // Act
+        $output = $html->render();
+
+        // Cleanup
+        \Pramnos\Document\Document::_setContent('');
+
+        // Assert — each populated branch must appear in the output
+        $this->assertStringContainsString(
+            'property="og:image" content="http://example.com/og.jpg"',
+            $output,
+            'og:image meta tag must be emitted when og_image is non-empty'
+        );
+        $this->assertStringContainsString(
+            'property="custom:property" content="prop-value"',
+            $output,
+            'Custom property meta tag must appear in the meta foreach'
+        );
+        $this->assertStringContainsString(
+            'name="keywords" content="php, framework"',
+            $output,
+            'Meta-name tag must appear in the metanames foreach'
+        );
+        $this->assertStringContainsString(
+            'class="main-body"',
+            $output,
+            'Body element must include the registered class'
+        );
+    }
+
+    /**
+     * Html::render() must invoke loadTheme(), getheader(), gethead(), getfoot()
+     * when themeObject is non-null (lines 32-35).
+     */
+    public function testHtmlRenderCallsThemeObjectMethods(): void
+    {
+        // Arrange — anonymous class satisfies the duck-typed themeObject contract
+        $theme = new class {
+            public function loadTheme(): void {}
+            public function getheader(): string { return '<!-- th-header -->'; }
+            public function gethead(): string   { return '<!-- th-head -->';   }
+            public function getfoot(): string   { return '<!-- th-foot -->';   }
+        };
+
+        $html = new \Pramnos\Document\DocumentTypes\Html();
+        $html->title       = 'Themed Doc';
+        $html->themeObject = $theme;
+
+        \Pramnos\Document\Document::_setContent('');
+
+        // Act
+        $output = $html->render();
+
+        // Cleanup
+        \Pramnos\Document\Document::_setContent('');
+
+        // Assert — theme contributions appear in the rendered output
+        $this->assertStringContainsString('<!-- th-header -->', $output,
+            'getheader() contribution must appear in the rendered Html');
+        $this->assertStringContainsString('<!-- th-head -->', $output,
+            'gethead() contribution must appear in the rendered Html');
+        $this->assertStringContainsString('<!-- th-foot -->', $output,
+            'getfoot() contribution must appear in the rendered Html');
+    }
+
     public function testJsonRender(): void
     {
         $json = new Json();
