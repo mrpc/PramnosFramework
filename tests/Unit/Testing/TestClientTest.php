@@ -33,6 +33,13 @@ class TestClientTest extends TestCase
 
     protected function setUp(): void
     {
+        // Clear any leftover themeObject from a previous test so that
+        // Document::render() does not call loadTheme() on a partial mock.
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        if (isset($doc->themeObject)) {
+            unset($doc->themeObject);
+        }
+
         // Create a stub Application with initialized = true so TestClient
         // never calls init() and never attempts a database connection.
         $stubApp = new class extends Application {
