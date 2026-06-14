@@ -924,6 +924,215 @@ class DatasourceTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // render() — debug mode
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * render() with $debug=true must echo two diagnostic blocks: a "DEBUG MODE"
+     * header and a "Final Query" SQL dump (lines 129 and 254).
+     *
+     * These echo statements are only reached when debug=true — passing false in
+     * all other tests leaves them uncovered. Buffering output lets us assert
+     * both blocks appeared without polluting the test output.
+     */
+    public function testRenderWithDebugModeEchoesQueryInfo(): void
+    {
+        // Arrange
+        $this->setPost([
+            'iDisplayStart'  => '0',
+            'iDisplayLength' => '5',
+            'sEcho'          => '1',
+        ]);
+        $ds = new Datasource();
+
+        // Act — capture the echoed debug output
+        ob_start();
+        $result = $ds->render('ds_items', ['id', 'name'], false, '', '', false, 5, 'datatables', true);
+        $output = ob_get_clean();
+
+        // Assert — both debug echo blocks fired
+        $this->assertStringContainsString('DEBUG MODE', $output,
+            'render() with debug=true must echo the DEBUG MODE header (line 129)');
+        $this->assertStringContainsString('Final Query', $output,
+            'render() with debug=true must echo the final SQL query (line 254)');
+        // Result is still valid
+        $this->assertArrayHasKey('aaData', $result);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // render() — field alias stripping in ordering, search, per-column search
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * render() must strip the "AS alias" part from a sort field that includes
+     * an alias, so the ORDER BY clause uses the real column name (line 193).
+     *
+     * When a field is defined as "price as cost", sorting by that field index
+     * must order by "price", not the alias "cost" which is undefined in MySQL.
+     */
+    public function testRenderOrderingSortFieldWithAliasStripsAlias(): void
+    {
+        // Arrange — sort by column 2 (price as cost) descending
+        $this->setPost([
+            'iDisplayStart'  => '0',
+            'iDisplayLength' => '10',
+            'iSortCol_0'     => '2',
+            'sSortDir_0'     => 'desc',
+            'iSortingCols'   => '1',
+            'sEcho'          => '1',
+        ]);
+        $ds = new Datasource();
+
+        // Act — field with "as" alias must have alias stripped before ORDER BY (line 193)
+        $result = $ds->render('ds_items', ['id', 'name', 'price as cost'], false, '', '', false);
+
+        // Assert — ordering ran without error and returned expected rows
+        $this->assertCount(4, $result['aaData'],
+            'render() must successfully order by a field that has an alias');
+        // Gadget has the highest price (99.99) — must be first when ordering desc
+        $this->assertSame('Gadget', $result['aaData'][0][1],
+            'render() must order by the real column name after stripping the alias');
+    }
+
+    /**
+     * render() must strip the "as alias" part from a field during global search
+     * so the LIKE condition targets the real column name (line 207).
+     *
+     * When a searchable field is defined as "name as label", the generated
+     * WHERE clause must reference "name" (the real column), not "label".
+     */
+    public function testRenderGlobalSearchWithFieldAliasStripsAlias(): void
+    {
+        // Arrange — global search on a field defined with an alias
+        $this->setPost([
+            'iDisplayStart'  => '0',
+            'iDisplayLength' => '10',
+            'sSearch'        => 'Widget',
+            'bSearchable_0'  => 'true',
+            'bSearchable_1'  => 'true',  // column 1 = 'name as label'
+            'sEcho'          => '2',
+        ]);
+        $ds = new Datasource();
+
+        // Act — 'name as label' must have alias stripped so LIKE hits the real column (line 207)
+        $result = $ds->render('ds_items', ['id', 'name as label'], false, '', '', false);
+
+        // Assert — only Widget rows returned (global search worked through alias)
+        $this->assertSame(2, $result['iTotalDisplayRecords'],
+            'render() global search must strip field alias and filter on the real column');
+    }
+
+    /**
+     * render() must strip the "as alias" part from a field during per-column
+     * search so the LIKE condition targets the real column name (line 225).
+     *
+     * When a field registered with addField() contains " as alias", the
+     * per-column search LIKE must use the real column, not the alias.
+     */
+    public function testRenderPerColumnSearchWithFieldAliasStripsAlias(): void
+    {
+        // Arrange — per-column search on column 0 which uses a field alias
+        $this->setPost([
+            'iDisplayStart'  => '0',
+            'iDisplayLength' => '10',
+            'sSearch_0'      => 'Wid',
+            'bSearchable_0'  => 'true',
+            'sEcho'          => '3',
+        ]);
+        $ds = new Datasource();
+
+        // Register the field with an alias — per-column search must strip it (line 225)
+        $ds->addField('name as label');
+
+        // Act — fields populated via addField (queryFields=null)
+        $result = $ds->render('ds_items', null, false, '', '', false);
+
+        // Assert — both Widget rows found despite alias on the field name
+        $this->assertSame(2, $result['iTotalDisplayRecords'],
+            'render() per-column search must strip "as alias" and search the real column');
+    }
+
+    /**
+     * render() with a dot-notation $distinctField (e.g. "a.name") must NOT
+     * wrap the field in backtick quoting — it takes the else branch at line 122
+     * that uses the field name as-is in array_unshift.
+     *
+     * The if-branch (line 120) is covered by testRenderDistinctFieldDeduplicates
+     * which passes a simple field name without a dot.
+     */
+    public function testRenderDistinctFieldWithDotNotationSkipsQuoting(): void
+    {
+        // Arrange
+        $this->setPost([
+            'iDisplayStart'  => '0',
+            'iDisplayLength' => '20',
+            'sEcho'          => '4',
+        ]);
+        $ds = new Datasource();
+
+        // Act — pass a table-qualified distinct field: takes else branch at line 122
+        $result = $ds->render(
+            'ds_items',
+            ['a.name'],
+            false,
+            '',
+            '',
+            false,
+            20,
+            'datatables',
+            false,
+            null,
+            'a.name'   // dot-notation distinctField → else branch (line 122)
+        );
+
+        // Assert — query ran and returned distinct names
+        $this->assertArrayHasKey('aaData', $result,
+            'render() with dot-notation distinctField must execute without error');
+        $this->assertNotEmpty($result['aaData']);
+    }
+
+    /**
+     * render() with a non-null, non-UTF-8 $iconv value must convert POST values
+     * from UTF-8 to the target encoding (lines 133–134) and convert each
+     * non-numeric field value back to UTF-8 (line 287).
+     *
+     * This round-trip is used when the web page charset differs from UTF-8.
+     * With ASCII data both conversions are transparent, so the result is still
+     * valid UTF-8. Coverage goal: lines 133, 134, and 287.
+     */
+    public function testRenderWithIconvProcessesPostAndFieldValues(): void
+    {
+        // Arrange — set POST with string values so lines 133–134 iterate and convert
+        $this->setPost([
+            'iDisplayStart'  => '0',
+            'iDisplayLength' => '5',
+            'sEcho'          => '5',
+        ]);
+        $ds = new Datasource();
+
+        // Act — iconv='iso-8859-1' triggers both POST (lines 133–134) and
+        //       per-field (line 287) iconv paths
+        $result = $ds->render(
+            'ds_items',
+            ['id', 'name'],
+            false,
+            '',
+            '',
+            false,
+            5,
+            'datatables',
+            false,
+            'iso-8859-1'  // non-null, non-utf8 → triggers iconv branches
+        );
+
+        // Assert — response is still valid (ASCII data survives round-trip encoding)
+        $this->assertArrayHasKey('aaData', $result,
+            'render() with iconv must return a valid response for ASCII data');
+        $this->assertNotEmpty($result['aaData'],
+            'render() with iconv must return rows from the database');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
