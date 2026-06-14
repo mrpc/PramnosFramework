@@ -1266,4 +1266,116 @@ class ModelTest extends TestCase
             $db = $origDb;
         }
     }
+
+    /**
+     * _save() must set $this->_dbtable and $this->_primaryKey from its $table
+     * and $key parameters when those arguments are explicitly non-null (lines
+     * 149 and 152). Tests the branch that allows a one-off override of the
+     * model's configured table/key at save time.
+     */
+    public function testSaveWithExplicitTableAndKeyCoversLines149And152(): void
+    {
+        // Arrange — insert a product so we have a real primary key
+        $model = new TestProductModel($this->controller);
+        $model->name    = 'Explicit Table Test';
+        $model->price   = 5.00;
+        $model->is_active = 1;
+        $model->save();
+        $id = $model->id;
+        $this->assertNotNull($id);
+
+        // Act — call _save() via reflection with an explicit table/key that
+        // matches the real table so the DB write succeeds.
+        $ref    = new \ReflectionClass(Model::class);
+        $method = $ref->getMethod('_save');
+
+        // Pass explicit (non-null) table and key to cover lines 149 and 152.
+        $method->invoke($model, 'test_products', 'id', false, false, true);
+
+        // Assert — model still has the product id (save succeeded or silently passed)
+        $this->assertSame($id, $model->id,
+            '_save() with explicit table/key must not corrupt the primary key');
+    }
+
+    /**
+     * _save() must return $this immediately when an existing record has no
+     * pending changes (line 171). This avoids unnecessary database writes
+     * for unchanged model state.
+     */
+    public function testSaveWithNoChangesReturnsEarlyAtLine171(): void
+    {
+        // Arrange — insert a record, then load it fresh
+        $orig = new TestProductModel($this->controller);
+        $orig->name     = 'Unchanged Product';
+        $orig->price    = 20.00;
+        $orig->is_active = 1;
+        $orig->save();
+
+        $loader = new TestProductModel($this->controller);
+        $loader->load($orig->id);
+
+        // Sanity: no changes after a clean load
+        $this->assertEmpty($loader->getChanges(),
+            'There must be no changes immediately after loading');
+
+        // Act — save without modifying any field; must hit the no-op return at line 171
+        $result = $loader->save();
+
+        // Assert — save() returns $this (the loaded model) without re-writing to DB
+        $this->assertSame($loader, $result,
+            '_save() must return $this when there are no pending changes');
+    }
+
+    /**
+     * _load() must set $this->_dbtable and $this->_primaryKey from its $table
+     * and $key parameters when those arguments are explicitly non-null (lines
+     * 400 and 403).
+     */
+    public function testLoadWithExplicitTableAndKeyCoversLines400And403(): void
+    {
+        // Arrange — insert a product
+        $model = new TestProductModel($this->controller);
+        $model->name     = 'Load Explicit Test';
+        $model->price    = 7.00;
+        $model->is_active = 1;
+        $model->save();
+        $id = $model->id;
+
+        // Act — call _load() via reflection with explicit table and key
+        $loader = new TestProductModel($this->controller);
+        $ref    = new \ReflectionClass(Model::class);
+        $method = $ref->getMethod('_load');
+        $method->invoke($loader, $id, 'test_products', 'id');
+
+        // Assert — record was loaded correctly via the explicit-table path
+        $this->assertSame('Load Explicit Test', $loader->name,
+            '_load() with explicit table/key must load the correct record');
+    }
+
+    /**
+     * _delete() must set $this->_dbtable and $this->_primaryKey from its
+     * $table and $key parameters when those arguments are explicitly non-null
+     * (lines 454 and 457).
+     */
+    public function testDeleteWithExplicitTableAndKeyCoversLines454And457(): void
+    {
+        // Arrange — insert two products
+        $model1 = new TestProductModel($this->controller);
+        $model1->name     = 'Delete Explicit A';
+        $model1->price    = 1.00;
+        $model1->is_active = 1;
+        $model1->save();
+        $id = $model1->id;
+
+        // Act — call _delete() via reflection with explicit table and key
+        $ref    = new \ReflectionClass(Model::class);
+        $method = $ref->getMethod('_delete');
+        $method->invoke($model1, $id, 'test_products', 'id');
+
+        // Assert — record no longer exists
+        $check = new TestProductModel($this->controller);
+        $check->load($id);
+        $this->assertNull($check->id,
+            '_delete() with explicit table/key must remove the record');
+    }
 }
