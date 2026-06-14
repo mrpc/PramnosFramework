@@ -582,13 +582,343 @@ class EmailTest extends TestCase
         $email = new Email();
         $email->setFrom('stringfrom@example.com');
         $mimeEmail = new \Symfony\Component\Mime\Email();
-        
+
         $ref = new \ReflectionClass($email);
         $setFrom = $ref->getMethod('setFromAddress');
         $setFrom->invoke($email, $mimeEmail);
-        
+
         $froms = $mimeEmail->getFrom();
         $this->assertCount(1, $froms);
         $this->assertEquals('stringfrom@example.com', $froms[0]->getAddress());
+    }
+
+    /**
+     * setFromAddress() must handle a numeric-keyed array where the value is a
+     * valid email string (lines 445-447): e.g. [0 => 'from@example.com'].
+     */
+    public function testSetFromAddressNumericArrayKey(): void
+    {
+        // Arrange — numeric key: value is the email address (no name)
+        $email = new Email();
+        $email->setFrom([0 => 'numeric@example.com']);
+        $mimeEmail = new \Symfony\Component\Mime\Email();
+
+        // Act
+        $ref     = new \ReflectionClass($email);
+        $setFrom = $ref->getMethod('setFromAddress');
+        $setFrom->invoke($email, $mimeEmail);
+
+        // Assert — address from numeric array key branch
+        $froms = $mimeEmail->getFrom();
+        $this->assertCount(1, $froms);
+        $this->assertSame('numeric@example.com', $froms[0]->getAddress());
+    }
+
+    /**
+     * setFromAddress() must log and skip an invalid array entry rather than
+     * throwing (line 449): array key is not a valid address and value is not
+     * a valid address either.
+     */
+    public function testSetFromAddressInvalidArrayEntryIsSkipped(): void
+    {
+        // Arrange — key and value are both non-address strings
+        $email    = new Email();
+        $email->setFrom(['not-an-email' => 'also-not-an-email']);
+        $mimeEmail = new \Symfony\Component\Mime\Email();
+        $email->setDebug(true);
+
+        // Act — must not throw; the invalid entry is skipped
+        $ref     = new \ReflectionClass($email);
+        $setFrom = $ref->getMethod('setFromAddress');
+        $setFrom->invoke($email, $mimeEmail);
+
+        // Assert — no from address was set (invalid entry skipped)
+        $this->assertCount(0, $mimeEmail->getFrom(),
+            'An invalid from-array entry must be skipped without throwing');
+    }
+
+    /**
+     * sendReceipt=true with an array from must add Disposition-Notification-To
+     * using the first key from the array (lines 363-364).
+     *
+     * Exercises the is_array($this->from) branch inside the sendReceipt block.
+     * Uses SMTP with an unreachable port so send() returns false after the
+     * receipt header is prepared.
+     */
+    public function testSendReceiptWithArrayFromAddsDispositionHeader(): void
+    {
+        // Arrange — array from triggers the array branch in the receipt block
+        \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
+        \Pramnos\Application\Settings::setSetting('smtp_port', '2525');
+        \Pramnos\Application\Settings::setSetting('smtp_user', '');
+        \Pramnos\Application\Settings::setSetting('smtp_pass', '');
+        \Pramnos\Application\Settings::setSetting('smtp_tls', 'no');
+
+        $email = new Email();
+        $email->setBody('Receipt test')
+              ->setTo('to@example.com')
+              ->setFrom(['receipt-from@example.com' => 'Receipt Sender'])
+              ->setSubject('Receipt test');
+        $email->sendReceipt = true;
+
+        // Act — send() fails at SMTP connect but receipt header was prepared
+        $result = $email->send();
+
+        // Assert — send() caught the transport exception and returned false
+        $this->assertFalse($result,
+            'send() must return false when SMTP is unreachable');
+    }
+
+    /**
+     * SMTP scheme selection must use "smtps" for port 465 (line 277).
+     */
+    public function testSmtpSchemeIsSmtpsForPort465(): void
+    {
+        // Arrange — port 465 triggers the smtps (implicit SSL) branch
+        \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
+        \Pramnos\Application\Settings::setSetting('smtp_port', '465');
+        \Pramnos\Application\Settings::setSetting('smtp_user', 'user');
+        \Pramnos\Application\Settings::setSetting('smtp_pass', 'pass');
+        \Pramnos\Application\Settings::setSetting('smtp_tls', 'no');
+
+        $email = new Email();
+        $email->setBody('Test body')
+              ->setTo('to@example.com')
+              ->setFrom('from@example.com')
+              ->setSubject('Port 465 test');
+
+        // Act — SMTP connect on port 465 fails (no server), returns false
+        $result = $email->send();
+
+        // Assert — send() returned false (transport error) after hitting the smtps branch
+        $this->assertFalse($result,
+            'send() must return false when port-465 SMTP server is unreachable');
+    }
+
+    /**
+     * SMTP scheme selection must use STARTTLS transport for port 587 with TLS
+     * enabled (lines 281, 304-305). The EsmtpTransportFactory path is exercised.
+     */
+    public function testSmtpSchemeUsesStarttlsForPort587WithTls(): void
+    {
+        // Arrange — port 587 + TLS triggers the STARTTLS/EsmtpTransportFactory branch
+        \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
+        \Pramnos\Application\Settings::setSetting('smtp_port', '587');
+        \Pramnos\Application\Settings::setSetting('smtp_user', 'user');
+        \Pramnos\Application\Settings::setSetting('smtp_pass', 'pass');
+        \Pramnos\Application\Settings::setSetting('smtp_tls', 'yes');
+
+        $email = new Email();
+        $email->setBody('Test body')
+              ->setTo('to@example.com')
+              ->setFrom('from@example.com')
+              ->setSubject('Port 587+TLS test');
+
+        // Act — SMTP connect on port 587 fails (no server), returns false
+        $result = $email->send();
+
+        // Assert
+        $this->assertFalse($result,
+            'send() must return false when port-587+TLS SMTP server is unreachable');
+    }
+
+    /**
+     * SMTP scheme selection must use "smtps" for non-standard port when TLS
+     * is enabled (line 285).
+     */
+    public function testSmtpSchemeIsSmtpsForNonstandardPortWithTls(): void
+    {
+        // Arrange — port 9999 + TLS triggers the "other ports with TLS" smtps branch
+        \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
+        \Pramnos\Application\Settings::setSetting('smtp_port', '9999');
+        \Pramnos\Application\Settings::setSetting('smtp_user', 'user');
+        \Pramnos\Application\Settings::setSetting('smtp_pass', 'pass');
+        \Pramnos\Application\Settings::setSetting('smtp_tls', 'yes');
+
+        $email = new Email();
+        $email->setBody('Test body')
+              ->setTo('to@example.com')
+              ->setFrom('from@example.com')
+              ->setSubject('Port 9999+TLS test');
+
+        // Act — SMTP connect on port 9999 fails (no server), returns false
+        $result = $email->send();
+
+        // Assert
+        $this->assertFalse($result,
+            'send() must return false when non-standard-port+TLS SMTP is unreachable');
+    }
+
+    /**
+     * send() must set the reply-to header when $this->replyto is non-empty
+     * (line 349). Uses SMTP with an unreachable port so send() returns false
+     * after the reply-to header is applied.
+     */
+    public function testSendSetsReplyToHeaderWhenReplytoIsSet(): void
+    {
+        // Arrange
+        \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
+        \Pramnos\Application\Settings::setSetting('smtp_port', '2525');
+        \Pramnos\Application\Settings::setSetting('smtp_user', '');
+        \Pramnos\Application\Settings::setSetting('smtp_pass', '');
+        \Pramnos\Application\Settings::setSetting('smtp_tls', 'no');
+
+        $email = new Email();
+        $email->setBody('Reply-to test')
+              ->setTo('to@example.com')
+              ->setFrom('from@example.com')
+              ->setSubject('Reply-to test');
+        $email->replyto = 'reply@example.com'; // triggers line 349
+
+        // Act
+        $result = $email->send();
+
+        // Assert — send() failed at transport but reply-to path was taken
+        $this->assertFalse($result);
+    }
+
+    /**
+     * send() must add custom headers to the mime email when $this->headers
+     * is non-empty (line 404). Uses SMTP with an unreachable port.
+     */
+    public function testSendAddsCustomHeadersFromHeadersArray(): void
+    {
+        // Arrange
+        \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
+        \Pramnos\Application\Settings::setSetting('smtp_port', '2525');
+        \Pramnos\Application\Settings::setSetting('smtp_user', '');
+        \Pramnos\Application\Settings::setSetting('smtp_pass', '');
+        \Pramnos\Application\Settings::setSetting('smtp_tls', 'no');
+
+        $email = new Email();
+        $email->setBody('Headers test')
+              ->setTo('to@example.com')
+              ->setFrom('from@example.com')
+              ->setSubject('Headers test');
+        $email->addHeader('X-Custom-Header', 'custom-value'); // triggers line 404
+
+        // Act
+        $result = $email->send();
+
+        // Assert — send() failed at transport but headers path was taken
+        $this->assertFalse($result);
+    }
+
+    /**
+     * send() must attach a file when $this->attach is non-empty and the file
+     * exists (line 396). Uses a temp file as the attachment.
+     */
+    public function testSendAttachesFileWhenAttachPathExists(): void
+    {
+        // Arrange — create a temporary file to use as attachment
+        $tmpFile = tempnam(sys_get_temp_dir(), 'email_attach_');
+        file_put_contents($tmpFile, 'attachment contents');
+
+        \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
+        \Pramnos\Application\Settings::setSetting('smtp_port', '2525');
+        \Pramnos\Application\Settings::setSetting('smtp_user', '');
+        \Pramnos\Application\Settings::setSetting('smtp_pass', '');
+        \Pramnos\Application\Settings::setSetting('smtp_tls', 'no');
+
+        $email = new Email();
+        $email->setBody('Attachment test')
+              ->setTo('to@example.com')
+              ->setFrom('from@example.com')
+              ->setSubject('Attachment test');
+        $email->attach = $tmpFile; // triggers line 396
+
+        // Act
+        $result = $email->send();
+
+        // Assert — send() failed at transport but attachment path was taken
+        $this->assertFalse($result);
+        unlink($tmpFile);
+    }
+
+    /**
+     * send() must fall through to the admin_replymail setting for reply-to
+     * when $this->replyto is empty but admin_replymail is configured (line 351).
+     */
+    public function testSendUsesAdminReplymailWhenReplytoIsEmpty(): void
+    {
+        // Arrange — set admin_replymail so the elseif branch on line 350 fires
+        \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
+        \Pramnos\Application\Settings::setSetting('smtp_port', '2525');
+        \Pramnos\Application\Settings::setSetting('smtp_user', '');
+        \Pramnos\Application\Settings::setSetting('smtp_pass', '');
+        \Pramnos\Application\Settings::setSetting('smtp_tls', 'no');
+        \Pramnos\Application\Settings::setSetting('admin_replymail', 'admin-reply@example.com');
+
+        $email = new Email();
+        $email->setBody('Admin reply-to test')
+              ->setTo('to@example.com')
+              ->setFrom('from@example.com')
+              ->setSubject('Admin reply-to test');
+        // replyto intentionally left empty — admin_replymail branch fires
+
+        // Act
+        $result = $email->send();
+
+        // Assert — send() failed at transport but admin_replymail path was taken
+        $this->assertFalse($result);
+
+        // Cleanup
+        \Pramnos\Application\Settings::setSetting('admin_replymail', '');
+    }
+
+    /**
+     * send() must call returnPath() on the mime message when $this->returnPath
+     * is a non-empty, non-null string (line 356).
+     */
+    public function testSendSetsReturnPathWhenConfigured(): void
+    {
+        // Arrange
+        \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
+        \Pramnos\Application\Settings::setSetting('smtp_port', '2525');
+        \Pramnos\Application\Settings::setSetting('smtp_user', '');
+        \Pramnos\Application\Settings::setSetting('smtp_pass', '');
+        \Pramnos\Application\Settings::setSetting('smtp_tls', 'no');
+
+        $email = new Email();
+        $email->setBody('Return path test')
+              ->setTo('to@example.com')
+              ->setFrom('from@example.com')
+              ->setSubject('Return path test');
+        $email->returnPath = 'bounces@example.com'; // triggers line 356
+
+        // Act
+        $result = $email->send();
+
+        // Assert — send() failed at transport but returnPath path was taken
+        $this->assertFalse($result);
+    }
+
+    /**
+     * setFromAddress() must catch the Symfony Address exception when the from
+     * string is an invalid email and fall back to the admin_mail setting
+     * (lines 462-469).
+     */
+    public function testSetFromAddressStringFallsBackOnInvalidEmail(): void
+    {
+        // Arrange — an invalid email string triggers Address() to throw
+        \Pramnos\Application\Settings::setSetting('admin_mail', 'fallback@example.com');
+        \Pramnos\Application\Settings::setSetting('sitename', 'Fallback Site');
+
+        $email = new Email();
+        $email->setFrom('this-is-not-an-email'); // triggers the catch at line 462
+        $email->setDebug(true);
+        $mimeEmail = new \Symfony\Component\Mime\Email();
+
+        // Act — must not throw; catches the exception and falls back
+        $ref     = new \ReflectionClass($email);
+        $setFrom = $ref->getMethod('setFromAddress');
+        $setFrom->invoke($email, $mimeEmail);
+
+        // Assert — fallback address was used instead
+        $froms = $mimeEmail->getFrom();
+        $this->assertCount(1, $froms,
+            'setFromAddress() must fall back to admin_mail when the string is invalid');
+        $this->assertSame('fallback@example.com', $froms[0]->getAddress(),
+            'Fallback must use the admin_mail setting');
     }
 }
