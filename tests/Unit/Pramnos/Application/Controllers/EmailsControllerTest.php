@@ -114,7 +114,10 @@ class EmailsControllerTest extends TestCase
     protected function tearDown(): void
     {
         $doc = \Pramnos\Framework\Factory::getDocument();
-        if (isset($doc->themeObject) && $doc->themeObject instanceof \stdClass) {
+        // Unset regardless of type — any leftover themeObject would cause
+        // Document::render() to call loadTheme() on an incomplete mock in
+        // later tests (e.g. TestClientTest), making those tests fail.
+        if (isset($doc->themeObject)) {
             unset($doc->themeObject);
         }
         $_SESSION = [];
