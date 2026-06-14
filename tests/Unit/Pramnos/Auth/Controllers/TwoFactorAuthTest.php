@@ -23,6 +23,7 @@ class TestableTwoFactorAuth extends TwoFactorAuth
         throw new \RuntimeException('redirect_quit');
     }
 
+
     public function &getView($name = '', $type = '', $args = [])
     {
         $view = new class {
@@ -34,12 +35,29 @@ class TestableTwoFactorAuth extends TwoFactorAuth
             public mixed $setupComplete;
             public mixed $success;
             public mixed $error;
-            
+
             public function display($view = '') {
                 return 'mock html view for twofactor ' . $view;
             }
         };
         return $view;
+    }
+}
+
+/**
+ * Soft-redirect variant: redirect() records the URL but does NOT throw.
+ * Allows execution to continue past the redirect call so that the
+ * guard-clause `return null` / `return` statements following it can be
+ * covered (lines 46, 73, 78, 85, 139, 146, 167, 172, …).
+ * Those lines are dead code in production (redirect() calls exit) but
+ * they still appear as coverable statements for Xdebug/PHPUnit coverage.
+ */
+class TestableTwoFactorAuthSoft extends TestableTwoFactorAuth
+{
+    public function redirect($url = null, $quit = true, $code = '302')
+    {
+        $this->redirectedTo[] = $url ?? 'default_redirect';
+        // Intentionally does NOT throw — allows post-redirect returns to execute
     }
 }
 
@@ -803,5 +821,102 @@ class TwoFactorAuthTest extends TestCase
             'test() must return a valid TOTP secret');
         $this->assertTrue((bool)$json['verify_test'],
             'test() must return a freshly-generated code that verifies correctly');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Soft-redirect tests — cover guard-clause returns after redirect() calls
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * display(), setup(), disable(), and backup() each have a `return null`
+     * immediately after the auth-guard redirect() call (lines 46, 73, 139, 167).
+     * In production redirect() calls exit, so these are dead code — but Xdebug
+     * counts them as coverable statements. The TestableTwoFactorAuthSoft variant
+     * (redirect() does not throw) lets execution reach those return statements.
+     */
+    public function testDisplayGuardClauseReturnCoveredViaSoftRedirect(): void
+    {
+        // Arrange — no user → redirect fires at line 45 (recorded, no throw) →
+        // return null at line 46 executes
+        $app = Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+        $_SESSION = [];
+
+        $soft = new TestableTwoFactorAuthSoft($app);
+
+        // Act
+        $result = $soft->display();
+
+        // Assert — redirect was issued and display() returned null
+        $this->assertNull($result, 'display() must return null after guard redirect');
+        $this->assertNotEmpty($soft->redirectedTo, 'display() must redirect when no user');
+    }
+
+    /**
+     * setup() guard-clause return at line 73 (no user → redirect → return null).
+     * Mirrors testDisplayGuardClauseReturnCoveredViaSoftRedirect for setup().
+     */
+    public function testSetupGuardClauseReturnCoveredViaSoftRedirect(): void
+    {
+        // Arrange — no user
+        $app = Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+        $_SESSION = [];
+
+        $soft = new TestableTwoFactorAuthSoft($app);
+
+        // Act
+        $result = $soft->setup();
+
+        // Assert — redirect fired and setup() returned null (line 73)
+        $this->assertNull($result, 'setup() must return null after no-user guard redirect');
+        $this->assertNotEmpty($soft->redirectedTo, 'setup() must redirect when no user');
+    }
+
+    /**
+     * disable() guard-clause return at line 139 (no user → redirect → return).
+     */
+    public function testDisableGuardClauseReturnCoveredViaSoftRedirect(): void
+    {
+        // Arrange — no user
+        $app = Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+        $_SESSION = [];
+
+        $soft = new TestableTwoFactorAuthSoft($app);
+
+        // Act — disable() is void; redirect fires, then return at line 139 executes
+        $soft->disable();
+
+        // Assert — redirect was issued; line 139 return executed (no exception thrown)
+        $this->assertNotEmpty($soft->redirectedTo, 'disable() must redirect when no user');
+    }
+
+    /**
+     * backup() guard-clause return at line 167 (no user → redirect → return null).
+     */
+    public function testBackupGuardClauseReturnCoveredViaSoftRedirect(): void
+    {
+        // Arrange — no user
+        $app = Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+        $_SESSION = [];
+
+        $soft = new TestableTwoFactorAuthSoft($app);
+
+        // Act
+        $result = $soft->backup();
+
+        // Assert — redirect fired and backup() returned null (line 167)
+        $this->assertNull($result, 'backup() must return null after no-user guard redirect');
+        $this->assertNotEmpty($soft->redirectedTo, 'backup() must redirect when no user');
     }
 }
