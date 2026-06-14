@@ -188,6 +188,173 @@ class TestClientTest extends TestCase
         parent::tearDown();
         $_SERVER['REQUEST_METHOD'] = 'GET';
         unset($_SERVER['HTTP_X_CUSTOM_HEADER']);
-        $_GET = [];
+        $_GET  = [];
+        $_POST = [];
+        unset($_SERVER['HTTP_REFERER']);
+    }
+
+    // ── Constructor (null-app path) ───────────────────────────────────────────
+
+    /**
+     * TestClient constructor called with no app argument must retrieve the
+     * existing Application singleton (lines 21-22 + 26 + 28).
+     *
+     * setUp() registers a stub Application as the default singleton, so
+     * Application::getInstance() returns it (non-null), exercising the
+     * else branch at line 26. The stub has initialized=true, so init()
+     * is not called (line 28 fires but not line 29).
+     */
+    public function testNullConstructorUsesExistingApplicationSingleton(): void
+    {
+        // Arrange — setUp() has already registered a stub as the singleton
+
+        // Act — construct without an explicit app (null path, lines 21-29)
+        $client = new TestClient();
+
+        // Assert — client was created and uses the singleton
+        $this->assertInstanceOf(TestClient::class, $client,
+            'TestClient() must succeed when the Application singleton is available');
+    }
+
+    // ── MVC controller dispatch paths ─────────────────────────────────────────
+
+    /**
+     * call() must return a TestResponse wrapping the controller's Response
+     * object (lines 126 + 129-130) when getController() succeeds and exec()
+     * returns a Response instance.
+     */
+    public function testCallUsesControllerResponseWhenExecReturnsResponse(): void
+    {
+        // Arrange — stub app whose getController() returns a mock that returns Response
+        $response = \Pramnos\Http\Response::make('Hello from controller', 200);
+        $mockController = new class ($response) {
+            public function __construct(private readonly mixed $returnVal) {}
+            public function exec(string $action): mixed { return $this->returnVal; }
+        };
+
+        $stubApp = $this->makeStubApp(getController: $mockController);
+        $client  = new TestClient($stubApp);
+
+        // Act
+        $result = $client->get('/any-route');
+
+        // Assert — the controller's Response was wrapped (lines 126, 129, 130)
+        $this->assertInstanceOf(\Pramnos\Testing\TestResponse::class, $result);
+        $result->assertStatus(200);
+    }
+
+    /**
+     * call() must render the document and return a TestResponse (lines
+     * 126 + 135-139) when exec() returns a plain string. The string is
+     * added to the document and the document is rendered for the response.
+     */
+    public function testCallRendersDocumentWhenExecReturnsString(): void
+    {
+        // Arrange — mock controller that returns a string
+        $mockController = new class {
+            public function exec(string $action): string { return 'Hello, string!'; }
+        };
+
+        $stubApp = $this->makeStubApp(getController: $mockController);
+        $client  = new TestClient($stubApp);
+
+        // Act
+        $result = $client->get('/any-route');
+
+        // Assert — document was rendered and TestResponse returned (lines 135-139)
+        $this->assertInstanceOf(\Pramnos\Testing\TestResponse::class, $result);
+    }
+
+    /**
+     * call() must catch \Pramnos\Http\RedirectException and return a 3xx
+     * TestResponse (lines 141-142). This is the canonical path for controllers
+     * that call $this->redirect() (which throws RedirectException in the
+     * framework's non-exit mode).
+     */
+    public function testCallHandlesRedirectException(): void
+    {
+        // Arrange — mock controller that throws RedirectException
+        $mockController = new class {
+            public function exec(string $action): never {
+                throw new \Pramnos\Http\RedirectException('/redirected-to', 302);
+            }
+        };
+
+        $stubApp = $this->makeStubApp(getController: $mockController);
+        $client  = new TestClient($stubApp);
+
+        // Act
+        $result = $client->get('/any-route');
+
+        // Assert — RedirectException became a redirect response (lines 141-142)
+        $this->assertInstanceOf(\Pramnos\Testing\TestResponse::class, $result);
+        $result->assertStatus(302); // call() must return 302 for RedirectException
+    }
+
+    /**
+     * call() must catch \Pramnos\Validation\ValidationException, store errors
+     * and old input in session, and return a redirect response (lines 144-149).
+     */
+    public function testCallHandlesValidationException(): void
+    {
+        // Arrange — controller that throws ValidationException
+        $mockController = new class {
+            public function exec(string $action): never {
+                throw new \Pramnos\Validation\ValidationException(
+                    ['field' => ['Field is required']]
+                );
+            }
+        };
+
+        $_SERVER['HTTP_REFERER'] = '/form-page';
+
+        $stubApp = $this->makeStubApp(getController: $mockController);
+        $client  = new TestClient($stubApp);
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        // Act
+        $result = $client->get('/any-route');
+
+        // Assert — ValidationException became a redirect (lines 144-149)
+        $this->assertInstanceOf(\Pramnos\Testing\TestResponse::class, $result);
+        $result->assertStatus(302); // call() must return a 302 redirect for ValidationException
+        $this->assertArrayHasKey('_validation_errors', $_SESSION,
+            'call() must store validation errors in session (line 145)');
+        $this->assertArrayHasKey('_old_input', $_SESSION,
+            'call() must store old input in session (line 146)');
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Creates a stub Application subclass whose getController() returns
+     * $getController if provided, or throws an Exception for unknown names.
+     *
+     * @param object|null $getController Controller object returned by getController()
+     */
+    private function makeStubApp(?object $getController = null): Application
+    {
+        return new class ($getController) extends Application {
+            public $initialized  = true;
+            public $defaultController = 'index';
+
+            public function __construct(private readonly ?object $mockCtrl)
+            {
+                // Bypass parent constructor; register as default singleton manually.
+                self::$appInstances['default'] = $this;
+                self::$lastUsedApplication     = 'default';
+            }
+
+            public function getController($controller, $userPermissions = []): mixed
+            {
+                if ($this->mockCtrl !== null) {
+                    return $this->mockCtrl;
+                }
+                throw new \Exception('Controller not found: ' . $controller);
+            }
+        };
     }
 }
