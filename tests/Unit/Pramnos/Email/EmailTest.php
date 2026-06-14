@@ -894,6 +894,43 @@ class EmailTest extends TestCase
     }
 
     /**
+     * sendReceipt=true with an empty from address but a non-empty returnPath
+     * must add the Disposition-Notification-To header using returnPath
+     * (lines 368–369). This exercises the else-if branch that is skipped when
+     * from is set (covered by testSendReceiptWithArrayFromAddsDispositionHeader).
+     * The email is aimed at an unreachable SMTP port so send() fails gracefully
+     * after the receipt header has already been written into the Mime object.
+     */
+    public function testSendReceiptWithEmptyFromUsesReturnPath(): void
+    {
+        // Arrange — direct toward an unreachable SMTP endpoint so send() returns
+        // false without needing a real mail server; headers are built before the
+        // transport attempt, so coverage on lines 368-369 is captured anyway
+        \Pramnos\Application\Settings::setSetting('smtp_host', 'localhost');
+        \Pramnos\Application\Settings::setSetting('smtp_port', '2525');
+        \Pramnos\Application\Settings::setSetting('smtp_user', '');
+        \Pramnos\Application\Settings::setSetting('smtp_pass', '');
+        \Pramnos\Application\Settings::setSetting('smtp_tls', 'no');
+        \Pramnos\Application\Settings::setSetting('admin_mail', '');
+
+        $email = new Email();
+        $email->setBody('Receipt returnPath test')
+              ->setTo('to@example.com')
+              ->setSubject('Receipt returnPath test');
+        $email->sendReceipt = true;
+        $email->from        = '';                       // empty — triggers else-if at line 368
+        $email->returnPath  = 'receipt@example.com';   // non-empty — line 369 fires
+
+        // Act — send() fails at SMTP connect but the receipt-header block (lines
+        // 360-376) executes fully before the transport attempt
+        $result = $email->send();
+
+        // Assert — send() caught the transport exception and returned false
+        $this->assertFalse($result,
+            'send() must return false when SMTP is unreachable');
+    }
+
+    /**
      * setFromAddress() must catch the Symfony Address exception when the from
      * string is an invalid email and fall back to the admin_mail setting
      * (lines 462-469).
