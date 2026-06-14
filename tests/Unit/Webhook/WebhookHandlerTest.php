@@ -2,7 +2,27 @@
 
 declare(strict_types=1);
 
-namespace Pramnos\Tests\Unit\Webhook;
+/**
+ * Namespace-level override for Pramnos\Webhook: reports getallheaders() as
+ * unavailable so tests can reach the $_SERVER-scanning fallback path in
+ * WebhookHandler::getRequestHeaders() (lines 397-404).
+ *
+ * When WebhookHandler (which lives in this namespace) calls
+ * function_exists('getallheaders'), PHP resolves the unqualified call to
+ * \Pramnos\Webhook\function_exists first, returning false for getallheaders.
+ * All other function_exists() calls are delegated to the global built-in.
+ */
+namespace Pramnos\Webhook {
+    function function_exists(string $name): bool
+    {
+        if ($name === 'getallheaders') {
+            return false;
+        }
+        return \function_exists($name);
+    }
+}
+
+namespace Pramnos\Tests\Unit\Webhook {
 
 use PHPUnit\Framework\TestCase;
 use Pramnos\Webhook\WebhookHandler;
@@ -802,6 +822,64 @@ class WebhookHandlerTest extends TestCase
         $this->callPrivate($handler, 'log', ['info', 'deployment complete']);
     }
 
+    /**
+     * executeCommands() must return a proc_open-failure result when proc_open()
+     * cannot be started (lines 327-328). Triggered by supplying a non-existent
+     * working directory that causes proc_open to return false.
+     */
+    public function testExecuteCommandsHandlesProcOpenFailure(): void
+    {
+        // Arrange — repoDir does not exist; proc_open with a non-existent cwd
+        // returns false, causing the handler to record a failure result
+        $handler  = new WebhookHandler('secret', '/nonexistent_pramnos_webhook_dir_' . uniqid());
+        $commands = ['echo test'];
+
+        // Act — proc_open should fail; must not throw
+        $results = $this->callPrivate($handler, 'executeCommands', [$commands]);
+
+        // Assert — one entry returned with exit_code 1 and 'proc_open failed' output
+        $this->assertCount(1, $results,
+            'executeCommands() must return exactly one result for the failed command');
+        $this->assertSame(1, $results[0]['exit_code'],
+            'A proc_open failure must produce exit_code 1');
+        $this->assertSame('proc_open failed', $results[0]['output'],
+            'A proc_open failure must set output to "proc_open failed"');
+    }
+
+    /**
+     * getRequestHeaders() $_SERVER-scanning fallback (lines 397-404).
+     *
+     * Because the namespace-level function_exists() override in this file
+     * reports getallheaders() as unavailable, WebhookHandler always takes the
+     * $_SERVER scanning branch here. The fallback must return a map of
+     * lowercase header names built from HTTP_* entries in $_SERVER.
+     */
+    public function testGetRequestHeadersFallbackBuildsHeadersFromServer(): void
+    {
+        // Arrange — inject known HTTP_* entries; the namespace override ensures
+        // function_exists('getallheaders') returns false, forcing the fallback
+        $_SERVER['HTTP_X_MY_HEADER']   = 'test-value';
+        $_SERVER['HTTP_ACCEPT']        = 'application/json';
+        $_SERVER['NON_HTTP_KEY']       = 'should-be-ignored';
+        $handler = new WebhookHandler('secret');
+
+        // Act — getRequestHeaders() must use the $_SERVER scanning path
+        $result = $this->callPrivate($handler, 'getRequestHeaders', []);
+
+        // Cleanup
+        unset($_SERVER['HTTP_X_MY_HEADER'], $_SERVER['HTTP_ACCEPT'], $_SERVER['NON_HTTP_KEY']);
+
+        // Assert — HTTP_* keys are lowercased and returned; non-HTTP_* keys excluded
+        $this->assertIsArray($result);
+        $this->assertArrayHasKey('x-my-header', $result,
+            'HTTP_X_MY_HEADER must be converted to "x-my-header"');
+        $this->assertSame('test-value', $result['x-my-header']);
+        $this->assertArrayHasKey('accept', $result,
+            'HTTP_ACCEPT must be converted to "accept"');
+        $this->assertArrayNotHasKey('non-http-key', $result,
+            'Keys without HTTP_ prefix must not appear in the result');
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
@@ -813,3 +891,5 @@ class WebhookHandlerTest extends TestCase
         return $ref->invokeArgs($object, $args);
     }
 }
+
+} // end namespace Pramnos\Tests\Unit\Webhook
