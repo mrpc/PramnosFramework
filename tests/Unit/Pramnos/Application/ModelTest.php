@@ -1378,4 +1378,113 @@ class ModelTest extends TestCase
         $this->assertNull($check->id,
             '_delete() with explicit table/key must remove the record');
     }
+
+    /**
+     * getCount() must return 0 immediately when _dbtable is NULL (line 354).
+     *
+     * This guard prevents a broken query when a Model subclass has not
+     * configured a backing table. The method must short-circuit before
+     * attempting to build any SQL.
+     */
+    public function testGetCountReturnsZeroWhenTableIsNull(): void
+    {
+        // Arrange — anonymous Model with default _dbtable = null (no override)
+        $model = new class($this->controller) extends Model {
+            // inherits $_dbtable = null from Model
+        };
+
+        // Act
+        $count = $model->getCount();
+
+        // Assert — early-return path at line 354 must produce 0
+        $this->assertSame(0, $count,
+            'getCount() must return 0 when _dbtable is null without querying DB');
+    }
+
+    /**
+     * _getList() must call getData() on each row object and filter out
+     * fields not in $queryFields when $useGetData is true (lines 769, 774,
+     * 778–787).
+     *
+     * This path converts model instances to plain arrays via getData() and
+     * then strips any property not explicitly listed in $queryFields.
+     */
+    public function testGetListWithUseGetDataFiltersFieldsByQueryFields(): void
+    {
+        // Arrange — seed two rows so the while loop iterates at least once
+        $this->db->query("INSERT INTO `test_products` (`name`, `price`, `is_active`) VALUES ('Alpha', 1.00, 1)");
+        $this->db->query("INSERT INTO `test_products` (`name`, `price`, `is_active`) VALUES ('Beta',  2.00, 1)");
+
+        $model = new TestProductModel($this->controller);
+
+        // Act — useGetData=true, queryFields='name' → only 'name' survives the filter
+        $result = $model->getList(
+            null,   // filter
+            null,   // order
+            '',     // join
+            'name', // queryFields — only keep this field
+            '',     // group
+            false,  // returnAsModels
+            true    // useGetData (triggers lines 769-787)
+        );
+
+        // Assert — result is an associative array of getData() arrays
+        $this->assertIsArray($result);
+        $this->assertNotEmpty($result, 'getList() must return rows when data exists');
+
+        $first = reset($result);
+        // getData()+filter must leave only 'name' in each item
+        $this->assertArrayHasKey('name', $first,
+            'queryFields filter must retain the requested field');
+        $this->assertArrayNotHasKey('price', $first,
+            'queryFields filter must remove fields not listed in queryFields');
+        $this->assertArrayNotHasKey('is_active', $first,
+            'queryFields filter must remove fields not listed in queryFields');
+    }
+
+    /**
+     * _getPaginated() must call getData() on each row object and filter out
+     * fields not in $queryFields when $useGetData is true (lines 619, 623,
+     * 627–635).
+     *
+     * This mirrors the same getData/queryFields logic as _getList but inside
+     * the pagination code path — both branches must be independently covered.
+     */
+    public function testGetPaginatedWithUseGetDataFiltersFieldsByQueryFields(): void
+    {
+        // Arrange — seed two rows so the while loop iterates at least once
+        $this->db->query("INSERT INTO `test_products` (`name`, `price`, `is_active`) VALUES ('Gamma', 3.00, 1)");
+        $this->db->query("INSERT INTO `test_products` (`name`, `price`, `is_active`) VALUES ('Delta', 4.00, 1)");
+
+        $model = new TestProductModel($this->controller);
+
+        // Act — useGetData=true, queryFields='name', returnAsModels=false
+        // This forces _getPaginated past the early-return at line 590 and into
+        // the getData()+queryFields filter at lines 619–635.
+        $result = $model->getPaginated(
+            10,     // items per page
+            1,      // page
+            null,   // filter
+            null,   // order
+            '',     // join
+            'name', // queryFields — only keep this field
+            '',     // group
+            false,  // returnAsModels
+            true    // useGetData (triggers lines 619–635)
+        );
+
+        // Assert — standard pagination envelope
+        $this->assertArrayHasKey('total', $result);
+        $this->assertArrayHasKey('items', $result);
+        $this->assertNotEmpty($result['items'], 'getPaginated() must return items when data exists');
+
+        $first = reset($result['items']);
+        // getData()+filter must leave only 'name' in each item
+        $this->assertArrayHasKey('name', $first,
+            'queryFields filter must retain the requested field');
+        $this->assertArrayNotHasKey('price', $first,
+            'queryFields filter must remove fields not in queryFields');
+        $this->assertArrayNotHasKey('is_active', $first,
+            'queryFields filter must remove fields not in queryFields');
+    }
 }
