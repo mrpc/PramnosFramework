@@ -462,4 +462,86 @@ class ApiPerformanceServiceTest extends TestCase
         $this->assertSame(42, $map[200], 'count for status 200 must be cast to int');
         $this->assertSame(5,  $map[404], 'count for status 404 must be cast to int');
     }
+
+    /**
+     * rowsFromResult() default match arm (line 283) fires when the type map
+     * contains a type other than 'int' or 'float'. The value must be cast to
+     * string via the default arm of the match expression.
+     */
+    public function testRowsFromResultUsesStringDefaultCast(): void
+    {
+        // Arrange — single row with a 'string' type column
+        $rows = [['endpoint' => '/api/v1/users']];
+        $fakeResult = new class($rows) {
+            /** @var array<string, mixed> */
+            public array $fields = [];
+            private array $rows;
+            private int $idx = -1;
+            public function __construct(array $rows) { $this->rows = $rows; }
+            public function fetch(): bool {
+                $this->idx++;
+                if (isset($this->rows[$this->idx])) {
+                    $this->fields = $this->rows[$this->idx];
+                    return true;
+                }
+                return false;
+            }
+        };
+
+        $db  = $this->createStub(\Pramnos\Database\Database::class);
+        $svc = new ApiPerformanceService($db);
+
+        // Act — type 'string' triggers the default arm of the match in rowsFromResult
+        $method = new \ReflectionMethod(ApiPerformanceService::class, 'rowsFromResult');
+        $result = $method->invoke($svc, $fakeResult, ['endpoint' => 'string']);
+
+        // Assert — value must be preserved as a string, not cast to int or float
+        $this->assertCount(1, $result);
+        $this->assertSame('/api/v1/users', $result[0]['endpoint'],
+            'default match arm must cast the value to string');
+    }
+
+    /**
+     * computePercentile() catch block (lines 226-227) fires when the QueryBuilder
+     * throws. The method must return null rather than propagating the exception
+     * so that getSummary() can still return a partial result.
+     */
+    public function testComputePercentileCatchesDbException(): void
+    {
+        // Arrange — DB whose queryBuilder() throws immediately
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $db->method('queryBuilder')->willThrowException(new \Exception('DB unavailable'));
+
+        $svc = new ApiPerformanceService($db);
+
+        // Act — invoke via Reflection; exception must be swallowed
+        $method = new \ReflectionMethod(ApiPerformanceService::class, 'computePercentile');
+        $result = $method->invoke($svc, time() - 3600, 95);
+
+        // Assert — null is the expected graceful-degradation return
+        $this->assertNull($result,
+            'computePercentile() must return null when a DB exception is thrown');
+    }
+
+    /**
+     * computeByStatus() catch block (lines 253-254) fires when the QueryBuilder
+     * throws. The method must return an empty array rather than propagating the
+     * exception so that getSummary() continues without a by_status breakdown.
+     */
+    public function testComputeByStatusCatchesDbException(): void
+    {
+        // Arrange — DB whose queryBuilder() throws immediately
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $db->method('queryBuilder')->willThrowException(new \Exception('DB unavailable'));
+
+        $svc = new ApiPerformanceService($db);
+
+        // Act — invoke via Reflection; exception must be swallowed
+        $method = new \ReflectionMethod(ApiPerformanceService::class, 'computeByStatus');
+        $result = $method->invoke($svc, time() - 3600);
+
+        // Assert — empty array is the expected graceful-degradation return
+        $this->assertSame([], $result,
+            'computeByStatus() must return [] when a DB exception is thrown');
+    }
 }

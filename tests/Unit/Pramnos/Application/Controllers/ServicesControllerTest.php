@@ -539,4 +539,27 @@ class ServicesControllerTest extends TestCase
         $this->assertSame(0, $json['total'],
             'status() must report 0 services when the state file contains invalid JSON');
     }
+
+    /**
+     * loadServiceList() returns [] immediately when the state file does not exist
+     * (line 211). This covers the first early-return guard in the method — a
+     * missing file is not an error; the orchestrator simply hasn't started yet.
+     */
+    public function testStatusReturnsEmptyWhenStateFileMissing(): void
+    {
+        // Arrange — remove the state file created in setUp
+        @unlink($this->stateFile);
+        $this->setMockUser(80);
+
+        // Act
+        ob_start();
+        $this->controller->status();
+        $output = ob_get_clean();
+
+        // Assert — no state file → zero services, no crash
+        $json = json_decode($output, true);
+        $this->assertIsArray($json);
+        $this->assertSame(0, $json['total'],
+            'status() must report 0 services when the state file does not exist');
+    }
 }
