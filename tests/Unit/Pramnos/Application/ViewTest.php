@@ -245,24 +245,134 @@ class ViewTest extends TestCase
     {
         $tempDir = sys_get_temp_dir() . '/view_test_exc_layout_' . uniqid();
         mkdir($tempDir);
-        
+
         // Create layout that throws exception
         file_put_contents($tempDir . '/bad_layout.html.php', '<html><?php throw new \Exception("Layout crash"); ?></html>');
         // Create main view that uses the bad layout
         file_put_contents($tempDir . '/main_bad.html.php', '<?php $this->layout("bad_layout"); ?> CONTENT');
-        
+
         $ctrl = $this->getController();
         $view = new View($ctrl, $tempDir, 'main_bad', 'html');
-        
+
         $this->expectException(\Exception::class);
         $this->expectExceptionMessage('Error rendering layout');
-        
+
         try {
             $view->getTpl('main_bad', 'html', true);
         } finally {
             unlink($tempDir . '/bad_layout.html.php');
             unlink($tempDir . '/main_bad.html.php');
             rmdir($tempDir);
+        }
+    }
+
+    /**
+     * endsection() must return immediately without error when the section stack
+     * is empty (line 323). This guard prevents array_pop on an empty stack when
+     * a template calls endsection() without a matching section().
+     */
+    public function testEndsectionWithEmptyStackReturnsWithoutError(): void
+    {
+        $ctrl = $this->getController();
+        $view = new View($ctrl, '/path', 'V', 'html');
+
+        // Act — no section() was called; sectionStack is empty
+        $view->endsection();
+
+        // Assert — no exception thrown; guard at line 323 returned early
+        $this->assertTrue(true,
+            'endsection() must not throw when called on an empty section stack');
+    }
+
+    /**
+     * insert() must log a warning and return silently when the requested partial
+     * cannot be resolved (lines 367–368). This prevents fatal errors from a
+     * missing partial silently breaking the entire page render.
+     */
+    public function testInsertWithNonExistentPartialLogsAndReturns(): void
+    {
+        $ctrl = $this->getController();
+        $view = new View($ctrl, '/nonexistent/path', 'V', 'html');
+
+        // Act — partial does not exist in any search location
+        // insert() must call Logger::log (line 367) and return without throwing
+        ob_start();
+        $view->insert('completely_nonexistent_partial');
+        ob_end_clean();
+
+        // Assert — no exception was thrown
+        $this->assertTrue(true,
+            'insert() must return silently when the partial cannot be found');
+    }
+
+    /**
+     * insert() called with an absolute file path that exists must resolve it
+     * directly via the "absolute path" branch in resolveTemplatePath (line 438),
+     * without searching relative directories.
+     */
+    public function testInsertWithAbsolutePathIncludesFile(): void
+    {
+        // Arrange — create a real partial file at an absolute path
+        $tempFile = sys_get_temp_dir() . '/pramnos_abs_partial_' . uniqid() . '.html.php';
+        file_put_contents($tempFile, 'ABSOLUTE PARTIAL CONTENT');
+
+        $ctrl = $this->getController();
+        $view = new View($ctrl, '/some/path', 'V', 'html');
+
+        // Act — pass the absolute path directly; resolveTemplatePath returns it at line 438
+        ob_start();
+        $view->insert($tempFile);
+        $out = ob_get_clean();
+
+        // Assert — partial was included via the absolute path branch
+        $this->assertStringContainsString('ABSOLUTE PARTIAL CONTENT', $out,
+            'insert() with an absolute path must include the file via the absolute branch');
+
+        unlink($tempFile);
+    }
+
+    /**
+     * getIncludePath() must compile a .tpl.php template through TemplateCompiler
+     * and return the cached compiled path (lines 417–419). This path is taken
+     * whenever a template file ends with .tpl.php; .html.php files skip it.
+     */
+    public function testGetTplWithTplPhpTemplateUsesCompiler(): void
+    {
+        // Arrange — create a minimal .tpl.php template in a temp dir
+        $tempDir = sys_get_temp_dir() . '/view_test_tpl_' . uniqid();
+        mkdir($tempDir);
+        $cacheDir = $tempDir . '/cache';
+        mkdir($cacheDir);
+
+        // Write a simple .tpl.php template that uses {{ }} echo syntax
+        file_put_contents($tempDir . '/simple.tpl.php', 'COMPILED: {{ "hello tpl" }}');
+
+        // Point the template cache at the temp cache dir so the compiler can write
+        View::setTemplateCacheDir($cacheDir);
+
+        $ctrl = $this->getController();
+        // View name matches the file; type is empty so the raw filename is used
+        $view = new View($ctrl, $tempDir, 'simple', '');
+
+        try {
+            // Act — getTpl resolves 'simple.tpl.php', calls getIncludePath which
+            // triggers the TemplateCompiler path (lines 417–419)
+            $tplFile = $tempDir . '/simple.tpl.php';
+            $ref = new \ReflectionMethod($view, 'getIncludePath');
+            $compiled = $ref->invoke($view, $tplFile);
+
+            // Assert — compiled path is a different file from the source
+            $this->assertNotEquals($tplFile, $compiled,
+                'getIncludePath() must return a compiled path for .tpl.php files');
+            $this->assertFileExists($compiled,
+                'getIncludePath() must write the compiled file to the cache dir');
+        } finally {
+            // Cleanup
+            View::setTemplateCacheDir('');
+            @unlink($tempDir . '/simple.tpl.php');
+            array_map('unlink', glob($cacheDir . '/*'));
+            @rmdir($cacheDir);
+            @rmdir($tempDir);
         }
     }
 }
