@@ -173,6 +173,205 @@ namespace Tests\Unit\Pramnos\Storage {
             $this->assertTrue($driver->deleteDirectory('old_dir'));
         }
 
+        /**
+         * When the 'ssl' config key is true, connection() must call
+         * ftp_ssl_connect() instead of ftp_connect() (line 65).
+         */
+        public function testFtpDriverSslConnect(): void
+        {
+            // Arrange — ssl=true drives the ftp_ssl_connect() branch
+            $driver = new FtpDriver(['host' => 'localhost', 'username' => 'user', 'ssl' => true]);
+
+            // Act — any method that triggers connection() exercises the SSL branch
+            $this->assertTrue($driver->exists('file.txt'),
+                'SSL connection must succeed and return a truthy result');
+        }
+
+        /**
+         * ensureRemoteDirectory() must create missing path segments when
+         * ftp_chdir() returns false (lines 109-114, 118).
+         *
+         * A path with a directory component ('subdir/file.txt') causes the
+         * foreach body to execute; setting chdirResult=false triggers mkdir.
+         */
+        public function testFtpDriverEnsureRemoteDirectoryCreatesSegments(): void
+        {
+            // Arrange — make ftp_chdir fail so mkdir is called for the segment
+            FtpMockState::$chdirResult = false;
+            $driver = new FtpDriver(['host' => 'localhost', 'username' => 'user']);
+
+            // Act — put() with a subdirectory path triggers ensureRemoteDirectory
+            $result = $driver->put('subdir/file.txt', 'contents');
+
+            // Assert — ftp_fput eventually called after directory creation
+            $this->assertTrue($result,
+                'put() must succeed even when ensureRemoteDirectory creates segments');
+
+            // Cleanup
+            FtpMockState::$chdirResult = true;
+        }
+
+        /**
+         * get() must throw RuntimeException when ftp_get() fails (lines 133-134).
+         */
+        public function testFtpDriverGetThrowsWhenFtpGetFails(): void
+        {
+            // Arrange — make ftp_get() return false
+            FtpMockState::$getResult = false;
+            $driver = new FtpDriver(['host' => 'localhost', 'username' => 'user']);
+
+            // Act + Assert
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessageMatches('/FTP get failed/');
+
+            try {
+                $driver->get('file.txt');
+            } finally {
+                FtpMockState::$getResult = true;
+            }
+        }
+
+        /**
+         * readStream() must throw RuntimeException when ftp_fget() fails (lines 149-150).
+         */
+        public function testFtpDriverReadStreamThrowsWhenFtpFgetFails(): void
+        {
+            // Arrange — make ftp_fget() return false
+            FtpMockState::$fgetResult = false;
+            $driver = new FtpDriver(['host' => 'localhost', 'username' => 'user']);
+
+            // Act + Assert
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessageMatches('/FTP readStream failed/');
+
+            try {
+                $driver->readStream('file.txt');
+            } finally {
+                FtpMockState::$fgetResult = true;
+            }
+        }
+
+        /**
+         * put() must accept a PHP resource directly and call ftp_fput() without
+         * creating a temp file (line 166).
+         */
+        public function testFtpDriverPutWithResourceContents(): void
+        {
+            // Arrange — pass a resource directly; triggers the is_resource() branch
+            $stream = tmpfile();
+            fwrite($stream, 'streamed contents');
+            rewind($stream);
+            $driver = new FtpDriver(['host' => 'localhost', 'username' => 'user']);
+
+            // Act
+            $result = $driver->put('resource_file.txt', $stream);
+
+            // Assert
+            fclose($stream);
+            $this->assertTrue($result,
+                'put() must return true when uploading a resource stream');
+        }
+
+        /**
+         * size() must throw RuntimeException when ftp_size() returns a negative
+         * value (line 210) — indicating the file does not exist on the server.
+         */
+        public function testFtpDriverSizeThrowsWhenFtpSizeReturnsNegative(): void
+        {
+            // Arrange — ftp_size() returns -1 for all paths
+            FtpMockState::$sizeResult = -1;
+            $driver = new FtpDriver(['host' => 'localhost', 'username' => 'user']);
+
+            // Act + Assert
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessageMatches('/FTP size failed/');
+
+            try {
+                $driver->size('missing.txt');
+            } finally {
+                FtpMockState::$sizeResult = 100;
+            }
+        }
+
+        /**
+         * lastModified() must throw RuntimeException when ftp_mdtm() returns a
+         * negative value (line 219) — indicating the file does not exist.
+         */
+        public function testFtpDriverLastModifiedThrowsWhenFtpMdtmReturnsNegative(): void
+        {
+            // Arrange — ftp_mdtm() returns -1
+            FtpMockState::$mdtmResult = -1;
+            $driver = new FtpDriver(['host' => 'localhost', 'username' => 'user']);
+
+            // Act + Assert
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessageMatches('/FTP lastModified failed/');
+
+            try {
+                $driver->lastModified('missing.txt');
+            } finally {
+                FtpMockState::$mdtmResult = 123456789;
+            }
+        }
+
+        /**
+         * delete() must return false when ftp_delete() fails for at least one
+         * path in the list (line 247).
+         */
+        public function testFtpDriverDeleteReturnsFalseOnPartialFailure(): void
+        {
+            // Arrange — ftp_delete() always fails
+            FtpMockState::$deleteResult = false;
+            $driver = new FtpDriver(['host' => 'localhost', 'username' => 'user']);
+
+            // Act
+            $result = $driver->delete(['a.txt', 'b.txt']);
+
+            // Assert — $all was set to false at line 247
+            $this->assertFalse($result,
+                'delete() must return false when any ftp_delete() call fails');
+
+            // Cleanup
+            FtpMockState::$deleteResult = true;
+        }
+
+        /**
+         * files() must return an empty array when ftp_nlist() returns false (line 275),
+         * indicating the directory does not exist or cannot be listed.
+         */
+        public function testFtpDriverFilesReturnsEmptyArrayWhenNlistFails(): void
+        {
+            // Arrange — ftp_nlist() returns false
+            FtpMockState::$nlistResult = false;
+            $driver = new FtpDriver(['host' => 'localhost', 'username' => 'user']);
+
+            // Act
+            $result = $driver->files();
+
+            // Assert — early return with empty array at line 275
+            $this->assertSame([], $result,
+                'files() must return [] when ftp_nlist() returns false');
+
+            // Cleanup
+            FtpMockState::$nlistResult = ['file1.txt', 'dir1'];
+        }
+
+        /**
+         * url() must throw RuntimeException when no 'url' config key is set
+         * (lines 331-333).
+         */
+        public function testFtpDriverUrlThrowsWhenNoBaseUrlConfigured(): void
+        {
+            // Arrange — driver constructed without a 'url' config key;
+            // $this->baseUrl remains null
+            $driver = new FtpDriver(['host' => 'localhost', 'username' => 'user']);
+
+            // Act + Assert
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessageMatches('/no "url" config key set/');
+            $driver->url('photo.jpg');
+        }
+
         // =========================================================================
         // S3 Driver Tests
         // =========================================================================
