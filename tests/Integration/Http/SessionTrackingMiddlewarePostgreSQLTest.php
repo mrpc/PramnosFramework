@@ -172,6 +172,28 @@ class SessionTrackingMiddlewarePostgreSQLTest extends TestCase
      * handle() on PostgreSQL must delegate to track() and then call $next.
      * Verifies the middleware pipeline integration on PostgreSQL.
      */
+    /**
+     * When the sessions table does not exist, all three internal query paths
+     * (DELETE purge, SELECT logout-check, INSERT upsert) throw \Exception.
+     * track() must catch each exception silently and never propagate it.
+     *
+     * Covers the three catch branches at lines 72-73, 185-186, and 219-222.
+     */
+    public function testTrackSilentlyHandlesDatabaseErrors(): void
+    {
+        // Arrange — drop the table so every query() call throws a "table not
+        // found" error; track() must absorb all three and return normally
+        $this->dropTable();
+        $request    = $this->makeRequest();
+        $middleware  = new SessionTrackingMiddleware();
+
+        // Act — must not throw despite three internal query failures
+        $middleware->track($request);
+
+        // Assert — if we reach here, the catch blocks fired without re-throwing
+        $this->assertTrue(true, 'track() must absorb DB errors and not rethrow');
+    }
+
     public function testHandleCallsNextAndWritesSessionOnPostgreSQL(): void
     {
         // Arrange

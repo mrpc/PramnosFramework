@@ -421,6 +421,30 @@ class SessionTrackingMiddlewareMySQLTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
+     * When the sessions table does not exist, all three internal query paths
+     * (DELETE purge, SELECT logout-check, INSERT upsert) throw \Exception.
+     * track() must catch each exception silently and never propagate it.
+     *
+     * This covers the three catch branches at lines 72-73, 185-186, and
+     * 219-222. The final catch (219-222) also calls $session->reset() and
+     * $auth->logout(), which must not throw either.
+     */
+    public function testTrackSilentlyHandlesDatabaseErrors(): void
+    {
+        // Arrange — drop the table so every query() call throws a "table not
+        // found" exception; track() must absorb all three and return normally
+        $this->dropTable();
+        $request    = $this->makeRequest();
+        $middleware  = new SessionTrackingMiddleware();
+
+        // Act — must not throw despite three internal query failures
+        $middleware->track($request);
+
+        // Assert — if we get here the three catch blocks fired without re-throw
+        $this->assertTrue(true, 'track() must absorb DB errors and not rethrow');
+    }
+
+    /**
      * When the existing session row has logout=1 (admin kicked the visitor),
      * track() must reset the session, log the user out, and record the
      * visitor as "Kicked Out".
