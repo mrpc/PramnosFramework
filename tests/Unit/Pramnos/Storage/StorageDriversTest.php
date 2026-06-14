@@ -370,5 +370,207 @@ namespace Tests\Unit\Pramnos\Storage {
             // test mimeType exception (returns false instead of throwing)
             $this->assertFalse($driver->mimeType('file.txt'));
         }
+
+        /**
+         * delete() must re-throw an AwsException as RuntimeException so callers
+         * always get a consistent exception type regardless of the SDK version.
+         * Line 210: the throw inside the catch block.
+         */
+        public function testS3DriverDeleteThrowsRuntimeExceptionOnAwsError(): void
+        {
+            if (!class_exists(\Aws\S3\S3Client::class)) {
+                $this->markTestSkipped('AWS SDK not installed');
+            }
+
+            // Arrange — mock client that throws on deleteObjects (via __call)
+            $driver = new S3Driver(['bucket' => 'my-bucket']);
+            $mockS3Client = $this->getMockBuilder(\Aws\S3\S3Client::class)
+                ->disableOriginalConstructor()
+                ->onlyMethods(['__call'])
+                ->getMock();
+            $prop = new \ReflectionProperty($driver, 'client');
+            $prop->setValue($driver, $mockS3Client);
+
+            $mockS3Client->method('__call')
+                ->willThrowException(new \Aws\Exception\AwsException('delete failed', new \Aws\Command('test')));
+
+            // Act + Assert
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('S3 delete failed');
+            $driver->delete('file.txt');
+        }
+
+        /**
+         * copy() must re-throw an AwsException as RuntimeException.
+         * Line 231: the throw inside the copy() catch block.
+         */
+        public function testS3DriverCopyThrowsRuntimeExceptionOnAwsError(): void
+        {
+            if (!class_exists(\Aws\S3\S3Client::class)) {
+                $this->markTestSkipped('AWS SDK not installed');
+            }
+
+            // Arrange
+            $driver = new S3Driver(['bucket' => 'my-bucket']);
+            $mockS3Client = $this->getMockBuilder(\Aws\S3\S3Client::class)
+                ->disableOriginalConstructor()
+                ->onlyMethods(['__call'])
+                ->getMock();
+            $prop = new \ReflectionProperty($driver, 'client');
+            $prop->setValue($driver, $mockS3Client);
+
+            $mockS3Client->method('__call')
+                ->willThrowException(new \Aws\Exception\AwsException('copy failed', new \Aws\Command('test')));
+
+            // Act + Assert
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('S3 copy failed');
+            $driver->copy('src.txt', 'dst.txt');
+        }
+
+        /**
+         * allFiles() (via listKeys()) must re-throw an AwsException when the
+         * paginator call fails. Line 270: the throw inside listKeys() catch block.
+         */
+        public function testS3DriverAllFilesThrowsRuntimeExceptionOnAwsError(): void
+        {
+            if (!class_exists(\Aws\S3\S3Client::class)) {
+                $this->markTestSkipped('AWS SDK not installed');
+            }
+
+            // Arrange — getPaginator throws AwsException
+            $driver = new S3Driver(['bucket' => 'my-bucket']);
+            $mockS3Client = $this->getMockBuilder(\Aws\S3\S3Client::class)
+                ->disableOriginalConstructor()
+                ->onlyMethods(['getPaginator'])
+                ->getMock();
+            $prop = new \ReflectionProperty($driver, 'client');
+            $prop->setValue($driver, $mockS3Client);
+
+            $mockS3Client->method('getPaginator')
+                ->willThrowException(new \Aws\Exception\AwsException('list failed', new \Aws\Command('test')));
+
+            // Act + Assert
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('S3 list failed');
+            $driver->allFiles('some-prefix');
+        }
+
+        /**
+         * directories() must re-throw an AwsException as RuntimeException.
+         * Line 288: the throw inside the directories() catch block.
+         */
+        public function testS3DriverDirectoriesThrowsRuntimeExceptionOnAwsError(): void
+        {
+            if (!class_exists(\Aws\S3\S3Client::class)) {
+                $this->markTestSkipped('AWS SDK not installed');
+            }
+
+            // Arrange — __call throws so that listObjectsV2 fails
+            $driver = new S3Driver(['bucket' => 'my-bucket']);
+            $mockS3Client = $this->getMockBuilder(\Aws\S3\S3Client::class)
+                ->disableOriginalConstructor()
+                ->onlyMethods(['__call'])
+                ->getMock();
+            $prop = new \ReflectionProperty($driver, 'client');
+            $prop->setValue($driver, $mockS3Client);
+
+            $mockS3Client->method('__call')
+                ->willThrowException(new \Aws\Exception\AwsException('list failed', new \Aws\Command('test')));
+
+            // Act + Assert
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('S3 directories failed');
+            $driver->directories('some-dir');
+        }
+
+        /**
+         * temporaryUrl() must re-throw an AwsException as RuntimeException.
+         * Line 331: the throw inside the temporaryUrl() catch block.
+         */
+        public function testS3DriverTemporaryUrlThrowsRuntimeExceptionOnAwsError(): void
+        {
+            if (!class_exists(\Aws\S3\S3Client::class)) {
+                $this->markTestSkipped('AWS SDK not installed');
+            }
+
+            // Arrange — getCommand throws AwsException
+            $driver = new S3Driver(['bucket' => 'my-bucket']);
+            $mockS3Client = $this->getMockBuilder(\Aws\S3\S3Client::class)
+                ->disableOriginalConstructor()
+                ->onlyMethods(['getCommand'])
+                ->getMock();
+            $prop = new \ReflectionProperty($driver, 'client');
+            $prop->setValue($driver, $mockS3Client);
+
+            $mockS3Client->method('getCommand')
+                ->willThrowException(new \Aws\Exception\AwsException('presign failed', new \Aws\Command('test')));
+
+            // Act + Assert
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('S3 temporaryUrl failed');
+            $driver->temporaryUrl('file.txt', new \DateTimeImmutable('+1 hour'));
+        }
+
+        /**
+         * makeDirectory() must delegate to put() with a trailing-slash key.
+         * S3 has no real directories — an empty key ending in '/' is the convention.
+         * Line 295: the single return statement in makeDirectory().
+         */
+        public function testS3DriverMakeDirectoryDelegatesToPut(): void
+        {
+            if (!class_exists(\Aws\S3\S3Client::class)) {
+                $this->markTestSkipped('AWS SDK not installed');
+            }
+
+            // Arrange — mock client that accepts the putObject call (via __call)
+            $driver = new S3Driver(['bucket' => 'my-bucket']);
+            $mockS3Client = $this->getMockBuilder(\Aws\S3\S3Client::class)
+                ->disableOriginalConstructor()
+                ->onlyMethods(['__call'])
+                ->getMock();
+            $prop = new \ReflectionProperty($driver, 'client');
+            $prop->setValue($driver, $mockS3Client);
+
+            $mockS3Client->method('__call')->willReturn(null);
+
+            // Act
+            $result = $driver->makeDirectory('my-dir');
+
+            // Assert — must return true (delegated to put() which returns true on success)
+            $this->assertTrue($result,
+                'makeDirectory() must return true on a successful S3 put()');
+        }
+
+        /**
+         * deleteDirectory() must return true immediately when allFiles() finds no
+         * objects under the given prefix. Lines 301-302 are only reached when the
+         * empty check is triggered.
+         */
+        public function testS3DriverDeleteDirectoryReturnsTrueWhenNoFilesFound(): void
+        {
+            if (!class_exists(\Aws\S3\S3Client::class)) {
+                $this->markTestSkipped('AWS SDK not installed');
+            }
+
+            // Arrange — paginator returns a page with no Contents entries
+            $driver = new S3Driver(['bucket' => 'my-bucket']);
+            $mockS3Client = $this->getMockBuilder(\Aws\S3\S3Client::class)
+                ->disableOriginalConstructor()
+                ->onlyMethods(['getPaginator'])
+                ->getMock();
+            $prop = new \ReflectionProperty($driver, 'client');
+            $prop->setValue($driver, $mockS3Client);
+
+            // Return a single page with no objects → allFiles() returns []
+            $mockS3Client->method('getPaginator')->willReturn([['Contents' => []]]);
+
+            // Act
+            $result = $driver->deleteDirectory('empty-dir');
+
+            // Assert — no files found → early return true without calling delete()
+            $this->assertTrue($result,
+                'deleteDirectory() must return true immediately when the directory is empty');
+        }
     }
 }
