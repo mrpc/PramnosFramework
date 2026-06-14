@@ -127,9 +127,67 @@ class TestClientTest extends TestCase
             'TestClient::delete() must set $_SERVER[REQUEST_METHOD] to "DELETE"');
     }
 
+    // ── submitForm() ─────────────────────────────────────────────────────────
+
+    /**
+     * submitForm() must throw RuntimeException because it is not yet
+     * implemented (line 64). This ensures callers receive a clear signal
+     * rather than a silent no-op when using this method.
+     */
+    public function testSubmitFormThrowsRuntimeException(): void
+    {
+        // Assert — RuntimeException is thrown before any form processing
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/not yet fully implemented/');
+
+        // Act
+        $this->client->submitForm('Submit');
+    }
+
+    // ── call() with HTTP headers ──────────────────────────────────────────────
+
+    /**
+     * call() must propagate custom HTTP headers into $_SERVER (lines 77-78).
+     * This is necessary for controllers or middleware that read request headers
+     * like Authorization, X-API-Key, or Accept.
+     */
+    public function testCallSetsCustomHeadersInServerGlobal(): void
+    {
+        // Act — pass a custom header; call() must translate it to HTTP_X_CUSTOM
+        $this->client->get('/some-route', ['X-Custom-Header' => 'custom-value']);
+
+        // Assert — header was placed in $_SERVER with the expected key
+        $this->assertSame(
+            'custom-value',
+            $_SERVER['HTTP_X_CUSTOM_HEADER'] ?? null,
+            'call() must set HTTP_X_CUSTOM_HEADER in $_SERVER for the X-Custom-Header header'
+        );
+    }
+
+    // ── call() with query string in URI ───────────────────────────────────────
+
+    /**
+     * call() must parse query-string parameters from the URI into $_GET
+     * (line 87). Controllers rely on $_GET being populated from the URI,
+     * not just from the $parameters array.
+     */
+    public function testCallParsesQueryStringFromUri(): void
+    {
+        // Act — include a query string in the URI
+        $this->client->get('/some-route?foo=bar&baz=123');
+
+        // Assert — query-string parameters were parsed into $_GET
+        $this->assertSame('bar', $_GET['foo'] ?? null,
+            'call() must parse foo=bar from the URI query string into $_GET');
+        $this->assertSame('123', $_GET['baz'] ?? null,
+            'call() must parse baz=123 from the URI query string into $_GET');
+    }
+
     protected function tearDown(): void
     {
         parent::tearDown();
         $_SERVER['REQUEST_METHOD'] = 'GET';
+        unset($_SERVER['HTTP_X_CUSTOM_HEADER']);
+        $_GET = [];
     }
 }
