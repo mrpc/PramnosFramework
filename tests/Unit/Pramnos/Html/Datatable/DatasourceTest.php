@@ -972,7 +972,9 @@ class DatasourceTest extends TestCase
      */
     public function testRenderOrderingSortFieldWithAliasStripsAlias(): void
     {
-        // Arrange — sort by column 2 (price as cost) descending
+        // Arrange — sort by column 2 (a.price as cost) descending.
+        // Dot-prefixed fields are emitted raw in SELECT (valid SQL), while the
+        // ORDER BY alias-stripping at line 193 removes " as cost" → sorts by a.price.
         $this->setPost([
             'iDisplayStart'  => '0',
             'iDisplayLength' => '10',
@@ -983,8 +985,9 @@ class DatasourceTest extends TestCase
         ]);
         $ds = new Datasource();
 
-        // Act — field with "as" alias must have alias stripped before ORDER BY (line 193)
-        $result = $ds->render('ds_items', ['id', 'name', 'price as cost'], false, '', '', false);
+        // Act — dot-prefixed "a.price as cost" avoids invalid backtick-wrapping in
+        // SELECT while still triggering the alias-strip at line 193 for ORDER BY
+        $result = $ds->render('ds_items', ['a.id', 'a.name', 'a.price as cost'], false, '', '', false);
 
         // Assert — ordering ran without error and returned expected rows
         $this->assertCount(4, $result['aaData'],
@@ -1014,8 +1017,8 @@ class DatasourceTest extends TestCase
         ]);
         $ds = new Datasource();
 
-        // Act — 'name as label' must have alias stripped so LIKE hits the real column (line 207)
-        $result = $ds->render('ds_items', ['id', 'name as label'], false, '', '', false);
+        // Act — 'a.name as label' has dot → raw in SELECT (valid); alias stripped at line 207
+        $result = $ds->render('ds_items', ['a.id', 'a.name as label'], false, '', '', false);
 
         // Assert — only Widget rows returned (global search worked through alias)
         $this->assertSame(2, $result['iTotalDisplayRecords'],
@@ -1041,8 +1044,9 @@ class DatasourceTest extends TestCase
         ]);
         $ds = new Datasource();
 
-        // Register the field with an alias — per-column search must strip it (line 225)
-        $ds->addField('name as label');
+        // Register with dot-prefix so SELECT emits raw "a.name as label" (valid SQL).
+        // The per-column search strip at line 225 removes " as label" → LIKE targets a.name.
+        $ds->addField('a.name as label');
 
         // Act — fields populated via addField (queryFields=null)
         $result = $ds->render('ds_items', null, false, '', '', false);
@@ -1130,6 +1134,109 @@ class DatasourceTest extends TestCase
             'render() with iconv must return a valid response for ASCII data');
         $this->assertNotEmpty($result['aaData'],
             'render() with iconv must return rows from the database');
+    }
+
+    /**
+     * When $this->fields is a scalar (non-array) — e.g. someone assigns a plain
+     * string to the public property — render() must wrap it in an array before
+     * using it (line 101). Without the guard, foreach over a non-array would
+     * either skip silently or emit a warning, losing data.
+     */
+    public function testRenderWithScalarFieldsPropertyWrapsInArray(): void
+    {
+        // Arrange — directly set the public fields property to a scalar string
+        // to trigger the !is_array branch at line 100-101
+        $this->setPost([
+            'iDisplayStart'  => '0',
+            'iDisplayLength' => '10',
+            'sEcho'          => '1',
+        ]);
+        $ds = new Datasource();
+        $ds->fields = 'name';  // scalar — triggers wrap-in-array at line 101
+
+        // Act — render must succeed because the scalar is wrapped to ['name']
+        $result = $ds->render('ds_items', null, false, '', '', false);
+
+        // Assert — query ran and returned rows using the single-field array
+        $this->assertArrayHasKey('aaData', $result,
+            'render() must work when fields is a scalar string (line 101 guard)');
+    }
+
+    /**
+     * Modern DataTables 1.10+ format sends search as an object/array
+     * {"value": "term", "regex": "false"}. The modern-to-legacy translation
+     * block must handle this by reading `search['value']` (line 149) rather
+     * than casting the array to string.
+     */
+    public function testRenderWithModernDTSearchAsArrayCoversSearchValuePath(): void
+    {
+        // Arrange — modern DT format: draw + search as array (not string)
+        // This triggers the is_array() branch at line 147 → line 149 fires
+        $this->setPost([
+            'draw'   => '1',
+            'start'  => '0',
+            'length' => '10',
+            'search' => ['value' => 'Widget', 'regex' => 'false'],
+        ]);
+        $ds = new Datasource();
+
+        // Act — render must translate the array search to sSearch (line 149)
+        $result = $ds->render('ds_items', ['a.id', 'a.name'], false, '', '', false);
+
+        // Assert — search filtered correctly using the 'value' key
+        $this->assertSame(2, $result['iTotalDisplayRecords'],
+            'render() must extract search value from array (line 149) in modern DT format');
+    }
+
+    /**
+     * When the main result set is empty (WHERE clause filters out all rows),
+     * the while loop at line 272 never runs and $return['aaData'] is never
+     * assigned in the loop body. Line 311 must set it to an empty array so
+     * the JSON output is valid.
+     */
+    public function testRenderReturnsEmptyAaDataArrayWhenNoRowsMatch(): void
+    {
+        // Arrange — a WHERE clause that can never match any rows
+        $this->setPost([
+            'iDisplayStart'  => '0',
+            'iDisplayLength' => '10',
+            'sEcho'          => '1',
+        ]);
+        $ds = new Datasource();
+
+        // Act — the always-false WHERE returns 0 rows; aaData default at line 311 fires
+        $result = $ds->render('ds_items', ['a.id', 'a.name'], false, '1 = 0', '', false);
+
+        // Assert — aaData is present and empty, not missing
+        $this->assertArrayHasKey('aaData', $result,
+            'render() must include aaData key even when no rows match (line 311)');
+        $this->assertSame([], $result['aaData'],
+            'render() must return an empty array for aaData when no rows match');
+        $this->assertSame(0, $result['iTotalDisplayRecords'],
+            'display count must be 0 when the filter returns no rows');
+    }
+
+    /**
+     * render() with a non-existent table must catch the SQL errors in the two
+     * count queries (lines 239-241 and 248-250) and set their totals to 0,
+     * then catch the final get() error (lines 259-262) and re-throw it as a
+     * plain \Exception. The re-throw is the expected outcome of the test.
+     */
+    public function testRenderWithBadTableCoversSqlErrorCatchBlocks(): void
+    {
+        // Arrange — a table that does not exist forces all three queries to fail
+        $this->setPost([
+            'iDisplayStart'  => '0',
+            'iDisplayLength' => '10',
+            'sEcho'          => '1',
+        ]);
+        $ds = new Datasource();
+
+        // Act + Assert — render() must throw after the catch-and-rethrow at lines 259-262
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessageMatches('/Error in Datasource render/');
+
+        $ds->render('nonexistent_table_' . uniqid(), ['a.id', 'a.name'], false, '', '', false);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
