@@ -1,7 +1,7 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-06-13 — Coverage push: all src/ files ≥ 90%
+## 📅 Last Updated: 2026-06-15 — Coverage push session 2: targeted unit tests for LocalBroadcastServer, ServerRequestCreator, Application, Database, Cache
 
 ## 🏁 Regression Fixes & Test Validation (2026-06-12)
 
@@ -13,6 +13,19 @@
 - Fixed `AuthTest` static state leakage of `$drivers` in `setUp`/`tearDown`.
 - Removed redundant static caching inside `Factory::getAuth()`.
 - Cleaned up private/protected reflection deprecations in `AuthTest.php`.
+
+## 🏁 Coverage Push — Session 2 (2026-06-15)
+
+**Tests: 171+ | Commit: a299752**
+
+Targeted tests pushing specific files closer to 90%:
+- `LocalBroadcastServer`: +5 parseFrame() edge-case tests (RFC 6455 §5: payLen=126, payLen=127, payload overflow, short buffer) → ~90.7%
+- `ServerRequestCreator`: new test file with namespace function shadow for `getallheaders()` to cover `fromGlobals()` in CLI mode → ~92.6%
+- `Application`: +4 tests covering `isDebugMode()` string-'true' path, `showError()` custom message, `getController()` session-user error, `getInstance()` config-file exception catch (lines 885-886, 902-906)
+- `Database`: +6 tests — `getConnection()` write/read reconnect paths (lines 283, 290), `getConnectionErrorMessage()` MySQL fallback + PostgreSQL last-error (lines 703, 714), constructor with PHP resource (line 403), `connect(true)` with ok=false RuntimeException (lines 633-634)
+- `Cache`: +3 tests — Redis adapter connect, auth-fail path, connect-throws path
+- `FileAdapter`: +1 test for `checkIfFileIsExpired()` directory guard (line 317)
+- Added `tests/fixtures/app/throwapp.php` fixture for Application getInstance() exception test
 
 ## 🏁 Coverage Push — All src/ Files ≥ 90% (2026-06-13)
 
