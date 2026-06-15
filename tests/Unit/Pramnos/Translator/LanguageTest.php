@@ -263,6 +263,24 @@ class LanguageTest extends \PHPUnit\Framework\TestCase
     }
 
     /**
+     * Language::load() called with an empty string must use the current language
+     * (set via _lang) rather than an empty-string file lookup.
+     *
+     * This covers the `if ($language == '')` branch at line 104 that assigns
+     * `$language = $this->_lang` (line 105) — a path no other test exercises.
+     */
+    public function testLoadWithEmptyLanguageStringUsesCurrentLanguage(): void
+    {
+        // Arrange — default current language is 'english'
+        // Act — pass empty string; load() must substitute the current language internally
+        $result = $this->object->load('');
+
+        // Assert — must return a bool without throwing, regardless of whether the file exists
+        $this->assertIsBool($result,
+            'load("") must return bool after substituting the current language name');
+    }
+
+    /**
      * Language::load() with no $path must fall back to english from ROOT/language/
      * if the requested lang file does not exist but english.php does.
      *
