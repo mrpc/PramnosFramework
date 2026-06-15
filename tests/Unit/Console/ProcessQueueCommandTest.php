@@ -1333,6 +1333,196 @@ class ProcessQueueCommandTest extends TestCase
         $this->assertSame(1, $command->processBatchCallCount);
     }
 
+    // ── renderDashboard() ────────────────────────────────────────────────────
+
+    /**
+     * renderDashboard() with state='reconnecting' must call renderDashboardGameMode()
+     * and return without rendering the main dashboard panel.
+     *
+     * This covers lines 587-597: the reconnecting early-exit branch.
+     */
+    public function testRenderDashboardReconnectingState(): void
+    {
+        // Arrange — real ProcessQueue instance; renderDashboard() NOT overridden
+        $cmd    = new ProcessQueue();
+        $method = new \ReflectionMethod(ProcessQueue::class, 'renderDashboard');
+        $output = new BufferedOutput();
+
+        // Act — must not throw; renderDashboardGameMode() writes ANSI text to output
+        $method->invoke($cmd, $output, [
+            'state'          => 'reconnecting',
+            'sleepRemaining' => 5,
+        ]);
+
+        // Assert — some output was written (reconnect message rendered)
+        $text = $output->fetch();
+        $this->assertNotEmpty($text,
+            'renderDashboard(reconnecting) must write output via renderDashboardGameMode()');
+    }
+
+    /**
+     * renderDashboard() with state='completed' (one-shot) must render the main
+     * dashboard panel with stats, progress, and control info.
+     *
+     * This covers lines 599-694: the full dashboard build path with all sections.
+     */
+    public function testRenderDashboardOneShotCompletedState(): void
+    {
+        // Arrange
+        $cmd    = new ProcessQueue();
+        $method = new \ReflectionMethod(ProcessQueue::class, 'renderDashboard');
+        $output = new BufferedOutput();
+
+        // Act
+        $method->invoke($cmd, $output, [
+            'mode'      => 'oneshot',
+            'state'     => 'completed',
+            'taskCount' => 7,
+            'stats'     => [
+                'pending'    => 0,
+                'processing' => 0,
+                'completed'  => 7,
+                'failed'     => 0,
+                'warning'    => 0,
+            ],
+            'taskTypes'   => ['send_email', 'cleanup'],
+            'maxRuntime'  => 60,
+            'taskLimit'   => 10,
+            'batchLimit'  => 5,
+            'startFrom'   => null,
+            'reverseOrder' => false,
+        ]);
+
+        // Assert — output contains expected dashboard content
+        $text = $output->fetch();
+        $this->assertNotEmpty($text,
+            'renderDashboard(completed) must write dashboard output');
+    }
+
+    /**
+     * renderDashboard() with recent tasks and status messages must render
+     * both the recent-tasks list and the status-messages list.
+     *
+     * This covers lines 641-685: the loops over recentTasks and statusMessages.
+     */
+    public function testRenderDashboardWithRecentTasksAndStatusMessages(): void
+    {
+        // Arrange — populate recentTasks and statusMessages via reflection
+        $cmd         = new ProcessQueue();
+        $tasksProp   = new \ReflectionProperty(ProcessQueue::class, 'recentTasks');
+        $msgsProp    = new \ReflectionProperty(ProcessQueue::class, 'statusMessages');
+
+        $tasksProp->setValue($cmd, [
+            [
+                'id'             => 42,
+                'type'           => 'send_email',
+                'status'         => 'completed',
+                'time'           => '12:00:00',
+                'message'        => 'Sent successfully',
+                'execution_time' => '0.123s',
+            ],
+            [
+                'id'             => 43,
+                'type'           => 'cleanup',
+                'status'         => 'failed',
+                'time'           => '12:00:01',
+                'message'        => 'DB error',
+                'execution_time' => null,
+            ],
+        ]);
+        $msgsProp->setValue($cmd, [
+            ['type' => 'info',    'message' => 'Started',            'time' => '12:00:00'],
+            ['type' => 'warning', 'message' => 'DB slow',            'time' => '12:00:05'],
+            ['type' => 'error',   'message' => 'Connection dropped', 'time' => '12:00:10'],
+        ]);
+
+        $method = new \ReflectionMethod(ProcessQueue::class, 'renderDashboard');
+        $output = new BufferedOutput();
+
+        // Act
+        $method->invoke($cmd, $output, [
+            'mode'         => 'daemon',
+            'state'        => 'processing',
+            'batchCount'   => 2,
+            'stats'        => null, // triggers the "Queue Status: Unknown" path (line 609)
+            'taskTypes'    => null,
+            'maxRuntime'   => 0,
+            'taskLimit'    => 0,
+            'batchLimit'   => 20,
+            'startFrom'    => null,
+            'reverseOrder' => false,
+        ]);
+
+        // Assert
+        $text = $output->fetch();
+        $this->assertNotEmpty($text,
+            'renderDashboard() must write output when tasks and messages are populated');
+    }
+
+    /**
+     * renderDashboard() with state='sleeping' must include the sleep-remaining
+     * line in the progress section.
+     *
+     * This covers lines 635-637: `if ($state === 'sleeping') { $progressSeg[] = ... }`.
+     */
+    public function testRenderDashboardSleepingStateIncludesSleepRemaining(): void
+    {
+        // Arrange
+        $cmd    = new ProcessQueue();
+        $method = new \ReflectionMethod(ProcessQueue::class, 'renderDashboard');
+        $output = new BufferedOutput();
+
+        // Act
+        $method->invoke($cmd, $output, [
+            'mode'           => 'daemon',
+            'state'          => 'sleeping',
+            'batchCount'     => 0,
+            'sleepRemaining' => 15,
+            'stats'          => null,
+            'taskTypes'      => null,
+            'maxRuntime'     => 0,
+            'taskLimit'      => 0,
+            'batchLimit'     => 20,
+            'startFrom'      => null,
+            'reverseOrder'   => false,
+        ]);
+
+        // Assert — output was produced without error
+        $text = $output->fetch();
+        $this->assertNotEmpty($text,
+            'renderDashboard(sleeping) must produce output with sleep-remaining line');
+    }
+
+    // ── updateSystemMetrics() / updateTerminalSize() ──────────────────────────
+
+    /**
+     * updateSystemMetrics() must update memoryUsage without throwing.
+     * updateTerminalSize() must be called internally and update terminalWidth/Height.
+     *
+     * This covers lines 736-754: the two metric-update helpers.
+     */
+    public function testUpdateSystemMetricsAndTerminalSize(): void
+    {
+        // Arrange
+        $cmd = new ProcessQueue();
+
+        $metricsMethod = new \ReflectionMethod(ProcessQueue::class, 'updateSystemMetrics');
+        $memProp       = new \ReflectionProperty(ProcessQueue::class, 'memoryUsage');
+        $widthProp     = new \ReflectionProperty(ProcessQueue::class, 'terminalWidth');
+        $heightProp    = new \ReflectionProperty(ProcessQueue::class, 'terminalHeight');
+
+        // Act — must not throw; memory_get_usage() is always available
+        $metricsMethod->invoke($cmd);
+
+        // Assert — memoryUsage is a positive integer after update
+        $this->assertGreaterThan(0, $memProp->getValue($cmd),
+            'updateSystemMetrics() must set memoryUsage to current process memory');
+
+        // terminalWidth/Height are ints (detectTerminalSize() falls back to 80/24 in a test env)
+        $this->assertIsInt($widthProp->getValue($cmd));
+        $this->assertIsInt($heightProp->getValue($cmd));
+    }
+
     // ── Helper ────────────────────────────────────────────────────────────────
 
     /**

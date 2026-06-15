@@ -745,4 +745,184 @@ class RedisAdapterTest extends TestCase
         $this->assertFalse($adapter->load('any_key', 60),
             'load() must return false after a failed auth connect');
     }
+
+    // =========================================================================
+    // Exception catch-block coverage (inject a broken Redis object via reflection)
+    // =========================================================================
+
+    /**
+     * Returns an adapter wired to a fake \Redis that throws $exception on the
+     * first call to any operation method.
+     *
+     * The adapter is placed in "connected" state so the guard-clauses pass and
+     * the real operation code (and therefore the catch block) is reached.
+     *
+     * @param \Exception $exception The exception that the mock Redis will throw.
+     */
+    private function makeAdapterWithThrowingRedis(\Exception $exception): RedisAdapter
+    {
+        $adapter = new RedisAdapter();
+
+        // Build a plain anonymous object that mimics the Redis API but throws on
+        // every operation.  We deliberately do NOT extend \Redis because different
+        // Redis extension versions have incompatible method signatures — and the
+        // RedisAdapter property ($redis) has no type declaration so any object works.
+        $mock = new class($exception) {
+            public function __construct(private \Exception $ex) {}
+
+            public function get(mixed ...$args): mixed    { throw $this->ex; }
+            public function set(mixed ...$args): mixed    { throw $this->ex; }
+            public function setex(mixed ...$args): mixed  { throw $this->ex; }
+            public function del(mixed ...$args): mixed    { throw $this->ex; }
+            public function flushDB(mixed ...$args): mixed { throw $this->ex; }
+            public function keys(mixed ...$args): mixed   { throw $this->ex; }
+            public function dbSize(mixed ...$args): mixed { throw $this->ex; }
+        };
+
+        $refRedis     = new \ReflectionProperty($adapter, 'redis');
+        $refConnected = new \ReflectionProperty($adapter, 'connected');
+
+        $refRedis->setValue($adapter, $mock);
+        $refConnected->setValue($adapter, true);
+
+        return $adapter;
+    }
+
+    /**
+     * load() must catch \Exception from $this->redis->get() and return false.
+     * This covers lines 139-141 of RedisAdapter::load().
+     */
+    public function testLoadReturnsFalseWhenRedisThrows(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapterWithThrowingRedis(new \Exception('Redis error'));
+
+        // Act — redis->get() throws → catch block → return false
+        $result = $adapter->load('any_key', 60);
+
+        // Assert
+        $this->assertFalse($result,
+            'load() must catch the Redis exception and return false (lines 139-141)');
+    }
+
+    /**
+     * save() must catch \Exception from $this->redis->setex() and return false.
+     * This covers lines 174-176 of RedisAdapter::save().
+     */
+    public function testSaveReturnsFalseWhenRedisThrows(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapterWithThrowingRedis(new \Exception('Redis write error'));
+
+        // Act — redis->setex() throws → catch block → return false
+        $result = $adapter->save('any_key', 'value', 60);
+
+        // Assert
+        $this->assertFalse($result,
+            'save() must catch the Redis exception and return false (lines 174-176)');
+    }
+
+    /**
+     * save() with timeout=0 must catch \Exception from $this->redis->set() and return false.
+     * This covers the set() → exception path in save()'s catch block.
+     */
+    public function testSaveWithZeroTimeoutReturnsFalseWhenRedisThrows(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapterWithThrowingRedis(new \Exception('Redis set error'));
+
+        // Act — redis->set() throws → catch block → return false
+        $result = $adapter->save('any_key', 'value', 0);
+
+        // Assert
+        $this->assertFalse($result,
+            'save() with timeout=0 must catch the Redis exception and return false');
+    }
+
+    /**
+     * delete() must catch \Exception from $this->redis->del() and return false.
+     * This covers lines 192-194 of RedisAdapter::delete().
+     */
+    public function testDeleteReturnsFalseWhenRedisThrows(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapterWithThrowingRedis(new \Exception('Redis del error'));
+
+        // Act — redis->del() throws → catch block → return false
+        $result = $adapter->delete('any_key');
+
+        // Assert
+        $this->assertFalse($result,
+            'delete() must catch the Redis exception and return false (lines 192-194)');
+    }
+
+    /**
+     * clear() with no category must catch \Exception from $this->redis->flushDb()
+     * and return false. This covers lines 211-213 of RedisAdapter::clear().
+     */
+    public function testClearAllReturnsFalseWhenRedisThrows(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapterWithThrowingRedis(new \Exception('flushDb error'));
+
+        // Act — redis->flushDb() throws → catch block → return false
+        $result = $adapter->clear();
+
+        // Assert
+        $this->assertFalse($result,
+            'clear() must catch the Redis exception and return false (lines 211-213)');
+    }
+
+    /**
+     * clear() with a category must catch \Exception from $this->redis->keys()
+     * and return false. This covers lines 235-237 of RedisAdapter::clear().
+     */
+    public function testClearCategoryReturnsFalseWhenRedisThrows(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapterWithThrowingRedis(new \Exception('keys() error'));
+
+        // Act — redis->keys() throws → catch block → return false
+        $result = $adapter->clear('products');
+
+        // Assert
+        $this->assertFalse($result,
+            'clear(category) must catch the Redis exception and return false (lines 235-237)');
+    }
+
+    /**
+     * getCategories() must catch \Exception from $this->redis->get() and return [].
+     * This covers lines 257-261 of RedisAdapter::getCategories().
+     */
+    public function testGetCategoriesReturnsEmptyWhenRedisThrows(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapterWithThrowingRedis(new \Exception('get() error'));
+
+        // Act — redis->get() throws → catch block → return []
+        $result = $adapter->getCategories();
+
+        // Assert
+        $this->assertSame([],  $result,
+            'getCategories() must catch the Redis exception and return [] (lines 257-261)');
+    }
+
+    /**
+     * getStats() must catch \Exception from $this->redis->get() and return the
+     * base stats array. This covers lines 292-293 of RedisAdapter::getStats().
+     */
+    public function testGetStatsReturnsBaseStatsWhenRedisThrows(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapterWithThrowingRedis(new \Exception('stats error'));
+
+        // Act — redis->get() throws → catch block → return base stats
+        $stats = $adapter->getStats();
+
+        // Assert — returned the base stats structure unchanged
+        $this->assertSame('redis', $stats['method'],
+            'getStats() must return base stats when Redis throws (lines 292-293)');
+        $this->assertSame(0, $stats['categories']);
+        $this->assertSame(0, $stats['items']);
+    }
 }
