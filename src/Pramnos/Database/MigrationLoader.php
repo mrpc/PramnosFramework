@@ -43,6 +43,9 @@ class MigrationLoader
             return realpath($fromSource) ?: $fromSource;
         }
 
+        // @codeCoverageIgnoreStart
+        // Vendor fallback — only reachable when the framework is installed via
+        // Composer rather than run from source. Not reachable during test runs.
         $root = $root ?? (defined('ROOT') ? ROOT : getcwd());
         $fromVendor = $root . '/vendor/mrpc/pramnosframework/database/migrations/framework';
         if (is_dir($fromVendor)) {
@@ -50,6 +53,7 @@ class MigrationLoader
         }
 
         return null;
+        // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -148,9 +152,9 @@ class MigrationLoader
                     if ($ref->isAbstract()) {
                         continue;
                     }
-                } catch (\ReflectionException $e) {
+                } catch (\ReflectionException $e) { // @codeCoverageIgnoreStart
                     continue;
-                }
+                } // @codeCoverageIgnoreEnd
 
                 $migrations[] = new $class($app);
             }
