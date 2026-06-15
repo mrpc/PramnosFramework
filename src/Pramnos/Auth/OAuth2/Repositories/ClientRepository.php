@@ -35,7 +35,7 @@ class ClientRepository implements ClientRepositoryInterface
      */
     public function getClientEntity($clientIdentifier): ?ClientEntityInterface
     {
-        $application = new Application($this->controller, 'Application', 0);
+        $application = $this->makeApplication();
         if (!$application->loadByApiKey($clientIdentifier)) {
             return null;
         }
@@ -61,7 +61,18 @@ class ClientRepository implements ClientRepositoryInterface
         $clientSecret,
         $grantType
     ): bool {
-        $application = new Application($this->controller, 'Application', 0);
+        $application = $this->makeApplication();
         return $application->validateCredentials($clientIdentifier, $clientSecret);
+    }
+
+    /**
+     * Instantiate the Auth Application model.
+     *
+     * Protected so that tests can subclass and return a mock, avoiding the
+     * need for a real database connection in unit tests.
+     */
+    protected function makeApplication(): Application
+    {
+        return new Application($this->controller, 'Application', 0);
     }
 }
