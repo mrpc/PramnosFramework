@@ -34,6 +34,17 @@ class DevPanelServiceProvider extends ServiceProvider
             return;
         }
 
+        $this->bootHttp();
+    }
+
+    /**
+     * HTTP-specific boot logic — runs only outside CLI context.
+     *
+     * Extracted so it can be called directly in unit tests via Reflection,
+     * which cannot alter PHP_SAPI.
+     */
+    protected function bootHttp(): void
+    {
         // Verify the minimum usertype setting is sane (warn in logs if not).
         $min = Settings::getSetting('devpanel.min_usertype');
         if ($min !== false && $min !== null && ((int) $min < 1 || (int) $min > 100)) {
