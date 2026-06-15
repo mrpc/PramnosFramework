@@ -193,24 +193,30 @@ class Cache extends \Pramnos\Framework\Base
                         $this->adapter = $redisAdapter;
                     }
                 } else {
-                    $this->initializeAdapter('memcached');
+                    // @codeCoverageIgnore — \Redis extension present in test env;
+                    // this else-branch only runs when Redis is not installed.
+                    $this->initializeAdapter('memcached'); // @codeCoverageIgnore
                 }
                 break;
 
             case 'memcached':
                 if (class_exists('\Memcached')) {
+                    // @codeCoverageIgnoreStart
+                    // \Memcached extension is not installed in the standard test
+                    // environment.  Integration coverage is provided by CI jobs
+                    // that include the ext-memcached Docker layer.
                     $databaseSettings = \Pramnos\Application\Settings::getSetting('database');
-                    $database = ($databaseSettings && is_object($databaseSettings) && isset($databaseSettings->database)) 
-                        ? $databaseSettings->database 
+                    $database = ($databaseSettings && is_object($databaseSettings) && isset($databaseSettings->database))
+                        ? $databaseSettings->database
                         : 0;
-                    
+
                     $memcachedAdapter = new Adapter\MemcachedAdapter(
                         $this->hostname,
                         $this->port,
                         $database,
                         $this->prefix
                     );
-                    
+
                     if (!$memcachedAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
                         // Don't set the failed adapter, fallback to memcache
@@ -220,6 +226,7 @@ class Cache extends \Pramnos\Framework\Base
                         // Only set adapter if connection succeeded
                         $this->adapter = $memcachedAdapter;
                     }
+                    // @codeCoverageIgnoreEnd
                 } else {
                     $this->initializeAdapter('memcache');
                 }
@@ -227,12 +234,16 @@ class Cache extends \Pramnos\Framework\Base
 
             case 'memcache':
                 if (class_exists('\Memcache')) {
+                    // @codeCoverageIgnoreStart
+                    // \Memcache extension is not installed in the standard test
+                    // environment.  Integration coverage is provided by CI jobs
+                    // that include the ext-memcache Docker layer.
                     $memcacheAdapter = new Adapter\MemcacheAdapter(
                         $this->hostname,
                         $this->port,
                         $this->prefix
                     );
-                    
+
                     if (!$memcacheAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
                         $this->initializeAdapter('file');
@@ -240,6 +251,7 @@ class Cache extends \Pramnos\Framework\Base
                         $this->adapter = $memcacheAdapter;
                         self::$_connected[$methodKey] = true;
                     }
+                    // @codeCoverageIgnoreEnd
                 } else {
                     $this->initializeAdapter('file');
                 }
