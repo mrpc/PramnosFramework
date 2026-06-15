@@ -729,7 +729,7 @@ class FileAdapterTest extends TestCase
         $adapter = $this->makeAdapter();
         // save expired file (timeout = 1)
         $adapter->save('expkey', 'val', 1);
-        
+
         $filePath = $this->cacheDir . DIRECTORY_SEPARATOR . 'expkey';
         touch($filePath, time() - 10); // backdate
 
@@ -737,6 +737,29 @@ class FileAdapterTest extends TestCase
         $adapter->clear();
 
         $this->assertFileDoesNotExist($filePath);
+    }
+
+    /**
+     * checkIfFileIsExpired() must return false when the path is a directory
+     * rather than a regular file.
+     *
+     * This covers line 317 of FileAdapter.php: `return false` in the
+     * `if (!is_file($file))` guard at the top of the private method.
+     * The guard exists to protect against stale paths and directory entries
+     * that may appear in recursive iteration results.
+     */
+    public function testCheckIfFileIsExpiredReturnsFalseForDirectory(): void
+    {
+        // Arrange — a path that is a directory, not a file
+        $adapter = $this->makeAdapter();
+        $method  = new \ReflectionMethod(FileAdapter::class, 'checkIfFileIsExpired');
+
+        // Act — pass the cache directory itself (a directory, not a file)
+        $result = $method->invoke($adapter, $this->cacheDir);
+
+        // Assert — directories must always be treated as "not expired"
+        $this->assertFalse($result,
+            'checkIfFileIsExpired() must return false when given a directory path');
     }
 }
 

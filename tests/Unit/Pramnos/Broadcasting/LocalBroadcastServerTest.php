@@ -861,6 +861,135 @@ class LocalBroadcastServerTest extends TestCase
         fclose($serverSocket);
     }
 
+    // =========================================================================
+    // parseFrame() — boundary/incomplete-buffer branches (RFC 6455 §5)
+    // =========================================================================
+
+    /**
+     * parseFrame() must return null when the buffer holds fewer than 2 bytes.
+     *
+     * The first two bytes are the minimal WebSocket frame header; without them
+     * the parser cannot determine opcode, mask bit, or payload length at all.
+     * This covers line 328: `return null` when strlen($buffer) < 2.
+     */
+    public function testParseFrameReturnNullWhenBufferLessThan2Bytes(): void
+    {
+        // Arrange — a 1-byte buffer (only the first header byte present)
+        $server = new LocalBroadcastServer('test-key');
+        $method = new \ReflectionMethod($server, 'parseFrame');
+
+        // Act
+        $result = $method->invoke($server, "\x81");
+
+        // Assert — incomplete header → null
+        $this->assertNull($result,
+            'parseFrame() must return null when buffer is less than 2 bytes');
+    }
+
+    /**
+     * parseFrame() must return null when payLen indicator is 126 (2-byte
+     * extended length follows) but the buffer is too short to hold those 2 bytes.
+     *
+     * RFC 6455 §5.2: indicator=126 means the next 2 bytes carry the real length.
+     * A buffer of exactly 2 bytes (only the header, no length bytes) is incomplete.
+     * This covers lines 339–340: the `if ($len < 4) { return null; }` branch.
+     */
+    public function testParseFrameWith126LengthAndInsufficientBuffer(): void
+    {
+        // Arrange — byte0: FIN+text (0x81), byte1: MASK=0, payLen=126 (0x7E)
+        // Buffer is exactly 2 bytes — the 2 extended-length bytes are absent.
+        $server = new LocalBroadcastServer('test-key');
+        $method = new \ReflectionMethod($server, 'parseFrame');
+        $buffer = "\x81\x7E"; // 2 bytes only
+
+        // Act
+        $result = $method->invoke($server, $buffer);
+
+        // Assert — need 4 bytes for payLen=126 header; only 2 available → null
+        $this->assertNull($result,
+            'parseFrame() must return null when payLen=126 but buffer lacks the 2 extended-length bytes');
+    }
+
+    /**
+     * parseFrame() must correctly decode a payLen=126 (2-byte extended length)
+     * frame when the full buffer is present.
+     *
+     * This covers lines 342–343: `$payLen = (ord($buffer[2]) << 8) | ord($buffer[3]);`
+     * and `$offset = 4;` — the extended-length decode path for payLen=126.
+     */
+    public function testParseFrameDecodes126ExtendedLength(): void
+    {
+        // Arrange — build an unmasked text frame with payLen=126 extended-length encoding.
+        // Declared payload length = 5 ("hello"), encoded in 2 bytes: 0x00 0x05.
+        $server  = new LocalBroadcastServer('test-key');
+        $method  = new \ReflectionMethod($server, 'parseFrame');
+        $payload = 'hello';
+        // byte0: FIN=1, opcode=text → 0x81
+        // byte1: MASK=0, payLen=126 → 0x7E
+        // byte2–3: 2-byte big-endian actual length (5 → "\x00\x05")
+        // rest: raw payload
+        $buffer = "\x81\x7E\x00\x05" . $payload;
+
+        // Act
+        $result = $method->invoke($server, $buffer);
+
+        // Assert — frame decoded correctly; payload is 'hello'
+        $this->assertNotNull($result,
+            'parseFrame() must decode a payLen=126 extended-length frame');
+        $this->assertSame('hello', $result['payload'],
+            'parseFrame() must extract the correct payload from a 126-extended-length frame');
+        $this->assertSame(0x1, $result['opcode'],
+            'parseFrame() must correctly extract the text opcode from the frame');
+    }
+
+    /**
+     * parseFrame() must return null when payLen indicator is 127 (8-byte
+     * extended length follows) but the buffer is too short to hold those 8 bytes.
+     *
+     * RFC 6455 §5.2: indicator=127 means the next 8 bytes carry the real length.
+     * A buffer shorter than 10 bytes is incomplete.
+     * This covers line 346: `return null` when `$len < 10` in the payLen=127 branch.
+     */
+    public function testParseFrameWith127LengthAndInsufficientBuffer(): void
+    {
+        // Arrange — byte0: 0x81 (FIN+text), byte1: MASK=0 payLen=127 (0x7F)
+        // Only 4 bytes provided; need at least 10 (2 header + 8 extended-length bytes).
+        $server = new LocalBroadcastServer('test-key');
+        $method = new \ReflectionMethod($server, 'parseFrame');
+        $buffer = "\x81\x7F\x00\x00"; // 4 bytes — not enough for 8-byte ext-length
+
+        // Act
+        $result = $method->invoke($server, $buffer);
+
+        // Assert — buffer too short for 127-extended-length header → null
+        $this->assertNull($result,
+            'parseFrame() must return null when payLen=127 but buffer lacks the 8 extended-length bytes');
+    }
+
+    /**
+     * parseFrame() must return null when the buffer has a valid header but the
+     * declared payload extends beyond the buffer boundary.
+     *
+     * This exercises the final length guard: `if ($len < $offset + $maskLen + $payLen)`
+     * at line 356–357, which protects against truncated payloads.
+     */
+    public function testParseFrameReturnNullWhenPayloadExceedsBuffer(): void
+    {
+        // Arrange — byte0: FIN+text (0x81); byte1: MASK=0, payLen=10 (0x0A).
+        // The header declares 10 payload bytes but only 2 extra bytes are provided.
+        // offset=2, maskLen=0, payLen=10 → need 12 bytes total, have 4.
+        $server = new LocalBroadcastServer('test-key');
+        $method = new \ReflectionMethod($server, 'parseFrame');
+        $buffer = "\x81\x0A\x00\x00"; // 4 bytes; payload would require 12
+
+        // Act
+        $result = $method->invoke($server, $buffer);
+
+        // Assert — declared payload exceeds available bytes → null
+        $this->assertNull($result,
+            'parseFrame() must return null when the declared payload length exceeds the buffer');
+    }
+
     /**
      * pollLogFile() must handle a JSONL line with generic 'data' key instead
      * of the 'payload' key (both are supported formats).
