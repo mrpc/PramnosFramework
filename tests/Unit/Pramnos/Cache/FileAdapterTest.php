@@ -740,6 +740,29 @@ class FileAdapterTest extends TestCase
     }
 
     /**
+     * getStats() must return zero counts when the cache directory does not
+     * exist as a filesystem directory (e.g., before connect() is called or
+     * after the directory is removed externally).
+     *
+     * Covers the `!is_dir($path)` early-return branch inside getStats() that
+     * returns the zero-count $stats without attempting to list files.
+     */
+    public function testGetStatsReturnsZerosWhenCacheDirDoesNotExist(): void
+    {
+        // Arrange — use a path that does not exist
+        $nonExistentDir = sys_get_temp_dir() . '/pramnos_fa_stats_' . bin2hex(random_bytes(4));
+        $adapter = new FileAdapter($nonExistentDir);
+
+        // Act — caching is enabled but dir doesn't exist
+        $stats = $adapter->getStats();
+
+        // Assert — method is set; counts are zero because dir is absent
+        $this->assertSame('file', $stats['method']);
+        $this->assertSame(0, $stats['categories']);
+        $this->assertSame(0, $stats['items']);
+    }
+
+    /**
      * checkIfFileIsExpired() must return false when the path is a directory
      * rather than a regular file.
      *
