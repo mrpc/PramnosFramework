@@ -345,6 +345,145 @@ class McpServerTest extends TestCase
         $this->assertArrayHasKey('result', $response);
     }
 
+    // ── getTools / getResources ───────────────────────────────────────────────
+
+    /**
+     * getTools() returns the map of registered tools by name.
+     *
+     * Covers the public accessor that allows callers (e.g. McpServiceProvider)
+     * to inspect what tools have been added without going through dispatch().
+     */
+    public function testGetToolsReturnsRegisteredTools(): void
+    {
+        // Arrange
+        $tool = $this->makeTool('my_tool', 'A test tool', []);
+        $this->server->addTool($tool);
+
+        // Act
+        $tools = $this->server->getTools();
+
+        // Assert — map contains the tool keyed by name
+        $this->assertArrayHasKey('my_tool', $tools,
+            'getTools() must return all registered tools indexed by name');
+        $this->assertSame($tool, $tools['my_tool']);
+    }
+
+    /**
+     * getResources() returns the map of registered resources by URI.
+     *
+     * Covers the public accessor that allows callers to inspect what resources
+     * are available without going through dispatch().
+     */
+    public function testGetResourcesReturnsRegisteredResources(): void
+    {
+        // Arrange — a resource backed by a real temp file
+        $tmpFile = tempnam(sys_get_temp_dir(), 'mcp_');
+        file_put_contents($tmpFile, 'resource content');
+
+        $resource = new McpResource('file://test', 'Test', $tmpFile);
+        $this->server->addResource($resource);
+
+        try {
+            // Act
+            $resources = $this->server->getResources();
+
+            // Assert — map contains the resource keyed by URI
+            $this->assertArrayHasKey('file://test', $resources,
+                'getResources() must return all registered resources indexed by URI');
+            $this->assertSame($resource, $resources['file://test']);
+        } finally {
+            @unlink($tmpFile);
+        }
+    }
+
+    /**
+     * resources/read returns an error when the resource is registered but its
+     * backing file does not exist (or is not readable).
+     *
+     * Covers lines 207-209 of McpServer.php: `if ($content === null)` branch inside
+     * handleResourcesRead() — the guard that prevents serving broken resources.
+     */
+    public function testResourcesReadReturnsErrorWhenFileNotReadable(): void
+    {
+        // Arrange — resource backed by a non-existent file
+        $resource = new McpResource(
+            'file://missing',
+            'Missing File',
+            '/nonexistent/path/that/does/not/exist.txt'
+        );
+        $this->server->addResource($resource);
+
+        $message = [
+            'jsonrpc' => '2.0',
+            'id'      => 99,
+            'method'  => 'resources/read',
+            'params'  => ['uri' => 'file://missing'],
+        ];
+
+        // Act
+        $response = $this->server->dispatch($message);
+
+        // Assert — error response, NOT a content response
+        $this->assertNotNull($response);
+        $this->assertArrayHasKey('error', $response,
+            'resources/read must return an error when the backing file is missing');
+        $this->assertSame(-32602, $response['error']['code']);
+        $this->assertStringContainsString('missing', $response['error']['message']);
+    }
+
+    /**
+     * result() builds a standard JSON-RPC 2.0 success response structure.
+     *
+     * Covers lines 227-230: the public result() helper used by dispatch internally.
+     */
+    public function testResultBuildsCorrectResponseStructure(): void
+    {
+        // Act — call directly instead of through dispatch()
+        $response = $this->server->result(42, ['answer' => 'hello']);
+
+        // Assert — standard JSON-RPC shape
+        $this->assertSame('2.0',   $response['jsonrpc']);
+        $this->assertSame(42,      $response['id']);
+        $this->assertSame(['answer' => 'hello'], $response['result']);
+    }
+
+    /**
+     * error() builds a standard JSON-RPC 2.0 error response structure.
+     *
+     * Covers lines 236-243: the public error() helper used by dispatch internally.
+     */
+    public function testErrorBuildsCorrectResponseStructure(): void
+    {
+        // Act — call directly
+        $response = $this->server->error(7, -32600, 'Invalid Request');
+
+        // Assert — standard JSON-RPC error shape
+        $this->assertSame('2.0',             $response['jsonrpc']);
+        $this->assertSame(7,                  $response['id']);
+        $this->assertSame(-32600,             $response['error']['code']);
+        $this->assertSame('Invalid Request',  $response['error']['message']);
+    }
+
+    /**
+     * McpResource::toListItem() returns the required MCP list-item array shape.
+     *
+     * Covers lines 48-54 of McpResource.php: the serialization helper used in
+     * resources/list responses.
+     */
+    public function testMcpResourceToListItemShape(): void
+    {
+        // Arrange
+        $resource = new McpResource('file://foo', 'Foo', '/tmp/foo.txt', 'text/plain');
+
+        // Act
+        $item = $resource->toListItem();
+
+        // Assert — required keys for MCP resources/list
+        $this->assertSame('file://foo',  $item['uri']);
+        $this->assertSame('Foo',         $item['name']);
+        $this->assertSame('text/plain',  $item['mimeType']);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private function makeTool(string $name, string $description, array $schema): McpToolInterface&\PHPUnit\Framework\MockObject\MockObject
