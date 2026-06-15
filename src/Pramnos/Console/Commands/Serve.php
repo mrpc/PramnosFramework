@@ -51,11 +51,22 @@ class Serve extends Command
             "Development server started on http://{$host}:{$port}/"
         );
         $path = ROOT . '/www/index.php';
-        passthru(
+        $this->runServer(
             PHP_BINARY . " -S {$host}:{$port} \"{$path}\" 2>&1"
         );
         return 0;
 
+    }
+
+    /**
+     * Run the PHP built-in server.  Protected so that tests can override
+     * this method to capture the command without actually starting a process.
+     *
+     * @param string $cmd The fully-assembled shell command.
+     */
+    protected function runServer(string $cmd): void
+    {
+        passthru($cmd);
     }
 
 
