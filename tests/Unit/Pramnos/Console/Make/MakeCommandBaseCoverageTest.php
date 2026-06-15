@@ -1513,6 +1513,99 @@ class MakeCommandBaseCoverageTest extends TestCase
         }
     }
 
+    // =========================================================================
+    // generateTestStub() — mkdir path + file-exists early-return
+    // =========================================================================
+
+    /**
+     * generateTestStub() with a base directory whose tests/Unit sub-directory does
+     * NOT exist must call mkdir() to create it (line 446) and then write the stub.
+     *
+     * Covers line 446: `@mkdir($testsDir, 0777, true)`.
+     */
+    public function testGenerateTestStubCreatesTestsDirWhenMissing(): void
+    {
+        // Arrange — use a fresh temp dir that has no tests/Unit sub-directory
+        $freshBase = sys_get_temp_dir() . '/pramnos_gts_' . bin2hex(random_bytes(4));
+        // Do NOT create tests/Unit — generateTestStub() must create it
+
+        try {
+            // Act — generateTestStub() with the fresh directory as base
+            $result = $this->command->generateTestStub('WcovGtsClass', 'App', $freshBase);
+
+            // Assert — directory was created and stub was written
+            $this->assertDirectoryExists(
+                $freshBase . '/tests/Unit',
+                'generateTestStub() must create tests/Unit when it does not exist'
+            );
+            $this->assertFileExists(
+                $freshBase . '/tests/Unit/WcovGtsClassTest.php',
+                'generateTestStub() must write the test stub file'
+            );
+            $this->assertStringContainsString(
+                'WcovGtsClassTest.php',
+                $result,
+                'generateTestStub() must return the filename in its output'
+            );
+        } finally {
+            // Cleanup the temp directory tree
+            if (is_dir($freshBase)) {
+                $this->rmdirRecursive($freshBase);
+            }
+        }
+    }
+
+    /**
+     * generateTestStub() returns an empty string when the test file already
+     * exists (line 451-452). Calling the method a second time with the same
+     * class and base directory must not overwrite the file and must return ''.
+     *
+     * Covers lines 451-452: `if (file_exists($testFile)) { return ''; }`.
+     */
+    public function testGenerateTestStubReturnsEmptyWhenFileAlreadyExists(): void
+    {
+        // Arrange — create the file manually to simulate "already exists"
+        $testsDir = $this->tmpDir . '/tests/Unit';
+        $testFile = $testsDir . '/WcovAlreadyExistsTest.php';
+        file_put_contents($testFile, '<?php // pre-existing test stub');
+
+        // Act — second call must find the file and return '' immediately
+        $result = $this->command->generateTestStub('WcovAlreadyExists', 'App', $this->tmpDir);
+
+        // Assert — must return empty string (file not overwritten)
+        $this->assertSame('', $result,
+            'generateTestStub() must return empty string when the test file already exists');
+        $this->assertStringEqualsFile(
+            $testFile,
+            '<?php // pre-existing test stub',
+            'generateTestStub() must not overwrite an existing test file'
+        );
+    }
+
+    /**
+     * generateTestStub() with stubName='controller_test' uses tests/Feature as
+     * the target directory instead of tests/Unit.
+     *
+     * Covers line 443: `$testsDir = $baseDir . '/tests/Feature'`.
+     */
+    public function testGenerateTestStubUsesFeatureDirForControllerTest(): void
+    {
+        // Act
+        $result = $this->command->generateTestStub(
+            'WcovCtrlTest', 'App', $this->tmpDir, 'controller_test'
+        );
+
+        // Assert — file written to tests/Feature, not tests/Unit
+        $this->assertFileExists(
+            $this->tmpDir . '/tests/Feature/WcovCtrlTestTest.php',
+            'generateTestStub() with controller_test stub must write to tests/Feature'
+        );
+        $this->assertStringContainsString('WcovCtrlTestTest.php', $result);
+
+        // Cleanup
+        @unlink($this->tmpDir . '/tests/Feature/WcovCtrlTestTest.php');
+    }
+
     /** Helper: remove a named entry from the model registry. */
     private function cleanRegistryEntry(string $className): void
     {
