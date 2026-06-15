@@ -1162,4 +1162,152 @@ class ApplicationTest extends TestCase
         $this->assertFalse($result,
             'redirect() must return false when no URL is supplied and no redirect is stored');
     }
+
+    // =========================================================================
+    // isDebugMode() — Settings-driven debug flag path
+    // =========================================================================
+
+    /**
+     * isDebugMode() must return true when the 'debug' settings key is the
+     * string 'true' — one of several accepted truthy representations.
+     *
+     * This covers line 283 (`return true` in the debug-setting branch) of
+     * Application.php, which is only reached when neither the APP_DEBUG env
+     * var nor the DEVELOPMENT constant are set to a truthy value, but the
+     * Settings store has a 'debug' key with value 'true'.
+     */
+    public function testIsDebugModeTrueWhenDebugSettingIsStringTrue(): void
+    {
+        // Arrange — inject 'debug' = 'true' into the global Settings store
+        \Pramnos\Application\Settings::setSetting('debug', 'true');
+        $app = new Application('test_app');
+
+        // Act — call the private method via reflection
+        $method = new \ReflectionMethod($app, 'isDebugMode');
+        $result = $method->invoke($app);
+
+        // Assert — 'true' string must be accepted as a truthy debug flag
+        $this->assertTrue($result,
+            "isDebugMode() must return true when Settings 'debug' = 'true'");
+
+        // Cleanup
+        \Pramnos\Application\Settings::clearSettings();
+    }
+
+    // =========================================================================
+    // showError() — basic error output paths
+    // =========================================================================
+
+    /**
+     * showError() with a non-empty message must include the message in the
+     * HTML passed to close(). Since close() throws under PRAMNOS_TESTING,
+     * we catch the exception and verify the message was appended.
+     *
+     * This covers lines 515–516 of Application.php: the `if ($msg != '')` block
+     * that concatenates the supplied message onto the error string, and then
+     * the whole string is passed to close() whose exception message contains it.
+     */
+    public function testShowErrorAppendsMessageToOutput(): void
+    {
+        // Arrange
+        $app = new Application('test_app');
+
+        // Act — showError() calls close() which throws under PRAMNOS_TESTING.
+        // close() is called with the full HTML body, so the exception message
+        // contains the supplied $msg string.
+        try {
+            $app->showError('custom_error_msg');
+            $this->fail('showError() must call close(), which throws under PRAMNOS_TESTING');
+        } catch (\Exception $ex) {
+            // Assert — the custom message is embedded in the HTML body that
+            // was passed to close() as its $msg argument.
+            $this->assertStringContainsString('custom_error_msg', $ex->getMessage(),
+                'showError() must embed the supplied message in the HTML passed to close()');
+        }
+    }
+
+    // =========================================================================
+    // getInstance() — config-file exception catch path (lines 902–906)
+    // =========================================================================
+
+    /**
+     * getInstance() must silently swallow exceptions that occur while loading
+     * an application's config file and log the error via Logger::log().
+     *
+     * This covers lines 885–886 (config file path construction + require) and
+     * lines 902–906 (catch block: `Logger::log('Cannot start ...')`).
+     *
+     * The fixture file `tests/fixtures/app/throwapp.php` always throws a
+     * RuntimeException when required; getInstance() must catch it, log the
+     * message, and return without propagating the exception.
+     */
+    public function testGetInstanceCatchesExceptionFromBrokenConfigFile(): void
+    {
+        // Arrange — make sure 'throwapp' is not already in the registry
+        $refInstances = new \ReflectionProperty(Application::class, 'appInstances');
+        $instances = $refInstances->getValue();
+        unset($instances['throwapp']);
+        $refInstances->setValue(null, $instances);
+
+        // Act — loading 'throwapp' triggers a RuntimeException inside require.
+        // getInstance() must catch it and not re-throw.
+        $result = null;
+        try {
+            $result = Application::getInstance('throwapp');
+        } catch (\Throwable $unexpected) {
+            $this->fail(
+                'getInstance() must NOT propagate exceptions from broken config files, '
+                . 'but got: ' . get_class($unexpected) . ': ' . $unexpected->getMessage()
+            );
+        }
+
+        // Assert — no exception escaped; the result is null or an Application instance
+        $this->assertTrue(
+            $result === null || $result instanceof Application,
+            'getInstance() must return null or an Application after a config exception'
+        );
+
+        // Cleanup
+        $instances = $refInstances->getValue();
+        unset($instances['throwapp']);
+        $refInstances->setValue(null, $instances);
+    }
+
+    // =========================================================================
+    // getController() — user-in-session error message path
+    // =========================================================================
+
+    /**
+     * getController() must include the logged-in username in the exception
+     * message when $_SESSION['user'] is an object with a 'username' property.
+     *
+     * This covers lines 655–656 of Application.php: the `if (is_object(...))` branch
+     * that appends `'User: ' . $_SESSION['user']->username` to the error message.
+     * The path is only taken when the controller does not exist AND a user object
+     * is stored in the session — both conditions are true here.
+     */
+    public function testGetControllerErrorIncludesUsernameWhenSessionUserIsObject(): void
+    {
+        // Arrange — store a user object in the session
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $fakeUser = new \stdClass();
+        $fakeUser->username = 'testuser_coverage';
+        $_SESSION['user'] = $fakeUser;
+
+        $app = new Application('test_app');
+
+        // Act — request a controller that does not exist to trigger the error path
+        try {
+            $app->getController('nonexistent_controller_xyz');
+            $this->fail('getController() must throw when the controller is not found');
+        } catch (\Exception $ex) {
+            // Assert — the exception message must contain the username
+            $this->assertStringContainsString('testuser_coverage', $ex->getMessage(),
+                'getController() must include the session username in the error message');
+        } finally {
+            unset($_SESSION['user']);
+        }
+    }
 }
