@@ -491,6 +491,67 @@ class CacheTest extends TestCase
         $this->assertSame($mockRedis, $cache->getRedis());
     }
 
+    // =========================================================================
+    // initializeAdapter() — Redis success path (lines 191, 193)
+    // =========================================================================
+
+    /**
+     * initializeAdapter('redis') must set adapter to the RedisAdapter and mark
+     * the connection as successful when the Redis server is reachable.
+     *
+     * This covers lines 191–193 of Cache.php: the `else` branch inside the
+     * `if (!$redisAdapter->connect())` block, which only executes when Redis
+     * accepts the connection — `self::$_connected['redis'] = true` and
+     * `$this->adapter = $redisAdapter`.
+     *
+     * The Redis server `pramnos_redis` is always available in the Docker
+     * test environment (defined in docker-compose).
+     *
+     */
+    #[\PHPUnit\Framework\Attributes\Group('integration')]
+    public function testRedisAdapterIsSetWhenConnectionSucceeds(): void
+    {
+        // Arrange — clear any cached Redis connection state from prior tests
+        $refConnected    = new \ReflectionProperty(Cache::class, '_connected');
+        $refConnections  = new \ReflectionProperty(Cache::class, '_connections');
+        $connected       = $refConnected->getValue();
+        $connections     = $refConnections->getValue();
+        unset($connected['redis'], $connections['redis']);
+        $refConnected->setValue(null, $connected);
+        $refConnections->setValue(null, $connections);
+
+        // Act — create a Cache that uses Redis at the Docker Redis container
+        $cache = new Cache(null, null, 'redis', [
+            'hostname' => 'pramnos_redis',
+            'port'     => 6379,
+        ]);
+
+        // Assert — when Redis connects, the adapter must be a RedisAdapter
+        // and caching must remain enabled.
+        if ($cache->caching && $cache->getAdapter() !== null) {
+            // Redis connection succeeded — lines 191 and 193 were executed
+            $this->assertInstanceOf(
+                \Pramnos\Cache\Adapter\RedisAdapter::class,
+                $cache->getAdapter(),
+                'Cache with method=redis must install a RedisAdapter on successful connect'
+            );
+        } else {
+            // Redis not reachable in this environment — skip rather than fail
+            $this->markTestSkipped('Redis server not reachable at pramnos_redis:6379');
+        }
+
+        // Cleanup — remove the static connection cache so Redis tests don't bleed
+        $connected   = $refConnected->getValue();
+        $connections = $refConnections->getValue();
+        unset($connected['redis'], $connections['redis']);
+        $refConnected->setValue(null, $connected);
+        $refConnections->setValue(null, $connections);
+    }
+
+    // =========================================================================
+    // _connect() — auth-failure and exception catch paths
+    // =========================================================================
+
     /**
      * Test successful _connect path via a dynamically defined global class.
      */
@@ -516,7 +577,96 @@ class CacheTest extends TestCase
 
         $method = new \ReflectionMethod(Cache::class, '_connect');
         $result = $method->invoke($cache);
-        
+
         $this->assertTrue($result);
+    }
+
+    /**
+     * _connect() must set the connected flag to false when the server-level
+     * auth() call returns false (bad password).
+     *
+     * This covers line 329 of Cache.php: `self::$_connected[$methodKey] = false`
+     * inside the `if (!$obj->auth($password))` branch of _connect().
+     */
+    public function testConnectSetsConnectedFalseWhenAuthFails(): void
+    {
+        // Arrange — a dummy class whose auth() always returns false
+        if (!class_exists('DummyCacheAuthFail')) {
+            eval('
+                class DummyCacheAuthFail {
+                    public function connect($host, $port) { return true; }
+                    public function auth($password) { return false; }
+                    public function select($db) {}
+                }
+            ');
+        }
+
+        // Use the dummy class as the cache "method" so _connect() instantiates it
+        $cache = new Cache(null, null, 'dummyCacheAuthFail', [
+            'hostname' => '127.0.0.1',
+            'port'     => 11211,
+            'password' => 'wrong_password',
+        ]);
+
+        // Remove any cached connection state from prior tests
+        $refConnected   = new \ReflectionProperty(Cache::class, '_connected');
+        $refConnections = new \ReflectionProperty(Cache::class, '_connections');
+        $connected      = $refConnected->getValue();
+        $connections    = $refConnections->getValue();
+        unset($connected['dummycacheauthfail'], $connections['dummycacheauthfail']);
+        $refConnected->setValue(null, $connected);
+        $refConnections->setValue(null, $connections);
+
+        // Act — invoke the legacy _connect() directly
+        $method = new \ReflectionMethod(Cache::class, '_connect');
+        $result = $method->invoke($cache);
+
+        // Assert — auth failure means connected = false
+        $this->assertFalse($result,
+            '_connect() must return false when auth() rejects the supplied password');
+    }
+
+    /**
+     * _connect() must fall back gracefully (returning false) when connect()
+     * throws an exception — for example when the server is unreachable.
+     *
+     * This covers lines 336–339 of Cache.php: the `catch (\Exception $exc)`
+     * block that resets the method to 'file' and marks the connection as failed.
+     */
+    public function testConnectReturnsFalseWhenConnectThrows(): void
+    {
+        // Arrange — a dummy class whose connect() always throws
+        if (!class_exists('DummyCacheThrows')) {
+            eval('
+                class DummyCacheThrows {
+                    public function connect($host, $port) {
+                        throw new \RuntimeException("Connection refused");
+                    }
+                    public function auth($password) { return true; }
+                }
+            ');
+        }
+
+        $cache = new Cache(null, null, 'dummyCacheThrows', [
+            'hostname' => '127.0.0.1',
+            'port'     => 11211,
+        ]);
+
+        // Remove any cached connection state from prior tests
+        $refConnected   = new \ReflectionProperty(Cache::class, '_connected');
+        $refConnections = new \ReflectionProperty(Cache::class, '_connections');
+        $connected      = $refConnected->getValue();
+        $connections    = $refConnections->getValue();
+        unset($connected['dummycachethrows'], $connections['dummycachethrows']);
+        $refConnected->setValue(null, $connected);
+        $refConnections->setValue(null, $connections);
+
+        // Act
+        $method = new \ReflectionMethod(Cache::class, '_connect');
+        $result = $method->invoke($cache);
+
+        // Assert — exception from connect() → _connect() returns false
+        $this->assertFalse($result,
+            '_connect() must return false when connect() throws an exception');
     }
 }
