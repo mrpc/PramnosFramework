@@ -39,12 +39,15 @@ class ScaffoldingHelper
             }
             $dir = dirname($dir);
         }
-        // Standard Composer vendor installation path
+        // Standard Composer vendor installation path — only reachable when running
+        // from a Composer-installed copy outside the source tree (e.g. production).
+        // @codeCoverageIgnoreStart
         return (defined('ROOT') ? ROOT : getcwd())
             . DIRECTORY_SEPARATOR . 'vendor'
             . DIRECTORY_SEPARATOR . 'mrpc'
             . DIRECTORY_SEPARATOR . 'pramnosframework'
             . DIRECTORY_SEPARATOR . 'scaffolding';
+        // @codeCoverageIgnoreEnd
     }
 
     /**

@@ -91,9 +91,9 @@ class DebugBarServiceProviderTest extends TestCase
             'boot() must register collectors when debug is enabled');
 
         $names = array_keys($collectors);
-        $this->assertContains('time',   $names, 'TimeCollector must be registered');
+        $this->assertContains('timers', $names, 'TimeCollector must be registered (key: timers)');
         $this->assertContains('memory', $names, 'MemoryCollector must be registered');
-        $this->assertContains('log',    $names, 'LogCollector must be registered');
+        $this->assertContains('logs',   $names, 'LogCollector must be registered (key: logs)');
     }
 
     /**

@@ -69,6 +69,10 @@ class DebugBarServiceProvider extends ServiceProvider
             return;
         }
 
+        // @codeCoverageIgnoreStart
+        // The following output-buffer and error-handler setup is HTTP-only;
+        // unreachable under CLI (PHPUnit always runs with PHP_SAPI === 'cli').
+
         // Capture PHP errors (warnings, notices, deprecations) into ExceptionsCollector.
         set_error_handler(function (int $errno, string $errstr, string $errfile, int $errline) use ($bar): bool {
             $ec = $bar->getCollector('exceptions');
@@ -97,6 +101,7 @@ class DebugBarServiceProvider extends ServiceProvider
             }
             return substr($output, 0, $bodyPos) . $widget . substr($output, $bodyPos);
         });
+        // @codeCoverageIgnoreEnd
     }
 
     private function isDebugEnabled(): bool
