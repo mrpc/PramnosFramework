@@ -74,11 +74,13 @@ class DiskSpaceCheck implements HealthCheck
                 "{$freeMb} MB free ({$usedPct}% used)",
                 $details
             );
-        } catch (\Throwable $e) {
+        } catch (\Throwable $e) { // @codeCoverageIgnoreStart
+            // disk_free_space() returns false on error rather than throwing;
+            // this catch only fires on unexpected runtime exceptions.
             return HealthCheckResult::down(
                 $this->getName(),
                 'Disk space check failed: ' . $e->getMessage()
             );
-        }
+        } // @codeCoverageIgnoreEnd
     }
 }

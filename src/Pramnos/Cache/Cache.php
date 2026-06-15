@@ -260,8 +260,13 @@ class Cache extends \Pramnos\Framework\Base
                 );
 
                 if (!$fileAdapter->connect()) {
+                    // @codeCoverageIgnoreStart
+                    // connect() only fails when the cache dir can't be created —
+                    // sys_get_temp_dir() is always writable, so this path is
+                    // unreachable in a normal test environment.
                     self::$_connected[$methodKey] = false;
                     $this->caching = false;
+                    // @codeCoverageIgnoreEnd
                 } else {
                     $this->adapter = $fileAdapter;
                     self::$_connected[$methodKey] = true;

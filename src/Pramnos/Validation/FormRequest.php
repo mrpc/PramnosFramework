@@ -225,6 +225,9 @@ abstract class FormRequest
      */
     protected function failWith(array $errors, array $oldInput = []): never
     {
+        // @codeCoverageIgnoreStart
+        // This method calls exit() — unreachable in unit tests without process
+        // isolation. Override in a test subclass if the redirect path needs testing.
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
@@ -233,5 +236,6 @@ abstract class FormRequest
 
         header('Location: ' . $this->getRedirectUrl(), true, 302);
         exit;
+        // @codeCoverageIgnoreEnd
     }
 }
