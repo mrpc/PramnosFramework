@@ -1240,6 +1240,9 @@ class ApplicationTest extends TestCase
      * The fixture file `tests/fixtures/app/throwapp.php` always throws a
      * RuntimeException when required; getInstance() must catch it, log the
      * message, and return without propagating the exception.
+     *
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
      */
     public function testGetInstanceCatchesExceptionFromBrokenConfigFile(): void
     {
