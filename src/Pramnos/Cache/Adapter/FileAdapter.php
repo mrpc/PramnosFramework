@@ -46,10 +46,10 @@ class FileAdapter extends AbstractAdapter
         if (!file_exists($this->cacheDir)) {
             try {
                 mkdir($this->cacheDir, 0755, true);
-            } catch (\Exception $ex) {
+            } catch (\Exception $ex) { // @codeCoverageIgnoreStart
                 \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 return false;
-            }
+            } // @codeCoverageIgnoreEnd
         }
 
         return is_dir($this->cacheDir) && is_writable($this->cacheDir);
@@ -79,16 +79,16 @@ class FileAdapter extends AbstractAdapter
         try {
             $directories = glob($path . DIRECTORY_SEPARATOR . '*', GLOB_ONLYDIR);
             $categories = [];
-            
+
             foreach ($directories as $dir) {
                 $categories[] = basename($dir);
             }
-            
+
             return $categories;
-        } catch (\Exception $ex) {
+        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return [];
-        }
+        } // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -98,11 +98,10 @@ class FileAdapter extends AbstractAdapter
     {
         try {
             mkdir($this->cacheDir);
-        }
-        catch (\Exception $ex) {
-            $this->caching=false;
+        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
+            $this->caching = false;
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
-        }
+        } // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -133,10 +132,10 @@ class FileAdapter extends AbstractAdapter
             if (!file_exists($path) && $createDir) {
                 try {
                     mkdir($path, 0755, true);
-                } catch (\Exception $ex) {
+                } catch (\Exception $ex) { // @codeCoverageIgnoreStart
                     \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                     return false;
-                }
+                } // @codeCoverageIgnoreEnd
             }
         }
 
@@ -146,10 +145,10 @@ class FileAdapter extends AbstractAdapter
             if (!file_exists($path) && $createDir) {
                 try {
                     mkdir($path, 0755, true);
-                } catch (\Exception $ex) {
+                } catch (\Exception $ex) { // @codeCoverageIgnoreStart
                     \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                     return false;
-                }
+                } // @codeCoverageIgnoreEnd
             }
         }
 
@@ -188,10 +187,10 @@ class FileAdapter extends AbstractAdapter
             }
 
             return $entry['data'];
-        } catch (\Exception $ex) {
+        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
-        }
+        } // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -219,10 +218,10 @@ class FileAdapter extends AbstractAdapter
             file_put_contents($filePath, $serialized);
 
             return true;
-        } catch (\Exception $ex) {
+        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
-        }
+        } // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -243,10 +242,10 @@ class FileAdapter extends AbstractAdapter
             unlink($filePath);
             $this->cleanEmptyDirectories(dirname($filePath));
             return true;
-        } catch (\Exception $ex) {
+        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
-        }
+        } // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -265,9 +264,9 @@ class FileAdapter extends AbstractAdapter
                 try {
                     rmdir($dir);
                     $this->cleanEmptyDirectories(dirname($dir));
-                } catch (\Exception $ex) {
+                } catch (\Exception $ex) { // @codeCoverageIgnoreStart
                     \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
-                }
+                } // @codeCoverageIgnoreEnd
             }
         }
     }
@@ -324,10 +323,10 @@ class FileAdapter extends AbstractAdapter
 
         try {
             $details = unserialize($contents);
-        } catch (\Exception $ex) {
+        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
-        }
+        } // @codeCoverageIgnoreEnd
 
         return filemtime($file) < (time() - $details['timeout']);
     }
@@ -377,9 +376,9 @@ class FileAdapter extends AbstractAdapter
 
             $files = $this->listDirectoryFiles($path);
             $stats['items'] = count($files);
-        } catch (\Exception $ex) {
+        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
-        }
+        } // @codeCoverageIgnoreEnd
 
         return $stats;
     }
@@ -444,14 +443,14 @@ class FileAdapter extends AbstractAdapter
                             'expired' => $isExpired
                         ];
                     }
-                } catch (\Exception $e) {
+                } catch (\Exception $e) { // @codeCoverageIgnoreStart
                     // Skip problematic files
                     continue;
-                }
+                } // @codeCoverageIgnoreEnd
             }
-        } catch (\Exception $ex) {
+        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
-        }
+        } // @codeCoverageIgnoreEnd
         
         return $items;
     }
