@@ -606,4 +606,309 @@ class LocalBroadcastServerTest extends TestCase
         fclose($clientSocket);
         fclose($serverSocket);
     }
+
+    /**
+     * processFrames() receives a WebSocket pong frame (opcode 0xA) and must
+     * silently ignore it (the pong is just a keepalive reply from the client).
+     *
+     * This covers lines 313-315: `case 0xA: // pong → break`.
+     */
+    public function testPongFrameIsIgnored(): void
+    {
+        // Arrange
+        $server  = new LocalBroadcastServer('test-key');
+        $sockets = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $clientSocket = $sockets[0];
+        $serverSocket = $sockets[1];
+
+        $refClients = new \ReflectionProperty($server, 'clients');
+        $refClients->setValue($server, [
+            1 => [
+                'socket'   => $serverSocket,
+                'state'    => 'connected',
+                'buffer'   => '',
+                'channels' => [],
+                'socketId' => '1.2',
+                'pingAt'   => time() + 30,
+            ]
+        ]);
+
+        // Build a masked WebSocket pong frame: FIN=1, opcode=0xA → 0x8A; mask=1, len=0 → 0x80
+        $mask  = "\x01\x02\x03\x04";
+        $frame = chr(0x8A) . chr(0x80) . $mask; // opcode=pong, masked, zero-length payload
+        fwrite($clientSocket, $frame);
+
+        // Act — must not throw; pong case is a silent no-op
+        $method = new \ReflectionMethod($server, 'readClient');
+        $method->invoke($server, $serverSocket);
+
+        // Assert — client still connected (pong did not disconnect)
+        $clients = $refClients->getValue($server);
+        $this->assertArrayHasKey(1, $clients,
+            'A pong frame must not disconnect the client');
+
+        fclose($clientSocket);
+        fclose($serverSocket);
+    }
+
+    /**
+     * parseFrame() must handle the 127 (8-byte extended length) payload size
+     * indicator when the full frame is present.
+     *
+     * This covers lines 344-353 of parseFrame(): the `elseif ($payLen === 127)`
+     * branch that reads 8 bytes for the actual payload length.
+     */
+    public function testParseFrameWith127ExtendedPayloadLength(): void
+    {
+        // Arrange — send a pusher:ping as a text frame with 127-extended length encoding
+        $server  = new LocalBroadcastServer('test-key');
+        $sockets = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $clientSocket = $sockets[0];
+        $serverSocket = $sockets[1];
+
+        $refClients = new \ReflectionProperty($server, 'clients');
+        $refClients->setValue($server, [
+            1 => [
+                'socket'   => $serverSocket,
+                'state'    => 'connected',
+                'buffer'   => '',
+                'channels' => [],
+                'socketId' => '1.2',
+                'pingAt'   => time() + 30,
+            ]
+        ]);
+
+        // Build a masked frame using payLen=127 (8-byte extended) with a small payload.
+        // The 127 indicator means "the next 8 bytes hold the real length" — completely
+        // valid for any payload size, even a short one.
+        $payload   = json_encode(['event' => 'pusher:ping', 'data' => '{}']);
+        $actualLen = strlen($payload);
+
+        // 8-byte big-endian encoding of $actualLen
+        $lenBytes  = "\x00\x00\x00\x00" . pack('N', $actualLen);
+
+        $mask   = "\x01\x02\x03\x04";
+        $masked = '';
+        for ($i = 0; $i < $actualLen; $i++) {
+            $masked .= chr(ord($payload[$i]) ^ ord($mask[$i % 4]));
+        }
+
+        // Frame: FIN=1 opcode=text → 0x81; MASK=1 payLen=127 → 0xFF; 8-byte length; mask; payload
+        $frame = chr(0x81) . chr(0xFF) . $lenBytes . $mask . $masked;
+        fwrite($clientSocket, $frame);
+
+        // Act
+        $method = new \ReflectionMethod($server, 'readClient');
+        $method->invoke($server, $serverSocket);
+
+        // Assert — pusher:ping was handled → pong reply sent back to client
+        stream_set_blocking($clientSocket, false);
+        $response = fread($clientSocket, 8192);
+        $this->assertStringContainsString('pusher:pong', $response,
+            'parseFrame() must correctly decode a 127-extended-length frame and dispatch the message');
+
+        fclose($clientSocket);
+        fclose($serverSocket);
+    }
+
+    /**
+     * handleSubscribe() must also accept `data` as a JSON-encoded string
+     * (Pusher protocol sometimes sends `data` as a pre-encoded JSON string rather
+     * than an array).
+     *
+     * This covers line 430: `$data = is_string($data) ? (json_decode($data, true) ?? []) : …`
+     */
+    public function testHandleSubscribeWithStringEncodedData(): void
+    {
+        // Arrange
+        $server  = new LocalBroadcastServer('test-key');
+        $sockets = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $clientSocket = $sockets[0];
+        $serverSocket = $sockets[1];
+
+        $refClients = new \ReflectionProperty($server, 'clients');
+        $refClients->setValue($server, [
+            1 => [
+                'socket'   => $serverSocket,
+                'state'    => 'connected',
+                'buffer'   => '',
+                'channels' => [],
+                'socketId' => '1.2',
+                'pingAt'   => time() + 30,
+            ]
+        ]);
+
+        // Build subscribe message with `data` as a JSON-encoded string
+        $payload = json_encode([
+            'event' => 'pusher:subscribe',
+            'data'  => json_encode(['channel' => 'string-data-channel']),
+        ]);
+
+        $len    = strlen($payload);
+        $mask   = "\x05\x06\x07\x08";
+        $masked = '';
+        for ($i = 0; $i < $len; $i++) {
+            $masked .= chr(ord($payload[$i]) ^ ord($mask[$i % 4]));
+        }
+        $frame = chr(0x81) . chr(0x80 | $len) . $mask . $masked;
+        fwrite($clientSocket, $frame);
+
+        // Act
+        $method = new \ReflectionMethod($server, 'readClient');
+        $method->invoke($server, $serverSocket);
+
+        // Assert — channel was registered from the string-decoded data
+        $clients = $refClients->getValue($server);
+        $this->assertContains('string-data-channel', $clients[1]['channels'],
+            'handleSubscribe() must parse channel from a JSON-string `data` field');
+
+        $refSubs = new \ReflectionProperty($server, 'subscriptions');
+        $this->assertArrayHasKey('string-data-channel', $refSubs->getValue($server),
+            'handleSubscribe() must register the subscription when data is a JSON string');
+
+        fclose($clientSocket);
+        fclose($serverSocket);
+    }
+
+    /**
+     * readClient() must call disconnectClient() when fread returns empty string
+     * and feof() returns true (remote end closed the connection).
+     *
+     * This covers lines 208-210: `if ($data === false || ($data === '' && feof($socket)))`.
+     *
+     * We simulate this by creating a socket pair, putting the server side in
+     * connected state, writing data to the server buffer, closing the client side,
+     * then calling readClient — fread returns '' + feof=true → client removed.
+     */
+    public function testReadClientDisconnectsOnEof(): void
+    {
+        // Arrange
+        $server  = new LocalBroadcastServer('test-key');
+        $sockets = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $clientSocket = $sockets[0];
+        $serverSocket = $sockets[1];
+
+        $refClients = new \ReflectionProperty($server, 'clients');
+        $refClients->setValue($server, [
+            1 => [
+                'socket'   => $serverSocket,
+                'state'    => 'connected',
+                'buffer'   => '',
+                'channels' => ['eof-channel'],
+                'socketId' => '1.2',
+                'pingAt'   => time() + 30,
+            ]
+        ]);
+        $refSubs = new \ReflectionProperty($server, 'subscriptions');
+        $refSubs->setValue($server, ['eof-channel' => [1 => 1]]);
+
+        // Close the client side so fread on serverSocket returns '' and feof=true
+        fclose($clientSocket);
+
+        // Act — readClient should detect EOF and disconnect
+        $method = new \ReflectionMethod($server, 'readClient');
+        $method->invoke($server, $serverSocket);
+
+        // Assert — client was removed (disconnectClient was called)
+        $this->assertEmpty($refClients->getValue($server),
+            'readClient() must disconnect the client when fread returns empty + feof');
+
+        // Subscriptions must also be cleaned up
+        $subs = $refSubs->getValue($server);
+        $this->assertArrayNotHasKey('eof-channel', $subs,
+            'disconnectClient() must remove channel subscriptions on EOF disconnect');
+    }
+
+    /**
+     * processHandshake() must return without doing anything when the buffer
+     * does not yet contain the full HTTP request headers (no \\r\\n\\r\\n).
+     *
+     * This covers lines 232-234: the incomplete-buffer early return.
+     */
+    public function testProcessHandshakeWaitsForCompleteHeaders(): void
+    {
+        // Arrange — inject a client with a partial HTTP request (no \r\n\r\n yet)
+        $server = new LocalBroadcastServer('test-key');
+        $sockets = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $clientSocket = $sockets[0];
+        $serverSocket = $sockets[1];
+
+        $partial = "GET /app/test-key HTTP/1.1\r\nHost: localhost\r\n";
+        // Write buffer directly (simulate partial data already read)
+        $refClients = new \ReflectionProperty($server, 'clients');
+        $refClients->setValue($server, [
+            1 => [
+                'socket'   => $serverSocket,
+                'state'    => 'handshaking',
+                'buffer'   => $partial,
+                'channels' => [],
+                'socketId' => '1.2',
+                'pingAt'   => time() + 30,
+            ]
+        ]);
+
+        // Act — call processHandshake directly; it must return early
+        $method = new \ReflectionMethod($server, 'processHandshake');
+        $method->invoke($server, 1);
+
+        // Assert — client is still in handshaking state (not disconnected, not connected)
+        $clients = $refClients->getValue($server);
+        $this->assertArrayHasKey(1, $clients, 'Client must not be disconnected on incomplete headers');
+        $this->assertSame('handshaking', $clients[1]['state'],
+            'processHandshake() must not advance state when buffer lacks \\r\\n\\r\\n');
+
+        fclose($clientSocket);
+        fclose($serverSocket);
+    }
+
+    /**
+     * pollLogFile() must handle a JSONL line with generic 'data' key instead
+     * of the 'payload' key (both are supported formats).
+     *
+     * This covers line 499: `$data = $entry['payload'] ?? $entry['data'] ?? []`.
+     * The `$entry['data']` branch is exercised when there is no 'payload' key.
+     */
+    public function testPollLogFileWithDataKeyInstead(): void
+    {
+        // Arrange
+        $server = new LocalBroadcastServer('test-key', $this->tempLogFile);
+        $sockets = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $clientSocket = $sockets[0];
+        $serverSocket = $sockets[1];
+
+        $refClients = new \ReflectionProperty($server, 'clients');
+        $refClients->setValue($server, [
+            1 => [
+                'socket'   => $serverSocket,
+                'state'    => 'connected',
+                'buffer'   => '',
+                'channels' => ['data-key-channel'],
+                'socketId' => '1.2',
+                'pingAt'   => time() + 30,
+            ]
+        ]);
+        $refSubs = new \ReflectionProperty($server, 'subscriptions');
+        $refSubs->setValue($server, ['data-key-channel' => [1 => 1]]);
+
+        // Write a log line using 'data' key (not 'payload')
+        $logLine = json_encode([
+            'channel' => 'data-key-channel',
+            'event'   => 'DataKeyEvent',
+            'data'    => ['value' => 'from-data-key'],
+        ]) . "\n";
+        file_put_contents($this->tempLogFile, $logLine);
+
+        // Act
+        $method = new \ReflectionMethod($server, 'pollLogFile');
+        $method->invoke($server);
+
+        // Assert — event was broadcast from 'data' key
+        stream_set_blocking($clientSocket, false);
+        $response = fread($clientSocket, 8192);
+        $this->assertStringContainsString('DataKeyEvent', $response,
+            'pollLogFile() must broadcast events using the "data" key when "payload" is absent');
+
+        fclose($clientSocket);
+        fclose($serverSocket);
+    }
 }
