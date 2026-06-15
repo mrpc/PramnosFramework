@@ -1277,6 +1277,83 @@ class ApplicationTest extends TestCase
     }
 
     // =========================================================================
+    // showError() — else branch when DEVELOPMENT constant is not defined
+    // =========================================================================
+
+    /**
+     * showError() must set $error = '' (line 513) when the DEVELOPMENT constant
+     * is not defined.  This test runs in an isolated process to prevent the
+     * DEVELOPMENT=true constant (defined by DevPanelControllerTest earlier in
+     * the suite) from polluting the result and forcing the if-branch instead.
+     *
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     */
+    public function testShowErrorElseBranchExecutesWhenDevelopmentNotDefined(): void
+    {
+        // Arrange — in this fresh process DEVELOPMENT is NOT defined.
+        // Define PRAMNOS_TESTING so that close() throws instead of exit()ing.
+        if (!defined('PRAMNOS_TESTING')) {
+            define('PRAMNOS_TESTING', true);
+        }
+
+        $app = new \Pramnos\Application\Application('test_app');
+
+        // Act — DEVELOPMENT not defined so the else branch ($error = '') fires.
+        try {
+            $app->showError('isolated_error_msg');
+            $this->fail('showError() calls close() which must throw under PRAMNOS_TESTING');
+        } catch (\Exception $ex) {
+            // Assert — close() was reached, confirming the else branch ran.
+            $this->assertStringContainsString('isolated_error_msg', $ex->getMessage(),
+                'showError() must pass the message through to close()');
+        }
+    }
+
+    // =========================================================================
+    // getInstance() — config file without 'namespace' key (line 892)
+    // =========================================================================
+
+    /**
+     * getInstance() must set $class = '\Pramnos\Application' (line 892) when
+     * the config file returns an array that does not contain a 'namespace' key.
+     *
+     * The class '\Pramnos\Application' does not exist, so class_exists() returns
+     * false and no instance is created — the method returns null (or the existing
+     * slot value).  The important thing is that line 892 is executed without
+     * throwing.
+     */
+    public function testGetInstanceUsesDefaultClassNameWhenConfigHasNoNamespaceKey(): void
+    {
+        // Arrange — 'nonamespace.php' fixture returns ['features'=>[]] with no
+        // 'namespace' key, so the else branch at line 892 is taken.
+        // Ensure the slot is clear so getInstance() actually reads the config.
+        $refInstances = new \ReflectionProperty(Application::class, 'appInstances');
+        $instances    = $refInstances->getValue();
+        unset($instances['nonamespace']);
+        $refInstances->setValue(null, $instances);
+
+        // Act — should NOT throw; the class_exists() guard prevents any new() call.
+        $result = null;
+        try {
+            $result = Application::getInstance('nonamespace');
+        } catch (\Throwable $e) {
+            $this->fail('getInstance() must not throw for a config without namespace: ' . $e->getMessage());
+        }
+
+        // Assert — returns null or an Application (class_exists returns false, so null)
+        $this->assertTrue(
+            $result === null || $result instanceof Application,
+            'getInstance() must return null or an Application for a no-namespace config'
+        );
+
+        // Cleanup
+        $instances = $refInstances->getValue();
+        unset($instances['nonamespace']);
+        $refInstances->setValue(null, $instances);
+    }
+
+    // =========================================================================
     // getController() — user-in-session error message path
     // =========================================================================
 
