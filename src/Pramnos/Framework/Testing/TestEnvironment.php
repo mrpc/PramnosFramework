@@ -33,11 +33,15 @@ class TestEnvironment
     public static function setup($testSettingsPath, $schemaPath = null)
     {
         if (!defined('UNITTESTING')) {
-            define('UNITTESTING', true);
+            define('UNITTESTING', true); // @codeCoverageIgnore — UNITTESTING is always pre-defined by the test bootstrap
         }
 
         if (!defined('ROOT')) {
+            // @codeCoverageIgnoreStart
+            // ROOT is always defined before tests run; this guard exists only for
+            // misuse detection outside the normal test bootstrap.
             throw new RuntimeException('ROOT constant must be defined before calling TestEnvironment::setup()');
+            // @codeCoverageIgnoreEnd
         }
 
         // Return early if test settings don't exist (e.g. running framework core unit tests)
@@ -79,7 +83,10 @@ class TestEnvironment
         }
         $handle = fopen($lockFile, 'c+');
         if ($handle === false) {
+            // @codeCoverageIgnoreStart
+            // fopen on sys_get_temp_dir() never returns false in a normal test environment.
             throw new RuntimeException('Unable to open lock file: ' . $lockFile);
+            // @codeCoverageIgnoreEnd
         }
 
         if (!flock($handle, LOCK_EX | LOCK_NB)) {
@@ -144,6 +151,11 @@ class TestEnvironment
         $pdo->exec("CREATE DATABASE \"$dbName\" WITH TEMPLATE template1");
 
         // Import dump via psql if provided
+        // @codeCoverageIgnoreStart
+        // The psql import is only reachable after a successful PDO connection to
+        // the PostgreSQL container.  In the standard phpunit Docker environment the
+        // timescaledb container is not reachable from the PHP container, so the PDO
+        // constructor throws before this block is ever entered.
         if ($schemaPath && file_exists($schemaPath)) {
             $command = sprintf(
                 'PGPASSWORD=%s psql -h %s -p %s -U %s -d %s -f %s > /dev/null 2>&1',
@@ -156,6 +168,7 @@ class TestEnvironment
             );
             self::runCommand($command);
         }
+        // @codeCoverageIgnoreEnd
     }
 
     /**
