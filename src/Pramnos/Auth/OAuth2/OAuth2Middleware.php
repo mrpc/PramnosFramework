@@ -154,29 +154,37 @@ class OAuth2Middleware
         if (!empty($_SERVER['HTTP_AUTHORIZATION'])) {
             return trim($_SERVER['HTTP_AUTHORIZATION']);
         }
+        // @codeCoverageIgnoreStart
+        // apache_request_headers() only exists under the Apache SAPI; never
+        // available in CLI (PHPUnit) or FPM environments.
         if (function_exists('apache_request_headers')) {
             $headers = array_change_key_case(apache_request_headers(), CASE_LOWER);
             if (!empty($headers['authorization'])) {
                 return trim($headers['authorization']);
             }
         }
+        // @codeCoverageIgnoreEnd
         return '';
     }
 
     protected function sendUnauthorized(string $message): void
     {
+        // @codeCoverageIgnoreStart
         http_response_code(401);
         header('Content-Type: application/json');
         header('WWW-Authenticate: Bearer');
         echo json_encode(['error' => 'unauthorized', 'error_description' => $message]);
         exit;
+        // @codeCoverageIgnoreEnd
     }
 
     protected function sendForbidden(string $message): void
     {
+        // @codeCoverageIgnoreStart
         http_response_code(403);
         header('Content-Type: application/json');
         echo json_encode(['error' => 'insufficient_scope', 'error_description' => $message]);
         exit;
+        // @codeCoverageIgnoreEnd
     }
 }
