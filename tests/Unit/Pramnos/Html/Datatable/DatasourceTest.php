@@ -1171,20 +1171,29 @@ class DatasourceTest extends TestCase
     public function testRenderWithModernDTSearchAsArrayCoversSearchValuePath(): void
     {
         // Arrange — modern DT format: draw + search as array (not string)
-        // This triggers the is_array() branch at line 147 → line 149 fires
+        // This triggers the is_array() branch at line 147 → line 149 fires.
+        // The columns array marks both fields as searchable so the WHERE clause
+        // actually filters on the search value (avoids empty WHERE group).
         $this->setPost([
-            'draw'   => '1',
-            'start'  => '0',
-            'length' => '10',
-            'search' => ['value' => 'Widget', 'regex' => 'false'],
+            'draw'    => '1',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => 'Widget', 'regex' => 'false'],
+            'columns' => [
+                ['data' => 'id',   'searchable' => 'true',  'orderable' => 'true'],
+                ['data' => 'name', 'searchable' => 'true',  'orderable' => 'true'],
+            ],
         ]);
         $ds = new Datasource();
 
         // Act — render must translate the array search to sSearch (line 149)
         $result = $ds->render('ds_items', ['a.id', 'a.name'], false, '', '', false);
 
-        // Assert — search filtered correctly using the 'value' key
-        $this->assertSame(2, $result['iTotalDisplayRecords'],
+        // Assert — modern DT format response uses 'recordsFiltered' (not 'iTotalDisplayRecords')
+        // and the search term 'Widget' must filter the result set.
+        $this->assertArrayHasKey('recordsFiltered', $result,
+            'render() in modern DT mode must return recordsFiltered key');
+        $this->assertSame(2, $result['recordsFiltered'],
             'render() must extract search value from array (line 149) in modern DT format');
     }
 
