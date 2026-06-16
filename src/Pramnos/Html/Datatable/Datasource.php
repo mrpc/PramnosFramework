@@ -200,18 +200,27 @@ class Datasource extends Base
         /* Filtering */
         $searchTerm = $request->get('sSearch', '', 'post');
         if ($searchTerm != "") {
-            $qb->where(function($query) use ($fields, $searchTerm, $database) {
-                foreach ($fields as $i => $field) {
-                    if (isset($_POST['bSearchable_' . $i]) && $_POST['bSearchable_' . $i] == "true") {
-                        if (strpos($field, ' as ') !== false) {
-                            $field = explode(' as ', $field)[0];
-                        }
-                        
-                        $column = strpos($field, '.') === false ? "a.`$field`" : $field;
-                        $query->orWhere($column, 'LIKE', '%' . $searchTerm . '%');
-                    }
+            $hasSearchable = false;
+            foreach ($fields as $i => $field) {
+                if (isset($_POST['bSearchable_' . $i]) && $_POST['bSearchable_' . $i] == "true") {
+                    $hasSearchable = true;
+                    break;
                 }
-            });
+            }
+            if ($hasSearchable) {
+                $qb->where(function($query) use ($fields, $searchTerm, $database) {
+                    foreach ($fields as $i => $field) {
+                        if (isset($_POST['bSearchable_' . $i]) && $_POST['bSearchable_' . $i] == "true") {
+                            if (strpos($field, ' as ') !== false) {
+                                $field = explode(' as ', $field)[0];
+                            }
+
+                            $column = strpos($field, '.') === false ? "a.`$field`" : $field;
+                            $query->orWhere($column, 'LIKE', '%' . $searchTerm . '%');
+                        }
+                    }
+                });
+            }
         }
 
         /* Individual column filtering */
