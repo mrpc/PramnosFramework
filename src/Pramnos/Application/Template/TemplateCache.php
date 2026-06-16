@@ -111,7 +111,7 @@ class TemplateCache
     public function store(string $sourcePath, string $compiled): string
     {
         if (!is_dir($this->cacheDir)) {
-            if (!mkdir($this->cacheDir, 0755, true) && !is_dir($this->cacheDir)) {
+            if (!@mkdir($this->cacheDir, 0755, true) && !is_dir($this->cacheDir)) {
                 throw new \RuntimeException(
                     "Cannot create template cache directory: {$this->cacheDir}"
                 );

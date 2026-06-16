@@ -36,8 +36,8 @@ class DiskSpaceCheck implements HealthCheck
     public function run(): HealthCheckResult
     {
         try {
-            $free  = disk_free_space($this->path);
-            $total = disk_total_space($this->path);
+            $free  = @disk_free_space($this->path);
+            $total = @disk_total_space($this->path);
 
             if ($free === false || $total === false) {
                 return HealthCheckResult::down($this->getName(), 'Could not read disk space');
