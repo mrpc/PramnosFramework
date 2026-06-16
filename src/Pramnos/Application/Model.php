@@ -528,9 +528,10 @@ class Model extends \Pramnos\Framework\Base
                 $this->_fixDb();
             }
             $primarykey = $this->_primaryKey;
+            $selectClause = $this->_ensurePrimaryKeyInSelect($queryFields, $primarykey);
             $qb = $database->queryBuilder()
                 ->from($this->getFullTableName() . ' a')
-                ->select($queryFields ?? '*');
+                ->select($selectClause);
 
             if ($join != '') {
                 $qb->joinRaw($join);
@@ -699,9 +700,10 @@ class Model extends \Pramnos\Framework\Base
             }
             
             $primarykey = $this->_primaryKey;
+            $selectClause = $this->_ensurePrimaryKeyInSelect($queryFields, $primarykey);
             $qb = $database->queryBuilder()
                 ->from($this->getFullTableName() . ' a')
-                ->select($queryFields ?? '*');
+                ->select($selectClause);
 
             if ($join != '') {
                 $qb->joinRaw($join);
@@ -939,6 +941,27 @@ class Model extends \Pramnos\Framework\Base
             '',
             $sql
         );
+    }
+
+    /**
+     * Ensure the primary key column is always included in the SELECT list so
+     * that result rows can be indexed by primary key in the fetch loop.
+     * When $queryFields is null or '*' the original value is returned unchanged.
+     */
+    private function _ensurePrimaryKeyInSelect(?string $queryFields, string $primaryKey): string
+    {
+        if ($queryFields === null || $queryFields === '' || $queryFields === '*') {
+            return $queryFields ?? '*';
+        }
+        $listed = array_map('trim', explode(',', $queryFields));
+        foreach ($listed as $f) {
+            $bare = preg_replace('/^[a-zA-Z0-9_]+\./', '', $f); // strip table prefix
+            $bare = trim(preg_replace('/\s+as\s+.+$/i', '', $bare)); // strip alias
+            if (strcasecmp($bare, $primaryKey) === 0) {
+                return $queryFields; // already present
+            }
+        }
+        return $primaryKey . ', ' . $queryFields;
     }
 
     private function _fixDb()
