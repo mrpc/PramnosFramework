@@ -501,45 +501,45 @@ class HealthCheckUnitTest extends TestCase
      * suffixes to their byte equivalents. Covers the 'M' and 'K' match arms at
      * lines 102–103 in parseMemoryLimit().
      *
-     * The private method is exercised indirectly by manipulating php.ini.
+     * Uses 512M / 524288K (both = 512 MB) which are safely above the ~200 MB PHP
+     * process usage in the full test suite, so ini_set always succeeds.
      */
     public function testMemoryLimitCheckParsesMegabytesAndKilobytes(): void
     {
-        // Arrange — memory limit in megabytes; thresholds at 100% so we get OK
+        // Arrange — memory limit well above current PHP process usage (~200 MB);
+        // thresholds at 100% so the check always returns OK.
         $original = ini_get('memory_limit');
 
         try {
-            // Test M suffix — @ini_set suppresses the PHP core warning emitted when
-            // the requested limit is below current memory usage; the ini_get check
-            // determines whether the set actually took effect.
-            @ini_set('memory_limit', '128M');
-            if (ini_get('memory_limit') !== '128M') {
+            // Test M suffix (line 102 in parseMemoryLimit)
+            @ini_set('memory_limit', '512M');
+            if (ini_get('memory_limit') !== '512M') {
                 $this->markTestSkipped(
-                    'Cannot set memory_limit to 128M: current PHP memory usage exceeds that value.'
+                    'Cannot set memory_limit to 512M: ini_set did not take effect.'
                 );
             }
             $checkM = new MemoryLimitCheck(100.0, 100.0);
             $resultM = $checkM->run();
             $this->assertSame(HealthStatus::Ok, $resultM->status,
-                '128M limit with high thresholds must produce OK');
+                '512M limit with high thresholds must produce OK');
             $this->assertArrayHasKey('limit_mb', $resultM->details,
                 'Result must include limit_mb in details');
-            $this->assertEqualsWithDelta(128.0, $resultM->details['limit_mb'], 0.01,
-                '128M must be parsed as 128 MB');
+            $this->assertEqualsWithDelta(512.0, $resultM->details['limit_mb'], 0.01,
+                '512M must be parsed as 512 MB');
 
-            // Test K suffix
-            @ini_set('memory_limit', '131072K'); // 128 MB in kilobytes
-            if (ini_get('memory_limit') !== '131072K') {
+            // Test K suffix (line 103 in parseMemoryLimit) — 524288K = 512 MB
+            @ini_set('memory_limit', '524288K');
+            if (ini_get('memory_limit') !== '524288K') {
                 $this->markTestSkipped(
-                    'Cannot set memory_limit to 131072K: current PHP memory usage exceeds that value.'
+                    'Cannot set memory_limit to 524288K: ini_set did not take effect.'
                 );
             }
             $checkK = new MemoryLimitCheck(100.0, 100.0);
             $resultK = $checkK->run();
             $this->assertSame(HealthStatus::Ok, $resultK->status,
-                '131072K limit with high thresholds must produce OK');
-            $this->assertEqualsWithDelta(128.0, $resultK->details['limit_mb'], 0.01,
-                '131072K must be parsed as 128 MB');
+                '524288K limit with high thresholds must produce OK');
+            $this->assertEqualsWithDelta(512.0, $resultK->details['limit_mb'], 0.01,
+                '524288K must be parsed as 512 MB');
         } finally {
             ini_set('memory_limit', $original);
         }
@@ -578,27 +578,28 @@ class HealthCheckUnitTest extends TestCase
      * parseMemoryLimit() must return the raw integer value when no unit suffix
      * is present (plain byte count). Covers the `default` match arm at line 104.
      *
-     * Uses a 128 MB limit expressed as raw bytes to verify the no-suffix path.
+     * Uses 536870912 (512 MB as raw bytes) — safely above the ~200 MB PHP
+     * process usage in the full suite, so ini_set always succeeds.
      */
     public function testMemoryLimitCheckParsesPlainByteCount(): void
     {
-        // Arrange — limit expressed as plain byte count (no G/M/K suffix)
-        $original = ini_get('memory_limit');
-        $limitBytes = 134217728; // 128 MB in bytes
+        // Arrange — 512 MB expressed as a plain byte count (no G/M/K suffix)
+        $original   = ini_get('memory_limit');
+        $limitBytes = 536870912; // 512 MB in bytes
 
         try {
             @ini_set('memory_limit', (string) $limitBytes);
             if (ini_get('memory_limit') !== (string) $limitBytes) {
                 $this->markTestSkipped(
-                    'Cannot set memory_limit to ' . $limitBytes . ' bytes: current PHP memory usage exceeds that value.'
+                    'Cannot set memory_limit to ' . $limitBytes . ' bytes: ini_set did not take effect.'
                 );
             }
             $check  = new MemoryLimitCheck(100.0, 100.0);
             $result = $check->run();
 
-            // Assert — limit is treated as raw bytes; limit_mb ≈ 128 MB
+            // Assert — limit is treated as raw bytes; limit_mb ≈ 512 MB
             $this->assertSame(HealthStatus::Ok, $result->status);
-            $this->assertEqualsWithDelta(128.0, $result->details['limit_mb'], 0.01,
+            $this->assertEqualsWithDelta(512.0, $result->details['limit_mb'], 0.01,
                 'Plain byte-count limit must be parsed correctly by the default match arm');
         } finally {
             ini_set('memory_limit', $original);
