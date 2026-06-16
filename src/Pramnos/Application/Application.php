@@ -152,14 +152,18 @@ class Application extends Base
             $this->applicationInfo = require APP_PATH . DS . $appName . '.php';
         }
         if (!defined('URL')) {
-            define('URL', getUrl());
+            define('URL', getUrl()); // @codeCoverageIgnore — URL is always defined before the first Application() in tests
         }
         if (!defined('sURL')) {
+            // @codeCoverageIgnoreStart
+            // sURL is defined by the first Application() construction; subsequent
+            // constructions (in the same process) skip this entire block.
             if ($appName == '') {
                 define('sURL', URL);
             } else {
                 define('sURL', basename(URL));
             }
+            // @codeCoverageIgnoreEnd
         }
 
         parent::__construct();
@@ -170,6 +174,11 @@ class Application extends Base
      */
     protected function setDefines()
     {
+        // @codeCoverageIgnoreStart
+        // Every define() body below is guarded by !defined(...).  By the time any
+        // test constructs an Application these constants are already set (by the
+        // test bootstrap or by an earlier Application() call in the same process),
+        // so none of the define() bodies are ever entered during testing.
         if (!defined('DS')) {
             define('DS', DIRECTORY_SEPARATOR);
         }
@@ -212,6 +221,7 @@ class Application extends Base
         if (!defined('DB_PERMISSIONSTABLE')) {
             define('DB_PERMISSIONSTABLE', "#PREFIX#permissions");
         }
+        // @codeCoverageIgnoreEnd
         ini_set('error_log', LOG_PATH . DS . 'logs' . DS . 'php_error.log');
         ini_set('log_errors', '1');
         define('PRAMNOS_DEFINES', true);
@@ -291,6 +301,11 @@ class Application extends Base
      */
     public function init($settingsFile = '')
     {
+        // @codeCoverageIgnoreStart
+        // init() connects to the database, starts the session, and boots all
+        // service providers.  Unit tests use stub Application instances with
+        // initialized=true and never call init() directly; full coverage is
+        // provided by the integration test suite which runs against real DB containers.
         if ($this->initialized === true) {
             return;
         }
@@ -348,6 +363,7 @@ class Application extends Base
         \Pramnos\Addon\Addon::triger('AppInit', 'system');
         $this->database->setTrackingInfo();
         $this->registerDefaultNavItems($this->applicationInfo['features'] ?? []);
+        // @codeCoverageIgnoreEnd
     }
 
     /**
