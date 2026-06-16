@@ -405,7 +405,7 @@ class ApplicationsController extends Controller
     {
         $user = \Pramnos\User\User::getCurrentUser();
 
-        if ($user === null || (int) $user->usertype < $minType) {
+        if (!$user || (int) $user->usertype < $minType) {
             $this->redirect(sURL);
             return true;
         }
