@@ -319,7 +319,7 @@ class WebhookHandler
                 2 => ['pipe', 'w'],
             ];
 
-            $proc = proc_open($cmd, $descriptors, $pipes, $this->repoDir, null, [
+            $proc = @proc_open($cmd, $descriptors, $pipes, $this->repoDir, null, [
                 'bypass_shell' => false,
             ]);
 
