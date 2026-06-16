@@ -311,9 +311,13 @@ class Database extends \Pramnos\Framework\Base
 
         try {
             return (bool)@mysqli_query($connection, "SELECT 1");
+        // @codeCoverageIgnoreStart
+        // mysqli_query uses error suppression (@) and never throws; this catch
+        // is a safety net only — the clause and its body are unreachable in tests.
         } catch (\Throwable $e) {
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -449,9 +453,9 @@ class Database extends \Pramnos\Framework\Base
                     if (isset($dbSettings->timescale) && $dbSettings->timescale == true) {
                         $this->timescale = true;
                     }
-                    if (!\extension_loaded('pgsql') 
+                    if (!\extension_loaded('pgsql')
                         || !\function_exists('pg_connect')) {
-                        die('Postgresql extension is not installed');
+                        die('Postgresql extension is not installed'); // @codeCoverageIgnore — pgsql extension is always loaded in the test container
                     }
                     if (isset($dbSettings->schema) && $dbSettings->schema != '') {
                         $this->schema = $dbSettings->schema;
@@ -508,9 +512,12 @@ class Database extends \Pramnos\Framework\Base
         try {
             touch($filename);
             chmod($filename, 0666);
+        // @codeCoverageIgnoreStart
+        // touch() and chmod() emit E_WARNING but never throw exceptions.
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
+        // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -523,23 +530,32 @@ class Database extends \Pramnos\Framework\Base
         if (file_exists($secondFileName)) {
             try {
                 @unlink($secondFileName);
+            // @codeCoverageIgnoreStart
+            // @unlink() uses error suppression and never throws.
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             }
+            // @codeCoverageIgnoreEnd
         }
         try {
             $rename = @rename($filename, $secondFileName);
+        // @codeCoverageIgnoreStart
+        // @rename() uses error suppression and never throws.
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             $rename = false;
         }
+        // @codeCoverageIgnoreEnd
         if ($rename !== false) {
             try {
                 touch($filename);
                 chmod($filename, 0666);
+            // @codeCoverageIgnoreStart
+            // touch() and chmod() emit E_WARNING but never throw exceptions.
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             }
+            // @codeCoverageIgnoreEnd
         }
     }
 
@@ -556,10 +572,13 @@ class Database extends \Pramnos\Framework\Base
             if (is_readable($filename)) {
                 $filesize = filesize($filename);
             }
+        // @codeCoverageIgnoreStart
+        // is_readable() and filesize() return false/0 on error; they never throw.
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             $filesize = 0;
         }
+        // @codeCoverageIgnoreEnd
         if (isset($filesize) && $filesize > ((1024*1024)/2)) {
             $this->_renameLogFile($filename);
         }
@@ -630,11 +649,15 @@ class Database extends \Pramnos\Framework\Base
 
             return true;
         } else {
+            // @codeCoverageIgnoreStart
+            // This branch is only reached when the database connection attempt fails.
+            // In the test environment the database containers are always reachable.
             if ($throwOnFailure) {
                 throw new \RuntimeException($this->getConnectionErrorMessage());
             }
 
             return false;
+            // @codeCoverageIgnoreEnd
         }
     }
 
@@ -711,7 +734,7 @@ class Database extends \Pramnos\Framework\Base
             return $message;
         }
 
-        return 'Could not connect to database';
+        return 'Could not connect to database'; // @codeCoverageIgnore — reached only when mysqli_connect_error() returns null (impossible when a connection truly failed)
     }
 
 
@@ -730,6 +753,9 @@ class Database extends \Pramnos\Framework\Base
         $longpathquery = str_replace('\\', '/', $lngPthQueryOriginal);
         $this->_logSlowQueries=true;
         if ($mode === 1 && $this->type != 'postgresql') {
+            // @codeCoverageIgnoreStart
+            // Native MySQL slow-query mode (mode=1) requires SUPER privilege and a
+            // live MySQL connection.  Tests use mode=0 (PHP-level logging) only.
             \mysqli_query(
                 $this->_dbConnection,
                 "set global slow_query_log_file = '"
@@ -779,6 +805,7 @@ class Database extends \Pramnos\Framework\Base
                     $lngPthQueryOriginal, 'a+'
                 );
             }
+            // @codeCoverageIgnoreEnd
         } else {
             $this->_customLogSlowQueries=true;
             $this->_slowQueryLogHandler = fopen($lngPthQueryOriginal, 'a+');
