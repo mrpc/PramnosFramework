@@ -509,8 +509,15 @@ class HealthCheckUnitTest extends TestCase
         $original = ini_get('memory_limit');
 
         try {
-            // Test M suffix
-            ini_set('memory_limit', '128M');
+            // Test M suffix — @ini_set suppresses the PHP core warning emitted when
+            // the requested limit is below current memory usage; the ini_get check
+            // determines whether the set actually took effect.
+            @ini_set('memory_limit', '128M');
+            if (ini_get('memory_limit') !== '128M') {
+                $this->markTestSkipped(
+                    'Cannot set memory_limit to 128M: current PHP memory usage exceeds that value.'
+                );
+            }
             $checkM = new MemoryLimitCheck(100.0, 100.0);
             $resultM = $checkM->run();
             $this->assertSame(HealthStatus::Ok, $resultM->status,
@@ -521,7 +528,12 @@ class HealthCheckUnitTest extends TestCase
                 '128M must be parsed as 128 MB');
 
             // Test K suffix
-            ini_set('memory_limit', '131072K'); // 128 MB in kilobytes
+            @ini_set('memory_limit', '131072K'); // 128 MB in kilobytes
+            if (ini_get('memory_limit') !== '131072K') {
+                $this->markTestSkipped(
+                    'Cannot set memory_limit to 131072K: current PHP memory usage exceeds that value.'
+                );
+            }
             $checkK = new MemoryLimitCheck(100.0, 100.0);
             $resultK = $checkK->run();
             $this->assertSame(HealthStatus::Ok, $resultK->status,
@@ -575,7 +587,12 @@ class HealthCheckUnitTest extends TestCase
         $limitBytes = 134217728; // 128 MB in bytes
 
         try {
-            ini_set('memory_limit', (string) $limitBytes);
+            @ini_set('memory_limit', (string) $limitBytes);
+            if (ini_get('memory_limit') !== (string) $limitBytes) {
+                $this->markTestSkipped(
+                    'Cannot set memory_limit to ' . $limitBytes . ' bytes: current PHP memory usage exceeds that value.'
+                );
+            }
             $check  = new MemoryLimitCheck(100.0, 100.0);
             $result = $check->run();
 

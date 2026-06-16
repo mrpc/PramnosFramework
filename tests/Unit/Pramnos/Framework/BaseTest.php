@@ -185,10 +185,15 @@ class BaseTest extends \PHPUnit\Framework\TestCase
 
     /**
      * hasErrors() returns true when errors exist, false when none.
+     *
+     * Clears $_SESSION['_errors'] before the test because hasErrors() checks
+     * the session first and a previous test in the same process may have left
+     * stale session data.
      */
     public function testHasErrors(): void
     {
-        // Arrange
+        // Arrange — clear any session residue from earlier tests
+        unset($_SESSION['_errors']);
         $obj = new class extends Base {
             public function publicAddError(string $e): static { return $this->addError($e); }
             public function publicHasErrors(): bool { return $this->hasErrors(); }
@@ -206,10 +211,14 @@ class BaseTest extends \PHPUnit\Framework\TestCase
 
     /**
      * hasMessages() returns true when messages exist, false when none.
+     *
+     * Clears $_SESSION['_messages'] before the test to prevent session residue
+     * from earlier tests causing a false positive on the initial assertFalse.
      */
     public function testHasMessages(): void
     {
-        // Arrange
+        // Arrange — clear any session residue from earlier tests
+        unset($_SESSION['_messages']);
         $obj = new class extends Base {
             public function publicAddMessage(string $m): static { return $this->addMessage($m); }
             public function publicHasMessages(): bool { return $this->hasMessages(); }
