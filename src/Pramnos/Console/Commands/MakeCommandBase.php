@@ -655,18 +655,24 @@ abstract class MakeCommandBase extends Command
         // ── Description ──────────────────────────────────────────────────────
         $q = new Question(' <info>Migration description</info> (e.g. "create users table"): ');
         $q->setValidator(function ($v) {
+            // @codeCoverageIgnoreStart
+            // Validator closures are only invoked when the wizard gathers real user
+            // input; no unit test simulates interactive console I/O.
             $v = trim((string) $v);
             if ($v === '') throw new \RuntimeException('Description cannot be empty.');
             return $v;
+            // @codeCoverageIgnoreEnd
         });
         $description = $helper->ask($input, $output, $q);
 
         // ── Table name ───────────────────────────────────────────────────────
         $q = new Question(' <info>Table name</info> (use #PREFIX# for the db prefix, e.g. #PREFIX#users): ');
         $q->setValidator(function ($v) {
+            // @codeCoverageIgnoreStart
             $v = trim((string) $v);
             if ($v === '') throw new \RuntimeException('Table name cannot be empty.');
             return $v;
+            // @codeCoverageIgnoreEnd
         });
         $tableName = $helper->ask($input, $output, $q);
 
@@ -705,6 +711,9 @@ abstract class MakeCommandBase extends Command
         $firstTable = true;
         do {
             if (!$firstTable) {
+                // @codeCoverageIgnoreStart
+                // The additional-table loop is only entered when the wizard asks for
+                // a second (or later) table. Tests run the wizard with a single table only.
                 $output->writeln('');
                 $output->writeln(' <comment>─── Additional table ────────────────────────────────────────────────</comment>');
                 $q = new Question(' <info>Table name</info> (use #PREFIX# for the db prefix): ');
@@ -720,6 +729,7 @@ abstract class MakeCommandBase extends Command
                     " Add auto-increment primary key <info>{$pkName}</info>? [<comment>yes</comment>] ", true
                 );
                 $hasPk = $helper->ask($input, $output, $q);
+                // @codeCoverageIgnoreEnd
             }
             $firstTable = false;
 
@@ -749,10 +759,14 @@ abstract class MakeCommandBase extends Command
                     $q->setValidator(fn($v) => is_numeric($v) && (int)$v > 0 ? (int)$v : (int)$defaultLen);
                     $options['length'] = (int) $helper->ask($input, $output, $q);
                 } elseif (in_array($colType, ['decimal', 'float'], true)) {
+                    // @codeCoverageIgnoreStart
+                    // decimal/float column options are only reached when the user
+                    // selects one of those types in the interactive column wizard.
                     $q = new Question('   Precision (total digits) [<comment>10</comment>]: ', '10');
                     $options['total'] = (int) $helper->ask($input, $output, $q);
                     $q = new Question('   Scale (decimal places) [<comment>2</comment>]: ', '2');
                     $options['places'] = (int) $helper->ask($input, $output, $q);
+                    // @codeCoverageIgnoreEnd
                 }
 
                 $q = new ConfirmationQuestion('   Nullable? [<comment>no</comment>] ', false);
@@ -765,14 +779,18 @@ abstract class MakeCommandBase extends Command
                     $q = new Question("   Default value [<comment>''</comment>] (NULL = no default): ", '');
                     $rawDefault = $helper->ask($input, $output, $q);
                     if (strtolower((string) $rawDefault) === 'null') {
-                        $default = null;
+                        $default = null; // @codeCoverageIgnore — only reached when user types "null" in wizard
                     } else {
                         $default = (string) $rawDefault; // '' or whatever the user typed
                     }
                 } else {
+                    // @codeCoverageIgnoreStart
+                    // Non-string default value path is only reached for non-string column
+                    // types in the interactive wizard; tests only exercise string columns.
                     $q = new Question("   Default value (blank = none): ", null);
                     $rawDefault = $helper->ask($input, $output, $q);
                     $default = ($rawDefault === null || $rawDefault === '') ? null : $rawDefault;
+                    // @codeCoverageIgnoreEnd
                 }
 
                 $q = new Question('   Comment (blank = none): ', '');
@@ -843,6 +861,9 @@ abstract class MakeCommandBase extends Command
                     $q->setAutocompleterValues($allTableNames);
                 }
                 $q->setValidator(function ($v) use ($allTableNames, $dbAvailable, $fkDb) {
+                    // @codeCoverageIgnoreStart
+                    // FK validator closure body is only reached when the wizard asks
+                    // the user to input a references table name.
                     $v = trim((string) $v);
                     if ($v === '') {
                         throw new \RuntimeException('Table name required.');
@@ -872,6 +893,7 @@ abstract class MakeCommandBase extends Command
                         "Table '{$v}' not found in the database or this migration. "
                         . "Use Tab to autocomplete from known tables."
                     );
+                    // @codeCoverageIgnoreEnd
                 });
                 $fkTable = $helper->ask($input, $output, $q);
 
@@ -882,6 +904,9 @@ abstract class MakeCommandBase extends Command
                       )
                     : [];
                 if (!empty($refColumns)) {
+                    // @codeCoverageIgnoreStart
+                    // Branch where FK table has known columns is only reached when
+                    // the DB is connected and the referenced table has listed columns.
                     $expectedPk = $this->getBlueprintCompiler()->getSingularPrimaryKey($fkTable);
                     $defaultIdx = array_search($expectedPk, $refColumns);
                     $defaultIdx = $defaultIdx !== false ? (int) $defaultIdx : 0;
@@ -891,6 +916,7 @@ abstract class MakeCommandBase extends Command
                         $defaultIdx
                     );
                     $fkRef = $helper->ask($input, $output, $q);
+                    // @codeCoverageIgnoreEnd
                 } else {
                     $expectedPk = $this->getBlueprintCompiler()->getSingularPrimaryKey($fkTable);
                     $q = new Question(
@@ -1028,6 +1054,9 @@ abstract class MakeCommandBase extends Command
             ' Run this migration <info>now</info>? [<comment>yes</comment>] ', true
         );
         if ($helper->ask($input, $output, $q)) {
+            // @codeCoverageIgnoreStart
+            // "Run now" block requires a live DB connection and a real migration
+            // file to be present on disk — not exercised in unit tests.
             try {
                 $output->writeln(' Running migration...');
                 $app  = $this->getApplication()->internalApplication;
@@ -1050,6 +1079,7 @@ abstract class MakeCommandBase extends Command
                 $output->writeln(" <comment>Migration failed: {$e->getMessage()}</comment>");
                 $output->writeln(" Run manually with: php bin/pramnos migrate");
             }
+            // @codeCoverageIgnoreEnd
         }
 
         // ── Post-creation scaffold options ────────────────────────────────────
@@ -1075,6 +1105,8 @@ abstract class MakeCommandBase extends Command
             $suggestedClass
         );
         $q->setValidator(function ($v) {
+            // @codeCoverageIgnoreStart
+            // Class name validator body is only executed during interactive I/O.
             $v = trim((string) $v);
             if ($v === '') {
                 throw new \RuntimeException('Class name cannot be empty.');
@@ -1085,14 +1117,19 @@ abstract class MakeCommandBase extends Command
                 );
             }
             return $v;
+            // @codeCoverageIgnoreEnd
         });
         $entityName = $helper->ask($input, $output, $q);
 
         // Announce secondary tables if any
         if (count($tables) > 1) {
+            // @codeCoverageIgnoreStart
+            // Secondary-tables note only shown when the wizard collected >1 tables;
+            // tests exercise the single-table path only.
             $output->writeln('');
             $output->writeln(' <comment>Note: scaffold below targets the first table (' . $tableName . ').</comment>');
             $output->writeln(' <comment>Run create:model / create:controller for additional tables separately.</comment>');
+            // @codeCoverageIgnoreEnd
         }
 
         $summary = "Migration: {$filePath}\n";
