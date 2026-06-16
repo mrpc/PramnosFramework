@@ -147,7 +147,6 @@ class DevPanelServiceProviderTest extends TestCase
     {
         $ref    = new \ReflectionClass($provider);
         $method = $ref->getMethod('bootHttp');
-        $method->setAccessible(true);
         $method->invoke($provider);
     }
 }

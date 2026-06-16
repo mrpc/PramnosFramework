@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Unit\Debug;
 
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
@@ -127,9 +129,9 @@ class DebugBarServiceProviderTest extends TestCase
      * (defined by DevPanelControllerTest earlier in the suite) cannot pollute
      * the result of isDebugEnabled().
      *
-     * @runInSeparateProcess
-     * @preserveGlobalState disabled
      */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function testBootDoesNothingWhenDebugIsDisabled(): void
     {
         // Arrange — all debug signals off
@@ -178,7 +180,12 @@ class DebugBarServiceProviderTest extends TestCase
 
     /**
      * isDebugEnabled() must return false when APP_DEBUG is "0".
+     *
+     * Runs in isolation so that the DEVELOPMENT constant (set by earlier tests)
+     * cannot bleed into this process and cause a false positive.
      */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function testIsDebugEnabledReturnsFalseWhenAppDebugIsZero(): void
     {
         // Arrange
@@ -201,7 +208,12 @@ class DebugBarServiceProviderTest extends TestCase
 
     /**
      * isDebugEnabled() must return false when APP_DEBUG is "false".
+     *
+     * Runs in isolation so that the DEVELOPMENT constant (set by earlier tests)
+     * cannot bleed into this process and cause a false positive.
      */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function testIsDebugEnabledReturnsFalseWhenAppDebugIsFalseString(): void
     {
         // Arrange
@@ -304,7 +316,6 @@ class DebugBarServiceProviderTest extends TestCase
     {
         $ref    = new \ReflectionClass($provider);
         $method = $ref->getMethod('isDebugEnabled');
-        $method->setAccessible(true);
         return (bool) $method->invoke($provider);
     }
 }

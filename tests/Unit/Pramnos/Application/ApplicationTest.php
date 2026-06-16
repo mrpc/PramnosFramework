@@ -2,6 +2,8 @@
 
 namespace Pramnos\Tests\Unit\Application;
 
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 
@@ -1241,9 +1243,9 @@ class ApplicationTest extends TestCase
      * RuntimeException when required; getInstance() must catch it, log the
      * message, and return without propagating the exception.
      *
-     * @runInSeparateProcess
-     * @preserveGlobalState disabled
      */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function testGetInstanceCatchesExceptionFromBrokenConfigFile(): void
     {
         // Arrange — make sure 'throwapp' is not already in the registry
@@ -1286,9 +1288,9 @@ class ApplicationTest extends TestCase
      * DEVELOPMENT=true constant (defined by DevPanelControllerTest earlier in
      * the suite) from polluting the result and forcing the if-branch instead.
      *
-     * @runInSeparateProcess
-     * @preserveGlobalState disabled
      */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function testShowErrorElseBranchExecutesWhenDevelopmentNotDefined(): void
     {
         // Arrange — in this fresh process DEVELOPMENT is NOT defined.
