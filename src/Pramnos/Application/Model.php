@@ -1803,6 +1803,56 @@ class Model extends \Pramnos\Framework\Base
      * @param string $join JOIN clause to determine if table alias is needed
      * @return string WHERE conditions for search
      */
+    private function _isNumericColumnType($targetField, $join = '')
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        $alias = 'a';
+        $fieldName = $targetField;
+        
+        if (strpos($targetField, '.') !== false) {
+            $parts = explode('.', $targetField);
+            if (count($parts) === 2) {
+                $alias = $parts[0];
+                $fieldName = $parts[1];
+            }
+        }
+        
+        // Remove backticks/quotes from $fieldName for checking (e.g. `deyacode`)
+        $fieldName = trim($fieldName, '`"');
+        
+        $cacheKey = null;
+        if ($alias === 'a') {
+            $cacheKey = $this->getFullTableName();
+        } else {
+            // Parse join to find the table name for this alias
+            $joinPattern = '/(?:INNER\s+JOIN|LEFT\s+(?:OUTER\s+)?JOIN|RIGHT\s+(?:OUTER\s+)?JOIN|FULL\s+(?:OUTER\s+)?JOIN|CROSS\s+JOIN|JOIN)\s+([`"\w.#]+)\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)/i';
+            if (preg_match_all($joinPattern, $join, $matches, PREG_SET_ORDER)) {
+                foreach ($matches as $match) {
+                    if ($match[2] === $alias) {
+                        $tableName = trim($match[1], '`"');
+                        $fullTableName = str_replace('#PREFIX#', $database->prefix, $tableName);
+                        $cacheKey = "schema_columns_{$fullTableName}";
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if ($cacheKey === null || !isset(self::$columnCache[$cacheKey])) {
+            return false;
+        }
+        
+        foreach (self::$columnCache[$cacheKey] as $fieldInfo) {
+            // Remove backticks/quotes from cached field name just in case
+            $cachedField = trim($fieldInfo['Field'], '`"');
+            if ($cachedField === $fieldName) {
+                $type = strtolower($fieldInfo['Type']);
+                return (bool) preg_match('/^(int|bigint|smallint|tinyint|mediumint|integer|numeric|serial|bigserial|decimal)/', $type);
+            }
+        }
+        return false;
+    }
+
     private function _buildSearchConditions($fields, $globalSearch, $fieldSearches, $join)
     {
         $database = \Pramnos\Database\Database::getInstance();
@@ -1905,9 +1955,22 @@ class Model extends \Pramnos\Framework\Base
             }
             $bool = false;
             $boolValue = 0;
+            $isNumeric = false;
+            $numericValue = 0;
+            // Strip table alias to get bare field name for type lookup
+            $bareField = strpos($targetField, '.') !== false
+                ? substr($targetField, strrpos($targetField, '.') + 1)
+                : $targetField;
             if (is_bool($searchTerm) || $searchTerm == 'true' || $searchTerm == 'false') {
                 $bool = true;
                 $boolValue = ($searchTerm === true || $searchTerm === 'true') ? 1 : 0;
+            } elseif (
+                $this->_isNumericColumnType($targetField, $join)
+                && (is_int($searchTerm) || (is_string($searchTerm) && strlen($searchTerm) > 0 && ctype_digit($searchTerm)))
+            ) {
+                // Numeric column + numeric value: use exact match to avoid LIKE '%9%' matching 9, 19, 29, etc.
+                $isNumeric = true;
+                $numericValue = (int) $searchTerm;
             } else {
                 if (strpos($searchTerm, '%') !== false) {
                     // If search term already contains wildcards, use it directly
@@ -1936,19 +1999,25 @@ class Model extends \Pramnos\Framework\Base
                     $searchTerm = implode(' ', $processedWords);
                 }
             }
-            
-            
+
+
 
             if ($database->type == 'postgresql') {
                 if ($bool) {
                     $conditions[] = $fieldRef . ' = '. $boolValue;
+                } elseif ($isNumeric) {
+                    $conditions[] = $fieldRef . ' = ' . $numericValue;
                 } elseif (\Pramnos\General\StringHelper::containsGreekCharacters($searchTerm)) {
                     $conditions[] = 'unaccent(CAST(' . $fieldRef . ' AS TEXT)) ILIKE unaccent(\'' . $database->prepareInput($searchTerm) . '\')';
                 } else {
                     $conditions[] = 'CAST(' . $fieldRef . ' AS TEXT) ILIKE \'' . $database->prepareInput($searchTerm) . '\'';
                 }
             } else {
-                $conditions[] = $fieldRef . ' LIKE \'' . $database->prepareInput($searchTerm) . '\'';
+                if ($isNumeric) {
+                    $conditions[] = $fieldRef . ' = ' . $numericValue;
+                } else {
+                    $conditions[] = $fieldRef . ' LIKE \'' . $database->prepareInput($searchTerm) . '\'';
+                }
             }
         }
         
