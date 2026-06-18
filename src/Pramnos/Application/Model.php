@@ -1944,10 +1944,6 @@ class Model extends \Pramnos\Framework\Base
             $boolValue = 0;
             $isNumeric = false;
             $numericValue = 0;
-            // Strip table alias to get bare field name for type lookup
-            $bareField = strpos($targetField, '.') !== false
-                ? substr($targetField, strrpos($targetField, '.') + 1)
-                : $targetField;
             if (is_bool($searchTerm) || $searchTerm == 'true' || $searchTerm == 'false') {
                 $bool = true;
                 $boolValue = ($searchTerm === true || $searchTerm === 'true') ? 1 : 0;
