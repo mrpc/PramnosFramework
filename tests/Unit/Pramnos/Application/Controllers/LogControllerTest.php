@@ -1867,8 +1867,11 @@ class LogControllerTest extends TestCase
 
     public function testFilterStandardLogInvalidDateFormat(): void
     {
-        // standard log regex matching with ISO format instead of d/m/Y H:i:s
-        // E.g. [2026-06-08 10:00:00] message
+        // A bracketed ISO-8601 timestamp ([Y-m-d H:i:s]) must be recognised by
+        // the date filter, not just the d/m/Y slash style. The timestamp is
+        // parsed from the entry itself, so the assertion is deterministic
+        // regardless of the current date (the entry's date, 2026-06-08, falls
+        // inside the requested June range).
         file_put_contents(
             $this->logDir . DS . 'php_error.log',
             "[2026-06-08 10:00:00] ISO format log message\n"

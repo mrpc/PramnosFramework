@@ -1174,10 +1174,14 @@ class LogController extends Controller
         
         while (($line = fgets($handle)) !== false) {
             $timestamp = time(); // Default to current time
-            
+            // fgets() keeps the trailing newline; trim it before inspecting the
+            // line so JSON detection (which checks the last char is '}') and the
+            // bracketed-timestamp regex are not defeated by the '\n'.
+            $trimmed = trim($line);
+
             // Try to extract timestamp from JSON
-            if (substr($line, 0, 1) === '{' && substr($line, -1) === '}') {
-                $data = json_decode($line, true);
+            if (substr($trimmed, 0, 1) === '{' && substr($trimmed, -1) === '}') {
+                $data = json_decode($trimmed, true);
                 if (json_last_error() === JSON_ERROR_NONE) {
                     $timestampStr = $data['timestamp'] ?? $data['datetime'] ?? '';
                     if ($timestampStr) {
@@ -1188,16 +1192,18 @@ class LogController extends Controller
                         }
                     }
                 }
-            } 
-            // Try to extract timestamp from standard log format [date/time]
-            elseif (preg_match('/^\[([\d\/]+ [\d:]+)\]/', $line, $matches)) {
+            }
+            // Try to extract timestamp from standard log format [date time],
+            // accepting both slash (d/m/Y) and dash (Y-m-d / d-M-Y) date styles
+            // that the framework's own loggers emit.
+            elseif (preg_match('/^\[([\d\/\-A-Za-z]+ [\d:]+)/', $trimmed, $matches)) {
                 $timestampStr = $matches[1];
                 $parsedTime = strtotime($timestampStr);
                 if ($parsedTime !== false) {
                     $timestamp = $parsedTime;
                 }
             }
-            
+
             // Call the callback with line and timestamp
             $callback($line, $timestamp);
         }
