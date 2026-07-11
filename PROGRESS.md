@@ -1,7 +1,34 @@
 
 # Project Progress - Pramnos Framework v1.2
 
-## 📅 Last Updated: 2026-06-16 — Test suite cleanup: 0 failures, 0 warnings, 0 deprecations
+## 📅 Last Updated: 2026-07-11 — Fix: ambiguous PK column in JOIN list queries (found via the reference application)
+
+## 🐛 Bugfix: `Model::_ensurePrimaryKeyInSelect` — ambiguous PK in JOINs (2026-07-11)
+
+Discovered while assessing the impact of merging `v1.2-dev` into production for the
+the reference application project. The `_ensurePrimaryKeyInSelect()` helper (added 2026-06-16) compared
+each SELECT field against the primary key **without stripping identifier quotes**, so an
+already-present quoted/qualified PK (`` a.`supplyid` `` / `a."supplyid"`) was not detected
+and a duplicate **bare** `supplyid` was prepended. In queries that JOIN a table sharing the
+PK column name this produced `column reference "supplyid" is ambiguous` → the query failed
+and `getList()` returned an empty array (**silent data loss**, MySQL + PostgreSQL).
+
+- **fix(model)**: normalise both sides of the comparison (strip table prefix, backtick/
+  double-quote identifiers, whitespace, lower-case) before matching. Absent-PK behaviour
+  unchanged.
+- **test**: `ModelEnsurePrimaryKeyInSelectTest` (6 unit) + integration
+  `testGetListWithJoinSharingPrimaryKeyColumnNameReturnsRows` on MySQL and
+  PostgreSQL/TimescaleDB.
+- **verified**: baseline comparison (`main` pass / `v1.2-dev` unpatched fail / patched pass,
+  identical DB state); the reference application `Watersupply` list/filter endpoints were the real
+  victims. Docs: `docs/1.2-new-features.md` §77.
+
+Also (the reference application-side, separate repo): rewrote `EntityTest::testUnassignMetricReachesUnassignCall`
+— it expected an exception from a PG-incompatible `DELETE … LIMIT`, which `Database::pgRewriteDmlLimit`
+(§75) now legitimately rewrites, so the unassign succeeds. And documented the removal of the
+dead `Factory::getSearch/getForm/getJquery` accessors (§76).
+
+## 📅 Previous Update: 2026-06-16 — Test suite cleanup: 0 failures, 0 warnings, 0 deprecations
 
 ## 🏁 Test Suite Cleanup (2026-06-16)
 

@@ -491,4 +491,64 @@ class ModelListApiCharacterizationTest extends TestCase
         $this->assertCount(5, $result['aaData'],
             '_getJsonList must return all 5 seeded rows when no DT paging params set');
     }
+
+    // ── Regression — quoted qualified PK + JOIN sharing the PK column name ─────
+
+    /**
+     * A list query that JOINs a table which ALSO owns a column named like the
+     * primary key must still return rows.
+     *
+     * Regression guard for _ensurePrimaryKeyInSelect(): generated queries put the
+     * PK in the field list alias-qualified AND quoted (a.`id`). The buggy version
+     * failed to recognise the quoted token as the already-present PK and prepended
+     * a bare `id`. With the joined table also owning an `id` column, MySQL raised
+     * "Column 'id' in field list is ambiguous", the query failed, and _getList
+     * returned an empty array — silent data loss on a very common JOIN pattern.
+     */
+    public function testGetListWithJoinSharingPrimaryKeyColumnNameReturnsRows(): void
+    {
+        // Arrange — detail table that shares the `id` column name with the main PK
+        $detail = $this->table . '_d';
+        $this->db->query(
+            "CREATE TABLE `{$detail}` ("
+            . "`id` INT AUTO_INCREMENT PRIMARY KEY,"
+            . "`main_id` INT NOT NULL,"
+            . "`note` VARCHAR(80) NOT NULL"
+            . ")"
+        );
+        // The first main row (name=alpha) has id=1 after seeding.
+        $this->db->query(
+            "INSERT INTO `{$detail}` (`main_id`, `note`) VALUES (1, 'note-alpha')"
+        );
+
+        $model = $this->makeModel();
+
+        // Act — PK is alias-qualified and quoted, exactly like generated API SQL
+        $rows = $model->_getList(
+            "WHERE a.active = 1",
+            "ORDER BY a.id ASC",
+            $this->table,
+            'id',
+            false,
+            "LEFT JOIN `{$detail}` b ON b.main_id = a.id",
+            "a.`id`, a.`name`, b.`note`",
+            '',
+            false,
+            false,
+            false,
+            false,
+            []
+        );
+
+        $this->db->query("DROP TABLE IF EXISTS `{$detail}`");
+
+        // Assert — must NOT collapse to zero rows
+        $this->assertNotEmpty(
+            $rows,
+            'JOIN query with a quoted, qualified PK must return rows (not an ambiguous-column empty set)'
+        );
+        $this->assertSame('alpha', $rows[0]['name']);
+        // Proves the joined column is really selected alongside the main PK.
+        $this->assertSame('note-alpha', $rows[0]['note']);
+    }
 }
