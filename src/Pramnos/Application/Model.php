@@ -953,11 +953,21 @@ class Model extends \Pramnos\Framework\Base
         if ($queryFields === null || $queryFields === '' || $queryFields === '*') {
             return $queryFields ?? '*';
         }
+        // Normalise the primary key for comparison: drop any table prefix,
+        // surrounding identifier quotes (backticks / double quotes) and space.
+        // Without stripping the quotes, an already-present but quoted/qualified PK
+        // (e.g. a.`id`) would not be recognised and a duplicate bare `id` would be
+        // prepended — producing an ambiguous column when the query JOINs a table
+        // that shares the PK column name.
+        $barePk = strtolower(
+            trim(preg_replace('/^[a-zA-Z0-9_]+\./', '', $primaryKey), " `\"")
+        );
         $listed = array_map('trim', explode(',', $queryFields));
         foreach ($listed as $f) {
             $bare = preg_replace('/^[a-zA-Z0-9_]+\./', '', $f); // strip table prefix
-            $bare = trim(preg_replace('/\s+as\s+.+$/i', '', $bare)); // strip alias
-            if (strcasecmp($bare, $primaryKey) === 0) {
+            $bare = preg_replace('/\s+as\s+.+$/i', '', $bare);  // strip alias
+            $bare = strtolower(trim($bare, " `\""));             // strip quotes/space
+            if ($bare === $barePk) {
                 return $queryFields; // already present
             }
         }

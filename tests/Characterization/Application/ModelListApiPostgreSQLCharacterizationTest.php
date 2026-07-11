@@ -460,4 +460,62 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
         $this->assertCount(5, $result['aaData'],
             'PostgreSQL: all 5 seeded rows must be returned without DT paging params');
     }
+
+    // ── Regression — quoted qualified PK + JOIN sharing the PK column name ─────
+
+    /**
+     * PostgreSQL/TimescaleDB counterpart of the ambiguous-column regression guard.
+     *
+     * A list query that JOINs a table which also owns a column named like the PK
+     * must still return rows. The buggy _ensurePrimaryKeyInSelect() prepended a
+     * bare `id` next to the already-present a."id", and PostgreSQL raised
+     * `column reference "id" is ambiguous`, collapsing the result set to empty.
+     */
+    public function testGetListWithJoinSharingPrimaryKeyColumnNameReturnsRows(): void
+    {
+        // Arrange — detail table that shares the "id" column name with the main PK
+        $detail = $this->table . '_d';
+        $this->db->query(
+            'CREATE TABLE "' . $detail . '" ('
+            . '"id" SERIAL PRIMARY KEY,'
+            . '"main_id" INT NOT NULL,'
+            . '"note" VARCHAR(80) NOT NULL'
+            . ')'
+        );
+        // The first main row (name=alpha) has id=1 after seeding.
+        $this->db->query(
+            'INSERT INTO "' . $detail . '" ("main_id", "note") VALUES (1, \'note-alpha\')'
+        );
+
+        $model = $this->makeModel();
+
+        // Act — PK is alias-qualified and quoted, exactly like generated API SQL.
+        // Field list uses backticks; Database::query() converts them to double
+        // quotes for PostgreSQL before execution.
+        $rows = $model->_getList(
+            'WHERE a.active = 1',
+            'ORDER BY a.id ASC',
+            $this->table,
+            'id',
+            false,
+            'LEFT JOIN "' . $detail . '" b ON b.main_id = a.id',
+            'a.`id`, a.`name`, b.`note`',
+            '',
+            false,
+            false,
+            false,
+            false,
+            []
+        );
+
+        $this->db->query('DROP TABLE IF EXISTS "' . $detail . '"');
+
+        // Assert — must NOT collapse to zero rows
+        $this->assertNotEmpty(
+            $rows,
+            'PostgreSQL: JOIN query with a quoted, qualified PK must return rows'
+        );
+        $this->assertSame('alpha', $rows[0]['name']);
+        $this->assertSame('note-alpha', $rows[0]['note']);
+    }
 }
