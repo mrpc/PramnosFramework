@@ -607,11 +607,15 @@ class LogManager
             $message = '';
             $context = [];
             $include = true;
-            
+            // fgets() keeps the trailing newline; trim before inspecting so JSON
+            // detection ('}' as last char) and the timestamp regex are not
+            // defeated by the '\n'.
+            $trimmed = trim($line);
+
             // Check if line is JSON formatted
-            if (substr($line, 0, 1) === '{' && substr($line, -1) === '}') {
+            if (substr($trimmed, 0, 1) === '{' && substr($trimmed, -1) === '}') {
                 try {
-                    $data = json_decode($line, true);
+                    $data = json_decode($trimmed, true);
                     if (json_last_error() === JSON_ERROR_NONE) {
                         // Extract timestamp
                         $timestampStr = $data['timestamp'] ?? $data['datetime'] ?? '';
@@ -639,8 +643,10 @@ class LogManager
                     $message = $line;
                 }
             } 
-            // Try to extract timestamp from standard log format [date/time]
-            elseif (preg_match('/^\[([\d\/]+ [\d:]+)\](.*)$/', $line, $matches)) {
+            // Try to extract timestamp from standard log format [date time],
+            // accepting slash (d/m/Y), ISO (Y-m-d) and dash-month (d-M-Y) styles
+            // that the framework's own loggers emit.
+            elseif (preg_match('/^\[([\d\/\-A-Za-z]+ [\d:]+)\](.*)$/', $trimmed, $matches)) {
                 $timestampStr = $matches[1];
                 $dateObj = \DateTime::createFromFormat('d/m/Y H:i:s', $timestampStr);
                 if ($dateObj !== false) {
