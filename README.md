@@ -1,8 +1,12 @@
 # Pramnos Framework v1.2
 
+[![Documentation](https://img.shields.io/badge/docs-live-2496ED?logo=readthedocs&logoColor=white)](https://mrpc.github.io/PramnosFramework/) [![Latest Release](https://img.shields.io/github/v/release/mrpc/PramnosFramework?color=success)](https://github.com/mrpc/PramnosFramework/releases/latest) [![PHP](https://img.shields.io/badge/php-%E2%89%A58.1-777bb4?logo=php&logoColor=white)](https://www.php.net/) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE.txt)
+
 Pramnos Framework is a comprehensive PHP MVC framework designed for building robust, scalable web applications. The **v1.2 release** brings major infrastructure improvements, a complete ORM layer, advanced API support, and enhanced developer experience.
 
-> **Release Date:** May 2026  
+📖 **Full documentation:** **[mrpc.github.io/PramnosFramework](https://mrpc.github.io/PramnosFramework/)**
+
+> **Released:** July 2026  
 > **Minimum PHP Version:** 8.1  
 > **Database Support:** MySQL 8.0+, PostgreSQL 14+, TimescaleDB
 
@@ -503,6 +507,8 @@ $cache->clear('user');
 ```
 
 ## 📄 Documentation
+
+> 🌐 All of the guides below are also published as a searchable site at **[mrpc.github.io/PramnosFramework](https://mrpc.github.io/PramnosFramework/)**.
 
 The framework includes comprehensive documentation for all major subsystems:
 
