@@ -5,7 +5,8 @@ namespace Pramnos\Cache\Adapter;
 /**
  * Memcache cache adapter (for older Memcache extension)
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   (C) 2024 Yannis - Pastis Glaros
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 class MemcacheAdapter extends AbstractAdapter
 {
@@ -64,7 +65,7 @@ class MemcacheAdapter extends AbstractAdapter
                 );
             }
             catch (\Exception $exc) {
-                \pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
+                \Pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
                 $this->connected = false;
             }
         }
@@ -103,7 +104,7 @@ class MemcacheAdapter extends AbstractAdapter
             
             return $entry['data'];
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -126,7 +127,7 @@ class MemcacheAdapter extends AbstractAdapter
             $this->memcache->set($key, $entry, false, $timeout);
             return true;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -144,7 +145,7 @@ class MemcacheAdapter extends AbstractAdapter
             $this->memcache->delete($key);
             return true;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -163,7 +164,7 @@ class MemcacheAdapter extends AbstractAdapter
                 $this->memcache->flush();
                 return true;
             } catch (\Exception $ex) {
-                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 return false;
             }
         } else {
@@ -187,7 +188,7 @@ class MemcacheAdapter extends AbstractAdapter
             $tagsArray = $this->memcache->get(($prefix ? $prefix : $this->prefix) . $this->tagsKey);
             return is_array($tagsArray) ? array_keys($tagsArray) : [];
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
         
         return [];
@@ -224,7 +225,7 @@ class MemcacheAdapter extends AbstractAdapter
                 }
             }
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
         
         return $stats;
@@ -272,8 +273,8 @@ class MemcacheAdapter extends AbstractAdapter
                     'note' => 'Memcache extension does not support key enumeration'
                 ]
             ];
-        } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return [
                 [
                     'key' => 'memcache_error',
@@ -284,6 +285,6 @@ class MemcacheAdapter extends AbstractAdapter
                     'note' => 'Error with Memcache: ' . $ex->getMessage()
                 ]
             ];
-        }
+        } // @codeCoverageIgnoreEnd
     }
 }

@@ -18,11 +18,8 @@ use Jose\Component\Signature\Serializer\JWSSerializerManager;
  * But maintaining compatibility with the original API
  *
  * @category Authentication
- * @package  Authentication_JWT
  * @license  MIT
  */
-
-class ExpiredException extends \Exception {}
 
 class JWT
 {

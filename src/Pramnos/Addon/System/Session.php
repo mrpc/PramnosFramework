@@ -1,10 +1,16 @@
 <?php
 namespace Pramnos\Addon\System;
 /**
- * Session manager addon
- * @package     PramnosFramework
- * @copyright   2005 - 2020 Yannis - Pastis Glaros, Pramnos Hosting
+ * Session tracking addon — tracks visitors and writes session rows to the DB.
+ *
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ *
+ * @deprecated  Since v1.2 — use Pramnos\Http\Middleware\SessionTrackingMiddleware
+ *              instead.  Register it in app.php under the 'middleware' key.
+ *              This class remains functional for backward compatibility; existing
+ *              apps that register it in 'addons' continue to work unchanged.
+ * @license    MIT
  */
 
 class Session extends \Pramnos\Addon\Addon

@@ -13,11 +13,41 @@ use Pramnos\Logs\Logger;
  * Base Logs Controller class for the framework
  * Applications should extend this and only override the whitelists and other project-specific settings
  * 
- * @package     PramnosFramework
- * @subpackage  Application
  */
 class LogController extends Controller
 {
+    /**
+     * Terminate the execution of the request (useful for testing redirects and file downloads)
+     */
+    protected function terminate(): void
+    {
+        exit;
+    }
+
+    /**
+     * Send header (wrapper for testing)
+     */
+    protected function sendHeader(string $header): void
+    {
+        if (php_sapi_name() !== 'cli') {
+            header($header);
+        }
+    }
+
+    /**
+     * Clear output buffers
+     */
+    protected function clearOutputBuffers(): void
+    {
+        // Don't close buffers during PHPUnit tests as PHPUnit depends on ob
+        if (defined('PHPUNIT_COMPOSER_INSTALL') || defined('__PHPUNIT_PHAR__')) {
+            return;
+        }
+        while (ob_get_level()) {
+            ob_end_clean();
+        }
+    }
+
     /**
      * Whitelist of log files - by default is auto-populated from logs directory
      * Child classes can override this with a specific list if needed
@@ -57,8 +87,10 @@ class LogController extends Controller
      */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        // Default auth actions
+        // Default auth actions — display is included because the viewer
+        // renders an iframe pointing to `raw`, which is also auth-protected.
         $this->addAuthAction([
+            'display',
             'clear',
             'raw',
             'stats',
@@ -184,8 +216,8 @@ class LogController extends Controller
                             <a href="<?php echo defined('sURL') ? sURL . 'Logs/archive' : '#'; ?>" class="btn btn-secondary">
                                 <i class="fa fa-archive"></i> Archive Logs
                             </a>
-                            <a href="<?php echo defined('sURL') ? sURL . 'Logs/clear' : '#'; ?>" class="btn btn-danger" 
-                               onclick="return confirm('Are you sure you want to clear all logs in the clearList?');">
+                            <a href="<?php echo defined('sURL') ? sURL . 'Logs/clear' : '#'; ?>" class="btn btn-danger"
+                               data-confirm="Are you sure you want to clear all logs in the clearList?">
                                 <i class="fa fa-trash"></i> Clear Logs
                             </a>
                         </div>
@@ -359,9 +391,9 @@ class LogController extends Controller
                                                     class="btn btn-info" title="View">
                                                         <i class="fa fa-eye"></i>
                                                     </a>
-                                                    <a href="<?php echo defined('sURL') ? sURL . 'Logs/clearFile/' . $stat['name'] : '#'; ?>" 
+                                                    <a href="<?php echo defined('sURL') ? sURL . 'Logs/clearFile/' . $stat['name'] : '#'; ?>"
                                                     class="btn btn-danger" title="Clear"
-                                                    onclick="return confirm('Are you sure you want to clear this log?');">
+                                                    data-confirm="Are you sure you want to clear this log?">
                                                         <i class="fa fa-trash"></i>
                                                     </a>
                                                     <a href="<?php echo defined('sURL') ? sURL . 'Logs/raw?file=' . $stat['name'] : '#'; ?>" 
@@ -860,7 +892,7 @@ class LogController extends Controller
         $ext = $pathInfo['extension'] ?? 'log';
 
         // Clear the log file
-        LogManager::clearLog($filename, $ext);
+        Logger::clearLog($filename, $ext);
         
         // Redirect back to stats or logs
         $referer = $_SERVER['HTTP_REFERER'] ?? '';
@@ -1034,14 +1066,14 @@ class LogController extends Controller
         
         // Set headers for download
         if ($format === 'csv') {
-            header('Content-Type: text/csv');
-            header('Content-Disposition: attachment; filename="' . $name . '_' . $startDate . '_to_' . $endDate . '.csv"');
+            $this->sendHeader('Content-Type: text/csv');
+            $this->sendHeader('Content-Disposition: attachment; filename="' . $name . '_' . $startDate . '_to_' . $endDate . '.csv"');
             
             // Open output stream
             $output = fopen('php://output', 'w');
             
-            // Write CSV header
-            fputcsv($output, ['Timestamp', 'Level', 'Message', 'Context']);
+            // Write CSV header (explicit escape='' avoids PHP 8.4 deprecation)
+            fputcsv($output, ['Timestamp', 'Level', 'Message', 'Context'], ',', '"', '');
             
             // Callback for processing each line
             $callback = function($line, $timestamp) use ($output, $startTimestamp, $endTimestamp) {
@@ -1059,7 +1091,7 @@ class LogController extends Controller
                             $message = $data['message'] ?? '';
                             $context = json_encode($data['context'] ?? []);
                             
-                            fputcsv($output, [$timestamp, $level, $message, $context]);
+                            fputcsv($output, [$timestamp, $level, $message, $context], ',', '"', '');
                             return;
                         }
                     } catch (\Exception $e) {
@@ -1067,13 +1099,13 @@ class LogController extends Controller
                     }
                 }
                 
-                // Handle plain text log lines
-                fputcsv($output, ['', '', $line, '']);
+                // Handle plain text log lines (explicit escape='' avoids PHP 8.4 deprecation)
+                fputcsv($output, ['', '', $line, ''], ',', '"', '');
             };
             
         } else { // JSON format
-            header('Content-Type: application/json');
-            header('Content-Disposition: attachment; filename="' . $name . '_' . $startDate . '_to_' . $endDate . '.json"');
+            $this->sendHeader('Content-Type: application/json');
+            $this->sendHeader('Content-Disposition: attachment; filename="' . $name . '_' . $startDate . '_to_' . $endDate . '.json"');
             
             $logs = [];
             
@@ -1117,7 +1149,7 @@ class LogController extends Controller
         if ($format === 'csv') {
             fclose($output);
         }
-        exit;
+        $this->terminate();
     }
 
     /**
@@ -1142,10 +1174,14 @@ class LogController extends Controller
         
         while (($line = fgets($handle)) !== false) {
             $timestamp = time(); // Default to current time
-            
+            // fgets() keeps the trailing newline; trim it before inspecting the
+            // line so JSON detection (which checks the last char is '}') and the
+            // bracketed-timestamp regex are not defeated by the '\n'.
+            $trimmed = trim($line);
+
             // Try to extract timestamp from JSON
-            if (substr($line, 0, 1) === '{' && substr($line, -1) === '}') {
-                $data = json_decode($line, true);
+            if (substr($trimmed, 0, 1) === '{' && substr($trimmed, -1) === '}') {
+                $data = json_decode($trimmed, true);
                 if (json_last_error() === JSON_ERROR_NONE) {
                     $timestampStr = $data['timestamp'] ?? $data['datetime'] ?? '';
                     if ($timestampStr) {
@@ -1156,16 +1192,18 @@ class LogController extends Controller
                         }
                     }
                 }
-            } 
-            // Try to extract timestamp from standard log format [date/time]
-            elseif (preg_match('/^\[([\d\/]+ [\d:]+)\]/', $line, $matches)) {
+            }
+            // Try to extract timestamp from standard log format [date time],
+            // accepting both slash (d/m/Y) and dash (Y-m-d / d-M-Y) date styles
+            // that the framework's own loggers emit.
+            elseif (preg_match('/^\[([\d\/\-A-Za-z]+ [\d:]+)/', $trimmed, $matches)) {
                 $timestampStr = $matches[1];
                 $parsedTime = strtotime($timestampStr);
                 if ($parsedTime !== false) {
                     $timestamp = $parsedTime;
                 }
             }
-            
+
             // Call the callback with line and timestamp
             $callback($line, $timestamp);
         }
@@ -1192,15 +1230,13 @@ class LogController extends Controller
         }
         
         // Set headers for download
-        header('Content-Type: text/csv');
-        header('Content-Disposition: attachment; filename="' . $name . '-' . date('Y-m-d') . '.csv"');
-        header('Pragma: no-cache');
-        header('Expires: 0');
+        $this->sendHeader('Content-Type: text/csv');
+        $this->sendHeader('Content-Disposition: attachment; filename="' . $name . '-' . date('Y-m-d') . '.csv"');
+        $this->sendHeader('Pragma: no-cache');
+        $this->sendHeader('Expires: 0');
         
         // Force flush all output buffers
-        while (ob_get_level()) {
-            ob_end_clean();
-        }
+        $this->clearOutputBuffers();
         
         // Open output stream
         $output = fopen('php://output', 'w');
@@ -1252,7 +1288,7 @@ class LogController extends Controller
         }
         
         fclose($output);
-        exit;
+        $this->terminate();
     }
 
     /**
@@ -1273,15 +1309,13 @@ class LogController extends Controller
         }
         
         // Set headers for download
-        header('Content-Type: application/json');
-        header('Content-Disposition: attachment; filename="' . $name . '-' . date('Y-m-d') . '.json"');
-        header('Pragma: no-cache');
-        header('Expires: 0');
+        $this->sendHeader('Content-Type: application/json');
+        $this->sendHeader('Content-Disposition: attachment; filename="' . $name . '-' . date('Y-m-d') . '.json"');
+        $this->sendHeader('Pragma: no-cache');
+        $this->sendHeader('Expires: 0');
         
         // Force flush all output buffers
-        while (ob_get_level()) {
-            ob_end_clean();
-        }
+        $this->clearOutputBuffers();
         
         $logs = [];
         
@@ -1332,7 +1366,7 @@ class LogController extends Controller
         }
         
         echo json_encode(['logs' => $logs], JSON_PRETTY_PRINT);
-        exit;
+        $this->terminate();
     }
 
     /**
@@ -1369,10 +1403,11 @@ class LogController extends Controller
             return;
         }
         
-        // Create temporary file
+        // Create temporary file path (delete it first so ZipArchive creates fresh)
         $zipFile = tempnam(sys_get_temp_dir(), 'log_export_');
+        @unlink($zipFile); // Remove empty file; ZipArchive::CREATE needs non-existent path
         $zip = new \ZipArchive();
-        
+
         if ($zip->open($zipFile, \ZipArchive::CREATE) !== true) {
             Factory::getDocument();
             echo '<div class="alert alert-danger">Failed to create ZIP archive.</div>';
@@ -1400,15 +1435,15 @@ class LogController extends Controller
         $zip->close();
         
         // Set headers for download
-        header('Content-Type: application/zip');
-        header('Content-Disposition: attachment; filename="logs_export_' . date('Y-m-d') . '.zip"');
-        header('Content-Length: ' . filesize($zipFile));
-        header('Pragma: no-cache');
-        header('Expires: 0');
+        $this->sendHeader('Content-Type: application/zip');
+        $this->sendHeader('Content-Disposition: attachment; filename="logs_export_' . date('Y-m-d') . '.zip"');
+        $this->sendHeader('Content-Length: ' . filesize($zipFile));
+        $this->sendHeader('Pragma: no-cache');
+        $this->sendHeader('Expires: 0');
         
         readfile($zipFile);
         unlink($zipFile);
-        exit;
+        $this->terminate();
     }
 
     /**
@@ -2082,25 +2117,24 @@ class LogController extends Controller
         $filepath = Logger::getLogPath($name, $ext);
         
         if (!file_exists($filepath)) {
-            header('Content-Type: text/plain');
+            $this->sendHeader('Content-Type: text/plain');
             echo "Error: Log file not found.";
-            exit;
+            $this->terminate();
+            return;
         }
         
         // Force disable any output buffering
-        while (ob_get_level()) {
-            ob_end_clean();
-        }
+        $this->clearOutputBuffers();
         
         // Set headers for download
-        header('Content-Description: File Transfer');
-        header('Content-Type: text/plain');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Content-Length: ' . filesize($filepath));
-        header('Content-Transfer-Encoding: binary');
-        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
-        header('Expires: 0');
-        header('Pragma: public');
+        $this->sendHeader('Content-Description: File Transfer');
+        $this->sendHeader('Content-Type: text/plain');
+        $this->sendHeader('Content-Disposition: attachment; filename="' . $filename . '"');
+        $this->sendHeader('Content-Length: ' . filesize($filepath));
+        $this->sendHeader('Content-Transfer-Encoding: binary');
+        $this->sendHeader('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+        $this->sendHeader('Expires: 0');
+        $this->sendHeader('Pragma: public');
         
         // Read file in chunks to handle large files
         $handle = fopen($filepath, 'rb');
@@ -2114,7 +2148,7 @@ class LogController extends Controller
             fclose($handle);
         }
         
-        exit;
+        $this->terminate();
     }
     
 }

@@ -4,15 +4,50 @@ namespace Pramnos\User;
 
 /**
  * User tokens
- * @package     PramnosFramework
- * @copyright   Copyright (C) 2017  Yannis - Pastis Glaros, Pramnos Hosting Ltd.
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  *
+ * @license    MIT
  */
 
 
 class Token extends \Pramnos\Framework\Base
 {
+    /**
+     * Web session token — created on web login, accepted by UnifiedAuthMiddleware via session cookie.
+     */
+    const TYPE_WEB_SESSION = 'web_session';
+
+    /**
+     * Standard API / authentication token — issued to first-party or third-party API clients.
+     */
+    const TYPE_API = 'auth';
+
+    /**
+     * OAuth2 Bearer access token.
+     */
+    const TYPE_ACCESS_TOKEN = 'access_token';
+
+    /**
+     * OAuth2 refresh token.
+     */
+    const TYPE_REFRESH_TOKEN = 'refresh_token';
+
+    /**
+     * OAuth2 authorization code.
+     */
+    const TYPE_AUTH_CODE = 'auth_code';
+
+    /**
+     * Apple Push Notification Service device token (push notifications only, not auth).
+     */
+    const TYPE_APNS = 'apns';
+
+    /**
+     * Google Cloud Messaging / Firebase device token (push notifications only, not auth).
+     */
+    const TYPE_GCM = 'gcm';
+
     /**
      * Token ID (primary key)
      * @var int
@@ -152,6 +187,13 @@ class Token extends \Pramnos\Framework\Base
             $this->deviceinfo = json_decode($this->deviceinfo, true);
         } else {
             $this->deviceinfo = array();
+        }
+        if (is_string($this->scope) && json_decode($this->scope) !== null) {
+            $this->scope = json_decode($this->scope, true);
+        } elseif (is_string($this->scope) && strpos($this->scope, ',') !== false) {
+            $this->scope = explode(',', $this->scope);
+        } elseif (!is_array($this->scope)) {
+            $this->scope = empty($this->scope) ? array() : array($this->scope);
         }
     }
 
@@ -325,10 +367,6 @@ class Token extends \Pramnos\Framework\Base
     public function updateAction($actionid, $return_status, $execution_time_ms = 0, $return_data = null)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        // if database is mysql, return 
-        if ($database->type == 'mysql') {
-            return;
-        }
         if ($execution_time_ms == 0 && $this->lastActionTime !== null) {
             $execution_time_ms = (float) (microtime(true) * 1000) - $this->lastActionTime;
         }
@@ -548,7 +586,7 @@ class Token extends \Pramnos\Framework\Base
             ),
             array(
                 'fieldName' => 'scope',
-                'value' => $this->scope,
+                'value' => is_array($this->scope) ? json_encode($this->scope) : $this->scope,
                 'type' => 'string'
             )
         );

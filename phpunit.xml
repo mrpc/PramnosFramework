@@ -15,8 +15,14 @@
         <testsuite name="Unit Tests">
             <directory suffix="Test.php">./tests/Unit</directory>
         </testsuite>
+        <testsuite name="Feature Tests">
+            <directory suffix="Test.php">./tests/Feature</directory>
+        </testsuite>
         <testsuite name="Integration Tests">
             <directory suffix="Test.php">./tests/Integration</directory>
+        </testsuite>
+        <testsuite name="Characterization Tests">
+            <directory suffix="Test.php">./tests/Characterization</directory>
         </testsuite>
     </testsuites>
     <source>
@@ -24,4 +30,9 @@
             <directory suffix=".php">./src</directory>
         </include>
     </source>
+    <coverage>
+        <report>
+            <clover outputFile="coverage/clover.xml"/>
+        </report>
+    </coverage>
 </phpunit>

@@ -4,10 +4,9 @@ namespace Pramnos\Document\DocumentTypes\Rss;
 
 /**
  * Rss Item
- * @package     PramnosFramework
- * @subpackage  Document
- * @copyright   Copyright (C) 2005 - 2011 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Item
 {

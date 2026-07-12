@@ -4,10 +4,9 @@ namespace Pramnos\Document;
 use \Pramnos\Document\DocumentTypes;
 /**
  * Basic document functions and factory for all the subclasses
- * @package     PramnosFramework
- * @subpackage  Document
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Document extends \Pramnos\Framework\Base
 {
@@ -276,9 +275,10 @@ class Document extends \Pramnos\Framework\Base
             $instances = array();
         }
 
-        if ($type == '') {
+        $type = (string)($type ?? '');
+        if ($type === '') {
             $request = \Pramnos\Framework\Factory::getRequest();
-            $type = $request->get('format', self::$type, 'GET');
+            $type = (string)($request->get('format', self::$type, 'GET') ?? self::$type);
         } elseif ($setDefault === true) {
             self::$type = $type;
         }
@@ -437,6 +437,30 @@ class Document extends \Pramnos\Framework\Base
     }
 
     /**
+     * Check whether a script handle has been registered (via registerScript()).
+     * Safe to call from views before conditionally enqueuing a library.
+     *
+     * @param string $handle Script handle to test
+     * @return bool
+     */
+    public function isScriptRegistered(string $handle): bool
+    {
+        return isset($this->_js[$handle]);
+    }
+
+    /**
+     * Check whether a style handle has been registered (via registerStyle()).
+     * Safe to call from views before conditionally enqueuing a library.
+     *
+     * @param string $handle Style handle to test
+     * @return bool
+     */
+    public function isStyleRegistered(string $handle): bool
+    {
+        return isset($this->_css[$handle]);
+    }
+
+    /**
      * A safe way to register a CSS style file for later use with enqueueStyle().
      * @param string $handle Name of the stylesheet.
      * @param string $src URL to the stylesheet.
@@ -568,7 +592,7 @@ class Document extends \Pramnos\Framework\Base
             $this->registerScript($handle, $src, $deps, $version, $footer);
             return $this->_enqueueScript($handle);
         } else {
-            throw new Exception('Cannot find script: ' . $handle);
+            throw new \Exception('Cannot find script: ' . $handle);
         }
 
         return $this;
@@ -589,7 +613,11 @@ class Document extends \Pramnos\Framework\Base
         if (isset($this->_css[$handle])) {
             if ($this->_css[$handle]['loaded'] == false) {
                 foreach ($this->_css[$handle]['deps'] as $dep) {
-                    $this->_enqueueStyle($dep);
+                    // Skip deps that have no CSS registration (e.g. JS-only libraries
+                    // listed as a CSS dep due to shared requires in the asset catalog).
+                    if (isset($this->_css[$dep])) {
+                        $this->_enqueueStyle($dep);
+                    }
                 }
                 if ($media != '') {
                     $tag = "\n        "
@@ -615,7 +643,7 @@ class Document extends \Pramnos\Framework\Base
             $this->registerStyle($handle, $src, $deps, $version, $media);
             return $this->_enqueueStyle($handle);
         } else {
-            throw new Exception('Cannot find stylesheet: ' . $handle);
+            throw new \Exception('Cannot find stylesheet: ' . $handle);
         }
         return $this;
     }
@@ -711,6 +739,23 @@ class Document extends \Pramnos\Framework\Base
             $this->enqueueScript(md5($jsfile), $jsfile);
             $count++;
         }
+        return $this;
+    }
+
+    /**
+     * Append a block of inline JavaScript to the document footer (after all enqueued scripts).
+     *
+     * Use this instead of raw <script> tags inside view templates when the code
+     * depends on libraries loaded via enqueueScript() — those are output by renderJs()
+     * which runs in footer.php, after the view body, so any inline tag inside the view
+     * would execute before jQuery/DataTables/etc. are available.
+     *
+     * @param string $code Raw JavaScript (without <script> tags)
+     * @return self
+     */
+    public function addInlineScript(string $code): self
+    {
+        $this->foot .= '<script>' . $code . '</script>' . "\n";
         return $this;
     }
 

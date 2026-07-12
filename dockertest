@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
 
+# Prevent concurrent test runs: they share the same MySQL/PostgreSQL Docker
+# databases, so two overlapping runs will stomp each other's tables and produce
+# spurious failures.
+#
+# Lock strategy: flock on a file descriptor is automatically released when the
+# process exits — even on SIGKILL — because the kernel closes all fds.
+# The only way the lock can be "stuck" is if the process is still alive but
+# hanging (e.g. docker-compose exec frozen). In that case we detect a stale
+# PID: if the recorded PID no longer exists, we clear the lock and proceed.
 nobrowser=false
 coverage=false
 testdox=false
+resetdb=false
+force=false
 passthrough=()
 for arg in "$@"; do
     if [[ "$arg" == "--nobrowser" ]]; then
@@ -11,10 +22,47 @@ for arg in "$@"; do
         coverage=true
     elif [[ "$arg" == "--testdox" ]]; then
         testdox=true
+    elif [[ "$arg" == "--reset-db" ]]; then
+        resetdb=true
+    elif [[ "$arg" == "--force" ]]; then
+        force=true
     else
         passthrough+=("$arg")
     fi
 done
+
+LOCK_FILE="/tmp/dockertest-pramnos.lock"
+
+if [[ "$force" == true ]]; then
+    existing_pid=$(cat "$LOCK_FILE" 2>/dev/null)
+    if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+        echo "Killing existing dockertest process (PID: $existing_pid) due to --force..." >&2
+        kill -9 "$existing_pid" 2>/dev/null
+    fi
+    rm -f "$LOCK_FILE"
+fi
+
+_acquire_lock() {
+    exec 9>>"$LOCK_FILE"
+    flock -n 9
+}
+
+if ! _acquire_lock; then
+    existing_pid=$(cat "$LOCK_FILE" 2>/dev/null)
+    # Stale lock: the recorded process is no longer running.
+    if [[ -n "$existing_pid" ]] && ! kill -0 "$existing_pid" 2>/dev/null; then
+        echo "Stale lock detected (PID $existing_pid is gone). Clearing and proceeding." >&2
+        rm -f "$LOCK_FILE"
+        _acquire_lock || { echo "Could not acquire lock after clearing stale entry." >&2; exit 1; }
+    else
+        echo "Another ./dockertest run is already in progress (PID: ${existing_pid:-unknown})." >&2
+        [[ -n "$existing_pid" ]] && echo "  To kill it:  kill $existing_pid  or run with --force" >&2
+        exit 1
+    fi
+fi
+# Record our PID so a subsequent caller can detect staleness.
+> "$LOCK_FILE"
+echo $$ >"$LOCK_FILE"
 
 # Check if containers are running
 if ! docker-compose ps | grep -q "pramnos_php.*Up"; then
@@ -22,6 +70,19 @@ if ! docker-compose ps | grep -q "pramnos_php.*Up"; then
     docker-compose up -d
     echo "Waiting for services to be ready..."
     sleep 10
+fi
+
+# Optionally reset test databases to a clean slate (drops all accumulated tables
+# from previous runs, then recreates empty databases).
+if [[ "$resetdb" == true ]]; then
+    echo "Resetting test databases..."
+    docker-compose exec db mysql -uroot -psecret \
+        -e "DROP DATABASE IF EXISTS pramnos_test; CREATE DATABASE pramnos_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null \
+        && echo "  MySQL pramnos_test reset OK" || echo "  MySQL reset skipped (container not ready)"
+    docker-compose exec timescaledb psql -U postgres \
+        -c "DROP DATABASE IF EXISTS pramnos_test;" \
+        -c "CREATE DATABASE pramnos_test;" \
+        && echo "  PostgreSQL pramnos_test reset OK" || echo "  PostgreSQL reset skipped (container not ready)"
 fi
 
 # Check if database is initialized by accessing the app
@@ -36,13 +97,16 @@ fi
 
 # Run tests
 echo -e "\e[32mRunning PHPUnit tests...\e[0m"
-extra_flags="--configuration phpunit.xml --display-deprecations --display-warnings --display-incomplete --display-skipped"
+extra_flags="--configuration phpunit.xml --display-deprecations --display-warnings --display-incomplete --display-skipped --display-phpunit-deprecations"
 [[ "$testdox" == true ]] && extra_flags="$extra_flags --testdox"
 
 if [[ "$coverage" == true ]]; then
-    docker-compose exec php-apache-environment vendor/bin/phpunit --coverage-html coverage $extra_flags "${passthrough[@]}"
+    docker-compose exec php-apache-environment php -d memory_limit=1G vendor/bin/phpunit \
+        --coverage-html coverage \
+        --coverage-clover coverage/clover.xml \
+        $extra_flags "${passthrough[@]}"
 else
-    docker-compose exec php-apache-environment vendor/bin/phpunit $extra_flags "${passthrough[@]}"
+    docker-compose exec php-apache-environment php -d memory_limit=1G vendor/bin/phpunit $extra_flags "${passthrough[@]}"
 fi
 
 # Open coverage report if generated and not suppressed

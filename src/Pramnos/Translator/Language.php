@@ -6,10 +6,9 @@ use Pramnos\Framework\Base;
 
 /**
  * Language / translation functions
- * @package     PramnosFramework
- * @subpackage  Translator
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Language extends Base
 {

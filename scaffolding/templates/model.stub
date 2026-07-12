@@ -1,0 +1,10 @@
+<?php
+namespace {{ namespace }};
+
+use Pramnos\Application\Model;
+
+class {{ class }} extends Model
+{
+    protected $_dbtable = '{{ table }}';
+    protected $_primaryKey = 'id';
+}

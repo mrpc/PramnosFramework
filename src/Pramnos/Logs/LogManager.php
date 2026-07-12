@@ -4,15 +4,14 @@ namespace Pramnos\Logs;
 
 /**
  * LogManager class for handling log file maintenance tasks
- * @package     PramnosFramework
- * @subpackage  Logs
  */
 class LogManager
 {
-    /**
-     * Default log directory paths
-     */
-    private const DEFAULT_LOG_PATH = LOG_PATH . DS . 'logs';
+    private static function getDefaultLogPath(): string
+    {
+        $base = defined('LOG_PATH') ? \LOG_PATH : sys_get_temp_dir();
+        return $base . \DS . 'logs';
+    }
 
     /**
      * Get a list of all log files
@@ -23,12 +22,12 @@ class LogManager
      */
     public static function getLogFiles(bool $includePath = false, bool $includeSize = false, string $filter = '*.log'): array
     {
-        if (!file_exists(self::DEFAULT_LOG_PATH)) {
+        if (!file_exists(self::getDefaultLogPath())) {
             return [];
         }
 
         $result = [];
-        $files = glob(self::DEFAULT_LOG_PATH . DS . $filter);
+        $files = glob(self::getDefaultLogPath() . DS . $filter);
 
         foreach ($files as $file) {
             $basename = basename($file);
@@ -59,7 +58,7 @@ class LogManager
      */
     public static function getLogFileStats(string $filename, string $ext = 'log'): ?array
     {
-        $filepath = self::DEFAULT_LOG_PATH . DS . $filename . '.' . $ext;
+        $filepath = self::getDefaultLogPath() . DS . $filename . '.' . $ext;
         
         if (!file_exists($filepath)) {
             return null;
@@ -128,12 +127,12 @@ class LogManager
      */
     public static function clearAllLogs(?array $fileList = null): int
     {
-        if (!file_exists(self::DEFAULT_LOG_PATH)) {
+        if (!file_exists(self::getDefaultLogPath())) {
             return 0;
         }
         
         if ($fileList === null) {
-            $files = glob(self::DEFAULT_LOG_PATH . DS . '*.log');
+            $files = glob(self::getDefaultLogPath() . DS . '*.log');
         } else {
             $files = [];
             foreach ($fileList as $file) {
@@ -141,7 +140,7 @@ class LogManager
                 if (empty($ext)) {
                     $file .= '.log';
                 }
-                $files[] = self::DEFAULT_LOG_PATH . DS . $file;
+                $files[] = self::getDefaultLogPath() . DS . $file;
             }
         }
         
@@ -164,17 +163,17 @@ class LogManager
      */
     public static function archiveOldLogs(int $daysOld = 30, string $archiveDir = 'archives'): array
     {
-        if (!file_exists(self::DEFAULT_LOG_PATH)) {
+        if (!file_exists(self::getDefaultLogPath())) {
             return ['archived' => 0, 'errors' => ['Log directory does not exist']];
         }
         
-        $archivePath = self::DEFAULT_LOG_PATH . DS . $archiveDir;
+        $archivePath = self::getDefaultLogPath() . DS . $archiveDir;
         if (!file_exists($archivePath)) {
             mkdir($archivePath, 0777, true);
         }
         
         $cutoffTime = time() - ($daysOld * 86400);
-        $files = glob(self::DEFAULT_LOG_PATH . DS . '*.log');
+        $files = glob(self::getDefaultLogPath() . DS . '*.log');
         $archived = 0;
         $errors = [];
         
@@ -233,12 +232,12 @@ class LogManager
         int $contextLines = 2,
         bool $caseSensitive = false
     ): array {
-        if (!file_exists(self::DEFAULT_LOG_PATH)) {
+        if (!file_exists(self::getDefaultLogPath())) {
             return [];
         }
         
         if ($fileList === null) {
-            $files = glob(self::DEFAULT_LOG_PATH . DS . '*.log');
+            $files = glob(self::getDefaultLogPath() . DS . '*.log');
         } else {
             $files = [];
             foreach ($fileList as $file) {
@@ -246,7 +245,7 @@ class LogManager
                 if (empty($ext)) {
                     $file .= '.log';
                 }
-                $files[] = self::DEFAULT_LOG_PATH . DS . $file;
+                $files[] = self::getDefaultLogPath() . DS . $file;
             }
         }
         
@@ -333,7 +332,7 @@ class LogManager
      */
     public static function processLogFileWithCallback(string $filename, string $ext, callable $callback): bool
     {
-        $filepath = self::DEFAULT_LOG_PATH . DS . $filename . '.' . $ext;
+        $filepath = self::getDefaultLogPath() . DS . $filename . '.' . $ext;
         
         if (!file_exists($filepath)) {
             return false;
@@ -363,7 +362,7 @@ class LogManager
         if ($filename === 'GitDeploy' || $filename === 'GitWebhookDebug') {
             return ROOT . DS . 'www' . DS . 'api' . DS . $filename . ($ext ? '.' . $ext : '');
         } else {
-            return self::DEFAULT_LOG_PATH . DS . $filename . ($ext ? '.' . $ext : '');
+            return self::getDefaultLogPath() . DS . $filename . ($ext ? '.' . $ext : '');
         }
     }
     
@@ -466,9 +465,14 @@ class LogManager
             // Try to extract timestamp from standard log format [date/time]
             elseif (preg_match('/^\[([\d\/]+ [\d:]+)\]/', $line, $matches)) {
                 $timestampStr = $matches[1];
-                $parsedTime = strtotime($timestampStr);
-                if ($parsedTime !== false) {
-                    $timestamp = $parsedTime;
+                $dateObj = \DateTime::createFromFormat('d/m/Y H:i:s', $timestampStr);
+                if ($dateObj !== false) {
+                    $timestamp = $dateObj->getTimestamp();
+                } else {
+                    $parsedTime = strtotime($timestampStr);
+                    if ($parsedTime !== false) {
+                        $timestamp = $parsedTime;
+                    }
                 }
                 
                 $message = $line;
@@ -603,11 +607,15 @@ class LogManager
             $message = '';
             $context = [];
             $include = true;
-            
+            // fgets() keeps the trailing newline; trim before inspecting so JSON
+            // detection ('}' as last char) and the timestamp regex are not
+            // defeated by the '\n'.
+            $trimmed = trim($line);
+
             // Check if line is JSON formatted
-            if (substr($line, 0, 1) === '{' && substr($line, -1) === '}') {
+            if (substr($trimmed, 0, 1) === '{' && substr($trimmed, -1) === '}') {
                 try {
-                    $data = json_decode($line, true);
+                    $data = json_decode($trimmed, true);
                     if (json_last_error() === JSON_ERROR_NONE) {
                         // Extract timestamp
                         $timestampStr = $data['timestamp'] ?? $data['datetime'] ?? '';
@@ -635,12 +643,19 @@ class LogManager
                     $message = $line;
                 }
             } 
-            // Try to extract timestamp from standard log format [date/time]
-            elseif (preg_match('/^\[([\d\/]+ [\d:]+)\](.*)$/', $line, $matches)) {
+            // Try to extract timestamp from standard log format [date time],
+            // accepting slash (d/m/Y), ISO (Y-m-d) and dash-month (d-M-Y) styles
+            // that the framework's own loggers emit.
+            elseif (preg_match('/^\[([\d\/\-A-Za-z]+ [\d:]+)\](.*)$/', $trimmed, $matches)) {
                 $timestampStr = $matches[1];
-                $parsedTime = strtotime($timestampStr);
-                if ($parsedTime !== false) {
-                    $timestamp = $parsedTime;
+                $dateObj = \DateTime::createFromFormat('d/m/Y H:i:s', $timestampStr);
+                if ($dateObj !== false) {
+                    $timestamp = $dateObj->getTimestamp();
+                } else {
+                    $parsedTime = strtotime($timestampStr);
+                    if ($parsedTime !== false) {
+                        $timestamp = $parsedTime;
+                    }
                 }
                 
                 $message = $matches[2];

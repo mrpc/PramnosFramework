@@ -547,7 +547,7 @@ try {
 - [Framework Guide](Pramnos_Framework_Guide.md) - Core framework concepts
 - [Database Guide](Pramnos_Database_API_Guide.md) - Database operations
 - [Theme Guide](Pramnos_Theme_Guide.md) - Media display in themes
-- [Application Guide](Pramnos_Application_Guide.md) - Application structure
+- [Framework Guide](Pramnos_Framework_Guide.md) - Application structure
 - [Logging Guide](Pramnos_Logging_Guide.md) - Error logging and debugging
 
 ## Troubleshooting

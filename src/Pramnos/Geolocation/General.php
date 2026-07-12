@@ -6,10 +6,9 @@ use Pramnos\Framework\Base;
 
 /**
  * General geolocation functions
- * @package     PramnosFramework
- * @subpackage  Geolocation
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class General extends Base
 {
@@ -42,7 +41,8 @@ class General extends Base
      *                                'N' is nautical miles
      * @return float Distance between points in the requested unit
      * @throws \InvalidArgumentException When latitude or longitude values are invalid
-     * @copyright (c) 2023, Pramnos Hosting
+     * @copyright (c) 2023
+     * @license    MIT
      */
     public function getDistance(
         $firstLatitude,

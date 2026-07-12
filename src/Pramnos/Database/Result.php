@@ -4,12 +4,11 @@ namespace Pramnos\Database;
 
 /**
  * Database result object
- * @package     PramnosFramework
- * @subpackage  Database
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @copyright   2005 - 2014 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
-class Result
+class Result implements \IteratorAggregate
 {
     /**
      * Number of result rows
@@ -36,6 +35,15 @@ class Result
      * @var \mysqli_result|bool|\PgSql\Result|resource
      */
     public $mysqlResult = null;
+
+    /**
+     * Affected rows for MySQL DML via prepared statements.
+     * Populated by Database::execute() before the statement is closed,
+     * because $statement->affected_rows is unavailable after close().
+     * null means the value was not captured (SELECT or non-prepared path).
+     * @var int|null
+     */
+    public ?int $mysqlAffectedRows = null;
     /**
      * Cache time to live (in seconds)
      * @var int
@@ -77,15 +85,23 @@ class Result
         $this->database = $database;
         $this->result = $result;
         $this->isCached = false;
+        $this->cursor = -1;
     }
 
     /**
-     * Magic method to return a result field
+     * Magic method to return a result field or property alias.
+     *
+     * Case alias: EOF → eof (legacy DevPanel code uses uppercase; PHP properties
+     * are case-sensitive so this alias avoids a runtime null without touching that code).
+     *
      * @param string $name
      * @return mixed
      */
     public function __get($name)
     {
+        if ($name === 'EOF') {
+            return $this->eof;
+        }
         if (isset($this->fields[$name])) {
             return $this->fields[$name];
         }
@@ -101,8 +117,9 @@ class Result
         if ($this->isCached) {
             // For cached results, data types should already be properly restored
             return $this->result;
-        } elseif ($this->database->type == 'postgresql' 
+        } elseif ($this->database->type == 'postgresql'
             && \is_object($this->mysqlResult)) {
+            \pg_result_seek($this->mysqlResult, 0);
             $results = \pg_fetch_all($this->mysqlResult, PGSQL_ASSOC);
             
             // Apply type conversion if column types are available
@@ -119,8 +136,9 @@ class Result
                 }
             }
             
-            return $results;
+            return is_array($results) ? $results : array();
         } elseif (\is_object($this->mysqlResult)) {
+            \mysqli_data_seek($this->mysqlResult, 0);
             $results = \mysqli_fetch_all($this->mysqlResult, MYSQLI_ASSOC);
             
             // Apply type conversion for MySQL results
@@ -143,20 +161,90 @@ class Result
                 }
             }
             
-            return $results;
+            return is_array($results) ? $results : array();
         }
-        
+
         return array();
     }
 
     /**
-     * Fetch a result row as an associative array
-     * @param bool $skipDataFix If true, skips the data type conversion
-     * @return array|null Returns an array of strings that corresponds to the
-     * fetched row or NULL if there are no more rows in resultset.
+     * Allows foreach ($result as $row) to iterate over all rows as associative arrays.
+     *
+     * This satisfies \IteratorAggregate so that view code can do:
+     *   foreach ($view->items as $item) { echo $item['name']; }
+     * without the controller needing to explicitly call fetchAll().
+     */
+    public function getIterator(): \ArrayIterator
+    {
+        return new \ArrayIterator($this->fetchAll());
+    }
+
+    /**
+     * Fetches the next result row into $this->fields and returns it.
+     *
+     * ## Cursor model
+     *
+     * query() and execute() both pre-load row 0 into $this->fields and rewind
+     * the underlying DB cursor back to position 0, leaving $this->cursor at -1.
+     * This means that when fetch() is first called, row 0 is already sitting in
+     * $this->fields — there is no need to read it from the DB again.
+     *
+     * To avoid that redundant re-read, the first call (cursor === -1) is handled
+     * as a special fast path:
+     *   - $this->cursor is set to 0.
+     *   - The DB cursor is advanced to position 1 so the next call reads row 1.
+     *   - $this->fields (already populated with row 0) is returned immediately.
+     *   - If the seek-to-1 fails, the result has exactly 1 row; $this->eof is set
+     *     so the next call returns null.
+     *
+     * All subsequent calls do the normal thing: advance the DB cursor one step
+     * and read the next row.
+     *
+     * ## skipDataFix exception
+     *
+     * When $skipDataFix = true the caller wants the raw string values that the DB
+     * driver returns before any PHP type-casting. The pre-loaded $this->fields may
+     * already contain type-converted values (integers, floats, booleans), so the
+     * fast path is skipped and row 0 is re-read from the DB without conversion.
+     *
+     * ## Cached results
+     *
+     * For cached results ($this->isCached = true) the same fast path applies:
+     * $this->fields already contains $this->result[0], so the first call just
+     * advances the cursor and returns the already-loaded data.
+     *
+     * ## Usage
+     *
+     *   while ($result->fetch()) {
+     *       doSomething($result->fields);
+     *   }
+     *
+     * @param bool $skipDataFix When true, returns raw DB strings without PHP type-casting.
+     * @return array|null The current row as an associative array, or null at EOF.
      */
     public function fetch($skipDataFix = false)
     {
+        if ($this->eof) {
+            return null;
+        }
+
+        if ($this->cursor === -1 && !$skipDataFix) {
+            $this->cursor = 0;
+            if (!$this->isCached) {
+                if ($this->database->type === 'postgresql'
+                    && ($this->mysqlResult instanceof \PgSql\Result || \is_resource($this->mysqlResult))) {
+                    if (!\pg_result_seek($this->mysqlResult, 1)) {
+                        $this->eof = true; // exactly 1 row; next call returns null
+                    }
+                } elseif (\is_object($this->mysqlResult)) {
+                    if (!\mysqli_data_seek($this->mysqlResult, 1)) {
+                        $this->eof = true; // exactly 1 row
+                    }
+                }
+            }
+            return $this->fields;
+        }
+
         $this->cursor++;
         if ($this->isCached) {
             if ($this->cursor >= sizeof($this->result)) {
@@ -169,14 +257,15 @@ class Result
                 return $this->fields;
             }
         } elseif ($this->database->type == 'postgresql' && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
-            
-            $this->fields = \pg_fetch_array(
-                $this->mysqlResult,
-                null,
-                PGSQL_ASSOC
-            );
+
+            $pgFetchResult = \pg_fetch_array($this->mysqlResult, null, PGSQL_ASSOC);
+            if ($pgFetchResult === false) {
+                $this->eof = true;
+                return null;
+            }
+            $this->fields = $pgFetchResult;
             if (\is_array($this->fields)) {
-                    
+
                 foreach($this->fields as $key => $value) {
                     // Convert numeric types to their PHP equivalents
                     if (isset($this->columnTypes[$key]) && !$skipDataFix) {
@@ -252,11 +341,16 @@ class Result
      */
     public function getAffectedRows()
     {
-        if ($this->database->type == 'postgresql' 
+        if ($this->database->type == 'postgresql'
             && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
             return \pg_affected_rows($this->mysqlResult);
-        } elseif (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \mysqli_result) {
-            return \mysqli_affected_rows($this->mysqlResult);
+        } elseif ($this->database->type == 'mysql') {
+            // Prefer the value captured before statement->close() (prepared DML path).
+            // Fall back to mysqli_affected_rows() for the raw query() path.
+            if ($this->mysqlAffectedRows !== null) {
+                return $this->mysqlAffectedRows;
+            }
+            return \mysqli_affected_rows($this->database->getConnectionLink());
         }
 
         return 0;
@@ -310,13 +404,6 @@ class Result
         return $this->numRows;
     }
 
-    /**
-     * free the memory
-     */
-    public function __destruct()
-    {
-        $this->free();
-    }
 
     /**
      * Convert PostgreSQL value to proper PHP type
@@ -326,10 +413,6 @@ class Result
      */
     protected function convertPostgresValue($value, $pgType)
     {
-        if ($value === null) {
-            return null;
-        }
-        
         switch ($pgType) {
             case 'int4':
             case 'int8':
@@ -361,10 +444,6 @@ class Result
      */
     protected function convertMysqlValue($value, $mysqlType)
     {
-        if ($value === null) {
-            return null;
-        }
-        
         if ($mysqlType == MYSQLI_TYPE_TINY || $mysqlType == MYSQLI_TYPE_SHORT || 
             $mysqlType == MYSQLI_TYPE_LONG || $mysqlType == MYSQLI_TYPE_INT24 || 
             $mysqlType == MYSQLI_TYPE_LONGLONG) {
