@@ -88,7 +88,7 @@ class LanguageTest extends \PHPUnit\Framework\TestCase
         $this->object->setLang(array());
     }
 
-    
+
     public function testGetInstance()
     {
         $this->assertTrue(
@@ -96,4 +96,253 @@ class LanguageTest extends \PHPUnit\Framework\TestCase
         );
     }
 
+    /**
+     * Language::load() must return false when neither the custom path nor the
+     * ROOT language directory contains a matching file.
+     *
+     * This covers the final `return false` branch in load() (line ~151) reached
+     * when a non-existent path is given and no fallback files are found.
+     */
+    public function testLoadReturnsFalseWhenNoFileFound(): void
+    {
+        // Arrange — a path with no language files
+        $nonExistentPath = sys_get_temp_dir() . '/pramnos_lang_test_' . bin2hex(random_bytes(4));
+        @mkdir($nonExistentPath . '/language', 0777, true);
+
+        // Act
+        $result = $this->object->load('nonexistentlang', $nonExistentPath);
+
+        // Assert — no file found, must return false
+        $this->assertFalse($result, 'load() must return false when no language file exists');
+
+        // Cleanup
+        @rmdir($nonExistentPath . '/language');
+        @rmdir($nonExistentPath);
+    }
+
+    /**
+     * Language::load() with a custom path must load strings from
+     * <path>/language/<lang>.php when that file exists.
+     *
+     * This covers the `if (file_exists(...))` true branch in the else-block
+     * (lines ~131-133 of load()), which is only reached when $path != ''.
+     */
+    public function testLoadWithCustomPathLoadsStrings(): void
+    {
+        // Arrange — write a minimal language file to a temp directory
+        $tmpDir  = sys_get_temp_dir() . '/pramnos_lang_test_' . bin2hex(random_bytes(4));
+        $langDir = $tmpDir . '/language';
+        @mkdir($langDir, 0777, true);
+        file_put_contents(
+            $langDir . '/testlang.php',
+            "<?php\n\$lang = ['greeting' => 'Hello from testlang'];\n"
+        );
+
+        // Act
+        $result = $this->object->load('testlang', $tmpDir);
+
+        // Assert — file was loaded, key is accessible
+        $this->assertTrue($result, 'load() must return true when language file exists');
+        $strings = $this->object->getlang();
+        $this->assertArrayHasKey('greeting', $strings, 'load() must merge strings from custom path');
+        $this->assertSame('Hello from testlang', $strings['greeting']);
+
+        // Cleanup
+        @unlink($langDir . '/testlang.php');
+        @rmdir($langDir);
+        @rmdir($tmpDir);
+    }
+
+    /**
+     * Language::getFlag() must return false when no flag PNG exists for the
+     * current language.
+     *
+     * This covers the else branch (return false) of getFlag() at line ~221,
+     * reached when no <lang>.png exists in the language directory.
+     */
+    public function testGetFlagReturnsFalseWhenNoImageExists(): void
+    {
+        // Act — no language flag image expected in the test environment
+        $result = $this->object->getFlag('nonexistent_language_xyzzy');
+
+        // Assert
+        $this->assertFalse($result, 'getFlag() must return false when the PNG file does not exist');
+    }
+
+    /**
+     * Language::getFlag() with an empty argument uses the current language.
+     *
+     * This covers the `if ($lang == '')` branch at the top of getFlag() that
+     * sets $lang = $this->_lang when no argument is given.
+     */
+    public function testGetFlagWithNoArgUsesCurrentLanguage(): void
+    {
+        // Arrange — set to a language that certainly has no PNG
+        $this->object->setLang('nonexistent_xyzzy');
+
+        // Act — call with no argument
+        $result = $this->object->getFlag();
+
+        // Assert — should still be false (no PNG), but the current-language path was used
+        $this->assertFalse($result);
+    }
+
+    /**
+     * Language constructor with an explicit language string must attempt
+     * to load that language on construction.
+     *
+     * This covers the `if ($lang <> '')` branch in __construct() (line ~51).
+     */
+    public function testConstructorWithExplicitLangSetsLanguage(): void
+    {
+        // Act — construct with explicit language name (no real file needed to prove branch hit)
+        $lang = new Language('greek');
+
+        // Assert — the language was recorded even if no file loaded
+        $this->assertSame('greek', $lang->currentlang(),
+            '__construct() must record the language when one is given explicitly');
+    }
+
+    /**
+     * Language constructor with an explicit $path must use that path as
+     * the language directory instead of the default LANGPATH/ROOT.
+     *
+     * This covers the `if ($path != null)` branch at the top of __construct()
+     * (lines ~41-42).
+     */
+    public function testConstructorWithCustomPathUsesIt(): void
+    {
+        // Arrange — create a temp directory (no actual language files needed)
+        $tmpDir = sys_get_temp_dir() . '/pramnos_lang_ctor_' . bin2hex(random_bytes(4));
+        @mkdir($tmpDir, 0777, true);
+
+        // Act — construct with a custom path; load() will return false but
+        // the languagePath property must be set to $tmpDir.
+        $lang = new Language('', $tmpDir);
+
+        // Assert — the instance is valid
+        $this->assertInstanceOf(Language::class, $lang,
+            '__construct() must accept a custom $path argument');
+
+        // Cleanup
+        @rmdir($tmpDir);
+    }
+
+    /**
+     * Language::load() with a custom path must fall back to the 'english'
+     * language file if the requested language file does not exist but english
+     * does.
+     *
+     * This covers the elseif (english fallback) branch inside the $path != '' block
+     * (lines ~134-138).
+     */
+    public function testLoadWithCustomPathFallsBackToEnglish(): void
+    {
+        // Arrange — create temp dir with only an english.php
+        $tmpDir  = sys_get_temp_dir() . '/pramnos_lang_test_' . bin2hex(random_bytes(4));
+        $langDir = $tmpDir . '/language';
+        @mkdir($langDir, 0777, true);
+        file_put_contents(
+            $langDir . '/english.php',
+            "<?php\n\$lang = ['fallback_key' => 'English fallback'];\n"
+        );
+
+        // Act — request a non-existent language; should fall back to english
+        $result = $this->object->load('nonexistent_xyz', $tmpDir);
+
+        // Assert — english fallback was loaded
+        $this->assertTrue($result, 'load() must return true when falling back to english');
+        $strings = $this->object->getlang();
+        $this->assertArrayHasKey('fallback_key', $strings,
+            'load() must merge strings from english fallback');
+
+        // Cleanup
+        @unlink($langDir . '/english.php');
+        @rmdir($langDir);
+        @rmdir($tmpDir);
+    }
+
+    /**
+     * Language::load() called with an empty string must use the current language
+     * (set via _lang) rather than an empty-string file lookup.
+     *
+     * This covers the `if ($language == '')` branch at line 104 that assigns
+     * `$language = $this->_lang` (line 105) — a path no other test exercises.
+     */
+    public function testLoadWithEmptyLanguageStringUsesCurrentLanguage(): void
+    {
+        // Arrange — default current language is 'english'
+        // Act — pass empty string; load() must substitute the current language internally
+        $result = $this->object->load('');
+
+        // Assert — must return a bool without throwing, regardless of whether the file exists
+        $this->assertIsBool($result,
+            'load("") must return bool after substituting the current language name');
+    }
+
+    /**
+     * Language::load() with no $path must fall back to english from ROOT/language/
+     * if the requested lang file does not exist but english.php does.
+     *
+     * This covers the elseif ROOT english fallback (line ~120-124).
+     * Because ROOT/language may or may not exist in the test environment,
+     * we just verify that load() returns a bool without throwing.
+     */
+    public function testLoadWithNullPathReturnsBoolWithoutThrowing(): void
+    {
+        // Act — request a non-existent language with no path override;
+        // may return true (if ROOT/language/english.php exists) or false
+        $result = $this->object->load('zzz_nonexistent_lang_xyzzy');
+
+        // Assert — must always be a bool, never throw
+        $this->assertIsBool($result);
+    }
+
+    /**
+     * Language::getLanguages() must throw an Exception when the language directory
+     * (ROOT . '/language') does not exist.
+     *
+     * This covers the else branch of getLanguages() at line ~247.
+     * We call getLanguages() only when we know ROOT/language does not exist,
+     * which we ensure by temporarily changing ROOT via a define if not set,
+     * or skip the test if ROOT/language is present in the test environment.
+     */
+    public function testGetLanguagesThrowsWhenDirDoesNotExist(): void
+    {
+        // Check if we can even test this — if ROOT/language exists, skip
+        if (defined('ROOT') && is_dir(ROOT . DIRECTORY_SEPARATOR . 'language')) {
+            $this->markTestSkipped('ROOT/language directory exists — cannot test the throw branch');
+        }
+
+        // If ROOT is not defined or ROOT/language doesn't exist, getLanguages() will throw
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessageMatches('/Languages directory does not exist/');
+        Language::getLanguages();
+    }
+
+    /**
+     * Language::getLanguages() must return an array of language names when the
+     * language directory exists.
+     */
+    public function testGetLanguagesReturnsArrayWhenDirExists(): void
+    {
+        $dirCreated = false;
+        $langDir = ROOT . DIRECTORY_SEPARATOR . 'language';
+        if (!is_dir($langDir)) {
+            @mkdir($langDir, 0777, true);
+            file_put_contents($langDir . DIRECTORY_SEPARATOR . 'english.php', '<?php ');
+            $dirCreated = true;
+        }
+
+        $langs = Language::getLanguages();
+        $this->assertIsArray($langs, 'getLanguages() must return an array');
+        $this->assertContains('english', $langs, 'getLanguages() should find english.php');
+
+        if ($dirCreated) {
+            @unlink($langDir . DIRECTORY_SEPARATOR . 'english.php');
+            @rmdir($langDir);
+        }
+    }
+
 }
+

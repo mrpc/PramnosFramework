@@ -4,10 +4,9 @@ namespace Pramnos\General;
 
 /**
  * Helper Methods
- * @package     PramnosFramework
- * @subpackage  General
- * @copyright   2005 - 2013 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Helpers
 {
@@ -170,8 +169,7 @@ class Helpers
             "'&(cent|#162);'i",
             "'&(pound|#163);'i",
             "'&(copy|#169);'i",
-            "'&#(\d+);'e"
-        );                    // evaluate as php
+        );
 
         $replace = array("",
             "",
@@ -185,9 +183,17 @@ class Helpers
             chr(162),
             chr(163),
             chr(169),
-            "chr(\\1)");
+        );
 
-        return preg_replace($search, $replace, $html);
+        $result = preg_replace($search, $replace, $html);
+
+        // Convert numeric HTML entities (&#NNN;) to their UTF-8 characters.
+        // Previously used the /e modifier (removed in PHP 7); now uses a callback.
+        return preg_replace_callback(
+            "/'?&#(\d+);'?/",
+            static fn($m) => mb_chr((int) $m[1], 'UTF-8') ?: '',
+            $result ?? ''
+        );
     }
 
     /**
@@ -273,6 +279,7 @@ class Helpers
      * @param array $files
      * @author Corey Ballou
      * @link http://www.jqueryin.com
+     * @license    MIT
      */
     public static function fixFilesArray(&$files)
     {
@@ -375,7 +382,7 @@ class Helpers
                 0, $injectpos
             )
             . $symbol
-            . substr($initialPass, $injectpos);
+            . substr($initialPass, $injectpos, $length - 1 - $injectpos);
         return $password;
 
     }
@@ -400,7 +407,7 @@ class Helpers
                     CURLOPT_RETURNTRANSFER => 1,
                     CURLOPT_TIMEOUT => 10,
                     CURLOPT_URL => $url,
-                    CURLOPT_HEADER, 0,
+                    CURLOPT_HEADER => 0,
                     CURLOPT_SSL_VERIFYPEER => false,
                     CURLOPT_FOLLOWLOCATION => true,     // follow redirects
                     CURLOPT_MAXREDIRS      => 10,
@@ -414,7 +421,7 @@ class Helpers
                     CURLOPT_RETURNTRANSFER => 1,
                     CURLOPT_TIMEOUT => 10,
                     CURLOPT_URL => $url,
-                    CURLOPT_HEADER, 0,
+                    CURLOPT_HEADER => 0,
                     CURLOPT_SSL_VERIFYPEER => false,
                     CURLOPT_FOLLOWLOCATION => true,     // follow redirects
                     CURLOPT_MAXREDIRS      => 10
@@ -437,10 +444,8 @@ class Helpers
                 $array = array();
                 $array['content'] = $string;
                 $array['info'] = curl_getinfo($handler);
-                curl_close($handler);
                 return $array;
             } else {
-                curl_close($handler);
                 return $string;
             }
         } elseif (ini_get('allow_url_fopen')) {
@@ -471,7 +476,7 @@ class Helpers
                 "Σεπτεμβρίου", "Οκτωβρίου",
                 "Νοεμβρίου", "Δεκεμβρίου");
         }
-        $monthname = str_replace($months, $monthnames, $month);
+        $monthname = $monthnames[(int)$month - 1];
         return $monthname;
     }
 
@@ -678,7 +683,6 @@ class Helpers
         curl_exec($handler);
         // get HTTP response code
         $httpcode = curl_getinfo($handler, CURLINFO_HTTP_CODE);
-        curl_close($handler);
         if ($httpcode >= 200 && $httpcode < 300)
             return array('online' => true, 'status' => $httpcode);
         else {
@@ -1060,9 +1064,63 @@ class Helpers
         if ($padding > 0) {
             $input .= str_repeat('=', 4 - $padding);
         }
-        
+
         // Replace URL-safe characters with standard base64 characters
         return strtr($input, '-_', '+/');
+    }
+
+    /**
+     * Check whether a latitude/longitude pair represents a valid geographic coordinate.
+     *
+     * Returns false when either value is not numeric, when both are exactly zero
+     * (the null island sentinel), when latitude is outside -90..90, or when
+     * longitude is outside -180..180.
+     *
+     * @param float|int|string $latitude  Latitude to validate
+     * @param float|int|string $longitude Longitude to validate
+     * @return bool
+     */
+    public static function isValidCoordinate($latitude, $longitude): bool
+    {
+        if (!is_numeric($latitude) || !is_numeric($longitude)) {
+            return false;
+        }
+        $lat = (float) $latitude;
+        $lon = (float) $longitude;
+        if ($lat === 0.0 && $lon === 0.0) {
+            return false;
+        }
+        return $lat >= -90 && $lat <= 90 && $lon >= -180 && $lon <= 180;
+    }
+
+    /**
+     * Validate a single IP address or a CIDR notation range.
+     *
+     * Accepts IPv4 addresses (e.g. `192.168.1.1`), IPv6 addresses, IPv4 CIDR
+     * ranges with a subnet mask of 0–32 (e.g. `10.0.0.0/8`), and IPv6 CIDR
+     * ranges with a prefix length of 0–128.
+     *
+     * @param string $ip IP address or CIDR string to validate
+     * @return bool
+     */
+    public static function validateIpOrCidr(string $ip): bool
+    {
+        $ip = trim($ip);
+        if ($ip === '') {
+            return false;
+        }
+        if (strpos($ip, '/') !== false) {
+            [$addr, $prefix] = explode('/', $ip, 2);
+            if (!filter_var($addr, FILTER_VALIDATE_IP)) {
+                return false;
+            }
+            $prefix = (int) $prefix;
+            if (filter_var($addr, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                return $prefix >= 0 && $prefix <= 32;
+            }
+            return $prefix >= 0 && $prefix <= 128;
+        }
+        return filter_var($ip, FILTER_VALIDATE_IP) !== false;
     }
 
 }

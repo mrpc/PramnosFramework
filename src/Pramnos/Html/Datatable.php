@@ -7,10 +7,9 @@ use Pramnos\Html\Datatable;
 
 /**
  * Class for Datatable jquery library
- * @package     PramnosFramework
- * @subpackage  Html
- * @copyright   2020 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Datatable extends Base
 {
@@ -176,6 +175,20 @@ class Datatable extends Base
      */
     public $bootstrap = true;
 
+    /**
+     * Column index (0-based) to group rows by client-side.
+     * null means no grouping. Set directly or let the user pick via $groupBySelector.
+     * @var int|null
+     */
+    public $groupByColumn = null;
+
+    /**
+     * When true, renders a column-picker dropdown above the table so the user can
+     * choose (or clear) the group-by column at runtime without a page reload.
+     * @var bool
+     */
+    public $groupBySelector = false;
+
     public function __construct($name = '', $source = '')
     {
         $this->name = trim($name);
@@ -267,23 +280,19 @@ class Datatable extends Base
             foreach ($this->aoColumns as $column) {
 
                 if ($column->showHide == true && trim($column->label) != "") {
+                    $btnId = 'psh_' . $this->name . '_' . $n;
                     if ($this->jui == true) {
-                        $showHide .= '<a href="javascript:void(0);" '
-                            . 'onclick="fnShowHide_' . $this->name . '('
-                            . $n . ')"><span style="padding-left:3px; '
-                            . 'padding-right:3px;" class="ui-button '
-                            . 'ui-state-default">' . $column->label
+                        $showHide .= '<a href="#" id="' . $btnId . '">'
+                            . '<span style="padding-left:3px; padding-right:3px;" '
+                            . 'class="ui-button ui-state-default">' . $column->label
                             . '</span></a>';
 
                     } elseif ($this->bootstrap == true) {
-                        $showHide .= '<li><a href="javascript:void(0);" '
-                            . 'onclick="fnShowHide_' . $this->name . '('
-                            . $n . ')">' . $column->label
-                            . '</a></li>';
+                        $showHide .= '<li><a href="#" id="' . $btnId . '">'
+                            . $column->label . '</a></li>';
                     } else {
-                        $showHide .= $sep . ' <a href="javascript:void(0);" '
-                            . 'onclick="fnShowHide_' . $this->name
-                            . '(' . $n . ')">' . $column->label . '</a> ';
+                        $showHide .= $sep . ' <a href="#" id="' . $btnId . '">'
+                            . $column->label . '</a> ';
                     }
                     $t+=1;
                     $sep = $this->separateChar;
@@ -301,6 +310,9 @@ class Datatable extends Base
             if ($t != 0) {
                 $return .= $showHide;
             }
+        }
+        if ($this->groupBySelector === true) {
+            $return .= $this->renderGroupBySelector($lang);
         }
         $return .= '<table id="' . $this->name . '" class="'
             . $this->tableClass . '" cellspacing="0" width="100%">
@@ -424,6 +436,42 @@ embed;
     }
 
     /**
+     * Builds the group-by column-picker dropdown HTML.
+     * Only called when $groupBySelector === true.
+     * @param  \Pramnos\Language\Language $lang
+     * @return string
+     */
+    private function renderGroupBySelector($lang): string
+    {
+        $selectorId  = 'pf40_groupby_' . $this->name;
+        $selectedCol = $this->groupByColumn !== null ? (int) $this->groupByColumn : -1;
+
+        $html  = '<div class="pramnos-groupby-selector" style="margin-bottom:8px;">';
+        $html .= '<label for="' . $selectorId . '" style="margin-right:5px;">'
+            . $lang->_('Group by') . ':</label>';
+        $html .= '<select id="' . $selectorId . '"';
+        if ($this->bootstrap === true) {
+            $html .= ' class="form-control"';
+        }
+        $html .= ' style="display:inline-block;width:auto;margin-right:8px;">';
+        $noneSelected = ($selectedCol === -1) ? ' selected' : '';
+        $html .= '<option value="-1"' . $noneSelected . '>' . $lang->_('None') . '</option>';
+
+        $n = 0;
+        foreach ($this->aoColumns as $column) {
+            if (trim($column->label) !== '') {
+                $selected = ($selectedCol === $n) ? ' selected' : '';
+                $html .= '<option value="' . $n . '"' . $selected . '>'
+                    . htmlspecialchars($column->label, ENT_QUOTES, 'UTF-8')
+                    . '</option>';
+            }
+            $n++;
+        }
+        $html .= '</select></div>';
+        return $html;
+    }
+
+    /**
      * Renders the Javascript part of the table
      * @return string
      */
@@ -431,6 +479,8 @@ embed;
     {
         $lang = \Pramnos\Framework\Factory::getLanguage();
         $document = \Pramnos\Framework\Factory::getDocument();
+        // JS variable name: replace non-identifier chars (e.g. hyphens in "dt-users") with _
+        $jsVar = preg_replace('/[^a-zA-Z0-9_$]/', '_', $this->name);
         if ($this->aLengthMenu === NULL) {
             $this->aLengthMenu = '[[10, 25, 50, 100, -1], [10, 25, 50, 100, "'
                 . $lang->_('All') . '"]]';
@@ -456,15 +506,22 @@ embed;
         if (count($this->aoColumns) == 0) {
             $aoColumns = "";
         } else {
-
             $aoColumns = '"aoColumns": [' . "\n";
-            $i = 1;
+            $colIdx    = 0;
+            $colTotal  = count($this->aoColumns);
             foreach ($this->aoColumns as $c) {
-                $aoColumns .= $c->js;
-                if ($i != count($this->aoColumns)) {
+                // In server-side mode, inject "data": N so DataTables 1.10+ maps
+                // positional array values to the correct column.
+                if ($this->source !== '') {
+                    $colJs = rtrim($c->js, '}') . ', "data": ' . $colIdx . '}';
+                } else {
+                    $colJs = $c->js;
+                }
+                $aoColumns .= $colJs;
+                if ($colIdx + 1 < $colTotal) {
                     $aoColumns .= ', ';
                 }
-                $i+=1;
+                $colIdx++;
             }
             $aoColumns .= '],';
         }
@@ -524,12 +581,15 @@ ss;
 
         $ajaxsource = '';
         if ($this->source != '') {
-            $ajaxsource = '"bServerSide": true, "sAjaxSource": "'
-                . $this->source . '",';
-            $ajaxsource .= "\n";
-            $ajaxsource .= '"aaSorting": [[ ' . $this->sortColumn . ', "'
-                . $this->sortOrder . '" ]],';
-            $ajaxsource .= "\n";
+            $extraDataJson = json_encode($this->aoData ?: []);
+            $sortDir       = strtolower($this->sortOrder) === 'asc' ? 'asc' : 'desc';
+            $ajaxsource    = '"serverSide": true,' . "\n"
+                . '"ajax": {"url": "' . $this->source . '", "type": "POST",'
+                . '"data": function(d){'
+                . 'var e=' . $extraDataJson . ';'
+                . 'for(var i=0;i<e.length;i++){d[e[i].name]=e[i].value;}'
+                . '}},' . "\n"
+                . '"order": [[' . (int)$this->sortColumn . ', "' . $sortDir . '"]],' . "\n";
         }
 
 
@@ -539,13 +599,13 @@ ss;
    "fnDrawCallback": function () {
             $('#$this->name tbody td').editable( '$this->source', {
                 "callback": function( sValue, y ) {
-                      var aPos = $this->name.fnGetPosition( this );
-                      $this->name.fnUpdate( sValue, aPos[0], aPos[1] );
+                      var aPos = {$jsVar}.fnGetPosition( this );
+                      {$jsVar}.fnUpdate( sValue, aPos[0], aPos[1] );
                 },
                 "submitdata": function ( value, settings ) {
             return {
                 "row_id": this.parentNode.getAttribute('id'),
-                "column": $this->name.fnGetPosition( this )[2]
+                "column": {$jsVar}.fnGetPosition( this )[2]
             };
         },
                 "height": "14px",
@@ -554,6 +614,67 @@ ss;
         },
 table;
         }
+
+        // Build client-side group-by JS (injected into the load handler below).
+        $groupByInitJs = '';
+        if ($this->groupByColumn !== null || $this->groupBySelector === true) {
+            $initCol = $this->groupByColumn !== null ? (int) $this->groupByColumn : -1;
+            $nCols   = count($this->aoColumns);
+            $tName   = $this->name;   // original name for selectors (#id)
+            $tVar    = $jsVar;        // sanitized name for JS variables/functions
+            $groupByInitJs = "
+    var pf40_gc_{$tVar} = {$initCol};
+    function pf40_doGroup_{$tVar}() {
+        var col = pf40_gc_{$tVar};
+        var tbody = jQuery('#{$tName} tbody');
+        tbody.find('tr.pramnos-group-row').remove();
+        if (col < 0) return;
+        var last = null;
+        tbody.find('tr').each(function() {
+            var cells = jQuery(this).find('td');
+            if (!cells.length) return;
+            var v = cells.eq(col).text();
+            if (v !== last) {
+                jQuery(this).before('<tr class=\"pramnos-group-row\" style=\"background:#f5f7fa;font-weight:bold;\"><td colspan=\"{$nCols}\" style=\"padding:6px 8px;\">' + v + '</td></tr>');
+                last = v;
+            }
+        });
+    }
+    jQuery('#{$tName}').on('draw.dt', pf40_doGroup_{$tVar});
+    pf40_doGroup_{$tVar}();";
+        }
+
+        // Build show/hide column handlers — must live inside the load callback so
+        // the DataTable variable ($tableVar) is in scope.  e.preventDefault()
+        // avoids CSP violations from href="#" navigation.
+        $showHideJs = '';
+        if ($this->showHide == true) {
+            $n = 0;
+            foreach ($this->aoColumns as $column) {
+                if ($column->showHide == true && trim($column->label) != '') {
+                    $btnId = 'psh_' . $this->name . '_' . $n;
+                    $showHideJs .= "\ndocument.getElementById('" . $btnId . "') && "
+                        . "document.getElementById('" . $btnId . "').addEventListener('click', function(e){"
+                        . "e.preventDefault();"
+                        . "var bVis=" . $jsVar . ".fnSettings().aoColumns[" . $n . "].bVisible;"
+                        . $jsVar . ".fnSetColumnVis(" . $n . ",!bVis);"
+                        . "});";
+                }
+                $n++;
+            }
+        }
+        $groupBySelectorJs = '';
+        if ($this->groupBySelector === true) {
+            $sId = 'pf40_groupby_' . $this->name;
+            $groupBySelectorJs = "\ndocument.getElementById('" . $sId . "') && "
+                . "document.getElementById('" . $sId . "').addEventListener('change', function() {"
+                . "pf40_gc_" . $jsVar . " = parseInt(this.value);"
+                . $jsVar . ".fnDraw();"
+                . "});";
+        }
+
+        $tableId   = $this->name;
+        $tableVar  = $jsVar;
         $return = <<<table
    <script>
 
@@ -569,7 +690,7 @@ table;
     window.addEventListener("load", function () {
 
 
-            $this->name = jQuery('#$this->name').dataTable( {
+            var {$tableVar} = jQuery('#{$tableId}').dataTable( {
             $language
             $jui
             $fnDrawCallback
@@ -586,37 +707,17 @@ table;
              $aoColumns
              $tabletools
              $search
-            "fnServerData": function ( sSource, aoData, fnCallback ) {
-                let aoDataArray = $this->aoData ;
-                for (var i = 0; i < aoDataArray.length; i++){
-                    aoData.push( aoDataArray[i] );
-                }                
-                jQuery.ajax( {
-                    "dataType": 'json',
-                    "type": "POST",
-                    "url": sSource,
-                    "data": aoData,
-                    "success": fnCallback
-                } ); }
         });
 
         $sf
         $this->codeEmbed;
-
+        $groupByInitJs
+        $showHideJs
+        $groupBySelectorJs
 
     });
-
+   </script>
 table;
-        if ($this->showHide == true) {
-            $return .= 'function fnShowHide_' . $this->name . '(iCol){
-                        var bVis = '
-                . $this->name . '.fnSettings().aoColumns[iCol].bVisible;'
-                . "\n                        "
-                . $this->name . '.fnSetColumnVis( iCol, bVis ? false : true );'
-                . "\n                        "
-                . '}';
-        }
-        $return .= "\n</script>";
         return $return;
     }
 

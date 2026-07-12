@@ -3,6 +3,15 @@
 require dirname(__DIR__) . DIRECTORY_SEPARATOR
     . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
 date_default_timezone_set('UTC');
+// Redirect error_log() to /dev/null so Database::displayError() calls (which
+// use error_log when no Application instance is running) do not pollute the
+// PHPUnit progress output.  The code-path is still executed — coverage is
+// unaffected — but the noise is discarded.
+ini_set('error_log', '/dev/null');
+
+if (!defined('PRAMNOS_TESTING')) {
+    define('PRAMNOS_TESTING', true);
+}
 /**
 * The following are REQUIRED by Pramnos Framework
 */
@@ -26,9 +35,46 @@ if (!defined('APP_PATH')) {
 if (!defined('DS')) {
     define('DS', DIRECTORY_SEPARATOR);
 }
+if (!defined('LOG_PATH')) {
+    define('LOG_PATH', sys_get_temp_dir());
+}
 if (!defined('SP')) {
     define('SP', 1); //Start point - to avoid running files without one.
+}
+if (!defined('DB_USERSTABLE')) {
+    define('DB_USERSTABLE', '#PREFIX#users');
+}
+if (!defined('DB_USERGROUPSTABLE')) {
+    define('DB_USERGROUPSTABLE', '#PREFIX#usergroups');
+}
+if (!defined('DB_USERGROUPSUBSCRIPTIONS')) {
+    define('DB_USERGROUPSUBSCRIPTIONS', '#PREFIX#userstogroups');
+}
+if (!defined('DB_USERDETAILSTABLE')) {
+    define('DB_USERDETAILSTABLE', '#PREFIX#userdetails');
+}
+if (!defined('DB_PERMISSIONSTABLE')) {
+    define('DB_PERMISSIONSTABLE', '#PREFIX#permissions');
 }
 /**
 * EOF REQUIRED DEFINES
 */
+
+/**
+ * Legacy pramnos_factory stub (Pramnos\Auth namespace).
+ *
+ * Auth::setaccess/useraccess/groupaccess call pramnos_factory::getPermissions()
+ * without a leading backslash, so PHP resolves it as Pramnos\Auth\pramnos_factory.
+ * The real class is application-level and absent from this repo. The stub allows
+ * unit tests to exercise those code paths without a real database.
+ */
+if (!class_exists('Pramnos\Auth\pramnos_factory')) {
+    require __DIR__ . '/stubs/pramnos_factory_stub.php';
+}
+
+require __DIR__ . '/stubs/broadcasting_shadows.php';
+require __DIR__ . '/stubs/storage_shadows.php';
+require __DIR__ . '/stubs/console_shadows.php';
+require __DIR__ . '/stubs/console_test_shadows.php';
+require __DIR__ . '/stubs/log_controller_shadows.php';
+require __DIR__ . '/stubs/permission_engine_stub.php';

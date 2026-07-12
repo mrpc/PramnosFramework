@@ -1,9 +1,8 @@
 <?php
 namespace Pramnos\Application;
 /**
- * @package     PramnosFramework
- * @subpackage  Application
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Controller extends \Pramnos\Framework\Base
 {
@@ -78,6 +77,62 @@ class Controller extends \Pramnos\Framework\Base
      * @var string
      */
     protected $_extends=NULL;
+
+    /**
+     * Per-action middleware stack.
+     * Key '*' applies to every action.
+     * @var array<string, array<\Pramnos\Http\MiddlewareInterface|class-string>>
+     */
+    private array $_middlewares = [];
+
+    /**
+     * Attach middleware to one or more controller actions.
+     *
+     * Use '*' to apply the middleware to every action in this controller.
+     * The middleware runs AFTER the existing auth() permission check and
+     * BEFORE the action method is called — so it never bypasses existing auth.
+     *
+     * Usage in __construct() (or init()):
+     *   $this->addMiddleware('*',                  new ThrottleMiddleware(60, 60));
+     *   $this->addMiddleware(['edit', 'delete'],    new AuthMiddleware());
+     *   $this->addMiddleware('export',             ThrottleMiddleware::class);
+     *
+     * @param  string|array<string>                          $actions  Action name(s) or '*'.
+     * @param  \Pramnos\Http\MiddlewareInterface|class-string $middleware
+     * @return static
+     */
+    public function addMiddleware(string|array $actions, \Pramnos\Http\MiddlewareInterface|string $middleware): static
+    {
+        foreach ((array) $actions as $action) {
+            $this->_middlewares[$action][] = $middleware;
+        }
+        return $this;
+    }
+
+    /**
+     * Run the middleware stack (global '*' + action-specific) around $callback.
+     * When no middleware is registered the callback is called directly — identical
+     * to the pre-middleware code path.
+     */
+    private function _runThroughMiddleware(string $action, callable $callback): mixed
+    {
+        $mws = array_merge(
+            $this->_middlewares['*'] ?? [],
+            $this->_middlewares[$action] ?? []
+        );
+
+        if (empty($mws)) {
+            return $callback();
+        }
+
+        $request  = new \Pramnos\Http\Request();
+        $pipeline = new \Pramnos\Http\MiddlewarePipeline();
+        foreach ($mws as $mw) {
+            $pipeline->pipe($mw);
+        }
+
+        return $pipeline->run($request, fn(\Pramnos\Http\Request $r) => $callback());
+    }
 
     /**
      * Adds a public action to the controller
@@ -197,27 +252,30 @@ class Controller extends \Pramnos\Framework\Base
             if (method_exists($this, $actionWithMethod)
                 && $this->auth($action)
                 && $this->auth($actionWithMethod)) {
-                return $this->$actionWithMethod($args);
+                return $this->_runThroughMiddleware(
+                    $actionWithMethod,
+                    fn() => $this->$actionWithMethod($args)
+                );
             }
         }
         if (array_search($action, $this->actions) !== false
                 || array_search($action, $this->actions_auth) !== false) {
             if ($this->auth($action)) {
-                return $this->$action($args);
-            } else {
-                throw new \Exception(
-                    'Not authenticated users cannot do that.',
-                    403
+                return $this->_runThroughMiddleware(
+                    $action,
+                    fn() => $this->$action($args)
                 );
+            } else {
+                $this->_throwAuthFailure();
             }
         } elseif (array_search('display', $this->actions) !== false) {
             if ($this->auth('display')) {
-                return $this->display($args);
-            } else {
-                throw new \Exception(
-                    'Not authenticated users cannot do that.',
-                    403
+                return $this->_runThroughMiddleware(
+                    'display',
+                    fn() => $this->display($args)
                 );
+            } else {
+                $this->_throwAuthFailure();
             }
         }
     }
@@ -228,6 +286,30 @@ class Controller extends \Pramnos\Framework\Base
     function display()
     {
 
+    }
+
+    /**
+     * Throw the appropriate exception when an auth check fails.
+     *
+     * Unauthenticated users (not logged in) are redirected to the login page
+     * so they get a useful response instead of a bare 403.
+     * Authenticated users who lack the required permission still get 403.
+     *
+     * @throws \Pramnos\Http\RedirectException when the session is not logged in
+     * @throws \Exception (403) when the user is logged in but lacks permission
+     */
+    private function _throwAuthFailure(): never
+    {
+        $session = \Pramnos\Http\Session::getInstance();
+        if (!$session->isLogged() && defined('sURL')) {
+            $loginUrl = sURL . 'login';
+            $current  = \Pramnos\Http\Request::$requestUri ?? '';
+            if ($current !== '' && $current !== '/') {
+                $loginUrl .= '?return=' . urlencode($current);
+            }
+            throw new \Pramnos\Http\RedirectException($loginUrl);
+        }
+        throw new \Exception('Not authenticated users cannot do that.', 403);
     }
 
     /**
@@ -422,7 +504,7 @@ class Controller extends \Pramnos\Framework\Base
          * Search for the right view class
          */
 
-        if (isset($this->application->applicationInfo['namespace'])) {
+        if ($this->application !== null && isset($this->application->applicationInfo['namespace'])) {
             if ($this->application->appName != '') {
                 $className = '\\'
                     . $this->application->applicationInfo['namespace']
@@ -437,7 +519,7 @@ class Controller extends \Pramnos\Framework\Base
                     . $name;
             }
         } else {
-            if ($this->application->appName != '') {
+            if ($this->application !== null && $this->application->appName != '') {
                 $className = '\\Pramnos\\'
                     . $this->application->appName
                     . '\\Views\\'
@@ -482,30 +564,43 @@ class Controller extends \Pramnos\Framework\Base
         }
         // In case we can't find the view, we search in Application path.
         // Check for app extra paths
-        if ($this->application->appName == '') {
-            $appPaths = array_merge(
-                array(
-                    ROOT . DS . INCLUDES
-                ),
-                $this->application->getExtraPaths(),
-                $this->_lastPaths
-            );
-        } else {
-            $appPaths = array_merge(
-                array(
-                    ROOT . DS . INCLUDES . DS . $this->application->appName
-                ),
-                $this->application->getExtraPaths(),
-                $this->_lastPaths
-            );
+        if ($this->application !== null) {
+            if ($this->application->appName == '') {
+                $appPaths = array_merge(
+                    array(
+                        ROOT . DS . INCLUDES
+                    ),
+                    $this->application->getExtraPaths(),
+                    $this->_lastPaths
+                );
+            } else {
+                $appPaths = array_merge(
+                    array(
+                        ROOT . DS . INCLUDES . DS . $this->application->appName
+                    ),
+                    $this->application->getExtraPaths(),
+                    $this->_lastPaths
+                );
+            }
+
+            foreach ($appPaths as $path) {
+                $view = $this->_getView($path, $name, $type, $args);
+                if ($view){
+                    return $view;
+                }
+            }
         }
 
-        foreach ($appPaths as $path) {
-            $view = $this->_getView($path, $name, $type, $args);
-            if ($view){
+        // Framework scaffolding fallback — try bundled theme views so auth
+        // flows work out of the box without requiring a scaffold step.
+        $fallbackDirs = $this->_getScaffoldingFallbackDirs();
+        foreach ($fallbackDirs as $fallbackDir) {
+            $view = $this->_getView($fallbackDir, $name, $type);
+            if ($view) {
                 return $view;
             }
         }
+
         if ($type == '') {
             $doc = \Pramnos\Framework\Factory::getDocument();
             $type = $doc->type;
@@ -520,6 +615,29 @@ class Controller extends \Pramnos\Framework\Base
             . $name
             . ' (type: ' . $type . ', class: ' . $name . ')'
         );
+    }
+
+    /**
+     * Return the list of scaffolding theme directories to use as a final
+     * view-lookup fallback.
+     *
+     * If the application config contains a `scaffold_theme` key (set by
+     * `pramnos init`), only that theme's directory is returned.
+     * Otherwise every bundled theme directory is returned so projects
+     * that pre-date scaffold_theme tracking still benefit from the fallback.
+     *
+     * @return string[]
+     */
+    private function _getScaffoldingFallbackDirs(): array
+    {
+        $raw          = $this->application->applicationInfo ?? [];
+        $info         = is_array($raw) ? $raw : [];
+        $scaffoldTheme = \Pramnos\Application\ScaffoldingHelper::getScaffoldTheme($info);
+        if ($scaffoldTheme !== null) {
+            $dir = \Pramnos\Application\ScaffoldingHelper::getThemeDir($scaffoldTheme);
+            return is_dir($dir) ? [$dir] : [];
+        }
+        return \Pramnos\Application\ScaffoldingHelper::getAvailableThemeDirs();
     }
 
 

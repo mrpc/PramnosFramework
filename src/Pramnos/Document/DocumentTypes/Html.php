@@ -3,9 +3,8 @@ namespace Pramnos\Document\DocumentTypes;
 
 
 /**
- * @package     PramnosFramework
- * @subpackage  Document
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Html extends \Pramnos\Document\Document
 {

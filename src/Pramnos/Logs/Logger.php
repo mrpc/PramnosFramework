@@ -4,8 +4,6 @@ namespace Pramnos\Logs;
 
 /**
  * Enhanced Logger class with structured logging support
- * @package     PramnosFramework
- * @subpackage  Logs
  */
 class Logger
 {
@@ -16,7 +14,8 @@ class Logger
      */
     private static function getDefaultLogPath(): string
     {
-        return \LOG_PATH . \DS . 'logs';
+        $base = defined('LOG_PATH') ? \LOG_PATH : sys_get_temp_dir();
+        return $base . \DS . 'logs';
     }
 
     /**
@@ -36,11 +35,9 @@ class Logger
      */
     private static function ensureLogDirectories(): void
     {
-        if (!file_exists(\LOG_PATH)) {
-            @mkdir(\LOG_PATH, 0777, true);
-        }
-        if (!file_exists(self::getDefaultLogPath())) {
-            @mkdir(self::getDefaultLogPath(), 0777, true);
+        $logDir = self::getDefaultLogPath();
+        if (!file_exists($logDir)) {
+            @mkdir($logDir, 0777, true);
         }
     }
 
@@ -64,8 +61,8 @@ class Logger
             unset($context['level']);
         }
 
-        // Handle multiline content
-        if (strpos($message, "\n") !== false || !empty($context)) {
+        // Use JSON when: level is set (to avoid losing it), message is multiline, or extra context exists
+        if (isset($entry['level']) || strpos($message, "\n") !== false || !empty($context)) {
             // If message contains newlines or JSON, encode it
             $entry['message'] = str_replace("\n", "\\n", $message);
             
@@ -116,6 +113,17 @@ class Logger
             @file_put_contents($filepath, $formattedEntry . $content);
         } else {
             @file_put_contents($filepath, $formattedEntry, FILE_APPEND | LOCK_EX);
+        }
+
+        // Forward to DebugBar LogCollector when the debug toolbar is active.
+        // Wrapped in try/catch so instrumentation never affects production.
+        try {
+            $collector = \Pramnos\Debug\DebugBar::getInstance()->getCollector('logs');
+            if ($collector instanceof \Pramnos\Debug\Collectors\LogCollector) {
+                $level = $context['level'] ?? 'log';
+                $collector->addEntry($level, $message);
+            }
+        } catch (\Throwable) {
         }
     }
 
@@ -443,5 +451,24 @@ class Logger
     public static function getLogPath(string $file, string $ext = 'log'): string
     {
         return self::getDefaultLogPath() . \DS . $file . '.' . $ext;
+    }
+
+    /**
+     * Create a PSR-3 compliant logger instance bound to a named channel.
+     *
+     * The returned `PsrLogger` delegates back to this static class so
+     * all writes go through the same structured-log pipeline.
+     *
+     * ```php
+     * $log = Logger::channel('payments');
+     * $log->error('Charge failed for order {id}', ['id' => $orderId]);
+     * ```
+     *
+     * @param  string $file  Log file name (channel) — defaults to 'pramnosframework'.
+     * @return PsrLogger
+     */
+    public static function channel(string $file = 'pramnosframework'): PsrLogger
+    {
+        return new PsrLogger($file);
     }
 }

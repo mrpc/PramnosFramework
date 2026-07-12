@@ -2,11 +2,10 @@
 namespace Pramnos\Media;
 /**
  * Based on justThumb.php - by Jack-the-ripper (c) Lars Oll�n 2005
- * @package     PramnosFramework
- * @subpackage  Thumbnail
- * @copyright   Copyright (C) 2005 - 2013 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @copyright   Lars Oll�n 2005
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 
 
@@ -165,7 +164,7 @@ class ResizeTools extends \Pramnos\Framework\Base
         } else {
             imagejpeg($this->thumb, $this->exportpath . $this->exportfile);
         }
-        imagedestroy($this->thumb);
+        unset($this->thumb);
     }
 
     /**
@@ -329,8 +328,7 @@ class ResizeTools extends \Pramnos\Framework\Base
                     0, ($x_mid - ($this->thumbW / 2)),
                     ($y_mid - ($this->thumbH / 2)), $this->thumbW,
                     $this->thumbH, $this->thumbW, $this->thumbH);
-
-            imagedestroy($process);
+            unset($process);
         }
     }
 
@@ -419,7 +417,7 @@ class ResizeTools extends \Pramnos\Framework\Base
                 0, $nwidth, $nheight, $this->width, $this->height);
 
         imagecopy($this->thumb, $tempThumb, $xpos, $ypos, 0, 0, $nwidth, $nheight);
-        @imagedestroy($tempThumb);
+        unset($tempThumb);
     }
 
     /**
@@ -576,6 +574,7 @@ class ResizeTools extends \Pramnos\Framework\Base
      * 5 = No speedup. Just uses imagecopyresampled, no advantage over
      * imagecopyresampled.
      * @return boolean Returns TRUE on success or FALSE on failure.
+     * @license    MIT
      */
     public static function fastimagecopyresampled(
     $dst_image, $src_image, $dst_x, $dst_y, $src_x, $src_y, $dst_w, $dst_h, $src_w, $src_h, $quality = 4
@@ -590,16 +589,16 @@ class ResizeTools extends \Pramnos\Framework\Base
         if (
                 $quality < 5 && (($dst_w * $quality) < $src_w || ($dst_h * $quality) < $src_h)
         ) {
-            $temp = imagecreatetruecolor($dst_w * $quality + 1,
-                    $dst_h * $quality + 1);
+            $temp = imagecreatetruecolor((int)($dst_w * $quality + 1),
+                    (int)($dst_h * $quality + 1));
             imagecopyresized($temp, $src_image, 0, 0, $src_x, $src_y,
-                    $dst_w * $quality + 1, $dst_h * $quality + 1, $src_w, $src_h);
-            imagecopyresampled($dst_image, $temp, $dst_x, $dst_y, 0, 0, $dst_w,
-                    $dst_h, $dst_w * $quality, $dst_h * $quality);
-            imagedestroy($temp);
+                    (int)($dst_w * $quality + 1), (int)($dst_h * $quality + 1), $src_w, $src_h);
+            imagecopyresampled($dst_image, $temp, (int)$dst_x, (int)$dst_y, 0, 0, (int)$dst_w,
+                    (int)$dst_h, (int)($dst_w * $quality), (int)($dst_h * $quality));
+            unset($temp);
         } else {
-            imagecopyresampled($dst_image, $src_image, $dst_x, $dst_y, $src_x,
-                    $src_y, $dst_w, $dst_h, $src_w, $src_h);
+            imagecopyresampled($dst_image, $src_image, (int)$dst_x, (int)$dst_y, (int)$src_x,
+                    (int)$src_y, (int)$dst_w, (int)$dst_h, (int)$src_w, (int)$src_h);
         }
         return true;
     }

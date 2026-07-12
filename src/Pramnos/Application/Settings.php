@@ -4,10 +4,9 @@ namespace Pramnos\Application;
 
 /**
  * The main settings class. Can be used as static or be a parrent class.
- * @package        PramnosFramework
- * @subpackage     Application
- * @copyright      Copyright (C) 2005 - 2020 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright      (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author         Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Settings extends \Pramnos\Framework\Base
 {
@@ -27,6 +26,16 @@ class Settings extends \Pramnos\Framework\Base
      * @var \Pramnos\Database\Database
      */
     static protected $database = null;
+
+    /**
+     * Clear all settings and reset state
+     */
+    public static function clearSettings()
+    {
+        self::$settings = array();
+        self::$loaded = false;
+        self::$database = null;
+    }
 
 
 
@@ -181,17 +190,22 @@ class Settings extends \Pramnos\Framework\Base
         }
 
         if (is_object(self::$database)) {
-            $sql = self::$database->prepareQuery(
-                "select `value` from `#PREFIX#settings` "
-                . " where `setting` = %s limit 1",
-                $setting
-            );
-            $result = self::$database->query(
-                $sql, true, 600, 'settings'
-            );
-            if ($result->numRows != 0) {
-                self::$settings[$setting] = $result->fields['value'];
-                return self::$settings[$setting];
+            try {
+                $sql = self::$database->prepareQuery(
+                    "select `value` from `#PREFIX#settings` "
+                    . " where `setting` = %s limit 1",
+                    $setting
+                );
+                $result = self::$database->query(
+                    $sql, true, 600, 'settings'
+                );
+                if ($result->numRows != 0) {
+                    self::$settings[$setting] = $result->fields['value'];
+                    return self::$settings[$setting];
+                }
+            } catch (\Throwable $e) {
+                // The settings table may not exist yet (fresh install before migrations).
+                // Return the default value so the application can still boot and run migrations.
             }
         }
 
@@ -223,23 +237,10 @@ class Settings extends \Pramnos\Framework\Base
                 $return = self::$database->query($sql);
             }
             else {
-                if (self::$database->type == 'postgresql') {
-                    $sql = self::$database->prepareQuery(
-                        "insert into `#PREFIX#settings`
-                        (`setting`, `value`) values (%s, %s)
-                        ON CONFLICT (setting) DO UPDATE SET `value` = %s",
-                        $setting, $value, $value
-                    );
-                } else {
-                    $sql = self::$database->prepareQuery(
-                        "insert into `#PREFIX#settings`
-                        (`setting`, `value`) values (%s, %s)
-                        on duplicate key update `value` = %s",
-                        $setting, $value, $value
-                    );
-                    
-                }
-                
+                $sql = self::$database->prepareQuery(
+                    "insert into `#PREFIX#settings` (`setting`, `value`) values (%s, %s)",
+                    $setting, $value
+                );
                 $return = self::$database->query($sql);
             }
         }

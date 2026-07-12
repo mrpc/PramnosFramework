@@ -1,10 +1,9 @@
 <?php
 namespace Pramnos\Application;
 /**
- * @package      PramnosFramework
- * @subpackage   Application
- * @copyright    2005 - 2025 Yannis - Pastis Glaros
+ * @copyright    (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author       Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Model extends \Pramnos\Framework\Base
 {
@@ -152,6 +151,13 @@ class Model extends \Pramnos\Framework\Base
         if ($key !== NULL && $key != "") {
             $this->_primaryKey = $key;
         }
+        try {
+            $mc = \Pramnos\Debug\DebugBar::getInstance()->getCollector('models');
+            if ($mc instanceof \Pramnos\Debug\Collectors\ModelsCollector) {
+                $mc->record(static::class, (string) $this->_dbtable, 'save', $this->{$this->_primaryKey} ?? null);
+            }
+        } catch (\Throwable) {
+        }
 
         if ($debug==true) {
             var_dump($_POST, $this);
@@ -272,18 +278,24 @@ class Model extends \Pramnos\Framework\Base
                     throw new \Exception($error['message']);
                 }
                 if ($database->type == 'postgresql') {
-                    $this->$primarykey = pg_fetch_result($result, 0, $primarykey);
+                    $this->$primarykey = $result->fields[$primarykey] ?? null;
                 } else {
                     $this->$primarykey = $database->getInsertId();
                 }
                 $database->cacheflush($this->_cacheKey);
                 
             } else {
-                $database->updateTableData(
-                    $this->getFullTableName(), $itemdata,
-                    "`" . $primarykey . "` = '" . $this->$primarykey . "'",
-                    $debug
-                );
+                try {
+                    $database->updateTableData(
+                        $this->getFullTableName(), $itemdata,
+                        "`" . $primarykey . "` = '" . $this->$primarykey . "'",
+                        $debug
+                    );
+                } catch (\Throwable $ex) {
+                    \Pramnos\Logs\Logger::logError("Error in _save update: " . $ex->getMessage(), $ex);
+                    $this->sqlError = $ex->getMessage();
+                    return $this;
+                }
 
                 // Clear only the specific record's cache, not the entire category
                 if (isset($this->$primarykey) && $this->$primarykey !== null) {
@@ -349,27 +361,22 @@ class Model extends \Pramnos\Framework\Base
             if ($filter === NULL) {
                 $filter = "";
             }
-            if ($database->type == 'postgresql') {                
-                $sql = "select count(*) as \"itemsCount\" from "
-                    . $this->getFullTableName() . " " . $filter;
-            } else {
-                $sql = "select count(*) as 'itemsCount' from `"
-                    . $this->getFullTableName() . "` " . $filter;
-            }
             try {
-                $result = $database->query($sql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
+                $result = $database->queryBuilder()
+                    ->from($this->getFullTableName())
+                    ->select('count(*) as itemscount')
+                    ->whereRaw($this->_stripSqlKeyword($filter, 'WHERE'))
+                    ->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             } catch (\Exception $e) {
                 \Pramnos\Logs\Logger::logError(
                     'Error executing getCount query: '
-                     . $sql
-                     . ' - '
                      . $e->getMessage(),
                     $e
                 );
                 return 0;
             }
-            
-            return $result->fields['itemsCount'];
+
+            return $result->fields['itemscount'];
         }
         return 0;
     }
@@ -388,7 +395,6 @@ class Model extends \Pramnos\Framework\Base
     protected function _load($primaryKey, $table = NULL,
         $key = NULL, $debug=false, $useCache = true)
     {
-
         $database = \Pramnos\Database\Database::getInstance();
         if ($table !== NULL && $table != "") {
             $this->_dbtable = $table;
@@ -396,39 +402,29 @@ class Model extends \Pramnos\Framework\Base
         if ($key !== NULL && $key != "") {
             $this->_primaryKey = $key;
         }
+        try {
+            $mc = \Pramnos\Debug\DebugBar::getInstance()->getCollector('models');
+            if ($mc instanceof \Pramnos\Debug\Collectors\ModelsCollector) {
+                $mc->record(static::class, (string) $this->_dbtable, 'load', $primaryKey);
+            }
+        } catch (\Throwable) {
+        }
         if ($this->_dbtable != NULL) {
             if ($this->_cacheKey === NULL) {
                 $this->_fixDb();
             }
-            if ($database->type == 'postgresql') {
-                
-                $sql = $database->prepareQuery(
-                    "select * from "
-                    . $this->getFullTableName()
-                    . " where `"
-                    . $this->_primaryKey
-                    . "` = %s limit 1",
-                    $primaryKey
-                );
-            
-            } else {
-                $sql = $database->prepareQuery(
-                    "select * from "
-                    . $this->getFullTableName()
-                    . " where `"
-                    . $this->_primaryKey
-                    . "` = %s limit 1",
-                    $primaryKey
-                );
-            }
-            
             if ($debug === true) {
-                die($sql);
+                // toSql() is useful for debug
+                die($database->queryBuilder()->from($this->getFullTableName())->where($this->_primaryKey, $primaryKey)->limit(1)->toSql());
             }
             
             // Use specific cache key that includes the primary key value
             $specificCacheKey = $this->_generateSpecificCacheKey($primaryKey);
-            $result = $database->query($sql, false, 600, $specificCacheKey);
+            $result = $database->queryBuilder()
+                ->from($this->getFullTableName())
+                ->where($this->_primaryKey, $primaryKey)
+                ->limit(1)
+                ->get(false, 600, $specificCacheKey);
             if ($result->numRows != 0) {
                 // Reset initial data array
                 $this->_initialData = array();
@@ -464,14 +460,11 @@ class Model extends \Pramnos\Framework\Base
             if ($this->_cacheKey === NULL) {
                 $this->_fixDb();
             }
-            $sql = "delete from " . $this->getFullTableName()
-                . " where " . $this->_primaryKey
-                . " = " . (int) $primaryKey;
-            $database->query($sql);
-            
-            // Clear only the specific record's cache, not the entire category
-            $database->cacheflush($this->_generateSpecificCacheKey($primaryKey));
-            $database->cacheflush($this->_cacheKey);
+            if ($database->queryBuilder()->from($this->getFullTableName())->where($this->_primaryKey, $primaryKey)->delete()) {
+                // Clear only the specific record's cache, not the entire category
+                $database->cacheflush($this->_generateSpecificCacheKey($primaryKey));
+                $database->cacheflush($this->_cacheKey);
+            }
         }
         $this->_isnew = true;
         return $this;
@@ -535,128 +528,66 @@ class Model extends \Pramnos\Framework\Base
                 $this->_fixDb();
             }
             $primarykey = $this->_primaryKey;
-            if ($filter === NULL) {
-                $filter = "";
+            $selectClause = $this->_ensurePrimaryKeyInSelect($queryFields, $primarykey);
+            $qb = $database->queryBuilder()
+                ->from($this->getFullTableName() . ' a')
+                ->select($selectClause);
+
+            if ($join != '') {
+                $qb->joinRaw($join);
             }
-            if ($filter === NULL) {
-                $filter = "";
+
+            if ($filter != '') {
+                $qb->whereRaw($this->_stripSqlKeyword($filter, 'WHERE'));
+            }
+
+            if ($group != '') {
+                $qb->groupByRaw($this->_stripSqlKeyword($group, 'GROUP BY'));
+            }
+
+            if ($order != '') {
+                $qb->orderByRaw($this->_stripSqlKeyword($order, 'ORDER BY'));
+            }
+
+            // Get total count
+            if ($group != '') {
+                $countQb = clone $qb;
+                $countQb->select('1')->clearOrderingAndPaging();
+                $countSql = "SELECT COUNT(*) as itemscount FROM (" . $countQb->toSql() . ") as grouped_query";
+                $countResult = $database->query($countSql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             } else {
-                if ($database->type == 'postgresql') {
-                    $filter = str_replace('`', '"', $filter);
-                }
-            }
-            if ($database->type == 'postgresql') {
-                $group = str_replace('`', '"', $group);
-                $join = str_replace('`', '"', $join);
-                $prefix = $database->prefix;
-                if ($prefix != '') {
-                    $prefix = $prefix . '_';
-                }
-                $join = str_replace('#PREFIX#', $database->prefix, $join);
-
-
-            }
-            if ($order === NULL || $order === '') {
-                if ($join != '') {
-                    $order  = " order by a." . $primarykey . " DESC ";
-                } else {
-                    $order  = " order by " . $primarykey . " DESC ";
-                }
+                $countQb = clone $qb;
+                $countQb->select('count(a.' . $primarykey . ') as itemscount')->clearOrderingAndPaging();
+                $countResult = $countQb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             }
 
-            if ($queryFields != NULL) {
-                $fields = $queryFields;
-            } else {
-                $fields = '*';
-            }
+            $totalItems = $countResult->fields['itemscount'] ?? 0;
 
-            if ($database->type == 'postgresql') {
-                $order = str_replace('`', '"', $order);
-            }
-
-            if (trim($order) != '' && stripos($order, 'order by') === false) {
-                $order = ' order by ' . $order;
-            }
-            $orderArray = explode(';', $order);
-            $order = $database->prepareQuery($orderArray[0]);
-            if ($database->type == 'postgresql') {
-                if ($this->_dbschema !== null) {
-                    $sql = "select $fields from " . $this->_dbschema . '.'
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
-                        . $items . ' offset ' . $page;
-                    if ($group != '') {
-                        $countSql = "select count(*) as \"itemsCount\" from ("
-                            . "select 1 from " . $this->_dbschema . '.'
-                            . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group
-                            . ") as grouped_query";
-                    } else {
-                        $countSql = "select count(a." . $primarykey . ") "
-                            . "as \"itemsCount\"  from " . $this->_dbschema . '.'
-                            . $this->_dbtable . " " . "  a " . $join . $filter;
-                    }
-                } elseif ($database->schema != '') {
-                    $sql = "select $fields from " . $database->schema . '.'
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
-                        . $items . ' offset ' . $page;
-                    if ($group != '') {
-                        $countSql = "select count(*) as \"itemsCount\" from ("
-                            . "select 1 from " . $database->schema . '.'
-                            . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group
-                            . ") as grouped_query";
-                    } else {
-                        $countSql = "select count(a." . $primarykey . ") "
-                            . "as \"itemsCount\"  from " . $database->schema . '.'
-                            . $this->_dbtable . " " . "  a " . $join . $filter;
-                    }
-                } else {
-                    $sql = "select $fields from "
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
-                        . $items . ' offset ' . $page;
-                    if ($group != '') {
-                        $countSql = "select count(*) as \"itemsCount\" from ("
-                            . "select 1 from "
-                            . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group
-                            . ") as grouped_query";
-                    } else {
-                        $countSql = "select count(a." . $primarykey . ") "
-                            . "as \"itemsCount\"  from "
-                            . $this->_dbtable . " " . "  a " . $join . $filter;
-                    }
-                }
-            } else {
-                $sql = "select $fields from `"
-                    . $this->_dbtable . "` " . "  a " . $join . $filter . ' ' . $group . ' ' . $order . ' limit '
-                    . $page . ', ' . $items;
-                if ($group != '') {
-                    $countSql = "select count(*) as 'itemsCount' from ("
-                        . "select 1 from `"
-                        . $this->_dbtable . "` " . "  a " . $join . $filter . ' ' . $group
-                        . ") as grouped_query";
-                } else {
-                    $countSql = "select count(a.`" . $primarykey . "`) "
-                        . "as 'itemsCount'  from `"
-                        . $this->_dbtable . "` " . "  a " . $join . $filter;
-                }
-            }
-            $countResult = $database->query(
-                $countSql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey
-            );
-            $totalItems = $countResult->fields['itemsCount'];
-
-            if ($totalItems == 0 | $items == 0) {
+            if ($totalItems == 0 || $items == 0) {
                 $totalPages = 1;
             } else {
                 $totalPages = ceil($totalItems / $items);
             }
 
-            if ($debug==true) {
-                die($sql);
+            // Set limit and offset for the main query
+            $qb->limit($items)->offset($page);
+
+            if ($debug == true) {
+                die($qb->toSql());
             }
 
-            $result = $database->query($sql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
+            try {
+                $result = $qb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
+                if ($result === false || $result === null) {
+                    throw new \Exception("Query failed to execute: " . $qb->toSql());
+                }
+            } catch (\Throwable $ex) {
+                \Pramnos\Logs\Logger::logError("Error in getPaginated query: " . $qb->toSql() . " - " . $ex->getMessage(), $ex);
+                throw new \Exception($ex->getMessage(), (int) $ex->getCode(), $ex);
+            }
 
             $class = get_class($this);
-            
+
             if ($returnAsModels == false && $useGetData == false) {
                 $objects = array();
                 while ($result->fetch()) {
@@ -675,10 +606,10 @@ class Model extends \Pramnos\Framework\Base
                 $objects[$result->fields[$primarykey]] = new $class(
                     $this->controller
                 );
-                
+
                 // Reset initial data array for this object
                 $objects[$result->fields[$primarykey]]->_initialData = array();
-                
+
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
                         = $result->fields[$field];
@@ -691,17 +622,15 @@ class Model extends \Pramnos\Framework\Base
                         $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->{$customGetListMethod}();
                     } else {
                         $objects[$result->fields[$primarykey]] = $objects[$result->fields[$primarykey]]->getData();
-                    }    
+                    }
 
                     // if queryfields is not null (or *), anything not in queryfields should not be returned
-                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != '' 
+                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != ''
                         && is_array($objects[$result->fields[$primarykey]])) {
-                        $fieldsArray = explode(',', $queryFields);
-                        $fieldsArray = array_map('trim', $fieldsArray);
-                        // remove all quotes from fields
-                        $fieldsArray = array_map(function($field) {
-                            return trim($field, '"');
-                        }, $fieldsArray);
+                        $fieldsArray = array_map(
+                            fn($f) => $this->_resolveFieldResultName($f),
+                            explode(',', $queryFields)
+                        );
                         foreach ($objects[$result->fields[$primarykey]] as $key => $value) {
                             if (!in_array($key, $fieldsArray) && !is_array($value) && !in_array($key, $addedfields)) {
                                 unset($objects[$result->fields[$primarykey]][$key]);
@@ -771,75 +700,48 @@ class Model extends \Pramnos\Framework\Base
             }
             
             $primarykey = $this->_primaryKey;
-            if ($filter === NULL) {
-                $filter = "";
+            $selectClause = $this->_ensurePrimaryKeyInSelect($queryFields, $primarykey);
+            $qb = $database->queryBuilder()
+                ->from($this->getFullTableName() . ' a')
+                ->select($selectClause);
+
+            if ($join != '') {
+                $qb->joinRaw($join);
+            }
+
+            if ($filter != '') {
+                $qb->whereRaw($this->_stripSqlKeyword($filter, 'WHERE'));
+            }
+
+            if ($group != '') {
+                $qb->groupByRaw($this->_stripSqlKeyword($group, 'GROUP BY'));
+            }
+
+            if ($order != '') {
+                $qb->orderByRaw($this->_stripSqlKeyword($order, 'ORDER BY'));
             } else {
-                if ($database->type == 'postgresql') {
-                    $filter = str_replace('`', '"', $filter);
-                }
-            }
-            if ($database->type == 'postgresql') {
-                $group = str_replace('`', '"', $group);
-                $join = str_replace('`', '"', $join);
-                $prefix = $database->prefix;
-                if ($prefix != '') {
-                    $prefix = $prefix . '_';
-                }
-                $join = str_replace('#PREFIX#', $database->prefix, $join);
-            }
-            if ($order === NULL) {
                 if ($join != '') {
-                    $order  = " order by a." . $primarykey . " DESC ";
+                    $qb->orderByRaw('a.' . $primarykey . ' DESC');
                 } else {
-                    $order  = " order by " . $primarykey . " DESC ";
+                    $qb->orderByRaw($primarykey . ' DESC');
                 }
             }
 
-            if ($queryFields != NULL) {
-                $fields = $queryFields;
-            } else {
-                $fields = '*';
-            }
-
-            if ($database->type == 'postgresql') {
-                $order = str_replace('`', '"', $order);
-            }
-            if (trim($order) != '' && stripos($order, 'order by') === false) {
-                $order = ' order by ' . $order;
-            }
-            $orderArray = explode(';', $order);
-            $order = $database->prepareQuery($orderArray[0]);
-            
-
-            if ($database->type == 'postgresql') {
-                if ($this->_dbschema != null) {
-                    $sql = "select $fields from " . $this->_dbschema . '.'
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
-                } elseif ($database->schema != '') {
-                    $sql = "select $fields from " . $database->schema . '.'
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
-                } else {
-                    $sql = "select $fields from "
-                        . $this->_dbtable . " " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
-                }
-            } else {
-                $sql = "select $fields from `"
-                    . $this->_dbtable . "` " . "  a " . $join . $filter . ' ' . $group . ' ' . $order;
-            }
-            if ($debug==true) {
-                die($sql);
+            if ($debug == true) {
+                die($qb->toSql());
             }
             try {
-                $result = $database->query($sql, $this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
-            } catch (\Exception $ex) {
-                \Pramnos\Logs\Logger::logError("Error in getList query: " . $sql . " - " . $ex->getMessage(), $ex);
+                $result = $qb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
+            } catch (\Throwable $ex) {
+                \Pramnos\Logs\Logger::logError("Error in getList query: " . $qb->toSql() . " - " . $ex->getMessage(), $ex);
                 if ($displayerroroutput == true) {
                     $this->controller->application->showError($ex->getMessage());
-                } else {
-                    $this->sqlError = $ex->getMessage();
-                    return array();
                 }
-                
+                $this->sqlError = $ex->getMessage();
+                return array();
+            }
+            if ($result === false || $result === null) {
+                return array();
             }
             if ($returnAsModels == false && $useGetData == false) {
                 $objects = array();
@@ -855,10 +757,10 @@ class Model extends \Pramnos\Framework\Base
 
                 $objects[$result->fields[$primarykey]]
                     = new $class($this->controller);
-                
+
                 // Reset initial data array for this object
                 $objects[$result->fields[$primarykey]]->_initialData = array();
-                
+
                 foreach (array_keys($result->fields) as $field) {
                     $objects[$result->fields[$primarykey]]->$field
                         = $result->fields[$field];
@@ -875,14 +777,12 @@ class Model extends \Pramnos\Framework\Base
                     }
 
                     // if queryfields is not null (or *), anything not in queryfields should not be returned
-                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != '' 
+                    if ($queryFields !== NULL && $queryFields != '*' && $queryFields != ''
                         && is_array($objects[$result->fields[$primarykey]])) {
-                        $fieldsArray = explode(',', $queryFields);
-                        $fieldsArray = array_map('trim', $fieldsArray);
-                        // remove all quotes from fields
-                        $fieldsArray = array_map(function($field) {
-                            return trim($field, '"');
-                        }, $fieldsArray);
+                        $fieldsArray = array_map(
+                            fn($f) => $this->_resolveFieldResultName($f),
+                            explode(',', $queryFields)
+                        );
                         foreach ($objects[$result->fields[$primarykey]] as $key => $value) {
                             if (!in_array($key, $fieldsArray) && !is_array($value) && !in_array($key, $addedfields)) {
                                 unset($objects[$result->fields[$primarykey]][$key]);
@@ -890,14 +790,19 @@ class Model extends \Pramnos\Framework\Base
                         }
                     }
                 }
-                
+
             }
         }
         return $objects;
     }
 
     /**
-     * Get a list of objects as a json encoded string
+     * Get a list of objects as a json encoded string (DataTables 1.9 legacy format).
+     *
+     * @deprecated since v1.2 — returns DataTables 1.9 aaData/sEcho format; use
+     *             _getApiList() for new code. The PramnosDataTable JS adapter (Phase 17)
+     *             consumes _getApiList() output and does not need this method.
+     *
      * @param string $filter Filter for sql statement (where)
      * @param string $table Database table
      * @param string $key Primary key in database
@@ -905,13 +810,11 @@ class Model extends \Pramnos\Framework\Base
      */
     public function _getJsonList($filter = NULL, $table = NULL, $key = NULL)
     {
-        $lang = \Pramnos\Translator\Language::getInstance();
+        $lang     = \Pramnos\Translator\Language::getInstance();
         $database = \Pramnos\Database\Database::getInstance();
-        $objects = array();
+
         if ($table !== NULL && $table != "") {
-            $this->_dbtable = str_replace(
-                "#PREFIX#", $database->prefix, $table
-            );
+            $this->_dbtable = str_replace('#PREFIX#', $database->prefix, $table);
         }
         if ($key !== NULL && $key != "") {
             $this->_primaryKey = $key;
@@ -919,117 +822,165 @@ class Model extends \Pramnos\Framework\Base
         if ($this->_dbtable === NULL) {
             $this->load(0);
         }
-        if ($this->_dbtable != NULL) {
-            if ($this->_cacheKey === NULL) {
-                $this->_fixDb();
+        if ($this->_dbtable == NULL) {
+            return [];
+        }
+        if ($this->_cacheKey === NULL) {
+            $this->_fixDb();
+        }
+
+        $filter = ($filter === NULL) ? '' : $filter;
+
+        // Delegate to _getApiList() (clean REST format) to unify code path.
+        // Then wrap in DataTables 1.9 aaData/sEcho envelope for BC.
+        $apiResult = $this->_getApiList([], '', '', $filter);
+
+        $fields = $apiResult['fields'] ?? [];
+        $rows   = $apiResult['data']   ?? [];
+
+        // Convert associative rows → positional arrays (DT 1.9 aaData format).
+        $aaData = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
             }
-            #$primarykey = $this->_primaryKey;
-
-
-            if ($filter === NULL) {
-                $filter = "";
+            $positional = [];
+            foreach ($fields as $field) {
+                $positional[] = $row[$field] ?? null;
             }
+            $aaData[] = $positional;
+        }
 
-            $fields = array();
+        $total   = count($aaData);
+        $request = \Pramnos\Http\Request::getInstance();
 
-            $tableName = $this->getFullTableName();
-            $sql    = "SHOW COLUMNS FROM `" . $tableName . "`";
-            $cacheKey = "schema_columns_{$tableName}";
-            $result = $database->query($sql, true, 3600, $cacheKey);
+        $objects = [
+            'aaData'               => $aaData,
+            'sEcho'                => intval($request->get('sEcho') ?? 0),
+            'iTotalRecords'        => $total,
+            'iTotalDisplayRecords' => $total,
+        ];
 
-            while ($result->fetch()) {
-                $fields[] = $result->fields['Field'];
-            }
+        // Apply legacy _jsonactions (the reference application BC — action links appended to rows).
+        if (is_array($this->_jsonactions) && count($this->_jsonactions) !== 0
+            && is_array($objects['aaData'])
+        ) {
+            $loop = 0;
+            foreach ($objects['aaData'] as $data) {
+                foreach ($this->_jsonactions as $action) {
+                    $targetfield = 0;
+                    foreach ($fields as $fieldcount => $field) {
+                        if ($field == $action['field']) {
+                            $targetfield = $fieldcount;
+                        }
+                    }
 
-            $objects = \Pramnos\Html\Datatable\Datasource::getList(
-                $this->getFullTableName(), $fields, false, $filter
-            );
+                    if (strpos($action['action'], 'http') === false) {
+                        $url = sURL . $this->prefix . '/' . $action['action'] . '/' . $data[$targetfield];
+                    } else {
+                        $url = $action['action'] . '/' . $data[$targetfield];
+                    }
 
-            if (is_array($this->_jsonactions)
-                && count($this->_jsonactions) != 0) {
+                    $confirm = '';
+                    if ($action['confirm'] == true) {
+                        $confirm = ' data-confirm="' . htmlspecialchars($lang->_('Are you sure?'), ENT_QUOTES) . '" ';
+                    }
 
-                if (isset($objects['aaData'])) {
-                    if (is_array($objects['aaData'])) {
-                        $loop = 0;
-
-
-                        foreach ($objects['aaData'] as $data) {
-
-                            foreach ($this->_jsonactions as $action) {
-                                $targetfield=0;
-                                foreach ($fields as $fieldcount=>$field) {
-                                    if ($field == $action['field']) {
-                                        $targetfield=$fieldcount;
-                                    }
-                                }
-
-                                if (strpos(
-                                    $action['action'], 'http'
-                                ) === false) {
-                                    $url = sURL .$this->prefix
-                                        . '/' . $action['action']
-                                        . '/' . $data[$targetfield];
-                                } else {
-                                    $url = $action['action'] . '/'
-                                        . $data[$targetfield];
-                                }
-
-                                $confirm = '';
-                                if ($action['confirm'] == true) {
-                                    $confirm=" onclick=\"return "
-                                        . "confirm("
-                                        . "'".$lang->_('Are you sure?')
-                                        ."');\" ";
-                                }
-                                if ($action['column'] == '') {
-                                    if ($action['title'] == '') {
-                                        $a= '<a '.$confirm.' href="'.$url.'">'
-                                            . $action['action'].'</a>';
-                                    } else {
-                                        $a= '<a '.$confirm.' href="'.$url.'">'
-                                            . $action['title'].'</a>';
-                                    }
-
-                                    $data[]=$a;
-                                } else {
-
-                                    foreach ($fields as $fieldcount=>$field) {
-                                        if ($field == $action['column']) {
-                                            $a= '<a '.$confirm.' href="'
-                                                . $url.'">'
-                                                . $data[$fieldcount].'</a>';
-                                            $data[$fieldcount]=$a;
-                                        }
-                                    }
-                                }
+                    if ($action['column'] == '') {
+                        $title  = ($action['title'] !== '') ? $action['title'] : $action['action'];
+                        $data[] = '<a ' . $confirm . ' href="' . $url . '">' . $title . '</a>';
+                    } else {
+                        foreach ($fields as $fieldcount => $field) {
+                            if ($field == $action['column']) {
+                                $data[$fieldcount] = '<a ' . $confirm . ' href="' . $url . '">' . $data[$fieldcount] . '</a>';
                             }
-
-
-                            $objects['aaData'][$loop] = $data;
-                            $loop+=1;
                         }
                     }
                 }
+                $objects['aaData'][$loop] = $data;
+                $loop++;
             }
-
-
-
-            return json_encode($objects);
-
         }
-        return $objects;
+
+        return json_encode($objects);
     }
 
     /**
      * Try to find the best _cacheKey to automate database caching
      * @return Model
      */
+    /**
+     * Strip a leading SQL keyword from a clause string so it can be passed to
+     * QB raw methods that add the keyword themselves (whereRaw, orderByRaw, groupByRaw).
+     * BC: callers have historically passed "where x=y", "order by x", "group by x".
+     */
+    /**
+     * Extract the result column name from a SQL field expression.
+     * Handles: table prefix ("a.id" → "id"), aliases ("id as uid" → "uid"),
+     * identifier quotes (backticks, double-quotes, single-quotes), and functions.
+     */
+    private function _resolveFieldResultName(string $field): string
+    {
+        $field = trim($field);
+        // Alias takes priority: "expr AS alias" → alias
+        if (preg_match('/\bAS\s+["`]?(\w+)["`]?\s*$/i', $field, $m)) {
+            return $m[1];
+        }
+        // Strip table/alias prefix: "a.id" → "id"
+        if (strpos($field, '.') !== false) {
+            $field = substr($field, strrpos($field, '.') + 1);
+        }
+        // Strip identifier quotes
+        return trim($field, '"`\'');
+    }
+
+    private function _stripSqlKeyword(string $sql, string $keyword): string
+    {
+        return preg_replace(
+            '/^\s*' . preg_quote($keyword, '/') . '\s+/i',
+            '',
+            $sql
+        );
+    }
+
+    /**
+     * Ensure the primary key column is always included in the SELECT list so
+     * that result rows can be indexed by primary key in the fetch loop.
+     * When $queryFields is null or '*' the original value is returned unchanged.
+     */
+    private function _ensurePrimaryKeyInSelect(?string $queryFields, string $primaryKey): string
+    {
+        if ($queryFields === null || $queryFields === '' || $queryFields === '*') {
+            return $queryFields ?? '*';
+        }
+        // Normalise the primary key for comparison: drop any table prefix,
+        // surrounding identifier quotes (backticks / double quotes) and space.
+        // Without stripping the quotes, an already-present but quoted/qualified PK
+        // (e.g. a.`id`) would not be recognised and a duplicate bare `id` would be
+        // prepended — producing an ambiguous column when the query JOINs a table
+        // that shares the PK column name.
+        $barePk = strtolower(
+            trim(preg_replace('/^[a-zA-Z0-9_]+\./', '', $primaryKey), " `\"")
+        );
+        $listed = array_map('trim', explode(',', $queryFields));
+        foreach ($listed as $f) {
+            $bare = preg_replace('/^[a-zA-Z0-9_]+\./', '', $f); // strip table prefix
+            $bare = preg_replace('/\s+as\s+.+$/i', '', $bare);  // strip alias
+            $bare = strtolower(trim($bare, " `\""));             // strip quotes/space
+            if ($bare === $barePk) {
+                return $queryFields; // already present
+            }
+        }
+        return $primaryKey . ', ' . $queryFields;
+    }
+
     private function _fixDb()
     {
         $database = \Pramnos\Database\Database::getInstance();
-        $this->_cacheKey = str_replace(
-            $database->prefix, '', $this->_dbtable
-        );
+        // Resolve placeholders first so they don't end up in the cache key when DB prefix is empty
+        $table = str_replace('#PREFIX#', $database->prefix, $this->_dbtable);
+        $table = str_replace('#THISPREFIX#', $this->prefix . '_', $table);
+        $this->_cacheKey = str_replace($database->prefix, '', $table);
         if ($this->prefix != "") {
             $this->_cacheKey = str_replace(
                 "_" . $this->prefix, '', $this->_cacheKey
@@ -1077,6 +1028,9 @@ class Model extends \Pramnos\Framework\Base
             case "float":
             case "real":
             case "double precision":
+            case "numeric":
+            case "decimal":
+            case "money":
                 return "float";
             case "geometry":
                 return "geometry";
@@ -1086,6 +1040,15 @@ class Model extends \Pramnos\Framework\Base
             case "json":
             case "jsonb":
                 return "json";
+            case "timestamp":
+            case "timestamp without time zone":
+            case "timestamp with time zone":
+            case "timestamptz":
+            case "time":
+            case "time without time zone":
+            case "time with time zone":
+            case "timetz":
+                return "timestamp";
             default:
                 return "string";
         }
@@ -1171,8 +1134,10 @@ class Model extends \Pramnos\Framework\Base
         }
         
         foreach ($this->_initialData as $field => $initialValue) {
-            // Check if the field exists and has changed
-            if (property_exists($this, $field)) {
+            // Check if the field exists and has changed.
+            // property_exists() only finds declared properties; ORM models store
+            // fields dynamically in $_data via __set/__get — check both.
+            if (property_exists($this, $field) || array_key_exists($field, $this->_data)) {
                 $currentValue = $this->$field;
                 
                 // For numeric values, compare using loose comparison to handle type casting
@@ -1204,7 +1169,7 @@ class Model extends \Pramnos\Framework\Base
      * Get the fully qualified table name with schema if needed
      * @return string
      */
-    protected function getFullTableName($tableName = null)
+    public function getFullTableName($tableName = null)
     {
         $database = \Pramnos\Database\Database::getInstance();
         if ($tableName === null) {
@@ -1346,11 +1311,17 @@ class Model extends \Pramnos\Framework\Base
      * @param array $addedfields If is set, these fields will not be filtered out
      * @return array API response with pagination info and data
      */
-    public function _getApiList($fields = array(), $search = '', 
-        $order = '', $filter = '', $join = '', $group = '', 
+    /**
+     * @param string $format Optional output format. Pass 'datatables' to wrap the response
+     *                       in DataTables 2.x format: {draw, data, recordsTotal, recordsFiltered}.
+     *                       The JS PramnosDataTable adapter uses this format (Phase 17).
+     *                       Default '' returns the standard {data, pagination, fields, debug} envelope.
+     */
+    public function _getApiList($fields = array(), $search = '',
+        $order = '', $filter = '', $join = '', $group = '',
         $table = null, $key = null,
         $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, $useGetData = false,
-        $customGetListMethod = false, $addedfields = false)
+        $customGetListMethod = false, $addedfields = false, $format = '')
     {
         // Handle unified search parameter
         $globalSearch = '';
@@ -1458,8 +1429,11 @@ class Model extends \Pramnos\Framework\Base
             $filter = $this->_buildFilterFromConditions($filter, $availableFields, $join);
         }
 
-        // Combine filter and search conditions
-        $finalFilter = ' ' . $this->_combineFilters($filter, $searchConditions);
+        // Combine filter and search conditions.
+        // _combineFilters returns '' when both inputs are empty, or 'where ...' otherwise.
+        // The leading space was historically added here but caused empty WHERE clauses
+        // ('WHERE ') when the filter was empty, which is a MySQL syntax error.
+        $finalFilter = $this->_combineFilters($filter, $searchConditions);
         
         // Check if pagination is requested
         if ($page > 0) {
@@ -1502,7 +1476,7 @@ class Model extends \Pramnos\Framework\Base
             
 
 
-            return array(
+            $standardResponse = array(
                 'data' => $result['items'],
                 'pagination' => array(
                     'currentpage' => $page,
@@ -1519,6 +1493,17 @@ class Model extends \Pramnos\Framework\Base
                     'selectFields' => $selectFields
                 )
             );
+
+            if ($format === 'datatables') {
+                return array(
+                    'draw'            => (int)($_REQUEST['draw'] ?? 0),
+                    'data'            => $standardResponse['data'] ?? [],
+                    'recordsTotal'    => $result['total'],
+                    'recordsFiltered' => $result['total'],
+                );
+            }
+
+            return $standardResponse;
         } else {
             // Get all results without pagination
             
@@ -1553,7 +1538,7 @@ class Model extends \Pramnos\Framework\Base
             }
             
             // Format response for API without pagination
-            return array(
+            $standardResponse = array(
                 'data' => $result,
                 'pagination' => null,
                 'fields' => $returnedFields,
@@ -1563,6 +1548,18 @@ class Model extends \Pramnos\Framework\Base
                     'selectFields' => $selectFields
                 )
             );
+
+            if ($format === 'datatables') {
+                $data = $standardResponse['data'] ?? [];
+                return array(
+                    'draw'            => (int)($_REQUEST['draw'] ?? 0),
+                    'data'            => is_array($data) ? $data : [],
+                    'recordsTotal'    => is_array($data) ? count($data) : 0,
+                    'recordsFiltered' => is_array($data) ? count($data) : 0,
+                );
+            }
+
+            return $standardResponse;
         }
     }
     
@@ -1957,10 +1954,6 @@ class Model extends \Pramnos\Framework\Base
             $boolValue = 0;
             $isNumeric = false;
             $numericValue = 0;
-            // Strip table alias to get bare field name for type lookup
-            $bareField = strpos($targetField, '.') !== false
-                ? substr($targetField, strrpos($targetField, '.') + 1)
-                : $targetField;
             if (is_bool($searchTerm) || $searchTerm == 'true' || $searchTerm == 'false') {
                 $bool = true;
                 $boolValue = ($searchTerm === true || $searchTerm === 'true') ? 1 : 0;

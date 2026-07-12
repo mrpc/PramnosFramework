@@ -25,4 +25,278 @@ class BaseTest extends \PHPUnit\Framework\TestCase
     {
         $this->assertInstanceOf('\Pramnos\Framework\Base', $this->object);
     }
+
+    /**
+     * Verifies the complete magic-property quartet: __set/__get/__isset/__unset.
+     *
+     * A property stored via __set() must be readable via __get(), visible to
+     * isset(), and fully removed (including from isset()) after unset().
+     * This contract prevents silent failures when application code uses
+     * isset() / empty() / unset() on dynamic model properties.
+     */
+    public function testMagicPropertyQuartet(): void
+    {
+        // Arrange / Act — store via __set
+        $this->object->foo = 'bar';
+
+        // Assert — __get and __isset work
+        $this->assertSame('bar', $this->object->foo);
+        $this->assertTrue(isset($this->object->foo));
+
+        // Act — __unset removes from _data
+        unset($this->object->foo);
+
+        // Assert — __get returns null, __isset returns false
+        $this->assertNull($this->object->foo);
+        $this->assertFalse(isset($this->object->foo));
+    }
+
+    /**
+     * Verifies that __isset returns false for a property set to null, so that
+     * isset() and unset() are semantically consistent with regular PHP vars.
+     */
+    public function testIssetReturnsFalseForNullProperty(): void
+    {
+        // Arrange
+        $this->object->bar = null;
+
+        // Assert — null value makes isset() false (consistent with PHP semantics)
+        $this->assertFalse(isset($this->object->bar));
+
+        // But __get still returns null (property readable, just "not set")
+        $this->assertNull($this->object->bar);
+    }
+
+    /**
+     * _set() is the public fluent setter. It must store a value and return $this
+     * so that call chains are possible.
+     */
+    public function testSetReturnsSelfAndStoresValue(): void
+    {
+        // Act — fluent call returns $this
+        $result = $this->object->_set('myProp', 'myValue');
+
+        // Assert — returns same object instance
+        $this->assertSame($this->object, $result);
+        // Assert — value is accessible through __get
+        $this->assertSame('myValue', $this->object->myProp);
+    }
+
+    /**
+     * _setParentObject() stores a reference and _getParentObject() returns it.
+     * The reference semantics must be preserved so mutations on one side
+     * are visible on the other.
+     */
+    public function testParentObjectReferenceRoundtrip(): void
+    {
+        // Arrange — create a parent Base instance
+        $parent = new Base();
+        $parent->name = 'parentValue';
+
+        // Act
+        $this->object->_setParentObject($parent);
+        $retrieved = &$this->object->_getParentObject();
+
+        // Assert — retrieved is the same object
+        $this->assertSame($parent, $retrieved,
+            '_getParentObject() must return the object passed to _setParentObject()');
+
+        // Assert — mutation via retrieved reference is visible on $parent
+        $retrieved->name = 'mutated';
+        $this->assertSame('mutated', $parent->name,
+            '_getParentObject() must return a reference, not a copy');
+    }
+
+    /**
+     * addError() stores errors in _errors and _getErrors(false) returns them.
+     * Testing without session so the $_SESSION branch is not involved.
+     *
+     * Both protected methods are accessed via a concrete subclass that exposes them.
+     */
+    public function testAddErrorAndGetErrorsWithoutSession(): void
+    {
+        // Arrange — subclass that exposes protected methods
+        $obj = new class extends Base {
+            public function publicAddError(string $e): static { return $this->addError($e); }
+            public function publicGetErrors(bool $session = true) { return $this->_getErrors($session); }
+        };
+
+        // Act
+        $obj->publicAddError('first error');
+        $obj->publicAddError('second error');
+
+        // Assert — _getErrors(false) returns array without touching session
+        $errors = $obj->publicGetErrors(false);
+        $this->assertIsArray($errors);
+        $this->assertContains('first error', $errors);
+        $this->assertContains('second error', $errors);
+    }
+
+    /**
+     * _getErrors(false) returns false when no errors have been added.
+     */
+    public function testGetErrorsReturnsFalseWhenEmpty(): void
+    {
+        // Arrange — fresh object, no errors added
+        $obj = new class extends Base {
+            public function publicGetErrors(bool $session = true) { return $this->_getErrors($session); }
+        };
+
+        // Act / Assert — must return false, not empty array
+        $this->assertFalse($obj->publicGetErrors(false),
+            '_getErrors() must return false (not []) when no errors exist');
+    }
+
+    /**
+     * addMessage() stores messages and _getMessages(false) returns them.
+     */
+    public function testAddMessageAndGetMessagesWithoutSession(): void
+    {
+        // Arrange
+        $obj = new class extends Base {
+            public function publicAddMessage(string $m): static { return $this->addMessage($m); }
+            public function publicGetMessages(bool $session = true) { return $this->_getMessages($session); }
+        };
+
+        // Act
+        $obj->publicAddMessage('hello');
+        $obj->publicAddMessage('world');
+
+        // Assert
+        $messages = $obj->publicGetMessages(false);
+        $this->assertIsArray($messages);
+        $this->assertContains('hello', $messages);
+        $this->assertContains('world', $messages);
+    }
+
+    /**
+     * _getMessages(false) returns false when no messages exist.
+     */
+    public function testGetMessagesReturnsFalseWhenEmpty(): void
+    {
+        // Arrange
+        $obj = new class extends Base {
+            public function publicGetMessages(bool $session = true) { return $this->_getMessages($session); }
+        };
+
+        // Act / Assert
+        $this->assertFalse($obj->publicGetMessages(false));
+    }
+
+    /**
+     * hasErrors() returns true when errors exist, false when none.
+     *
+     * Clears $_SESSION['_errors'] before the test because hasErrors() checks
+     * the session first and a previous test in the same process may have left
+     * stale session data.
+     */
+    public function testHasErrors(): void
+    {
+        // Arrange — clear any session residue from earlier tests
+        unset($_SESSION['_errors']);
+        $obj = new class extends Base {
+            public function publicAddError(string $e): static { return $this->addError($e); }
+            public function publicHasErrors(): bool { return $this->hasErrors(); }
+        };
+
+        // Assert — no errors yet
+        $this->assertFalse($obj->publicHasErrors());
+
+        // Act — add an error
+        $obj->publicAddError('something went wrong');
+
+        // Assert — now returns true
+        $this->assertTrue($obj->publicHasErrors());
+    }
+
+    /**
+     * hasMessages() returns true when messages exist, false when none.
+     *
+     * Clears $_SESSION['_messages'] before the test to prevent session residue
+     * from earlier tests causing a false positive on the initial assertFalse.
+     */
+    public function testHasMessages(): void
+    {
+        // Arrange — clear any session residue from earlier tests
+        unset($_SESSION['_messages']);
+        $obj = new class extends Base {
+            public function publicAddMessage(string $m): static { return $this->addMessage($m); }
+            public function publicHasMessages(): bool { return $this->hasMessages(); }
+        };
+
+        // Assert — no messages yet
+        $this->assertFalse($obj->publicHasMessages());
+
+        // Act
+        $obj->publicAddMessage('notice');
+
+        // Assert
+        $this->assertTrue($obj->publicHasMessages());
+    }
+
+    /**
+     * _printErrors() wraps each error in a span with the default class.
+     */
+    public function testPrintErrorsWrapsInSpan(): void
+    {
+        // Arrange
+        $obj = new class extends Base {
+            public function publicAddError(string $e): static { return $this->addError($e); }
+            public function publicPrintErrors(string $class = 'pramnosError'): string { return $this->_printErrors($class); }
+        };
+        $obj->publicAddError('err1');
+
+        // Act
+        $html = $obj->publicPrintErrors();
+
+        // Assert — output contains the error wrapped in a span with correct class
+        $this->assertStringContainsString('<span class="pramnosError">err1</span>', $html);
+    }
+
+    /**
+     * _printMessages() wraps each message in a span with the default class.
+     */
+    public function testPrintMessagesWrapsInSpan(): void
+    {
+        // Arrange
+        $obj = new class extends Base {
+            public function publicAddMessage(string $m): static { return $this->addMessage($m); }
+            public function publicPrintMessages(string $class = 'pramnosMessage'): string { return $this->_printMessages($class); }
+        };
+        $obj->publicAddMessage('msg1');
+
+        // Act
+        $html = $obj->publicPrintMessages();
+
+        // Assert
+        $this->assertStringContainsString('<span class="pramnosMessage">msg1</span>', $html);
+    }
+
+    /**
+     * _printErrors() returns empty string when no errors exist.
+     */
+    public function testPrintErrorsReturnsEmptyStringWhenNoErrors(): void
+    {
+        // Arrange — no errors added
+        $obj = new class extends Base {
+            public function publicPrintErrors(): string { return $this->_printErrors(); }
+        };
+
+        // Act / Assert
+        $this->assertSame('', $obj->publicPrintErrors());
+    }
+
+    /**
+     * _printMessages() returns empty string when no messages exist.
+     */
+    public function testPrintMessagesReturnsEmptyStringWhenNoMessages(): void
+    {
+        // Arrange
+        $obj = new class extends Base {
+            public function publicPrintMessages(): string { return $this->_printMessages(); }
+        };
+
+        // Act / Assert
+        $this->assertSame('', $obj->publicPrintMessages());
+    }
 }

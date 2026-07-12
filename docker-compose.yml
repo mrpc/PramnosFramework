@@ -22,7 +22,9 @@ services:
       - redis
 
   db:
-    image: mysql:8.0
+    build:
+      context: ./docker/mysql
+    image: pramnosframework-mysql:8.0
     container_name: pramnos_db
     environment:
       - MYSQL_ROOT_PASSWORD=secret
@@ -45,3 +47,12 @@ services:
     container_name: pramnos_redis
     ports:
       - "6379"
+
+  docs:
+    image: squidfunk/mkdocs-material:latest
+    container_name: pramnos_docs
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/docs
+    working_dir: /docs

@@ -6,9 +6,9 @@ namespace Pramnos\Framework;
  * Basic class. All other classes of the framework must be based on this one.
  * Contains: startpoint protection
  * an array with errors and magic methods to set/get properties.
- * @package     PramnosFramework
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Base
 {
@@ -60,6 +60,28 @@ class Base
         else {
             return null;
         }
+    }
+
+    /**
+     * Magic isset — makes empty() and isset() work correctly for properties
+     * stored via __set() (in _data).  Without this, empty($obj->magicProp)
+     * always returns true even when the property has a non-empty value.
+     * @param string $name
+     * @return bool
+     */
+    public function __isset($name)
+    {
+        return isset($this->_data[$name]);
+    }
+
+    /**
+     * Magic unset — removes a property stored in _data so that isset() returns
+     * false afterwards.  Completes the __set/__get/__isset quartet.
+     * @param string $name
+     */
+    public function __unset($name)
+    {
+        unset($this->_data[$name]);
     }
 
     /**

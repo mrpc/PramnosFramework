@@ -5,10 +5,9 @@ use Symfony\Component\Routing\Route as SymfonyRoute;
 
 /**
  * A Route
- * @package     PramnosFramework
- * @subpackage  Routing
- * @copyright   2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Route
 {
@@ -49,6 +48,25 @@ class Route
      * @var array
      */
     public $permissions = array();
+
+    /**
+     * Middleware stack for this route
+     * @var array<\Pramnos\Http\MiddlewareInterface|class-string>
+     */
+    private array $middlewares = [];
+
+    /**
+     * Logical name for this route (used by Router::route() for URL generation).
+     * @var string|null
+     */
+    public ?string $routeName = null;
+
+    /**
+     * Optional callback invoked by name() to register the name with the Router.
+     * Set by Router::addSingleRoute() via setNameRegistrationCallback().
+     * @var \Closure|null
+     */
+    private ?\Closure $nameRegistrationCallback = null;
 
     /**
      * class constructor
@@ -183,6 +201,101 @@ class Route
     public function hasPermissions()
     {
         return !empty($this->permissions);
+    }
+
+    /**
+     * Attach one or more middleware to this route.
+     *
+     * Accepts instances or FQCN strings (lazy-instantiated by the pipeline).
+     * Returns $this for fluent chaining after route registration:
+     *
+     *   $router->get('/api/users', fn() => ...)
+     *          ->middleware(new AuthMiddleware(), new ThrottleMiddleware(60, 60));
+     *
+     * @param  \Pramnos\Http\MiddlewareInterface|class-string ...$middlewares
+     * @return static
+     */
+    public function middleware(\Pramnos\Http\MiddlewareInterface|string ...$middlewares): static
+    {
+        foreach ($middlewares as $mw) {
+            $this->middlewares[] = $mw;
+        }
+        return $this;
+    }
+
+    /**
+     * Prepend one or more middleware before any already registered on this route.
+     *
+     * Used internally by Router::group() so group-level middleware runs
+     * before per-route middleware, regardless of registration order.
+     *
+     * @param  \Pramnos\Http\MiddlewareInterface|class-string ...$middlewares
+     * @return static
+     */
+    public function prependMiddleware(\Pramnos\Http\MiddlewareInterface|string ...$middlewares): static
+    {
+        $this->middlewares = array_merge(array_values($middlewares), $this->middlewares);
+        return $this;
+    }
+
+    /**
+     * Return all middleware attached to this route.
+     *
+     * @return array<\Pramnos\Http\MiddlewareInterface|class-string>
+     */
+    public function getMiddleware(): array
+    {
+        return $this->middlewares;
+    }
+
+    /**
+     * Whether this route has any middleware registered.
+     */
+    public function hasMiddleware(): bool
+    {
+        return !empty($this->middlewares);
+    }
+
+    /**
+     * Assign a logical name to this route.
+     *
+     * Names are used by Router::route() to generate URLs without hard-coding
+     * URI patterns in application code:
+     *
+     *   $router->get('/users/{id}', fn($id) => ...)->name('users.show');
+     *   $url = $router->route('users.show', ['id' => 42]); // '/users/42'
+     *
+     * If a name-registration callback was injected by the Router
+     * (via setNameRegistrationCallback), it is called immediately so the
+     * Router's named-route index is updated at definition time.
+     *
+     * @param  string $name  Dot-notation name, e.g. 'users.index', 'api.v1.posts.store'.
+     * @return static
+     */
+    public function name(string $name): static
+    {
+        $this->routeName = $name;
+        if ($this->nameRegistrationCallback !== null) {
+            ($this->nameRegistrationCallback)($name, $this);
+        }
+        return $this;
+    }
+
+    /**
+     * Return the logical name of this route, or null if unnamed.
+     */
+    public function getName(): ?string
+    {
+        return $this->routeName;
+    }
+
+    /**
+     * Inject the callback that registers a name with the owning Router.
+     * Called by Router::addSingleRoute() immediately after creating the route.
+     */
+    public function setNameRegistrationCallback(\Closure $callback): void
+    {
+        $this->nameRegistrationCallback = $callback;
     }
 
     /**

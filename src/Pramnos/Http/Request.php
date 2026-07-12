@@ -7,10 +7,9 @@ use Pramnos\Validation\ValidationException;
 
 /**
  * Get user request and translate it
- * @package     PramnosFramework
- * @subpackage  Request
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Request extends Base
 {
@@ -434,7 +433,8 @@ class Request extends Base
      */
     public function isHttps()
     {
-        return isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on';
+        $https = $_SERVER['HTTPS'] ?? '';
+        return $https === 'on' || $https === '1';
     }
 
     /**
@@ -453,12 +453,12 @@ class Request extends Base
             if (isset($_SERVER["SERVER_PORT"])
                 && $_SERVER["SERVER_PORT"] != "80") {
                 $pageURL .= $_SERVER["SERVER_NAME"] . ":"
-                    . $_SERVER["SERVER_PORT"] . $_SERVER["REQUEST_URI"];
+                    . $_SERVER["SERVER_PORT"] . ($_SERVER["REQUEST_URI"] ?? '');
             } elseif (isset($_SERVER['SERVER_NAME'])) {
-                $pageURL .= $_SERVER["SERVER_NAME"] . $_SERVER["REQUEST_URI"];
+                $pageURL .= $_SERVER["SERVER_NAME"] . ($_SERVER["REQUEST_URI"] ?? '');
             }
         } else {
-            $pageURL = $_SERVER["REQUEST_URI"];
+            $pageURL = $_SERVER["REQUEST_URI"] ?? '';
         }
 
         return $pageURL;

@@ -2,10 +2,9 @@
 
 namespace Pramnos\Console;
 /**
- * @package     PramnosFramework
- * @subpackage  Console
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Application extends \Symfony\Component\Console\Application
 {
@@ -46,9 +45,45 @@ class Application extends \Symfony\Component\Console\Application
     protected function registerCommands()
     {
         $this->add(new \Pramnos\Console\Commands\Init());
-        $this->add(new \Pramnos\Console\Commands\Create());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeModel());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeController());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeView());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeCrud());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeApi());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeMigration());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeMiddleware());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeEvent());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeListener());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeSeeder());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeWebhook());
         $this->add(new \Pramnos\Console\Commands\Serve());
         $this->add(new \Pramnos\Console\Commands\MigrateLogs());
+        // Migration CLI commands (Phase 4)
+        $this->add(new \Pramnos\Console\Commands\Migrate());
+        $this->add(new \Pramnos\Console\Commands\MigrateRollback());
+        $this->add(new \Pramnos\Console\Commands\MigrateReset());
+        $this->add(new \Pramnos\Console\Commands\MigrateRefresh());
+        $this->add(new \Pramnos\Console\Commands\MigrateStatus());
+        // Health check (Phase 4)
+        $this->add(new \Pramnos\Console\Commands\HealthCheck());
+        // Scheduled tasks (Phase 4)
+        $this->add(new \Pramnos\Console\Commands\ScheduleRun());
+        $this->add(new \Pramnos\Console\Commands\ScheduleList());
+        // Policy Engine (Phase 4)
+        $this->add(new \Pramnos\Console\Commands\PolicyEngine());
+        // Queue System (Phase 2)
+        $this->add(new \Pramnos\Console\Commands\ProcessQueue());
+        $this->add(new \Pramnos\Console\Commands\CleanupQueue());
+        // Database seeding
+        $this->add(new \Pramnos\Console\Commands\DbSeed());
+        // Scaffolding utilities
+        $this->add(new \Pramnos\Console\Commands\ScaffoldViews());
+        // MCP server + debug status (Phase 13)
+        $this->add(new \Pramnos\Console\Commands\McpServe());
+        $this->add(new \Pramnos\Console\Commands\DebugStatus());
+        // Broadcasting (Phase 12)
+        $this->add(new \Pramnos\Console\Commands\BroadcastServe());
+        // DaemonOrchestrator is abstract — apps register their own concrete subclass
     }
 
 }
