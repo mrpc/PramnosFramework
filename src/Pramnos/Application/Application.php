@@ -3,10 +3,9 @@
 namespace Pramnos\Application;
 use Pramnos\Framework\Base;
 /**
- * @package     PramnosFramework
- * @subpackage  Application
- * @copyright   2005 - 2015 Yannis - Pastis Glaros, Pramnos Hosting Ltd.
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Application extends Base
 {
@@ -87,6 +86,14 @@ class Application extends Base
      * @var bool
      */
     protected $initialized = false;
+
+    /**
+     * Guards against running the auto-migration check more than once per
+     * Application instance (e.g. if exec() is called multiple times).
+     * Protected so test subclasses can inspect or reset the flag.
+     * @var bool
+     */
+    protected bool $autoMigrationsChecked = false;
     /**
      * Application instances
      * @var Application[]
@@ -97,6 +104,16 @@ class Application extends Base
      * @var string
      */
     protected static $lastUsedApplication = null;
+
+    /**
+     * Service providers queued for bootstrap.
+     *
+     * Populated by addProvider() before init() and by bootServiceProviders()
+     * from FeatureRegistry during init().
+     *
+     * @var ServiceProvider[]
+     */
+    protected array $serviceProviders = [];
 
     /**
      * Extra paths to look when getting models or views
@@ -135,23 +152,21 @@ class Application extends Base
             $this->applicationInfo = require APP_PATH . DS . $appName . '.php';
         }
         if (!defined('URL')) {
-            define('URL', getUrl());
+            define('URL', getUrl()); // @codeCoverageIgnore — URL is always defined before the first Application() in tests
         }
         if (!defined('sURL')) {
+            // @codeCoverageIgnoreStart
+            // sURL is defined by the first Application() construction; subsequent
+            // constructions (in the same process) skip this entire block.
             if ($appName == '') {
                 define('sURL', URL);
             } else {
                 define('sURL', basename(URL));
             }
+            // @codeCoverageIgnoreEnd
         }
 
         parent::__construct();
-        if ($appName == '') {
-            self::$appInstances['default'] = $this;
-        } else {
-            self::$appInstances[$appName] = $this;
-        }
-        self::$lastUsedApplication = $appName;
     }
 
     /**
@@ -159,6 +174,11 @@ class Application extends Base
      */
     protected function setDefines()
     {
+        // @codeCoverageIgnoreStart
+        // Every define() body below is guarded by !defined(...).  By the time any
+        // test constructs an Application these constants are already set (by the
+        // test bootstrap or by an earlier Application() call in the same process),
+        // so none of the define() bodies are ever entered during testing.
         if (!defined('DS')) {
             define('DS', DIRECTORY_SEPARATOR);
         }
@@ -201,10 +221,79 @@ class Application extends Base
         if (!defined('DB_PERMISSIONSTABLE')) {
             define('DB_PERMISSIONSTABLE', "#PREFIX#permissions");
         }
-        ini_set(
-            'error_log', LOG_PATH . DS . 'logs' . DS . 'php_error.log'
-        );
+        // @codeCoverageIgnoreEnd
+        ini_set('error_log', LOG_PATH . DS . 'logs' . DS . 'php_error.log');
+        ini_set('log_errors', '1');
         define('PRAMNOS_DEFINES', true);
+    }
+
+    /**
+     * Queues a service provider for bootstrapping.
+     *
+     * Must be called before init(). The provider will be registered and booted
+     * alongside feature-registry providers during init().
+     *
+     * @param ServiceProvider $provider
+     */
+    public function addProvider(ServiceProvider $provider): void
+    {
+        $this->serviceProviders[] = $provider;
+    }
+
+    /**
+     * Instantiates providers from enabled FeatureRegistry features, merges
+     * them with any manually-added providers, then runs register() on all
+     * followed by boot() on all.
+     */
+    protected function bootServiceProviders(): void
+    {
+        foreach (FeatureRegistry::getEnabled() as $feature) {
+            $class = FeatureRegistry::getProvider($feature);
+            if ($class !== null && class_exists($class)) {
+                $this->serviceProviders[] = new $class($this);
+            }
+        }
+
+        // Auto-activate the DebugBar in development/debug mode even when the
+        // app has not listed 'debug' in its features array.  Mirrors the
+        // Laravel Debugbar experience: just set APP_DEBUG or development=true
+        // and the toolbar appears on every HTML page.
+        if (!FeatureRegistry::isEnabled('debug') && $this->isDebugMode()) {
+            $class = FeatureRegistry::getProvider('debug');
+            if ($class !== null && class_exists($class)) {
+                $this->serviceProviders[] = new $class($this);
+            }
+        }
+
+        foreach ($this->serviceProviders as $provider) {
+            $provider->register();
+        }
+        foreach ($this->serviceProviders as $provider) {
+            $provider->boot();
+        }
+    }
+
+    /**
+     * Returns true when the application is running in debug / development mode.
+     *
+     * Checks (in order): APP_DEBUG env var, DEVELOPMENT constant, 'debug'
+     * setting, 'development' setting.
+     */
+    private function isDebugMode(): bool
+    {
+        $env = getenv('APP_DEBUG');
+        if ($env !== false && $env !== '' && $env !== '0' && $env !== 'false') {
+            return true;
+        }
+        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
+            return true;
+        }
+        $debug = Settings::getSetting('debug');
+        if ($debug === true || $debug === '1' || $debug === 'true' || $debug === 'yes') {
+            return true;
+        }
+        $dev = Settings::getSetting('development');
+        return $dev === true || $dev === '1' || $dev === 'true' || $dev === 'yes';
     }
 
     /**
@@ -212,8 +301,16 @@ class Application extends Base
      */
     public function init($settingsFile = '')
     {
+        // @codeCoverageIgnoreStart
+        // init() connects to the database, starts the session, and boots all
+        // service providers.  Unit tests use stub Application instances with
+        // initialized=true and never call init() directly; full coverage is
+        // provided by the integration test suite which runs against real DB containers.
         if ($this->initialized === true) {
             return;
+        }
+        if (PHP_VERSION_ID < 80100) {
+            $this->showError("Pramnos Framework requires PHP 8.1.0 or greater. You are running PHP " . PHP_VERSION . ".");
         }
         $this->settings = Settings::getInstance($settingsFile);
         $this->database = \Pramnos\Database\Database::getInstance(
@@ -226,6 +323,9 @@ class Application extends Base
         }
         \Pramnos\Application\Settings::setDatabase($this->database);
         $this->initialized = true;
+        FeatureRegistry::loadFromConfig($this->applicationInfo['features'] ?? []);
+        $this->bootServiceProviders();
+        $this->registerBuiltInHealthChecks();
         /**
          * Start Session
          */
@@ -262,6 +362,125 @@ class Application extends Base
         $lang->load($this->language);
         \Pramnos\Addon\Addon::triger('AppInit', 'system');
         $this->database->setTrackingInfo();
+        $this->registerDefaultNavItems($this->applicationInfo['features'] ?? []);
+        // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Registers the framework's built-in navigation items into NavRegistry.
+     *
+     * Called automatically at the end of init().  Applications may call
+     * NavRegistry::remove() after init() to suppress unwanted items, or
+     * NavRegistry::register() to add their own.
+     *
+     * @param string[] $features Enabled feature keys from applicationInfo['features'].
+     */
+    public function registerDefaultNavItems(array $features): void
+    {
+        $base = defined('sURL') ? \sURL : '/';
+
+        // Home — always visible
+        NavRegistry::register(new NavItem(
+            'main.home', 'Home', $base,
+            NavSection::Main, 0,
+        ));
+
+        // User section — auth-aware links
+        NavRegistry::register(new NavItem(
+            'user.login', 'Login', $base . 'login',
+            NavSection::User, 0, requireAuth: false, guestOnly: true,
+        ));
+        NavRegistry::register(new NavItem(
+            'user.account', 'My Account', $base . 'account',
+            NavSection::User, 10, requireAuth: true, minUserType: 1,
+        ));
+        NavRegistry::register(new NavItem(
+            'user.logout', 'Logout', $base . 'login/logout',
+            NavSection::User, 99, requireAuth: true, minUserType: 1,
+        ));
+
+        // Admin section — these are always registered; visibility filtered by minUserType at runtime
+        NavRegistry::register(new NavItem(
+            'admin.users', 'Users', $base . 'users',
+            NavSection::Admin, 5, requireAuth: true, minUserType: 80,
+        ));
+        NavRegistry::register(new NavItem(
+            'admin.settings', 'Settings', $base . 'settings',
+            NavSection::Admin, 8, requireAuth: true, minUserType: 80,
+        ));
+        NavRegistry::register(new NavItem(
+            'admin.logs', 'Logs', $base . 'logs',
+            NavSection::Admin, 10, requireAuth: true, minUserType: 80,
+            parent: 'admin.dashboard',
+        ));
+        NavRegistry::register(new NavItem(
+            'admin.health', 'Health', $base . 'health',
+            NavSection::Admin, 11, requireAuth: true, minUserType: 80,
+            parent: 'admin.dashboard',
+        ));
+
+        // Admin ops dashboard — always
+        NavRegistry::register(new NavItem(
+            'admin.dashboard', 'Dashboard', $base . 'Dashboard',
+            NavSection::Admin, 1, requireAuth: true, minUserType: 80,
+        ));
+
+        // Services / Workers — always
+        NavRegistry::register(new NavItem(
+            'admin.services', 'Services', $base . 'Services',
+            NavSection::Admin, 12, requireAuth: true, minUserType: 80,
+        ));
+
+        // Organizations — always
+        NavRegistry::register(new NavItem(
+            'admin.organizations', 'Organizations', $base . 'Organizations',
+            NavSection::Admin, 14, requireAuth: true, minUserType: 80,
+        ));
+
+        // Emails — always, grouped under Dashboard
+        NavRegistry::register(new NavItem(
+            'admin.emails', 'Emails', $base . 'Emails',
+            NavSection::Admin, 16, requireAuth: true, minUserType: 80,
+            parent: 'admin.dashboard',
+        ));
+
+        // OAuth Apps — authserver feature
+        if (in_array('authserver', $features, true)) {
+            NavRegistry::register(new NavItem(
+                'admin.applications', 'Applications', $base . 'Applications',
+                NavSection::Admin, 20, requireAuth: true, minUserType: 90,
+                feature: 'authserver',
+            ));
+            NavRegistry::register(new NavItem(
+                'admin.tokens', 'Tokens', $base . 'Tokens',
+                NavSection::Admin, 22, requireAuth: true, minUserType: 90,
+                feature: 'authserver',
+            ));
+            NavRegistry::register(new NavItem(
+                'admin.permissions', 'Permissions', $base . 'Permissions',
+                NavSection::Admin, 24, requireAuth: true, minUserType: 90,
+                feature: 'authserver',
+            ));
+        }
+
+        // Token Actions audit log — auth feature, grouped under Users
+        if (in_array('auth', $features, true)) {
+            NavRegistry::register(new NavItem(
+                'admin.tokenactions', 'Token Actions', $base . 'TokenActions',
+                NavSection::Admin, 26, requireAuth: true, minUserType: 80,
+                feature: 'auth',
+                parent: 'admin.users',
+            ));
+        }
+
+        // Queue — queue feature
+        if (in_array('queue', $features, true)) {
+            NavRegistry::register(new NavItem(
+                'admin.queue', 'Queue', $base . 'Queue',
+                NavSection::Admin, 30, requireAuth: true, minUserType: 80,
+                feature: 'queue',
+            ));
+        }
     }
 
     /**
@@ -470,11 +689,18 @@ class Application extends Base
     {
         $this->cspNonce = base64_encode(random_bytes(16));
         /*
-         * Run any needed updates
+         * Run any needed updates (legacy app migration system)
          */
         if ($this->checkversion() !== true) {
             $this->upgrade();
         }
+
+        /*
+         * Run pending framework-level migrations (new MigrationRunner system).
+         * Only autoExecute=true migrations run here; autoExecute=false require
+         * an explicit `pramnos migrate` or DevPanel trigger.
+         */
+        $this->runAutoMigrations();
 
         /*
          * Find the right controller to load
@@ -536,13 +762,38 @@ class Application extends Base
         /*
          * Try to load the controller
          */
+        \Pramnos\Debug\DebugBar::startTimer('routing');
         try {
             $controllerObject = $this->getController($this->controller);
         } catch (\Exception $Exception) {
+            \Pramnos\Debug\DebugBar::stopTimer('routing');
+            try {
+                $ec = \Pramnos\Debug\DebugBar::getInstance()->getCollector('exceptions');
+                if ($ec instanceof \Pramnos\Debug\Collectors\ExceptionsCollector) {
+                    $ec->record($Exception);
+                }
+            } catch (\Throwable) {
+            }
             //\Pramnos\Logs\Logger::log($Exception->getMessage());
             $this->close('There is no controller to run...');
         }
+        \Pramnos\Debug\DebugBar::stopTimer('routing');
         $this->activeController = $controllerObject;
+
+        // Feed resolved route into DebugBar RouteCollector when debug toolbar is active.
+        try {
+            $routeCollector = \Pramnos\Debug\DebugBar::getInstance()->getCollector('route');
+            if ($routeCollector instanceof \Pramnos\Debug\Collectors\RouteCollector) {
+                $routeCollector->setRoute([
+                    'uri'        => $_SERVER['REQUEST_URI'] ?? '/',
+                    'method'     => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+                    'controller' => $this->controller,
+                    'action'     => $this->action ?: 'display',
+                    'class'      => get_class($controllerObject),
+                ]);
+            }
+        } catch (\Throwable) {
+        }
 
         /*
          * Check for theme in the application configuration. If set, load it.
@@ -553,12 +804,50 @@ class Application extends Base
             $doc->loadtheme($this->applicationInfo['theme'], '', $this);
         }
 
+        // Track the web request in tokenactions when a web-session token is present.
+        // This mirrors Api::_executeCore() so that both web and API paths appear
+        // in the same audit log.
+        if (isset($_SESSION['usertoken']) && is_object($_SESSION['usertoken'])
+            && $_SESSION['usertoken']->tokentype === \Pramnos\User\Token::TYPE_WEB_SESSION) {
+            try {
+                $_SESSION['usertoken']->addAction();
+            } catch (\Exception $ex) {
+                unset($_SESSION['usertoken']);
+                \Pramnos\Logs\Logger::log($ex->getMessage());
+            }
+        }
+
         /*
          * Execute the controller and add content to the document
          */
+        \Pramnos\Debug\DebugBar::startTimer('controller');
         try {
-            $doc->addContent($controllerObject->exec($this->action));
+            $controllerResult = $controllerObject->exec($this->action);
+            if ($controllerResult instanceof \Pramnos\Http\Response) {
+                $doc = \Pramnos\Framework\Factory::getDocument('raw');
+                http_response_code($controllerResult->getStatusCode());
+                if (!headers_sent()) {
+                    foreach ($controllerResult->getHeaders() as $headerName => $headerValue) {
+                        header($headerName . ': ' . $headerValue);
+                    }
+                }
+                $doc->setContent($controllerResult->getBody());
+            } else {
+                $doc->addContent($controllerResult);
+            }
+            \Pramnos\Debug\DebugBar::stopTimer('controller');
+        } catch (\Pramnos\Http\RedirectException $exception) {
+            \Pramnos\Debug\DebugBar::stopTimer('controller');
+            $this->redirect($exception->getUrl(), true, $exception->getStatusCode());
         } catch (\Pramnos\Validation\ValidationException $exception) {
+            \Pramnos\Debug\DebugBar::stopTimer('controller');
+            try {
+                $ec = \Pramnos\Debug\DebugBar::getInstance()->getCollector('exceptions');
+                if ($ec instanceof \Pramnos\Debug\Collectors\ExceptionsCollector) {
+                    $ec->record($exception);
+                }
+            } catch (\Throwable) {
+            }
             $request = new \Pramnos\Http\Request();
             $_SESSION['_validation_errors'] = $exception->errors();
             $_SESSION['_old_input'] = $request->allCurrent();
@@ -566,30 +855,19 @@ class Application extends Base
             $redirectTo = $_SERVER['HTTP_REFERER'] ?? URL;
             $this->redirect($redirectTo);
         } catch (\Exception $exception) {
-            $message = $exception->getMessage();
-            if (strpbrk($message, 'SQL') !== false) {
-                \Pramnos\Logs\Logger::log(
-                    $message
-                    . "\nLine:\n"
-                    . $exception->getFile()
-                    . " -> "
-                    . $exception->getLine()
-                    . "\nTrace:\n"
-                    . $exception->getTraceAsString()
-                );
+            \Pramnos\Debug\DebugBar::stopTimer('controller');
+            try {
+                $ec = \Pramnos\Debug\DebugBar::getInstance()->getCollector('exceptions');
+                if ($ec instanceof \Pramnos\Debug\Collectors\ExceptionsCollector) {
+                    $ec->record($exception);
+                }
+            } catch (\Throwable) {
             }
-
-            if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
-                echo '<h1>Unhandled Exception</h1>';
-                echo '<p><strong>Class:</strong> ' . htmlspecialchars(get_class($exception), ENT_QUOTES, 'UTF-8') . '</p>';
-                echo '<p><strong>Message:</strong> ' . htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8') . '</p>';
-                echo '<p><strong>File:</strong> ' . htmlspecialchars($exception->getFile(), ENT_QUOTES, 'UTF-8') . '</p>';
-                echo '<p><strong>Line:</strong> ' . (int) $exception->getLine() . '</p>';
-                echo '<pre>' . htmlspecialchars($exception->getTraceAsString(), ENT_QUOTES, 'UTF-8') . '</pre>';
-                $this->close();
-            }
-
-            $this->redirect(URL);
+            $format = isset($doc) && $doc->getType() === 'json' ? 'json' : 'html';
+            $debug  = defined('DEVELOPMENT') && DEVELOPMENT === true;
+            \Pramnos\Http\ExceptionHandler::log($exception);
+            \Pramnos\Http\ExceptionHandler::render($exception, $format, $debug)->send();
+            $this->close();
         }
     }
 
@@ -633,7 +911,7 @@ class Application extends Base
                     if ($app == 'default') {
                         self::$appInstances['default'] = new $class();
                     } else {
-                        self::$appInstances['default'] = new $class($app);
+                        self::$appInstances[$app] = new $class($app);
                     }
                 }
 
@@ -771,6 +1049,9 @@ class Application extends Base
                 'exitAppLog'
             );
         }
+        if (defined('PRAMNOS_TESTING')) {
+            throw new \Exception("Application::close() called with msg: " . $msg);
+        }
         session_write_close();
         exit($msg);
     }
@@ -828,6 +1109,193 @@ class Application extends Base
                 \Pramnos\Logs\Logger::log("\n" . $sql . "\n\n", 'upgrades');
                 $this->stopMaintenance();
             }
+        }
+    }
+
+    /**
+     * Returns the name of the migrations history table.
+     *
+     * Defaults to 'schemaversion' (same as the old legacy migration system).
+     * Override in a test subclass to use an isolated table and avoid
+     * contaminating the real history.
+     *
+     * @return string
+     */
+    protected function getMigrationHistoryTable(): string
+    {
+        return 'schemaversion';
+    }
+
+    /**
+     * Returns the framework-level migration directories to scan for auto-run.
+     *
+     * Includes one sub-directory per registered feature under
+     * database/migrations/framework/.  Override in a subclass to add
+     * application-specific framework migration directories.
+     *
+     * @return string[] Absolute directory paths.
+     */
+    protected function getFrameworkMigrationDirs(): array
+    {
+        $base = \Pramnos\Database\MigrationLoader::resolveFrameworkMigrationsBase();
+        if ($base === null || !is_dir($base)) {
+            return [];
+        }
+        return glob($base . '/*', GLOB_ONLYDIR) ?: [];
+    }
+
+    /**
+     * Runs pending framework-level migrations with autoExecute=true.
+     *
+     * Called once per Application instance from exec() (guarded by
+     * $autoMigrationsChecked).  Uses a three-phase approach:
+     *
+     *  Phase 1 — fingerprint check (filesystem + one PK lookup, no PHP loading):
+     *    Derives a fingerprint from the migration filenames (count + latest
+     *    timestamp).  Looks up this fingerprint in the history table with a
+     *    single primary-key SELECT — identical in cost to the old checkversion().
+     *    If the fingerprint is found: nothing changed since last check → return.
+     *
+     *  Phase 2 — pending check (one full-table SELECT, no PHP loading):
+     *    Only reached when the fingerprint is absent (new migrations may exist).
+     *    Reads all ran slugs from the history table and compares with the file-
+     *    derived slug list.  If nothing is actually pending: records the
+     *    fingerprint and returns.
+     *
+     *  Phase 3 — full load + run (only when Phase 2 confirms something pending):
+     *    Loads migration PHP files, applies autoExecute and cutoff filters, runs
+     *    via MigrationRunner, then records the fingerprint for next time.
+     *
+     * The fingerprint key format is:
+     *   __fw_auto_{count}_{latestTimestamp}[_{cutoff}]
+     * It changes only when new migration files are added or the cutoff changes,
+     * ensuring a clean re-check without false positives.
+     *
+     * Protected so test subclasses can override getFrameworkMigrationDirs() or
+     * call this method directly to verify the wiring.
+     */
+    protected function runAutoMigrations(): void
+    {
+        if ($this->autoMigrationsChecked || $this->database === null) {
+            return;
+        }
+        $this->autoMigrationsChecked = true;
+
+        $dirs = $this->getFrameworkMigrationDirs();
+        if (empty($dirs)) {
+            return;
+        }
+
+        $cutoff = $this->normalizeMigrationCutoff(
+            $this->applicationInfo['migration_cutoff'] ?? ''
+        );
+
+        // Phase 1: build slug→timestamp map from filenames (no PHP loading).
+        $slugTimestamps = \Pramnos\Database\MigrationLoader::slugsFromDirectories($dirs);
+        if (empty($slugTimestamps)) {
+            return;
+        }
+
+        // Apply cutoff filter at the filename level so the fingerprint only
+        // covers migrations that are actually eligible to run.
+        if ($cutoff !== '') {
+            $slugTimestamps = array_filter(
+                $slugTimestamps,
+                static fn(string $ts) => $ts === '' || strcmp($ts, $cutoff) > 0
+            );
+            if (empty($slugTimestamps)) {
+                return; // All migrations are pre-cutoff
+            }
+        }
+
+        // Compute fingerprint: count + latest timestamp of eligible files.
+        $timestamps  = array_filter(array_values($slugTimestamps)); // drop empty-ts entries
+        $latestTs    = !empty($timestamps) ? max($timestamps) : '0';
+        $count       = count($slugTimestamps);
+        $fingerprint = "__fw_auto_{$count}_{$latestTs}" . ($cutoff !== '' ? "_{$cutoff}" : '');
+
+        $histTable = $this->getMigrationHistoryTable();
+        $quote     = $this->database->type === 'postgresql' ? '"' : '`';
+
+        // Phase 1b: one PK lookup — same pattern as old checkversion().
+        try {
+            $sql    = $this->database->prepareQuery(
+                "SELECT 1 FROM {$quote}{$histTable}{$quote} WHERE {$quote}key{$quote} = %s LIMIT 1",
+                $fingerprint
+            );
+            $result = $this->database->query($sql);
+            if ($result && $result->numRows > 0) {
+                return; // Fingerprint found → nothing changed since last check
+            }
+        } catch (\Throwable) {
+            // History table does not yet exist — fall through to full run
+        }
+
+        // Phase 2: fingerprint absent → check which slugs are genuinely pending.
+        $runner = new \Pramnos\Database\MigrationRunner($this->database, $histTable, $this);
+        if (!$runner->hasPendingFromSlugs($slugTimestamps, $cutoff)) {
+            // No pending migrations — record fingerprint for future fast-path.
+            $this->insertFingerprintRow($fingerprint, $histTable, $quote);
+            return;
+        }
+
+        // Phase 3: load PHP files and run pending autoExecute=true migrations.
+        $migrations = \Pramnos\Database\MigrationLoader::loadFromDirectories($dirs, $this);
+        $options    = [];
+        if ($cutoff !== '') {
+            $options['cutoff'] = $cutoff;
+        }
+
+        $runner->run($migrations, $options, static function(string $event, string $slug, string $error, float $ms = 0.0): void {
+            \Pramnos\Debug\DebugBar::recordMigration($slug, $ms, $event === 'ran' ? 'ran' : 'failed');
+        });
+
+        // Record fingerprint so the next request uses the fast path.
+        $this->insertFingerprintRow($fingerprint, $histTable, $quote);
+    }
+
+    /**
+     * Inserts the "all-up-to-date" fingerprint row into the history table.
+     * Uses INSERT IGNORE (MySQL) / INSERT … ON CONFLICT DO NOTHING (PG) so
+     * concurrent requests never cause duplicate-key errors.
+     */
+    private function insertFingerprintRow(string $fingerprint, string $histTable, string $quote): void
+    {
+        try {
+            if ($this->database->type === 'postgresql') {
+                $sql = $this->database->prepareQuery(
+                    "INSERT INTO {$quote}{$histTable}{$quote} ({$quote}key{$quote}, {$quote}scope{$quote}, {$quote}result{$quote})
+                     VALUES (%s, 'framework', 1)
+                     ON CONFLICT ({$quote}key{$quote}) DO NOTHING",
+                    $fingerprint
+                );
+            } else {
+                $sql = $this->database->prepareQuery(
+                    "INSERT IGNORE INTO {$quote}{$histTable}{$quote} ({$quote}key{$quote}, {$quote}scope{$quote}, {$quote}result{$quote})
+                     VALUES (%s, 'framework', 1)",
+                    $fingerprint
+                );
+            }
+            $this->database->query($sql);
+        } catch (\Throwable) {
+            // Non-fatal: the next request will simply redo the check.
+        }
+    }
+
+    /**
+     * Converts a datetime string from app.php format ('YYYY-MM-DD HH:mm:ss')
+     * to the YYYY_MM_DD_HHmmss format used by MigrationRunner::filterCutoff().
+     * Returns an empty string when the input is empty or unparseable.
+     */
+    private function normalizeMigrationCutoff(string $raw): string
+    {
+        if ($raw === '') {
+            return '';
+        }
+        try {
+            return (new \DateTime($raw))->format('Y_m_d_His');
+        } catch (\Throwable) {
+            return '';
         }
     }
 
@@ -896,7 +1364,10 @@ class Application extends Base
         if (!file_exists(ROOT . DS . 'var')) {
             mkdir(ROOT . DS . 'var');
         }
-        $file = fopen(ROOT . DS . 'var' . DS . "MAINTENANCE", "w+");
+        $file = @fopen(ROOT . DS . 'var' . DS . "MAINTENANCE", "w+");
+        if ($file === false) {
+            return; // Cannot write maintenance flag (e.g. permission denied) — skip silently
+        }
         if ($reason != '') {
             fwrite(
                 $file,
@@ -924,6 +1395,29 @@ class Application extends Base
             $this->stopMaintenance();
         }
         //@codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Registers the framework's built-in health checks with HealthRegistry.
+     *
+     * Called once during init().  Uses HealthRegistry::register() which is
+     * idempotent — re-registering a check with the same name replaces it.
+     *
+     * Database connectivity check is skipped when the database failed to connect
+     * (to avoid a redundant "not connected" error on top of the real error).
+     */
+    protected function registerBuiltInHealthChecks(): void
+    {
+        $registry = \Pramnos\Health\HealthRegistry::class;
+
+        if ($this->database !== null && $this->database->connected) {
+            $registry::register(
+                new \Pramnos\Health\Checks\DatabaseConnectivityCheck($this->database),
+            );
+        }
+
+        $registry::register(new \Pramnos\Health\Checks\DiskSpaceCheck());
+        $registry::register(new \Pramnos\Health\Checks\MemoryLimitCheck());
     }
 
 

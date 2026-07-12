@@ -2,10 +2,9 @@
 namespace Pramnos\Html;
 /**
  * HTLM Breadcrumb class
- * @package     PramnosFramework
- * @subpackage  Html
- * @copyright   2005 - 2017 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Breadcrumb extends \Pramnos\Framework\Base
 {

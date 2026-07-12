@@ -7,11 +7,10 @@ use Pramnos\Interfaces\Router as RouterInterface;
 
 /**
  * The router object class
- * @package     PramnosFramework
- * @subpackage  Routing
- * @copyright   2015 Yannis - Pastis Glaros, Pramnos Hosting
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @todo        Groups, Domains, Tokens, Regular Expressions
+ * @license    MIT
  */
 class Router extends Base implements RouterInterface
 {
@@ -42,6 +41,25 @@ class Router extends Base implements RouterInterface
      * @var \Closure|array|string|null
      */
     public $failback;
+
+    /**
+     * Global middleware applied to every dispatched route.
+     * @var array<\Pramnos\Http\MiddlewareInterface|class-string>
+     */
+    private array $globalMiddlewares = [];
+
+    /**
+     * Named-route index — keyed by route name.
+     * @var array<string, \Pramnos\Routing\Route>
+     */
+    private array $namedRoutes = [];
+
+    /**
+     * Stack of active group attribute sets — nested groups push/pop here.
+     * Each entry: ['prefix'=>string, 'middleware'=>array, 'permissions'=>array, 'name'=>string]
+     * @var array<int, array>
+     */
+    private array $groupStack = [];
 
     private $_invalidScope = null;
 
@@ -77,6 +95,25 @@ class Router extends Base implements RouterInterface
     }
 
     /**
+     * Register a middleware that runs on every dispatched route.
+     *
+     * Global middleware runs before any route-specific middleware.
+     * Order: global (registration order) → route-specific (registration order) → action.
+     *
+     * Usage in ServiceProvider::boot():
+     *   $router->addGlobalMiddleware(new CorsMiddleware(['https://app.example.com']));
+     *   $router->addGlobalMiddleware(new MaintenanceModeMiddleware());
+     *
+     * @param  \Pramnos\Http\MiddlewareInterface|class-string $middleware
+     * @return static
+     */
+    public function addGlobalMiddleware(\Pramnos\Http\MiddlewareInterface|string $middleware): static
+    {
+        $this->globalMiddlewares[] = $middleware;
+        return $this;
+    }
+
+    /**
      * Finds and executes a route
      *
      * @param \Pramnos\Http\Request $request  The HTTP request object
@@ -95,6 +132,17 @@ class Router extends Base implements RouterInterface
                 }
                 throw new \Exception('Insufficient permissions to access this route', 403);
             }
+
+            $allMiddlewares = array_merge($this->globalMiddlewares, $route->getMiddleware());
+            if (!empty($allMiddlewares)) {
+                $container = $this->container;
+                $pipeline  = new \Pramnos\Http\MiddlewarePipeline();
+                foreach ($allMiddlewares as $mw) {
+                    $pipeline->pipe($mw);
+                }
+                return $pipeline->run($request, fn(\Pramnos\Http\Request $r) => $route->execute($container));
+            }
+
             return $route->execute($this->container);
         }
         return null;
@@ -131,7 +179,17 @@ class Router extends Base implements RouterInterface
         }
         
         try {
-            $result = $route->execute($this->container);
+            $allMiddlewares = array_merge($this->globalMiddlewares, $route->getMiddleware());
+            if (!empty($allMiddlewares)) {
+                $container = $this->container;
+                $pipeline  = new \Pramnos\Http\MiddlewarePipeline();
+                foreach ($allMiddlewares as $mw) {
+                    $pipeline->pipe($mw);
+                }
+                $result = $pipeline->run($request, fn(\Pramnos\Http\Request $r) => $route->execute($container));
+            } else {
+                $result = $route->execute($this->container);
+            }
             return array(
                 'data' => $result,
                 'route' => $route
@@ -210,111 +268,204 @@ class Router extends Base implements RouterInterface
     }
 
     /**
-     * Adds a single route to the router's route collection
+     * Adds a single route to the router's route collection and returns it.
+     *
+     * When called inside a Router::group() callback (or discovered inside a
+     * class with #[RouteGroup]), the active group stack is merged: URI prefixes
+     * are concatenated, middleware and permissions are prepended, and any name
+     * prefix is injected into the name-registration callback.
      *
      * @param string $uri  The URI pattern for the route
      * @param string $method  The HTTP method for this route
      * @param \Closure|array|string $action  The action to be executed when the route is matched
      * @param array|string|null $permissions  The required permissions for this route
-     * @return void
+     * @return \Pramnos\Routing\Route  The created route — callers may chain ->middleware() on it.
      */
-    protected function addSingleRoute($uri, $method, $action, $permissions = null)
+    protected function addSingleRoute($uri, $method, $action, $permissions = null): Route
     {
+        // Merge active group stack — outer groups first.
+        $groupPrefix      = '';
+        $groupMiddlewares = [];
+        $groupPermissions = [];
+        $namePrefix       = '';
+
+        foreach ($this->groupStack as $group) {
+            $groupPrefix      .= rtrim($group['prefix'] ?? '', '/');
+            $groupMiddlewares  = array_merge($groupMiddlewares, $group['middleware'] ?? []);
+            $groupPermissions  = array_merge($groupPermissions, $group['permissions'] ?? []);
+            $namePrefix       .= $group['name'] ?? '';
+        }
+
+        // Build the full URI: normalize so we always have a leading slash.
+        if ($groupPrefix !== '') {
+            $uri = '/' . ltrim($groupPrefix . '/' . ltrim($uri, '/'), '/');
+            // Collapse double slashes (e.g. prefix '/api' + uri '/' → '/api/')
+            $uri = preg_replace('#/{2,}#', '/', $uri);
+        }
+
         if (!isset($this->routes[$this->fixMethodName($method)])) {
             $this->routes[$this->fixMethodName($method)] = array();
         }
         $route = new Route($uri, $method, $action);
-        
-        // Set permissions if provided
+
+        // Inject callback so that Route::name() auto-registers in $namedRoutes.
+        // If there is a group name prefix, prepend it transparently.
+        $route->setNameRegistrationCallback(function(string $name, Route $r) use ($namePrefix): void {
+            $this->namedRoutes[$namePrefix . $name] = $r;
+        });
+
+        // Group middleware runs before per-route middleware (prepended at pipeline build time).
+        if (!empty($groupMiddlewares)) {
+            $route->prependMiddleware(...$groupMiddlewares);
+        }
+
+        // Merge group permissions with per-route permissions — no scope validation
+        // because the group may supply internal permission strings.
+        if (!empty($groupPermissions)) {
+            $route->addPermissions($groupPermissions, false);
+        }
+
+        // Set per-route permissions if provided
         if ($permissions !== null) {
             $route->requirePermissions($permissions);
         }
-        
+
         $this->routes[$this->fixMethodName($method)][$uri] = $route;
+        return $route;
     }
 
     /**
-     * Register a new GET route with the router.
+     * Define a route group — apply shared attributes to all routes registered
+     * inside the callback.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     * Supported keys in `$attributes`:
+     * - `prefix`      (string) — URI prefix prepended to every route URI.
+     * - `middleware`  (array)  — Middleware applied before each route's own middleware.
+     * - `permissions` (array)  — Permission scopes merged with each route's permissions.
+     * - `name`        (string) — Name prefix prepended to every named route's logical name.
+     *
+     * Groups can be nested; inner group attributes stack on top of outer ones.
+     *
+     * ```php
+     * $router->group(['prefix' => '/api/v1', 'middleware' => [ApiAuthMiddleware::class]], function($r) {
+     *     $r->get('/users', fn() => ...)->name('users.index');   // GET /api/v1/users
+     *
+     *     $r->group(['prefix' => '/admin', 'permissions' => ['admin']], function($r) {
+     *         $r->delete('/users/{id}', fn($id) => ...);         // DELETE /api/v1/admin/users/{id}
+     *     });
+     * });
+     * ```
+     *
+     * @param  array<string,mixed>  $attributes  Group options (see above).
+     * @param  \Closure             $callback    Routes defined inside this closure inherit the group.
+     * @return void
      */
-    public function get($uri, $action, $permissions = null)
+    public function group(array $attributes, \Closure $callback): void
     {
-        $this->addRoute($uri, 'GET', $action, $permissions);
-        return $this;
+        $this->groupStack[] = [
+            'prefix'      => $attributes['prefix']      ?? '',
+            'middleware'  => (array) ($attributes['middleware']  ?? []),
+            'permissions' => (array) ($attributes['permissions'] ?? []),
+            'name'        => $attributes['name'] ?? '',
+        ];
+
+        $callback($this);
+
+        array_pop($this->groupStack);
     }
 
     /**
-     * Register a new POST route with the router.
+     * Register a new GET route and return it for optional middleware chaining.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     *   $router->get('/api/users', fn() => ...)
+     *          ->middleware(new AuthMiddleware());
+     *
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
      */
-    public function post($uri, $action, $permissions = null)
+    public function get($uri, $action, $permissions = null): Route
     {
-        $this->addRoute($uri, 'POST', $action, $permissions);
-        return $this;
+        return $this->addSingleRoute($uri, 'GET', $action, $permissions);
     }
 
     /**
-     * Register a new PUT route with the router.
+     * Register a new POST route and return it for optional middleware chaining.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
      */
-    public function put($uri, $action, $permissions = null)
+    public function post($uri, $action, $permissions = null): Route
     {
-        $this->addRoute($uri, 'PUT', $action, $permissions);
-        return $this;
+        return $this->addSingleRoute($uri, 'POST', $action, $permissions);
     }
 
     /**
-     * Register a new DELETE route with the router.
+     * Register a new PUT route and return it for optional middleware chaining.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
      */
-    public function delete($uri, $action, $permissions = null)
+    public function put($uri, $action, $permissions = null): Route
     {
-        $this->addRoute($uri, 'DELETE', $action, $permissions);
-        return $this;
+        return $this->addSingleRoute($uri, 'PUT', $action, $permissions);
     }
 
     /**
-     * Register a new PATCH route with the router.
+     * Register a new DELETE route and return it for optional middleware chaining.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
      */
-    public function patch($uri, $action, $permissions = null)
+    public function delete($uri, $action, $permissions = null): Route
     {
-        $this->addRoute($uri, 'PATCH', $action, $permissions);
-        return $this;
+        return $this->addSingleRoute($uri, 'DELETE', $action, $permissions);
     }
 
     /**
-     * Register a new OPTIONS route with the router.
+     * Register a new PATCH route and return it for optional middleware chaining.
      *
-     * @param  string  $uri  The URI pattern for the route
-     * @param  \Closure|array|string  $action  The action to be executed when the route is matched
-     * @param  array|string|null  $permissions  The required permissions for this route
-     * @return \Pramnos\Routing\Router
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
      */
-    public function options($uri, $action, $permissions = null)
+    public function patch($uri, $action, $permissions = null): Route
     {
-        $this->addRoute($uri, 'OPTIONS', $action, $permissions);
-        return $this;
+        return $this->addSingleRoute($uri, 'PATCH', $action, $permissions);
+    }
+
+    /**
+     * Register a new OPTIONS route and return it for optional middleware chaining.
+     *
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
+     */
+    public function options($uri, $action, $permissions = null): Route
+    {
+        return $this->addSingleRoute($uri, 'OPTIONS', $action, $permissions);
+    }
+
+    /**
+     * Register a new HEAD route and return it for optional middleware chaining.
+     *
+     * @param  string  $uri
+     * @param  \Closure|array|string  $action
+     * @param  array|string|null  $permissions
+     * @return \Pramnos\Routing\Route
+     */
+    public function head($uri, $action, $permissions = null): Route
+    {
+        return $this->addSingleRoute($uri, 'HEAD', $action, $permissions);
     }
 
     /**
@@ -552,6 +703,101 @@ class Router extends Base implements RouterInterface
         // Allow any alphanumeric characters with common separators
         // Supports: user_read, users:read, user.read, user-read, admin_all, etc.
         return preg_match('/^[a-zA-Z*][a-zA-Z0-9_:.*-]*$/', $scope);
+    }
+
+    // -------------------------------------------------------------------------
+    // Named routes & URL generation
+    // -------------------------------------------------------------------------
+
+    /**
+     * Look up a route by its logical name.
+     *
+     * @param  string  $name  The name assigned via Route::name() or #[Route(name: '…')].
+     * @return \Pramnos\Routing\Route|null
+     */
+    public function getByName(string $name): ?Route
+    {
+        return $this->namedRoutes[$name] ?? null;
+    }
+
+    /**
+     * Generate a URL for a named route, substituting URI parameters.
+     *
+     * Replaces `{param}` and `{param?}` placeholders with the values from
+     * `$params`. Any remaining optional segments are stripped. Required
+     * parameters that are not supplied remain as-is in the returned string.
+     *
+     * ```php
+     * $router->get('/users/{id}', fn() => ...)->name('users.show');
+     * echo $router->route('users.show', ['id' => 42]); // '/users/42'
+     *
+     * $router->get('/posts/{year}/{slug?}', fn() => ...)->name('posts.show');
+     * echo $router->route('posts.show', ['year' => 2026]); // '/posts/2026'
+     * ```
+     *
+     * @param  string               $name    The route name.
+     * @param  array<string, mixed> $params  URI parameter values keyed by name.
+     * @return string  The generated URI.
+     * @throws \InvalidArgumentException  When the name does not match any registered route.
+     */
+    public function route(string $name, array $params = []): string
+    {
+        $route = $this->getByName($name);
+        if ($route === null) {
+            throw new \InvalidArgumentException("Route [{$name}] not defined.");
+        }
+        return $this->buildUrl($route->uri, $params);
+    }
+
+    /**
+     * Substitute URI placeholders with concrete values and strip leftover optionals.
+     *
+     * @param  string               $uri
+     * @param  array<string, mixed> $params
+     * @return string
+     */
+    private function buildUrl(string $uri, array $params): string
+    {
+        foreach ($params as $key => $value) {
+            $encoded = rawurlencode((string) $value);
+            $uri = str_replace(
+                ['{' . $key . '}', '{' . $key . '?}'],
+                $encoded,
+                $uri
+            );
+        }
+        // Remove remaining optional segments (with their leading slash if present)
+        $uri = preg_replace('#/?\{[^}]+\?\}#', '', $uri);
+        return $uri;
+    }
+
+    // -------------------------------------------------------------------------
+    // Attribute-based Route Discovery
+    // -------------------------------------------------------------------------
+
+    /**
+     * Scan a directory for controller classes decorated with #[Route] attributes
+     * and register all discovered routes with this router.
+     *
+     * Each PHP file under `$path` is required and its corresponding class
+     * (derived by replacing directory separators with namespace separators) is
+     * inspected via Reflection. Public methods carrying one or more
+     * `#[\Pramnos\Routing\Attributes\Route]` attributes are registered
+     * automatically.
+     *
+     * ```php
+     * $router->loadFromDirectory(
+     *     __DIR__ . '/Controllers',
+     *     'App\\Controllers'
+     * );
+     * ```
+     *
+     * @param  string $path       Absolute path to the controller directory.
+     * @param  string $namespace  Root namespace that maps to `$path`.
+     */
+    public function loadFromDirectory(string $path, string $namespace): void
+    {
+        (new RouteDiscovery($this))->discover($path, $namespace);
     }
 
     /**

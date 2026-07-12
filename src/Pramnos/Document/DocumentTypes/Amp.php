@@ -4,9 +4,8 @@ namespace Pramnos\Document\DocumentTypes;
 
 /**
  * AMP Document Type
- * @package     PramnosFramework
- * @subpackage  Document
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license    MIT
  */
 class Amp extends \Pramnos\Document\Document
 {
@@ -61,7 +60,7 @@ class Amp extends \Pramnos\Document\Document
 
 
 
-        $this->proccessHeader();
+        $this->processHeader();
         \Pramnos\Addon\Addon::doAction('send_headers');
         if (!headers_sent()) {
             header('Content-type: text/html; charset=' . $lang->_('CHARSET'));

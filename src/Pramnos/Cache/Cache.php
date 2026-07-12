@@ -6,8 +6,8 @@ namespace Pramnos\Cache;
  * Simple cache methods to be used in all applications created by PramnosFramework
  * @static
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
- * @subpackage  Cache
- * @copyright   (C) 2024 Yannis - Pastis Glaros
+ * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
+ * @license    MIT
  */
 class Cache extends \Pramnos\Framework\Base
 {
@@ -193,24 +193,30 @@ class Cache extends \Pramnos\Framework\Base
                         $this->adapter = $redisAdapter;
                     }
                 } else {
-                    $this->initializeAdapter('memcached');
+                    // @codeCoverageIgnore — \Redis extension present in test env;
+                    // this else-branch only runs when Redis is not installed.
+                    $this->initializeAdapter('memcached'); // @codeCoverageIgnore
                 }
                 break;
 
             case 'memcached':
                 if (class_exists('\Memcached')) {
+                    // @codeCoverageIgnoreStart
+                    // \Memcached extension is not installed in the standard test
+                    // environment.  Integration coverage is provided by CI jobs
+                    // that include the ext-memcached Docker layer.
                     $databaseSettings = \Pramnos\Application\Settings::getSetting('database');
-                    $database = ($databaseSettings && is_object($databaseSettings) && isset($databaseSettings->database)) 
-                        ? $databaseSettings->database 
+                    $database = ($databaseSettings && is_object($databaseSettings) && isset($databaseSettings->database))
+                        ? $databaseSettings->database
                         : 0;
-                    
+
                     $memcachedAdapter = new Adapter\MemcachedAdapter(
                         $this->hostname,
                         $this->port,
                         $database,
                         $this->prefix
                     );
-                    
+
                     if (!$memcachedAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
                         // Don't set the failed adapter, fallback to memcache
@@ -220,6 +226,7 @@ class Cache extends \Pramnos\Framework\Base
                         // Only set adapter if connection succeeded
                         $this->adapter = $memcachedAdapter;
                     }
+                    // @codeCoverageIgnoreEnd
                 } else {
                     $this->initializeAdapter('memcache');
                 }
@@ -227,12 +234,16 @@ class Cache extends \Pramnos\Framework\Base
 
             case 'memcache':
                 if (class_exists('\Memcache')) {
+                    // @codeCoverageIgnoreStart
+                    // \Memcache extension is not installed in the standard test
+                    // environment.  Integration coverage is provided by CI jobs
+                    // that include the ext-memcache Docker layer.
                     $memcacheAdapter = new Adapter\MemcacheAdapter(
                         $this->hostname,
                         $this->port,
                         $this->prefix
                     );
-                    
+
                     if (!$memcacheAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
                         $this->initializeAdapter('file');
@@ -240,9 +251,15 @@ class Cache extends \Pramnos\Framework\Base
                         $this->adapter = $memcacheAdapter;
                         self::$_connected[$methodKey] = true;
                     }
+                    // @codeCoverageIgnoreEnd
                 } else {
                     $this->initializeAdapter('file');
                 }
+                break;
+
+            case 'array':
+                $this->adapter = new Adapter\ArrayAdapter($this->prefix);
+                self::$_connected[$methodKey] = true;
                 break;
 
             case 'file':
@@ -255,8 +272,13 @@ class Cache extends \Pramnos\Framework\Base
                 );
 
                 if (!$fileAdapter->connect()) {
+                    // @codeCoverageIgnoreStart
+                    // connect() only fails when the cache dir can't be created —
+                    // sys_get_temp_dir() is always writable, so this path is
+                    // unreachable in a normal test environment.
                     self::$_connected[$methodKey] = false;
                     $this->caching = false;
+                    // @codeCoverageIgnoreEnd
                 } else {
                     $this->adapter = $fileAdapter;
                     self::$_connected[$methodKey] = true;
@@ -412,6 +434,30 @@ class Cache extends \Pramnos\Framework\Base
     public function clear($category = '')
     {
         return $this->adapter ? $this->adapter->clear($category) : false;
+    }
+
+    /**
+     * Get a cached value or compute and cache it.
+     *
+     * If the $key is present in the cache, its value is returned immediately.
+     * Otherwise $callback is invoked, the return value is stored under $key
+     * with the given $ttl, and then returned to the caller.
+     *
+     * @param string   $key      Cache key.
+     * @param int      $ttl      Time-to-live in seconds. 0 = never expires.
+     * @param callable $callback Produces the value when the cache misses.
+     * @return mixed
+     */
+    public function remember(string $key, int $ttl, callable $callback): mixed
+    {
+        $this->timeout = $ttl;
+        $cached = $this->load($key);
+        if ($cached !== false) {
+            return $cached;
+        }
+        $value = $callback();
+        $this->save($value, $key);
+        return $value;
     }
 
     /**

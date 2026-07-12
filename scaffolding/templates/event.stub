@@ -1,0 +1,12 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+class {{ class }}
+{
+    public function __construct(
+        // TODO: add public readonly properties for event payload
+    ) {}
+}

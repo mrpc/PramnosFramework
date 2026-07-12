@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "{{ APP_SLUG }}": {
+      "command": "php",
+      "args": ["./bin/pramnos", "mcp:serve"]
+    }
+  }
+}

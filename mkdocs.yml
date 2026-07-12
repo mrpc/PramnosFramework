@@ -1,0 +1,91 @@
+site_name: Pramnos Framework
+site_description: A comprehensive PHP MVC framework for building robust, scalable web applications.
+site_url: https://mrpc.github.io/PramnosFramework/
+repo_url: https://github.com/mrpc/PramnosFramework
+repo_name: mrpc/PramnosFramework
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.action.edit
+
+plugins:
+  - search:
+      lang: en
+  - blog:
+      blog_dir: version-history
+      post_dir: posts
+      blog_toc: true
+      archive: false
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Getting Started:
+    - Quickstart: index.md
+    - Full Setup Guide: Getting_Started.md
+  - Version History:
+    - Overview: version-history/index.md
+    - v1.2 Blog Post: version-history/posts/2026-05-30-v1-2-release.md
+    - v1.2 Technical Reference: 1.2-new-features.md
+  - Core Framework:
+    - Framework Overview: Pramnos_Framework_Guide.md
+    - Routing: Pramnos_Routing_Guide.md
+    - Validation: Pramnos_Validation_System_Guide.md
+    - Theming: Pramnos_Theme_Guide.md
+    - Internationalization: Pramnos_Internationalization_Guide.md
+    - Document Output: Pramnos_Document_Output_Guide.md
+    - Environment Variables: Pramnos_Environment_Variables_Guide.md
+  - Data Layer:
+    - Database API: Pramnos_Database_API_Guide.md
+    - Query Builder: Pramnos_QueryBuilder_Guide.md
+    - Schema Builder: Pramnos_Schema_Builder_Guide.md
+    - ORM: Pramnos_ORM_Guide.md
+    - Migrations: Pramnos_Migration_Guide.md
+    - Caching: Pramnos_Cache_Guide.md
+  - Security & Identity:
+    - Authentication: Pramnos_Authentication_Guide.md
+    - Authorization: Pramnos_Authorization_Guide.md
+    - Security Hardening: Pramnos_Security_Guide.md
+  - APIs & Integrations:
+    - API Guide: Pramnos_API_Guide.md
+    - Email: Pramnos_Email_Guide.md
+    - Media: Pramnos_Media_Guide.md
+    - Logging: Pramnos_Logging_Guide.md
+  - Operations:
+    - Console Commands: Pramnos_Console_Guide.md
+    - Testing: Pramnos_Testing_Guide.md

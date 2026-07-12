@@ -2,9 +2,25 @@
 
 This guide explains how to properly use the Pramnos database API for database operations in the Pramnos MVC framework.
 
+> **v1.2 Update:** A new fluent **QueryBuilder** API is now available for more expressive query construction. See [Pramnos_QueryBuilder_Guide.md](Pramnos_QueryBuilder_Guide.md) for modern query patterns. The `Database::query()` and `prepareQuery()` methods remain unchanged and fully supported.
+
 ## Overview
 
 The Pramnos framework provides a database abstraction layer that must be used for all database operations. The key principle is to **always use `prepareQuery()` for parameter binding, then `query()` for execution**.
+
+**For new code, consider using the QueryBuilder API:**
+
+```php
+// Modern approach (v1.2+)
+$users = $db->queryBuilder()
+    ->from('users')
+    ->where('active', 1)
+    ->get();
+
+// Legacy approach (still supported)
+$sql = $db->prepareQuery("SELECT * FROM users WHERE active = %d", 1);
+$result = $db->query($sql);
+```
 
 ## Database Access in Controllers
 
@@ -128,6 +144,56 @@ while ($result->fetch()) {
 // String and integer parameters
 $sql = $this->application->database->prepareQuery("SELECT * FROM users WHERE email = %s AND status = %d", $email, $status);
 $result = $this->application->database->query($sql);
+```
+
+## The Modern Way: Fluent Query Builder (v1.2+)
+
+While `prepareQuery()` and `query()` are the foundational patterns, v1.2 introduces a fluent **Query Builder** for cleaner, more maintainable code, especially for complex queries.
+
+### Advantages:
+- No need to remember `%s` / `%d` specifiers.
+- Automatic table quoting.
+- Easier joins and conditions.
+- Better cross-database compatibility (MySQL/PostgreSQL).
+
+### Examples:
+
+```php
+// SELECT with conditions and ordering
+$users = $this->application->database->queryBuilder()
+    ->from('users')
+    ->where('status', 1)
+    ->where('role', 'admin')
+    ->orderBy('last_login', 'desc')
+    ->limit(10)
+    ->get();
+
+// Complex JOINs
+$applications = $this->application->database->queryBuilder()
+    ->select('a.*', 'u.username as owner_name')
+    ->from('applications a')
+    ->join('users u', 'u.id', '=', 'a.user_id')
+    ->where('a.status', 'active')
+    ->get();
+
+// INSERT with auto-binding
+$newId = $this->application->database->queryBuilder()
+    ->table('users')
+    ->insert([
+        'username' => 'newuser',
+        'email' => 'user@example.com',
+        'status' => 1
+    ]);
+```
+
+#### Raw Expressions
+If you need database-specific functions (like PostGIS or native MySQL functions), use `raw()`:
+
+```php
+$locations = $this->application->database->queryBuilder()
+    ->from('locations')
+    ->whereRaw("ST_Distance(geom, ST_MakePoint(?, ?)) < 1000", [23.7, 37.9])
+    ->get();
 ```
 
 ### INSERT Operations

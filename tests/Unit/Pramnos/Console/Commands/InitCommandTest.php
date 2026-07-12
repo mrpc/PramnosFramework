@@ -16,6 +16,9 @@ class InitCommandTest extends TestCase
 {
     private $tempDir;
 
+    /** @var string|null Original $_SERVER['PHP_SELF'] value */
+    private ?string $originalPhpSelf = null;
+
     /**
      * Setup a unique temporary directory for each test.
      */
@@ -23,6 +26,13 @@ class InitCommandTest extends TestCase
     {
         $this->tempDir = sys_get_temp_dir() . '/pramnos_init_test_internal_' . uniqid();
         mkdir($this->tempDir, 0777, true);
+
+        // Symfony's DumpCompletionCommand reads $_SERVER['PHP_SELF'] in configure();
+        // ensure it is set to prevent "Undefined array key" warnings in PHP 8.4.
+        $this->originalPhpSelf = $_SERVER['PHP_SELF'] ?? null;
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = 'phpunit';
+        }
     }
 
     /**
@@ -31,6 +41,12 @@ class InitCommandTest extends TestCase
     protected function tearDown(): void
     {
         $this->removeDirectory($this->tempDir);
+
+        if ($this->originalPhpSelf === null) {
+            unset($_SERVER['PHP_SELF']);
+        } else {
+            $_SERVER['PHP_SELF'] = $this->originalPhpSelf;
+        }
     }
 
     /**
@@ -49,16 +65,25 @@ class InitCommandTest extends TestCase
 
         // Simulate interactive inputs
         $commandTester->setInputs([
-            'Test App',     // App Name
-            'TestNamespace', // Namespace
-            'n',            // Setup Docker? (n)
-            '0',            // DB Type (mysql)
-            'localhost',    // Host
-            'testdb',       // DB Name
-            'root',         // User
-            '',             // Pass
-            '',             // Prefix
-            'Test Author',  // Author Name
+            'Test App',        // App Name
+            'TestNamespace',   // Namespace
+            'n',               // Step 2: Enable auth?
+            'n',               // Step 2: Enable authserver?
+            'n',               // Step 2: Enable queue?
+            'n',               // Step 2: Enable messaging?
+            'n',               // Step 2: Enable devpanel?
+            'n',               // Step 2b: REST API?
+            'n',               // Step 2c: webhook?
+            '',                // Step 3: UI system (Enter = plain-css default)
+            'n',               // Step 4: Configure libraries?
+            'n',               // Setup Docker? (n)
+            '0',               // DB Type (mysql)
+            'localhost',       // Host
+            'testdb',          // DB Name
+            'root',            // User
+            '',                // Pass
+            '',                // Prefix
+            'Test Author',     // Author Name
             'test@example.com' // Author Email
         ]);
 
@@ -92,15 +117,24 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Docker App',
             'DockerApp',
-            'y',            // Setup Docker (y)
-            '8081',         // Port
-            '1',            // Redis
-            '1',            // PostgreSQL
+            'n',                 // Step 2: auth
+            'n',                 // Step 2: authserver
+            'n',                 // Step 2: queue
+            'n',                 // Step 2: messaging
+            'n',                 // Step 2: devpanel
+            'n',                 // Step 2b: REST API?
+            'n',                 // Step 2c: webhook?
+            '',                  // Step 3: UI (plain-css)
+            'n',                 // Step 4: libraries
+            'y',                 // Setup Docker (y)
+            '8081',              // Port
+            '0',                 // Redis (index 0 in ['redis','none','memcached'])
+            '1',                 // PostgreSQL
             'localhost',
             'dockerdb',
             'user',
             'pass',
-            '',             // Prefix
+            '',                  // Prefix
             'Docker Author',
             'docker@example.com'
         ]);
@@ -132,6 +166,15 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Minimal App',
             'MinApp',
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
+            'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'n',            // No Docker
             '0',            // MySQL
             'localhost',
@@ -167,6 +210,15 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'PG Mem App',
             'PGMemApp',
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
+            'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'y',            // Setup Docker
             '8085',         // Port
             '2',            // Memcached
@@ -240,9 +292,18 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'No Cache App',
             'NoCacheApp',
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
+            'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'y',            // Setup Docker
             '8086',         // Port
-            '0',            // No Cache
+            '1',            // No Cache (index 1 in ['redis','none','memcached'])
             '0',            // MySQL
             'localhost',
             'nocachedb',
@@ -281,8 +342,17 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             '',             // App Name (ENTER -> my-auto-app)
             '',             // Namespace (ENTER -> MyAutoApp)
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
+            'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'n',            // Setup Docker (n)
-            '',             // DB Type (ENTER -> now TimescaleDB/postgresql)
+            '',             // DB Type (ENTER -> TimescaleDB default)
             'localhost',    // Host
             '',             // DB Name (ENTER -> my_auto_app_db)
             '',             // DB User (ENTER -> my_auto_app_user)
@@ -332,9 +402,18 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Timescale App',
             'TimescaleApp',
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
+            'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'y',            // Setup Docker (y)
             '8088',         // Port
-            '1',            // Redis
+            '0',            // Redis (index 0 in ['redis','none','memcached'])
             '2',            // TimescaleDB
             'localhost',
             'timescaledb',
@@ -371,6 +450,15 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Theme App',
             'ThemeApp',
+            'n',            // Step 2: auth
+            'n',            // Step 2: authserver
+            'n',            // Step 2: queue
+            'n',            // Step 2: messaging
+            'n',            // Step 2: devpanel
+            'n',            // Step 2b: REST API?
+            'n',            // Step 2c: webhook?
+            '',             // Step 3: UI (plain-css)
+            'n',            // Step 4: libraries
             'n',            // No Docker
             '0',            // MySQL
             'localhost',
@@ -399,11 +487,245 @@ class InitCommandTest extends TestCase
         $header = file_get_contents($themeDir . '/header.php');
         $this->assertStringContainsString('applicationInfo[\'name\']', $header);
         $this->assertStringNotContainsString('<!DOCTYPE html>', $header);
-        $this->assertStringContainsString('fonts.googleapis.com', $header);
+        // No CDN references — all assets must be served locally
+        $this->assertStringNotContainsString('fonts.googleapis.com', $header);
 
         $style = file_get_contents($this->tempDir . '/www/assets/css/style.css');
         $this->assertStringContainsString(':root', $style);
         $this->assertStringContainsString('--primary-color', $style);
+    }
+
+    /**
+     * Test that the CLI entry-point files are scaffolded when Docker is enabled.
+     *
+     * The init command must produce:
+     *  - {cliName}.php  — PHP entry point that defines ROOT and runs the app Console
+     *  - {cliName}      — bash wrapper calling docker-compose exec app php {cliName}.php
+     *  - src/Console.php — app Console class extending Pramnos\Console\Application
+     *
+     * Without these files the app has no CLI interface (migrate, queue, etc. are unusable).
+     */
+    public function test_it_scaffolds_app_cli_files(): void
+    {
+        $application = new Application();
+        $application->add(new Init());
+
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
+        $commandTester = new CommandTester($command);
+
+        // Arrange — namespace 'MyCLIApp' → cliName 'mycliapp'
+        $commandTester->setInputs([
+            'My CLI App', 'MyCLIApp',
+            'n', 'n', 'n', 'n', 'n',   // features
+            'n',                   // REST API?
+            'n',                   // webhook?
+            '',                    // UI plain-css
+            'n',                   // no libraries
+            'y', '8090', '0',      // Docker, port, no cache
+            '0',                   // MySQL
+            'localhost', 'clidb', 'root', '', '',
+            'Author', 'author@example.com',
+        ]);
+
+        // Act
+        $commandTester->execute([]);
+
+        // Assert — PHP CLI entry point
+        $this->assertFileExists($this->tempDir . '/mycliapp.php');
+        $cliEntry = file_get_contents($this->tempDir . '/mycliapp.php');
+        $this->assertStringContainsString("define('ROOT'", $cliEntry);
+        $this->assertStringContainsString('MyCLIApp\\Console', $cliEntry);
+        // init() must be called so migrate and other commands have a DB connection
+        $this->assertStringContainsString('internalApplication->init(', $cliEntry);
+        $this->assertStringContainsString("app/config/settings.php", $cliEntry);
+
+        // Assert — bash wrapper delegates to docker-compose exec
+        $this->assertFileExists($this->tempDir . '/mycliapp');
+        $wrapper = file_get_contents($this->tempDir . '/mycliapp');
+        $this->assertStringContainsString('docker-compose exec app php mycliapp.php', $wrapper);
+
+        // Assert — app Console class extending the framework
+        $this->assertFileExists($this->tempDir . '/src/Console.php');
+        $console = file_get_contents($this->tempDir . '/src/Console.php');
+        $this->assertStringContainsString('class Console extends \\Pramnos\\Console\\Application', $console);
+        $this->assertStringContainsString('registerCommands', $console);
+    }
+
+    /**
+     * Test that the generated Application::init() signature matches the parent.
+     *
+     * The parent declares init($settingsFile = '').  PHP 8 raises a fatal error
+     * ("Declaration must be compatible") when a child overrides a method with an
+     * incompatible signature.  This was the first regression seen in production:
+     *   Fatal error: Declaration of TestApp\Application::init() must be compatible
+     *   with Pramnos\Application\Application::init($settingsFile = '')
+     */
+    public function test_application_php_has_correct_init_signature(): void
+    {
+        $application = new Application();
+        $application->add(new Init());
+
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
+        $commandTester = new CommandTester($command);
+
+        // Arrange
+        $commandTester->execute([
+            '--app-name'       => 'Sig App',
+            '--namespace'      => 'SigApp',
+            '--docker'         => 'n',
+            '--db-type'        => 'mysql',
+            '--features'       => '',
+            '--ui-system'      => 'plain-css',
+            '--libraries'      => '',
+            '--no-interaction' => true,
+        ]);
+
+        // Act
+        $this->assertFileExists($this->tempDir . '/src/Application.php');
+        $content = file_get_contents($this->tempDir . '/src/Application.php');
+
+        // Assert — must match parent signature exactly
+        $this->assertStringContainsString("public function init(\$settingsFile = '')", $content,
+            'init() must declare $settingsFile = \'\' to match parent signature');
+        $this->assertStringContainsString("parent::init(\$settingsFile)", $content);
+        $this->assertStringContainsString('registerVendorLibraries', $content);
+    }
+
+    /**
+     * Test that selected vendor libraries are registered via registerScript/registerStyle
+     * with local vendor paths — never CDN URLs.
+     *
+     * Libraries must be registered-but-not-enqueued: controllers decide what each
+     * page needs by calling addScript('jquery') / addStyle('datatables') etc.
+     */
+    public function test_application_php_registers_vendor_libraries(): void
+    {
+        $application = new Application();
+        $application->add(new Init());
+
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
+        $commandTester = new CommandTester($command);
+
+        // Arrange — select jquery + datatables (datatables depends on jquery)
+        $commandTester->execute([
+            '--app-name'       => 'Lib App',
+            '--namespace'      => 'LibApp',
+            '--docker'         => 'n',
+            '--db-type'        => 'mysql',
+            '--features'       => '',
+            '--ui-system'      => 'plain-css',
+            '--libraries'      => 'jquery,datatables',
+            '--no-download'    => true,
+            '--no-interaction' => true,
+        ]);
+
+        // Act
+        $this->assertFileExists($this->tempDir . '/src/Application.php');
+        $content = file_get_contents($this->tempDir . '/src/Application.php');
+
+        // Assert — jquery JS registered with local path
+        $this->assertStringContainsString("registerScript('jquery'", $content);
+        $this->assertStringContainsString("assets/vendor/jquery/", $content);
+
+        // Assert — datatables JS + CSS registered
+        $this->assertStringContainsString("registerScript('datatables'", $content);
+        $this->assertStringContainsString("registerStyle('datatables'", $content);
+        $this->assertStringContainsString("assets/vendor/datatables/", $content);
+
+        // Assert — no CDN references; runtime must not reach out to external hosts
+        foreach (['cdn.', 'jsdelivr', 'cdnjs', 'unpkg'] as $cdn) {
+            $this->assertStringNotContainsString($cdn, $content,
+                "Application.php must not reference CDN ($cdn found)");
+        }
+    }
+
+    /**
+     * Test that the post-init summary shows the correct migrate command.
+     *
+     * The Symfony Console application registers the command as 'migrate' with a
+     * --scope option.  'migrate:framework' does not exist and causes:
+     *   Command "migrate:framework" is not defined.
+     */
+    public function test_summary_shows_correct_migrate_command(): void
+    {
+        $application = new Application();
+        $application->add(new Init());
+
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true; // Docker enabled but skipped → shows manual step
+        $commandTester = new CommandTester($command);
+
+        // Arrange — Docker enabled so the migrate fallback line appears in summary
+        $commandTester->setInputs([
+            'Migrate App', 'MigrateApp',
+            'n', 'n', 'n', 'n', 'n',
+            'n',            // REST API?
+            'n',            // webhook?
+            '', 'n',
+            'y', '8091', '0', '0',
+            'localhost', 'migratedb', 'root', '', '',
+            'Author', 'author@example.com',
+        ]);
+
+        // Act
+        $commandTester->execute([]);
+        $output = $commandTester->getDisplay();
+
+        // Assert — correct command name in summary
+        $this->assertStringContainsString('migrate --scope=framework', $output);
+        $this->assertStringNotContainsString('migrate:framework', $output);
+    }
+
+    /**
+     * Test that theme header.php and footer.php contain no CDN references.
+     *
+     * Every library is downloaded locally during init and served from
+     * www/assets/vendor/.  CDN references at runtime are a security risk
+     * (supply-chain compromise) and break air-gapped deployments.
+     */
+    public function test_theme_files_have_no_cdn_references(): void
+    {
+        $application = new Application();
+        $application->add(new Init());
+
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
+        $commandTester = new CommandTester($command);
+
+        // Arrange
+        $commandTester->setInputs([
+            'CDN Test App', 'CDNTestApp',
+            'n', 'n', 'n', 'n', 'n',
+            'n',            // REST API?
+            'n',            // webhook?
+            '', 'n',
+            'n', '0',
+            'localhost', 'cdndb', 'root', '', '',
+            'Author', 'author@example.com',
+        ]);
+
+        // Act
+        $commandTester->execute([]);
+
+        // Assert — no CDN references in any theme file
+        $themeDir  = $this->tempDir . '/app/themes/default';
+        $cdnTokens = ['cdn.', 'jsdelivr', 'cdnjs', 'unpkg.com', 'googleapis', 'gstatic'];
+
+        foreach (['header.php', 'footer.php'] as $file) {
+            $content = file_get_contents($themeDir . '/' . $file);
+            foreach ($cdnTokens as $token) {
+                $this->assertStringNotContainsString($token, $content,
+                    "Theme $file must not reference CDN ('$token' found)");
+            }
+        }
     }
 
     /**
@@ -414,7 +736,6 @@ class InitCommandTest extends TestCase
         $command = new Init();
         $reflection = new \ReflectionClass($command);
         $method = $reflection->getMethod('isPortAvailable');
-        $method->setAccessible(true);
 
         // Test with a port that is likely to be boolean (true or false depending on env)
         $result = $method->invoke($command, 8080);

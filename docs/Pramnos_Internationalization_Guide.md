@@ -506,7 +506,7 @@ $lang->setLang($userLang);
 
 - [Framework Guide](Pramnos_Framework_Guide.md) - Core framework concepts
 - [Theme Guide](Pramnos_Theme_Guide.md) - Using translations in themes
-- [Application Guide](Pramnos_Application_Guide.md) - Application-level language settings
+- [Framework Guide](Pramnos_Framework_Guide.md) - Application-level language settings
 - [Console Guide](Pramnos_Console_Guide.md) - CLI language management tools
 
 ## Troubleshooting
