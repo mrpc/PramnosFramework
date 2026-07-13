@@ -28,6 +28,13 @@ class Init extends Command
     /** When true, docker-compose up is skipped (test mode). */
     public bool $skipDockerRun = false;
 
+    /**
+     * Seconds a spinner step may run before its subprocess output is surfaced
+     * live. Guards against a silent, endless spinner when a step (e.g.
+     * "docker-compose up --build") hangs. Set to 0 to disable escalation.
+     */
+    public int $slowStepThreshold = 120;
+
     /** Path to the scaffolding/ directory inside the framework package. */
     public string $scaffoldingDir = '';
 
@@ -2997,7 +3004,19 @@ PHP;
      *                               (useful for migration steps where the output
      *                               is always informative).
      */
-    private function runProcessWithSpinner(string $command, string $message, OutputInterface $output, bool $alwaysShowOutput = false): int
+    /**
+     * Formats an elapsed duration compactly for the spinner counter:
+     * "45s" under a minute, "2m05s" beyond.
+     */
+    protected function formatElapsed(int $seconds): string
+    {
+        if ($seconds < 60) {
+            return $seconds . 's';
+        }
+        return sprintf('%dm%02ds', intdiv($seconds, 60), $seconds % 60);
+    }
+
+    protected function runProcessWithSpinner(string $command, string $message, OutputInterface $output, bool $alwaysShowOutput = false): int
     {
         $isVerbose = $output->getVerbosity() >= OutputInterface::VERBOSITY_VERBOSE;
 
@@ -3014,6 +3033,14 @@ PHP;
         $i         = 0;
         $stdoutBuf = '';
         $stderrBuf = '';
+        $startTime = microtime(true);
+
+        // Once true, subprocess output is streamed live instead of being
+        // buffered until the end. It starts on in verbose mode, and also flips
+        // on automatically once a step runs longer than slowStepThreshold — so
+        // a hung command (e.g. "docker-compose up --build" stuck pulling an
+        // image) becomes diagnosable instead of an endless, silent spinner.
+        $liveOutput = $isVerbose;
 
         $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         if (!is_resource($process)) {
@@ -3032,19 +3059,40 @@ PHP;
             if (!$status['running']) {
                 break;
             }
-            if ($isVerbose) {
+
+            // Always drain both pipes so buffers can't fill and deadlock the
+            // child, and so we have captured output ready to surface on escalation.
+            $chunkOut = (string) stream_get_contents($pipes[1]);
+            $chunkErr = (string) stream_get_contents($pipes[2]);
+            $stdoutBuf .= $chunkOut;
+            $stderrBuf .= $chunkErr;
+
+            $elapsed = (int) (microtime(true) - $startTime);
+
+            // Escalate a long-running step to live output. This is what makes a
+            // hang observable: after slowStepThreshold seconds we announce the
+            // delay, flush everything captured so far, and stream the rest.
+            if (!$liveOutput && $this->slowStepThreshold > 0 && $elapsed >= $this->slowStepThreshold) {
+                $liveOutput = true;
+                $output->write("\r\033[K");
+                $output->writeln("<comment>$message is still running after " . $this->formatElapsed($elapsed) . " — showing live output:</comment>");
+                $buffered = $stdoutBuf . $stderrBuf;
+                if (trim($buffered) !== '') {
+                    $output->write($buffered);
+                }
+            }
+
+            if ($liveOutput) {
                 // @codeCoverageIgnoreStart
-                // Verbose spinner output is only shown at VERBOSITY_VERBOSE; tests run at
-                // normal verbosity so this branch is never entered.
-                $out = stream_get_contents($pipes[1]);
-                $err = stream_get_contents($pipes[2]);
-                if ($out) $output->write($out);
-                if ($err) $output->write($err);
+                // Live streaming only runs under -v or after the slow-step
+                // escalation; the normal, fast test path never reaches it.
+                if ($chunkOut !== '') $output->write($chunkOut);
+                if ($chunkErr !== '') $output->write($chunkErr);
                 // @codeCoverageIgnoreEnd
             } else {
-                $stdoutBuf .= (string) stream_get_contents($pipes[1]);
-                $stderrBuf .= (string) stream_get_contents($pipes[2]);
-                $output->write("\r\033[K$message " . $symbols[$i % 4]);
+                // Spinner carries an elapsed-time counter so the user always
+                // sees the step is alive and how long it has been working.
+                $output->write("\r\033[K$message " . $symbols[$i % 4] . ' (' . $this->formatElapsed($elapsed) . ')');
             }
             $i++;
             usleep(100_000);
@@ -3057,7 +3105,7 @@ PHP;
         $remainingOut = stream_get_contents($pipes[1]);
         $remainingErr = stream_get_contents($pipes[2]);
 
-        if ($isVerbose) {
+        if ($liveOutput) {
             // @codeCoverageIgnoreStart
             if ($remainingOut) $output->write($remainingOut);
             if ($remainingErr) $output->write($remainingErr);
@@ -3073,8 +3121,8 @@ PHP;
 
         $exitCode = proc_close($process);
 
-        if ($isVerbose) {
-            $output->writeln($exitCode === 0 ? "<info>$message: DONE</info>" : "<error>$message: FAILED (Exit Code: $exitCode)</error>"); // @codeCoverageIgnore — verbose output path not exercised in tests
+        if ($liveOutput) {
+            $output->writeln($exitCode === 0 ? "<info>$message: DONE</info>" : "<error>$message: FAILED (Exit Code: $exitCode)</error>"); // @codeCoverageIgnore — live output path only under -v or slow-step escalation
         } else {
             $suffix = $exitCode === 0 ? "<info>DONE</info>" : "<error>FAILED</error>";
             $output->write("\r\033[K$message $suffix\n");
