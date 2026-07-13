@@ -903,7 +903,6 @@ class LogViewer
         $html = '<!DOCTYPE html><html><head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
             ' . $this->getStylesAndScripts() . '
             </head><body><ul>';
 
@@ -1508,6 +1507,22 @@ class LogViewer
         li {
             animation: fadeIn 0.2s ease-out;
         }
+
+        /* Self-contained icon glyphs (unicode via ::before) so the log viewer
+           needs no external FontAwesome/CDN stylesheet — keeps it CSP-safe.
+           Existing markup keeps using <i class="fas fa-*"> and JS class toggles. */
+        .fa, .fas { font-style: normal; font-weight: normal; }
+        .fa-list::before          { content: "\\2261"; }        /* ≡ */
+        .fa-file::before,
+        .fa-file-alt::before      { content: "\\1F5CE"; }       /* 🗎 */
+        .fa-info-circle::before   { content: "\\24D8"; }        /* ⓘ */
+        .fa-copy::before          { content: "\\29C9"; }        /* ⧉ */
+        .fa-expand::before        { content: "\\2922"; }        /* ⤢ */
+        .fa-compress::before      { content: "\\2921"; }        /* ⤡ */
+        .fa-search::before        { content: "\\1F50D"; }       /* 🔍 */
+        .fa-check::before         { content: "\\2713"; }        /* ✓ */
+        .fa-times::before         { content: "\\2715"; }        /* ✕ */
+        .fa-exclamation-circle::before { content: "\\26A0"; }   /* ⚠ */
     </style>
     <script>
         
@@ -1589,9 +1604,11 @@ HTML;
         }
         .error-message i {
             font-size: 1.5em;
+            font-style: normal;
         }
+        /* Self-contained icon — no external FontAwesome/CDN (CSP-safe). */
+        .fa-exclamation-circle::before { content: "\\26A0"; }
     </style>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
     </head><body>
     <div class="error-message">
         <i class="fas fa-exclamation-circle"></i>
