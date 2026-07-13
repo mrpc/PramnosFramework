@@ -2359,9 +2359,43 @@ fi
 > "\$LOCK_FILE"
 echo \$\$ >"\$LOCK_FILE"
 
-if ! docker-compose ps | grep -q "app.*Up"; then
+# Docker can hang indefinitely when the daemon is wedged (a common WSL / Docker
+# Desktop failure mode). Bound every Docker control call below so a stuck daemon
+# fails fast with a clear message instead of an endless, silent hang. The phpunit
+# run further down is intentionally NOT time-limited.
+DOCKER_CTL_TIMEOUT="\${DOCKERTEST_DOCKER_TIMEOUT:-45}"
+
+_die_docker_wedged() {
+    echo "" >&2
+    echo "ERROR: Docker did not respond within \${DOCKER_CTL_TIMEOUT}s while running: \$1" >&2
+    echo "The Docker daemon appears to be wedged (common on WSL / Docker Desktop)." >&2
+    echo "Try restarting Docker Desktop, or run 'wsl.exe --shutdown' from PowerShell, then retry." >&2
+    rm -f "\$LOCK_FILE"
+    exit 1
+}
+
+# Preflight: fail fast if the daemon is unresponsive or not running.
+if ! timeout 15 docker version >/dev/null 2>&1; then
+    echo "" >&2
+    echo "ERROR: Docker is not responding (timed out after 15s, or the daemon is not running)." >&2
+    echo "Start Docker Desktop / the daemon (on WSL you may need 'wsl.exe --shutdown' then reopen) and retry." >&2
+    rm -f "\$LOCK_FILE"
+    exit 1
+fi
+
+# Capture ps output separately so a timeout (124) is distinguishable from
+# "containers down" — piping straight to grep would hide the timeout.
+ps_out=\$(timeout "\$DOCKER_CTL_TIMEOUT" docker-compose ps 2>/dev/null)
+[[ \$? -eq 124 ]] && _die_docker_wedged "docker-compose ps"
+if ! grep -q "app.*Up" <<<"\$ps_out"; then
     echo "Containers not running. Starting them..."
-    docker-compose up -d
+    if ! timeout 300 docker-compose up -d; then
+        rc=\$?
+        [[ \$rc -eq 124 ]] && _die_docker_wedged "docker-compose up -d"
+        echo "ERROR: 'docker-compose up -d' failed (exit \$rc)." >&2
+        rm -f "\$LOCK_FILE"
+        exit 1
+    fi
     sleep 5
 fi
 
@@ -2398,9 +2432,24 @@ BASH;
         return <<<BASH
 #!/usr/bin/env bash
 
-if ! docker-compose ps | grep -q "app.*Up"; then
+# Bound Docker control calls so a wedged daemon (common on WSL / Docker Desktop)
+# fails fast with a clear message instead of hanging silently.
+DOCKER_CTL_TIMEOUT="\${DOCKERTEST_DOCKER_TIMEOUT:-45}"
+
+if ! timeout 15 docker version >/dev/null 2>&1; then
+    echo "ERROR: Docker is not responding (timed out, or the daemon is not running)." >&2
+    echo "Start Docker Desktop / the daemon and retry." >&2
+    exit 1
+fi
+
+ps_out=\$(timeout "\$DOCKER_CTL_TIMEOUT" docker-compose ps 2>/dev/null)
+if [[ \$? -eq 124 ]]; then
+    echo "ERROR: Docker did not respond within \${DOCKER_CTL_TIMEOUT}s. The daemon may be wedged." >&2
+    exit 1
+fi
+if ! grep -q "app.*Up" <<<"\$ps_out"; then
     echo "Containers not running. Starting them..."
-    docker-compose up -d
+    timeout 300 docker-compose up -d || { echo "ERROR: 'docker-compose up -d' failed or timed out." >&2; exit 1; }
     sleep 5
 fi
 
