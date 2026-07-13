@@ -77,8 +77,8 @@ Once your project is initialized, you can use the `create` command to scaffold n
 
 ```bash
 # Create a new controller
-php bin/pramnos create controller MyNewController
+php bin/pramnos create:controller MyNewController
 
 # Create a new model
-php bin/pramnos create model MyModel
+php bin/pramnos create:model MyModel
 ```
