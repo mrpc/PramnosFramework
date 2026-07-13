@@ -38,7 +38,7 @@
     <?php endif; ?>
 
     <?php if (!empty($this->newBackupCodes)): ?>
-    <div class="bg-white border border-amber-200 rounded-xl shadow-sm mb-4">
+    <div class="bg-white border border-amber-200 rounded-xl shadow-xs mb-4">
         <div class="px-5 py-3 border-b border-amber-100 bg-amber-50 font-medium text-amber-800 text-sm rounded-t-xl">
             New Backup Codes
         </div>
@@ -49,7 +49,7 @@
             </p>
             <div class="grid grid-cols-2 gap-2">
                 <?php foreach ($this->newBackupCodes as $code): ?>
-                    <code class="block text-center text-sm font-mono bg-gray-50 border border-gray-200 rounded py-1.5">
+                    <code class="block text-center text-sm font-mono bg-gray-50 border border-gray-200 rounded-sm py-1.5">
                         <?php echo htmlspecialchars($code); ?>
                     </code>
                 <?php endforeach; ?>
@@ -59,7 +59,7 @@
     <?php endif; ?>
 
     <!-- Status card -->
-    <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-5 mb-4">
+    <div class="bg-white border border-gray-200 rounded-xl shadow-xs p-5 mb-4">
         <h3 class="font-medium text-gray-900 mb-2">Remaining codes</h3>
         <p class="text-sm text-gray-600 mb-3">
             You have
@@ -78,7 +78,7 @@
     </div>
 
     <!-- Regenerate -->
-    <div class="bg-white border border-gray-200 rounded-xl shadow-sm">
+    <div class="bg-white border border-gray-200 rounded-xl shadow-xs">
         <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700 text-sm">Regenerate Backup Codes</div>
         <div class="p-5">
             <p class="text-xs text-gray-500 mb-4">
@@ -89,7 +89,7 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1" for="regenerate_password">Password</label>
                 <input type="password" id="regenerate_password" name="regenerate_password"
                        required autocomplete="current-password"
-                       class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                       class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm mb-4 focus:outline-hidden focus:ring-2 focus:ring-indigo-500">
                 <button type="submit"
                         class="px-4 py-2 text-sm font-medium text-amber-800 bg-amber-100 border border-amber-300 rounded-md hover:bg-amber-200 transition-colors">
                     Regenerate Codes

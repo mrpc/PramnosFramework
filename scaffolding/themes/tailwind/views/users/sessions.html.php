@@ -9,10 +9,10 @@
 ?>
 <div class="px-4 py-6">
     <div class="flex items-center gap-3 mb-4">
-        <a href="<?php echo sURL; ?>Users" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50">&larr; Back</a>
+        <a href="<?php echo sURL; ?>Users" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
         <h2 >Sessions — <?php echo htmlspecialchars($this->user['username'] ?? ''); ?></h2>
     </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200">
         <div >
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 text-xs text-gray-500 uppercase">

@@ -35,7 +35,7 @@ $rowBadgeColor = static function (string $status): string {
         </span>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200">
             <h3 class="font-medium text-gray-700">Health Checks</h3>
         </div>
@@ -58,7 +58,7 @@ $rowBadgeColor = static function (string $status): string {
                     <tr class="hover:bg-gray-50">
                         <td class="px-4 py-3 font-medium text-gray-700"><?php echo htmlspecialchars($name); ?></td>
                         <td class="px-4 py-3">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?php echo $rowBadgeColor($check['status']); ?> status-badge status-<?php echo htmlspecialchars($check['status']); ?>">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $rowBadgeColor($check['status']); ?> status-badge status-<?php echo htmlspecialchars($check['status']); ?>">
                                 <?php echo strtoupper(htmlspecialchars($check['status'])); ?>
                             </span>
                         </td>
@@ -71,7 +71,7 @@ $rowBadgeColor = static function (string $status): string {
         </div>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200">
             <h3 class="font-medium text-gray-700">System Info</h3>
         </div>

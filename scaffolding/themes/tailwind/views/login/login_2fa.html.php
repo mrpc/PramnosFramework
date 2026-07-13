@@ -15,7 +15,7 @@
         <p class="text-sm text-gray-500 mb-6">Enter the 6-digit code from your authenticator app.</p>
 
         <?php if (!empty($this->error)): ?>
-            <div class="bg-red-100 border border-red-300 text-red-800 rounded p-3 mb-4"><?php echo htmlspecialchars($this->error); ?></div>
+            <div class="bg-red-100 border border-red-300 text-red-800 rounded-sm p-3 mb-4"><?php echo htmlspecialchars($this->error); ?></div>
         <?php endif; ?>
 
         <form method="POST" action="<?php echo sURL; ?>Home/login" class="space-y-4">
@@ -28,7 +28,7 @@
             <div>
                 <label for="totp_code" class="block text-sm font-medium text-gray-700 mb-1">Verification Code</label>
                 <input type="text" id="totp_code" name="totp_code"
-                       class="w-full border border-gray-300 rounded-md px-3 py-2 text-center text-2xl font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       class="w-full border border-gray-300 rounded-md px-3 py-2 text-center text-2xl font-mono tracking-widest focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                        maxlength="6" pattern="[0-9]{6}" placeholder="000000"
                        autocomplete="one-time-code" required autofocus>
             </div>
@@ -42,7 +42,7 @@
                 <input type="hidden" name="username" value="<?php echo htmlspecialchars($this->username ?? ''); ?>">
                 <input type="hidden" name="password" value="<?php echo htmlspecialchars(base64_decode($this->tempPassword ?? '')); ?>">
                 <input type="text" name="totp_code"
-                       class="w-full border border-gray-300 rounded-md px-3 py-2 uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-gray-400"
+                       class="w-full border border-gray-300 rounded-md px-3 py-2 uppercase tracking-widest focus:outline-hidden focus:ring-2 focus:ring-gray-400"
                        maxlength="8" placeholder="XXXXXXXX">
                 <button type="submit" class="w-full bg-gray-600 hover:bg-gray-700 text-white text-sm py-2 px-4 rounded-md transition-colors">Use Backup Code</button>
             </form>

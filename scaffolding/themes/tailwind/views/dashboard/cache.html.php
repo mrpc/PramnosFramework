@@ -85,11 +85,11 @@ document.addEventListener('click', function(e) {
         <div class="flex flex-wrap items-center gap-3">
             <a href="<?php echo sURL; ?>dashboard" class="text-sm text-blue-600 hover:underline">&larr; Dashboard</a>
             <h2 class="mb-0">Cache Details</h2>
-            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-gray-200 text-gray-700">
                 <?php echo htmlspecialchars(strtoupper($method), ENT_QUOTES, 'UTF-8'); ?>
             </span>
         </div>
-        <button id="clearCacheBtn" class="text-sm border border-red-400 text-red-600 rounded px-4 py-1.5 hover:bg-red-50">
+        <button id="clearCacheBtn" class="text-sm border border-red-400 text-red-600 rounded-sm px-4 py-1.5 hover:bg-red-50">
             Clear All Cache
         </button>
     </div>
@@ -114,7 +114,7 @@ document.addEventListener('click', function(e) {
 
     <!-- Namespace Stats -->
     <?php if (!empty($namespaceStats)): ?>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Cache by Namespace</div>
         <div class="p-5 flex flex-wrap gap-4">
             <?php foreach ($namespaceStats as $ns => $count): ?>
@@ -130,11 +130,11 @@ document.addEventListener('click', function(e) {
     <!-- Categories toggle -->
     <?php if (!empty($cacheCategories)): ?>
     <div class="mb-4">
-        <button id="toggleCatBtn" class="text-sm border border-gray-300 rounded px-3 py-1.5 hover:bg-gray-50">
+        <button id="toggleCatBtn" class="text-sm border border-gray-300 rounded-sm px-3 py-1.5 hover:bg-gray-50">
             Categories (<?php echo count($cacheCategories); ?>) ▼
         </button>
     </div>
-    <div id="catSection" style="display:none" class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div id="catSection" style="display:none" class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Cache Categories</div>
         <ul class="divide-y divide-gray-100">
             <?php foreach ($cacheCategories as $cat): ?>
@@ -159,7 +159,7 @@ document.addEventListener('click', function(e) {
     <?php endif; ?>
 
     <!-- Cache Items -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex justify-between items-center">
             <span>Cache Items</span>
             <span class="bg-gray-200 text-gray-700 text-xs px-2 py-0.5 rounded-full"><?php echo count($cacheItems); ?></span>
@@ -207,30 +207,30 @@ document.addEventListener('click', function(e) {
                 ?>
                 <tr class="hover:bg-gray-50 <?php echo $expired ? 'bg-yellow-50' : ''; ?>">
                     <td class="px-3 py-2">
-                        <code class="font-mono text-blue-600 cursor-pointer hover:bg-blue-100 px-1 rounded"
+                        <code class="font-mono text-blue-600 cursor-pointer hover:bg-blue-100 px-1 rounded-sm"
                               data-cache-key="<?php echo htmlspecialchars($key, ENT_QUOTES, 'UTF-8'); ?>"
                               title="Click to view"><?php echo htmlspecialchars($key, ENT_QUOTES, 'UTF-8'); ?></code>
                     </td>
                     <td class="px-3 py-2">
-                        <span class="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded"><?php echo htmlspecialchars($ns !== '' ? $ns : 'default', ENT_QUOTES, 'UTF-8'); ?></span>
+                        <span class="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-sm"><?php echo htmlspecialchars($ns !== '' ? $ns : 'default', ENT_QUOTES, 'UTF-8'); ?></span>
                     </td>
                     <td class="px-3 py-2 text-right text-gray-400"><?php echo $sizeStr; ?></td>
                     <td class="px-3 py-2 text-gray-400"><?php echo htmlspecialchars($created, ENT_QUOTES, 'UTF-8'); ?></td>
                     <td class="px-3 py-2">
-                        <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?php echo $ttlCls; ?>"><?php echo $ttlTxt; ?></span>
+                        <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $ttlCls; ?>"><?php echo $ttlTxt; ?></span>
                     </td>
                     <td class="px-3 py-2 text-gray-500"><?php echo htmlspecialchars($itype, ENT_QUOTES, 'UTF-8'); ?></td>
                     <td class="px-3 py-2">
                         <?php if ($expired): ?>
-                            <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Expired</span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-red-100 text-red-800">Expired</span>
                         <?php elseif (!empty($item['note'])): ?>
-                            <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Info</span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-yellow-100 text-yellow-800">Info</span>
                         <?php else: ?>
-                            <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Active</span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-green-100 text-green-800">Active</span>
                         <?php endif; ?>
                     </td>
                     <td class="px-3 py-2">
-                        <button class="text-xs border border-blue-400 text-blue-600 rounded px-2 py-0.5 hover:bg-blue-50"
+                        <button class="text-xs border border-blue-400 text-blue-600 rounded-sm px-2 py-0.5 hover:bg-blue-50"
                                 data-cache-key="<?php echo htmlspecialchars($key, ENT_QUOTES, 'UTF-8'); ?>">View</button>
                     </td>
                 </tr>

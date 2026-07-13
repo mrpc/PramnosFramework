@@ -15,7 +15,7 @@ $statusLabel = fn($s) => match((int)$s) {
 ?>
 <div class="px-4 py-6">
     <h2 class="mb-6">Email Log</h2>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200">
         <div >
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
@@ -30,9 +30,9 @@ $statusLabel = fn($s) => match((int)$s) {
                         <td class="text-gray-400 text-xs"><?php echo htmlspecialchars($mail['date'] ?? $mail['maildate'] ?? ''); ?></td>
                         <td><?php echo $statusLabel($mail['status'] ?? 0); ?></td>
                         <td class="text-right">
-                            <a href="<?php echo sURL; ?>Emails/show/<?php echo (int)$mail['id']; ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50">View</a>
+                            <a href="<?php echo sURL; ?>Emails/show/<?php echo (int)$mail['id']; ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">View</a>
                             <?php if ((int)($mail['status'] ?? 0) === 0): ?>
-                                <a href="<?php echo sURL; ?>Emails/resend/<?php echo (int)$mail['id']; ?>" class="px-3 py-1 border border-blue-400 text-blue-700 text-xs rounded hover:bg-blue-50">Resend</a>
+                                <a href="<?php echo sURL; ?>Emails/resend/<?php echo (int)$mail['id']; ?>" class="px-3 py-1 border border-blue-400 text-blue-700 text-xs rounded-sm hover:bg-blue-50">Resend</a>
                             <?php endif; ?>
                         </td>
                     </tr>

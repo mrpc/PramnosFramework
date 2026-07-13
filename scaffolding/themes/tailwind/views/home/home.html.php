@@ -40,7 +40,7 @@ $serviceName = htmlspecialchars($this->serviceInfo['service_name'] ?? 'OAuth2 Au
     </div>
 
     <?php if (!empty($this->serviceInfo['endpoints'])): ?>
-    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="bg-white rounded-xl shadow-xs overflow-hidden">
         <div class="px-6 py-3 border-b border-gray-100 font-semibold text-sm text-gray-700">OAuth2 Endpoints</div>
         <table class="w-full text-sm">
             <tbody class="divide-y divide-gray-50">

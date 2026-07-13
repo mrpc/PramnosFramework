@@ -30,7 +30,7 @@
     <?php endif; ?>
 
     <!-- Step 1 -->
-    <div class="bg-white border border-gray-200 rounded-xl shadow-sm mb-4">
+    <div class="bg-white border border-gray-200 rounded-xl shadow-xs mb-4">
         <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700 text-sm">Step 1 — Scan the QR code</div>
         <div class="p-5 text-center">
             <?php
@@ -59,7 +59,7 @@
 
     <!-- Step 2: Backup codes -->
     <?php if (!empty($this->setupData['backup_codes'])): ?>
-    <div class="bg-white border border-amber-200 rounded-xl shadow-sm mb-4">
+    <div class="bg-white border border-amber-200 rounded-xl shadow-xs mb-4">
         <div class="px-5 py-3 border-b border-amber-100 bg-amber-50 font-medium text-amber-800 text-sm rounded-t-xl">
             Step 2 — Save your backup codes
         </div>
@@ -70,7 +70,7 @@
             </p>
             <div class="grid grid-cols-2 gap-2 mb-3">
                 <?php foreach ($this->setupData['backup_codes'] as $code): ?>
-                    <code class="block text-center text-sm font-mono bg-gray-50 border border-gray-200 rounded py-1.5">
+                    <code class="block text-center text-sm font-mono bg-gray-50 border border-gray-200 rounded-sm py-1.5">
                         <?php echo htmlspecialchars($code); ?>
                     </code>
                 <?php endforeach; ?>
@@ -80,7 +80,7 @@
     <?php endif; ?>
 
     <!-- Step 3: Verify -->
-    <div class="bg-white border border-gray-200 rounded-xl shadow-sm">
+    <div class="bg-white border border-gray-200 rounded-xl shadow-xs">
         <div class="px-5 py-3 border-b border-gray-100 font-medium text-gray-700 text-sm">Step 3 — Verify</div>
         <div class="p-5">
             <p class="text-xs text-gray-500 mb-4">Enter the 6-digit code shown in your authenticator app.</p>
@@ -89,7 +89,7 @@
                 <input type="text" id="verify_code" name="verify_code"
                        inputmode="numeric" pattern="\d{6}" maxlength="6"
                        placeholder="000000" required autofocus autocomplete="one-time-code"
-                       class="block w-48 rounded-md border border-gray-300 px-3 py-2 text-lg tracking-widest text-center mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                       class="block w-48 rounded-md border border-gray-300 px-3 py-2 text-lg tracking-widest text-center mb-4 focus:outline-hidden focus:ring-2 focus:ring-indigo-500">
                 <div class="flex gap-3">
                     <button type="submit"
                             class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors">

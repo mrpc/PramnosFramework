@@ -13,25 +13,25 @@
     <h2 class="text-2xl font-bold text-gray-800 mb-6">Security Overview</h2>
 
     <?php if (!empty($_GET['message']) && $_GET['message'] === 'password_changed'): ?>
-        <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 text-green-700 rounded">
+        <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 text-green-700 rounded-sm">
             Your password has been updated successfully.
         </div>
     <?php endif; ?>
 
     <!-- 2FA -->
-    <div class="bg-white rounded-lg shadow mb-4">
+    <div class="bg-white rounded-lg shadow-sm mb-4">
         <div class="px-4 py-3 border-b border-gray-100 font-semibold text-gray-700">
             Two-Factor Authentication
         </div>
         <div class="flex items-center justify-between px-4 py-4">
             <div>
                 <?php if ($this->twoFactorEnabled): ?>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 mr-2">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-green-100 text-green-800 mr-2">
                         Enabled
                     </span>
                     <span class="text-sm text-gray-600">Your account is protected with two-factor authentication.</span>
                 <?php else: ?>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 mr-2">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-yellow-100 text-yellow-800 mr-2">
                         Disabled
                     </span>
                     <span class="text-sm text-gray-600">Enable 2FA to protect your account.</span>
@@ -45,7 +45,7 @@
     </div>
 
     <!-- Change password -->
-    <div class="bg-white rounded-lg shadow mb-4">
+    <div class="bg-white rounded-lg shadow-sm mb-4">
         <div class="flex items-center justify-between px-4 py-4">
             <span class="text-sm text-gray-600">Change your account password regularly to stay secure.</span>
             <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/changepassword"
@@ -56,7 +56,7 @@
     </div>
 
     <!-- Activity log -->
-    <div class="bg-white rounded-lg shadow">
+    <div class="bg-white rounded-lg shadow-sm">
         <div class="px-4 py-3 border-b border-gray-100 font-semibold text-gray-700">
             Recent Login Activity
         </div>

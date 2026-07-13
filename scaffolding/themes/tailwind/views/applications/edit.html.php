@@ -13,32 +13,32 @@ $isNew = empty($app['appid']);
 $apptypes    = [0 => 'Web Application', 1 => 'Mobile App', 2 => 'Service / Daemon', 3 => 'Desktop App', 4 => 'IoT Device', 5 => 'Other'];
 $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
 
-$inp  = 'w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
+$inp  = 'w-full border border-gray-300 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500';
 $lbl  = 'block text-sm font-semibold text-gray-700 mb-1';
-$card = 'bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4';
+$card = 'bg-white rounded-xl shadow-xs border border-gray-200 p-5 mb-4';
 ?>
 <div class="px-4 py-6">
     <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-semibold"><?php echo $isNew ? 'New Application' : 'Edit Application'; ?></h2>
-        <a href="<?php echo sURL; ?>applications" class="px-3 py-1.5 border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-50">Back to list</a>
+        <a href="<?php echo sURL; ?>applications" class="px-3 py-1.5 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">Back to list</a>
     </div>
 
     <?php if (!empty($this->message)): ?>
-        <div class="bg-green-50 border border-green-300 text-green-800 rounded px-4 py-3 mb-4 text-sm">
+        <div class="bg-green-50 border border-green-300 text-green-800 rounded-sm px-4 py-3 mb-4 text-sm">
             <?php echo htmlspecialchars($this->message === 'secret_rotated' ? 'Client secret rotated.' : 'Application saved.'); ?>
         </div>
     <?php endif; ?>
     <?php if (!empty($this->error)): ?>
-        <div class="bg-red-50 border border-red-300 text-red-700 rounded px-4 py-3 mb-4 text-sm">
+        <div class="bg-red-50 border border-red-300 text-red-700 rounded-sm px-4 py-3 mb-4 text-sm">
             <?php echo htmlspecialchars($this->error === 'name_required' ? 'Application name is required.' : $this->error); ?>
         </div>
     <?php endif; ?>
 
     <?php if (!$isNew && !empty($app['apikey'])): ?>
-        <div class="bg-blue-50 border border-blue-200 rounded px-4 py-3 mb-4 flex items-center gap-4 text-sm">
-            <div><strong>Client ID:</strong> <code class="font-mono text-xs bg-white px-1 py-0.5 border border-gray-200 rounded"><?php echo htmlspecialchars($app['apikey'] ?? ''); ?></code></div>
+        <div class="bg-blue-50 border border-blue-200 rounded-sm px-4 py-3 mb-4 flex items-center gap-4 text-sm">
+            <div><strong>Client ID:</strong> <code class="font-mono text-xs bg-white px-1 py-0.5 border border-gray-200 rounded-sm"><?php echo htmlspecialchars($app['apikey'] ?? ''); ?></code></div>
             <a href="<?php echo sURL; ?>applications/rotate/<?php echo (int)$app['appid']; ?>"
-               class="ml-auto px-3 py-1 border border-yellow-400 text-yellow-700 rounded text-xs hover:bg-yellow-50"
+               class="ml-auto px-3 py-1 border border-yellow-400 text-yellow-700 rounded-sm text-xs hover:bg-yellow-50"
                data-confirm="Rotate the client secret?">Rotate Secret</a>
         </div>
     <?php endif; ?>
@@ -139,10 +139,10 @@ $card = 'bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4';
         </div>
 
         <div class="flex gap-3 mt-2">
-            <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700">Save Application</button>
-            <a href="<?php echo sURL; ?>applications" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-50">Cancel</a>
+            <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">Save Application</button>
+            <a href="<?php echo sURL; ?>applications" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">Cancel</a>
             <?php if (!$isNew): ?>
-                <a href="<?php echo sURL; ?>applications/tokens/<?php echo (int)$app['appid']; ?>" class="ml-auto px-4 py-2 border border-blue-300 text-blue-700 text-sm rounded hover:bg-blue-50">View Tokens</a>
+                <a href="<?php echo sURL; ?>applications/tokens/<?php echo (int)$app['appid']; ?>" class="ml-auto px-4 py-2 border border-blue-300 text-blue-700 text-sm rounded-sm hover:bg-blue-50">View Tokens</a>
             <?php endif; ?>
         </div>
     </form>

@@ -10,9 +10,9 @@
 <div class="px-4 py-6">
     <h2 class="mb-6">Services</h2>
     <?php if (!empty($_GET['msg'])): ?>
-        <div class="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-4"><?php echo htmlspecialchars($_GET['msg']); ?></div>
+        <div class="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-sm mb-4"><?php echo htmlspecialchars($_GET['msg']); ?></div>
     <?php endif; ?>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200">
         <div >
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
@@ -39,13 +39,13 @@
                         </td>
                         <td class="text-gray-400 text-xs"><?php echo htmlspecialchars($svc['updatedAt'] ?? ''); ?></td>
                         <td class="text-right">
-                            <a href="<?php echo sURL; ?>Services/logs/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50">Logs</a>
+                            <a href="<?php echo sURL; ?>Services/logs/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">Logs</a>
                             <?php if ($svc['status'] === 'running'): ?>
-                                <a href="<?php echo sURL; ?>Services/stop/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-yellow-400 text-yellow-700 text-xs rounded hover:bg-yellow-50">Stop</a>
+                                <a href="<?php echo sURL; ?>Services/stop/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-yellow-400 text-yellow-700 text-xs rounded-sm hover:bg-yellow-50">Stop</a>
                             <?php else: ?>
-                                <a href="<?php echo sURL; ?>Services/start/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-green-400 text-green-700 text-xs rounded hover:bg-green-50">Start</a>
+                                <a href="<?php echo sURL; ?>Services/start/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-green-400 text-green-700 text-xs rounded-sm hover:bg-green-50">Start</a>
                             <?php endif; ?>
-                            <a href="<?php echo sURL; ?>Services/restart/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50">Restart</a>
+                            <a href="<?php echo sURL; ?>Services/restart/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50">Restart</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

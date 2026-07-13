@@ -28,9 +28,9 @@ $accessTypeLabel = function (int $t): string {
 ?>
 <div class="px-4 py-6">
     <div class="flex items-center gap-3 mb-6">
-        <a href="<?php echo sURL; ?>applications" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-600 rounded hover:bg-gray-50">&larr; Applications</a>
+        <a href="<?php echo sURL; ?>applications" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">&larr; Applications</a>
         <h2 class="text-2xl font-semibold"><?php echo htmlspecialchars($app['name'] ?? '', ENT_QUOTES, 'UTF-8'); ?></h2>
-        <span class="inline-block px-2 py-0.5 rounded text-xs font-medium <?php echo $isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'; ?>">
+        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'; ?>">
             <?php echo $isActive ? 'Active' : 'Disabled'; ?>
         </span>
     </div>
@@ -39,16 +39,16 @@ $accessTypeLabel = function (int $t): string {
         <!-- Left: credentials + stats + actions -->
         <div class="space-y-4">
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+            <div class="bg-white rounded-xl shadow-xs border border-gray-200">
                 <div class="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide rounded-t-xl">Credentials</div>
                 <div class="p-4 space-y-3">
                     <div>
                         <div class="text-xs text-gray-400 mb-1">Client ID (API Key)</div>
                         <div class="flex gap-1">
                             <input type="text" readonly
-                                   class="flex-1 text-xs font-mono border border-gray-200 rounded px-2 py-1.5 bg-gray-50"
+                                   class="flex-1 text-xs font-mono border border-gray-200 rounded-sm px-2 py-1.5 bg-gray-50"
                                    value="<?php echo htmlspecialchars($app['apikey'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
-                            <button class="px-2 py-1 border border-gray-300 text-gray-500 rounded text-xs hover:bg-gray-50"
+                            <button class="px-2 py-1 border border-gray-300 text-gray-500 rounded-sm text-xs hover:bg-gray-50"
                                     data-copy-prev title="Copy">&#128203;</button>
                         </div>
                     </div>
@@ -56,9 +56,9 @@ $accessTypeLabel = function (int $t): string {
                         <div class="text-xs text-gray-400 mb-1">Client Secret</div>
                         <div class="flex gap-1">
                             <input type="password" readonly id="twAppSecret<?php echo $appId; ?>"
-                                   class="flex-1 text-xs font-mono border border-gray-200 rounded px-2 py-1.5 bg-gray-50"
+                                   class="flex-1 text-xs font-mono border border-gray-200 rounded-sm px-2 py-1.5 bg-gray-50"
                                    value="<?php echo htmlspecialchars($app['apisecret'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
-                            <button class="px-2 py-1 border border-gray-300 text-gray-500 rounded text-xs hover:bg-gray-50"
+                            <button class="px-2 py-1 border border-gray-300 text-gray-500 rounded-sm text-xs hover:bg-gray-50"
                                     data-toggle-type="twAppSecret<?php echo $appId; ?>"
                                     title="Toggle">&#128065;</button>
                         </div>
@@ -66,7 +66,7 @@ $accessTypeLabel = function (int $t): string {
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
                 <div class="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">Token Statistics</div>
                 <div class="divide-y divide-gray-100 text-sm">
                     <div class="px-4 py-2.5 flex justify-between">
@@ -77,27 +77,27 @@ $accessTypeLabel = function (int $t): string {
                     </div>
                     <div class="px-4 py-2.5 flex justify-between">
                         <span class="text-gray-500">Active</span>
-                        <span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700"><?php echo (int) ($tokenStats['active'] ?? 0); ?></span>
+                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-green-100 text-green-700"><?php echo (int) ($tokenStats['active'] ?? 0); ?></span>
                     </div>
                     <div class="px-4 py-2.5 flex justify-between">
                         <span class="text-gray-500">Revoked</span>
-                        <span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700"><?php echo (int) ($tokenStats['revoked'] ?? 0); ?></span>
+                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-red-100 text-red-700"><?php echo (int) ($tokenStats['revoked'] ?? 0); ?></span>
                     </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
                 <div class="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide rounded-t-xl">Actions</div>
                 <div class="p-4 grid gap-2">
                     <a href="<?php echo sURL; ?>applications/edit/<?php echo $appId; ?>"
-                       class="block text-center px-3 py-2 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700">Edit Application</a>
+                       class="block text-center px-3 py-2 text-sm bg-indigo-600 text-white rounded-sm hover:bg-indigo-700">Edit Application</a>
                     <a href="<?php echo sURL; ?>applications/tokens/<?php echo $appId; ?>"
-                       class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded hover:bg-gray-50">View Tokens</a>
+                       class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">View Tokens</a>
                     <a href="<?php echo sURL; ?>applications/rotate/<?php echo $appId; ?>"
-                       class="block text-center px-3 py-2 text-sm border border-yellow-400 text-yellow-700 rounded hover:bg-yellow-50"
+                       class="block text-center px-3 py-2 text-sm border border-yellow-400 text-yellow-700 rounded-sm hover:bg-yellow-50"
                        data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</a>
                     <a href="<?php echo sURL; ?>applications/delete/<?php echo $appId; ?>"
-                       class="block text-center px-3 py-2 text-sm border border-red-300 text-red-700 rounded hover:bg-red-50"
+                       class="block text-center px-3 py-2 text-sm border border-red-300 text-red-700 rounded-sm hover:bg-red-50"
                        data-confirm="Disable this application and revoke all active tokens?">Disable App</a>
                 </div>
             </div>
@@ -107,7 +107,7 @@ $accessTypeLabel = function (int $t): string {
         <!-- Right: details + last users -->
         <div class="lg:col-span-2 space-y-4">
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+            <div class="bg-white rounded-xl shadow-xs border border-gray-200">
                 <div class="px-6 py-3 border-b border-gray-100 font-semibold text-gray-700">Application Details</div>
                 <div class="p-6 grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
                     <?php $field = function(string $label, string $value) { ?>
@@ -123,7 +123,7 @@ $accessTypeLabel = function (int $t): string {
                     <?php $field('App Version', ($app['appversion'] ?? '') !== '' ? htmlspecialchars($app['appversion'], ENT_QUOTES, 'UTF-8') : '<span class="text-gray-300">—</span>'); ?>
                     <div>
                         <div class="text-xs text-gray-400 mb-0.5">Public</div>
-                        <span class="inline-block px-2 py-0.5 rounded text-xs font-medium <?php echo (int) ($app['public'] ?? 0) ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'; ?>">
+                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo (int) ($app['public'] ?? 0) ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'; ?>">
                             <?php echo (int) ($app['public'] ?? 0) ? 'Yes' : 'No'; ?>
                         </span>
                     </div>
@@ -155,14 +155,14 @@ $accessTypeLabel = function (int $t): string {
                     <?php if (!empty($app['public_key'])): ?>
                     <div class="col-span-full">
                         <div class="text-xs text-gray-400 mb-0.5">Public Key</div>
-                        <pre class="bg-gray-50 rounded p-2 text-xs overflow-x-auto max-h-28"><?php echo htmlspecialchars($app['public_key'], ENT_QUOTES, 'UTF-8'); ?></pre>
+                        <pre class="bg-gray-50 rounded-sm p-2 text-xs overflow-x-auto max-h-28"><?php echo htmlspecialchars($app['public_key'], ENT_QUOTES, 'UTF-8'); ?></pre>
                     </div>
                     <?php endif; ?>
                 </div>
             </div>
 
             <?php if (!empty($lastUsers)): ?>
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
                 <div class="px-6 py-3 border-b border-gray-100 flex justify-between items-center">
                     <span class="font-semibold text-gray-700">Recent Users</span>
                     <a href="<?php echo sURL; ?>applications/tokens/<?php echo $appId; ?>"

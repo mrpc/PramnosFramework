@@ -9,7 +9,7 @@
 ?>
 <div class="container mx-auto py-8 px-4 max-w-2xl">
     <h2 class="text-2xl font-semibold mb-6"><?php echo htmlspecialchars($this->title ?? 'My Profile'); ?></h2>
-    <div class="bg-white rounded-xl shadow-sm divide-y divide-gray-100">
+    <div class="bg-white rounded-xl shadow-xs divide-y divide-gray-100">
         <div class="flex px-6 py-4">
             <span class="w-40 font-semibold text-gray-600 text-sm">Username</span>
             <span class="text-gray-900 text-sm"><?php echo htmlspecialchars($this->user->username ?? ''); ?></span>

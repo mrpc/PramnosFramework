@@ -9,10 +9,10 @@ $a = $this->action ?? [];
 ?>
 <div class="max-w-4xl mx-auto py-6 px-4">
     <div class="flex items-center gap-3 mb-4">
-        <a href="<?php echo sURL; ?>TokenActions" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50">&larr; Back</a>
+        <a href="<?php echo sURL; ?>TokenActions" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
         <h2 >Audit Log #<?php echo (int)($a['id'] ?? 0); ?></h2>
     </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-4">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-4">
         <div class="p-5">
             <dl >
                 <dt class="font-semibold text-gray-600 text-sm w-40 inline-block">Endpoint</dt>
@@ -33,13 +33,13 @@ $a = $this->action ?? [];
         </div>
     </div>
     <?php if (!empty($a['request_params'])): ?>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-4">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-4">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Request Params</div>
         <div class="p-5"><pre class="mb-0 small"><?php echo htmlspecialchars($a['request_params']); ?></pre></div>
     </div>
     <?php endif; ?>
     <?php if (!empty($a['response_data'])): ?>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Response Data</div>
         <div class="p-5"><pre class="mb-0 small"><?php echo htmlspecialchars($a['response_data']); ?></pre></div>
     </div>
