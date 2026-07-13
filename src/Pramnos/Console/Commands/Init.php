@@ -394,27 +394,53 @@ class Init extends Command
     // ── Step 4: Extra libraries ───────────────────────────────────────────────
 
     /**
+     * The always-included mandatory libraries, read from the asset catalog
+     * (single source of truth — see LibraryManager::mandatoryFromCatalog()).
+     *
+     * @return list<string>
+     */
+    private function mandatoryLibraries(): array
+    {
+        return \Pramnos\Application\LibraryManager::mandatoryFromCatalog($this->loadAssetCatalog());
+    }
+
+    /**
+     * Merge the always-included mandatory libraries into a selection, preserving
+     * order and removing duplicates. Mandatory libraries are appended so they
+     * are present regardless of what the user picked.
+     *
+     * @param list<string> $selected
+     * @return list<string>
+     */
+    private function withMandatoryLibraries(array $selected): array
+    {
+        return array_values(array_unique(array_merge($selected, $this->mandatoryLibraries())));
+    }
+
+    /**
      * @return list<string>
      */
     private function askLibraries(InputInterface $input, OutputInterface $output, mixed $helper, string $uiSystem): array
     {
         $libOption = $input->getOption('libraries');
         if ($libOption !== null) {
-            return $libOption === '' ? [] : array_filter(array_map('trim', explode(',', $libOption)));
+            $picked = $libOption === '' ? [] : array_filter(array_map('trim', explode(',', $libOption)));
+            return $this->withMandatoryLibraries($picked);
         }
 
         $output->writeln("\n<comment>Step 4 — Extra libraries</comment>");
         $wantLibraries = $helper->ask($input, $output, new ConfirmationQuestion('Configure extra libraries? [Y/n] ', true));
         if (!$wantLibraries) {
-            return []; // @codeCoverageIgnore — tests that reach this path use the --libraries CLI option (line 396 path)
+            return $this->withMandatoryLibraries([]); // @codeCoverageIgnore — tests that reach this path use the --libraries CLI option (line 396 path)
         }
 
         $catalog = $this->loadAssetCatalog();
         if (empty($catalog['libraries'])) {
-            return [];
+            return $this->withMandatoryLibraries([]);
         }
 
         $output->writeln("Select which libraries to include (assets downloaded locally):");
+        $output->writeln("  <info>chart.js is always included (required by the log analytics dashboard).</info>");
 
         // Libraries we use across the framework and the reference application — default yes
         $defaultEnabled = ['jquery', 'datatables', 'select2', 'leaflet', 'chartjs', 'ckeditor'];
@@ -422,7 +448,8 @@ class Init extends Command
         // These UI-framework libraries are bundled automatically by their theme
         // (ensureBootstrapAssets / ensureTailwindAssets), so never offer them as
         // an "extra" library — the user already picked them via the UI system.
-        $skipAlways = ['bootstrap', 'tailwind'];
+        // Mandatory libraries are auto-included and never prompted for.
+        $skipAlways = array_merge(['bootstrap', 'tailwind'], $this->mandatoryLibraries());
         $selected   = [];
 
         foreach ($catalog['libraries'] as $key => $lib) {
@@ -668,7 +695,7 @@ class Init extends Command
      * Creates www/webhook.php and adds WEBHOOK_SECRET to .env.example.
      *
      * The generated file uses Dotenv for environment loading and WebhookHandler
-     * for HMAC verification — exactly as the `make:webhook` command produces.
+     * for HMAC verification — exactly as the `project:git-webhook` command produces.
      */
     private function scaffoldWebhookWiring(string $cliName): void
     {
