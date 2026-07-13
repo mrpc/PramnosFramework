@@ -90,6 +90,13 @@ class DebugBarServiceProvider extends ServiceProvider
         // Inject toolbar via output buffering — captures the full response
         // regardless of routing strategy and injects before </body>.
         ob_start(function (string $output) use ($bar, $app): string {
+            // Only inject the toolbar into HTML documents. Non-HTML responses —
+            // the 'raw' document the log viewer serves inside an <iframe>, JSON
+            // API responses, PDFs, images, RSS, etc. — must never carry it.
+            $doc = \Pramnos\Framework\Factory::getDocument();
+            if (!is_object($doc) || (($doc->type ?? 'html') !== 'html')) {
+                return $output;
+            }
             $bodyPos = strripos($output, '</body>');
             if ($bodyPos === false) {
                 return $output;
