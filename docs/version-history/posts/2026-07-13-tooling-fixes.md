@@ -45,6 +45,14 @@ new-project workflow.
   `dockerbash` scripts generated for new projects by `pramnos init`**, so scaffolded
   projects inherit the fix.
 
+- **`pramnos init` — Tailwind theme rendered completely unstyled.** Choosing the
+  `tailwind` UI system produced pages with Tailwind utility classes but no Tailwind CSS:
+  the generated theme header emitted no Tailwind runtime, and nothing vendored one. The
+  scaffolder now downloads the Tailwind browser build (zero-config, no Node/build step)
+  into `www/assets/vendor/tailwind/` and the theme header loads it in `<head>` — matching
+  how the bootstrap theme vendors its assets. Added a catalog entry (`assets.json`) and a
+  regression test.
+
 ## Documentation
 
 - Corrected the console command syntax in the setup and console guides: the generators use

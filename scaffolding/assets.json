@@ -131,6 +131,15 @@
             ],
             "local_path": "assets/vendor/bootstrap/5.3.3"
         },
+        "tailwind": {
+            "version": "4.3.2",
+            "requires_ui": ["tailwind"],
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.2/dist/index.global.js"
+            ],
+            "local_path": "assets/vendor/tailwind/4.3.2"
+        },
         "pramnos-adapters": {
             "version": "1.2.0",
             "bundled": true,
