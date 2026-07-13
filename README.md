@@ -330,7 +330,7 @@ php bin/pramnos create:migration CreateUsersTable
 php bin/pramnos serve --port=8080
 
 # Migrate log files to structured format
-php bin/pramnos migrate:logs --days=30
+php bin/pramnos migratelogs var/logs --all
 ```
 
 ## 🏗️ Architecture Overview

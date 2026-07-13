@@ -12,22 +12,22 @@ The framework provides comprehensive code generation through the `create` comman
 
 ```bash
 # Create a new model
-php bin/pramnos create model User
+php bin/pramnos create:model User
 
 # Create a controller
-php bin/pramnos create controller UserController
+php bin/pramnos create:controller UserController
 
 # Create a view
-php bin/pramnos create view User
+php bin/pramnos create:view User
 
 # Create complete CRUD system (model + controller + view)
-php bin/pramnos create crud User
+php bin/pramnos create:crud User
 
 # Create API endpoint
-php bin/pramnos create api UserAPI
+php bin/pramnos create:api UserAPI
 
 # Create database migration
-php bin/pramnos create migration CreateUsersTable
+php bin/pramnos create:migration CreateUsersTable
 ```
 
 ### Server Commands
@@ -58,7 +58,7 @@ php bin/pramnos migratelogs /path/to/file.log --no-backup
 ### Basic Model Creation
 
 ```bash
-php bin/pramnos create model User
+php bin/pramnos create:model User
 ```
 
 This generates a model class with:
@@ -162,10 +162,10 @@ class User extends \Pramnos\Application\Model
 
 ```bash
 # Generate model for specific table
-php bin/pramnos create model User --table=custom_users
+php bin/pramnos create:model User --table=custom_users
 
 # Generate model with schema specification (PostgreSQL)
-php bin/pramnos create model User --schema=public
+php bin/pramnos create:model User --schema=public
 ```
 
 ### Model Registry
@@ -191,13 +191,13 @@ Generated models are automatically registered in `app/model-registry.json`:
 ### Basic Controller Creation
 
 ```bash
-php bin/pramnos create controller UserController
+php bin/pramnos create:controller UserController
 ```
 
 ### CRUD Controller Generation
 
 ```bash
-php bin/pramnos create controller User --full
+php bin/pramnos create:controller User --full
 ```
 
 This generates a complete CRUD controller with:
@@ -339,13 +339,13 @@ class User extends \Pramnos\Application\Controller
 ### Basic View Creation
 
 ```bash
-php bin/pramnos create view User
+php bin/pramnos create:view User
 ```
 
 ### Full CRUD Views
 
 ```bash
-php bin/pramnos create view User --full
+php bin/pramnos create:view User --full
 ```
 
 This generates complete view templates:
@@ -426,7 +426,7 @@ This generates complete view templates:
 ### Creating API Endpoints
 
 ```bash
-php bin/pramnos create api UserAPI
+php bin/pramnos create:api UserAPI
 ```
 
 This generates a complete REST API controller with:
@@ -671,7 +671,7 @@ $router->post(
 ### Complete CRUD System
 
 ```bash
-php bin/pramnos create crud User
+php bin/pramnos create:crud User
 ```
 
 This single command creates:
@@ -692,7 +692,7 @@ Creating View: OK
 ### Creating Migrations
 
 ```bash
-php bin/pramnos create migration CreateUsersTable
+php bin/pramnos create:migration CreateUsersTable
 ```
 
 This generates a migration class:
