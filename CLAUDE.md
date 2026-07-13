@@ -2,7 +2,7 @@
 
 ## Project context
 
-- **Branch:** `v1.2-dev` → target `main`
+- **Branch:** active development happens on **`main`**. `v1.2` is released/frozen — do **not** commit new work to `v1.2-dev` (kept only for reference). New fixes/features land on `main`.
 - **Stack:** PHP 8.4, MySQL 8.0, PostgreSQL 14, TimescaleDB (Docker)
 - **Test suites:** `vendor/bin/phpunit` (framework, 171 tests) and the reference application integration suite (`the application integration test suite`, 5 176 tests)
 - **Roadmap:** `ROADMAP_1.2.md` — always check before deciding what to work on next
@@ -93,12 +93,18 @@ or ship a user-visible change that warrants a changelog entry:
   technical reference) and **not** tied to a version. Group entries under `Added` / `Fixed` /
   `Documentation` etc. The MkDocs blog plugin paginates and archives posts by date, so no
   single page grows unbounded.
-- **Releases:** version releases also get a curated row in `docs/version-history/releases.md`
+- **Releases:** version releases also get a curated row in `docs/releases.md`
   and a `categories: [Releases]` post.
 - **Guides:** when you edit or add a guide page under `docs/`, wire it into the `nav:` in
   `mkdocs.yml` and keep cross-links valid.
 - **Verify the build** with `./dockerdocs build` before committing site changes; treat broken
   links / nav warnings as failures.
+
+> ⚠️ **Blog plugin gotcha (Material 9.7.6):** do **not** set `post_dir` in the `blog:`
+> plugin config — explicitly setting it (even to its default `posts`) silently breaks the
+> blog index post-stream *and* archive-page generation (posts still build individually, but
+> the index shows nothing and archive links 404). Leave `post_dir` unset; posts live in
+> `version-history/posts/` by default. Verified by isolated repro.
 
 Do this **in the same commit** as the change it documents, mirroring rule 1.
 
