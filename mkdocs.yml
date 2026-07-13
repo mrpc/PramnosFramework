@@ -36,13 +36,12 @@ plugins:
       lang: en
   - blog:
       blog_dir: version-history
-      post_dir: posts
+      # NOTE: do NOT set `post_dir` — explicitly setting it (even to its default
+      # "posts") breaks post-stream + archive generation in Material 9.7.6.
+      # Posts live in version-history/posts/ by default.
       blog_toc: true
-      # Date-based changelog: posts form a paginated, newest-first stream, and
-      # archive pages group them by date — so no single page ever grows huge.
-      archive: true
-      archive_date_format: MMMM yyyy
-      categories: true
+      # Date-based changelog: posts form a newest-first stream on the blog index,
+      # split across pages by pagination so no single page ever grows huge.
       pagination_per_page: 15
 
 markdown_extensions:
@@ -65,7 +64,7 @@ nav:
     - Full Setup Guide: Getting_Started.md
   - Version History:
     - Changelog: version-history/index.md
-    - Releases: version-history/releases.md
+    - Releases: releases.md
     - v1.2 Technical Reference: 1.2-new-features.md
   - Core Framework:
     - Framework Overview: Pramnos_Framework_Guide.md
