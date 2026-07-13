@@ -49,11 +49,11 @@ class TestableLogController extends LogController
     }
 
     /**
-     * Expose action buttons renderer for deterministic assertions.
+     * Expose the theme-agnostic toolbar link data for deterministic assertions.
      */
-    public function runRenderActionButtons(): string
+    public function runGetToolbarLinks(): array
     {
-        return $this->renderActionButtons();
+        return $this->getToolbarLinks();
     }
 }
 
@@ -213,24 +213,50 @@ final class LogControllerCharacterizationTest extends TestCase
     }
 
     /**
-     * renderActionButtons() includes action links and clearList summary text.
+     * getToolbarLinks() exposes every log-management action as theme-agnostic
+     * data (url + label + variant), so each per-theme view can render the
+     * toolbar in its own idiom. This replaces the former renderActionButtons()
+     * HTML string; the invariant preserved here is that all five actions are
+     * present with their canonical labels, and that "Clear Logs" carries a
+     * confirmation prompt.
      */
-    public function testRenderActionButtonsIncludesActionsAndClearListSummary(): void
+    public function testGetToolbarLinksIncludesAllActions(): void
     {
         // Arrange
         $controller = new TestableLogController();
-        $controller->setClearList(['pramnosframework.log', 'php_error.log']);
 
         // Act
-        $html = $controller->runRenderActionButtons();
+        $links  = $controller->runGetToolbarLinks();
+        $labels = array_column($links, 'label');
 
-        // Assert
-        $this->assertStringContainsString('Log Statistics', $html);
-        $this->assertStringContainsString('Search Across Logs', $html);
-        $this->assertStringContainsString('Rotate Logs', $html);
-        $this->assertStringContainsString('Archive Logs', $html);
-        $this->assertStringContainsString('Clear Logs', $html);
-        $this->assertStringContainsString('pramnosframework.log, php_error.log', $html);
+        // Assert — every action label is present, order preserved. The toolbar
+        // is the log viewer's navigation, so it must expose the full flow
+        // (Dashboard, Statistics, Search, Filter, Export, Rotate, Archive, Clear).
+        $this->assertSame(
+            [
+                'Dashboard',
+                'Log Files',
+                'Log Statistics',
+                'Search Across Logs',
+                'Filter Logs',
+                'Export Logs',
+                'Rotate Logs',
+                'Archive Logs',
+                'Clear Logs',
+            ],
+            $labels
+        );
+
+        // Each link carries a URL and a theme variant used for styling.
+        foreach ($links as $link) {
+            $this->assertArrayHasKey('url', $link);
+            $this->assertArrayHasKey('variant', $link);
+        }
+
+        // Only the destructive "Clear Logs" action requests a confirmation.
+        $clear = end($links);
+        $this->assertSame('Clear Logs', $clear['label']);
+        $this->assertArrayHasKey('confirm', $clear, 'Clear Logs must prompt for confirmation');
     }
 
     private function createFile(string $path, string $contents): string

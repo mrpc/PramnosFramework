@@ -1,0 +1,180 @@
+<?php
+/**
+ * Logs analytics dashboard (Tailwind theme).
+ *
+ * Charts are drawn with Chart.js v4, enqueued by the controller from the
+ * locally-bundled asset (CSP-safe). If Chart.js is unavailable the canvases
+ * stay empty but the tables below still render every metric.
+ *
+ * Variables:
+ *   $this->toolbar, $this->clearList — toolbar
+ *   $this->timespan     — string  active timespan key (1h|6h|24h|7d|30d)
+ *   $this->trendLabels  — string[] x-axis labels
+ *   $this->trendValues  — int[]    entry counts
+ *   $this->levelLabels  — string[] level names (already ucfirst)
+ *   $this->levelValues  — int[]    per-level counts
+ *   $this->chartColors  — string[] hex color per level
+ *   $this->topErrors    — array[] {message, count, file, last_seen}
+ *   $this->systemStatus — array file => {last_entry, error_rate, success_rate, total_entries}
+ */
+$sURL = defined('sURL') ? sURL : '';
+$spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '7 Days', '30d' => '30 Days'];
+?>
+<div class="px-4 py-6">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h2 class="text-2xl font-bold text-gray-800">Logs Dashboard</h2>
+        <div class="inline-flex rounded-md shadow-sm overflow-hidden border border-gray-200">
+            <?php foreach ($spans as $key => $label): ?>
+                <a href="<?php echo $sURL; ?>Logs/dashboard?timespan=<?php echo $key; ?>"
+                   class="px-3 py-1.5 text-sm <?php echo $this->timespan === $key ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'; ?>">
+                    <?php echo $label; ?>
+                </a>
+            <?php endforeach; ?>
+        </div>
+    </div>
+
+    <?php $this->insert('_toolbar'); ?>
+
+    <?php if (!empty($this->truncated)): ?>
+        <div class="rounded-md bg-amber-50 text-amber-800 px-4 py-3 text-sm mb-6">
+            &#9888; Some log files are very large — only their most recent entries were analysed.
+        </div>
+    <?php endif; ?>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+            <h3 class="font-semibold text-gray-700 mb-3">Log Entry Trends</h3>
+            <div style="height:300px"><canvas id="log_trends_chart"></canvas></div>
+        </div>
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+            <h3 class="font-semibold text-gray-700 mb-3">Log Levels Distribution</h3>
+            <div style="height:300px"><canvas id="log_levels_chart"></canvas></div>
+        </div>
+    </div>
+
+    <!-- Top errors -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5 mb-6">
+        <h3 class="font-semibold text-gray-700 mb-3">Top Errors</h3>
+        <?php if (empty($this->topErrors)): ?>
+            <div class="rounded-md bg-sky-50 text-sky-800 px-4 py-3 text-sm">No errors found in the selected time period.</div>
+        <?php else: ?>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500 border-b border-gray-200">
+                            <th class="px-3 py-2 font-medium">Error Message</th>
+                            <th class="px-3 py-2 font-medium w-24">Count</th>
+                            <th class="px-3 py-2 font-medium w-40">Log File</th>
+                            <th class="px-3 py-2 font-medium w-40">Last Seen</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        <?php foreach ($this->topErrors as $error): ?>
+                            <tr class="hover:bg-gray-50 align-top">
+                                <td class="px-3 py-2 text-gray-700">
+                                    <?php echo htmlspecialchars(substr($error['message'], 0, 200)); ?><?php echo strlen($error['message']) > 200 ? '<span class="text-gray-400">...</span>' : ''; ?>
+                                </td>
+                                <td class="px-3 py-2 text-center">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800"><?php echo (int) $error['count']; ?></span>
+                                </td>
+                                <td class="px-3 py-2">
+                                    <a class="text-blue-600 hover:underline" href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($error['file']); ?>">
+                                        <?php echo htmlspecialchars($error['file']); ?>
+                                    </a>
+                                </td>
+                                <td class="px-3 py-2 text-gray-600"><?php echo htmlspecialchars($error['last_seen']); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <!-- System status -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+        <h3 class="font-semibold text-gray-700 mb-3">System Status</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <?php foreach ($this->systemStatus as $file => $status): ?>
+                <div class="border border-gray-200 rounded-lg p-4">
+                    <div class="flex items-center gap-3 mb-3">
+                        <span class="flex items-center justify-center w-9 h-9 rounded-full bg-red-100 text-red-700 font-semibold">
+                            <?php echo strtoupper(substr($file, 0, 1)); ?>
+                        </span>
+                        <div>
+                            <a class="font-medium text-gray-800 hover:underline" href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($file); ?>">
+                                <?php echo htmlspecialchars($file); ?>
+                            </a>
+                            <div class="text-xs text-gray-400">
+                                <?php echo !empty($status['last_entry']) ? 'Last activity: ' . htmlspecialchars($status['last_entry']) : 'No recent activity'; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 text-center">
+                        <div>
+                            <div class="text-lg font-bold text-gray-800"><?php echo number_format($status['total_entries']); ?></div>
+                            <div class="text-xs text-gray-400">Entries</div>
+                        </div>
+                        <div>
+                            <div class="text-lg font-bold <?php echo $status['error_rate'] > 0 ? 'text-red-600' : 'text-gray-800'; ?>"><?php echo $status['error_rate']; ?>%</div>
+                            <div class="text-xs text-gray-400" title="Share of lines matching error/exception/fatal or an error log level">Error lines</div>
+                        </div>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        if (typeof Chart === 'undefined') { return; }
+
+        var trendCanvas = document.getElementById('log_trends_chart');
+        if (trendCanvas) {
+            new Chart(trendCanvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: <?php echo json_encode($this->trendLabels); ?>,
+                    datasets: [{
+                        label: 'Log Entries',
+                        data: <?php echo json_encode($this->trendValues); ?>,
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        borderColor: 'rgba(37, 99, 235, 1)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
+        var levelsCanvas = document.getElementById('log_levels_chart');
+        if (levelsCanvas) {
+            new Chart(levelsCanvas.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: <?php echo json_encode($this->levelLabels); ?>,
+                    datasets: [{
+                        data: <?php echo json_encode($this->levelValues); ?>,
+                        backgroundColor: <?php echo json_encode($this->chartColors); ?>,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '60%',
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+        }
+    });
+</script>
