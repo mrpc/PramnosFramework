@@ -38,7 +38,12 @@ plugins:
       blog_dir: version-history
       post_dir: posts
       blog_toc: true
-      archive: false
+      # Date-based changelog: posts form a paginated, newest-first stream, and
+      # archive pages group them by date — so no single page ever grows huge.
+      archive: true
+      archive_date_format: MMMM yyyy
+      categories: true
+      pagination_per_page: 15
 
 markdown_extensions:
   - admonition
@@ -59,8 +64,8 @@ nav:
     - Quickstart: index.md
     - Full Setup Guide: Getting_Started.md
   - Version History:
-    - Overview: version-history/index.md
-    - v1.2 Blog Post: version-history/posts/2026-05-30-v1-2-release.md
+    - Changelog: version-history/index.md
+    - Releases: version-history/releases.md
     - v1.2 Technical Reference: 1.2-new-features.md
   - Core Framework:
     - Framework Overview: Pramnos_Framework_Guide.md

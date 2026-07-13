@@ -1,6 +1,11 @@
 
 # Project Progress - Pramnos Framework v1.2
 
+> **⚠️ Historical — progress up to v1.2 only.**
+> This file tracked development up to the **v1.2** release. It is no longer the live log.
+> For changes since v1.2, see the date-based **[Changelog](docs/version-history/index.md)**
+> on the documentation site (a running, version-independent stream of every notable change).
+
 ## 📅 Last Updated: 2026-07-11 — Fix: ambiguous PK column in JOIN list queries (found via the reference application)
 
 ## 🐛 Bugfix: `Model::_ensurePrimaryKeyInSelect` — ambiguous PK in JOINs (2026-07-11)

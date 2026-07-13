@@ -81,6 +81,27 @@ framework migration system.
 
 A feature is not considered **done** until it has integration tests that run against the real database (MySQL, PostgreSQL, TimescaleDB via Docker). Unit tests that only verify SQL string output are necessary but not sufficient. Integration tests must verify that the operation actually took effect in the database (schema exists, rows were written, indexes were created, etc.).
 
+### 10. Keep the documentation site (MkDocs / GitHub Pages) current
+
+The published docs site lives under `docs/` and is built with **MkDocs Material**
+(`mkdocs.yml`, deployed by `.github/workflows/docs.yml`). Whenever you change documentation
+or ship a user-visible change that warrants a changelog entry:
+
+- **Changelog (date-based, version-independent):** add a dated post under
+  `docs/version-history/posts/YYYY-MM-DD-<slug>.md` with `categories: [Changelog]`. This is
+  the running, per-change log — **not** `docs/1.2-new-features.md` (which is the frozen v1.2
+  technical reference) and **not** tied to a version. Group entries under `Added` / `Fixed` /
+  `Documentation` etc. The MkDocs blog plugin paginates and archives posts by date, so no
+  single page grows unbounded.
+- **Releases:** version releases also get a curated row in `docs/version-history/releases.md`
+  and a `categories: [Releases]` post.
+- **Guides:** when you edit or add a guide page under `docs/`, wire it into the `nav:` in
+  `mkdocs.yml` and keep cross-links valid.
+- **Verify the build** with `./dockerdocs build` before committing site changes; treat broken
+  links / nav warnings as failures.
+
+Do this **in the same commit** as the change it documents, mirroring rule 1.
+
 ---
 
 ## Session handoff rule
