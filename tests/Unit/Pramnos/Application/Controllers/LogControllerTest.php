@@ -12,11 +12,93 @@ use Pramnos\Framework\Factory;
 use Pramnos\Http\Request;
 
 /**
+ * Fake `logs` view used to capture the data-contract each controller action
+ * hands to its per-theme view.
+ *
+ * After the LogController refactor the actions no longer build HTML strings;
+ * they gather data, assign it as view properties and delegate rendering to a
+ * theme view via `$view->display('<tpl>')`. Unit tests must therefore assert on
+ * the DATA passed to the view, not on rendered HTML. This double records every
+ * property assignment plus the template name used for display().
+ */
+class FakeLogsView
+{
+    /** @var array<string,mixed> captured property assignments */
+    public array $captured = [];
+
+    /** @var string the template name passed to display() ('' for the default display action) */
+    public string $displayedTpl = '__unset__';
+
+    public function __set($name, $value)
+    {
+        $this->captured[$name] = $value;
+    }
+
+    public function __get($name)
+    {
+        return $this->captured[$name] ?? null;
+    }
+
+    public function __isset($name)
+    {
+        return isset($this->captured[$name]);
+    }
+
+    public function display($tpl = '', $render = false)
+    {
+        $this->displayedTpl = $tpl;
+        // Return a deterministic marker so captureOutput() still yields a string
+        // (the real view would echo/return the rendered theme HTML here).
+        return '[[view:' . ($tpl === '' ? 'display' : $tpl) . ']]';
+    }
+}
+
+/**
  * Testable subclass of LogController that prevents exit() calls and
  * captures redirects so we can assert on them without aborting the process.
  */
 class TestableLogController extends LogController
 {
+    /** @var FakeLogsView|null the last fake view handed out by getView() */
+    private ?FakeLogsView $lastView = null;
+
+    /**
+     * Return a FakeLogsView instead of resolving a real theme view.
+     *
+     * The base Controller::getView() resolves a real per-theme view file, which
+     * is impossible in a unit test (it dereferences the undefined INCLUDES
+     * constant / needs a configured theme). Overriding it here lets every action
+     * run to completion and lets tests inspect the captured data-contract.
+     *
+     * NOTE: the base signature returns BY REFERENCE, so we must assign the new
+     * object to a property first and return that property — a `return new ...`
+     * cannot be returned by reference.
+     *
+     * {@inheritdoc}
+     */
+    public function &getView($name = '', $type = '', $args = array())
+    {
+        $this->lastView = new FakeLogsView();
+        return $this->lastView;
+    }
+
+    /**
+     * Expose the last fake view so tests can assert on the captured data.
+     */
+    public function lastView(): ?FakeLogsView
+    {
+        return $this->lastView;
+    }
+
+    /**
+     * Expose the protected getToolbarLinks() data for the toolbar tests.
+     * @return array<int, array<string,mixed>>
+     */
+    public function toolbarLinks(): array
+    {
+        return $this->getToolbarLinks();
+    }
+
     /** Last URL passed to redirect() */
     public ?string $redirectUrl = null;
 
@@ -94,6 +176,15 @@ class TestableLogController extends LogController
     public function setLogViewer($logViewer): void
     {
         $this->logViewer = $logViewer;
+    }
+
+    /**
+     * Set the clearList (for testing the clearList data-contract).
+     * @param array $clearList
+     */
+    public function setClearList(array $clearList): void
+    {
+        $this->clearList = $clearList;
     }
 }
 
@@ -328,67 +419,99 @@ class LogControllerTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * display() must return HTML that includes the action buttons and the
-     * embedded log viewer for the default file (php_error.log).
+     * The /Logs landing (display()) is now the analytics dashboard: it must
+     * render the `dashboard` template, not the log viewer. This locks the
+     * information-architecture decision that the dashboard is the overview and
+     * the raw viewer lives at /Logs/viewer.
      */
-    public function testDisplayReturnsHtml(): void
+    public function testDisplayRendersDashboard(): void
+    {
+        // Act
+        $this->controller->display();
+        $view = $this->controller->lastView();
+
+        // Assert — landing renders the dashboard, with its analytics contract.
+        $this->assertSame('dashboard', $view->displayedTpl);
+        $this->assertNotEmpty($view->toolbar);
+        $this->assertIsArray($view->systemStatus);
+    }
+
+    /**
+     * viewer() hands the theme-agnostic toolbar to the default `logs` view so it
+     * can render the log-management links. We assert the toolbar data-contract
+     * instead of HTML: the default (no-template) display is used and the toolbar
+     * carries links to the dashboard and viewer endpoints.
+     */
+    public function testViewerReturnsHtml(): void
     {
         // Arrange — no specific GET params; defaults to php_error.log
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->display());
+        $this->controller->viewer();
+        $view = $this->controller->lastView();
 
-        // Assert — the action-buttons block and the log viewer must be present
-        $this->assertStringContainsString('Logs/stats', $output);
-        $this->assertStringContainsString('Logs/search', $output);
+        // Assert — default display template (empty string) is used
+        $this->assertSame('', $view->displayedTpl);
+        // The toolbar must expose links to the viewer and stats endpoints
+        $urls = array_column($view->toolbar, 'url');
+        $this->assertNotEmpty(array_filter($urls, fn($u) => str_ends_with($u, 'Logs/viewer')));
+        $this->assertNotEmpty(array_filter($urls, fn($u) => str_ends_with($u, 'Logs/stats')));
     }
 
     /**
-     * display() with a valid whitelisted file in the URL option must render
-     * that file instead of the default.
+     * viewer() with a valid whitelisted file in the URL option must populate the
+     * view data-contract: a non-empty toolbar plus the pre-rendered log-viewer
+     * HTML string for that file.
      */
-    public function testDisplayUsesFileFromUrlOption(): void
+    public function testViewerUsesFileFromUrlOption(): void
     {
         // Arrange — simulate a URL option pointing to pramnosframework.log
         $_GET['option'] = 'pramnosframework.log';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->display());
+        $this->controller->viewer();
+        $view = $this->controller->lastView();
 
-        // Assert — the page must still render (action buttons, at minimum)
-        $this->assertStringContainsString('btn-group', $output);
+        // Assert — the toolbar is passed and the viewer HTML is a string
+        $this->assertNotEmpty($view->toolbar);
+        $this->assertIsString($view->viewerHtml);
     }
 
     /**
-     * display() must fall back to php_error.log when the requested file is not
-     * in the whitelist — this prevents path traversal attacks.
+     * viewer() must fall back to php_error.log when the requested file is not in
+     * the whitelist — this prevents path traversal attacks. The action must
+     * still complete and populate the view (toolbar + viewer HTML).
      */
-    public function testDisplayFallsBackToDefaultFileWhenNotWhitelisted(): void
+    public function testViewerFallsBackToDefaultFileWhenNotWhitelisted(): void
     {
         // Arrange — request a file that is not in the whitelist
         $_GET['option'] = '../../etc/passwd';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->display());
+        $this->controller->viewer();
+        $view = $this->controller->lastView();
 
-        // Assert — page renders without errors
-        $this->assertStringContainsString('btn-group', $output);
+        // Assert — the view is still populated (no exception, safe fallback)
+        $this->assertNotEmpty($view->toolbar);
+        $this->assertIsString($view->viewerHtml);
     }
 
     /**
-     * display() without an Application object must still produce valid HTML
-     * (the application context is optional).
+     * viewer() without an Application object must still populate the view
+     * data-contract (the application context is optional).
      */
-    public function testDisplayWithoutApplication(): void
+    public function testViewerWithoutApplication(): void
     {
         // Arrange
         $ctrl = new TestableLogController(null);
 
         // Act
-        $output = $this->captureOutput(fn() => $ctrl->display());
+        $ctrl->viewer();
+        $view = $ctrl->lastView();
 
         // Assert
-        $this->assertStringContainsString('btn-group', $output);
+        $this->assertSame('', $view->displayedTpl);
+        $this->assertNotEmpty($view->toolbar);
     }
 
     // -------------------------------------------------------------------------
@@ -510,25 +633,29 @@ class LogControllerTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * stats() must return an HTML page with a statistics table containing each
-     * whitelisted log file.
+     * stats() must gather per-file statistics and pass them to the `stats`
+     * template. We assert the stats data-contract: each whitelisted log file
+     * appears among the collected stat rows (by 'name').
      */
     public function testStatsShowsStatistics(): void
     {
         // Arrange — files already created in setUp()
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->stats());
+        $this->controller->stats();
+        $view = $this->controller->lastView();
 
-        // Assert
-        $this->assertStringContainsString('Log File Statistics', $output);
-        $this->assertStringContainsString('php_error.log', $output);
-        $this->assertStringContainsString('pramnosframework.log', $output);
+        // Assert — the stats template is used and both files are represented
+        $this->assertSame('stats', $view->displayedTpl);
+        $names = array_column($view->stats, 'name');
+        $this->assertContains('php_error.log', $names);
+        $this->assertContains('pramnosframework.log', $names);
     }
 
     /**
-     * stats() must render without error when no log files exist and return
-     * the "No log files found" info message.
+     * stats() must render without error when no log files exist. The
+     * data-contract for the empty case is an empty stats array (the view
+     * renders the "No log files found" message from that).
      */
     public function testStatsWithNoLogFilesShowsEmptyMessage(): void
     {
@@ -542,15 +669,18 @@ class LogControllerTest extends TestCase
         $ctrl = new TestableLogController($appMock);
 
         // Act
-        $output = $this->captureOutput(fn() => $ctrl->stats());
+        $ctrl->stats();
+        $view = $ctrl->lastView();
 
-        // Assert
-        $this->assertStringContainsString('No log files found', $output);
+        // Assert — no stat rows were collected
+        $this->assertSame('stats', $view->displayedTpl);
+        $this->assertSame([], $view->stats);
     }
 
     /**
      * stats() must handle GitDeploy / GitWebhookDebug special files in the
-     * whitelist without throwing (they have no .log extension).
+     * whitelist without throwing (they have no .log extension) and still deliver
+     * the stats template.
      */
     public function testStatsHandlesSpecialGitFiles(): void
     {
@@ -558,14 +688,16 @@ class LogControllerTest extends TestCase
         $this->controller->addToWhitelist('GitDeploy', 'GitWebhookDebug');
 
         // Act — must not throw
-        $output = $this->captureOutput(fn() => $this->controller->stats());
+        $this->controller->stats();
+        $view = $this->controller->lastView();
 
-        // Assert — page renders normally
-        $this->assertStringContainsString('Log File Statistics', $output);
+        // Assert — page renders normally (stats template, stats is an array)
+        $this->assertSame('stats', $view->displayedTpl);
+        $this->assertIsArray($view->stats);
     }
 
     /**
-     * stats() without an Application object must still produce valid output.
+     * stats() without an Application object must still populate the stats view.
      */
     public function testStatsWithoutApplication(): void
     {
@@ -573,10 +705,12 @@ class LogControllerTest extends TestCase
         $ctrl = new TestableLogController(null);
 
         // Act
-        $output = $this->captureOutput(fn() => $ctrl->stats());
+        $ctrl->stats();
+        $view = $ctrl->lastView();
 
         // Assert
-        $this->assertStringContainsString('Log File Statistics', $output);
+        $this->assertSame('stats', $view->displayedTpl);
+        $this->assertIsArray($view->stats);
     }
 
     // -------------------------------------------------------------------------
@@ -678,26 +812,28 @@ class LogControllerTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * archive() without an action=archive POST body must render the form without
-     * attempting to archive anything.
+     * archive() without an action=archive POST body must present the form only:
+     * the `archive` template with a default day threshold and NO archive result
+     * (nothing was archived).
      */
     public function testArchiveRendersFormWithoutAction(): void
     {
         // Arrange — no POST
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->archive());
+        $this->controller->archive();
+        $view = $this->controller->lastView();
 
-        // Assert — form is present
-        $this->assertStringContainsString('Archive Log Files', $output);
-        $this->assertStringContainsString('<form', $output);
-        // No success/error alert (no action was taken)
-        $this->assertStringNotContainsString('Successfully archived', $output);
+        // Assert — archive template, default days is an int, no result computed
+        $this->assertSame('archive', $view->displayedTpl);
+        $this->assertIsInt($view->days);
+        $this->assertNull($view->result);
     }
 
     /**
-     * archive() with action=archive and a file older than the threshold must
-     * successfully archive that file.
+     * archive() with action=archive and a file older than the threshold must run
+     * the archive operation and expose its result to the view. We assert the
+     * result array carries the LogManager contract keys (archived + errors).
      */
     public function testArchiveCreatesArchiveForOldFiles(): void
     {
@@ -708,16 +844,20 @@ class LogControllerTest extends TestCase
         $_POST['days']   = 30;
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->archive());
+        $this->controller->archive();
+        $view = $this->controller->lastView();
 
-        // Assert — success or "no files found" (depends on LogManager internals)
-        $this->assertStringContainsString('Archive Log Files', $output);
-        // The important thing is no PHP exception was thrown
+        // Assert — the archive ran; the result exposes the archived count
+        $this->assertSame('archive', $view->displayedTpl);
+        $this->assertIsArray($view->result);
+        $this->assertArrayHasKey('archived', $view->result);
+        $this->assertSame(30, $view->days);
     }
 
     /**
-     * archive() must surface an error message when the archive operation itself
-     * returns errors from LogManager.
+     * archive() must surface any errors from LogManager through the view's
+     * `result`. With a future-day threshold no file matches, so the operation
+     * still returns a result array (archived=0) with no PHP error.
      */
     public function testArchiveDisplaysErrorsFromLogManager(): void
     {
@@ -726,14 +866,19 @@ class LogControllerTest extends TestCase
         $_POST['days']   = 9999;
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->archive());
+        $this->controller->archive();
+        $view = $this->controller->lastView();
 
-        // Assert — either "No log files" or "Archive" is shown but no PHP error
-        $this->assertStringContainsString('Archive Log Files', $output);
+        // Assert — result is present and reports zero files archived
+        $this->assertSame('archive', $view->displayedTpl);
+        $this->assertIsArray($view->result);
+        $this->assertArrayHasKey('archived', $view->result);
+        $this->assertSame(0, $view->result['archived']);
     }
 
     /**
-     * archive() without an Application object must still produce valid output.
+     * archive() without an Application object must still populate the archive
+     * view (days threshold, null result when no action posted).
      */
     public function testArchiveWithoutApplication(): void
     {
@@ -741,10 +886,13 @@ class LogControllerTest extends TestCase
         $ctrl = new TestableLogController(null);
 
         // Act
-        $output = $this->captureOutput(fn() => $ctrl->archive());
+        $ctrl->archive();
+        $view = $ctrl->lastView();
 
         // Assert
-        $this->assertStringContainsString('Archive Log Files', $output);
+        $this->assertSame('archive', $view->displayedTpl);
+        $this->assertIsInt($view->days);
+        $this->assertNull($view->result);
     }
 
     // -------------------------------------------------------------------------
@@ -752,8 +900,9 @@ class LogControllerTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * search() with a query that matches a log line must display the matching
-     * file and count in the accordion results section.
+     * search() with a query that matches a log line must run the search and pass
+     * the matches to the view. We assert the search data-contract: the query
+     * text is echoed back and the results contain the matching file.
      */
     public function testSearchFindsMatches(): void
     {
@@ -761,32 +910,38 @@ class LogControllerTest extends TestCase
         $_POST['query'] = 'Error 2';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->search());
+        $this->controller->search();
+        $view = $this->controller->lastView();
 
-        // Assert
-        $this->assertStringContainsString('Search Results for "Error 2"', $output);
-        $this->assertStringContainsString('php_error.log', $output);
+        // Assert — search template, query preserved, matches include php_error.log
+        $this->assertSame('search', $view->displayedTpl);
+        $this->assertSame('Error 2', $view->searchText);
+        $this->assertNotEmpty($view->results);
+        $this->assertContains('php_error.log', array_column($view->results, 'file'));
     }
 
     /**
-     * search() with an empty query must render the search form without making
-     * a search call — the results section must not appear at all.
+     * search() with an empty query must present the form only — no search is
+     * performed, so the view's `results` stays null (the sentinel the view uses
+     * to decide whether to render a results section).
      */
     public function testSearchWithEmptyQueryOnlyShowsForm(): void
     {
         // Arrange — no query
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->search());
+        $this->controller->search();
+        $view = $this->controller->lastView();
 
-        // Assert — form is rendered, no results section
-        $this->assertStringContainsString('Search Log Files', $output);
-        $this->assertStringNotContainsString('Search Results for', $output);
+        // Assert — form-only: no search executed
+        $this->assertSame('search', $view->displayedTpl);
+        $this->assertSame('', $view->searchText);
+        $this->assertNull($view->results);
     }
 
     /**
-     * search() with a query that matches nothing must show the "No results found"
-     * info alert rather than displaying an empty table.
+     * search() with a query that matches nothing must still run the search but
+     * yield an empty results array (distinct from the null "form-only" state).
      */
     public function testSearchWithNoResultsShowsEmptyMessage(): void
     {
@@ -794,15 +949,17 @@ class LogControllerTest extends TestCase
         $_POST['query'] = 'XYZZY_NOTHING_MATCHES_THIS_7q3kp2';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->search());
+        $this->controller->search();
+        $view = $this->controller->lastView();
 
-        // Assert
-        $this->assertStringContainsString('No results found', $output);
+        // Assert — the search ran (results is an array) but found nothing
+        $this->assertSame('search', $view->displayedTpl);
+        $this->assertSame([], $view->results);
     }
 
     /**
-     * search() must respect the case_sensitive and context_lines parameters
-     * without throwing an exception.
+     * search() must pass the case_sensitive and context_lines parameters through
+     * to the view and execute the search without throwing.
      */
     public function testSearchWithCaseSensitiveAndContextOptions(): void
     {
@@ -812,14 +969,18 @@ class LogControllerTest extends TestCase
         $_POST['context']        = '3';
 
         // Act — must not throw
-        $output = $this->captureOutput(fn() => $this->controller->search());
+        $this->controller->search();
+        $view = $this->controller->lastView();
 
-        // Assert — search was executed
-        $this->assertStringContainsString('Search Results for', $output);
+        // Assert — the options are reflected in the view data-contract
+        $this->assertSame('search', $view->displayedTpl);
+        $this->assertTrue($view->caseSensitive);
+        $this->assertSame(3, $view->contextLines);
+        $this->assertIsArray($view->results);
     }
 
     /**
-     * search() without an Application object must still produce valid output.
+     * search() without an Application object must still populate the search view.
      */
     public function testSearchWithoutApplication(): void
     {
@@ -828,10 +989,12 @@ class LogControllerTest extends TestCase
         $_POST['query'] = 'Error';
 
         // Act
-        $output = $this->captureOutput(fn() => $ctrl->search());
+        $ctrl->search();
+        $view = $ctrl->lastView();
 
         // Assert
-        $this->assertStringContainsString('Search Log Files', $output);
+        $this->assertSame('search', $view->displayedTpl);
+        $this->assertSame('Error', $view->searchText);
     }
 
     // -------------------------------------------------------------------------
@@ -839,24 +1002,27 @@ class LogControllerTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * rotate() without an action POST must render the rotation form without
-     * attempting to rotate anything.
+     * rotate() without an action POST must present the rotation form only: the
+     * `rotate` template with per-file stats collected and an empty results map
+     * (nothing was rotated).
      */
     public function testRotateRendersFormWithoutAction(): void
     {
         // Arrange — no POST
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->rotate());
+        $this->controller->rotate();
+        $view = $this->controller->lastView();
 
-        // Assert — form is rendered
-        $this->assertStringContainsString('Rotate Log Files', $output);
-        $this->assertStringContainsString('<form', $output);
+        // Assert — rotate template, stats gathered, no rotation performed
+        $this->assertSame('rotate', $view->displayedTpl);
+        $this->assertIsArray($view->stats);
+        $this->assertSame([], $view->results);
     }
 
     /**
      * rotate() with action=rotate must attempt rotation on the selected files
-     * and display the results (rotated / not needed).
+     * and expose a per-file results map to the view (file => bool).
      */
     public function testRotateWithAction(): void
     {
@@ -867,15 +1033,18 @@ class LogControllerTest extends TestCase
         $_POST['files']       = ['php_error.log'];
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->rotate());
+        $this->controller->rotate();
+        $view = $this->controller->lastView();
 
-        // Assert — rotation result block is present
-        $this->assertStringContainsString('Rotate Log Files', $output);
+        // Assert — the selected whitelisted file has a rotation result entry
+        $this->assertSame('rotate', $view->displayedTpl);
+        $this->assertArrayHasKey('php_error.log', $view->results);
+        $this->assertSame(['php_error.log'], $view->selectedFiles);
     }
 
     /**
-     * rotate() with a file not in the whitelist must silently skip it and not
-     * process any rotation for that file.
+     * rotate() with a file not in the whitelist must silently skip it — the
+     * results map must contain no entry for the non-whitelisted file.
      */
     public function testRotateIgnoresNonWhitelistedFiles(): void
     {
@@ -886,16 +1055,18 @@ class LogControllerTest extends TestCase
         $_POST['files']       = ['../../etc/passwd'];
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->rotate());
+        $this->controller->rotate();
+        $view = $this->controller->lastView();
 
-        // Assert — page renders, no rotation result shown for non-whitelisted file
-        $this->assertStringContainsString('Rotate Log Files', $output);
-        $this->assertStringNotContainsString('etc/passwd', $output);
+        // Assert — no rotation result recorded for the non-whitelisted file
+        $this->assertSame('rotate', $view->displayedTpl);
+        $this->assertArrayNotHasKey('../../etc/passwd', $view->results);
     }
 
     /**
      * rotate() must handle GitDeploy / GitWebhookDebug special entries in the
-     * whitelist without throwing (no .log extension path).
+     * whitelist without throwing (no .log extension path) and still deliver the
+     * rotate template.
      */
     public function testRotateHandlesGitSpecialFiles(): void
     {
@@ -907,14 +1078,16 @@ class LogControllerTest extends TestCase
         $_POST['files']    = ['GitDeploy'];
 
         // Act — must not throw
-        $output = $this->captureOutput(fn() => $this->controller->rotate());
+        $this->controller->rotate();
+        $view = $this->controller->lastView();
 
-        // Assert — page renders
-        $this->assertStringContainsString('Rotate Log Files', $output);
+        // Assert — page renders; GitDeploy was processed as a selected file
+        $this->assertSame('rotate', $view->displayedTpl);
+        $this->assertArrayHasKey('GitDeploy', $view->results);
     }
 
     /**
-     * rotate() without an Application object must still produce valid output.
+     * rotate() without an Application object must still populate the rotate view.
      */
     public function testRotateWithoutApplication(): void
     {
@@ -922,10 +1095,12 @@ class LogControllerTest extends TestCase
         $ctrl = new TestableLogController(null);
 
         // Act
-        $output = $this->captureOutput(fn() => $ctrl->rotate());
+        $ctrl->rotate();
+        $view = $ctrl->lastView();
 
         // Assert
-        $this->assertStringContainsString('Rotate Log Files', $output);
+        $this->assertSame('rotate', $view->displayedTpl);
+        $this->assertIsArray($view->stats);
     }
 
     // -------------------------------------------------------------------------
@@ -933,24 +1108,28 @@ class LogControllerTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * export() without parameters must render the export form showing the list
-     * of whitelisted files and format options.
+     * export() without parameters must fall through to the export form: the
+     * `export` template with the whitelist (so the view can list the exportable
+     * files) and a null result.
      */
     public function testExportFormRendersWithoutParameters(): void
     {
         // Arrange — no GET/POST params
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->export());
+        $this->controller->export();
+        $view = $this->controller->lastView();
 
-        // Assert
-        $this->assertStringContainsString('Export Log Files', $output);
-        $this->assertStringContainsString('Export Format:', $output);
-        $this->assertStringContainsString('Export Multiple Log Files', $output);
+        // Assert — export template, whitelist passed for the file picker
+        $this->assertSame('export', $view->displayedTpl);
+        $this->assertIsArray($view->whitelist);
+        $this->assertContains('php_error.log', $view->whitelist);
+        $this->assertNull($view->result);
     }
 
     /**
-     * export() without an Application object must still produce valid output.
+     * export() without an Application object must still populate the export form
+     * view (whitelist passed through).
      */
     public function testExportFormWithoutApplication(): void
     {
@@ -958,10 +1137,12 @@ class LogControllerTest extends TestCase
         $ctrl = new TestableLogController(null);
 
         // Act
-        $output = $this->captureOutput(fn() => $ctrl->export());
+        $ctrl->export();
+        $view = $ctrl->lastView();
 
         // Assert
-        $this->assertStringContainsString('Export Log Files', $output);
+        $this->assertSame('export', $view->displayedTpl);
+        $this->assertIsArray($view->whitelist);
     }
 
     // -------------------------------------------------------------------------
@@ -1158,7 +1339,8 @@ class LogControllerTest extends TestCase
 
     /**
      * export() with GET format=unknown must fall through to the form view
-     * because no matching case handles the format.
+     * because no matching download case handles the format — the `export`
+     * template is used rather than any streamed download.
      */
     public function testExportWithUnknownFormatShowsForm(): void
     {
@@ -1167,10 +1349,12 @@ class LogControllerTest extends TestCase
         $_GET['file']   = 'php_error.log';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->export());
+        $this->controller->export();
+        $view = $this->controller->lastView();
 
-        // Assert — the export form is rendered (fallthrough to form display)
-        $this->assertStringContainsString('Export Log Files', $output);
+        // Assert — fell through to the export form template
+        $this->assertSame('export', $view->displayedTpl);
+        $this->assertIsArray($view->whitelist);
     }
 
     // -------------------------------------------------------------------------
@@ -1323,24 +1507,29 @@ class LogControllerTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * dashboard() must render the Logs Dashboard page including the chart
-     * placeholder elements and the time-range buttons.
+     * dashboard() must gather analytics and pass them to the `dashboard`
+     * template. We assert the data-contract: the default timespan is 24h and the
+     * chart series (trend + level arrays) plus topErrors are supplied.
      */
     public function testDashboardRendersCorrectly(): void
     {
         // Arrange — use default 24h timespan
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->dashboard());
+        $this->controller->dashboard();
+        $view = $this->controller->lastView();
 
-        // Assert
-        $this->assertStringContainsString('Logs Dashboard', $output);
-        $this->assertStringContainsString('log_trends_chart', $output);
+        // Assert — dashboard template with the default timespan and chart data
+        $this->assertSame('dashboard', $view->displayedTpl);
+        $this->assertSame('24h', $view->timespan);
+        $this->assertIsArray($view->trendLabels);
+        $this->assertIsArray($view->trendValues);
+        $this->assertIsArray($view->topErrors);
     }
 
     /**
-     * dashboard() must accept the 1h timespan and produce the correct groupBy
-     * (by minute) without throwing.
+     * dashboard() must accept the 1h timespan and pass it through to the view
+     * (grouping is internal; the view-visible contract is the timespan key).
      */
     public function testDashboardWith1hTimespan(): void
     {
@@ -1348,14 +1537,16 @@ class LogControllerTest extends TestCase
         $_GET['timespan'] = '1h';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->dashboard());
+        $this->controller->dashboard();
+        $view = $this->controller->lastView();
 
         // Assert
-        $this->assertStringContainsString('Logs Dashboard', $output);
+        $this->assertSame('dashboard', $view->displayedTpl);
+        $this->assertSame('1h', $view->timespan);
     }
 
     /**
-     * dashboard() must accept the 6h timespan without throwing.
+     * dashboard() must accept the 6h timespan and expose it to the view.
      */
     public function testDashboardWith6hTimespan(): void
     {
@@ -1363,15 +1554,15 @@ class LogControllerTest extends TestCase
         $_GET['timespan'] = '6h';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->dashboard());
+        $this->controller->dashboard();
+        $view = $this->controller->lastView();
 
         // Assert
-        $this->assertStringContainsString('Logs Dashboard', $output);
+        $this->assertSame('6h', $view->timespan);
     }
 
     /**
-     * dashboard() must accept the 7d timespan and use per-day grouping without
-     * throwing.
+     * dashboard() must accept the 7d timespan and expose it to the view.
      */
     public function testDashboardWith7dTimespan(): void
     {
@@ -1379,15 +1570,15 @@ class LogControllerTest extends TestCase
         $_GET['timespan'] = '7d';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->dashboard());
+        $this->controller->dashboard();
+        $view = $this->controller->lastView();
 
         // Assert
-        $this->assertStringContainsString('Logs Dashboard', $output);
+        $this->assertSame('7d', $view->timespan);
     }
 
     /**
-     * dashboard() must accept the 30d timespan and use per-day grouping without
-     * throwing.
+     * dashboard() must accept the 30d timespan and expose it to the view.
      */
     public function testDashboardWith30dTimespan(): void
     {
@@ -1395,15 +1586,17 @@ class LogControllerTest extends TestCase
         $_GET['timespan'] = '30d';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->dashboard());
+        $this->controller->dashboard();
+        $view = $this->controller->lastView();
 
         // Assert
-        $this->assertStringContainsString('Logs Dashboard', $output);
+        $this->assertSame('30d', $view->timespan);
     }
 
     /**
-     * dashboard() with an unrecognised timespan must fall back to 24h defaults
-     * without throwing.
+     * dashboard() with an unrecognised timespan must fall back to the 24h
+     * defaults — but the view still receives the raw requested timespan key
+     * (the fallback only affects the internal time range / grouping).
      */
     public function testDashboardWithUnknownTimespanFallsBackTo24h(): void
     {
@@ -1411,15 +1604,18 @@ class LogControllerTest extends TestCase
         $_GET['timespan'] = 'invalid_span';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->dashboard());
+        $this->controller->dashboard();
+        $view = $this->controller->lastView();
 
-        // Assert — default 24h view rendered
-        $this->assertStringContainsString('Logs Dashboard', $output);
+        // Assert — dashboard rendered; the requested timespan is passed as-is
+        $this->assertSame('dashboard', $view->displayedTpl);
+        $this->assertSame('invalid_span', $view->timespan);
     }
 
     /**
-     * dashboard() must render the "No errors" info alert inside the Top Errors
-     * section when there are no errors in the analytics data.
+     * dashboard() must expose an empty topErrors array when the log files hold
+     * only plain info lines with no errors (the view renders "No errors" from
+     * this empty collection).
      */
     public function testDashboardShowsNoErrorsMessage(): void
     {
@@ -1428,14 +1624,17 @@ class LogControllerTest extends TestCase
         file_put_contents($this->logDir . DS . 'pramnosframework.log', "INFO started\n");
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->dashboard());
+        $this->controller->dashboard();
+        $view = $this->controller->lastView();
 
-        // Assert — the page renders; top-errors section may be empty
-        $this->assertStringContainsString('Top Errors', $output);
+        // Assert — no top errors collected
+        $this->assertSame('dashboard', $view->displayedTpl);
+        $this->assertSame([], $view->topErrors);
     }
 
     /**
-     * dashboard() without an Application object must still produce valid output.
+     * dashboard() without an Application object must still populate the
+     * dashboard view.
      */
     public function testDashboardWithoutApplication(): void
     {
@@ -1443,10 +1642,12 @@ class LogControllerTest extends TestCase
         $ctrl = new TestableLogController(null);
 
         // Act
-        $output = $this->captureOutput(fn() => $ctrl->dashboard());
+        $ctrl->dashboard();
+        $view = $ctrl->lastView();
 
         // Assert
-        $this->assertStringContainsString('Logs Dashboard', $output);
+        $this->assertSame('dashboard', $view->displayedTpl);
+        $this->assertSame('24h', $view->timespan);
     }
 
     // -------------------------------------------------------------------------
@@ -1454,26 +1655,28 @@ class LogControllerTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * filter() without a POST body must render the filter form with all available
-     * log levels listed as checkboxes.
+     * filter() without a POST body must present the form only: the `filter`
+     * template with the available log levels supplied and hasResults=false
+     * (no filter was executed).
      */
     public function testFilterRendersFormWithoutPost(): void
     {
         // Arrange — no POST
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->filter());
+        $this->controller->filter();
+        $view = $this->controller->lastView();
 
-        // Assert
-        $this->assertStringContainsString('Filter Log Files', $output);
-        $this->assertStringContainsString('<form', $output);
-        $this->assertStringContainsString('error', $output);
-        $this->assertStringContainsString('warning', $output);
+        // Assert — filter template, levels available, nothing processed
+        $this->assertSame('filter', $view->displayedTpl);
+        $this->assertFalse($view->hasResults);
+        $this->assertArrayHasKey('error', $view->availableLevels);
+        $this->assertArrayHasKey('warning', $view->availableLevels);
     }
 
     /**
-     * filter() with a valid POST body must process the filter and display
-     * the results count along with the entries.
+     * filter() with a valid whitelisted file must process the filter and mark
+     * hasResults=true, passing the entries array to the view.
      */
     public function testFilterWithValidPostProcessesFilter(): void
     {
@@ -1482,15 +1685,19 @@ class LogControllerTest extends TestCase
         $_POST['query'] = 'Error';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->filter());
+        $this->controller->filter();
+        $view = $this->controller->lastView();
 
-        // Assert — results section is shown
-        $this->assertStringContainsString('Filter Results', $output);
+        // Assert — the filter ran against a whitelisted file
+        $this->assertSame('filter', $view->displayedTpl);
+        $this->assertTrue($view->hasResults);
+        $this->assertSame('php_error.log', $view->file);
+        $this->assertIsArray($view->results);
     }
 
     /**
-     * filter() with a non-whitelisted file must not execute the filter and
-     * must not display a results section.
+     * filter() with a non-whitelisted file must not execute the filter: the view
+     * receives hasResults=false so the results section is never rendered.
      */
     public function testFilterWithNonWhitelistedFileDoesNotProcess(): void
     {
@@ -1499,15 +1706,17 @@ class LogControllerTest extends TestCase
         $_POST['query'] = 'anything';
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->filter());
+        $this->controller->filter();
+        $view = $this->controller->lastView();
 
-        // Assert — no results section
-        $this->assertStringNotContainsString('Filter Results', $output);
+        // Assert — filter not processed for the non-whitelisted file
+        $this->assertSame('filter', $view->displayedTpl);
+        $this->assertFalse($view->hasResults);
     }
 
     /**
-     * filter() with date range parameters must pass them to LogManager without
-     * throwing.
+     * filter() with date range parameters must pass them through to the view and
+     * process the filter without throwing.
      */
     public function testFilterWithDateRangeParameters(): void
     {
@@ -1518,15 +1727,19 @@ class LogControllerTest extends TestCase
         $_POST['limit']      = '100';
 
         // Act — must not throw
-        $output = $this->captureOutput(fn() => $this->controller->filter());
+        $this->controller->filter();
+        $view = $this->controller->lastView();
 
-        // Assert
-        $this->assertStringContainsString('Filter Results', $output);
+        // Assert — filter processed; date + limit fields exposed to the view
+        $this->assertTrue($view->hasResults);
+        $this->assertSame('2026-06-01', $view->startDate);
+        $this->assertSame('2026-06-30', $view->endDate);
+        $this->assertSame(100, $view->limit);
     }
 
     /**
-     * filter() with a level filter must correctly pass the selected levels
-     * to LogManager without throwing.
+     * filter() with a level filter must pass the selected levels through to the
+     * view and process the filter without throwing.
      */
     public function testFilterWithLevelFilter(): void
     {
@@ -1535,15 +1748,17 @@ class LogControllerTest extends TestCase
         $_POST['levels'] = ['error', 'warning'];
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->filter());
+        $this->controller->filter();
+        $view = $this->controller->lastView();
 
-        // Assert
-        $this->assertStringContainsString('Filter Results', $output);
+        // Assert — the selected levels are reflected in the view data-contract
+        $this->assertTrue($view->hasResults);
+        $this->assertSame(['error', 'warning'], $view->levels);
     }
 
     /**
      * filter() for a GitDeploy-style special file (no extension) must use the
-     * correct path info without throwing.
+     * correct path info without throwing and still process the filter.
      */
     public function testFilterHandlesGitSpecialFiles(): void
     {
@@ -1553,14 +1768,17 @@ class LogControllerTest extends TestCase
         $_POST['file'] = 'GitDeploy';
 
         // Act — must not throw
-        $output = $this->captureOutput(fn() => $this->controller->filter());
+        $this->controller->filter();
+        $view = $this->controller->lastView();
 
-        // Assert
-        $this->assertStringContainsString('Filter Log Files', $output);
+        // Assert — the special file was accepted and the filter ran
+        $this->assertSame('filter', $view->displayedTpl);
+        $this->assertSame('GitDeploy', $view->file);
+        $this->assertTrue($view->hasResults);
     }
 
     /**
-     * filter() without an Application object must still produce valid output.
+     * filter() without an Application object must still populate the filter view.
      */
     public function testFilterWithoutApplication(): void
     {
@@ -1568,10 +1786,12 @@ class LogControllerTest extends TestCase
         $ctrl = new TestableLogController(null);
 
         // Act
-        $output = $this->captureOutput(fn() => $ctrl->filter());
+        $ctrl->filter();
+        $view = $ctrl->lastView();
 
         // Assert
-        $this->assertStringContainsString('Filter Log Files', $output);
+        $this->assertSame('filter', $view->displayedTpl);
+        $this->assertFalse($view->hasResults);
     }
 
     // -------------------------------------------------------------------------
@@ -1627,43 +1847,57 @@ class LogControllerTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // renderActionButtons() (protected)
+    // getToolbarLinks() (protected) — theme-agnostic toolbar data
     // -------------------------------------------------------------------------
 
     /**
-     * renderActionButtons() must produce HTML with all five action links:
-     * stats, search, rotate, archive, and clear.
-     * We verify this through display() which always prepends the action buttons.
+     * getToolbarLinks() must return the full log-navigation set, in order. The
+     * toolbar is the log viewer's navigation, so it exposes the whole flow —
+     * Dashboard (the /Logs landing), the raw viewer, and every management
+     * action. (The refactor replaced the HTML-emitting renderActionButtons()
+     * with this theme-agnostic data method.)
      */
-    public function testRenderActionButtonsContainsAllLinks(): void
+    public function testToolbarLinksContainsAllActions(): void
     {
-        // Arrange — display() always calls renderActionButtons()
+        // Arrange — controller built in setUp()
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->display());
+        $labels = array_column($this->controller->toolbarLinks(), 'label');
 
-        // Assert — all five buttons
-        $this->assertStringContainsString('Logs/stats', $output);
-        $this->assertStringContainsString('Logs/search', $output);
-        $this->assertStringContainsString('Logs/rotate', $output);
-        $this->assertStringContainsString('Logs/archive', $output);
-        $this->assertStringContainsString('Logs/clear', $output);
+        // Assert — full navigation set, in the documented order
+        $this->assertSame(
+            [
+                'Dashboard',
+                'Log Files',
+                'Log Statistics',
+                'Search Across Logs',
+                'Filter Logs',
+                'Export Logs',
+                'Rotate Logs',
+                'Archive Logs',
+                'Clear Logs',
+            ],
+            $labels
+        );
     }
 
     /**
-     * renderActionButtons() must list the clearList contents below the buttons
-     * so users know which files will be affected by the "Clear Logs" action.
+     * display() must pass the clearList through to the view unchanged. The list
+     * of files affected by the "Clear Logs" action is now rendered by the theme
+     * view, so the controller-level invariant is simply that clearList reaches
+     * the view intact.
      */
-    public function testRenderActionButtonsListsClearListFiles(): void
+    public function testToolbarClearListIsExposedToView(): void
     {
-        // Arrange
+        // Arrange — set a known clearList on the controller
+        $this->controller->setClearList(['pramnosframework.log', 'php_error.log']);
 
         // Act
-        $output = $this->captureOutput(fn() => $this->controller->display());
+        $this->controller->display();
+        $view = $this->controller->lastView();
 
-        // Assert — clearList entries are visible
-        $this->assertStringContainsString('pramnosframework.log', $output);
-        $this->assertStringContainsString('php_error.log', $output);
+        // Assert — the exact clearList is handed to the view
+        $this->assertSame(['pramnosframework.log', 'php_error.log'], $view->clearList);
     }
 
     // -------------------------------------------------------------------------
@@ -1772,14 +2006,25 @@ class LogControllerTest extends TestCase
         $this->assertStringContainsString('Error reading log file', $output);
     }
 
+    /**
+     * When ZipArchive is unavailable, archive() must still complete and surface
+     * the failure through the view's `result` errors (rather than emitting HTML).
+     */
     public function testArchiveZipArchiveAbsent(): void
     {
         $GLOBALS['mock_ziparchive_absent'] = true;
         $_POST['action'] = 'archive';
         $_POST['days'] = 30;
 
-        $output = $this->captureOutput(fn() => $this->controller->archive());
-        $this->assertStringContainsString('ZipArchive not available', $output);
+        // Act
+        $this->controller->archive();
+        $view = $this->controller->lastView();
+
+        // Assert — the archive template is used and the ZipArchive error is
+        // reported in the result's errors list handed to the view.
+        $this->assertSame('archive', $view->displayedTpl);
+        $this->assertIsArray($view->result);
+        $this->assertContains('ZipArchive not available', $view->result['errors']);
 
         unset($GLOBALS['mock_ziparchive_absent']);
     }
@@ -1849,6 +2094,11 @@ class LogControllerTest extends TestCase
         unset($GLOBALS['mock_tempnam_fail']);
     }
 
+    /**
+     * filter() must still complete and mark hasResults=true against a
+     * whitelisted file even when json_decode throws for a malformed JSON line
+     * (the entry falls back to plain-text handling inside LogManager).
+     */
     public function testFilterJsonDecodeThrow(): void
     {
         $jsonEntry = '{"timestamp":"2026-06-08 10:00:00"}';
@@ -1859,19 +2109,25 @@ class LogControllerTest extends TestCase
         $_POST['file']  = 'php_error.log';
         $_POST['query'] = 'timestamp';
 
-        $output = $this->controller->filter();
-        $this->assertStringContainsString('Filter Results', $output);
+        // Act
+        $this->controller->filter();
+        $view = $this->controller->lastView();
+
+        // Assert — the filter ran against the whitelisted file
+        $this->assertSame('filter', $view->displayedTpl);
+        $this->assertTrue($view->hasResults);
 
         unset($GLOBALS['mock_json_decode_throw']);
     }
 
+    /**
+     * A bracketed ISO-8601 timestamp ([Y-m-d H:i:s]) must be recognised by the
+     * date filter, not just the d/m/Y slash style. The timestamp is parsed from
+     * the entry itself (2026-06-08 falls inside the requested June range), so the
+     * matching entry must appear among the filtered results handed to the view.
+     */
     public function testFilterStandardLogInvalidDateFormat(): void
     {
-        // A bracketed ISO-8601 timestamp ([Y-m-d H:i:s]) must be recognised by
-        // the date filter, not just the d/m/Y slash style. The timestamp is
-        // parsed from the entry itself, so the assertion is deterministic
-        // regardless of the current date (the entry's date, 2026-06-08, falls
-        // inside the requested June range).
         file_put_contents(
             $this->logDir . DS . 'php_error.log',
             "[2026-06-08 10:00:00] ISO format log message\n"
@@ -1881,8 +2137,15 @@ class LogControllerTest extends TestCase
         $_POST['start_date'] = '2026-06-01';
         $_POST['end_date']   = '2026-06-30';
 
-        $output = $this->controller->filter();
-        $this->assertStringContainsString('ISO format log message', $output);
+        // Act
+        $this->controller->filter();
+        $view = $this->controller->lastView();
+
+        // Assert — the filter ran and the ISO-dated entry is within the results
+        $this->assertSame('filter', $view->displayedTpl);
+        $this->assertTrue($view->hasResults);
+        $messages = implode("\n", array_column($view->results, 'message'));
+        $this->assertStringContainsString('ISO format log message', $messages);
     }
 
     public function testExportCsvGitSpecialFile(): void
