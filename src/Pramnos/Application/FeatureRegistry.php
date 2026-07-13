@@ -62,8 +62,11 @@ class FeatureRegistry
      *   description (string)  — human-readable description
      *   provider    (string|null) — FQCN of the ServiceProvider class (null until Phase 2)
      *   migrations  (string[])   — paths to migration directories
+     *   libraries   (string[])   — front-end vendor library keys (assets.json) this
+     *                              feature needs; enabling the feature via
+     *                              `project:reconfigure` installs them automatically
      *
-     * @var array<string, array{description: string, provider: string|null, migrations: string[]}>
+     * @var array<string, array{description: string, provider: string|null, migrations: string[], libraries: string[]}>
      */
     private static array $known = [];
 
@@ -93,7 +96,8 @@ class FeatureRegistry
      * @param array{
      *     description?: string,
      *     provider?:    string|null,
-     *     migrations?:  string[]
+     *     migrations?:  string[],
+     *     libraries?:   string[]
      * } $config Optional configuration.
      */
     public static function register(string $key, array $config = []): void
@@ -103,6 +107,7 @@ class FeatureRegistry
             'description' => $config['description'] ?? '',
             'provider'    => $config['provider']    ?? null,
             'migrations'  => $config['migrations']  ?? [],
+            'libraries'   => $config['libraries']   ?? [],
         ];
     }
 
@@ -202,11 +207,26 @@ class FeatureRegistry
     }
 
     /**
+     * Returns the front-end vendor library keys a feature declares as needed.
+     *
+     * `project:reconfigure` installs these (from the assets.json catalog) when the
+     * feature is enabled, so a feature's UI dependencies travel with it.
+     *
+     * @param string $key Feature key.
+     * @return string[] Library keys (assets.json), empty when none declared.
+     */
+    public static function getLibraries(string $key): array
+    {
+        static::ensureDefaults();
+        return static::$known[$key]['libraries'] ?? [];
+    }
+
+    /**
      * Returns the full definition array for a registered feature, or null
      * when the key is unknown.
      *
      * @param string $key
-     * @return array{description: string, provider: string|null, migrations: string[]}|null
+     * @return array{description: string, provider: string|null, migrations: string[], libraries: string[]}|null
      */
     public static function getDefinition(string $key): ?array
     {
