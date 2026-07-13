@@ -819,6 +819,8 @@ PHP;
 
         if ($uiSystem === 'bootstrap') {
             $this->ensureBootstrapAssets();
+        } elseif ($uiSystem === 'tailwind') {
+            $this->ensureTailwindAssets();
         }
     }
 
@@ -833,6 +835,16 @@ PHP;
                 $filename = basename(parse_url($bsDef['css'][0] ?? '', PHP_URL_PATH));
                 $path     = $bsDef['local_path'] . '/' . $filename;
                 $themeCss = "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>$path\">\n";
+            }
+        } elseif ($uiSystem === 'tailwind') {
+            // Tailwind's browser build is a script that scans the DOM and injects
+            // styles at runtime — load it in <head> before style.css so custom
+            // rules can still override generated utilities.
+            $twDef = $catalog['libraries']['tailwind'] ?? null;
+            if ($twDef) {
+                $filename = basename(parse_url($twDef['js'][0] ?? '', PHP_URL_PATH));
+                $path     = $twDef['local_path'] . '/' . $filename;
+                $themeCss = "    <script src=\"<?php echo sURL; ?>$path\"></script>\n";
             }
         }
 
@@ -975,6 +987,22 @@ HTML,
             return; // @codeCoverageIgnore — assets.json has a 'bootstrap' entry; null is never returned in tests
         }
         $this->downloadLibraryAssets('bootstrap', $lib, false);
+    }
+
+    /**
+     * Vendor the Tailwind CSS browser build into the project so the tailwind
+     * theme renders without a Node/build step (mirrors ensureBootstrapAssets).
+     * The header script tag is emitted by buildThemeHeader() from the same
+     * catalog entry, so the filename and version stay in sync.
+     */
+    private function ensureTailwindAssets(): void
+    {
+        $catalog = $this->loadAssetCatalog();
+        $lib     = $catalog['libraries']['tailwind'] ?? null;
+        if ($lib === null) {
+            return; // @codeCoverageIgnore — assets.json has a 'tailwind' entry; null is never returned in tests
+        }
+        $this->downloadLibraryAssets('tailwind', $lib, false);
     }
 
     /**

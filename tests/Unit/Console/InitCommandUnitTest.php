@@ -420,6 +420,44 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * When --ui-system=tailwind, the theme header.php must load the Tailwind
+     * browser build from the local vendor directory. Regression test: the
+     * tailwind theme previously emitted no Tailwind runtime at all, so scaffolded
+     * pages rendered completely unstyled (Tailwind classes present, no CSS).
+     */
+    public function testTailwindThemeHeaderReferencesLocalVendorPath(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'MyApp',
+            '--namespace' => 'MyApp',
+            '--features'  => '',
+            '--ui-system' => 'tailwind',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'myapp_db',
+            '--db-user'   => 'myapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — header loads the Tailwind runtime from local vendor, not a CDN.
+        // This is the exact reference whose absence left the page unstyled.
+        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+        $this->assertStringContainsString('assets/vendor/tailwind', $header);
+        $this->assertStringContainsString('<script', $header); // runtime is a script, loaded in <head>
+        $this->assertStringNotContainsString('cdn.jsdelivr.net', $header);
+    }
+
+    /**
      * settings.php maps timescaledb → type=postgresql with timescale=true.
      */
     public function testSettingsPhpMapsTimescaledbToPostgresql(): void
