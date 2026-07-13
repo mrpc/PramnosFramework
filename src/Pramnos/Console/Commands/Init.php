@@ -419,7 +419,10 @@ class Init extends Command
         // Libraries we use across the framework and the reference application — default yes
         $defaultEnabled = ['jquery', 'datatables', 'select2', 'leaflet', 'chartjs', 'ckeditor'];
 
-        $skipAlways = ['bootstrap']; // bundled with bootstrap theme automatically
+        // These UI-framework libraries are bundled automatically by their theme
+        // (ensureBootstrapAssets / ensureTailwindAssets), so never offer them as
+        // an "extra" library — the user already picked them via the UI system.
+        $skipAlways = ['bootstrap', 'tailwind'];
         $selected   = [];
 
         foreach ($catalog['libraries'] as $key => $lib) {
@@ -527,7 +530,18 @@ class Init extends Command
               . "    ],\n"
             : '';
 
-        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}{$addonsSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n        'style-src'  => []\n    ]\n];\n";
+        // Tailwind's browser build generates CSS at runtime by injecting a
+        // <style> element, which a nonce-based style-src blocks. Allowing
+        // 'unsafe-inline' makes the framework drop the style nonce (see
+        // Application::sendCspHeader), so the generated styles apply.
+        // Scoped to the tailwind theme only; bootstrap/plain-css keep the strict
+        // nonce-based policy. For production, compile Tailwind to a static CSS
+        // file and remove this relaxation.
+        $styleSrc = $scaffoldTheme === 'tailwind'
+            ? "        'style-src'  => [\"'unsafe-inline'\"]\n"
+            : "        'style-src'  => []\n";
+
+        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}{$addonsSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
         $this->writeFile($path, $content);
     }
 

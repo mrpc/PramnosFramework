@@ -417,6 +417,11 @@ class InitCommandUnitTest extends TestCase
         $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
         $this->assertStringContainsString('assets/vendor/bootstrap', $header);
         $this->assertStringNotContainsString('cdn.jsdelivr.net', $header);
+
+        // Assert — the CSP style-src relaxation is scoped to tailwind only;
+        // bootstrap keeps the strict nonce-based policy (no 'unsafe-inline').
+        $appConfig = file_get_contents($this->tmpDir . '/app/app.php');
+        $this->assertStringNotContainsString("'unsafe-inline'", $appConfig);
     }
 
     /**
@@ -455,6 +460,13 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('assets/vendor/tailwind', $header);
         $this->assertStringContainsString('<script', $header); // runtime is a script, loaded in <head>
         $this->assertStringNotContainsString('cdn.jsdelivr.net', $header);
+
+        // Assert — CSP relaxes style-src for tailwind, otherwise the browser
+        // build's runtime-injected <style> is blocked (this was the actual
+        // symptom: "Applying inline style violates ... style-src"). The framework
+        // drops the style nonce when 'unsafe-inline' is present.
+        $appConfig = file_get_contents($this->tmpDir . '/app/app.php');
+        $this->assertStringContainsString("'unsafe-inline'", $appConfig);
     }
 
     /**

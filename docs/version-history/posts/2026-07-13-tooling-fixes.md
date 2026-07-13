@@ -46,12 +46,21 @@ new-project workflow.
   projects inherit the fix.
 
 - **`pramnos init` — Tailwind theme rendered completely unstyled.** Choosing the
-  `tailwind` UI system produced pages with Tailwind utility classes but no Tailwind CSS:
-  the generated theme header emitted no Tailwind runtime, and nothing vendored one. The
-  scaffolder now downloads the Tailwind browser build (zero-config, no Node/build step)
-  into `www/assets/vendor/tailwind/` and the theme header loads it in `<head>` — matching
-  how the bootstrap theme vendors its assets. Added a catalog entry (`assets.json`) and a
-  regression test.
+  `tailwind` UI system produced pages with Tailwind utility classes but no Tailwind CSS.
+  Three linked problems, now fixed:
+    1. The generated theme header emitted no Tailwind runtime and nothing vendored one.
+       The scaffolder now downloads the Tailwind browser build (zero-config, no
+       Node/build step) into `www/assets/vendor/tailwind/` and loads it in `<head>`,
+       matching how the bootstrap theme vendors its assets (`assets.json` catalog entry +
+       `ensureTailwindAssets()`).
+    2. The browser build generates CSS by injecting a `<style>` at runtime, which the
+       strict nonce-based `style-src` CSP blocked (*"Applying inline style violates …
+       style-src"*). The tailwind scaffold now sets `style-src => ['unsafe-inline']` in
+       `app/app.php`, so the framework drops the style nonce and the styles apply. Scoped
+       to the tailwind theme only; **compile Tailwind to static CSS for production**.
+    3. Tailwind was also offered again in the "extra libraries" step even though it was
+       already chosen as the UI system — it is now skipped there (like bootstrap).
+  Covered by regression tests.
 
 ## Documentation
 
