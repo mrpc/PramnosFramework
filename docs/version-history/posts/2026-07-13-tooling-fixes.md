@@ -35,6 +35,14 @@ new-project workflow.
   (`Starting Docker environment / (2m05s)`) and escalates to live subprocess output once a
   step exceeds `Init::$slowStepThreshold` seconds (default `120`; set `0` to disable).
 
+- **`./dockertest` — silent hang when the Docker daemon is wedged.** The test runner's
+  preflight `docker-compose ps` (and `up -d`, and the `exec` dependency check) had no
+  timeout, so a wedged daemon (a common WSL / Docker Desktop failure mode) hung the script
+  indefinitely. It now runs a bounded daemon health check and wraps every Docker control
+  call in a timeout, failing fast with a clear message and remediation hint. The test run
+  itself is intentionally not time-limited. Override the bound with
+  `DOCKERTEST_DOCKER_TIMEOUT`.
+
 ## Documentation
 
 - Corrected the console command syntax in the setup and console guides: the generators use
