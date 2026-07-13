@@ -222,6 +222,38 @@ class LogManagerTest extends TestCase
         $this->assertArrayHasKey('error', $analytics['levels']);
     }
 
+    /**
+     * Regression: structured JSON log entries must be parsed for level and
+     * timestamp. fgets() keeps the trailing newline, so the JSON detection
+     * (`last char must be '}'`) only works if the line is trimmed first.
+     * Without the trim, every JSON entry is misread as plain text — the level
+     * is lost (errorRate reads 0% even for all-error logs) and the timestamp
+     * falls back to now() (so "last activity" is wrong). This locks the fix
+     * and keeps getLogAnalytics consistent with getLogFileStats.
+     */
+    #[Test]
+    public function testGetLogAnalyticsParsesStructuredJsonEntries(): void
+    {
+        // Arrange — two JSON entries, both level "error", at a fixed past time.
+        $entryTime = time() - 120;
+        $iso       = date('c', $entryTime);
+        $content   = json_encode(['timestamp' => $iso, 'level' => 'error', 'message' => 'boom one']) . "\n"
+                   . json_encode(['timestamp' => $iso, 'level' => 'error', 'message' => 'boom two']) . "\n";
+        $this->createTestLog('analytics_json', $content);
+
+        // Act
+        $analytics = LogManager::getLogAnalytics('analytics_json', 'log', $entryTime - 3600, time() + 10, 'hour');
+
+        // Assert — both entries counted, both recognised as errors.
+        $this->assertSame(2, $analytics['totalEntries']);
+        $this->assertSame(2, $analytics['levels']['error'] ?? 0);
+        // 100% error rate — proves the JSON level was read, not defaulted to info.
+        $this->assertSame(100.0, $analytics['errorRate']);
+        // Last activity is the parsed entry time, not the current time — proves
+        // the JSON timestamp was extracted rather than defaulting to now().
+        $this->assertSame(date('Y-m-d H:i:s', $entryTime), $analytics['lastEntry']);
+    }
+
     #[Test]
     public function testGetFilteredLogEntries(): void
     {

@@ -428,13 +428,44 @@ class LogManager
         if (!$handle) {
             return [];
         }
-        
+
+        // Bound the work on very large files so the dashboard never hangs or
+        // times out (e.g. a multi-GB log). The analytics window is almost always
+        // recent, and recent entries live at the END of the file, so for oversized
+        // files we scan only the tail. A hard line cap is a second backstop.
+        $size          = filesize($filepath) ?: 0;
+        $maxScanBytes  = 25 * 1024 * 1024;   // 25 MB tail
+        $maxScanLines  = 500000;             // absolute line cap
+        $truncated     = false;
+
+        if ($size > $maxScanBytes) {
+            fseek($handle, $size - $maxScanBytes);
+            fgets($handle); // discard the (likely partial) first line after the seek
+            $truncated = true;
+        }
+
+        $scannedLines = 0;
         while (($line = fgets($handle)) !== false) {
+            if (++$scannedLines > $maxScanLines) {
+                $truncated = true;
+                break;
+            }
             $timestamp = time(); // Default to current time
             $level = 'info'; // Default level
             $message = '';
             $isError = false;
-            
+
+            // fgets() keeps the trailing newline; trim it before inspecting the
+            // line so JSON detection (last char must be '}') and the bracketed
+            // timestamp regex are not defeated by the '\n'. Without this every
+            // structured entry is misread as plain text — the level/timestamp
+            // are lost, so errorRate reads 0% and "last activity" falls back to
+            // now(). (getLogFileStats already trims, hence the mismatch.)
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+
             // Check if line is JSON formatted
             if (substr($line, 0, 1) === '{' && substr($line, -1) === '}') {
                 try {
@@ -562,7 +593,10 @@ class LogManager
             'topErrors' => $topErrors,
             'lastEntry' => $lastEntry,
             'totalEntries' => $totalEntries,
-            'errorRate' => $totalEntries > 0 ? round(($errorCount / $totalEntries) * 100, 1) : 0
+            'errorRate' => $totalEntries > 0 ? round(($errorCount / $totalEntries) * 100, 1) : 0,
+            // True when the file was too large to scan in full and only its tail
+            // (most recent ~25 MB / 500k lines) was analysed.
+            'truncated' => $truncated
         ];
     }
     
