@@ -11,7 +11,7 @@ namespace Pramnos\Application;
  * Used by:
  *  - Controller::getView()      — to locate fallback view files
  *  - Init command               — to know where scaffold assets live
- *  - scaffold:views command     — to copy bundled views into a project
+ *  - project:publish-views command     — to copy bundled views into a project
  *
  */
 class ScaffoldingHelper
@@ -109,7 +109,7 @@ class ScaffoldingHelper
      * Return a map of view-group name → list of relative file paths within
      * a theme directory, built by scanning the actual `views/` subtree.
      *
-     * Used by the scaffold:views command to enumerate what can be published.
+     * Used by the project:publish-views command to enumerate what can be published.
      *
      * @param string $scaffoldTheme Theme name (e.g. 'bootstrap')
      * @return array<string, string[]> Keys are group names (e.g. 'login'),

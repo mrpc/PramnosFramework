@@ -6,6 +6,31 @@ The Pramnos Framework includes a powerful console command system built on Symfon
 
 ## Available Commands
 
+### Command taxonomy
+
+Commands are grouped by a `namespace:` prefix that reflects what they act on:
+
+| Namespace | Purpose | Examples |
+|---|---|---|
+| `create:` | Code generation (models, controllers, views, APIs, migrations, tasks, commands, …) | `create:model`, `create:crud`, `create:command`, `create:task` |
+| `migrate`, `migrate:` | Database schema migrations | `migrate`, `migrate:status`, `migrate:rollback` |
+| `project:` | **Set up / reconfigure an existing project** without re-running `init` | `project:reconfigure`, `project:install`, `project:publish-views`, `project:git-webhook` |
+| `logs:` | Log-file tooling | `logs:convert` |
+| `db:` | Database operations | `db:seed`, `db:fresh`, `db:wipe` |
+| `cache:` | Cache management | `cache:clear` |
+| `route:` | Routing introspection | `route:list` |
+| `queue:` | Background job queue | `queue:process`, `queue:failed`, `queue:retry` |
+| `user:` | User administration | `user:create` |
+| `key:` | Secret/key management | `key:generate` |
+| `schedule:` | Task scheduler | `schedule:run`, `schedule:list` |
+| `health:` / `debug:` | Diagnostics | `health:check`, `debug:status` |
+| *(top-level)* | Entry-point & REPL | `init`, `serve`, `tinker` |
+
+> Only genuine entry-point commands (`init`, `serve`) stay top-level; everything
+> else follows the `namespace:verb` convention.
+
+Run `php bin/pramnos list` to see every command with its description.
+
 ### Code Generation Commands
 
 The framework provides comprehensive code generation through the `create` command:
@@ -40,17 +65,60 @@ php bin/pramnos serve
 php bin/pramnos serve --port=8080
 ```
 
+### Project Reconfiguration Commands (`project:`)
+
+These commands change an **existing** project after it was scaffolded — no need to re-run
+`init`. They are BC-safe and idempotent (re-running does nothing new).
+
+```bash
+# Interactive umbrella: enable features and/or add libraries
+php bin/pramnos project:reconfigure
+
+# Show what is currently enabled/installed
+php bin/pramnos project:reconfigure --status
+
+# Enable framework features (records them in app/app.php, installs each
+# feature's declared front-end libraries, prints follow-up steps)
+php bin/pramnos project:reconfigure --enable-feature=queue,messaging
+
+# Add front-end libraries (installs into www/assets/vendor and registers them
+# in src/Application.php)
+php bin/pramnos project:reconfigure --add-library=leaflet,select2
+
+# Install only the missing/mandatory libraries (focused, scriptable)
+php bin/pramnos project:install
+
+# See per-library install/registration status
+php bin/pramnos project:install --list
+
+# Re-download even if present / download without editing Application.php
+php bin/pramnos project:install --force
+php bin/pramnos project:install --no-register
+```
+
+**Mandatory libraries.** A library flagged `"mandatory": true` in
+`scaffolding/assets.json` (currently Chart.js, required by the log analytics dashboard) is
+always ensured by both `init` and the `project:` commands — so upgrading an old project to
+get Chart.js is simply `php bin/pramnos project:install`.
+
+**Feature → libraries.** A feature can declare the front-end libraries it needs via the
+`libraries` key in its `FeatureRegistry` definition; enabling it with
+`project:reconfigure --enable-feature=` installs them automatically.
+
+After enabling a feature, run its migrations (`php bin/pramnos migrate`) and, if it ships
+views, publish them (`php bin/pramnos project:publish-views --list` then `--group=<name>`).
+
 ### Maintenance Commands
 
 ```bash
 # Migrate log files to structured format
-php bin/pramnos migratelogs /path/to/logs --all
+php bin/pramnos logs:convert /path/to/logs --all
 
 # Migrate specific log file
-php bin/pramnos migratelogs /path/to/file.log
+php bin/pramnos logs:convert /path/to/file.log
 
 # Migrate without creating backup
-php bin/pramnos migratelogs /path/to/file.log --no-backup
+php bin/pramnos logs:convert /path/to/file.log --no-backup
 ```
 
 ## Model Generation
@@ -793,13 +861,13 @@ The framework includes a powerful log migration system to convert legacy log for
 
 ```bash
 # Migrate all .log files in a directory
-php bin/pramnos migratelogs /path/to/logs --all
+php bin/pramnos logs:convert /path/to/logs --all
 
 # Migrate specific file
-php bin/pramnos migratelogs /path/to/application.log
+php bin/pramnos logs:convert /path/to/application.log
 
 # Migrate without backup
-php bin/pramnos migratelogs /path/to/application.log --no-backup
+php bin/pramnos logs:convert /path/to/application.log --no-backup
 ```
 
 ### Migration Features

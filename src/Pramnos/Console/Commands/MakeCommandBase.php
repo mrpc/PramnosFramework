@@ -179,7 +179,7 @@ abstract class MakeCommandBase extends Command
     protected function prepareExecution(InputInterface $input, OutputInterface $output)
     {
         $this->output = $output;
-        // Commands that don't call addCommonOptions() (e.g. make:webhook)
+        // Commands that don't call addCommonOptions() (e.g. project:git-webhook)
         // don't define these options — guard to avoid InvalidArgumentException.
         $this->schema = $input->hasOption('schema') ? $input->getOption('schema') : null;
         $this->dbtable = $input->hasOption('table') ? $input->getOption('table') : null;

@@ -20,14 +20,14 @@ class MigrateLogs extends Command
      */
     protected function configure()
     {
-        $this->setName('migratelogs');
+        $this->setName('logs:convert');
         $this->setDescription('Migrate log files to structured format');
         $this->setHelp(
             "Migrate log files to a structured single-line JSON format.\n" .
                 "Examples:\n" .
-                " - Single file: migratelogs /path/to/file.log\n" .
-                " - Directory: migratelogs /path/to/logs/dir --all\n" .
-                " - No backup: migratelogs /path/to/file.log --no-backup\n"
+                " - Single file: logs:convert /path/to/file.log\n" .
+                " - Directory: logs:convert /path/to/logs/dir --all\n" .
+                " - No backup: logs:convert /path/to/file.log --no-backup\n"
         );
 
         $this->addArgument(
