@@ -11,7 +11,7 @@ use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
 /**
- * Unit tests for the make:webhook command.
+ * Unit tests for the project:git-webhook command.
  *
  * The command writes ROOT/www/webhook.php and optionally appends
  * WEBHOOK_SECRET to ROOT/.env.example. Tests run against the real project
@@ -53,7 +53,7 @@ class MakeWebhookTest extends TestCase
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
-     * Execute make:webhook with the given CLI parameters and return
+     * Execute project:git-webhook with the given CLI parameters and return
      * [exitCode, display output].
      *
      * execute() is protected on Symfony commands, so it is invoked through
@@ -79,7 +79,7 @@ class MakeWebhookTest extends TestCase
     // =========================================================================
 
     /**
-     * Running make:webhook when www/webhook.php does not exist must create the
+     * Running project:git-webhook when www/webhook.php does not exist must create the
      * file with the standard stub (WebhookHandler bootstrap, default branch
      * 'main', fallback CLI name 'pramnos') and exit 0.
      */

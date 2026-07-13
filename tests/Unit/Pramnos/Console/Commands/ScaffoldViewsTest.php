@@ -11,9 +11,9 @@ use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 
 /**
- * Unit tests for the scaffold:views console command.
+ * Unit tests for the project:publish-views console command.
  *
- * scaffold:views copies bundled view templates from the framework's scaffolding
+ * project:publish-views copies bundled view templates from the framework's scaffolding
  * directory into a target project. Key invariants:
  *
  *  - --list enumerates groups without writing files.
@@ -63,7 +63,7 @@ class ScaffoldViewsTest extends TestCase
         $app->add($command);
         $app->setAutoExit(false);
 
-        $found = $app->find('scaffold:views');
+        $found = $app->find('project:publish-views');
         $this->tester = new CommandTester($found);
     }
 

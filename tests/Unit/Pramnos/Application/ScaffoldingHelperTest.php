@@ -280,7 +280,7 @@ class ScaffoldingHelperTest extends TestCase
 
     /**
      * listViewGroups() must return groups in alphabetical order so that the
-     * --list output of scaffold:views is deterministic and readable.
+     * --list output of project:publish-views is deterministic and readable.
      */
     public function testListViewGroupsReturnsGroupsInAlphabeticalOrder(): void
     {

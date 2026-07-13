@@ -203,7 +203,7 @@ class CommandsCharacterizationTest extends TestCase
     // -----------------------------------------------------------------------
 
     /**
-     * MigrateLogs command is named 'migratelogs'.
+     * MigrateLogs command is named 'logs:convert'.
      */
     public function testMigrateLogsCommandIsNamedMigratelogs(): void
     {
@@ -211,7 +211,7 @@ class CommandsCharacterizationTest extends TestCase
         $cmd = new MigrateLogs();
 
         // Assert
-        $this->assertSame('migratelogs', $cmd->getName());
+        $this->assertSame('logs:convert', $cmd->getName());
     }
 
     /**
@@ -239,7 +239,7 @@ class CommandsCharacterizationTest extends TestCase
         // Arrange
         $app = new SymfonyApp();
         $app->add(new MigrateLogs());
-        $cmd = $app->find('migratelogs');
+        $cmd = $app->find('logs:convert');
         $tester = new CommandTester($cmd);
 
         // Act

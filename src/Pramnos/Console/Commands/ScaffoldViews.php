@@ -11,7 +11,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Pramnos\Application\ScaffoldingHelper;
 
 /**
- * scaffold:views — publish bundled scaffold view templates into a project.
+ * project:publish-views — publish bundled scaffold view templates into a project.
  *
  * Works on both new and existing projects. Skips files that already exist
  * unless --force is passed. Useful when:
@@ -23,10 +23,10 @@ use Pramnos\Application\ScaffoldingHelper;
  *
  * Examples:
  *
- *   ./pramnos scaffold:views --all
- *   ./pramnos scaffold:views --group=login,device
- *   ./pramnos scaffold:views --group=oauth2 --theme=tailwind --force
- *   ./pramnos scaffold:views --list
+ *   ./pramnos project:publish-views --all
+ *   ./pramnos project:publish-views --group=login,device
+ *   ./pramnos project:publish-views --group=oauth2 --theme=tailwind --force
+ *   ./pramnos project:publish-views --list
  *
  */
 class ScaffoldViews extends Command
@@ -37,7 +37,7 @@ class ScaffoldViews extends Command
     protected function configure(): void
     {
         $this
-            ->setName('scaffold:views')
+            ->setName('project:publish-views')
             ->setDescription('Publish bundled scaffold view templates into an existing project')
             ->addOption(
                 'all',
