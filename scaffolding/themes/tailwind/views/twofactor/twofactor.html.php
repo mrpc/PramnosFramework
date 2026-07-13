@@ -33,7 +33,7 @@
         </div>
     <?php endif; ?>
 
-    <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+    <div class="bg-white border border-gray-200 rounded-xl shadow-xs p-6">
 
         <div class="flex items-center gap-3 mb-4">
             <?php if ($this->status['enabled']): ?>
@@ -88,7 +88,7 @@
         <form method="post" action="<?php echo sURL; ?>TwoFactorAuth/disable">
             <label class="block text-sm font-medium text-gray-700 mb-1" for="confirm_password">Password</label>
             <input type="password" id="confirm_password" name="confirm_password" required autocomplete="current-password"
-                   class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                   class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm mb-4 focus:outline-hidden focus:ring-2 focus:ring-indigo-500">
             <div class="flex justify-end gap-2">
                 <button type="button" data-modal-hide="disableModal"
                         class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">

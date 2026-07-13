@@ -17,12 +17,12 @@ $errorMessages = [
     <h2 class="text-2xl font-bold text-gray-800 mb-6">Change Password</h2>
 
     <?php if (!empty($_GET['error']) && isset($errorMessages[$_GET['error']])): ?>
-        <div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded">
+        <div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-sm">
             <?php echo htmlspecialchars($errorMessages[$_GET['error']]); ?>
         </div>
     <?php endif; ?>
 
-    <div class="bg-white rounded-lg shadow p-6">
+    <div class="bg-white rounded-lg shadow-sm p-6">
         <p class="text-sm text-gray-500 mb-5">
             Choose a strong password: at least 8 characters, one digit, and one special character.
         </p>
@@ -36,7 +36,7 @@ $errorMessages = [
                     Current Password
                 </label>
                 <input type="password" id="current_password" name="current_password"
-                       class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                       class="w-full border border-gray-300 rounded-sm px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-400"
                        required autocomplete="current-password" autofocus>
             </div>
             <div>
@@ -44,7 +44,7 @@ $errorMessages = [
                     New Password
                 </label>
                 <input type="password" id="new_password" name="new_password"
-                       class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                       class="w-full border border-gray-300 rounded-sm px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-400"
                        required autocomplete="new-password" minlength="8">
             </div>
             <div>
@@ -52,11 +52,11 @@ $errorMessages = [
                     Confirm New Password
                 </label>
                 <input type="password" id="confirm_password" name="confirm_password"
-                       class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                       class="w-full border border-gray-300 rounded-sm px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-400"
                        required autocomplete="new-password">
             </div>
             <button type="submit"
-                    class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded transition-colors">
+                    class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-sm transition-colors">
                 Update Password
             </button>
         </form>

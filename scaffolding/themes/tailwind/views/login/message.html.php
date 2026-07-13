@@ -12,10 +12,10 @@
         <h1 class="text-2xl font-semibold mb-4"><?php echo htmlspecialchars($this->title ?? 'Notice'); ?></h1>
 
         <?php if ($this->hasErrors()): ?>
-            <div class="bg-red-100 border border-red-300 text-red-800 rounded p-3 mb-4"><?php echo $this->_printErrors(); ?></div>
+            <div class="bg-red-100 border border-red-300 text-red-800 rounded-sm p-3 mb-4"><?php echo $this->_printErrors(); ?></div>
         <?php endif; ?>
         <?php if ($this->hasMessages()): ?>
-            <div class="bg-blue-100 border border-blue-300 text-blue-800 rounded p-3 mb-4"><?php echo $this->_printMessages(); ?></div>
+            <div class="bg-blue-100 border border-blue-300 text-blue-800 rounded-sm p-3 mb-4"><?php echo $this->_printMessages(); ?></div>
         <?php endif; ?>
 
         <?php if (!empty($this->message)): ?>

@@ -17,11 +17,11 @@ $badgeColor = match ($this->overallStatus) {
 <div class="health-check-summary">
     <div class="flex items-center gap-2 mb-3">
         <span class="text-sm font-medium text-gray-600">Status:</span>
-        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?php echo $badgeColor; ?> status-badge status-<?php echo htmlspecialchars($this->overallStatus); ?>">
+        <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $badgeColor; ?> status-badge status-<?php echo htmlspecialchars($this->overallStatus); ?>">
             <?php echo strtoupper(htmlspecialchars($this->overallStatus)); ?>
         </span>
     </div>
-    <table class="health-table w-full text-sm border border-gray-200 rounded">
+    <table class="health-table w-full text-sm border border-gray-200 rounded-sm">
         <thead>
             <tr class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase">
                 <th class="px-3 py-2 border-b">Check</th>
@@ -45,7 +45,7 @@ $badgeColor = match ($this->overallStatus) {
             <tr>
                 <td class="px-3 py-2"><?php echo htmlspecialchars($name); ?></td>
                 <td class="px-3 py-2">
-                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?php echo $rb; ?> status-badge status-<?php echo htmlspecialchars($check['status']); ?>">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $rb; ?> status-badge status-<?php echo htmlspecialchars($check['status']); ?>">
                         <?php echo strtoupper(htmlspecialchars($check['status'])); ?>
                     </span>
                 </td>

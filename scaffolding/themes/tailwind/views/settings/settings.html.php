@@ -29,11 +29,11 @@ if (trim($stepsSetting) !== '') {
 if (count($initialSteps) === 0) { $initialSteps = $defaultSteps; }
 ksort($initialSteps, SORT_NUMERIC);
 
-$input  = 'w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
+$input  = 'w-full border border-gray-300 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500';
 $label  = 'block text-sm font-semibold text-gray-700 mb-1';
-$card   = 'bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4';
-$btnPri = 'px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700';
-$btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded hover:bg-gray-50';
+$card   = 'bg-white rounded-xl shadow-xs border border-gray-200 p-5 mb-4';
+$btnPri = 'px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700';
+$btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-sm hover:bg-gray-50';
 ?>
 <div class="px-4 py-6">
     <div class="flex justify-between items-center mb-4">
@@ -42,12 +42,12 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
     </div>
 
     <?php if (!empty($this->success)): ?>
-        <div class="bg-green-50 border border-green-300 text-green-800 rounded px-4 py-3 mb-4 text-sm">
+        <div class="bg-green-50 border border-green-300 text-green-800 rounded-sm px-4 py-3 mb-4 text-sm">
             <?php echo htmlspecialchars($this->success); ?>
         </div>
     <?php endif; ?>
     <?php if (!empty($this->warning)): ?>
-        <div class="bg-yellow-50 border border-yellow-300 text-yellow-800 rounded px-4 py-3 mb-4 text-sm">
+        <div class="bg-yellow-50 border border-yellow-300 text-yellow-800 rounded-sm px-4 py-3 mb-4 text-sm">
             <?php echo htmlspecialchars($this->warning); ?>
         </div>
     <?php endif; ?>
@@ -150,10 +150,10 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
                     <div>
                         <div class="flex justify-between items-center mb-2">
                             <label class="<?php echo $label; ?> mb-0">Progressive Lockout Rules</label>
-                            <button type="button" id="add-lockout-rule" class="text-xs px-3 py-1 border border-blue-400 text-blue-600 rounded hover:bg-blue-50">+ Add Rule</button>
+                            <button type="button" id="add-lockout-rule" class="text-xs px-3 py-1 border border-blue-400 text-blue-600 rounded-sm hover:bg-blue-50">+ Add Rule</button>
                         </div>
                         <div id="lockout-rules-container"></div>
-                        <div id="lockout-rules-errors" class="hidden mt-2 bg-red-50 border border-red-300 text-red-700 rounded px-3 py-2 text-sm"></div>
+                        <div id="lockout-rules-errors" class="hidden mt-2 bg-red-50 border border-red-300 text-red-700 rounded-sm px-3 py-2 text-sm"></div>
                         <input type="hidden" name="loginlockoutsteps" id="loginlockoutsteps"
                             value="<?php echo htmlspecialchars((string) json_encode($initialSteps)); ?>">
                         <p class="text-xs text-gray-400 mt-1">Durations must increase with failed attempt count.</p>
@@ -242,7 +242,7 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
         var sl = document.createElement('label'); sl.textContent = 'Lockout (s):';
         var si = document.createElement('input'); si.type = 'number'; si.min = '1'; si.className = 'lockout-seconds'; si.value = seconds || '';
         var rb = document.createElement('button'); rb.type = 'button';
-        rb.className = 'ml-auto text-xs px-2 py-1 border border-red-300 text-red-600 rounded hover:bg-red-50';
+        rb.className = 'ml-auto text-xs px-2 py-1 border border-red-300 text-red-600 rounded-sm hover:bg-red-50';
         rb.textContent = 'Remove'; rb.addEventListener('click', function () { card.remove(); });
         card.appendChild(al); card.appendChild(ai); card.appendChild(sl); card.appendChild(si); card.appendChild(rb);
         return card;

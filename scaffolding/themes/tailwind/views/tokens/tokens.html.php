@@ -12,12 +12,12 @@
     <div class="flex justify-between items-center mb-4">
         <h2 >OAuth2 Tokens</h2>
         <form method="get" class="flex gap-2">
-            <input type="number" name="userid" class="px-2 py-1 border border-gray-300 rounded text-sm" placeholder="User ID" value="<?php echo (int)($_GET['userid'] ?? 0) ?: ''; ?>">
-            <input type="number" name="applicationid" class="px-2 py-1 border border-gray-300 rounded text-sm" placeholder="App ID" value="<?php echo (int)($_GET['applicationid'] ?? 0) ?: ''; ?>">
-            <button class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50">Filter</button>
+            <input type="number" name="userid" class="px-2 py-1 border border-gray-300 rounded-sm text-sm" placeholder="User ID" value="<?php echo (int)($_GET['userid'] ?? 0) ?: ''; ?>">
+            <input type="number" name="applicationid" class="px-2 py-1 border border-gray-300 rounded-sm text-sm" placeholder="App ID" value="<?php echo (int)($_GET['applicationid'] ?? 0) ?: ''; ?>">
+            <button class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">Filter</button>
         </form>
     </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200">
         <div >
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
@@ -37,7 +37,7 @@
                                 : '<span class="badge bg-secondary">Revoked</span>'; ?>
                         </td>
                         <td class="text-right">
-                            <a href="<?php echo sURL; ?>Tokens/revoke/<?php echo (int)$tok['tokenid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50" data-confirm="Revoke token?">Revoke</a>
+                            <a href="<?php echo sURL; ?>Tokens/revoke/<?php echo (int)$tok['tokenid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50" data-confirm="Revoke token?">Revoke</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

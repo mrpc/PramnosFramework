@@ -33,7 +33,7 @@
 
         <!-- Navigation -->
         <div class="md:col-span-1">
-            <div class="bg-white rounded-lg shadow divide-y divide-gray-100">
+            <div class="bg-white rounded-lg shadow-sm divide-y divide-gray-100">
                 <div class="px-4 py-3 font-semibold text-gray-700 bg-gray-50 rounded-t-lg">Account Settings</div>
                 <?php
                 $routeBase = $this->routeBase ?? 'Dashboard';
@@ -58,7 +58,7 @@
         <div class="md:col-span-2 space-y-6">
 
             <!-- Authorized apps -->
-            <div class="bg-white rounded-lg shadow">
+            <div class="bg-white rounded-lg shadow-sm">
                 <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                     <h3 class="font-semibold text-gray-700">Authorized Applications</h3>
                     <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/applications"
@@ -97,7 +97,7 @@
             </div>
 
             <!-- Recent activity -->
-            <div class="bg-white rounded-lg shadow">
+            <div class="bg-white rounded-lg shadow-sm">
                 <div class="px-4 py-3 border-b border-gray-100 font-semibold text-gray-700">
                     Recent Activity
                 </div>

@@ -12,17 +12,17 @@
     <h2 class="text-2xl font-bold text-gray-800 mb-6">Authorized Applications</h2>
 
     <?php if (!empty($_GET['error'])): ?>
-        <div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded">
+        <div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-sm">
             <?php echo htmlspecialchars(urldecode($_GET['error'])); ?>
         </div>
     <?php endif; ?>
 
     <?php if (empty($this->authorizedApps)): ?>
-        <div class="px-4 py-8 bg-blue-50 border border-blue-100 rounded text-blue-700 text-center">
+        <div class="px-4 py-8 bg-blue-50 border border-blue-100 rounded-sm text-blue-700 text-center">
             You have no authorized applications.
         </div>
     <?php else: ?>
-        <div class="bg-white rounded-lg shadow divide-y divide-gray-100">
+        <div class="bg-white rounded-lg shadow-sm divide-y divide-gray-100">
             <?php foreach ($this->authorizedApps as $app): ?>
                 <div class="flex items-center justify-between px-4 py-4">
                     <div>
@@ -41,7 +41,7 @@
                           onsubmit="return confirm('Revoke access for <?php echo htmlspecialchars(addslashes($app['name'])); ?>?')">
                         <input type="hidden" name="client_id" value="<?php echo htmlspecialchars($app['apikey']); ?>">
                         <button type="submit"
-                                class="px-3 py-1 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50 transition-colors">
+                                class="px-3 py-1 text-sm text-red-600 border border-red-300 rounded-sm hover:bg-red-50 transition-colors">
                             Revoke
                         </button>
                     </form>

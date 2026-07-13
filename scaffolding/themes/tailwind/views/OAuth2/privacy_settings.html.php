@@ -12,12 +12,12 @@
     <h2 class="text-2xl font-bold text-gray-800 mb-6">Privacy Settings</h2>
 
     <?php if (!empty($_GET['message']) && $_GET['message'] === 'saved'): ?>
-        <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 text-green-700 rounded">
+        <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 text-green-700 rounded-sm">
             Your privacy settings have been saved.
         </div>
     <?php endif; ?>
 
-    <div class="bg-white rounded-lg shadow p-6">
+    <div class="bg-white rounded-lg shadow-sm p-6">
         <p class="text-sm text-gray-500 mb-6">
             Control how your data is used. You can update these preferences at any time.
         </p>
@@ -27,7 +27,7 @@
                 <label class="flex items-start gap-3 cursor-pointer">
                     <div class="mt-0.5">
                         <input type="checkbox" id="analytics" name="analytics"
-                               class="w-4 h-4 text-blue-600 border-gray-300 rounded"
+                               class="w-4 h-4 text-blue-600 border-gray-300 rounded-sm"
                                <?php echo !empty($this->privacySettings['analytics']) ? 'checked' : ''; ?>>
                     </div>
                     <div>
@@ -41,7 +41,7 @@
                 <label class="flex items-start gap-3 cursor-pointer">
                     <div class="mt-0.5">
                         <input type="checkbox" id="marketing" name="marketing"
-                               class="w-4 h-4 text-blue-600 border-gray-300 rounded"
+                               class="w-4 h-4 text-blue-600 border-gray-300 rounded-sm"
                                <?php echo !empty($this->privacySettings['marketing']) ? 'checked' : ''; ?>>
                     </div>
                     <div>
@@ -54,7 +54,7 @@
             </div>
 
             <button type="submit"
-                    class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded transition-colors">
+                    class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-sm transition-colors">
                 Save Preferences
             </button>
         </form>

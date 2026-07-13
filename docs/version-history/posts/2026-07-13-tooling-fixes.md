@@ -62,6 +62,23 @@ new-project workflow.
        already chosen as the UI system — it is now skipped there (like bootstrap).
   Covered by regression tests.
 
+- **`pramnos init` — Tailwind theme markup was written for Tailwind v3.** With the v4
+  runtime now in place, the theme and its ~60 view templates were migrated to v4:
+  renamed utilities (`shadow-sm`→`shadow-xs`, bare `shadow`→`shadow-sm`, bare
+  `rounded`→`rounded-sm`, `outline-none`→`outline-hidden`, `text-opacity-*`→`/opacity`),
+  a `style.css` rule restoring v3's gray-200 default border colour (v4 defaults to
+  `currentColor`), and scoped typography for the bare-HTML home page. The header/footer
+  gained a dedicated **tailwind** branch (previously they fell back to the plain-css
+  semantic markup, so the nav/footer were unstyled), and the inline login / account
+  dashboard / account profile views got Tailwind variants (they previously used the
+  plain-css view). The header's Admin dropdown no longer closes when moving the mouse
+  onto it (removed the hover-gap).
+
+- **DevPanel toolbar leaked into non-HTML responses.** The debug toolbar was injected
+  before `</body>` in *any* response containing that tag — including the `raw` document
+  the log viewer serves inside an `<iframe>`. Injection is now restricted to `html`
+  documents, so the toolbar never appears in `raw`, JSON, PDF, RSS or image responses.
+
 ## Documentation
 
 - Corrected the console command syntax in the setup and console guides: the generators use

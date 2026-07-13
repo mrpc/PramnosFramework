@@ -13,7 +13,7 @@
     <?php if (empty($this->apps)): ?>
         <p class="text-gray-500">No OAuth applications registered yet.</p>
     <?php else: ?>
-        <div class="overflow-x-auto rounded shadow">
+        <div class="overflow-x-auto rounded-sm shadow-sm">
             <table class="min-w-full bg-white">
                 <thead class="bg-gray-100 text-gray-700 text-sm uppercase">
                     <tr>
@@ -35,9 +35,9 @@
                             <td class="px-4 py-3 font-mono text-xs"><?php echo htmlspecialchars((string) $app['apikey']); ?></td>
                             <td class="px-4 py-3">
                                 <?php if ((int) $app['status'] === 1): ?>
-                                    <span class="inline-block px-2 py-0.5 rounded text-xs bg-green-100 text-green-800">Active</span>
+                                    <span class="inline-block px-2 py-0.5 rounded-sm text-xs bg-green-100 text-green-800">Active</span>
                                 <?php else: ?>
-                                    <span class="inline-block px-2 py-0.5 rounded text-xs bg-gray-200 text-gray-600">Inactive</span>
+                                    <span class="inline-block px-2 py-0.5 rounded-sm text-xs bg-gray-200 text-gray-600">Inactive</span>
                                 <?php endif; ?>
                             </td>
                             <td class="px-4 py-3 text-gray-500"><?php echo htmlspecialchars(date('d M Y', (int) $app['created'])); ?></td>

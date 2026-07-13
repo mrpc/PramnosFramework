@@ -33,12 +33,12 @@ $fmtBytes = function (int $bytes): string {
         <a href="<?php echo sURL; ?>dashboard" class="text-sm text-blue-600 hover:underline">&larr; Dashboard</a>
         <h2 class="mb-0">Database Details</h2>
         <?php if (!empty($stats['version'])): ?>
-            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-gray-200 text-gray-700">
                 <?php echo htmlspecialchars($stats['version'], ENT_QUOTES, 'UTF-8'); ?>
             </span>
         <?php endif; ?>
         <?php if (!empty($tsData['ts_version'])): ?>
-            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-cyan-100 text-cyan-800">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-cyan-100 text-cyan-800">
                 TimescaleDB <?php echo htmlspecialchars($tsData['ts_version'], ENT_QUOTES, 'UTF-8'); ?>
             </span>
         <?php endif; ?>
@@ -71,7 +71,7 @@ $fmtBytes = function (int $bytes): string {
     </div>
 
     <!-- Active Processes -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex justify-between items-center">
             <span>Active Processes</span>
             <span class="bg-gray-200 text-gray-700 text-xs px-2 py-0.5 rounded-full"><?php echo count($processes); ?></span>
@@ -123,19 +123,19 @@ $fmtBytes = function (int $bytes): string {
                                 $min = intdiv($durSec, 60);
                                 $sec = $durSec % 60;
                                 $txt = $min > 0 ? "{$min}m {$sec}s" : "{$durSec}s"; ?>
-                                <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?php echo $cls; ?>"><?php echo $txt; ?></span>
+                                <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $cls; ?>"><?php echo $txt; ?></span>
                             <?php else: ?>—<?php endif; ?>
                         </td>
                         <td class="px-3 py-2">
                             <?php $stCls = ($p['state'] ?? '') === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'; ?>
-                            <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?php echo $stCls; ?>">
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $stCls; ?>">
                                 <?php echo htmlspecialchars($p['state'] ?? '—', ENT_QUOTES, 'UTF-8'); ?>
                             </span>
                         </td>
                         <td class="px-3 py-2 font-mono max-w-xs">
                             <?php if (!empty($p['query'])): ?>
                             <div class="overflow-hidden text-ellipsis whitespace-nowrap" title="<?php echo htmlspecialchars($p['query'], ENT_QUOTES, 'UTF-8'); ?>">
-                                <button class="text-xs border border-gray-300 rounded px-1 mr-1 hover:bg-gray-100"
+                                <button class="text-xs border border-gray-300 rounded-sm px-1 mr-1 hover:bg-gray-100"
                                         data-copy-query="<?php echo htmlspecialchars($p['query'], ENT_QUOTES, 'UTF-8'); ?>">Copy</button>
                                 <?php echo htmlspecialchars($p['query'], ENT_QUOTES, 'UTF-8'); ?>
                             </div>
@@ -164,7 +164,7 @@ $fmtBytes = function (int $bytes): string {
 
     <!-- Replication Status (PostgreSQL only) -->
     <?php if ($dbType === 'postgresql'): ?>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Replication Status</div>
         <?php if (empty($replication)): ?>
             <p class="text-center text-gray-400 py-6 text-sm">No replication configured. Standalone instance or replica.</p>
@@ -186,21 +186,21 @@ $fmtBytes = function (int $bytes): string {
                         <td class="px-3 py-2 font-mono"><?php echo htmlspecialchars($repl['client_addr'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                         <td class="px-3 py-2">
                             <?php $sCls = ($repl['state'] ?? '') === 'streaming' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'; ?>
-                            <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?php echo $sCls; ?>"><?php echo htmlspecialchars($repl['state'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $sCls; ?>"><?php echo htmlspecialchars($repl['state'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></span>
                         </td>
                         <td class="px-3 py-2">
                             <?php $sysCls = ($repl['sync_state'] ?? '') === 'sync' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'; ?>
-                            <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?php echo $sysCls; ?>"><?php echo htmlspecialchars($repl['sync_state'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $sysCls; ?>"><?php echo htmlspecialchars($repl['sync_state'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></span>
                         </td>
                         <td class="px-3 py-2">
                             <?php if (($repl['sync_state'] ?? '') === 'sync'): ?>
-                                <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">In Sync</span>
+                                <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-green-100 text-green-800">In Sync</span>
                             <?php elseif ($lagSec > 0):
                                 $lagCls = $lagSec > 300 ? 'bg-red-100 text-red-800' : ($lagSec > 60 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800');
                                 $lagTxt = $lagSec > 60 ? intdiv($lagSec,60).'m '.($lagSec%60).'s' : $lagSec.'s'; ?>
-                                <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?php echo $lagCls; ?>"><?php echo $lagTxt; ?></span>
+                                <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $lagCls; ?>"><?php echo $lagTxt; ?></span>
                             <?php else: ?>
-                                <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">N/A</span>
+                                <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-gray-100 text-gray-600">N/A</span>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -214,7 +214,7 @@ $fmtBytes = function (int $bytes): string {
 
     <!-- Table Sizes -->
     <?php if (!empty($tableSizes)): ?>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Table Sizes (top 30)</div>
         <div class="overflow-x-auto">
             <table class="w-full text-xs">
@@ -250,7 +250,7 @@ $fmtBytes = function (int $bytes): string {
 
     <!-- Public Views (PostgreSQL only) -->
     <?php if ($dbType === 'postgresql' && !empty($publicViews)): ?>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex justify-between items-center">
             <span>Public Schema Views</span>
             <span class="bg-gray-200 text-gray-700 text-xs px-2 py-0.5 rounded-full"><?php echo count($publicViews); ?></span>
@@ -269,7 +269,7 @@ $fmtBytes = function (int $bytes): string {
                         </td>
                         <td class="px-3 py-2">
                             <?php if (!empty($v['view_definition'])): ?>
-                            <button class="text-xs border border-blue-400 text-blue-600 rounded px-2 py-0.5 hover:bg-blue-50"
+                            <button class="text-xs border border-blue-400 text-blue-600 rounded-sm px-2 py-0.5 hover:bg-blue-50"
                                     data-view-def-index="<?php echo (int) $i; ?>">View</button>
                             <?php endif; ?>
                         </td>
@@ -313,7 +313,7 @@ $fmtBytes = function (int $bytes): string {
     </div>
 
     <?php if (!empty($tsData['hypertables'])): ?>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex items-center gap-2">
             Hypertables
             <span class="bg-cyan-100 text-cyan-800 text-xs px-2 py-0.5 rounded-full"><?php echo count($tsData['hypertables']); ?></span>
@@ -331,7 +331,7 @@ $fmtBytes = function (int $bytes): string {
                         <td class="px-3 py-2 text-right"><?php echo (int) ($ht['num_dimensions'] ?? 0); ?></td>
                         <td class="px-3 py-2">
                             <?php $comp = $ht['compression_enabled'] ?? false; ?>
-                            <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?php echo $comp ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'; ?>"><?php echo $comp ? 'On' : 'Off'; ?></span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $comp ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'; ?>"><?php echo $comp ? 'On' : 'Off'; ?></span>
                         </td>
                         <td class="px-3 py-2 text-gray-400"><?php echo htmlspecialchars($ht['tablespaces'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                     </tr>
@@ -343,7 +343,7 @@ $fmtBytes = function (int $bytes): string {
     <?php endif; ?>
 
     <?php if (!empty($tsData['aggregates'])): ?>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex items-center gap-2">
             Continuous Aggregates
             <span class="bg-cyan-100 text-cyan-800 text-xs px-2 py-0.5 rounded-full"><?php echo count($tsData['aggregates']); ?></span>
@@ -362,11 +362,11 @@ $fmtBytes = function (int $bytes): string {
                         <td class="px-3 py-2 font-mono text-gray-400"><?php echo htmlspecialchars($ca['materialization_name'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                         <td class="px-3 py-2">
                             <?php $mo = $ca['materialized_only'] ?? 'No'; ?>
-                            <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?php echo $mo === 'Yes' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'; ?>"><?php echo htmlspecialchars($mo, ENT_QUOTES, 'UTF-8'); ?></span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $mo === 'Yes' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'; ?>"><?php echo htmlspecialchars($mo, ENT_QUOTES, 'UTF-8'); ?></span>
                         </td>
                         <td class="px-3 py-2">
                             <?php $comp = $ca['compression_enabled'] ?? false; ?>
-                            <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?php echo $comp ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'; ?>"><?php echo $comp ? 'On' : 'Off'; ?></span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $comp ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'; ?>"><?php echo $comp ? 'On' : 'Off'; ?></span>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -377,7 +377,7 @@ $fmtBytes = function (int $bytes): string {
     <?php endif; ?>
 
     <?php if (!empty($tsData['jobs'])): ?>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Scheduled Jobs</div>
         <div class="overflow-x-auto">
             <table class="w-full text-xs">
@@ -399,11 +399,11 @@ $fmtBytes = function (int $bytes): string {
                         <td class="px-3 py-2">
                             <?php $ls = $job['last_run_status'] ?? '—';
                             $lsCls = $ls === 'Success' ? 'bg-green-100 text-green-800' : ($ls === '—' ? 'bg-gray-100 text-gray-600' : 'bg-red-100 text-red-800'); ?>
-                            <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?php echo $lsCls; ?>"><?php echo htmlspecialchars($ls, ENT_QUOTES, 'UTF-8'); ?></span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $lsCls; ?>"><?php echo htmlspecialchars($ls, ENT_QUOTES, 'UTF-8'); ?></span>
                         </td>
                         <td class="px-3 py-2 text-gray-400"><?php echo !empty($job['next_start']) ? htmlspecialchars($job['next_start'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
                         <td class="px-3 py-2">
-                            <button class="text-xs border border-red-400 text-red-600 rounded px-2 py-0.5 hover:bg-red-50"
+                            <button class="text-xs border border-red-400 text-red-600 rounded-sm px-2 py-0.5 hover:bg-red-50"
                                     data-job-history-id="<?php echo (int) ($job['job_id'] ?? 0); ?>">
                                 Error History
                             </button>

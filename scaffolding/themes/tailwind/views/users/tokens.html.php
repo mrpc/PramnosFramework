@@ -13,16 +13,16 @@ $uid    = (int) ($user['userid'] ?? 0);
 $statusBadge = function (int $s): string {
     $map = [0 => ['bg-gray-100 text-gray-600', 'Inactive'], 1 => ['bg-green-100 text-green-700', 'Active'], 2 => ['bg-gray-800 text-white', 'Deleted'], 3 => ['bg-red-100 text-red-700', 'Revoked']];
     [$cls, $txt] = $map[$s] ?? ['bg-gray-100 text-gray-600', 'Unknown'];
-    return '<span class="inline-block px-2 py-0.5 rounded text-xs font-medium ' . $cls . '">' . $txt . '</span>';
+    return '<span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium ' . $cls . '">' . $txt . '</span>';
 };
 ?>
 <div class="px-4 py-6">
     <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-semibold">Tokens — <?php echo htmlspecialchars($user['username'] ?? ''); ?></h2>
-        <a href="<?php echo sURL; ?>users/edit/<?php echo $uid; ?>" class="px-3 py-1.5 border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-50">Back to User</a>
+        <a href="<?php echo sURL; ?>users/edit/<?php echo $uid; ?>" class="px-3 py-1.5 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">Back to User</a>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-x-auto">
         <table class="w-full text-sm">
             <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
                 <tr>
@@ -47,7 +47,7 @@ $statusBadge = function (int $s): string {
                 ?>
                 <tr class="hover:bg-gray-50 <?php echo $rowBg; ?>">
                     <td class="px-4 py-2 font-mono text-xs text-gray-500"><?php echo $tokenId; ?></td>
-                    <td class="px-4 py-2"><span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth'); ?></span></td>
+                    <td class="px-4 py-2"><span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-sm"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth'); ?></span></td>
                     <td class="px-4 py-2"><?php echo $statusBadge($status); ?></td>
                     <td class="px-4 py-2 text-xs text-gray-400"><?php echo htmlspecialchars($tok['ipaddress'] ?? '—'); ?></td>
                     <td class="px-4 py-2 text-xs"><?php echo ($tok['created'] ?? 0) > 0 ? date('Y-m-d H:i', (int)$tok['created']) : '—'; ?></td>
@@ -60,13 +60,13 @@ $statusBadge = function (int $s): string {
                             <form method="post" action="<?php echo sURL; ?>users/deactivateToken">
                                 <input type="hidden" name="userid" value="<?php echo $uid; ?>">
                                 <input type="hidden" name="tokenid" value="<?php echo $tokenId; ?>">
-                                <button type="submit" class="px-2 py-1 text-xs border border-yellow-400 text-yellow-700 rounded hover:bg-yellow-50">Deactivate</button>
+                                <button type="submit" class="px-2 py-1 text-xs border border-yellow-400 text-yellow-700 rounded-sm hover:bg-yellow-50">Deactivate</button>
                             </form>
                         <?php endif; ?>
                         <form method="post" action="<?php echo sURL; ?>users/deleteToken">
                             <input type="hidden" name="userid" value="<?php echo $uid; ?>">
                             <input type="hidden" name="tokenid" value="<?php echo $tokenId; ?>">
-                            <button type="submit" class="px-2 py-1 text-xs border border-red-300 text-red-700 rounded hover:bg-red-50"
+                            <button type="submit" class="px-2 py-1 text-xs border border-red-300 text-red-700 rounded-sm hover:bg-red-50"
                                 data-confirm="Delete this token?">Delete</button>
                         </form>
                     </td>

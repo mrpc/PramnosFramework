@@ -19,7 +19,7 @@
             <div>
                 <label for="user_code" class="block text-sm font-medium text-gray-700 mb-1">Device Code</label>
                 <input type="text" id="user_code" name="user_code"
-                       class="w-full border border-gray-300 rounded-md px-3 py-2 text-center font-mono text-xl font-bold uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       class="w-full border border-gray-300 rounded-md px-3 py-2 text-center font-mono text-xl font-bold uppercase tracking-widest focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                        value="<?php echo htmlspecialchars($this->userCode ?? ''); ?>"
                        placeholder="XXXX-XXXX" maxlength="9"
                        pattern="[A-Z0-9]{4}-[A-Z0-9]{4}" required>
@@ -28,13 +28,13 @@
             <div>
                 <label for="username" class="block text-sm font-medium text-gray-700 mb-1">Username or Email</label>
                 <input type="text" id="username" name="username"
-                       class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                        required autocomplete="username">
             </div>
             <div>
                 <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
                 <input type="password" id="password" name="password"
-                       class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                        required autocomplete="current-password">
             </div>
             <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">Authorize Device</button>

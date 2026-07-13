@@ -36,13 +36,13 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
 ?>
 <div class="px-4 py-6">
     <div class="flex items-center gap-3 mb-6">
-        <a href="<?php echo sURL; ?>users" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-600 rounded hover:bg-gray-50">&larr; Users</a>
+        <a href="<?php echo sURL; ?>users" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">&larr; Users</a>
         <h2 class="text-2xl font-semibold"><?php echo htmlspecialchars($user['username'] ?? '', ENT_QUOTES, 'UTF-8'); ?></h2>
         <?php if (!$isActive): ?>
-            <span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">Inactive</span>
+            <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-red-100 text-red-700">Inactive</span>
         <?php endif; ?>
         <?php if (!$isValidated): ?>
-            <span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700">Unvalidated</span>
+            <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-yellow-100 text-yellow-700">Unvalidated</span>
         <?php endif; ?>
     </div>
 
@@ -50,7 +50,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
         <!-- Left: profile card + stats + actions -->
         <div class="lg:col-span-1 space-y-4">
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center">
+            <div class="bg-white rounded-xl shadow-xs border border-gray-200 p-6 text-center">
                 <div class="w-20 h-20 bg-gray-400 rounded-full flex items-center justify-center mx-auto mb-3 text-3xl font-bold text-white">
                     <?php echo htmlspecialchars($initials, ENT_QUOTES, 'UTF-8'); ?>
                 </div>
@@ -59,16 +59,16 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 </h3>
                 <p class="text-sm text-gray-400 mt-0.5">@<?php echo htmlspecialchars($user['username'] ?? '', ENT_QUOTES, 'UTF-8'); ?></p>
                 <div class="mt-2 flex justify-center gap-1 flex-wrap">
-                    <span class="inline-block px-2 py-0.5 rounded text-xs font-medium <?php echo $typeCls; ?>">
+                    <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $typeCls; ?>">
                         <?php echo $typeLabel; ?> (<?php echo (int) ($user['usertype'] ?? 0); ?>)
                     </span>
-                    <span class="inline-block px-2 py-0.5 rounded text-xs font-medium <?php echo $isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'; ?>">
+                    <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'; ?>">
                         <?php echo $isActive ? 'Active' : 'Inactive'; ?>
                     </span>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
                 <div class="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">Statistics</div>
                 <div class="divide-y divide-gray-100 text-sm">
                     <div class="px-4 py-2.5 flex justify-between">
@@ -98,23 +98,23 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
                 <div class="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</div>
                 <div class="p-4 grid gap-2">
                     <a href="<?php echo sURL; ?>users/edit/<?php echo $uid; ?>"
-                       class="block text-center px-3 py-2 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700">Edit User</a>
+                       class="block text-center px-3 py-2 text-sm bg-indigo-600 text-white rounded-sm hover:bg-indigo-700">Edit User</a>
                     <?php if ($isActive): ?>
                         <a href="<?php echo sURL; ?>users/lock/<?php echo $uid; ?>"
-                           class="block text-center px-3 py-2 text-sm border border-yellow-400 text-yellow-700 rounded hover:bg-yellow-50"
+                           class="block text-center px-3 py-2 text-sm border border-yellow-400 text-yellow-700 rounded-sm hover:bg-yellow-50"
                            data-confirm="Lock this account?">Lock Account</a>
                     <?php else: ?>
                         <a href="<?php echo sURL; ?>users/unlock/<?php echo $uid; ?>"
-                           class="block text-center px-3 py-2 text-sm border border-green-400 text-green-700 rounded hover:bg-green-50">Unlock Account</a>
+                           class="block text-center px-3 py-2 text-sm border border-green-400 text-green-700 rounded-sm hover:bg-green-50">Unlock Account</a>
                     <?php endif; ?>
                     <a href="<?php echo sURL; ?>users/tokens/<?php echo $uid; ?>"
-                       class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded hover:bg-gray-50">All Tokens</a>
+                       class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">All Tokens</a>
                     <a href="<?php echo sURL; ?>users/sessions/<?php echo $uid; ?>"
-                       class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded hover:bg-gray-50">Sessions</a>
+                       class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">Sessions</a>
                 </div>
             </div>
 
@@ -123,7 +123,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
         <!-- Right: details + recent tokens -->
         <div class="lg:col-span-3 space-y-4">
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+            <div class="bg-white rounded-xl shadow-xs border border-gray-200">
                 <div class="px-6 py-3 border-b border-gray-100 font-semibold text-gray-700">Account Details</div>
                 <div class="p-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 text-sm">
                     <?php $field = function(string $label, string $value) { ?>
@@ -143,17 +143,17 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     <?php $field('Timezone', ($user['timezone'] ?? '') !== '' ? htmlspecialchars($user['timezone'], ENT_QUOTES, 'UTF-8') : '<span class="text-gray-300">—</span>'); ?>
                     <div>
                         <div class="text-xs text-gray-400 mb-0.5">User Type</div>
-                        <span class="inline-block px-2 py-0.5 rounded text-xs font-medium <?php echo $typeCls; ?>"><?php echo $typeLabel; ?></span>
+                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $typeCls; ?>"><?php echo $typeLabel; ?></span>
                     </div>
                     <div>
                         <div class="text-xs text-gray-400 mb-0.5">Status</div>
-                        <span class="inline-block px-2 py-0.5 rounded text-xs font-medium <?php echo $isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'; ?>">
+                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'; ?>">
                             <?php echo $isActive ? 'Active' : 'Inactive'; ?>
                         </span>
                     </div>
                     <div>
                         <div class="text-xs text-gray-400 mb-0.5">Validation</div>
-                        <span class="inline-block px-2 py-0.5 rounded text-xs font-medium <?php echo $isValidated ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'; ?>">
+                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $isValidated ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'; ?>">
                             <?php echo $isValidated ? 'Validated' : 'Pending'; ?>
                         </span>
                     </div>
@@ -161,7 +161,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
             </div>
 
             <?php if (!empty($recentTokens)): ?>
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
                 <div class="px-6 py-3 border-b border-gray-100 flex justify-between items-center">
                     <span class="font-semibold text-gray-700">Recent Tokens</span>
                     <a href="<?php echo sURL; ?>users/tokens/<?php echo $uid; ?>"
@@ -187,8 +187,8 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     ?>
                         <tr class="hover:bg-gray-50">
                             <td class="px-4 py-2 font-mono text-xs text-gray-500"><?php echo (int) $tok['tokenid']; ?></td>
-                            <td class="px-4 py-2"><span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth', ENT_QUOTES, 'UTF-8'); ?></span></td>
-                            <td class="px-4 py-2"><span class="inline-block px-2 py-0.5 rounded text-xs font-medium <?php echo $sCls; ?>"><?php echo $sLabel; ?></span></td>
+                            <td class="px-4 py-2"><span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-sm"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth', ENT_QUOTES, 'UTF-8'); ?></span></td>
+                            <td class="px-4 py-2"><span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $sCls; ?>"><?php echo $sLabel; ?></span></td>
                             <td class="px-4 py-2 text-xs text-gray-400"><?php echo htmlspecialchars($tok['ipaddress'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                             <td class="px-4 py-2 text-xs"><?php echo ($tok['lastused'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $tok['lastused']) : '—'; ?></td>
                             <td class="px-4 py-2 text-xs"><?php echo $exp > 0 ? date('Y-m-d H:i', $exp) : 'Never'; ?></td>

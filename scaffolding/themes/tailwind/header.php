@@ -14,7 +14,7 @@
         else { $_adminSub[$_ai->parent][] = $_ai; }
     }
     ?>
-    <header class="bg-white shadow sticky top-0 z-50">
+    <header class="bg-white shadow-sm sticky top-0 z-50">
         <div class="container mx-auto px-4 max-w-5xl flex items-center justify-between h-16">
             <a href="<?php echo sURL; ?>" class="text-xl font-bold text-blue-600">
                 <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>
@@ -33,7 +33,7 @@
                     <?php if (!empty($_adminTop)): ?>
                     <li class="relative group">
                         <span class="text-gray-700 hover:text-blue-600 font-medium transition-colors cursor-pointer">Admin &#9660;</span>
-                        <ul class="absolute right-0 mt-2 bg-white border border-gray-200 rounded shadow-lg hidden group-hover:block z-50 py-1 min-w-[180px]">
+                        <ul class="absolute right-0 mt-2 bg-white border border-gray-200 rounded-sm shadow-lg hidden group-hover:block z-50 py-1 min-w-[180px]">
                             <?php foreach ($_adminTop as $_item):
                                 $_children = $_adminSub[$_item->id] ?? [];
                                 if (!empty($_children)): ?>
@@ -41,7 +41,7 @@
                                 <a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>" class="flex justify-between items-center px-4 py-2 text-gray-700 hover:bg-gray-100 whitespace-nowrap">
                                     <?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?> <span class="text-xs opacity-50">&#9658;</span>
                                 </a>
-                                <ul class="absolute left-full top-0 bg-white border border-gray-200 rounded shadow-lg hidden group-hover/sub:block z-50 py-1 min-w-[160px]">
+                                <ul class="absolute left-full top-0 bg-white border border-gray-200 rounded-sm shadow-lg hidden group-hover/sub:block z-50 py-1 min-w-[160px]">
                                     <?php foreach ($_children as $_child): ?>
                                     <li><a href="<?php echo htmlspecialchars($_child->url, ENT_QUOTES, 'UTF-8'); ?>" class="block px-4 py-2 text-gray-700 hover:bg-gray-100 whitespace-nowrap"><?php echo htmlspecialchars($_child->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
                                     <?php endforeach; ?>
