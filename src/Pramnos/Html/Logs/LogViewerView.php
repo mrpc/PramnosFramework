@@ -63,539 +63,417 @@ class LogViewerView
 
         ob_start();
 ?>
-        <!-- begin:: Content -->
-        <div class="kt-container kt-container--fluid kt-grid__item kt-grid__item--fluid" style="height: 100vh;">
-            <div class="card" style="height: 80%;">
-                <div class="card-body" style="height: 100%; display: flex; flex-direction: column;">
-                    
+        <!-- begin:: Log viewer (self-contained: scoped CSS + vanilla JS, no
+             Bootstrap/jQuery/FontAwesome dependency, so it renders identically
+             under every UI theme — tailwind / bootstrap / plain-css). -->
+        <div class="pf-logviewer">
+            <style>
+                .pf-logviewer { display:flex; flex-direction:column; min-height:70vh; font-size:0.9rem; color:#1f2937; }
+                .pf-logviewer *, .pf-logviewer *::before, .pf-logviewer *::after { box-sizing:border-box; }
+                .pf-lv-panel { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px 14px; margin-bottom:12px; }
+                .pf-lv-row { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; }
+                .pf-lv-row + .pf-lv-row { margin-top:12px; }
+                .pf-lv-field { display:flex; flex-direction:column; gap:4px; }
+                .pf-lv-field.grow { flex:1 1 220px; min-width:180px; }
+                .pf-lv-field label { font-size:0.75rem; font-weight:600; color:#6b7280; }
+                .pf-lv-control { height:36px; padding:0 10px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#1f2937; font-size:0.875rem; outline:none; }
+                .pf-lv-control:focus { border-color:#2563eb; box-shadow:0 0 0 2px rgba(37,99,235,.2); }
+                select.pf-lv-control { min-width:120px; }
+                .pf-lv-inputgroup { display:flex; }
+                .pf-lv-inputgroup .pf-lv-control { flex:1 1 auto; border-top-right-radius:0; border-bottom-right-radius:0; }
+                .pf-lv-inputgroup .pf-lv-btn { border-top-left-radius:0; border-bottom-left-radius:0; border-left:0; }
+                .pf-lv-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:36px; padding:0 12px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#374151; font-size:0.875rem; cursor:pointer; white-space:nowrap; transition:background-color .15s,color .15s; }
+                .pf-lv-btn:hover { background:#f3f4f6; }
+                .pf-lv-btn:disabled { opacity:.45; cursor:not-allowed; background:#f9fafb; }
+                .pf-lv-btn-primary { background:#2563eb; border-color:#2563eb; color:#fff; }
+                .pf-lv-btn-primary:hover { background:#1d4ed8; }
+                .pf-lv-btn-group { display:flex; }
+                .pf-lv-btn-group > .pf-lv-btn, .pf-lv-btn-group > .pf-lv-inputgroup > .pf-lv-control, .pf-lv-btn-group > .pf-lv-dropdown > .pf-lv-btn { border-radius:0; margin-left:-1px; }
+                .pf-lv-btn-group > :first-child, .pf-lv-btn-group > :first-child .pf-lv-btn { border-top-left-radius:6px; border-bottom-left-radius:6px; margin-left:0; }
+                .pf-lv-btn-group > :last-child, .pf-lv-btn-group > :last-child .pf-lv-btn { border-top-right-radius:6px; border-bottom-right-radius:6px; }
+                .pf-lv-page { display:flex; align-items:center; }
+                .pf-lv-page .pf-lv-control { width:60px; text-align:center; border-radius:0; }
+                .pf-lv-page .pf-lv-total { display:inline-flex; align-items:center; height:36px; padding:0 10px; border:1px solid #d1d5db; border-left:0; background:#f3f4f6; color:#6b7280; font-size:0.8rem; }
+                .pf-lv-spacer { margin-left:auto; }
+                .pf-lv-actions { display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; }
+                .pf-lv-dropdown { position:relative; display:inline-block; }
+                .pf-lv-menu { display:none; position:absolute; right:0; top:calc(100% + 4px); min-width:200px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.12); padding:6px 0; z-index:1000; }
+                .pf-lv-dropdown.open .pf-lv-menu { display:block; }
+                .pf-lv-menu-item { display:block; padding:8px 14px; color:#374151; text-decoration:none; font-size:0.875rem; cursor:pointer; }
+                .pf-lv-menu-item:hover { background:#f3f4f6; }
+                .pf-lv-divider { height:1px; background:#e5e7eb; margin:6px 0; }
+                #logFrame { transition:opacity .2s; opacity:0.7; width:100%; border:1px solid #e5e7eb; border-radius:8px; flex:1 1 auto; min-height:420px; background:#f8f9fa; overflow:auto; }
+                .pf-lv-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:1050; align-items:flex-start; justify-content:center; padding:40px 16px; }
+                .pf-lv-modal.open { display:flex; }
+                .pf-lv-modal-dialog { background:#fff; border-radius:10px; width:100%; max-width:460px; box-shadow:0 10px 40px rgba(0,0,0,.25); overflow:hidden; }
+                .pf-lv-modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid #e5e7eb; }
+                .pf-lv-modal-head h5 { margin:0; font-size:1rem; font-weight:600; }
+                .pf-lv-modal-close { border:0; background:none; font-size:1.4rem; line-height:1; cursor:pointer; color:#6b7280; }
+                .pf-lv-modal-body { padding:18px; }
+                .pf-lv-modal-foot { display:flex; justify-content:flex-end; gap:8px; padding:14px 18px; border-top:1px solid #e5e7eb; }
+                .pf-lv-modal-body .pf-lv-field { margin-bottom:14px; }
+                .pf-lv-check { display:flex; align-items:center; gap:8px; font-size:0.875rem; margin-bottom:6px; }
+            </style>
 
-                    <form id="logSettings" class="mb-3">
-                        <div class="form-row mb-3">
-                            <div class="form-group col-md-3">
-                                <label for="file">Log file:</label>
-                                <div class="input-group">
-                                    <select id="file" name="file" class="form-control">
-                                        <?php foreach ($whitelist as $file): ?>
-                                            <option value="<?php echo htmlspecialchars($file); ?>" <?php echo $file === $currentFile ? 'selected' : ''; ?>>
-                                                <?php echo htmlspecialchars($file); ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                    <div class="input-group-append">
-                                        <button type="button" id="manualRefresh" class="btn btn-outline-secondary" title="Refresh">
-                                            <i class="fas fa-sync-alt"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="form-group col-md-2">
-                                <label for="autoUpdate">Auto update:</label>
-                                <select id="autoUpdate" name="autoUpdate" class="form-control">
-                                    <option value="never" selected>never</option>
-                                    <option value="3">3 seconds</option>
-                                    <option value="5">5 seconds</option>
-                                    <option value="10">10 seconds</option>
-                                    <option value="20">20 seconds</option>
-                                    <option value="30">30 seconds</option>
-                                    <option value="60">1 Minute</option>
-                                </select>
-                            </div>
-
-                            <div class="form-group col-md-2">
-                                <label for="logLevel">Log level:</label>
-                                <select id="logLevel" name="logLevel" class="form-control">
-                                    <option value="all" selected>All Levels</option>
-                                    <option value="emergency">Emergency</option>
-                                    <option value="alert">Alert</option>
-                                    <option value="critical">Critical</option>
-                                    <option value="error">Error</option>
-                                    <option value="warning">Warning</option>
-                                    <option value="notice">Notice</option>
-                                    <option value="info">Info</option>
-                                    <option value="debug">Debug</option>
-                                </select>
-                            </div>
-
-                            <div class="form-group col-md-2">
-                                <label for="maxLines">Lines per page:</label>
-                                <input type="number" id="maxLines" name="maxLines" step="1" value="20" min="1" max="999999999" class="form-control">
-                            </div>
-
-                            <div class="form-group col-md-3">
-                                <label for="search">Search:</label>
-                                <div class="input-group">
-                                    <input type="text" id="search" name="search" class="form-control" placeholder="Enter search text...">
-                                    <div class="input-group-append">
-                                        <button type="button" id="clearSearch" class="btn btn-outline-secondary" title="Clear search">
-                                            <i class="fas fa-times"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="form-row align-items-end">
-                            <div class="btn-group">
-                                <button type="button" id="firstPage" class="btn btn-outline-secondary" title="First page">
-                                    <i class="fas fa-angle-double-left"></i>
-                                </button>
-                                <button type="button" id="prevPage" class="btn btn-outline-secondary" title="Previous page">
-                                    <i class="fas fa-angle-left"></i>
-                                </button>
-                                <div class="input-group" style="width: 115px;">
-                                    <input type="number" id="page" name="page" value="1" min="1" class="form-control" title="Current page">
-                                    <div class="input-group-append">
-                                        <span class="input-group-text" id="totalPagesLabel">/ 1</span>
-                                    </div>
-                                </div>
-                                <button type="button" id="nextPage" class="btn btn-outline-secondary" title="Next page">
-                                    <i class="fas fa-angle-right"></i>
-                                </button>
-                                <button type="button" id="lastPage" class="btn btn-outline-secondary" title="Last page">
-                                    <i class="fas fa-angle-double-right"></i>
-                                </button>
-                            </div>
-                            
-                            <div class="ml-auto">
-                                <div class="btn-group">
-                                    <button type="button" id="toggleOrder" class="btn btn-outline-secondary" title="Toggle order">
-                                        <input type="hidden" id="reverse" name="reverse" value="1">
-                                        <i class="fas fa-sort-amount-down"></i>
-                                        <span class="order-text">Newest first</span>
-                                    </button>
-                                    <div class="dropdown">
-                                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="downloadDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                                            <i class="fas fa-download"></i> Export
-                                        </button>
-                                        <div class="dropdown-menu dropdown-menu-right" aria-labelledby="downloadDropdown">
-                                            <a class="dropdown-item" href="#" data-export-format="csv" data-file="<?php echo htmlspecialchars($currentFile); ?>">
-                                                <i class="fas fa-file-csv"></i> Export as CSV
-                                            </a>
-                                            <a class="dropdown-item" href="#" data-export-format="json" data-file="<?php echo htmlspecialchars($currentFile); ?>">
-                                                <i class="fas fa-file-code"></i> Export as JSON
-                                            </a>
-                                            <a class="dropdown-item" href="#" data-export-format="raw" data-file="<?php echo htmlspecialchars($currentFile); ?>">
-                                                <i class="fas fa-file-alt"></i> Download Raw Log
-                                            </a>
-                                            <div class="dropdown-divider"></div>
-                                            <a class="dropdown-item" href="#" id="dateRangeExport">
-                                                <i class="fas fa-calendar-alt"></i> Export Date Range
-                                            </a>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </form>
-
-                    <iframe id="logFrame" src="<?php echo $logUrl; ?>/raw/file/<?php echo htmlspecialchars($currentFile); ?>/maxLines/20/reverse/1/page/1"
-                        style="width: 100%; height: 100%; border: none; overflow-y: auto; overflow-x: hidden; flex-grow: 1; background: #f8f9fa;"></iframe>
-
-                    <!-- Date Range Export Modal -->
-                    <div class="modal fade" id="dateRangeModal" tabindex="-1" role="dialog" aria-labelledby="dateRangeModalLabel" aria-hidden="true">
-                        <div class="modal-dialog" role="document">
-                            <div class="modal-content">
-                                <div class="modal-header">
-                                    <h5 class="modal-title" id="dateRangeModalLabel">Export Log by Date Range</h5>
-                                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                                        <span aria-hidden="true">&times;</span>
-                                    </button>
-                                </div>
-                                <div class="modal-body">
-                                    <form id="dateRangeForm" action="<?php echo $logUrl; ?>/export" method="post">
-                                        <input type="hidden" name="file" value="<?php echo htmlspecialchars($currentFile); ?>">
-                                        <div class="form-group">
-                                            <label for="start_date">Start Date:</label>
-                                            <input type="date" id="start_date" name="start_date" class="form-control" required>
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="end_date">End Date:</label>
-                                            <input type="date" id="end_date" name="end_date" class="form-control" required>
-                                        </div>
-                                        <div class="form-group">
-                                            <label>Export Format:</label>
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="format" id="formatCsv" value="csv" checked>
-                                                <label class="form-check-label" for="formatCsv">
-                                                    CSV (Excel compatible)
-                                                </label>
-                                            </div>
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="format" id="formatJson" value="json">
-                                                <label class="form-check-label" for="formatJson">
-                                                    JSON
-                                                </label>
-                                            </div>
-                                        </div>
-                                    </form>
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                                    <button type="button" class="btn btn-primary" id="exportDateRange">Export</button>
-                                </div>
-                            </div>
+            <form id="logSettings" class="pf-lv-panel">
+                <div class="pf-lv-row">
+                    <div class="pf-lv-field grow">
+                        <label for="file">Log file:</label>
+                        <div class="pf-lv-inputgroup">
+                            <select id="file" name="file" class="pf-lv-control">
+                                <?php foreach ($whitelist as $file): ?>
+                                    <option value="<?php echo htmlspecialchars($file); ?>" <?php echo $file === $currentFile ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($file); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="button" id="manualRefresh" class="pf-lv-btn" title="Refresh">&#8635;</button>
                         </div>
                     </div>
 
-                    <script>
-                        let totalPages = 1;
-                        let autoUpdateTimer = null;
-                        const logBaseUrl = '<?php echo $logUrl; ?>';
+                    <div class="pf-lv-field">
+                        <label for="autoUpdate">Auto update:</label>
+                        <select id="autoUpdate" name="autoUpdate" class="pf-lv-control">
+                            <option value="never" selected>never</option>
+                            <option value="3">3 seconds</option>
+                            <option value="5">5 seconds</option>
+                            <option value="10">10 seconds</option>
+                            <option value="20">20 seconds</option>
+                            <option value="30">30 seconds</option>
+                            <option value="60">1 Minute</option>
+                        </select>
+                    </div>
 
-                        function debounce(func, wait) {
-                            let timeout;
-                            return function executedFunction(...args) {
-                                const later = () => {
-                                    clearTimeout(timeout);
-                                    func(...args);
-                                };
-                                clearTimeout(timeout);
-                                timeout = setTimeout(later, wait);
-                            };
-                        }
+                    <div class="pf-lv-field">
+                        <label for="logLevel">Log level:</label>
+                        <select id="logLevel" name="logLevel" class="pf-lv-control">
+                            <option value="all" selected>All Levels</option>
+                            <option value="emergency">Emergency</option>
+                            <option value="alert">Alert</option>
+                            <option value="critical">Critical</option>
+                            <option value="error">Error</option>
+                            <option value="warning">Warning</option>
+                            <option value="notice">Notice</option>
+                            <option value="info">Info</option>
+                            <option value="debug">Debug</option>
+                        </select>
+                    </div>
 
-                        // Add the debounced search function
-                        const debouncedSearch = debounce(() => {
-                            document.getElementById('page').value = 1;
-                            updateLogFrame();
-                        }, 500); // 500ms delay
+                    <div class="pf-lv-field">
+                        <label for="maxLines">Lines per page:</label>
+                        <input type="number" id="maxLines" name="maxLines" step="1" value="20" min="1" max="999999999" class="pf-lv-control" style="width:110px">
+                    </div>
 
-                        function updateTotalPagesLabel() {
-                            document.getElementById('totalPagesLabel').textContent = `/ ${totalPages}`;
-                        }
+                    <div class="pf-lv-field grow">
+                        <label for="search">Search:</label>
+                        <div class="pf-lv-inputgroup">
+                            <input type="text" id="search" name="search" class="pf-lv-control" placeholder="Enter search text...">
+                            <button type="button" id="clearSearch" class="pf-lv-btn" title="Clear search">&#10005;</button>
+                        </div>
+                    </div>
+                </div>
 
-                        function updateLogFrame() {
-                            const file = document.getElementById('file').value;
-                            const autoUpdate = document.getElementById('autoUpdate').value;
-                            const maxLines = document.getElementById('maxLines').value;
-                            const reverse = document.getElementById('reverse').value;
-                            const search = encodeURIComponent(document.getElementById('search').value.trim().replace(/ /g, '{space}'));
-                            const page = document.getElementById('page').value;
-                            const logLevel = document.getElementById('logLevel').value;
-                            const iframe = document.getElementById('logFrame');
+                <div class="pf-lv-row">
+                    <div class="pf-lv-btn-group">
+                        <button type="button" id="firstPage" class="pf-lv-btn" title="First page">&laquo;</button>
+                        <button type="button" id="prevPage" class="pf-lv-btn" title="Previous page">&lsaquo;</button>
+                        <div class="pf-lv-page">
+                            <input type="number" id="page" name="page" value="1" min="1" class="pf-lv-control" title="Current page">
+                            <span class="pf-lv-total" id="totalPagesLabel">/ 1</span>
+                        </div>
+                        <button type="button" id="nextPage" class="pf-lv-btn" title="Next page">&rsaquo;</button>
+                        <button type="button" id="lastPage" class="pf-lv-btn" title="Last page">&raquo;</button>
+                    </div>
 
-                            let url = `${logBaseUrl}/raw/file/${file}/maxLines/${maxLines}/reverse/${reverse}/page/${page}`;
-                            
-                            if (search) {
-                                url += `/search/${search}`;
-                            }
-                            
-                            if (logLevel !== 'all') {
-                                url += `/level/${logLevel}`;
-                            }
-                            
-                            iframe.src = url;
+                    <div class="pf-lv-actions pf-lv-spacer">
+                        <button type="button" id="toggleOrder" class="pf-lv-btn" title="Toggle order">
+                            <input type="hidden" id="reverse" name="reverse" value="1">
+                            <span class="order-icon">&#8595;</span>
+                            <span class="order-text">Newest first</span>
+                        </button>
+                        <div class="pf-lv-dropdown">
+                            <button class="pf-lv-btn" type="button" id="downloadDropdown" aria-haspopup="true" aria-expanded="false">
+                                &#11015; Export
+                            </button>
+                            <div class="pf-lv-menu" aria-labelledby="downloadDropdown">
+                                <a class="pf-lv-menu-item" href="#" data-export-format="csv" data-file="<?php echo htmlspecialchars($currentFile); ?>">Export as CSV</a>
+                                <a class="pf-lv-menu-item" href="#" data-export-format="json" data-file="<?php echo htmlspecialchars($currentFile); ?>">Export as JSON</a>
+                                <a class="pf-lv-menu-item" href="#" data-export-format="raw" data-file="<?php echo htmlspecialchars($currentFile); ?>">Download Raw Log</a>
+                                <div class="pf-lv-divider"></div>
+                                <a class="pf-lv-menu-item" href="#" id="dateRangeExport">Export Date Range</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
 
-                            updatePaginationState();
-                        }
+            <iframe id="logFrame" src="<?php echo $logUrl; ?>/raw/file/<?php echo htmlspecialchars($currentFile); ?>/maxLines/20/reverse/1/page/1"></iframe>
 
-                        function updatePaginationState() {
-                            const currentPage = parseInt(document.getElementById('page').value);
-                            const buttons = {
-                                first: document.getElementById('firstPage'),
-                                prev: document.getElementById('prevPage'),
-                                next: document.getElementById('nextPage'),
-                                last: document.getElementById('lastPage')
-                            };
-
-                            buttons.first.disabled = currentPage <= 1;
-                            buttons.prev.disabled = currentPage <= 1;
-                            buttons.next.disabled = currentPage >= totalPages;
-                            buttons.last.disabled = currentPage >= totalPages;
-
-                            // Update button styles based on state
-                            Object.values(buttons).forEach(button => {
-                                if (button.disabled) {
-                                    button.classList.replace('btn-outline-secondary', 'btn-secondary');
-                                } else {
-                                    button.classList.replace('btn-secondary', 'btn-outline-secondary');
-                                }
-                            });
-                        }
-
-                        function setPage(newPage) {
-                            const pageInput = document.getElementById('page');
-                            pageInput.value = Math.max(1, Math.min(newPage, totalPages));
-                            updateLogFrame();
-                        }
-
-                        function setupAutoUpdate() {
-                            const autoUpdate = document.getElementById('autoUpdate').value;
-
-                            if (autoUpdateTimer) {
-                                clearInterval(autoUpdateTimer);
-                                autoUpdateTimer = null;
-                            }
-
-                            if (autoUpdate !== 'never') {
-                                autoUpdateTimer = setInterval(updateLogFrame, autoUpdate * 1000);
-                            }
-                        }
-
-                        // Event listeners for pagination buttons
-                        document.getElementById('firstPage').addEventListener('click', () => setPage(1));
-                        document.getElementById('prevPage').addEventListener('click', () => setPage(parseInt(document.getElementById('page').value) - 1));
-                        document.getElementById('nextPage').addEventListener('click', () => setPage(parseInt(document.getElementById('page').value) + 1));
-                        document.getElementById('lastPage').addEventListener('click', () => setPage(totalPages));
-
-                        // Clear search button
-                        document.getElementById('clearSearch').addEventListener('click', function() {
-                            document.getElementById('search').value = '';
-                            document.getElementById('page').value = 1;
-                            updateLogFrame();
-                        });
-
-                        // Toggle sort order
-                        document.getElementById('toggleOrder').addEventListener('click', function() {
-                            const reverseInput = document.getElementById('reverse');
-                            const icon = this.querySelector('i');
-                            const orderText = this.querySelector('.order-text');
-                            
-                            if (reverseInput.value === '1') {
-                                reverseInput.value = '0';
-                                icon.classList.replace('fa-sort-amount-down', 'fa-sort-amount-up');
-                                orderText.textContent = 'Oldest first';
-                            } else {
-                                reverseInput.value = '1';
-                                icon.classList.replace('fa-sort-amount-up', 'fa-sort-amount-down');
-                                orderText.textContent = 'Newest first';
-                            }
-                            
-                            document.getElementById('page').value = 1;
-                            updateLogFrame();
-                        });
-
-                        // Date range export
-                        document.getElementById('dateRangeExport').addEventListener('click', function(e) {
-                            e.preventDefault();
-                            $('#dateRangeModal').modal('show');
-                        });
-                        
-                        document.getElementById('exportDateRange').addEventListener('click', function() {
-                            document.getElementById('dateRangeForm').submit();
-                        });
-
-                        // Form change events
-                        document.getElementById('logSettings').addEventListener('change', function(e) {
-                            // Reset to page 1 if changing anything except the page number
-                            if (e.target.id !== 'page') {
-                                document.getElementById('page').value = 1;
-                            }
-
-                            // If file selector was changed, update the URL
-                            if (e.target.id === 'file') {
-                                // Get the current URL and update or add the file parameter
-                                const url = new URL(window.location.href);
-                                url.searchParams.set('file', e.target.value);
-                                
-                                // Update browser history without reloading the page
-                                window.history.replaceState({}, '', url.toString());
-                            }
-
-                            updateLogFrame();
-
-                            if (e.target.id === 'autoUpdate') {
-                                setupAutoUpdate();
-                            }
-                        });
-
-                        // Manual refresh button
-                        document.getElementById('manualRefresh').addEventListener('click', updateLogFrame);
-
-                        // Keyboard navigation
-                        document.addEventListener('keydown', function(e) {
-                            if (e.target.tagName === 'INPUT' && e.target.type === 'text') {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    updateLogFrame();
-                                }
-                                return;
-                            }
-
-                            if (e.target.tagName === 'INPUT' && e.target.type === 'number') {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    e.target.blur();
-                                    updateLogFrame();
-                                }
-                                return;
-                            }
-
-                            // Add keyboard shortcuts for navigation
-                            if (document.activeElement.tagName !== 'INPUT') {
-                                switch (e.key) {
-                                    case 'ArrowLeft':
-                                        if (!document.getElementById('prevPage').disabled) {
-                                            setPage(parseInt(document.getElementById('page').value) - 1);
-                                        }
-                                        break;
-                                    case 'ArrowRight':
-                                        if (!document.getElementById('nextPage').disabled) {
-                                            setPage(parseInt(document.getElementById('page').value) + 1);
-                                        }
-                                        break;
-                                    case 'Home':
-                                        if (!document.getElementById('firstPage').disabled) {
-                                            setPage(1);
-                                        }
-                                        break;
-                                    case 'End':
-                                        if (!document.getElementById('lastPage').disabled) {
-                                            setPage(totalPages);
-                                        }
-                                        break;
-                                }
-                            }
-                        });
-
-                        // Listen for messages from the iframe to update total pages
-                        window.addEventListener('message', function(event) {
-                            if (event.data && event.data.totalPages) {
-                                totalPages = event.data.totalPages;
-                                updateTotalPagesLabel();
-                                updatePaginationState();
-                            }
-                        });
-
-                        // Add decode function for the initial load:
-                        document.addEventListener('DOMContentLoaded', function() {
-                            // Get the current URL search params
-                            const urlParams = new URLSearchParams(window.location.search);
-                            if (urlParams.has('search')) {
-                                const searchField = document.getElementById('search');
-                                searchField.value = decodeURIComponent(urlParams.get('search'));
-                            }
-
-                            // Set date inputs to current date range
-                            const today = new Date();
-                            const thirtyDaysAgo = new Date();
-                            thirtyDaysAgo.setDate(today.getDate() - 30);
-                            
-                            document.getElementById('start_date').valueAsDate = thirtyDaysAgo;
-                            document.getElementById('end_date').valueAsDate = today;
-
-                            const searchInput = document.getElementById('search');
-                            searchInput.addEventListener('input', debouncedSearch);
-
-                            // Update the existing key event handler for search
-                            searchInput.addEventListener('keydown', function(e) {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    updateLogFrame();
-                                }
-                            });
-
-                            // If file param exists in URL, update the file selector and iframe
-                            if (urlParams.has('file')) {
-                                const fileSelect = document.getElementById('file');
-                                const fileValue = urlParams.get('file');
-                                
-                                // Check if the file exists in the options and select it
-                                for (let i = 0; i < fileSelect.options.length; i++) {
-                                    if (fileSelect.options[i].value === fileValue) {
-                                        fileSelect.value = fileValue;
-                                        // Also update the iframe with the selected file
-                                        updateLogFrame();
-                                        break;
-                                    }
-                                }
-                            }
-
-                        });
-
-                        // Handle page input validation
-                        document.getElementById('page').addEventListener('blur', function() {
-                            const currentValue = parseInt(this.value);
-                            if (isNaN(currentValue) || currentValue < 1) {
-                                this.value = 1;
-                            } else if (currentValue > totalPages) {
-                                this.value = totalPages;
-                            }
-                            updateLogFrame();
-                        });
-
-                        // Initial setup
-                        updatePaginationState();
-                        setupAutoUpdate();
-
-                        // Add loading indicator to iframe
-                        const iframe = document.getElementById('logFrame');
-                        iframe.onload = function() {
-                            iframe.style.opacity = 1;
-                        }
-                        iframe.onerror = function() {
-                            console.error("Failed to load log content");
-                        }
-                        
-                        // Export functionality using new window/tab to force download
-                        document.querySelectorAll('[data-export-format]').forEach(link => {
-                            link.addEventListener('click', function(e) {
-                                e.preventDefault();
-                                const format = this.getAttribute('data-export-format');
-                                // Get the currently selected file, not the initial file
-                                const file = document.getElementById('file').value;
-                                
-                                // Create hidden download iframe to avoid navigating the main page
-                                const downloadFrame = document.createElement('iframe');
-                                downloadFrame.style.display = 'none';
-                                downloadFrame.src = `${logBaseUrl}/export?file=${encodeURIComponent(file)}&format=${format}`;
-                                document.body.appendChild(downloadFrame);
-                                
-                                // Remove the frame after download starts
-                                setTimeout(() => {
-                                    document.body.removeChild(downloadFrame);
-                                }, 2000);
-                            });
-                        });
-                    </script>
-
-                    <style>
-                        .input-group-text {
-                            font-size: 0.9rem;
-                        }
-
-                        .btn-group {
-                            display: flex;
-                        }
-
-                        .btn-group .btn {
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                        }
-
-                        .btn-group .btn:first-child {
-                            border-top-right-radius: 0;
-                            border-bottom-right-radius: 0;
-                        }
-                        
-                        .order-text {
-                            margin-left: 5px;
-                            display: inline-block;
-                        }
-                        
-                        #logFrame {
-                            transition: opacity 0.2s;
-                            opacity: 0.7;
-                        }
-                        
-                        /* Make the modal backdrop darker */
-                        .modal-backdrop {
-                            background-color: rgba(0, 0, 0, 0.5);
-                        }
-                        
-                        /* Improve form styling in modal */
-                        .modal .form-group:last-child {
-                            margin-bottom: 0;
-                        }
-                        
-                        .modal .form-check {
-                            padding-left: 1.5rem;
-                        }
-                    </style>
+            <!-- Date Range Export Modal -->
+            <div class="pf-lv-modal" id="dateRangeModal" role="dialog" aria-labelledby="dateRangeModalLabel" aria-hidden="true">
+                <div class="pf-lv-modal-dialog" role="document">
+                    <div class="pf-lv-modal-head">
+                        <h5 id="dateRangeModalLabel">Export Log by Date Range</h5>
+                        <button type="button" class="pf-lv-modal-close" data-lv-dismiss aria-label="Close">&times;</button>
+                    </div>
+                    <div class="pf-lv-modal-body">
+                        <form id="dateRangeForm" action="<?php echo $logUrl; ?>/export" method="post">
+                            <input type="hidden" name="file" value="<?php echo htmlspecialchars($currentFile); ?>">
+                            <div class="pf-lv-field">
+                                <label for="start_date">Start Date:</label>
+                                <input type="date" id="start_date" name="start_date" class="pf-lv-control" required>
+                            </div>
+                            <div class="pf-lv-field">
+                                <label for="end_date">End Date:</label>
+                                <input type="date" id="end_date" name="end_date" class="pf-lv-control" required>
+                            </div>
+                            <div class="pf-lv-field">
+                                <label>Export Format:</label>
+                                <label class="pf-lv-check">
+                                    <input type="radio" name="format" id="formatCsv" value="csv" checked> CSV (Excel compatible)
+                                </label>
+                                <label class="pf-lv-check">
+                                    <input type="radio" name="format" id="formatJson" value="json"> JSON
+                                </label>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="pf-lv-modal-foot">
+                        <button type="button" class="pf-lv-btn" data-lv-dismiss>Cancel</button>
+                        <button type="button" class="pf-lv-btn pf-lv-btn-primary" id="exportDateRange">Export</button>
+                    </div>
                 </div>
             </div>
+
+            <script>
+                (function () {
+                    let totalPages = 1;
+                    let autoUpdateTimer = null;
+                    const logBaseUrl = '<?php echo $logUrl; ?>';
+
+                    function debounce(func, wait) {
+                        let timeout;
+                        return function executedFunction(...args) {
+                            const later = () => { clearTimeout(timeout); func(...args); };
+                            clearTimeout(timeout);
+                            timeout = setTimeout(later, wait);
+                        };
+                    }
+
+                    const debouncedSearch = debounce(() => {
+                        document.getElementById('page').value = 1;
+                        updateLogFrame();
+                    }, 500);
+
+                    function updateTotalPagesLabel() {
+                        document.getElementById('totalPagesLabel').textContent = `/ ${totalPages}`;
+                    }
+
+                    function updateLogFrame() {
+                        const file = document.getElementById('file').value;
+                        const maxLines = document.getElementById('maxLines').value;
+                        const reverse = document.getElementById('reverse').value;
+                        const search = encodeURIComponent(document.getElementById('search').value.trim().replace(/ /g, '{space}'));
+                        const page = document.getElementById('page').value;
+                        const logLevel = document.getElementById('logLevel').value;
+                        const iframe = document.getElementById('logFrame');
+
+                        let url = `${logBaseUrl}/raw/file/${file}/maxLines/${maxLines}/reverse/${reverse}/page/${page}`;
+                        if (search) { url += `/search/${search}`; }
+                        if (logLevel !== 'all') { url += `/level/${logLevel}`; }
+
+                        iframe.src = url;
+                        updatePaginationState();
+                    }
+
+                    function updatePaginationState() {
+                        const currentPage = parseInt(document.getElementById('page').value);
+                        document.getElementById('firstPage').disabled = currentPage <= 1;
+                        document.getElementById('prevPage').disabled = currentPage <= 1;
+                        document.getElementById('nextPage').disabled = currentPage >= totalPages;
+                        document.getElementById('lastPage').disabled = currentPage >= totalPages;
+                    }
+
+                    function setPage(newPage) {
+                        const pageInput = document.getElementById('page');
+                        pageInput.value = Math.max(1, Math.min(newPage, totalPages));
+                        updateLogFrame();
+                    }
+
+                    function setupAutoUpdate() {
+                        const autoUpdate = document.getElementById('autoUpdate').value;
+                        if (autoUpdateTimer) { clearInterval(autoUpdateTimer); autoUpdateTimer = null; }
+                        if (autoUpdate !== 'never') { autoUpdateTimer = setInterval(updateLogFrame, autoUpdate * 1000); }
+                    }
+
+                    // Pagination buttons
+                    document.getElementById('firstPage').addEventListener('click', () => setPage(1));
+                    document.getElementById('prevPage').addEventListener('click', () => setPage(parseInt(document.getElementById('page').value) - 1));
+                    document.getElementById('nextPage').addEventListener('click', () => setPage(parseInt(document.getElementById('page').value) + 1));
+                    document.getElementById('lastPage').addEventListener('click', () => setPage(totalPages));
+
+                    // Clear search
+                    document.getElementById('clearSearch').addEventListener('click', function () {
+                        document.getElementById('search').value = '';
+                        document.getElementById('page').value = 1;
+                        updateLogFrame();
+                    });
+
+                    // Toggle sort order
+                    document.getElementById('toggleOrder').addEventListener('click', function () {
+                        const reverseInput = document.getElementById('reverse');
+                        const icon = this.querySelector('.order-icon');
+                        const orderText = this.querySelector('.order-text');
+                        if (reverseInput.value === '1') {
+                            reverseInput.value = '0';
+                            icon.textContent = '↑';
+                            orderText.textContent = 'Oldest first';
+                        } else {
+                            reverseInput.value = '1';
+                            icon.textContent = '↓';
+                            orderText.textContent = 'Newest first';
+                        }
+                        document.getElementById('page').value = 1;
+                        updateLogFrame();
+                    });
+
+                    // Export dropdown (vanilla, no Bootstrap JS)
+                    const dropdown = document.getElementById('downloadDropdown').parentElement;
+                    document.getElementById('downloadDropdown').addEventListener('click', function (e) {
+                        e.stopPropagation();
+                        dropdown.classList.toggle('open');
+                    });
+                    document.addEventListener('click', function (e) {
+                        if (!dropdown.contains(e.target)) { dropdown.classList.remove('open'); }
+                    });
+
+                    // Date range modal (vanilla, no jQuery)
+                    const modal = document.getElementById('dateRangeModal');
+                    function closeModal() { modal.classList.remove('open'); }
+                    document.getElementById('dateRangeExport').addEventListener('click', function (e) {
+                        e.preventDefault();
+                        dropdown.classList.remove('open');
+                        modal.classList.add('open');
+                    });
+                    modal.querySelectorAll('[data-lv-dismiss]').forEach(el => el.addEventListener('click', closeModal));
+                    modal.addEventListener('click', function (e) { if (e.target === modal) { closeModal(); } });
+                    document.getElementById('exportDateRange').addEventListener('click', function () {
+                        document.getElementById('dateRangeForm').submit();
+                    });
+
+                    // Form change events
+                    document.getElementById('logSettings').addEventListener('change', function (e) {
+                        if (e.target.id !== 'page') { document.getElementById('page').value = 1; }
+                        if (e.target.id === 'file') {
+                            const url = new URL(window.location.href);
+                            url.searchParams.set('file', e.target.value);
+                            window.history.replaceState({}, '', url.toString());
+                        }
+                        updateLogFrame();
+                        if (e.target.id === 'autoUpdate') { setupAutoUpdate(); }
+                    });
+
+                    // Manual refresh
+                    document.getElementById('manualRefresh').addEventListener('click', updateLogFrame);
+
+                    // Keyboard navigation
+                    document.addEventListener('keydown', function (e) {
+                        if (e.target.tagName === 'INPUT' && e.target.type === 'text') {
+                            if (e.key === 'Enter') { e.preventDefault(); updateLogFrame(); }
+                            return;
+                        }
+                        if (e.target.tagName === 'INPUT' && e.target.type === 'number') {
+                            if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); updateLogFrame(); }
+                            return;
+                        }
+                        if (document.activeElement.tagName !== 'INPUT') {
+                            switch (e.key) {
+                                case 'ArrowLeft':
+                                    if (!document.getElementById('prevPage').disabled) { setPage(parseInt(document.getElementById('page').value) - 1); }
+                                    break;
+                                case 'ArrowRight':
+                                    if (!document.getElementById('nextPage').disabled) { setPage(parseInt(document.getElementById('page').value) + 1); }
+                                    break;
+                                case 'Home':
+                                    if (!document.getElementById('firstPage').disabled) { setPage(1); }
+                                    break;
+                                case 'End':
+                                    if (!document.getElementById('lastPage').disabled) { setPage(totalPages); }
+                                    break;
+                            }
+                        }
+                    });
+
+                    // Messages from iframe → total pages
+                    window.addEventListener('message', function (event) {
+                        if (event.data && event.data.totalPages) {
+                            totalPages = event.data.totalPages;
+                            updateTotalPagesLabel();
+                            updatePaginationState();
+                        }
+                    });
+
+                    document.addEventListener('DOMContentLoaded', function () {
+                        const urlParams = new URLSearchParams(window.location.search);
+                        if (urlParams.has('search')) {
+                            document.getElementById('search').value = decodeURIComponent(urlParams.get('search'));
+                        }
+                        const today = new Date();
+                        const thirtyDaysAgo = new Date();
+                        thirtyDaysAgo.setDate(today.getDate() - 30);
+                        document.getElementById('start_date').valueAsDate = thirtyDaysAgo;
+                        document.getElementById('end_date').valueAsDate = today;
+
+                        const searchInput = document.getElementById('search');
+                        searchInput.addEventListener('input', debouncedSearch);
+                        searchInput.addEventListener('keydown', function (e) {
+                            if (e.key === 'Enter') { e.preventDefault(); updateLogFrame(); }
+                        });
+
+                        if (urlParams.has('file')) {
+                            const fileSelect = document.getElementById('file');
+                            const fileValue = urlParams.get('file');
+                            for (let i = 0; i < fileSelect.options.length; i++) {
+                                if (fileSelect.options[i].value === fileValue) {
+                                    fileSelect.value = fileValue;
+                                    updateLogFrame();
+                                    break;
+                                }
+                            }
+                        }
+                    });
+
+                    // Page input validation
+                    document.getElementById('page').addEventListener('blur', function () {
+                        const currentValue = parseInt(this.value);
+                        if (isNaN(currentValue) || currentValue < 1) { this.value = 1; }
+                        else if (currentValue > totalPages) { this.value = totalPages; }
+                        updateLogFrame();
+                    });
+
+                    // Initial setup
+                    updatePaginationState();
+                    setupAutoUpdate();
+
+                    const iframe = document.getElementById('logFrame');
+                    iframe.onload = function () { iframe.style.opacity = 1; };
+                    iframe.onerror = function () { console.error('Failed to load log content'); };
+
+                    // Export via hidden iframe to force download
+                    document.querySelectorAll('[data-export-format]').forEach(link => {
+                        link.addEventListener('click', function (e) {
+                            e.preventDefault();
+                            const format = this.getAttribute('data-export-format');
+                            const file = document.getElementById('file').value;
+                            const downloadFrame = document.createElement('iframe');
+                            downloadFrame.style.display = 'none';
+                            downloadFrame.src = `${logBaseUrl}/export?file=${encodeURIComponent(file)}&format=${format}`;
+                            document.body.appendChild(downloadFrame);
+                            setTimeout(() => { document.body.removeChild(downloadFrame); }, 2000);
+                        });
+                    });
+                })();
+            </script>
         </div>
 <?php
         return ob_get_clean();
