@@ -65,7 +65,6 @@ nav:
   - Version History:
     - Changelog: version-history/index.md
     - Releases: releases.md
-    - v1.2 Technical Reference: 1.2-new-features.md
   - Core Framework:
     - Framework Overview: Pramnos_Framework_Guide.md
     - Routing: Pramnos_Routing_Guide.md
