@@ -16,6 +16,31 @@ set -euo pipefail
 COMMAND="${1:-serve}"
 shift || true
 
+# Sync brand assets (logo + favicon) from the single source of truth in brand/
+# into docs/assets/ so the site always builds with the current artwork. The
+# copies under docs/assets/ are git-ignored and regenerated here on every run.
+# The GitHub Pages workflow performs the same copy before its build step.
+sync_brand_assets() {
+    local root logo favicon
+    root="$(pwd)"
+    logo="$root/brand/logos/pramnos-logo-wide-inverse.png"   # light ink — reads on the indigo header
+    favicon="$root/brand/favicons/favicon-32x32.png"
+    if [ -f "$logo" ] && [ -f "$favicon" ]; then
+        mkdir -p "$root/docs/assets"
+        cp "$logo"    "$root/docs/assets/logo.png"
+        cp "$favicon" "$root/docs/assets/favicon.png"
+        echo "Synced brand assets → docs/assets/ (logo.png, favicon.png)"
+    else
+        echo "WARNING: brand assets not found; docs will build without logo/favicon." >&2
+    fi
+}
+
+case "$COMMAND" in
+    serve|build|deploy)
+        sync_brand_assets
+        ;;
+esac
+
 # Ensure the docs container image is available
 if ! docker image inspect squidfunk/mkdocs-material:latest >/dev/null 2>&1; then
     echo "Pulling squidfunk/mkdocs-material image..."

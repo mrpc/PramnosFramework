@@ -8,6 +8,11 @@ edit_uri: edit/main/docs/
 theme:
   name: material
   language: en
+  # Brand assets are synced from brand/ into docs/assets/ before every build
+  # (see the dockerdocs script and .github/workflows/docs.yml). The source of
+  # truth lives in brand/ — do not edit docs/assets/logo.png directly.
+  logo: assets/logo.png
+  favicon: assets/favicon.png
   palette:
     - scheme: default
       primary: indigo
