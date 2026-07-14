@@ -80,6 +80,10 @@ an analytics dashboard, Chart.js is a mandatory bundled library, and a new famil
   place to declare scheduled tasks (via the `Scheduler` API); `schedule:run` / `schedule:list`
   load it through the new `Scheduler::loadDefinitions()`. Tasks are code-defined (not stored
   in a database) and run by a once-a-minute `schedule:run` cron.
+- **Scheduled-task logging.** `schedule:run` now records each task's outcome (ran + duration,
+  skipped-overlap, or failed + error) to the `schedule` log channel, so there's a durable
+  record even though cron discards the command's stdout. `ScheduledTask::run()` returns a bool
+  (ran vs skipped) to drive it.
 
 ## Changed
 

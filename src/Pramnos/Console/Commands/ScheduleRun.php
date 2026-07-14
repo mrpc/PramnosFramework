@@ -70,15 +70,39 @@ class ScheduleRun extends Command
 
             $output->writeln("Running: <info>{$label}</info>");
 
+            $start = microtime(true);
             try {
-                $task->run();
-                $output->writeln("  <info>✓ Done</info>");
+                $ran = $task->run();
+                $ms  = (int) round((microtime(true) - $start) * 1000);
+                if ($ran) {
+                    $output->writeln("  <info>✓ Done</info>");
+                    $this->logSchedule("ran: {$label} ({$summary['expression']}) in {$ms}ms");
+                } else {
+                    $output->writeln("  <comment>↷ Skipped (previous run still active)</comment>");
+                    $this->logSchedule("skipped: {$label} ({$summary['expression']}) — overlapping run");
+                }
             } catch (\Throwable $e) {
                 $output->writeln("  <error>✗ Failed: {$e->getMessage()}</error>");
+                $this->logSchedule("failed: {$label} ({$summary['expression']}) — {$e->getMessage()}", ['level' => 'error']);
                 ++$errors;
             }
         }
 
         return $errors > 0 ? Command::FAILURE : Command::SUCCESS;
+    }
+
+    /**
+     * Record a scheduled-task outcome to the `schedule` log channel.
+     *
+     * Cron typically redirects schedule:run output to /dev/null, so this is the
+     * only durable record of what ran, when and with what result. The entries
+     * appear in the framework log viewer under `schedule.log`. Isolated in its
+     * own method so tests can capture calls without touching the filesystem.
+     *
+     * @param array<string,mixed> $context Extra context (e.g. ['level' => 'error']).
+     */
+    protected function logSchedule(string $message, array $context = []): void
+    {
+        \Pramnos\Logs\Logger::log($message, 'schedule', 'log', false, $context);
     }
 }

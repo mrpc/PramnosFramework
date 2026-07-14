@@ -201,6 +201,11 @@ php bin/pramnos schedule:run --pretend   # dry run (list due tasks)
 
 Overlap protection (`withoutOverlapping()`) uses lock files in the system temp dir.
 
+Each run is recorded to the **`schedule`** log channel (`schedule.log`, visible in the log
+viewer) — one entry per task with the outcome (`ran … in Nms`, `skipped … overlapping`,
+`failed … <error>`). Since cron usually sends `schedule:run` output to `/dev/null`, this log
+is the durable record of what actually ran.
+
 ### Log-file maintenance
 
 ```bash
