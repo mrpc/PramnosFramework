@@ -392,11 +392,11 @@ class Application extends Base
         ));
         NavRegistry::register(new NavItem(
             'user.account', 'My Account', $base . 'account',
-            NavSection::User, 10, requireAuth: true, minUserType: 1,
+            NavSection::User, 10, requireAuth: true,
         ));
         NavRegistry::register(new NavItem(
             'user.logout', 'Logout', $base . 'login/logout',
-            NavSection::User, 99, requireAuth: true, minUserType: 1,
+            NavSection::User, 99, requireAuth: true,
         ));
 
         // Admin section — these are always registered; visibility filtered by minUserType at runtime
