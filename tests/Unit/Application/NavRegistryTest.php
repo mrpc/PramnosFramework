@@ -153,6 +153,29 @@ class NavRegistryTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
+     * Regression: a regular logged-in user (usertype 0) MUST see the default
+     * Logout and My Account links. These are the framework defaults registered
+     * by Application::registerDefaultNavItems(); they previously carried
+     * minUserType:1, which hid them from every usertype-0 account (the common
+     * case) so a freshly logged-in user had no logout button in the header.
+     */
+    public function testRegularUserSeesDefaultLogoutAndAccount(): void
+    {
+        // Arrange — the framework's default nav items + a normal logged-in user.
+        (new \Pramnos\Application\Application())->registerDefaultNavItems(['auth']);
+        $user = $this->makeUser(0); // usertype 0 = a regular user; sets $_SESSION['logged']
+
+        // Act
+        $nav    = NavRegistry::getForUser($user);
+        $labels = array_map(fn ($i) => $i->label, $nav[NavSection::User->value] ?? []);
+
+        // Assert — logout/account are visible; the guest-only Login link is not.
+        $this->assertContains('Logout', $labels, 'A logged-in user must see the Logout link');
+        $this->assertContains('My Account', $labels, 'A logged-in user must see My Account');
+        $this->assertNotContains('Login', $labels, 'A logged-in user must not see the guest Login link');
+    }
+
+    /**
      * A user with usertype=50 does NOT see items with minUserType=80.
      *
      * The usertype gate protects admin-only links from regular users even when
