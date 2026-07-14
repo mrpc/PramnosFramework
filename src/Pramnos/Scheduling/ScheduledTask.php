@@ -189,12 +189,14 @@ class ScheduledTask
     /**
      * Executes the task.
      *
+     * @return bool True if the task ran; false if it was skipped because a
+     *              previous run is still holding the overlap lock.
      * @throws \RuntimeException When the task type is unsupported.
      */
-    public function run(): void
+    public function run(): bool
     {
         if ($this->noOverlap && $this->isLocked()) {
-            return;
+            return false;
         }
 
         if ($this->noOverlap) {
@@ -208,6 +210,8 @@ class ScheduledTask
                 $this->releaseLock();
             }
         }
+
+        return true;
     }
 
     /**

@@ -23,6 +23,26 @@ use Symfony\Component\Console\Output\BufferedOutput;
 #[CoversClass(DbWipe::class)]
 class DbWipeLogicTest extends TestCase
 {
+    private ?string $originalPhpSelf = null;
+
+    protected function setUp(): void
+    {
+        // Building a real \Pramnos\Console\Application registers Symfony's
+        // DumpCompletionCommand, whose configure() reads $_SERVER['PHP_SELF'];
+        // set it so no "undefined key"/basename(null) warning is emitted.
+        $this->originalPhpSelf = $_SERVER['PHP_SELF'] ?? null;
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = 'phpunit';
+        }
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->originalPhpSelf === null) {
+            unset($_SERVER['PHP_SELF']);
+        }
+    }
+
     /**
      * MySQL: FK checks are toggled off/on and each table dropped with backticks.
      */
