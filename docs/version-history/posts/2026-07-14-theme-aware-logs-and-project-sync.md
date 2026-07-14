@@ -68,8 +68,18 @@ an analytics dashboard, Chart.js is a mandatory bundled library, and a new famil
   from `scaffold:views`).
 - **`project:git-webhook`** — generate `www/webhook.php` (renamed from `create:webhook`).
 - **`cache:clear`** — flush the application cache (all categories, or one with `--category=`).
+- **More CLI commands.** `route:list` (list registered routes), `queue:failed` /
+  `queue:retry` (inspect & re-queue failed tasks), `db:wipe` / `db:fresh` (drop / drop +
+  migrate, `--force`-guarded), `user:create` (create a user/admin), `key:generate`
+  (generate/rotate the app key in `.env`), `tinker` (interactive REPL — uses PsySH when
+  installed; added to new apps' `require-dev`), and generators `create:command`,
+  `create:task`, `create:provider`, `create:policy`, `create:test`.
 - **Feature → libraries linkage.** `FeatureRegistry` feature definitions accept a `libraries`
   key; enabling a feature through `project:reconfigure` installs the libraries it declares.
+- **Scheduled-task definitions.** `init` now scaffolds `app/schedule.php` as the official
+  place to declare scheduled tasks (via the `Scheduler` API); `schedule:run` / `schedule:list`
+  load it through the new `Scheduler::loadDefinitions()`. Tasks are code-defined (not stored
+  in a database) and run by a once-a-minute `schedule:run` cron.
 
 ## Changed
 

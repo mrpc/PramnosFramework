@@ -202,6 +202,7 @@ class Init extends Command
         $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true, $cacheSystem);
         $this->scaffoldAppConfig('app/app.php', $appName, $namespace, $enabledFeatures, $uiSystem, $withRestApi);
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
+        $this->writeFile('app/schedule.php', $this->getScheduleTemplate());
         $this->writeFile('www/index.php', $this->getIndexTemplate($namespace));
         $this->writeFile('www/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?r=\$1 [QSA,L]\n");
         $catalog = $this->loadAssetCatalog();
@@ -2295,6 +2296,40 @@ PHP;
 XML;
     }
 
+    /**
+     * The app/schedule.php stub — the official place to declare scheduled tasks.
+     * Loaded by `pramnos schedule:run` / `schedule:list`.
+     */
+    private function getScheduleTemplate(): string
+    {
+        return <<<'PHP'
+<?php
+
+/**
+ * Scheduled tasks.
+ *
+ * This file is loaded by `pramnos schedule:run` and `pramnos schedule:list`.
+ * Register tasks with the Scheduler API; a system cron should run schedule:run
+ * every minute:
+ *
+ *   * * * * * cd /path/to/app && php <cli> schedule:run >> /dev/null 2>&1
+ *
+ * Tasks are defined here in code (not stored in a database).
+ */
+
+use Pramnos\Scheduling\Scheduler;
+
+// Examples — uncomment/edit:
+//
+// Scheduler::command('cache:clear')->daily()->at('03:00');
+// Scheduler::command('queue:cleanup')->hourly();
+// Scheduler::call(function () {
+//     // ... custom work ...
+// })->everyFifteenMinutes()->withoutOverlapping();
+
+PHP;
+    }
+
     private function getIndexTemplate(string $namespace = 'Pramnos'): string
     {
         return <<<PHP
@@ -2592,6 +2627,9 @@ BASH;
             $composer['require-dev'] = []; // @codeCoverageIgnore — scaffold composer.json already has require-dev
         }
         $composer['require-dev']['phpunit/phpunit'] = '^11.0';
+        // PsySH powers a rich `pramnos tinker` REPL; without it tinker falls back
+        // to a minimal built-in shell.
+        $composer['require-dev']['psy/psysh'] = '^0.12';
 
         $composer['autoload']     = ['psr-4' => ["$namespace\\" => 'src/']];
         $composer['autoload-dev'] = ['psr-4' => ['Tests\\' => 'tests/']];

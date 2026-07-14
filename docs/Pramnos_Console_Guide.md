@@ -108,16 +108,85 @@ get Chart.js is simply `php bin/pramnos project:install`.
 After enabling a feature, run its migrations (`php bin/pramnos migrate`) and, if it ships
 views, publish them (`php bin/pramnos project:publish-views --list` then `--group=<name>`).
 
-### Maintenance Commands
+### Operational & diagnostic commands
 
 ```bash
-# Migrate log files to structured format
+# Flush the application cache (all categories, or one with --category)
+php bin/pramnos cache:clear
+php bin/pramnos cache:clear --category=views
+
+# List all registered routes (add --json for machine output)
+php bin/pramnos route:list
+
+# Queue: inspect and retry failed tasks
+php bin/pramnos queue:failed
+php bin/pramnos queue:retry 42        # one task by id
+php bin/pramnos queue:retry --all     # all failed tasks
+
+# Database lifecycle (destructive — require --force in non-interactive mode)
+php bin/pramnos db:wipe --force       # drop all tables
+php bin/pramnos db:fresh --force      # drop all tables, then migrate
+php bin/pramnos db:fresh --force --seed
+
+# Create a user / admin from the CLI
+php bin/pramnos user:create --username=admin --email=admin@example.com --admin
+
+# Generate or rotate the application key in .env
+php bin/pramnos key:generate          # refuses to clobber an existing key
+php bin/pramnos key:generate --show   # print without writing
+php bin/pramnos key:generate --force  # rotate (invalidates encrypted data/sessions)
+
+# Interactive REPL with the framework bootstrapped (PsySH if installed)
+php bin/pramnos tinker
+```
+
+### Code generators (`create:`)
+
+Beyond model/controller/view/crud/api/migration/seeder/event/listener/middleware, the
+`create:` family also scaffolds:
+
+```bash
+php bin/pramnos create:command MyCommand    # a Symfony console command
+php bin/pramnos create:task MyTask           # a Pramnos\Queue\AbstractTask
+php bin/pramnos create:provider MyProvider   # a service provider
+php bin/pramnos create:policy MyPolicy       # an authorization policy skeleton
+php bin/pramnos create:test MySubject        # a PHPUnit test class
+```
+
+### Scheduled tasks (`schedule:`)
+
+Scheduled tasks are declared **in code** (not stored in a database), in the app's
+`app/schedule.php` file — scaffolded by `init` and loaded by both schedule commands:
+
+```php
+<?php
+use Pramnos\Scheduling\Scheduler;
+
+Scheduler::command('cache:clear')->daily()->at('03:00');
+Scheduler::command('queue:cleanup')->hourly();
+Scheduler::call(fn() => /* ... */)->everyFifteenMinutes()->withoutOverlapping();
+```
+
+Wire a single system cron entry to run the due tasks every minute:
+
+```bash
+* * * * * cd /path/to/app && php <cli> schedule:run >> /dev/null 2>&1
+```
+
+```bash
+php bin/pramnos schedule:list            # show registered tasks
+php bin/pramnos schedule:run             # run tasks due now
+php bin/pramnos schedule:run --pretend   # dry run (list due tasks)
+```
+
+Overlap protection (`withoutOverlapping()`) uses lock files in the system temp dir.
+
+### Log-file maintenance
+
+```bash
+# Convert legacy log files to the structured single-line JSON format
 php bin/pramnos logs:convert /path/to/logs --all
-
-# Migrate specific log file
 php bin/pramnos logs:convert /path/to/file.log
-
-# Migrate without creating backup
 php bin/pramnos logs:convert /path/to/file.log --no-backup
 ```
 

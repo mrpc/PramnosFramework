@@ -1,0 +1,45 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use Pramnos\Queue\AbstractTask;
+use Pramnos\Queue\QueueItem;
+
+/**
+ * {{ class }} queue task.
+ *
+ * Register this handler for its task type so the Worker can dispatch queue
+ * items to it. Only execute() and getDescription() are required; AbstractTask
+ * provides sensible defaults for validate() and handleFailure().
+ */
+class {{ class }} extends AbstractTask
+{
+    /**
+     * Human-readable task type name shown in the admin dashboard.
+     */
+    public string $name = '{{ class }}';
+
+    /**
+     * {@inheritdoc}
+     */
+    public function execute(QueueItem $queueItem): mixed
+    {
+        $payload = $this->getPayload($queueItem);
+
+        // TODO: implement task logic using $payload
+
+        $this->log('{{ class }} completed.', $queueItem);
+
+        return ['message' => '{{ class }} completed.'];
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function getDescription(QueueItem $queueItem): string
+    {
+        return '{{ class }}';
+    }
+}

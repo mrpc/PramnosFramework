@@ -1,0 +1,62 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+/**
+ * {{ class }} authorization policy.
+ *
+ * NOTE: PramnosFramework has no dedicated authorization-policy base class, so
+ * this is a plain class exposing ability methods. Wire it into your own
+ * authorization checks manually (e.g. from a controller or middleware). Each
+ * ability method receives the acting user (nullable for guests) and the target
+ * model, and returns true to allow the action.
+ */
+class {{ class }}
+{
+    /**
+     * Determine whether the user can view any models.
+     */
+    public function viewAny(?\Pramnos\User\User $user): bool
+    {
+        // TODO: implement authorization logic
+        return false;
+    }
+
+    /**
+     * Determine whether the user can view the given model.
+     */
+    public function view(?\Pramnos\User\User $user, mixed $model = null): bool
+    {
+        // TODO: implement authorization logic
+        return false;
+    }
+
+    /**
+     * Determine whether the user can create models.
+     */
+    public function create(?\Pramnos\User\User $user): bool
+    {
+        // TODO: implement authorization logic
+        return false;
+    }
+
+    /**
+     * Determine whether the user can update the given model.
+     */
+    public function update(?\Pramnos\User\User $user, mixed $model = null): bool
+    {
+        // TODO: implement authorization logic
+        return false;
+    }
+
+    /**
+     * Determine whether the user can delete the given model.
+     */
+    public function delete(?\Pramnos\User\User $user, mixed $model = null): bool
+    {
+        // TODO: implement authorization logic
+        return false;
+    }
+}

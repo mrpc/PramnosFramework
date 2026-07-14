@@ -1,0 +1,37 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use Pramnos\Application\ServiceProvider;
+
+/**
+ * {{ class }} service provider.
+ *
+ * Register with the application before init():
+ *   $app->addProvider(new \{{ namespace }}\{{ class }}($app));
+ * or link it to a feature key via FeatureRegistry::register().
+ */
+class {{ class }} extends ServiceProvider
+{
+    /**
+     * Register any bindings or early-bootstrap work.
+     *
+     * Called for all providers before any provider's boot() runs.
+     */
+    public function register(): void
+    {
+        // TODO: bind services into the application
+    }
+
+    /**
+     * Bootstrap services after all providers have registered.
+     *
+     * Safe to rely on anything bound during another provider's register().
+     */
+    public function boot(): void
+    {
+        // TODO: register routes, listeners, scheduled tasks
+    }
+}
