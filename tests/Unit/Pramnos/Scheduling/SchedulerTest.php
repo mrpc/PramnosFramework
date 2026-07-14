@@ -38,6 +38,54 @@ class SchedulerTest extends TestCase
     protected function tearDown(): void
     {
         Scheduler::reset();
+        if (isset($this->scheduleFile) && is_file($this->scheduleFile)) {
+            @unlink($this->scheduleFile);
+        }
+    }
+
+    /** @var string|null Temp schedule-definition file created by a test. */
+    private ?string $scheduleFile = null;
+
+    // =========================================================================
+    // loadDefinitions()
+    // =========================================================================
+
+    /**
+     * loadDefinitions() require()s the given PHP file, which registers tasks via
+     * the static Scheduler API. This is how schedule:run / schedule:list pick up
+     * an app's `app/schedule.php`. Loading is idempotent within a process.
+     */
+    public function testLoadDefinitionsRegistersTasksFromFileIdempotently(): void
+    {
+        // Arrange — a schedule file that registers one command task.
+        $this->scheduleFile = sys_get_temp_dir() . '/pramnos_sched_' . bin2hex(random_bytes(4)) . '.php';
+        file_put_contents(
+            $this->scheduleFile,
+            "<?php\n\\Pramnos\\Scheduling\\Scheduler::command('cache:clear')->daily();\n"
+        );
+
+        // Act — load twice; the guard must prevent double-registration.
+        $first  = Scheduler::loadDefinitions($this->scheduleFile);
+        $second = Scheduler::loadDefinitions($this->scheduleFile);
+
+        // Assert
+        $this->assertTrue($first);
+        $this->assertTrue($second);
+        $this->assertCount(1, Scheduler::all(), 'loadDefinitions must be idempotent within a process');
+    }
+
+    /**
+     * loadDefinitions() returns false (and registers nothing) when the file does
+     * not exist.
+     */
+    public function testLoadDefinitionsReturnsFalseForMissingFile(): void
+    {
+        // Act
+        $result = Scheduler::loadDefinitions(sys_get_temp_dir() . '/pramnos_no_such_schedule.php');
+
+        // Assert
+        $this->assertFalse($result);
+        $this->assertSame([], Scheduler::all());
     }
 
     // =========================================================================

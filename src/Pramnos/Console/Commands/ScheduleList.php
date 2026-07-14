@@ -21,6 +21,9 @@ class ScheduleList extends Command
 {
     protected static $defaultName = 'schedule:list';
 
+    /** Path to the schedule definition file. Overridable for testing (default: ROOT/app/schedule.php). */
+    public ?string $scheduleFile = null;
+
     protected function configure(): void
     {
         $this
@@ -30,6 +33,7 @@ class ScheduleList extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        Scheduler::loadDefinitions($this->scheduleFile);
         $tasks = Scheduler::all();
 
         if (empty($tasks)) {

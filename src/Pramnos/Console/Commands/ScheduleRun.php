@@ -31,6 +31,9 @@ class ScheduleRun extends Command
 {
     protected static $defaultName = 'schedule:run';
 
+    /** Path to the schedule definition file. Overridable for testing (default: ROOT/app/schedule.php). */
+    public ?string $scheduleFile = null;
+
     protected function configure(): void
     {
         $this
@@ -46,6 +49,7 @@ class ScheduleRun extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        Scheduler::loadDefinitions($this->scheduleFile);
         $now  = new \DateTime();
         $due  = Scheduler::getDue($now);
         $errors = 0;

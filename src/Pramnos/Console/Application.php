@@ -56,7 +56,13 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\Make\MakeListener());
         $this->add(new \Pramnos\Console\Commands\Make\MakeSeeder());
         $this->add(new \Pramnos\Console\Commands\Make\MakeWebhook());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeCommand());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeTask());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeProvider());
+        $this->add(new \Pramnos\Console\Commands\Make\MakePolicy());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeTest());
         $this->add(new \Pramnos\Console\Commands\Serve());
+        $this->add(new \Pramnos\Console\Commands\Tinker());
         $this->add(new \Pramnos\Console\Commands\MigrateLogs());
         // Migration CLI commands (Phase 4)
         $this->add(new \Pramnos\Console\Commands\Migrate());
@@ -66,6 +72,8 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\MigrateStatus());
         // Health check (Phase 4)
         $this->add(new \Pramnos\Console\Commands\HealthCheck());
+        // Routing introspection
+        $this->add(new \Pramnos\Console\Commands\RouteList());
         // Scheduled tasks (Phase 4)
         $this->add(new \Pramnos\Console\Commands\ScheduleRun());
         $this->add(new \Pramnos\Console\Commands\ScheduleList());
@@ -74,8 +82,15 @@ class Application extends \Symfony\Component\Console\Application
         // Queue System (Phase 2)
         $this->add(new \Pramnos\Console\Commands\ProcessQueue());
         $this->add(new \Pramnos\Console\Commands\CleanupQueue());
-        // Database seeding
+        $this->add(new \Pramnos\Console\Commands\QueueFailed());
+        $this->add(new \Pramnos\Console\Commands\QueueRetry());
+        // Database seeding + lifecycle
         $this->add(new \Pramnos\Console\Commands\DbSeed());
+        $this->add(new \Pramnos\Console\Commands\DbWipe());
+        $this->add(new \Pramnos\Console\Commands\DbFresh());
+        // User administration + key management
+        $this->add(new \Pramnos\Console\Commands\UserCreate());
+        $this->add(new \Pramnos\Console\Commands\KeyGenerate());
         // Scaffolding utilities
         $this->add(new \Pramnos\Console\Commands\ScaffoldViews());
         $this->add(new \Pramnos\Console\Commands\LibrariesSync());
