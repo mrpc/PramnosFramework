@@ -109,6 +109,15 @@ class QueueFailed extends Command
      */
     protected function getFailedTasks(int $limit = 0): array
     {
+        // @codeCoverageIgnoreStart
+        // Genuine live-DB boundary: this body resolves the queue controller
+        // (which boots the application + opens a database connection) and runs
+        // a SELECT against the QueueItem model. It cannot execute without a real
+        // database, so it is excluded from line coverage. Every unit test
+        // overrides this seam with canned rows; the real query path is verified
+        // by the integration suite (./dockertest, MySQL/PostgreSQL/TimescaleDB).
+        // The pure normalisation logic it delegates to (normalizeTask) IS unit
+        // tested directly.
         $model = $this->createQueueItemModel($this->getQueueController());
 
         $order = 'ORDER BY updatedat DESC, taskid DESC';
@@ -119,6 +128,7 @@ class QueueFailed extends Command
         $rows = $model->getList("WHERE status = 'failed'", $order);
 
         return array_map([$this, 'normalizeTask'], $rows ?: []);
+        // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -150,6 +160,10 @@ class QueueFailed extends Command
      */
     protected function getQueueController()
     {
+        // @codeCoverageIgnoreStart
+        // Genuine live-DB boundary: boots the real application, opens the
+        // database connection and resolves an application controller. Not
+        // executable without a live environment; covered by integration tests.
         /** @var \Pramnos\Console\Application $consoleApp */
         $consoleApp  = $this->getApplication();
         $application = $consoleApp->internalApplication;
@@ -157,6 +171,7 @@ class QueueFailed extends Command
         $application->database->setTrackingInfo(null, 'QueueFailedCLI', []);
 
         return $application->getController($this->getControllerName());
+        // @codeCoverageIgnoreEnd
     }
 
     // ── Configurable hooks ────────────────────────────────────────────────────
@@ -180,7 +195,12 @@ class QueueFailed extends Command
      */
     protected function createQueueItemModel($controller): QueueItem
     {
+        // @codeCoverageIgnoreStart
+        // Instantiates the QueueItem ORM model against a live controller/DB.
+        // QueueItem has its own dedicated tests; unit tests override this
+        // factory, so the raw instantiation line is excluded from coverage.
         return new QueueItem($controller);
+        // @codeCoverageIgnoreEnd
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────

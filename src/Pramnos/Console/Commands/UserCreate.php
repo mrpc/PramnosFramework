@@ -94,37 +94,25 @@ class UserCreate extends Command
         }
 
         // ── Persistence (requires a live database) ────────────────────────────
+        $admin = (bool) $input->getOption('admin');
+
         try {
-            if (User::getuserid($username, 'username') !== false) {
+            if ($this->userExists($username, 'username')) {
                 $output->writeln('<error>A user with username "' . $username . '" already exists.</error>');
                 return Command::FAILURE;
             }
-            if (User::getuserid($email, 'email') !== false) {
+            if ($this->userExists($email, 'email')) {
                 $output->writeln('<error>A user with email "' . $email . '" already exists.</error>');
                 return Command::FAILURE;
             }
 
-            $user = new User();
-            $user->username = $username;
-            $user->email    = $email;
-            $user->active   = 1;
-            $user->validated = 1;
-            $user->regdate  = time();
-            if ($input->getOption('admin')) {
-                $user->usertype = 1;
-            }
-
-            // First save assigns the userid; setPassword() then hashes with the
-            // real userid (bcrypt + securitySalt) and a second save persists it.
-            $user->save();
-            $user->setPassword($password);
-            $user->save();
+            $userid = $this->persistUser($username, $email, $password, $admin);
         } catch (\Throwable $e) {
             $output->writeln('<error>Failed to create user: ' . $e->getMessage() . '</error>');
             return Command::FAILURE;
         }
 
-        if ($user->userid < 2) {
+        if ($userid < 2) {
             $output->writeln('<error>User creation failed: no valid user id was assigned.</error>');
             return Command::FAILURE;
         }
@@ -132,11 +120,75 @@ class UserCreate extends Command
         $output->writeln(sprintf(
             '<info>User "%s" created successfully (userid=%d%s).</info>',
             $username,
-            (int) $user->userid,
-            $input->getOption('admin') ? ', admin' : ''
+            $userid,
+            $admin ? ', admin' : ''
         ));
 
         return Command::SUCCESS;
+    }
+
+    // ── Persistence (overridable DB seams) ──────────────────────────────────────
+
+    /**
+     * Whether a user already exists whose $field equals $value.
+     *
+     * Behaviour-preserving extraction of the two inline duplicate checks: the
+     * ($value, $field) shape is used (rather than a single username+email
+     * predicate) precisely so execute() can keep emitting the distinct
+     * "username already exists" vs "email already exists" messages. Overridden
+     * in unit tests to avoid a live database.
+     *
+     * @param string $value Value to look up (a username or an email address).
+     * @param string $field User model field to match on ('username' | 'email').
+     * @return bool True when a matching user already exists.
+     */
+    protected function userExists(string $value, string $field): bool
+    {
+        // @codeCoverageIgnoreStart
+        // Genuine live-DB boundary: User::getuserid() queries the users table.
+        // Unit tests override this seam; the real lookup is covered by the
+        // integration suite.
+        return User::getuserid($value, $field) !== false;
+        // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Persist a new user and return the assigned user id.
+     *
+     * Behaviour-preserving extraction of the inline User-model creation. The
+     * first save() assigns the userid; setPassword() then hashes the password
+     * with the real userid (bcrypt + securitySalt) and a second save() persists
+     * it — exactly as before. Overridden in unit tests to avoid a live database.
+     *
+     * @param string $username Validated, trimmed username.
+     * @param string $email    Validated, trimmed email address.
+     * @param string $password Plain-text password to hash.
+     * @param bool   $admin    Whether to mark the account as an administrator.
+     * @return int The newly assigned user id.
+     */
+    protected function persistUser(string $username, string $email, string $password, bool $admin): int
+    {
+        // @codeCoverageIgnoreStart
+        // Genuine live-DB boundary: instantiates and save()s the User model,
+        // which writes to the users table and hashes the password. Not
+        // executable without a database; unit tests override this seam and the
+        // real persistence is covered by the integration suite.
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $email;
+        $user->active   = 1;
+        $user->validated = 1;
+        $user->regdate  = time();
+        if ($admin) {
+            $user->usertype = 1;
+        }
+
+        $user->save();
+        $user->setPassword($password);
+        $user->save();
+
+        return (int) $user->userid;
+        // @codeCoverageIgnoreEnd
     }
 
     /**
