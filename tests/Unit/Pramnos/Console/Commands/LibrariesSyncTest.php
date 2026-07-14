@@ -215,6 +215,80 @@ class LibrariesSyncTest extends TestCase
         $this->assertFileExists($this->projectDir . '/www/assets/vendor/chartjs/4.4.3/chart.umd.min.js');
     }
 
+    /**
+     * An unknown library key is reported as "not in catalog" and skipped, while
+     * the mandatory set is still installed — a typo must not abort the top-up.
+     */
+    public function testUnknownLibraryIsReported(): void
+    {
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['libraries' => ['doesnotexist']]);
+        $display = $tester->getDisplay();
+
+        // Assert — unknown surfaced, mandatory chartjs still installed.
+        $this->assertStringContainsString('not in catalog', $display);
+        $this->assertFileExists($this->projectDir . '/www/assets/vendor/chartjs/4.4.3/chart.umd.min.js');
+    }
+
+    /**
+     * Multiple positional library arguments are all installed in one run (in
+     * addition to the always-ensured mandatory library).
+     */
+    public function testMultiplePositionalArgumentsAreAllInstalled(): void
+    {
+        // Act — two libraries at once.
+        $this->tester()->execute(['libraries' => ['select2', 'flatpickr']]);
+
+        // Assert — both requested assets, plus mandatory chartjs, are present.
+        $this->assertFileExists($this->projectDir . '/www/assets/vendor/select2/4.1.0-rc.0/select2.min.js');
+        $this->assertFileExists($this->projectDir . '/www/assets/vendor/flatpickr/4.6.13/flatpickr.min.js');
+        $this->assertFileExists($this->projectDir . '/www/assets/vendor/chartjs/4.4.3/chart.umd.min.js');
+    }
+
+    /**
+     * When a library fails to install (here: a bundled library whose source
+     * file is absent), the command reports it as failed and exits FAILURE. Uses
+     * an injected manager backed by a crafted scaffolding dir so the failure is
+     * deterministic (real downloads are mocked and never fail).
+     */
+    public function testFailedInstallReturnsFailure(): void
+    {
+        // Arrange — a scaffolding whose only library is bundled with NO source.
+        $scaf = sys_get_temp_dir() . '/pramnos_libsync_scaf_' . bin2hex(random_bytes(4));
+        mkdir($scaf, 0777, true);
+        file_put_contents($scaf . '/assets.json', (string) json_encode([
+            'libraries' => [
+                'brokenlib' => [
+                    'version'     => '1.0.0',
+                    'bundled'     => true,
+                    'source_path' => 'resources/missing',
+                    'css'         => [],
+                    'js'          => ['broken.js'],
+                    'local_path'  => 'assets/vendor/brokenlib/1.0.0',
+                ],
+            ],
+        ]));
+
+        $command = new LibrariesSync();
+        $command->targetBaseDir = $this->projectDir;
+        $command->manager       = new LibraryManager($scaf);
+
+        $app = new Application('test', '1.0');
+        $app->add($command);
+        $app->setAutoExit(false);
+        $tester = new CommandTester($app->find('project:install'));
+
+        // Act
+        $exit = $tester->execute(['libraries' => ['brokenlib']]);
+
+        // Assert — failure surfaced and reflected in the exit code.
+        $this->assertSame(Command::FAILURE, $exit);
+        $this->assertStringContainsString('failed', $tester->getDisplay());
+
+        $this->removeDir($scaf);
+    }
+
     private function removeDir(string $dir): void
     {
         if (!is_dir($dir)) {

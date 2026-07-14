@@ -116,7 +116,13 @@ class QueueRetry extends Command
      */
     protected function retryTask(int $taskId): bool
     {
+        // @codeCoverageIgnoreStart
+        // Genuine live-DB boundary: delegates to QueueManager::retryTask(),
+        // which issues an UPDATE against the queueitems table. Not executable
+        // without a database; unit tests override this seam. QueueManager has
+        // its own tests and the real path is covered by the integration suite.
         return $this->getQueueManager()->retryTask($taskId);
+        // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -126,6 +132,11 @@ class QueueRetry extends Command
      */
     protected function getFailedTaskIds(): array
     {
+        // @codeCoverageIgnoreStart
+        // Genuine live-DB boundary: resolves the queue controller and SELECTs
+        // the ids of failed tasks from the QueueItem model. Cannot run without a
+        // database; unit tests override this seam and the integration suite
+        // exercises the real query.
         $model = $this->createQueueItemModel($this->getQueueController());
         $rows  = $model->getList("WHERE status = 'failed'", 'ORDER BY taskid ASC');
 
@@ -136,6 +147,7 @@ class QueueRetry extends Command
             }
         }
         return $ids;
+        // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -145,6 +157,10 @@ class QueueRetry extends Command
      */
     protected function getQueueController()
     {
+        // @codeCoverageIgnoreStart
+        // Genuine live-DB boundary: boots the real application, opens the
+        // database connection and resolves an application controller. Not
+        // executable without a live environment; covered by integration tests.
         /** @var \Pramnos\Console\Application $consoleApp */
         $consoleApp  = $this->getApplication();
         $application = $consoleApp->internalApplication;
@@ -152,6 +168,7 @@ class QueueRetry extends Command
         $application->database->setTrackingInfo(null, 'QueueRetryCLI', []);
 
         return $application->getController($this->getControllerName());
+        // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -188,7 +205,11 @@ class QueueRetry extends Command
      */
     protected function createQueueManager($controller): QueueManager
     {
+        // @codeCoverageIgnoreStart
+        // Instantiates the QueueManager against a live controller/DB. Overridden
+        // in unit tests; QueueManager has its own dedicated coverage.
         return new QueueManager($controller);
+        // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -200,6 +221,10 @@ class QueueRetry extends Command
      */
     protected function createQueueItemModel($controller): QueueItem
     {
+        // @codeCoverageIgnoreStart
+        // Instantiates the QueueItem ORM model against a live controller/DB.
+        // Overridden in unit tests; QueueItem has its own dedicated coverage.
         return new QueueItem($controller);
+        // @codeCoverageIgnoreEnd
     }
 }

@@ -6,6 +6,7 @@ namespace Tests\Unit\Pramnos\Console\Make;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Console\Tester\CommandTester;
 use Pramnos\Console\Application;
 use Pramnos\Console\Commands\Make\MakeCommand;
 use Pramnos\Console\Commands\Make\MakeTask;
@@ -51,6 +52,10 @@ class MakeScaffoldGeneratorsTest extends TestCase
             ROOT . '/tests/Unit/ProvSampleProviderTest.php',
             ROOT . '/tests/Unit/PolSamplePolicyTest.php',
             ROOT . '/tests/Unit/TestSubjectTest.php',
+            // Edge-case artifacts exercised by the coverage tests below.
+            ROOT . '/src/Console/Commands/Command.php',
+            ROOT . '/tests/Unit/CommandCommandTest.php',
+            ROOT . '/tests/Unit/TestTest.php',
         ];
         $this->cleanup();
     }
@@ -252,5 +257,304 @@ class MakeScaffoldGeneratorsTest extends TestCase
         $this->assertStringContainsString('class TestSubjectTest extends TestCase', $src);
         // Exactly one "Test" suffix — no double "TestTest".
         $this->assertStringNotContainsString('TestSubjectTestTest', $src);
+    }
+
+    // =========================================================================
+    // execute() wrappers — driven through Symfony CommandTester
+    // =========================================================================
+
+    /**
+     * create:command's execute() wrapper must parse the `name` argument, invoke
+     * createConsoleCommand(), and print its summary. Running through
+     * CommandTester covers the option/argument parsing (prepareExecution) and
+     * the writeln() output path that the direct-method tests bypass.
+     */
+    public function testCommandExecuteWritesFileAndOutput(): void
+    {
+        // Arrange — a generator wired to the ScaffoldApp stub application.
+        $command = $this->makeGenerator(MakeCommand::class);
+        $tester  = new CommandTester($command);
+
+        // Act — run the command exactly as the CLI would.
+        $exit = $tester->execute(['name' => 'CmdSample']);
+
+        // Assert — success exit code, file written, summary echoed to output.
+        $this->assertSame(0, $exit); // execute() returns 0 on success
+        $this->assertFileExists(ROOT . '/src/Console/Commands/CmdSample.php');
+        $this->assertStringContainsString('Command created.', $tester->getDisplay());
+    }
+
+    /**
+     * create:task's execute() wrapper end-to-end via CommandTester.
+     */
+    public function testTaskExecuteWritesFileAndOutput(): void
+    {
+        // Arrange
+        $command = $this->makeGenerator(MakeTask::class);
+        $tester  = new CommandTester($command);
+
+        // Act
+        $exit = $tester->execute(['name' => 'TaskSample']);
+
+        // Assert
+        $this->assertSame(0, $exit);
+        $this->assertFileExists(ROOT . '/src/Tasks/TaskSample.php');
+        $this->assertStringContainsString('Task created.', $tester->getDisplay());
+    }
+
+    /**
+     * create:provider's execute() wrapper end-to-end via CommandTester.
+     */
+    public function testProviderExecuteWritesFileAndOutput(): void
+    {
+        // Arrange
+        $command = $this->makeGenerator(MakeProvider::class);
+        $tester  = new CommandTester($command);
+
+        // Act
+        $exit = $tester->execute(['name' => 'ProvSample']);
+
+        // Assert
+        $this->assertSame(0, $exit);
+        $this->assertFileExists(ROOT . '/src/Providers/ProvSample.php');
+        $this->assertStringContainsString('Provider created.', $tester->getDisplay());
+    }
+
+    /**
+     * create:policy's execute() wrapper end-to-end via CommandTester.
+     */
+    public function testPolicyExecuteWritesFileAndOutput(): void
+    {
+        // Arrange
+        $command = $this->makeGenerator(MakePolicy::class);
+        $tester  = new CommandTester($command);
+
+        // Act
+        $exit = $tester->execute(['name' => 'PolSample']);
+
+        // Assert
+        $this->assertSame(0, $exit);
+        $this->assertFileExists(ROOT . '/src/Policies/PolSample.php');
+        $this->assertStringContainsString('Policy created.', $tester->getDisplay());
+    }
+
+    /**
+     * create:test's execute() wrapper end-to-end via CommandTester.
+     */
+    public function testTestExecuteWritesFileAndOutput(): void
+    {
+        // Arrange
+        $command = $this->makeGenerator(MakeTest::class);
+        $tester  = new CommandTester($command);
+
+        // Act
+        $exit = $tester->execute(['name' => 'TestSubject']);
+
+        // Assert
+        $this->assertSame(0, $exit);
+        $this->assertFileExists(ROOT . '/tests/Unit/TestSubjectTest.php');
+        $this->assertStringContainsString('Test created.', $tester->getDisplay());
+    }
+
+    // =========================================================================
+    // execute() — missing name argument hits the "Name is required" guard
+    // =========================================================================
+
+    /**
+     * Each execute() throws InvalidArgumentException when no name is supplied.
+     * The `name` argument is OPTIONAL at the Symfony level, so the value is
+     * null and the generator's own guard must reject it. One assertion per
+     * generator proves every wrapper's guard branch is reachable.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('missingNameProvider')]
+    public function testExecuteRequiresName(string $commandClass, string $expectedMessage): void
+    {
+        // Arrange
+        $command = $this->makeGenerator($commandClass);
+        $tester  = new CommandTester($command);
+
+        // Assert (set expectation before Act — the call must throw)
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage($expectedMessage);
+
+        // Act — run with an empty input set so getArgument('name') is null.
+        $tester->execute([]);
+    }
+
+    /**
+     * @return array<string,array{0:class-string,1:string}>
+     */
+    public static function missingNameProvider(): array
+    {
+        return [
+            'command'  => [MakeCommand::class,  'Name is required for: command'],
+            'task'     => [MakeTask::class,     'Name is required for: task'],
+            'provider' => [MakeProvider::class, 'Name is required for: provider'],
+            'policy'   => [MakePolicy::class,   'Name is required for: policy'],
+            'test'     => [MakeTest::class,     'Name is required for: test'],
+        ];
+    }
+
+    // =========================================================================
+    // create* — file-already-exists guard
+    // =========================================================================
+
+    /**
+     * Calling a generator twice for the same name must throw on the second
+     * call: the target file already exists and must never be silently
+     * overwritten. Verifies the file_exists() guard in each create* method.
+     */
+    public function testCreateCommandThrowsWhenFileExists(): void
+    {
+        // Arrange — first call creates the file.
+        $command = $this->makeGenerator(MakeCommand::class);
+        $command->createConsoleCommand('CmdSample');
+
+        // Assert — the second call must refuse to overwrite it.
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('already exists');
+
+        // Act
+        $command->createConsoleCommand('CmdSample');
+    }
+
+    /** @see testCreateCommandThrowsWhenFileExists — same guard for create:task. */
+    public function testCreateTaskThrowsWhenFileExists(): void
+    {
+        // Arrange
+        $command = $this->makeGenerator(MakeTask::class);
+        $command->createTask('TaskSample');
+
+        // Assert
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('already exists');
+
+        // Act
+        $command->createTask('TaskSample');
+    }
+
+    /** @see testCreateCommandThrowsWhenFileExists — same guard for create:provider. */
+    public function testCreateProviderThrowsWhenFileExists(): void
+    {
+        // Arrange
+        $command = $this->makeGenerator(MakeProvider::class);
+        $command->createProvider('ProvSample');
+
+        // Assert
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('already exists');
+
+        // Act
+        $command->createProvider('ProvSample');
+    }
+
+    /** @see testCreateCommandThrowsWhenFileExists — same guard for create:policy. */
+    public function testCreatePolicyThrowsWhenFileExists(): void
+    {
+        // Arrange
+        $command = $this->makeGenerator(MakePolicy::class);
+        $command->createPolicy('PolSample');
+
+        // Assert
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('already exists');
+
+        // Act
+        $command->createPolicy('PolSample');
+    }
+
+    /** @see testCreateCommandThrowsWhenFileExists — same guard for create:test. */
+    public function testCreateTestThrowsWhenFileExists(): void
+    {
+        // Arrange
+        $command = $this->makeGenerator(MakeTest::class);
+        $command->createTest('TestSubject');
+
+        // Assert
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('already exists');
+
+        // Act
+        $command->createTest('TestSubject');
+    }
+
+    // =========================================================================
+    // create* — invalid name collapses to an empty class name
+    // =========================================================================
+
+    /**
+     * A name consisting solely of non-word characters ("###") is stripped to an
+     * empty string by the `preg_replace('/\W+/', '', …)` sanitiser, which must
+     * trigger the InvalidArgumentException guard before any file is written.
+     * One assertion per generator covers each guard branch.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidNameProvider')]
+    public function testCreateRejectsInvalidName(string $commandClass, string $method): void
+    {
+        // Arrange
+        $command = $this->makeGenerator($commandClass);
+
+        // Assert — the sanitiser yields '' and the guard must reject it.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('valid PHP class name');
+
+        // Act — call the public create* method with a name that has no word chars.
+        $command->{$method}('###');
+    }
+
+    /**
+     * @return array<string,array{0:class-string,1:string}>
+     */
+    public static function invalidNameProvider(): array
+    {
+        return [
+            'command'  => [MakeCommand::class,  'createConsoleCommand'],
+            'task'     => [MakeTask::class,     'createTask'],
+            'provider' => [MakeProvider::class, 'createProvider'],
+            'policy'   => [MakePolicy::class,   'createPolicy'],
+            'test'     => [MakeTest::class,     'createTest'],
+        ];
+    }
+
+    // =========================================================================
+    // Name-derivation edge cases
+    // =========================================================================
+
+    /**
+     * When the class name is exactly "Command", stripping the trailing
+     * "Command" suffix leaves an empty base, so the CLI name must fall back to
+     * the full class name ("app:command") rather than producing "app:".
+     * Exercises the `$base === '' ? $className : $base` ternary in MakeCommand.
+     */
+    public function testCreateCommandNamedCommandFallsBackToFullName(): void
+    {
+        // Arrange
+        $command = $this->makeGenerator(MakeCommand::class);
+
+        // Act
+        $command->createConsoleCommand('Command');
+
+        // Assert — the empty-base fallback keeps a usable CLI name.
+        $src = (string) file_get_contents(ROOT . '/src/Console/Commands/Command.php');
+        $this->assertStringContainsString("setName('app:command')", $src);
+    }
+
+    /**
+     * When the test name is exactly "Test", stripping the trailing "Test" leaves
+     * an empty base, so the generator must fall back to the full name and emit a
+     * single "TestTest" class (not an empty "Test.php"). Exercises the
+     * `if ($base === '')` fallback in MakeTest.
+     */
+    public function testCreateTestNamedTestFallsBackToFullName(): void
+    {
+        // Arrange
+        $command = $this->makeGenerator(MakeTest::class);
+
+        // Act
+        $summary = $command->createTest('Test');
+
+        // Assert — the fallback produces tests/Unit/TestTest.php with class TestTest.
+        $this->assertFileExists(ROOT . '/tests/Unit/TestTest.php');
+        $this->assertStringContainsString('TestTest', $summary);
     }
 }

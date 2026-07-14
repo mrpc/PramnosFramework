@@ -95,6 +95,30 @@ class RouteListTest extends TestCase
         return $router;
     }
 
+    /**
+     * Build a Router whose route actions exercise every branch of the private
+     * describeHandler() formatter:
+     *   - an object controller (resolved via get_class),
+     *   - a controller-only array (no callable → controller name alone),
+     *   - a plain string action (returned verbatim).
+     * Used by the handler-formatting test.
+     */
+    private function makeHandlerVariantsRouter(): Router
+    {
+        $router = new Router(new Container());
+
+        // [object, method] → get_class($object) . '@' . method
+        $router->get('/obj', [new \stdClass(), 'handle']);
+
+        // [controller] with no callable element → controller name only
+        $router->get('/ctrl', ['App\\Controllers\\PlainController']);
+
+        // plain string action → returned as-is
+        $router->get('/str', 'App\\Handlers\\InvokableHandler');
+
+        return $router;
+    }
+
     // =========================================================================
     // Router available
     // =========================================================================
@@ -175,6 +199,54 @@ class RouteListTest extends TestCase
         $uris = array_column($decoded, 'uri');
         $this->assertContains('/users', $uris);
         $this->assertContains('/health', $uris);
+    }
+
+    /**
+     * The handler column must be formatted correctly for each action shape the
+     * describeHandler() helper supports. This locks down the three non-closure
+     * branches: object controllers, controller-only arrays and string actions.
+     */
+    public function testHandlerDescriptionsForEachActionShape(): void
+    {
+        // Arrange — a Router with one route per handler shape
+        $this->command->router = $this->makeHandlerVariantsRouter();
+
+        // Act
+        $exitCode = $this->tester->execute([]);
+        $output   = $this->tester->getDisplay();
+
+        // Assert — success
+        $this->assertSame(Command::SUCCESS, $exitCode, $output);
+
+        // Assert — object controller is rendered as <class>@<method>
+        $this->assertStringContainsString('stdClass@handle', $output);
+
+        // Assert — controller-only array is rendered as the class name alone
+        $this->assertStringContainsString('App\\Controllers\\PlainController', $output);
+
+        // Assert — plain string action is rendered verbatim
+        $this->assertStringContainsString('App\\Handlers\\InvokableHandler', $output);
+    }
+
+    /**
+     * A Router that is present but has no routes registered must render the
+     * "No routes are registered." notice (the empty-table branch of
+     * renderTable) and still exit SUCCESS. This is distinct from the
+     * no-Router-at-all case handled elsewhere.
+     */
+    public function testEmptyRouterRendersNoRoutesNotice(): void
+    {
+        // Arrange — an empty but valid Router
+        $this->command->router = new Router(new Container());
+
+        // Act
+        $exitCode = $this->tester->execute([]);
+        $output   = $this->tester->getDisplay();
+
+        // Assert — clean exit and the empty-table notice (not the missing-router message)
+        $this->assertSame(Command::SUCCESS, $exitCode, $output);
+        $this->assertStringContainsString('No routes are registered.', $output);
+        $this->assertStringNotContainsString('No router is available', $output);
     }
 
     // =========================================================================

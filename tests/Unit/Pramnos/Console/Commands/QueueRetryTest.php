@@ -232,4 +232,63 @@ class QueueRetryTest extends TestCase
         $this->assertSame([], $command->retried);
         $this->assertStringContainsString('No failed tasks', $tester->getDisplay());
     }
+
+    /**
+     * getQueueManager() must build the QueueManager lazily and cache it: the
+     * factory runs exactly once no matter how many times the accessor is called.
+     * The DB-touching factories (createQueueManager / getQueueController) are
+     * overridden so the caching logic itself is exercised without a database.
+     */
+    public function testGetQueueManagerIsBuiltOnceAndCached(): void
+    {
+        // Arrange — a double that counts factory calls and skips the DB.
+        $command = new class extends QueueRetry {
+            /** @var int Number of times the factory was invoked. */
+            public int $factoryCalls = 0;
+
+            // Return a null controller: QueueManager's constructor only stores
+            // it (no DB access), so this is safe in a unit test.
+            protected function getQueueController()
+            {
+                return null;
+            }
+
+            protected function createQueueManager($controller): \Pramnos\Queue\QueueManager
+            {
+                $this->factoryCalls++;
+                return new \Pramnos\Queue\QueueManager($controller);
+            }
+
+            public function publicGetQueueManager(): \Pramnos\Queue\QueueManager
+            {
+                return $this->getQueueManager();
+            }
+        };
+
+        // Act — resolve twice.
+        $first  = $command->publicGetQueueManager();
+        $second = $command->publicGetQueueManager();
+
+        // Assert — same cached instance, factory ran exactly once.
+        $this->assertSame($first, $second, 'the QueueManager must be cached');
+        $this->assertSame(1, $command->factoryCalls, 'factory must run only on first access');
+    }
+
+    /**
+     * getControllerName() defaults to the framework's 'Queueitems' controller —
+     * the name the DB seams resolve against.
+     */
+    public function testDefaultControllerName(): void
+    {
+        // Arrange
+        $command = new class extends QueueRetry {
+            public function publicControllerName(): string
+            {
+                return $this->getControllerName();
+            }
+        };
+
+        // Act + Assert
+        $this->assertSame('Queueitems', $command->publicControllerName());
+    }
 }

@@ -85,11 +85,17 @@ class Tinker extends Command
             return Command::SUCCESS;
         }
 
+        // @codeCoverageIgnoreStart
+        // Interactive dispatch: only reachable with a live TTY (guarded above),
+        // so it cannot be driven from a non-interactive unit test. The logic it
+        // fans out to — the read/eval loop, per-line handling and evaluation —
+        // is extracted into separately testable methods below.
         if (class_exists('\\Psy\\Shell')) {
             return $this->runPsysh($output);
         }
 
         return $this->runFallbackRepl($output);
+        // @codeCoverageIgnoreEnd
     }
 
     // -------------------------------------------------------------------------
@@ -98,6 +104,9 @@ class Tinker extends Command
 
     /**
      * Launch the full PsySH shell when psy/psysh is available.
+     *
+     * @codeCoverageIgnore Requires the optional psy/psysh package and a live
+     * TTY; the blocking $shell->run() call cannot be exercised from a unit test.
      */
     private function runPsysh(OutputInterface $output): int
     {
@@ -119,11 +128,37 @@ class Tinker extends Command
     /**
      * Minimal fallback REPL used when psy/psysh is not installed.
      *
-     * Reads a line at a time from STDIN, evaluates it and prints the result.
-     * This is intentionally simple — for anything beyond quick one-liners
-     * install PsySH (composer require --dev psy/psysh).
+     * Acquires the real STDIN stream and delegates the read/eval loop to
+     * {@see replLoop()}. Only the STDIN acquisition lives here (it can only be
+     * meaningfully driven by a live terminal); the loop itself is tested by
+     * feeding replLoop() an in-memory stream.
+     *
+     * @codeCoverageIgnore Only reached with a live TTY (guarded in execute());
+     * it binds the real STDIN resource, which would block a unit test on read.
      */
     private function runFallbackRepl(OutputInterface $output): int
+    {
+        $stdin = defined('STDIN') ? STDIN : fopen('php://stdin', 'r');
+        if ($stdin === false) {
+            $output->writeln('<error>Unable to open STDIN.</error>');
+            return Command::FAILURE;
+        }
+
+        return $this->replLoop($stdin, $output);
+    }
+
+    /**
+     * Read/eval loop over an arbitrary input stream.
+     *
+     * Extracted from {@see runFallbackRepl()} so the loop can be unit-tested by
+     * passing an in-memory stream (php://memory) instead of the real, blocking
+     * STDIN. Reads a line at a time, evaluates it and prints the result until
+     * EOF or an exit/quit command. Behaviour is identical to the previous inline
+     * loop.
+     *
+     * @param resource        $stream Input stream to read lines from.
+     */
+    protected function replLoop($stream, OutputInterface $output): int
     {
         $output->writeln('<info>Pramnos tinker — minimal fallback REPL</info>');
         $output->writeln(
@@ -136,16 +171,10 @@ class Tinker extends Command
         );
         $output->writeln('');
 
-        $stdin = defined('STDIN') ? STDIN : fopen('php://stdin', 'r');
-        if ($stdin === false) {
-            $output->writeln('<error>Unable to open STDIN.</error>');
-            return Command::FAILURE;
-        }
-
         while (true) {
             $output->write('>>> ');
 
-            $line = fgets($stdin);
+            $line = fgets($stream);
 
             // EOF (Ctrl+D or closed stream) — leave the shell.
             if ($line === false) {
@@ -153,15 +182,9 @@ class Tinker extends Command
                 break;
             }
 
-            $code = trim($line);
-            if ($code === '') {
-                continue;
-            }
-            if (in_array(strtolower($code), ['exit', 'quit', 'exit;', 'quit;'], true)) {
+            if (!$this->handleLine(trim($line), $output)) {
                 break;
             }
-
-            $this->evaluate($code, $output);
         }
 
         $output->writeln('<info>Bye.</info>');
@@ -169,10 +192,34 @@ class Tinker extends Command
     }
 
     /**
+     * Handle a single (already-trimmed) line of REPL input.
+     *
+     * Returns whether the loop should continue: true to keep reading, false to
+     * break out of the shell. Empty lines are ignored (continue); the
+     * exit/quit keywords request a break; anything else is evaluated. Extracted
+     * so the per-line decision logic is unit-testable without STDIN.
+     *
+     * @return bool True to continue the loop, false to break (exit/quit).
+     */
+    protected function handleLine(string $code, OutputInterface $output): bool
+    {
+        if ($code === '') {
+            return true;
+        }
+
+        if (in_array(strtolower($code), ['exit', 'quit', 'exit;', 'quit;'], true)) {
+            return false;
+        }
+
+        $this->evaluate($code, $output);
+        return true;
+    }
+
+    /**
      * Evaluate a single line of user input, guarding against parse/throwables so
      * a bad expression does not kill the REPL.
      */
-    private function evaluate(string $code, OutputInterface $output): void
+    protected function evaluate(string $code, OutputInterface $output): void
     {
         // Ensure the snippet is a complete statement so eval() does not choke on
         // a missing trailing semicolon for simple expressions.
@@ -234,7 +281,7 @@ class Tinker extends Command
      * posix_isatty(). If neither can determine the answer we conservatively
      * assume non-interactive so the command never blocks on input.
      */
-    private function stdinIsInteractive(): bool
+    protected function stdinIsInteractive(): bool
     {
         if (!defined('STDIN')) {
             return false;
@@ -244,10 +291,16 @@ class Tinker extends Command
             return @stream_isatty(STDIN);
         }
 
+        // @codeCoverageIgnoreStart
+        // stream_isatty() has been available since PHP 7.2, and this project
+        // targets PHP 8.4, so the branch above always resolves. These fallbacks
+        // exist only for exotic builds without stream_isatty() and cannot be
+        // reached on any supported runtime.
         if (function_exists('posix_isatty')) {
             return @posix_isatty(STDIN);
         }
 
         return false;
+        // @codeCoverageIgnoreEnd
     }
 }

@@ -118,9 +118,15 @@ class LibrariesSync extends Command
                     $output->writeln("  <error>failed</error>    $key");
                     $failed[] = $key;
                     break;
+                // @codeCoverageIgnoreStart
+                // Unreachable: install() only returns unknown|present|installed|
+                // failed, and 'unknown' entries are already skipped by the
+                // libraryDef()===null guard above before we ever call install().
+                // Kept as a defensive default for forward-compatibility.
                 default:
                     $output->writeln("  <error>unknown</error>   $key");
                     $failed[] = $key;
+                // @codeCoverageIgnoreEnd
             }
 
             // Flag for registration if the asset is available but not yet registered.

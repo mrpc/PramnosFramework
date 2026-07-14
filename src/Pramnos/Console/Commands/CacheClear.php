@@ -35,7 +35,7 @@ class CacheClear extends Command
         $category = (string) ($input->getOption('category') ?? '');
 
         try {
-            $ok = Cache::getInstance()->clear($category);
+            $ok = $this->clearCache($category);
         } catch (\Throwable $e) {
             $output->writeln('<error>Cache clear failed: ' . $e->getMessage() . '</error>');
             return Command::FAILURE;
@@ -51,5 +51,20 @@ class CacheClear extends Command
             : "<info>Cache category '{$category}' cleared.</info>");
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Delegate to the configured cache adapter.
+     *
+     * Isolated in its own protected method so it can be overridden in tests
+     * without touching the static Cache singleton. Production behaviour is
+     * identical to calling Cache::getInstance()->clear($category) inline.
+     *
+     * @param  string $category Cache category to clear ('' clears everything).
+     * @return bool             Whether the adapter reported a successful clear.
+     */
+    protected function clearCache(string $category): bool
+    {
+        return Cache::getInstance()->clear($category);
     }
 }

@@ -205,4 +205,106 @@ class QueueFailedTest extends TestCase
         // Assert — the seam observed the requested limit
         $this->assertSame(25, $command->seenLimit, '--limit must reach getFailedTasks()');
     }
+
+    /**
+     * A long error message must be truncated to a single-line preview ending in
+     * an ellipsis, so the table stays readable. This exercises the truncate()
+     * long-string branch (which the short sample errors never reach) end-to-end
+     * through the table renderer.
+     */
+    public function testLongErrorIsTruncatedInTable(): void
+    {
+        // Arrange — an error far longer than the 60-char preview limit, spanning
+        // multiple whitespace-collapsed lines to also cover the \s+ normalisation.
+        $longError = str_repeat('connection reset by peer ', 10); // 250 chars
+        $tester = $this->tester([[
+            'id' => 1, 'type' => 'sync', 'status' => 'failed',
+            'attempts' => 1, 'maxattempts' => 1,
+            'error' => $longError,
+            'updatedat' => '2026-07-13 09:00:00',
+        ]]);
+
+        // Act
+        $exit = $tester->execute([]);
+        $out  = $tester->getDisplay();
+
+        // Assert — success and the ellipsis proves the preview was truncated.
+        $this->assertSame(Command::SUCCESS, $exit, $out);
+        $this->assertStringContainsString('…', $out, 'long errors must be truncated with an ellipsis');
+        // The full 250-char message must NOT appear verbatim.
+        $this->assertStringNotContainsString($longError, $out);
+    }
+
+    /**
+     * normalizeTask() must flatten a QueueItem-like object into the associative
+     * row used by both table and JSON output, casting numeric fields and
+     * defaulting absent ones. This pure-logic seam is normally reached only via
+     * the DB path (getFailedTasks), so it is unit-tested directly here.
+     */
+    public function testNormalizeTaskFlattensObject(): void
+    {
+        // Arrange — a populated QueueItem-like object and an "empty" one.
+        $command = new class extends QueueFailed {
+            public function publicNormalize(object $task): array
+            {
+                return $this->normalizeTask($task);
+            }
+            public function publicControllerName(): string
+            {
+                return $this->getControllerName();
+            }
+        };
+
+        $full = (object) [
+            'taskid' => '42', 'type' => 'send_email', 'status' => 'failed',
+            'attempts' => '3', 'maxattempts' => '5', 'error' => 'boom',
+            'createdat' => 'c', 'updatedat' => 'u', 'completedat' => 'x',
+        ];
+
+        // Act
+        $row = $command->publicNormalize($full);
+
+        // Assert — numeric fields cast to int, all keys present and mapped.
+        $this->assertSame(42, $row['id']);
+        $this->assertSame('send_email', $row['type']);
+        $this->assertSame('failed', $row['status']);
+        $this->assertSame(3, $row['attempts']);
+        $this->assertSame(5, $row['maxattempts']);
+        $this->assertSame('boom', $row['error']);
+        $this->assertSame('u', $row['updatedat']);
+
+        // Arrange — a bare object exercises every default branch.
+        $empty = (object) [];
+
+        // Act
+        $bare = $command->publicNormalize($empty);
+
+        // Assert — absent taskid → null id; missing status defaults to 'failed';
+        // counters default to 0; nullable timestamps/error default to null.
+        $this->assertNull($bare['id']);
+        $this->assertSame('', $bare['type']);
+        $this->assertSame('failed', $bare['status']);
+        $this->assertSame(0, $bare['attempts']);
+        $this->assertSame(0, $bare['maxattempts']);
+        $this->assertNull($bare['error']);
+        $this->assertNull($bare['updatedat']);
+    }
+
+    /**
+     * getControllerName() defaults to the framework's 'Queueitems' controller;
+     * this is the value the DB seams resolve against, so pin it down.
+     */
+    public function testDefaultControllerName(): void
+    {
+        // Arrange
+        $command = new class extends QueueFailed {
+            public function publicControllerName(): string
+            {
+                return $this->getControllerName();
+            }
+        };
+
+        // Act + Assert
+        $this->assertSame('Queueitems', $command->publicControllerName());
+    }
 }

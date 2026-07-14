@@ -182,6 +182,151 @@ class ProjectSyncTest extends TestCase
         $this->assertStringNotContainsString('nonexistentfeature', $this->appConfigSource());
     }
 
+    /**
+     * With no flags on a non-interactive input, the command has nothing to
+     * resolve and prints the "Nothing to do" hint, exiting successfully without
+     * touching the project.
+     */
+    public function testNothingToDoNonInteractive(): void
+    {
+        // Arrange
+        $before = $this->appConfigSource();
+
+        // Act — no flags, non-interactive.
+        $tester = $this->tester();
+        $exit   = $tester->execute([], ['interactive' => false]);
+
+        // Assert
+        $this->assertSame(Command::SUCCESS, $exit);
+        $this->assertStringContainsString('Nothing to do', $tester->getDisplay());
+        $this->assertSame($before, $this->appConfigSource(), 'nothing must change');
+    }
+
+    /**
+     * An unknown library requested via --add-library is reported by the
+     * delegated project:install as "not in catalog" and does not abort the run
+     * (the mandatory set is still ensured).
+     */
+    public function testUnknownLibraryIsReported(): void
+    {
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--add-library' => 'doesnotexist'], ['interactive' => false]);
+
+        // Assert — the unknown key is surfaced from the delegated command.
+        $this->assertStringContainsString('not in catalog', $tester->getDisplay());
+        // The mandatory library is still installed despite the bogus request.
+        $this->assertFileExists($this->projectDir . '/www/assets/vendor/chartjs/4.4.3/chart.umd.min.js');
+    }
+
+    /**
+     * --no-register installs the library's assets but leaves src/Application.php
+     * untouched, delegating the download-only flow to project:install.
+     */
+    public function testNoRegisterInstallsWithoutEditingApplication(): void
+    {
+        // Arrange
+        $before = (string) file_get_contents($this->projectDir . '/src/Application.php');
+
+        // Act
+        $this->tester()->execute(
+            ['--add-library' => 'leaflet', '--no-register' => true],
+            ['interactive' => false]
+        );
+
+        // Assert — asset landed, but the bootstrap was not edited.
+        $this->assertFileExists($this->projectDir . '/www/assets/vendor/leaflet/1.9.4/leaflet.js');
+        $this->assertSame(
+            $before,
+            (string) file_get_contents($this->projectDir . '/src/Application.php'),
+            'Application.php must be untouched with --no-register'
+        );
+    }
+
+    /**
+     * The interactive wizard runs when no flags are given on a TTY: feeding a
+     * feature and a library answer enables the feature and installs the library,
+     * exercising ProjectSync::askInteractive().
+     */
+    public function testInteractiveWizardEnablesSelections(): void
+    {
+        // Arrange — answer the two multiselect prompts (features, then libraries).
+        $tester = $this->tester();
+        $tester->setInputs(['queue', 'leaflet']);
+
+        // Act — interactive (default), no flags → wizard path.
+        $tester->execute([], ['interactive' => true]);
+
+        // Assert — the picked feature was recorded and the picked library installed.
+        $this->assertStringContainsString("'queue'", $this->appConfigSource());
+        $this->assertFileExists($this->projectDir . '/www/assets/vendor/leaflet/1.9.4/leaflet.js');
+    }
+
+    /**
+     * Selecting "(none)" at both wizard prompts leaves the project unchanged and
+     * falls through to the "Nothing to do" branch — the empty-selection path of
+     * askInteractive().
+     */
+    public function testInteractiveWizardNoneSelected(): void
+    {
+        // Arrange
+        $before = $this->appConfigSource();
+        $tester = $this->tester();
+        $tester->setInputs(['(none)', '(none)']);
+
+        // Act
+        $tester->execute([], ['interactive' => true]);
+
+        // Assert — nothing chosen, nothing changed.
+        $this->assertStringContainsString('Nothing to do', $tester->getDisplay());
+        $this->assertSame($before, $this->appConfigSource());
+    }
+
+    /**
+     * When the delegated project:install command is not registered on the
+     * application, ProjectSync degrades gracefully: it prints a hint to run it
+     * manually and still succeeds. Exercises the delegate() not-found branch.
+     */
+    public function testDelegateMissingCommandPrintsHint(): void
+    {
+        // Arrange — an application WITHOUT project:install registered.
+        $command = new ProjectSync();
+        $command->targetBaseDir = $this->projectDir;
+        $app = new Application('test', '1.0');
+        $app->add($command);
+        $app->setAutoExit(false);
+        $tester = new CommandTester($app->find('project:reconfigure'));
+
+        // Act — enabling a feature triggers the (missing) delegate.
+        $exit = $tester->execute(['--enable-feature' => 'queue'], ['interactive' => false]);
+
+        // Assert — hint printed, feature still recorded, run succeeded.
+        $this->assertSame(Command::SUCCESS, $exit);
+        $this->assertStringContainsString('project:install', $tester->getDisplay());
+        $this->assertStringContainsString("'queue'", $this->appConfigSource());
+    }
+
+    /**
+     * If app/app.php has no locatable 'features' array, addFeaturesToConfig()
+     * cannot patch it, so the command advises a manual edit instead of silently
+     * losing the feature. Exercises the addFeaturesToConfig() failure branch.
+     */
+    public function testFeatureConfigWithoutArrayReportsManual(): void
+    {
+        // Arrange — a config file with no 'features' key at all.
+        file_put_contents(
+            $this->projectDir . '/app/app.php',
+            "<?php\nreturn [\n    'name' => 'Test',\n];\n"
+        );
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--enable-feature' => 'queue'], ['interactive' => false]);
+
+        // Assert — the manual-edit advisory was printed.
+        $this->assertStringContainsString('add these to the', $tester->getDisplay());
+    }
+
     private function removeDir(string $dir): void
     {
         if (!is_dir($dir)) {

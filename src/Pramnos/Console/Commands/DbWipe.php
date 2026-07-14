@@ -116,7 +116,7 @@ class DbWipe extends Command
     /**
      * Drops every table in the connection, handling MySQL and PostgreSQL.
      */
-    private function wipe(Database $db, OutputInterface $output): int
+    protected function wipe(Database $db, OutputInterface $output): int
     {
         $tables = $this->getTableNames($db);
 
@@ -173,7 +173,7 @@ class DbWipe extends Command
      *
      * @return string[]
      */
-    private function getTableNames(Database $db): array
+    protected function getTableNames(Database $db): array
     {
         if ($db->type === 'postgresql') {
             $schema = $db->schema ?: 'public';
@@ -199,7 +199,7 @@ class DbWipe extends Command
     /**
      * Builds a driver-specific DROP TABLE statement for a single table.
      */
-    private function buildDropStatement(Database $db, string $table, bool $isPostgres): string
+    protected function buildDropStatement(Database $db, string $table, bool $isPostgres): string
     {
         if ($isPostgres) {
             $schema = $db->schema ?: 'public';
