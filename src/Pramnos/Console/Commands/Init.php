@@ -2635,6 +2635,12 @@ BASH;
         $composer['autoload-dev'] = ['psr-4' => ['Tests\\' => 'tests/']];
 
         unset($composer['scripts']['post-create-project-cmd']);
+        // An empty PHP array serialises to a JSON array ("scripts": []), which
+        // fails Composer's schema (scripts must be an object). Drop the key when
+        // nothing is left so the generated composer.json stays valid.
+        if (empty($composer['scripts'])) {
+            unset($composer['scripts']);
+        }
 
         file_put_contents($composerPath, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }

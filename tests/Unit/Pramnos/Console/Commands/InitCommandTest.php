@@ -263,10 +263,18 @@ class InitCommandTest extends TestCase
         $this->assertStringContainsString('ENV APACHE_DOCUMENT_ROOT /var/www/html/www', $dockerfileContent);
 
         // Verify composer.json was updated
-        $composer = json_decode(file_get_contents($this->tempDir . '/composer.json'), true);
+        $composerRaw = file_get_contents($this->tempDir . '/composer.json');
+        $composer = json_decode($composerRaw, true);
         $this->assertEquals('app/pg-mem-app', $composer['name']);
         $this->assertEquals('PGMemApp\\', array_key_first($composer['autoload']['psr-4']));
         $this->assertArrayNotHasKey('post-create-project-cmd', $composer['scripts'] ?? []);
+        // Regression: removing the only script must not leave "scripts": [] — an
+        // empty JSON array fails Composer's schema (scripts must be an object),
+        // which broke `composer install`/`dump-autoload` during docker build.
+        $this->assertStringNotContainsString('"scripts": []', $composerRaw);
+        if (array_key_exists('scripts', $composer)) {
+            $this->assertIsObject(json_decode($composerRaw)->scripts, 'scripts must serialise as a JSON object');
+        }
         
         // Verify Authors
         $this->assertEquals('Complex Author', $composer['authors'][0]['name']);
