@@ -38,6 +38,15 @@ class Init extends Command
     /** Path to the scaffolding/ directory inside the framework package. */
     public string $scaffoldingDir = '';
 
+    /**
+     * Path to the brand/ directory inside the framework package (logos + favicon
+     * set). Defaults to the sibling of scaffoldingDir; overridable for testing.
+     */
+    public string $brandDir = '';
+
+    /** Web-root-relative directory for the sized favicon/app-icon files. */
+    private string $faviconSubdir = 'assets/favicons';
+
     private bool    $dockerSuccess     = false;
     private bool    $autoloadSuccess   = true;
     private bool    $migrationsSuccess = false;
@@ -79,6 +88,11 @@ class Init extends Command
 
         if ($this->scaffoldingDir === '') {
             $this->scaffoldingDir = $this->resolveScaffoldingDir();
+        }
+
+        if ($this->brandDir === '') {
+            // brand/ is a sibling of scaffolding/ inside the framework package.
+            $this->brandDir = dirname($this->scaffoldingDir) . '/brand';
         }
 
         $helper = $this->getHelper('question');
@@ -223,6 +237,8 @@ class Init extends Command
         ));
 
         $this->scaffoldTheme($uiSystem, $appName, $catalog, $enabledFeatures);
+        $this->scaffoldFavicons($appName);
+        $this->scaffoldLogo();
 
         if (in_array('auth', $enabledFeatures, true)) {
             $this->scaffoldAuthWiring($namespace, $uiSystem);
@@ -910,9 +926,7 @@ PHP;
             'bootstrap' => <<<'HTML'
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
-            <a class="navbar-brand fw-bold" href="<?php echo sURL; ?>">
-                <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>
-            </a>
+            {{BRAND_LOGO}}
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -947,9 +961,7 @@ HTML,
             'tailwind' => <<<'HTML'
     <header class="bg-white shadow-sm sticky top-0 z-50">
         <div class="container mx-auto px-4 max-w-5xl flex items-center justify-between h-16">
-            <a href="<?php echo sURL; ?>" class="text-xl font-bold text-blue-600">
-                <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>
-            </a>
+            {{BRAND_LOGO}}
             <nav>
                 <ul class="flex gap-6 items-center">
                     <?php foreach ($_nav[\Pramnos\Application\NavSection::Main->value] ?? [] as $_item): ?>
@@ -979,9 +991,7 @@ HTML,
             default => <<<'HTML'
     <header class="main-header">
         <div class="container">
-            <a href="<?php echo sURL; ?>" class="logo">
-                <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>
-            </a>
+            {{BRAND_LOGO}}
             <nav class="main-nav">
                 <ul>
                     <?php foreach ($_nav[\Pramnos\Application\NavSection::Main->value] ?? [] as $_item): ?>
@@ -1010,7 +1020,13 @@ HTML,
 HTML,
         };
 
+        // The brand element (logo image) is theme-specific and PHP-bearing, so it
+        // is injected here rather than written literally into the single-quoted
+        // heredocs above.
+        $nav = str_replace('{{BRAND_LOGO}}', $this->brandLogo($uiSystem), $nav);
+
         return "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+            . $this->faviconLinks()
             . $themeCss
             . "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>assets/css/style.css\">\n"
             . "    <?php \$this->document->renderCss(); ?>\n"
@@ -1062,6 +1078,175 @@ HTML,
             . $themeJs
             . "    <script src=\"<?php echo sURL; ?>assets/js/pf-utils.js\"></script>\n"
             . "    <?php \$this->document->renderJs(); ?>\n";
+    }
+
+    /**
+     * Copy the framework favicon set into the generated project.
+     *
+     * Layout produced in the project's web root (www/):
+     *   - www/favicon.ico            — the classic icon browsers auto-request at /favicon.ico
+     *   - www/manifest.json          — PWA manifest (icon paths rewritten to the subdir below)
+     *   - www/browserconfig.xml      — Windows tile config (tile paths rewritten likewise)
+     *   - www/assets/favicons/*.png  — all sized app icons (apple-*, android-*, ms-*, favicon-16/32/96)
+     *
+     * The master set lives in the framework's brand/favicons/ directory (the
+     * single source of truth). The generator emits root-relative ("/icon.png")
+     * paths inside manifest.json / browserconfig.xml; this method rewrites them
+     * to point at the assets/favicons/ subdir and stamps the real app name into
+     * the manifest. The matching <link>/<meta> tags are emitted by faviconLinks().
+     *
+     * No-op when the brand directory is absent (e.g. a trimmed dist install that
+     * export-ignored it) so scaffolding still succeeds without the artwork.
+     */
+    private function scaffoldFavicons(string $appName): void
+    {
+        $src = $this->brandDir . '/favicons';
+        if (!is_dir($src)) {
+            return; // @codeCoverageIgnore — brand/favicons is always present in the test tree
+        }
+
+        // Sized app icons → subdir. favicon.ico stays at the web root.
+        $this->mkdir('www/' . $this->faviconSubdir);
+        foreach (glob($src . '/*.png') ?: [] as $file) {
+            copy($file, $this->targetBaseDir . '/www/' . $this->faviconSubdir . '/' . basename($file));
+        }
+
+        $ico = $src . '/favicon.ico';
+        if (file_exists($ico)) {
+            copy($ico, $this->targetBaseDir . '/www/favicon.ico');
+        }
+
+        // Config files → web root, with their internal icon paths rewritten.
+        $manifest = $src . '/manifest.json';
+        if (file_exists($manifest)) {
+            $this->writeFile('www/manifest.json', $this->rewriteFaviconManifest($manifest, $appName));
+        }
+
+        $browserconfig = $src . '/browserconfig.xml';
+        if (file_exists($browserconfig)) {
+            $this->writeFile('www/browserconfig.xml', $this->rewriteBrowserconfig($browserconfig));
+        }
+    }
+
+    /**
+     * Read the master manifest.json, stamp the app name and rewrite each icon
+     * `src` from the generator's root-relative "/icon.png" form to
+     * "assets/favicons/icon.png" (relative, so it resolves correctly regardless
+     * of whether the app is served from a domain root or a subdirectory).
+     */
+    private function rewriteFaviconManifest(string $file, string $appName): string
+    {
+        $data = json_decode((string) file_get_contents($file), true) ?: [];
+
+        $data['name']       = $appName;
+        $data['short_name'] = $appName;
+
+        foreach ($data['icons'] ?? [] as $i => $icon) {
+            if (isset($icon['src'])) {
+                $data['icons'][$i]['src'] = $this->faviconSubdir . '/' . ltrim($icon['src'], '/');
+            }
+        }
+
+        return json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    }
+
+    /**
+     * Rewrite the Windows tile image paths in browserconfig.xml from the
+     * generator's root-relative "/ms-icon.png" form to the assets/favicons/
+     * subdir, matching where scaffoldFavicons() copies the tiles.
+     */
+    private function rewriteBrowserconfig(string $file): string
+    {
+        $xml = (string) file_get_contents($file);
+        return str_replace('src="/', 'src="' . $this->faviconSubdir . '/', $xml);
+    }
+
+    /**
+     * The full <link>/<meta> favicon block that wires the scaffolded icon set
+     * into the theme header — the set recommended by the favicon generator
+     * (all Apple touch sizes, Android, the 16/32/96 icons, manifest and Windows
+     * tile metadata).
+     *
+     * Two adaptations vs. the generator's raw snippet:
+     *   - Paths are sURL-prefixed (not root-relative "/…") so they resolve under
+     *     any base path, and the sized icons point at the assets/favicons/ subdir
+     *     where scaffoldFavicons() copies them.
+     *   - favicon.ico (web root) and a <link rel="manifest"> / msapplication-config
+     *     pointing at browserconfig.xml are added, matching the scaffolded layout.
+     */
+    private function faviconLinks(): string
+    {
+        $sub  = $this->faviconSubdir;
+        $icon = fn(string $file): string => "<?php echo sURL; ?>$sub/$file";
+
+        $appleSizes = ['57x57', '60x60', '72x72', '76x76', '114x114', '120x120', '144x144', '152x152', '180x180'];
+
+        $out = "    <link rel=\"icon\" href=\"<?php echo sURL; ?>favicon.ico\" sizes=\"any\">\n";
+        foreach ($appleSizes as $size) {
+            $out .= "    <link rel=\"apple-touch-icon\" sizes=\"$size\" href=\"" . $icon("apple-icon-$size.png") . "\">\n";
+        }
+        $out .= "    <link rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"" . $icon('android-icon-192x192.png') . "\">\n"
+            . "    <link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"" . $icon('favicon-32x32.png') . "\">\n"
+            . "    <link rel=\"icon\" type=\"image/png\" sizes=\"96x96\" href=\"" . $icon('favicon-96x96.png') . "\">\n"
+            . "    <link rel=\"icon\" type=\"image/png\" sizes=\"16x16\" href=\"" . $icon('favicon-16x16.png') . "\">\n"
+            . "    <link rel=\"manifest\" href=\"<?php echo sURL; ?>manifest.json\">\n"
+            . "    <meta name=\"msapplication-config\" content=\"<?php echo sURL; ?>browserconfig.xml\">\n"
+            . "    <meta name=\"msapplication-TileColor\" content=\"#ffffff\">\n"
+            . "    <meta name=\"msapplication-TileImage\" content=\"" . $icon('ms-icon-144x144.png') . "\">\n"
+            . "    <meta name=\"theme-color\" content=\"#ffffff\">\n";
+
+        return $out;
+    }
+
+    /**
+     * Copy the default header logo into the project as a replaceable placeholder.
+     *
+     * Two ink variants are written to www/assets/img/ so the header reads on
+     * either a light or a dark navbar without re-exporting artwork:
+     *   - logo.png          — dark ink, for light headers (plain-css, tailwind)
+     *   - logo-inverse.png  — light ink, for dark headers (bootstrap)
+     *
+     * The theme header (buildThemeHeader) references the variant matching its
+     * default navbar background. This is framework artwork shipped as a sensible
+     * default — a project replaces these files with its own brand.
+     *
+     * No-op when the brand directory is absent (trimmed dist install).
+     */
+    private function scaffoldLogo(): void
+    {
+        $src = $this->brandDir . '/logos';
+        if (!is_dir($src)) {
+            return; // @codeCoverageIgnore — brand/logos is always present in the test tree
+        }
+
+        $this->mkdir('www/assets/img');
+        $variants = [
+            'pramnos-logo-wide.png'         => 'logo.png',
+            'pramnos-logo-wide-inverse.png' => 'logo-inverse.png',
+        ];
+        foreach ($variants as $from => $to) {
+            if (file_exists($src . '/' . $from)) {
+                copy($src . '/' . $from, $this->targetBaseDir . '/www/assets/img/' . $to);
+            }
+        }
+    }
+
+    /**
+     * The header brand element: the placeholder logo image linking home, with
+     * the app name as its alt text. Uses the logo ink variant that reads on the
+     * given theme's default navbar background.
+     */
+    private function brandLogo(string $uiSystem): string
+    {
+        $file = $uiSystem === 'bootstrap' ? 'logo-inverse.png' : 'logo.png';
+        $name = "<?php echo htmlspecialchars(\\Pramnos\\Application\\Application::getInstance()->applicationInfo['name'], ENT_QUOTES, 'UTF-8'); ?>";
+        $img  = "<img src=\"<?php echo sURL; ?>assets/img/$file\" alt=\"$name\"";
+
+        return match ($uiSystem) {
+            'bootstrap' => "<a class=\"navbar-brand d-flex align-items-center\" href=\"<?php echo sURL; ?>\">$img height=\"34\"></a>",
+            'tailwind'  => "<a href=\"<?php echo sURL; ?>\" class=\"flex items-center\">$img class=\"h-9 w-auto\"></a>",
+            default     => "<a href=\"<?php echo sURL; ?>\" class=\"logo\">$img style=\"height:38px;display:block\"></a>",
+        };
     }
 
     /** Download (or stub) Bootstrap assets when bootstrap theme is selected. */

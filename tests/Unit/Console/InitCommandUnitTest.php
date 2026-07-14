@@ -470,6 +470,151 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * The favicon set from the framework's brand/ directory must be scaffolded
+     * into every new project, regardless of UI system.
+     *
+     * Why it matters: a scaffolded app should ship with complete favicon /
+     * PWA-icon coverage out of the box, pulled from the single brand source of
+     * truth. This verifies the agreed layout — favicon.ico + config files at the
+     * web root, sized icons under www/assets/favicons/ — and that the header
+     * wires them in.
+     */
+    public function testFaviconSetIsScaffoldedIntoProject(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'MyApp',
+            '--namespace' => 'MyApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'myapp_db',
+            '--db-user'   => 'myapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — the classic icon and config files live at the web root
+        $this->assertFileExists($this->tmpDir . '/www/favicon.ico',
+            'favicon.ico must be copied to the web root where browsers auto-request it');
+        $this->assertFileExists($this->tmpDir . '/www/manifest.json');
+        $this->assertFileExists($this->tmpDir . '/www/browserconfig.xml');
+
+        // Assert — the sized app icons live in the advanced-icons subdir
+        $this->assertFileExists($this->tmpDir . '/www/assets/favicons/apple-icon-180x180.png',
+            'sized app icons belong under www/assets/favicons/, not the web root');
+        $this->assertFileExists($this->tmpDir . '/www/assets/favicons/favicon-32x32.png');
+
+        // Assert — the manifest was stamped with the app name and its icon paths
+        // were rewritten from the generator's root-relative "/icon.png" form to
+        // the assets/favicons/ subdir (relative, so any base path works).
+        $manifest = json_decode(file_get_contents($this->tmpDir . '/www/manifest.json'), true);
+        $this->assertSame('MyApp', $manifest['name'], 'manifest name must be the app name, not the generator default "App"');
+        $this->assertStringStartsWith('assets/favicons/', $manifest['icons'][0]['src'],
+            'manifest icon paths must point at the subdir, not "/"');
+
+        // Assert — browserconfig tile paths were rewritten to the same subdir
+        $browserconfig = file_get_contents($this->tmpDir . '/www/browserconfig.xml');
+        $this->assertStringContainsString('src="assets/favicons/ms-icon-70x70.png"', $browserconfig);
+        $this->assertStringNotContainsString('src="/ms-icon', $browserconfig);
+
+        // Assert — the theme header wires the icons, manifest and tile config
+        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+        $this->assertStringContainsString('rel="manifest"', $header);
+        $this->assertStringContainsString('assets/favicons/apple-icon-180x180.png', $header);
+        $this->assertStringContainsString('msapplication-config', $header);
+    }
+
+    /**
+     * The scaffolded theme header must show the placeholder logo image (not just
+     * the app name as text), and both ink variants must be copied into the project.
+     *
+     * Why it matters: a scaffolded app should present a real logo in its header
+     * out of the box, pulled from the brand source of truth, and the developer
+     * replaces the image files to rebrand. The light-header themes must reference
+     * the dark-ink variant so the mark is legible.
+     */
+    public function testHeaderShowsPlaceholderLogoOnLightThemes(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — plain-css has a white navbar
+        $tester->execute([
+            '--app-name'  => 'MyApp',
+            '--namespace' => 'MyApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'myapp_db',
+            '--db-user'   => 'myapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — both ink variants are copied as replaceable placeholders
+        $this->assertFileExists($this->tmpDir . '/www/assets/img/logo.png');
+        $this->assertFileExists($this->tmpDir . '/www/assets/img/logo-inverse.png');
+
+        // Assert — the header renders the logo image, dark-ink variant on the
+        // white plain-css navbar, with the app name preserved as alt text
+        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+        $this->assertStringContainsString('<img src="<?php echo sURL; ?>assets/img/logo.png"', $header);
+        $this->assertStringContainsString('alt="<?php echo htmlspecialchars(', $header,
+            'app name must survive as the logo alt text for accessibility');
+        $this->assertStringNotContainsString('assets/img/logo-inverse.png', $header,
+            'a light navbar must not use the light-ink (inverse) variant');
+    }
+
+    /**
+     * The bootstrap theme uses a dark (bg-primary) navbar, so its header must
+     * reference the light-ink (inverse) logo variant to stay legible.
+     */
+    public function testHeaderUsesInverseLogoOnDarkBootstrapNavbar(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'MyApp',
+            '--namespace' => 'MyApp',
+            '--features'  => '',
+            '--ui-system' => 'bootstrap',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'myapp_db',
+            '--db-user'   => 'myapp',
+            '--db-pass'   => 'pass',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — dark navbar → light-ink (inverse) logo
+        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+        $this->assertStringContainsString('assets/img/logo-inverse.png', $header);
+    }
+
+    /**
      * settings.php maps timescaledb → type=postgresql with timescale=true.
      */
     public function testSettingsPhpMapsTimescaledbToPostgresql(): void

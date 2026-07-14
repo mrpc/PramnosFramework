@@ -153,6 +153,26 @@ php bin/pramnos create:policy MyPolicy       # an authorization policy skeleton
 php bin/pramnos create:test MySubject        # a PHPUnit test class
 ```
 
+### Favicons & branding
+
+`init` scaffolds a complete favicon / PWA-icon set into every new project, copied from the
+framework's canonical `brand/favicons/` directory:
+
+- `www/favicon.ico`, `www/manifest.json`, `www/browserconfig.xml` — at the web root.
+- `www/assets/favicons/*.png` — all sized Apple / Android / Windows-tile icons.
+
+The `manifest.json` is stamped with the application name and its icon paths (and the
+`browserconfig.xml` tile paths) are rewritten to the `assets/favicons/` subdir, so they
+resolve correctly under any base path. The matching `<link>` / `<meta>` tags are injected
+into the theme header for all UI systems. Replace the files under `www/assets/favicons/`
+(and `www/favicon.ico`) with your own artwork to rebrand a project.
+
+The theme header also renders a **logo image** (rather than the app name as text). `init`
+copies two ink variants — `www/assets/img/logo.png` (dark ink, for light navbars) and
+`www/assets/img/logo-inverse.png` (light ink, for dark navbars) — and each theme references
+the one that reads on its navbar background. The app name is kept as the image's `alt` text.
+Replace these files with your own logo to rebrand.
+
 ### Scheduled tasks (`schedule:`)
 
 Scheduled tasks are declared **in code** (not stored in a database), in the app's
