@@ -7,6 +7,7 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "brand/**"
   workflow_dispatch:
 
 permissions:
@@ -41,6 +42,16 @@ jobs:
 
       - name: Install MkDocs Material
         run: pip install mkdocs-material
+
+      # Sync brand assets (logo + favicon) from the source of truth in brand/
+      # into docs/assets/. Mirrors the sync in the dockerdocs script so local
+      # and CI builds produce an identical site. The docs/assets/*.png copies
+      # are git-ignored, so this step must run before every build.
+      - name: Sync brand assets
+        run: |
+          mkdir -p docs/assets
+          cp brand/logos/pramnos-logo-wide-inverse.png docs/assets/logo.png
+          cp brand/favicons/favicon-32x32.png          docs/assets/favicon.png
 
       - name: Build documentation
         run: mkdocs build --config-file mkdocs.yml

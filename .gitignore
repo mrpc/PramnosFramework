@@ -24,3 +24,6 @@ desktop.ini
 /var/*
 /coverage.xml
 site/*
+# Brand assets synced into the docs site at build time (source of truth: brand/)
+/docs/assets/logo.png
+/docs/assets/favicon.png
