@@ -409,6 +409,90 @@ class AuthCharacterizationTest extends TestCase
             'afterLogout callback must see session already marked as logged-out');
     }
 
+    // ── loginById — passwordless session bootstrap (additive) ─────────────────
+
+    /**
+     * loginById() with an invalid user id returns false without touching the
+     * database or firing any login handler.
+     *
+     * Guards the additive passwordless entry point: id <= 0 is rejected up front.
+     */
+    public function testLoginByIdRejectsInvalidUserId(): void
+    {
+        // Arrange
+        $auth = new Auth();
+
+        // Act & Assert
+        $this->assertFalse($auth->loginById(0));
+        $this->assertFalse($auth->loginById(-3));
+    }
+
+    /**
+     * A successful loginById() drives the SAME post-login path as a password
+     * login: the registered user addon's onLogin() receives the response, so the
+     * session is established identically. Proves the passwordless entry reuses
+     * triggerLogin() rather than a parallel bootstrap.
+     */
+    public function testLoginByIdReusesLoginTriggerOnSuccess(): void
+    {
+        // Arrange — a user-addon spy captures what onLogin() receives (no DB).
+        $userAddon = new class {
+            public ?array $received = null;
+            public function onLogin($info = []): bool { $this->received = $info; return true; }
+        };
+        $this->setAddonRegistry(['user' => ['u' => $userAddon]]);
+
+        // Auth double: stub the DB-backed response builder with a canned row.
+        $auth = new class extends Auth {
+            public array|false $canned = false;
+            protected function buildLoginResponse(int $userId, bool $remember): array|false
+            {
+                return $this->canned;
+            }
+        };
+        $auth->canned = [
+            'status' => true, 'uid' => 42, 'username' => 'alice',
+            'email' => 'a@example.com', 'auth' => 'hash', 'remember' => true,
+        ];
+
+        // Act
+        $result = $auth->loginById(42);
+
+        // Assert — success and the addon login handler saw the response.
+        $this->assertTrue($result);
+        $this->assertNotNull($userAddon->received);
+        $this->assertSame(42, $userAddon->received['uid']);
+        $this->assertTrue($userAddon->received['status']);
+    }
+
+    /**
+     * When the response builder returns false (unknown/inactive/deleted/banned
+     * user), loginById() returns false and NO login handler fires.
+     */
+    public function testLoginByIdReturnsFalseWhenUserNotEligible(): void
+    {
+        // Arrange
+        $userAddon = new class {
+            public bool $called = false;
+            public function onLogin($info = []): bool { $this->called = true; return true; }
+        };
+        $this->setAddonRegistry(['user' => ['u' => $userAddon]]);
+
+        $auth = new class extends Auth {
+            protected function buildLoginResponse(int $userId, bool $remember): array|false
+            {
+                return false; // e.g. inactive/banned user
+            }
+        };
+
+        // Act
+        $result = $auth->loginById(42);
+
+        // Assert
+        $this->assertFalse($result);
+        $this->assertFalse($userAddon->called, 'No login handler on an ineligible user');
+    }
+
     /**
      * @return array<string, array<string, object>>
      */

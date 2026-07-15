@@ -297,6 +297,81 @@ class Auth extends \Pramnos\Framework\Base
     }
 
     /**
+     * Establish a login session for an already-verified user, WITHOUT a password.
+     *
+     * This is the passwordless counterpart to {@see self::auth()}: the caller has
+     * already proven the user's identity by some other means (a passkey/WebAuthn
+     * assertion, a completed second-factor step-up, an SSO assertion, …) and only
+     * needs the same session bootstrap that a password login performs.
+     *
+     * It reuses the identical post-login path as {@see self::auth()}
+     * ({@see self::triggerLogin()}): the user addon's Login handler when one is
+     * registered, otherwise the built-in lifecycle, then the afterLogin
+     * callbacks. Nothing about the existing password path changes — this is a
+     * purely additive entry point (BC, CLAUDE.md §6).
+     *
+     * @param int  $userId   users.userid of the already-verified user.
+     * @param bool $remember Set a persistent login cookie (built-in path only).
+     * @return bool True when the user exists and is active and the session was
+     *              established; false otherwise.
+     */
+    public function loginById(int $userId, bool $remember = true): bool
+    {
+        $response = $this->buildLoginResponse($userId, $remember);
+        if ($response === false) {
+            return false;
+        }
+
+        $this->lastResponse = $response;
+        $this->triggerLogin($response);
+        return true;
+    }
+
+    /**
+     * Build the login-response array for a user id, mirroring the shape a driver
+     * produces ({@see AuthResult::toArray()}) so {@see self::triggerLogin()} and
+     * the user addon's onLogin() accept it unchanged.
+     *
+     * Honours the same active-status gate as the password path (0/2/5 blocked).
+     *
+     * @return array<string,mixed>|false
+     */
+    protected function buildLoginResponse(int $userId, bool $remember): array|false
+    {
+        if ($userId <= 0) {
+            return false;
+        }
+
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $sql = $database->prepareQuery(
+            "SELECT `userid`, `username`, `email`, `password`, `active` "
+            . "FROM `#PREFIX#users` WHERE `userid` = %d LIMIT 1",
+            $userId
+        );
+        $result = $database->query($sql);
+
+        if (!$result || !isset($result->numRows) || $result->numRows == 0) {
+            return false;
+        }
+
+        $row    = $result->fields;
+        $active = $row['active'] ?? 1;
+        // Blocked states: 0 inactive, 2 deleted, 5 banned ('t' = active in PG).
+        if (($active == 0 && $active != 't') || $active == 2 || $active == 5) {
+            return false;
+        }
+
+        return [
+            'status'   => true,
+            'uid'      => (int) $row['userid'],
+            'username' => (string) $row['username'],
+            'email'    => (string) ($row['email'] ?? ''),
+            'auth'     => (string) ($row['password'] ?? ''),
+            'remember' => $remember,
+        ];
+    }
+
+    /**
      * Orchestrate the post-login sequence:
      *   1. User addon (if registered) — for BC with apps that have Addon\User\User
      *   2. Built-in session/cookie lifecycle — when no user addon is present (Phase 25.4)
