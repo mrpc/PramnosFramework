@@ -3206,8 +3206,18 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
                 $column
             )
         );
-        $this->assertNotNull($result->fields,
-            "Column '{$column}' must exist in '{$schema}.{$table}'");
+        // A missing column yields 0 rows; in that case $result->fields is an
+        // empty array (not null), so assertNotNull is not enough — it would let
+        // a null 'data_type' through to strtolower() (deprecation) and an
+        // undefined-key warning. Detect the no-row case explicitly and fail with
+        // a clear message so a genuinely-missing column is diagnosable, never a
+        // cryptic strtolower(null) deprecation.
+        $this->assertTrue(
+            $result !== false
+                && (int) ($result->numRows ?? 0) > 0
+                && isset($result->fields['data_type']),
+            "Column '{$column}' must exist in '{$schema}.{$table}'"
+        );
         return $result->fields;
     }
 
