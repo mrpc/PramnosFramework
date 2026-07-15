@@ -2280,8 +2280,17 @@ class FrameworkMigrationsMySQLTest extends TestCase
                 $column
             )
         );
-        $this->assertNotNull($result->fields,
-            "Column '{$column}' must exist in '{$table}'");
+        // A missing column yields 0 rows; $result->fields is then an empty array
+        // (not null), so assertNotNull is not enough — it would let a null
+        // 'DATA_TYPE' through to strtolower() (deprecation) and an undefined-key
+        // warning. Detect the no-row case explicitly and fail with a clear
+        // message so a genuinely-missing column is diagnosable.
+        $this->assertTrue(
+            $result !== false
+                && (int) ($result->numRows ?? 0) > 0
+                && isset($result->fields['DATA_TYPE']),
+            "Column '{$column}' must exist in '{$table}'"
+        );
         return $result->fields;
     }
 
