@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Auth\Controllers;
 
 use Pramnos\Application\Controller;
+use Pramnos\Auth\WebhookService;
 
 /**
  * Admin controller for RBAC permissions management.
@@ -160,6 +161,14 @@ class PermissionsController extends Controller
                 ->insert($data);
         }
 
+        // Instant invalidation (feature 7): tell subscribers this subject's
+        // permissions changed so they drop their local cache and re-fetch.
+        $this->emitPermissionsChanged($subjectType, $subjectId, [
+            'object_type' => $objectType,
+            'action'      => $action,
+            'operation'   => $id > 0 ? 'update' : 'create',
+        ]);
+
         $this->redirect(sURL . 'permissions?message=saved');
     }
 
@@ -178,13 +187,57 @@ class PermissionsController extends Controller
             return;
         }
 
-        \Pramnos\Framework\Factory::getDatabase()
-            ->queryBuilder()
+        $db = \Pramnos\Framework\Factory::getDatabase();
+
+        // Read the row first so we know whose cache to invalidate after deletion.
+        $row = $db->queryBuilder()
+            ->table('authserver.permissions')
+            ->where('permissionid', $id)
+            ->first();
+
+        $db->queryBuilder()
             ->table('authserver.permissions')
             ->where('permissionid', $id)
             ->delete();
 
+        if ($row && $row->numRows > 0) {
+            $this->emitPermissionsChanged(
+                (string) ($row->fields['subject_type'] ?? ''),
+                (int) ($row->fields['subject_id'] ?? 0),
+                ['operation' => 'delete']
+            );
+        }
+
         $this->redirect(sURL . 'permissions?message=deleted');
+    }
+
+    /**
+     * Queue a `permissions_changed` webhook so subscribed applications drop the
+     * affected user's cached permissions and re-fetch (feature 7 invalidation).
+     *
+     * For a user-subject the event targets that user; for role/application
+     * subjects it targets user 0 and the payload carries the subject, letting a
+     * subscriber invalidate every affected user. Delivery failures are swallowed:
+     * a webhook problem must never break permission administration.
+     *
+     * @param array<string,mixed> $context extra payload fields (object_type, action, operation…)
+     */
+    protected function emitPermissionsChanged(string $subjectType, int $subjectId, array $context): void
+    {
+        $userId  = $subjectType === 'user' ? $subjectId : 0;
+        $payload = ['subject_type' => $subjectType, 'subject_id' => $subjectId] + $context;
+
+        try {
+            $this->webhookService()->queueEvent('permissions_changed', $userId, $payload);
+        } catch (\Throwable) {
+            // Non-fatal: invalidation is best-effort.
+        }
+    }
+
+    /** The webhook service (seam so tests can inject a spy). */
+    protected function webhookService(): WebhookService
+    {
+        return new WebhookService(\Pramnos\Framework\Factory::getDatabase());
     }
 
     /**
