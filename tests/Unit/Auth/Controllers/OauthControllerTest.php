@@ -517,6 +517,58 @@ class OauthControllerTest extends TestCase
             'getAllRequestHeaders() must always return an array');
     }
 
+    // ── clientSkipsConsent() ──────────────────────────────────────────────────
+
+    /**
+     * A client with trusted = 1 skips the consent screen (silent flow).
+     * This is the true branch that enables auto-approve for first-party apps.
+     */
+    public function testClientSkipsConsentWhenTrustedIsOne(): void
+    {
+        // Act & Assert
+        $this->assertTrue($this->callPrivate('clientSkipsConsent', ['appid' => 1, 'trusted' => 1]));
+    }
+
+    /**
+     * A string "1" (as returned by some DB drivers) is treated as trusted —
+     * the (int) cast normalises it, so silent flow still applies.
+     */
+    public function testClientSkipsConsentWhenTrustedIsStringOne(): void
+    {
+        // Act & Assert — DB may hand back the column as a string.
+        $this->assertTrue($this->callPrivate('clientSkipsConsent', ['appid' => 1, 'trusted' => '1']));
+    }
+
+    /**
+     * trusted = 0 (the default) must NOT skip consent.
+     */
+    public function testClientDoesNotSkipConsentWhenTrustedIsZero(): void
+    {
+        // Act & Assert
+        $this->assertFalse($this->callPrivate('clientSkipsConsent', ['appid' => 1, 'trusted' => 0]));
+    }
+
+    /**
+     * A missing trusted key (e.g. an installation whose applications table has
+     * not yet gained the column) defaults to untrusted — proves the ?? 0 guard
+     * keeps pre-migration behaviour intact.
+     */
+    public function testClientDoesNotSkipConsentWhenTrustedAbsent(): void
+    {
+        // Act & Assert — no 'trusted' key at all.
+        $this->assertFalse($this->callPrivate('clientSkipsConsent', ['appid' => 1]));
+    }
+
+    /**
+     * Any unexpected value (e.g. 2) is treated as untrusted — only an exact
+     * 1 enables the silent flow, so misconfiguration fails safe (with consent).
+     */
+    public function testClientDoesNotSkipConsentForUnexpectedValue(): void
+    {
+        // Act & Assert
+        $this->assertFalse($this->callPrivate('clientSkipsConsent', ['appid' => 1, 'trusted' => 2]));
+    }
+
     // ── Private reflection helper ─────────────────────────────────────────────
 
     /**
