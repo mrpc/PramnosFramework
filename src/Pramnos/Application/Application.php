@@ -1130,8 +1130,9 @@ class Application extends Base
      * Returns the framework-level migration directories to scan for auto-run.
      *
      * Includes one sub-directory per registered feature under
-     * database/migrations/framework/.  Override in a subclass to add
-     * application-specific framework migration directories.
+     * database/migrations/framework/, filtered by feature activation
+     * (see filterMigrationDirsByEnabledFeatures()).  Override in a subclass to
+     * add application-specific framework migration directories.
      *
      * @return string[] Absolute directory paths.
      */
@@ -1141,7 +1142,47 @@ class Application extends Base
         if ($base === null || !is_dir($base)) {
             return [];
         }
-        return glob($base . '/*', GLOB_ONLYDIR) ?: [];
+        $dirs = glob($base . '/*', GLOB_ONLYDIR) ?: [];
+
+        return $this->filterMigrationDirsByEnabledFeatures($dirs);
+    }
+
+    /**
+     * Filters framework migration directories by feature activation.
+     *
+     * Each framework migration sub-directory is named after a feature key
+     * (e.g. `framework/authserver/` → feature `authserver`).  A directory is
+     * kept only when its feature is active for this application; otherwise its
+     * migrations are skipped by auto-run.
+     *
+     * Gating rule (BC-safe, fail-open):
+     *   - A directory whose name is NOT a KNOWN framework feature always runs
+     *     (fail-open — covers test fixtures and any ad-hoc directory).
+     *   - A directory whose name IS a known feature runs only when that feature
+     *     is enabled (FeatureRegistry::isEnabled()).  `core` is always enabled.
+     *
+     * This means new authserver/auth/queue migrations auto-run only on
+     * installations that declare the feature in their `app.php` `features`
+     * array — without breaking any directory that is not a registered feature.
+     *
+     * @param string[] $dirs Absolute directory paths, one per feature sub-dir.
+     * @return string[] The subset whose feature is active.
+     */
+    protected function filterMigrationDirsByEnabledFeatures(array $dirs): array
+    {
+        $known = \Pramnos\Application\FeatureRegistry::getKnown();
+
+        return array_values(array_filter($dirs, static function (string $dir) use ($known): bool {
+            $feature = basename($dir);
+
+            // Unknown directory name → not a gated feature → always run.
+            if (!in_array($feature, $known, true)) {
+                return true;
+            }
+
+            // Known feature → run only when enabled ('core' is always enabled).
+            return \Pramnos\Application\FeatureRegistry::isEnabled($feature);
+        }));
     }
 
     /**
