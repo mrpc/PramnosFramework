@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Auth\Controllers;
 
 use Pramnos\Application\Controller;
-use Pramnos\Auth\Application;
 use Pramnos\Auth\CapabilitiesSyncService;
 use Pramnos\Http\Response;
 
@@ -27,6 +26,8 @@ use Pramnos\Http\Response;
  */
 class Capabilities extends Controller
 {
+    use ClientCredentialsAuthTrait;
+
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addaction(['sync']);
@@ -87,47 +88,8 @@ class Capabilities extends Controller
     }
 
     // ── Testable seams ─────────────────────────────────────────────────────
-
-    /**
-     * Extract client credentials from HTTP Basic auth or the request body.
-     * Returns ['client_id' => ..., 'client_secret' => ...] or null.
-     */
-    protected function extractClientCredentials(): ?array
-    {
-        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-        if (preg_match('/^Basic\s+(.+)$/i', $authHeader, $m)) {
-            $decoded = base64_decode($m[1], true);
-            if ($decoded !== false && str_contains($decoded, ':')) {
-                [$id, $secret] = explode(':', $decoded, 2);
-                return ['client_id' => $id, 'client_secret' => $secret];
-            }
-        }
-
-        $id     = (string) ($_POST['client_id']     ?? '');
-        $secret = (string) ($_POST['client_secret'] ?? '');
-        if ($id !== '' && $secret !== '') {
-            return ['client_id' => $id, 'client_secret' => $secret];
-        }
-
-        return null;
-    }
-
-    /**
-     * Validate credentials and return the application id (appid), or null when
-     * the credentials are invalid / the client is inactive.
-     */
-    protected function authenticateClient(string $clientId, string $clientSecret): ?int
-    {
-        $app    = new Application($this);
-        $loaded = $app->loadByApiKey($clientId);
-        if ($loaded === false) {
-            return null;
-        }
-        if (!$app->validateCredentials($clientId, $clientSecret)) {
-            return null;
-        }
-        return $app->appid > 0 ? $app->appid : null;
-    }
+    // extractClientCredentials() and authenticateClient() come from
+    // ClientCredentialsAuthTrait.
 
     /**
      * Read and decode the JSON manifest from the request body.
