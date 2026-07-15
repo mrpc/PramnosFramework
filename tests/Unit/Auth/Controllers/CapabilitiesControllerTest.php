@@ -280,6 +280,19 @@ class CapabilitiesControllerTest extends TestCase
         );
     }
 
+    /**
+     * The real rawRequestBody() reads php://input; under the CLI test SAPI that
+     * stream is empty, so it returns an empty string. Exercises the actual I/O
+     * boundary (which the other tests override).
+     */
+    public function testRawRequestBodyReturnsString(): void
+    {
+        $rm  = new \ReflectionMethod(Capabilities::class, 'rawRequestBody');
+        $out = $rm->invoke($this->controller);
+
+        $this->assertIsString($out);
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────
 
     private function callProtected(string $method): mixed
