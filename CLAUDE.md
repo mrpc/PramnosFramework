@@ -81,6 +81,15 @@ framework migration system.
 
 A feature is not considered **done** until it has integration tests that run against the real database (MySQL, PostgreSQL, TimescaleDB via Docker). Unit tests that only verify SQL string output are necessary but not sufficient. Integration tests must verify that the operation actually took effect in the database (schema exists, rows were written, indexes were created, etc.).
 
+### 11. Code coverage — >95% on all new/changed code
+
+Every new or modified unit of production code must reach **>95% line coverage**. No feature or
+phase is considered **done** below this threshold. Verify with `./dockertest --coverage`.
+
+Coverage must be **meaningful**: it has to exercise error and edge paths (invalid input, adapter/
+dependency failures, replay/conflict cases, condition mismatches), not only the happy path.
+Do not pad coverage with assertion-free tests. This supersedes the earlier >=90% baseline.
+
 ### 10. Keep the documentation site (MkDocs / GitHub Pages) current
 
 The published docs site lives under `docs/` and is built with **MkDocs Material**
