@@ -59,6 +59,9 @@ class Application extends \Pramnos\Application\Model
     /** @var int Whether publicly listed: 0=private, 1=public */
     public int $public = 0;
 
+    /** @var int Trusted first-party client: 1 skips the OAuth2 consent screen, 0 = untrusted (default) */
+    public int $trusted = 0;
+
     /** @var string|null Comma-separated or JSON-array of allowed redirect URIs */
     public ?string $callback = null;
 

@@ -131,6 +131,15 @@ class Oauth extends Controller
                 return;
             }
 
+            // Trusted first-party clients skip the consent screen entirely
+            // (silent flow): the authorization server issues the code without
+            // prompting.  Untrusted clients (the default) fall through to the
+            // normal consent path below.
+            if ($this->clientSkipsConsent($client)) {
+                $this->issueCodeAndRedirect($user->userid, $params);
+                return;
+            }
+
             // Auto-approve if already authorised with the same or broader scopes
             $requestedScopes = array_filter(explode(' ', $params['scope']));
             if ($this->hasUserAuthorizedApp($user->userid, (int) $client['appid'], $requestedScopes)) {
@@ -623,7 +632,7 @@ class Oauth extends Controller
     /**
      * Return the currently logged-in user object, or null.
      */
-    private function getLoggedInUser(): ?object
+    protected function getLoggedInUser(): ?object
     {
         $user = \Pramnos\User\User::getCurrentUser();
         if ($user && isset($user->userid) && $user->userid > 0) {
@@ -683,6 +692,22 @@ class Oauth extends Controller
     }
 
     // ── Consent store ─────────────────────────────────────────────────────────
+
+    /**
+     * Whether a client is trusted and therefore skips the consent screen.
+     *
+     * A trusted first-party client (`trusted = 1`) uses the silent flow: the
+     * authorization server issues the code without prompting the user. Any
+     * other value — including a missing column, 0, or an unexpected value —
+     * is treated as untrusted so the normal consent path runs. Protected to
+     * allow direct unit testing of the decision in isolation.
+     *
+     * @param array $client The client row as loaded by loadClient().
+     */
+    protected function clientSkipsConsent(array $client): bool
+    {
+        return (int) ($client['trusted'] ?? 0) === 1;
+    }
 
     /**
      * Check whether the user has already authorised this application with at

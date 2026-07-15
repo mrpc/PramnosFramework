@@ -173,6 +173,48 @@ class OauthControllerIntegrationTest extends TestCase
         $this->assertIsString($echoed);
     }
 
+    public function testAuthorizeTrustedClientSkipsConsent()
+    {
+        // Arrange — a logged-in user and a GET authorize request.
+        $_GET['client_id']     = '123';
+        $_GET['response_type'] = 'code';
+        $_GET['redirect_uri']  = 'http://localhost/callback';
+        $_GET['state']         = 'abc';
+        $_GET['scope']         = 'profile';
+
+        // Client is flagged trusted=1 → silent flow. The same mock row satisfies
+        // both loadClient() and generateAuthCode()'s appid lookup (numRows=1, appid).
+        $mockClient = new \stdClass();
+        $mockClient->numRows = 1;
+        $mockClient->fields  = [
+            'appid'         => 123,
+            'name'          => 'Trusted App',
+            'redirect_uris' => 'http://localhost/callback',
+            'scope'         => 'profile',
+            'trusted'       => 1,
+        ];
+        $this->queryBuilderMock->method('first')->willReturn($mockClient);
+
+        $user = $this->createMock(\Pramnos\User\User::class);
+        $user->userid   = 10;
+        $user->username = 'testuser';
+        $this->controller->loggedInUser = $user;
+
+        // Act
+        ob_start();
+        $this->controller->authorize();
+        $echoed = ob_get_clean();
+
+        // Assert — silent flow: the consent view is NOT rendered and no error
+        // page is emitted (issueCodeAndRedirect uses header()+terminate(), which
+        // produce no body output under the test double). An empty body proves the
+        // trusted branch was taken instead of showConsentForm() ('oauth-view').
+        $this->assertStringNotContainsString('oauth-view', $echoed,
+            'Trusted client must skip the consent screen');
+        $this->assertSame('', $echoed,
+            'Trusted silent flow must emit no body (code issued via redirect header)');
+    }
+
     public function testAuthorizePostConsent()
     {
         $_GET['client_id'] = '123';
