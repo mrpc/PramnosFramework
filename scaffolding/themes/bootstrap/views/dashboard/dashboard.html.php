@@ -33,6 +33,9 @@
                 <div class="card-header fw-semibold">Account Settings</div>
                 <div class="list-group list-group-flush">
                     <?php $routeBase = $this->routeBase ?? 'Dashboard'; ?>
+                    <a href="<?php echo sURL . $routeBase; ?>/profile" class="list-group-item list-group-item-action">
+                        <i class="bi bi-person me-2"></i> Profile
+                    </a>
                     <a href="<?php echo sURL . $routeBase; ?>/applications" class="list-group-item list-group-item-action">
                         <i class="bi bi-grid me-2"></i> Authorized Applications
                         <?php if (count($this->authorizedApps) > 0): ?>
@@ -56,6 +59,9 @@
                     </a>
                     <a href="<?php echo sURL . $routeBase; ?>/exportdata" class="list-group-item list-group-item-action">
                         <i class="bi bi-download me-2"></i> Export My Data
+                    </a>
+                    <a href="<?php echo sURL . $routeBase; ?>/deleteaccount" class="list-group-item list-group-item-action text-danger">
+                        <i class="bi bi-trash me-2"></i> Delete Account
                     </a>
                 </div>
             </div>
