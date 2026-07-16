@@ -1308,7 +1308,9 @@ class InitCommandUnitTest extends TestCase
 
     /**
      * When the 'auth' feature is requested, the scaffolder must create
-     * src/Controllers/Login.php so that /login routes to a login form.
+     * src/Controllers/Login.php so that /login routes to a login form. It is a
+     * thin alias to the framework Account controller (LoginFlow-driven), NOT a
+     * hand-rolled login implementation.
      */
     public function testAuthFeatureScaffoldsLoginController(): void
     {
@@ -1344,32 +1346,30 @@ class InitCommandUnitTest extends TestCase
         // Must declare the correct namespace
         $this->assertStringContainsString('namespace AuthApp\\Controllers;', $login);
 
-        // Must contain display, dologin, logout actions
+        // Must be a thin alias extending the framework Account controller — the
+        // login/verify/logout flow lives there, driven by LoginFlow.
+        $this->assertStringContainsString('extends Account', $login,
+            'Login must delegate to the framework Account controller');
+        $this->assertStringContainsString('use Pramnos\\Auth\\Controllers\\Account;', $login);
+
+        // /login form actions post under the "login" route base.
+        $this->assertStringContainsString("routeBase = 'login'", $login);
+
+        // The bare /login URL shows the sign-in form (display delegates to login()).
         $this->assertStringContainsString('public function display()', $login);
-        $this->assertStringContainsString('public function dologin()', $login);
-        $this->assertStringContainsString('public function logout()', $login);
+        $this->assertStringContainsString('$this->login()', $login);
 
-        // Constructor must register dologin and logout in addaction so that
-        // Controller::exec() can route POST requests to them.
-        $this->assertStringContainsString('addaction(', $login,
-            'Login controller must register dologin/logout via addaction() in constructor');
-        $this->assertStringContainsString("'dologin'", $login,
-            'dologin must be registered so exec() can dispatch the POST');
-        $this->assertStringContainsString("'logout'", $login,
-            'logout must be registered so exec() can dispatch the action');
-
-        // Must use the framework Auth class for authentication
-        $this->assertStringContainsString('Auth::getInstance()', $login);
-        $this->assertStringContainsString('->auth(', $login);
-        $this->assertStringContainsString('->logout()', $login);
+        // It must NOT re-implement login: no hand-rolled credential handling.
+        $this->assertStringNotContainsString('function dologin', $login,
+            'Login must not re-implement credential handling — the framework does it');
     }
 
     /**
      * When the 'auth' feature is requested, the scaffolder must create
-     * src/Controllers/Account.php that extends the framework Dashboard controller,
+     * src/Controllers/Account.php that extends the framework Account controller,
      * making all account management actions available via /account.
      */
-    public function testAuthFeatureScaffoldsAccountControllerExtendingDashboard(): void
+    public function testAuthFeatureScaffoldsAccountControllerExtendingAccount(): void
     {
         // Arrange
         file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
@@ -1403,15 +1403,17 @@ class InitCommandUnitTest extends TestCase
         // Must declare the correct namespace
         $this->assertStringContainsString('namespace AuthApp\\Controllers;', $account);
 
-        // Must extend the framework Dashboard controller
-        $this->assertStringContainsString('extends \\Pramnos\\Auth\\Controllers\\Dashboard', $account);
+        // Must extend the framework Account controller
+        $this->assertStringContainsString('extends \\Pramnos\\Auth\\Controllers\\Account', $account);
     }
 
     /**
-     * When the 'auth' feature is requested, the scaffolder must create a login
-     * view at src/Views/login/login.html.php with a working login form.
+     * The login view is NOT copied into the app: the framework ships themed
+     * login/2FA views as fallbacks under each scaffolding theme's login view
+     * group, driven by the Account/LoginFlow flow. Apps customise them via
+     * `project:publish-views`. This mirrors how OAuth2 views are handled.
      */
-    public function testAuthFeatureScaffoldsLoginView(): void
+    public function testAuthFeatureDoesNotScaffoldLoginView(): void
     {
         // Arrange
         file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
@@ -1436,21 +1438,20 @@ class InitCommandUnitTest extends TestCase
             '--rest-api'  => 'n',
         ], ['interactive' => false]);
 
-        // Assert — login view must exist
-        $viewPath = $this->tmpDir . '/src/Views/login/login.html.php';
-        $this->assertFileExists($viewPath, 'src/Views/login/login.html.php must be scaffolded when auth feature is enabled');
+        // Assert — no app-level login view is written; the framework fallback serves it.
+        $this->assertFileDoesNotExist(
+            $this->tmpDir . '/src/Views/login/login.html.php',
+            'login view must come from the framework fallback, not be copied into the app'
+        );
 
-        $view = file_get_contents($viewPath);
-
-        // Must POST to the dologin action
-        $this->assertStringContainsString('login/dologin', $view);
-
-        // Must have username and password fields
+        // The bundled fallback exists in the framework and carries the new-flow form.
+        $fallback = dirname(__DIR__, 3)
+            . '/scaffolding/themes/plain-css/views/login/login.html.php';
+        $this->assertFileExists($fallback, 'framework must ship a fallback login view');
+        $view = file_get_contents($fallback);
+        $this->assertStringContainsString('/login', $view, 'form posts under the login route base');
         $this->assertStringContainsString('name="username"', $view);
         $this->assertStringContainsString('name="password"', $view);
-
-        // Must show login error when present
-        $this->assertStringContainsString('$this->error', $view);
     }
 
     /**
@@ -2071,9 +2072,9 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringNotContainsString('assertTrue(true)', $loginTest,
             'LoginControllerTest must not be a placeholder — it must verify real behaviour');
 
-        // Must test action registration (the most common scaffold wiring bug)
-        $this->assertStringContainsString('addaction', $loginTest,
-            'LoginControllerTest must verify that dologin/logout are registered via addaction()');
+        // Must pin the alias contract: Login delegates to the framework Account.
+        $this->assertStringContainsString('is_subclass_of', $loginTest,
+            'LoginControllerTest must verify Login extends the framework Account controller');
 
         // Assert — HomeControllerTest also exists
         $homeTestPath = $this->tmpDir . '/tests/Unit/Controllers/HomeControllerTest.php';
