@@ -292,9 +292,10 @@ class AccountControllerTest extends TestCase
     // ── default seams / wiring ────────────────────────────────────────────────
 
     /**
-     * The un-overridden seams resolve their real defaults, proving the zero-config
-     * path a scaffolded app relies on. (Runs against the live test env like the
-     * rest of the suite; no user is logged in, so currentUserId() is null.)
+     * The un-overridden, DB-free seams resolve their real defaults, proving the
+     * zero-config path a scaffolded app relies on. (The DB-backed seams —
+     * currentUser()/setting() — are exercised through their own injectable
+     * subclasses below so this test never depends on live DB state.)
      */
     public function testDefaultSeams(): void
     {
@@ -302,7 +303,6 @@ class AccountControllerTest extends TestCase
 
         $this->assertInstanceOf(LoginFlow::class, $flow->flowPublic());
         $this->assertInstanceOf(Auth::class, $flow->authPublic());
-        $this->assertNull($flow->currentUserIdPublic(), 'no logged-in user in tests');
         $this->assertIsBool($flow->checkCsrfPublic());
         $this->assertSame('', $flow->baseUrlPublic(), 'sURL is empty in the test bootstrap');
         $this->assertIsObject($flow->documentPublic());
@@ -311,13 +311,6 @@ class AccountControllerTest extends TestCase
         $this->assertSame('hi', $flow->postPublic('x'));
         $this->assertSame('  hi  ', $flow->postPublic('x', false));
         $_POST = [];
-
-        // brand() resolves settings-driven defaults when nothing is configured.
-        $brand = $flow->brandPublic();
-        $this->assertArrayHasKey('name', $brand);
-        $this->assertArrayHasKey('primary_color', $brand);
-        $this->assertNotSame('', $brand['name'], 'brand name always has a fallback');
-        $this->assertNotSame('', $brand['primary_color'], 'brand colour always has a fallback');
     }
 
     /**
@@ -336,6 +329,37 @@ class AccountControllerTest extends TestCase
 
         $acc->fakeUser = null;
         $this->assertNull($acc->currentUserIdPublic());
+    }
+
+    /**
+     * brand() resolves its settings-driven fallbacks: an explicit brand name
+     * wins, else `sitename`, else "Sign in"; the primary colour defaults when
+     * unset. Driven through the setting() seam so it needs no live settings.
+     */
+    public function testBrandFallbacks(): void
+    {
+        // Nothing configured → hard defaults.
+        $blank = new BrandAccount(null);
+        $this->assertSame('Sign in', $blank->brandPublic()['name']);
+        $this->assertSame('#2563eb', $blank->brandPublic()['primary_color']);
+
+        // sitename fills the name when no explicit brand name is set.
+        $sn = new BrandAccount(null);
+        $sn->settings = ['sitename' => 'Acme'];
+        $this->assertSame('Acme', $sn->brandPublic()['name']);
+
+        // Explicit brand keys win and are all passed through.
+        $full = new BrandAccount(null);
+        $full->settings = [
+            'auth_brand_name' => 'Acme ID', 'sitename' => 'Acme',
+            'auth_brand_primary_color' => '#111', 'auth_brand_logo' => '/l.png',
+            'auth_brand_footer' => '© Acme',
+        ];
+        $b = $full->brandPublic();
+        $this->assertSame('Acme ID', $b['name'], 'explicit brand name beats sitename');
+        $this->assertSame('#111', $b['primary_color']);
+        $this->assertSame('/l.png', $b['logo']);
+        $this->assertSame('© Acme', $b['footer']);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -460,17 +484,15 @@ class TestableAccount extends Account
     }
 }
 
-/** Exposes the real (un-overridden) seams to cover their default bodies. */
+/** Exposes the real (un-overridden), DB-free seams to cover their default bodies. */
 class ExposedAccount extends Account
 {
     public function flowPublic(): LoginFlow { return $this->flow(); }
     public function authPublic(): Auth { return $this->authService(); }
-    public function currentUserIdPublic(): ?int { return $this->currentUserId(); }
     public function checkCsrfPublic(): bool { return $this->checkCsrf(); }
     public function baseUrlPublic(): string { return $this->baseUrl(); }
     public function documentPublic(): object { return $this->document(); }
     public function postPublic(string $k, bool $t = true): string { return $this->post($k, $t); }
-    public function brandPublic(): array { return $this->brand(); }
 }
 
 /** Account whose session user is injectable, to drive currentUserId()'s branches. */
@@ -481,4 +503,15 @@ class UserAccount extends Account
     public function currentUserIdPublic(): ?int { return $this->currentUserId(); }
 
     protected function currentUser(): mixed { return $this->fakeUser; }
+}
+
+/** Account whose settings are injectable, to drive brand()'s fallbacks without a DB. */
+class BrandAccount extends Account
+{
+    /** @var array<string,string> */
+    public array $settings = [];
+
+    public function brandPublic(): array { return $this->brand(); }
+
+    protected function setting(string $key): string { return $this->settings[$key] ?? ''; }
 }

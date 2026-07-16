@@ -6,16 +6,16 @@ namespace Pramnos\Tests\Unit\Auth\Controllers;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Pramnos\Auth\Controllers\Dashboard;
+use Pramnos\Auth\Controllers\Account;
 
 /**
- * Unit tests for Pramnos\Auth\Controllers\Dashboard.
+ * Unit tests for Pramnos\Auth\Controllers\Account.
  *
- * Dashboard is coupled to the Application / view layer for all public actions.
+ * Account is coupled to the Application / view layer for all public actions.
  * We test the private pure helpers that contain business logic but have no
  * external dependencies.
  *
- * Constructor note: Dashboard calls addAuthAction() *before* parent::__construct(),
+ * Constructor note: Account calls addAuthAction() *before* parent::__construct(),
  * so we bypass the constructor entirely via newInstanceWithoutConstructor() to
  * avoid needing a booted Application.
  *
@@ -24,15 +24,15 @@ use Pramnos\Auth\Controllers\Dashboard;
  *     failure branches and a success path.
  *   - verifyUserPassword(): legacy SHA-256 path (covered by hash comparison).
  */
-#[CoversClass(Dashboard::class)]
-class DashboardControllerTest extends TestCase
+#[CoversClass(Account::class)]
+class AccountControllerHelpersTest extends TestCase
 {
-    private Dashboard $dashboard;
+    private Account $dashboard;
 
     protected function setUp(): void
     {
         // Arrange – bypass constructor (calls addAuthAction + parent::__construct)
-        $rc              = new \ReflectionClass(Dashboard::class);
+        $rc              = new \ReflectionClass(Account::class);
         $this->dashboard = $rc->newInstanceWithoutConstructor();
     }
 
@@ -153,7 +153,7 @@ class DashboardControllerTest extends TestCase
      */
     private function callPrivate(string $method, mixed ...$args): mixed
     {
-        $rm = new \ReflectionMethod(Dashboard::class, $method);
+        $rm = new \ReflectionMethod(Account::class, $method);
         return $rm->invoke($this->dashboard, ...$args);
     }
 }

@@ -8,14 +8,14 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
-use Pramnos\Auth\Controllers\Dashboard;
+use Pramnos\Auth\Controllers\Account;
 use Pramnos\Framework\Factory;
 use Pramnos\User\User;
 
 /**
- * Characterization tests for Dashboard controller QB migration.
+ * Characterization tests for Account controller QB migration.
  *
- * All private DB helper methods in Dashboard were refactored from
+ * All private DB helper methods in Account were refactored from
  * prepareQuery/query to the QueryBuilder API.  These tests verify that
  * the QB-generated SQL produces the same observable results as the
  * original raw SQL against a real MySQL database.
@@ -33,8 +33,8 @@ use Pramnos\User\User;
  * `authserver` PostgreSQL schema, which would require schema-qualified
  * table names in the controller to work on PG — a pre-existing issue.
  */
-#[CoversClass(Dashboard::class)]
-class DashboardCharacterizationTest extends TestCase
+#[CoversClass(Account::class)]
+class AccountCharacterizationTest extends TestCase
 {
     private \Pramnos\Database\Database $db;
 
@@ -64,7 +64,7 @@ class DashboardCharacterizationTest extends TestCase
         }
 
         if ($this->db->type === 'postgresql') {
-            $this->markTestSkipped('DashboardCharacterizationTest runs on MySQL only.');
+            $this->markTestSkipped('AccountCharacterizationTest runs on MySQL only.');
         }
 
         User::setupDb();
@@ -93,7 +93,7 @@ class DashboardCharacterizationTest extends TestCase
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
-     * Create the helper tables that the Dashboard controller needs but that
+     * Create the helper tables that the Account controller needs but that
      * may not exist in the test database (User::setupDb only creates the
      * core user tables).
      */
@@ -114,7 +114,7 @@ class DashboardCharacterizationTest extends TestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 
-        // user_activity_log — column names match what Dashboard::getActivityLog() selects
+        // user_activity_log — column names match what Account::getActivityLog() selects
         $this->db->query(
             "CREATE TABLE IF NOT EXISTS `{$p}user_activity_log` (
                 `id`         bigint AUTO_INCREMENT PRIMARY KEY,
@@ -126,7 +126,7 @@ class DashboardCharacterizationTest extends TestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 
-        // user_privacy_settings — columns match Dashboard::getPrivacySettings() / privacy() POST
+        // user_privacy_settings — columns match Account::getPrivacySettings() / privacy() POST
         // Column names align with the migration and the reference application: share_usage_analytics, marketing_emails.
         // The authserver.* schema prefix is mapped to authserver_ table prefix on MySQL.
         $this->db->query(
@@ -140,7 +140,7 @@ class DashboardCharacterizationTest extends TestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 
-        // oauth2_user_consents — columns match Dashboard::revokeapplication() (authserver schema → authserver_ prefix on MySQL)
+        // oauth2_user_consents — columns match Account::revokeapplication() (authserver schema → authserver_ prefix on MySQL)
         $this->db->query(
             "CREATE TABLE IF NOT EXISTS `{$p}authserver_oauth2_user_consents` (
                 `id`            bigint AUTO_INCREMENT PRIMARY KEY,
@@ -153,7 +153,7 @@ class DashboardCharacterizationTest extends TestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 
-        // user_twofactor — columns match Dashboard::isTwoFactorEnabled()
+        // user_twofactor — columns match Account::isTwoFactorEnabled()
         $this->db->query(
             "CREATE TABLE IF NOT EXISTS `{$p}user_twofactor` (
                 `userid`  bigint NOT NULL PRIMARY KEY,
@@ -162,7 +162,7 @@ class DashboardCharacterizationTest extends TestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 
-        // twofactor_setup — referenced by Dashboard::eraseUserData()
+        // twofactor_setup — referenced by Account::eraseUserData()
         $this->db->query(
             "CREATE TABLE IF NOT EXISTS `{$p}twofactor_setup` (
                 `id`        bigint AUTO_INCREMENT PRIMARY KEY,
@@ -210,11 +210,11 @@ class DashboardCharacterizationTest extends TestCase
     }
 
     /**
-     * Call a private method on Dashboard via reflection.
+     * Call a private method on Account via reflection.
      */
-    private function callPrivate(Dashboard $dashboard, string $method, mixed ...$args): mixed
+    private function callPrivate(Account $dashboard, string $method, mixed ...$args): mixed
     {
-        $ref = new \ReflectionMethod(Dashboard::class, $method);
+        $ref = new \ReflectionMethod(Account::class, $method);
         return $ref->invoke($dashboard, ...$args);
     }
 
@@ -258,7 +258,7 @@ class DashboardCharacterizationTest extends TestCase
         ]);
 
         // Act
-        $dashboard = new Dashboard();
+        $dashboard = new Account();
         $apps = $this->callPrivate($dashboard, 'getAuthorizedApplications', $userId);
 
         // Assert — exactly one row for the one application
@@ -300,7 +300,7 @@ class DashboardCharacterizationTest extends TestCase
         ]);
 
         // Act
-        $dashboard = new Dashboard();
+        $dashboard = new Account();
         $apps = $this->callPrivate($dashboard, 'getAuthorizedApplications', $userId);
 
         // Assert — neither expired nor revoked tokens must appear
@@ -334,7 +334,7 @@ class DashboardCharacterizationTest extends TestCase
         }
 
         // Act — request at most 3 rows
-        $dashboard = new Dashboard();
+        $dashboard = new Account();
         $log = $this->callPrivate($dashboard, 'getActivityLog', $userId, 3);
 
         // Assert
@@ -359,7 +359,7 @@ class DashboardCharacterizationTest extends TestCase
         $userId = $this->makeUser();
 
         // Act — no row yet
-        $dashboard = new Dashboard();
+        $dashboard = new Account();
         $result = $this->callPrivate($dashboard, 'isTwoFactorEnabled', $userId);
 
         // Assert
@@ -401,7 +401,7 @@ class DashboardCharacterizationTest extends TestCase
         $userId = $this->makeUser();
 
         // Act — no row yet → defaults
-        $dashboard = new Dashboard();
+        $dashboard = new Account();
         $settings = $this->callPrivate($dashboard, 'getPrivacySettings', $userId);
 
         // Assert
@@ -448,7 +448,7 @@ class DashboardCharacterizationTest extends TestCase
             ->update(['password' => $hash, 'active' => 1]);
 
         // Act — correct password
-        $dashboard = new Dashboard();
+        $dashboard = new Account();
         $result = $this->callPrivate($dashboard, 'verifyUserPassword', $userId, 'Secr3t!pass');
 
         // Assert
@@ -491,7 +491,7 @@ class DashboardCharacterizationTest extends TestCase
             ->update(['active' => 1]);
 
         // Act
-        $dashboard = new Dashboard();
+        $dashboard = new Account();
         $this->callPrivate($dashboard, 'updatePassword', $userId, 'N3wP@ssword!');
 
         // Assert — load the new hash directly from DB
@@ -564,7 +564,7 @@ class DashboardCharacterizationTest extends TestCase
         $this->createdUserIds = array_filter($this->createdUserIds, fn($id) => $id !== $targetId);
 
         // Act
-        $dashboard = new Dashboard();
+        $dashboard = new Account();
         $this->callPrivate($dashboard, 'eraseUserData', $targetId);
 
         // Assert — target's rows are gone from all tables

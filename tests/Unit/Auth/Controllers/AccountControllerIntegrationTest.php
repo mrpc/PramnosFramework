@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Unit\Auth\Controllers;
 
 use PHPUnit\Framework\TestCase;
-use Pramnos\Auth\Controllers\Dashboard;
+use Pramnos\Auth\Controllers\Account;
 use Pramnos\Database\Database;
 use Pramnos\Database\QueryBuilder;
 use Pramnos\User\User;
 
-class TestableDashboardController extends Dashboard
+class TestableAccountControllerIT extends Account
 {
     protected function terminate(): void
     {
@@ -51,9 +51,9 @@ class TestableDashboardController extends Dashboard
     }
 }
 
-class DashboardControllerIntegrationTest extends TestCase
+class AccountControllerIntegrationTest extends TestCase
 {
-    private TestableDashboardController $controller;
+    private TestableAccountControllerIT $controller;
     private $dbMock;
     private $queryBuilderMock;
     private $originalDb;
@@ -112,7 +112,7 @@ class DashboardControllerIntegrationTest extends TestCase
         $_SERVER['REQUEST_METHOD'] = 'GET';
         $_SERVER['HTTP_X_REQUESTED_WITH'] = '';
 
-        $this->controller = new TestableDashboardController(null);
+        $this->controller = new TestableAccountControllerIT(null);
     }
 
     protected function tearDown(): void

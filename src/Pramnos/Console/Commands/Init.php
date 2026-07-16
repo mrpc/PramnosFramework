@@ -1740,7 +1740,7 @@ PHP;
         $rows .= "            'Emails'        => [Emails::class,         \\Pramnos\\Application\\Controllers\\EmailsController::class],\n";
         if ($hasAuth) {
             $rows .= "            'Login'         => [Login::class,         \\Pramnos\\Application\\Controller::class],\n";
-            $rows .= "            'Account'       => [Account::class,       \\Pramnos\\Auth\\Controllers\\Dashboard::class],\n";
+            $rows .= "            'Account'       => [Account::class,       \\Pramnos\\Auth\\Controllers\\Account::class],\n";
             $rows .= "            'TwoFactorAuth' => [TwoFactorAuth::class, \\Pramnos\\Auth\\Controllers\\TwoFactorAuth::class],\n";
             $rows .= "            'TokenActions'  => [TokenActions::class,  \\Pramnos\\Auth\\Controllers\\TokenActionsController::class],\n";
             $rows .= "            'Tokens'        => [Tokens::class,        \\Pramnos\\Auth\\Controllers\\TokensController::class],\n";
@@ -3553,7 +3553,7 @@ PHP;
 
     /**
      * Scaffold auth wiring for a new application: Login controller, login view,
-     * and an Account controller wrapper around the framework Dashboard.
+     * and an Account controller wrapper around the framework Account controller.
      *
      * Called from execute() only when the 'auth' feature is enabled.
      */
@@ -3637,7 +3637,7 @@ PHP;
 
         $this->writeFile('src/Controllers/Login.php', $loginController);
 
-        // ── Account controller (wrapper for framework Dashboard) ──────────────
+        // ── Account controller (wrapper for framework Account) ────────────────
         $accountController = <<<PHP
 <?php
 
@@ -3646,12 +3646,13 @@ declare(strict_types=1);
 namespace {$namespace}\\Controllers;
 
 /**
- * User account dashboard — delegates to the framework Dashboard controller.
+ * User account controller — delegates to the framework Account controller.
  *
  * Routes: /account (display), /account/security, /account/changepassword, etc.
- * All actions require authentication (inherited from framework Dashboard).
+ * All account-management actions require authentication (inherited from the
+ * framework Account controller).
  */
-class Account extends \\Pramnos\\Auth\\Controllers\\Dashboard
+class Account extends \\Pramnos\\Auth\\Controllers\\Account
 {
     protected string \$routeBase = 'account';
 }
