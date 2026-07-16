@@ -875,6 +875,11 @@ PHP;
             $this->writeFile('www/assets/js/pf-utils.js', file_get_contents($pfUtils));
         }
 
+        $pfWebauthn = $this->scaffoldingDir . '/assets/js/pf-webauthn.js';
+        if (file_exists($pfWebauthn)) {
+            $this->writeFile('www/assets/js/pf-webauthn.js', file_get_contents($pfWebauthn));
+        }
+
         if ($uiSystem === 'bootstrap') {
             $this->ensureBootstrapAssets();
         } elseif ($uiSystem === 'tailwind') {

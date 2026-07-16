@@ -20,6 +20,7 @@ $errorMessages = [
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
+$offerPasskey = in_array('passkey', (array) ($this->methods ?? []), true);
 ?>
 <div class="container py-5">
     <div class="row justify-content-center">
@@ -46,6 +47,12 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
                         </div>
                         <button type="submit" class="btn btn-primary w-100" style="background-color:<?php echo $primary; ?>;border-color:<?php echo $primary; ?>">Verify &amp; Sign In</button>
                     </form>
+
+                    <?php if ($offerPasskey): ?>
+                    <div class="text-center text-muted small my-3">or</div>
+                    <button type="button" id="passkey-stepup" class="btn btn-dark w-100">Use a passkey</button>
+                    <p id="passkey-error" class="text-danger small mt-2 d-none"></p>
+                    <?php endif; ?>
 
                     <details class="mt-3">
                         <summary class="small text-muted" style="cursor:pointer">Use a backup code instead</summary>
@@ -74,3 +81,24 @@ document.getElementById('code').addEventListener('input', function() {
     if (this.value.length === 6) { setTimeout(() => { if (this.value.length === 6) this.form.submit(); }, 100); }
 });
 </script>
+<?php if ($offerPasskey): ?>
+<script>
+(function () {
+    var btn = document.getElementById('passkey-stepup');
+    if (!btn) { return; }
+    if (!window.PramnosWebAuthn || !window.PramnosWebAuthn.supported()) { btn.style.display = 'none'; return; }
+    var base = <?php echo json_encode($base); ?>;
+    var home = <?php echo json_encode(sURL); ?>;
+    btn.addEventListener('click', function () {
+        btn.disabled = true;
+        window.PramnosWebAuthn.authenticate(base + '/passkeyOptions', base + '/passkeyVerify')
+            .then(function (r) { window.location = r.redirect || home; })
+            .catch(function () {
+                btn.disabled = false;
+                var e = document.getElementById('passkey-error');
+                if (e) { e.className = e.className.replace(/\b(d-none|hidden)\b/g, ''); e.style.display = 'block'; e.textContent = 'Passkey sign-in failed. Use your code instead.'; }
+            });
+    });
+})();
+</script>
+<?php endif; ?>

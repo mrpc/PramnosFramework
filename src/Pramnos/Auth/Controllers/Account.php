@@ -7,6 +7,11 @@ namespace Pramnos\Auth\Controllers;
 use Pramnos\Application\Controller;
 use Pramnos\Auth\LoginFlow;
 use Pramnos\Auth\LoginFlowResult;
+use Pramnos\Auth\Passkey\AuthenticationOptions;
+use Pramnos\Auth\Passkey\PasskeyException;
+use Pramnos\Auth\Passkey\PasskeyService;
+use Pramnos\Auth\Passkey\PasskeyServiceInterface;
+use Pramnos\Http\Response;
 
 /**
  * General account controller — the single built-in surface a scaffolded auth
@@ -17,10 +22,9 @@ use Pramnos\Auth\LoginFlowResult;
  *   Public (no session) — the authentication entry flow, driven by {@see LoginFlow}:
  *     - login          — show the login form / process credentials (password leg)
  *     - verify         — complete a pending 2FA (TOTP/backup) step-up
+ *     - passkeyOptions — issue WebAuthn assertion options for a pending passkey step-up
+ *     - passkeyVerify  — verify the assertion and finish a pending passkey step-up
  *     - logout         — tear the session down
- *   (A passkey second-factor step-up rides the same pending state via
- *    {@see LoginFlow::completePasskey()}; its browser ceremony is wired in a
- *    later phase alongside the WebAuthn front-end.)
  *
  *   Authenticated — account management (require a logged-in session):
  *     - display        — dashboard overview (auth apps + recent activity)
@@ -48,13 +52,19 @@ class Account extends Controller
      */
     protected string $routeBase = 'Account';
 
+    /** Session key holding the in-flight passkey step-up challenge. */
+    protected const S_STEPUP_CHALLENGE = 'account_stepup_passkey_challenge';
+
     /** The login orchestrator (seam so tests can inject a double). */
     private ?LoginFlow $loginFlow = null;
+
+    /** The passkey service (seam so tests can inject a double). */
+    private ?PasskeyServiceInterface $passkeyService = null;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         // Public authentication-entry actions.
-        $this->addaction(['login', 'verify', 'logout']);
+        $this->addaction(['login', 'verify', 'passkeyOptions', 'passkeyVerify', 'logout']);
         // Authenticated account-management actions.
         $this->addAuthAction([
             'applications', 'revokeapplication',
@@ -145,6 +155,67 @@ class Account extends Controller
     }
 
     /**
+     * Issue WebAuthn assertion options for a pending passkey step-up (JSON).
+     *
+     * The ceremony is pinned to the user who passed the password leg — a passkey
+     * belonging to a different account can never be offered here. The challenge is
+     * kept server-side; only the public options go to the browser.
+     */
+    public function passkeyOptions(): mixed
+    {
+        $pending = $this->flow()->pendingUserId();
+        if ($pending === null) {
+            return Response::json(['error' => 'no_pending_login'], 401);
+        }
+
+        $options = $this->passkeys()->beginAuthentication($pending);
+        $_SESSION[static::S_STEPUP_CHALLENGE] = $options->challenge;
+
+        return Response::json(['options' => $options->toClientArray()], 200);
+    }
+
+    /**
+     * Verify a passkey assertion and finish a pending passkey step-up (JSON).
+     *
+     * Requires a matching in-flight challenge issued by {@see self::passkeyOptions()}.
+     * The assertion is verified for the pending user, then {@see LoginFlow::completePasskey()}
+     * establishes the session only when the resolved user matches the pending one.
+     * Returns the post-login redirect target for the browser to follow.
+     */
+    public function passkeyVerify(): mixed
+    {
+        $pending = $this->flow()->pendingUserId();
+        if ($pending === null) {
+            return Response::json(['error' => 'no_pending_login'], 401);
+        }
+
+        $challenge = (string) ($_SESSION[static::S_STEPUP_CHALLENGE] ?? '');
+        if ($challenge === '') {
+            return Response::json(['error' => 'no_ceremony'], 400);
+        }
+        unset($_SESSION[static::S_STEPUP_CHALLENGE]);
+
+        try {
+            $result = $this->passkeys()->finishAuthentication(
+                new AuthenticationOptions($challenge, '', $pending),
+                $this->rawRequestBody()
+            );
+        } catch (PasskeyException $e) {
+            return Response::json(['error' => 'authentication_failed'], 401);
+        }
+
+        $flowResult = $this->flow()->completePasskey($result->userId);
+        if (!$flowResult->isSuccess()) {
+            return Response::json(['error' => 'login_failed'], 401);
+        }
+
+        return Response::json([
+            'status'   => 'ok',
+            'redirect' => $this->postLoginTarget($this->returnUrl()),
+        ], 200);
+    }
+
+    /**
      * Log out: drop any pending step-up, tear the session down, back to login.
      */
     public function logout(): void
@@ -160,6 +231,18 @@ class Account extends Controller
     protected function flow(): LoginFlow
     {
         return $this->loginFlow ??= new LoginFlow();
+    }
+
+    /** The passkey service (lazy default; injectable for tests). */
+    protected function passkeys(): PasskeyServiceInterface
+    {
+        return $this->passkeyService ??= new PasskeyService();
+    }
+
+    /** The raw request body (seam so tests can supply a WebAuthn assertion). */
+    protected function rawRequestBody(): string
+    {
+        return (string) file_get_contents('php://input');
     }
 
     /** Current logged-in user id (> 1), or null when not authenticated. */
