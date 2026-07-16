@@ -34,6 +34,7 @@
                 <?php
                 $routeBase = $this->routeBase ?? 'Dashboard';
                 $navItems = [
+                    ['href' => $routeBase . '/profile',      'label' => 'Profile'],
                     ['href' => $routeBase . '/applications', 'label' => 'Authorized Applications'],
                     ['href' => $routeBase . '/security',     'label' => 'Security'],
                     ['href' => $routeBase . '/privacy',      'label' => 'Privacy Settings'],
@@ -41,6 +42,7 @@
                     ['href' => 'TwoFactorAuth',               'label' => 'Two-Factor Auth'],
                     ['href' => 'passkey',                     'label' => 'Passkeys'],
                     ['href' => $routeBase . '/exportdata',   'label' => 'Export My Data'],
+                    ['href' => $routeBase . '/deleteaccount','label' => 'Delete Account'],
                 ];
                 foreach ($navItems as $item): ?>
                     <li style="border-bottom:1px solid #eee">
