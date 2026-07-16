@@ -1721,6 +1721,8 @@ PHP;
             $uses .= "use {$namespace}\\Controllers\\Login;\n";
             $uses .= "use {$namespace}\\Controllers\\Account;\n";
             $uses .= "use {$namespace}\\Controllers\\TwoFactorAuth;\n";
+            $uses .= "use {$namespace}\\Controllers\\Passkey;\n";
+            $uses .= "use {$namespace}\\Controllers\\Session;\n";
             $uses .= "use {$namespace}\\Controllers\\TokenActions;\n";
             $uses .= "use {$namespace}\\Controllers\\Tokens;\n";
             $uses .= "use {$namespace}\\Controllers\\Oauth;\n";
@@ -1728,6 +1730,11 @@ PHP;
         if ($hasAuthserver) {
             $uses .= "use {$namespace}\\Controllers\\Applications;\n";
             $uses .= "use {$namespace}\\Controllers\\Permissions;\n";
+            $uses .= "use {$namespace}\\Controllers\\Discovery;\n";
+            $uses .= "use {$namespace}\\Controllers\\Device;\n";
+            $uses .= "use {$namespace}\\Controllers\\Gdpr;\n";
+            $uses .= "use {$namespace}\\Controllers\\Capabilities;\n";
+            $uses .= "use {$namespace}\\Controllers\\InternalPermissions;\n";
         }
         if ($hasQueue) {
             $uses .= "use {$namespace}\\Controllers\\Queue;\n";
@@ -1747,6 +1754,8 @@ PHP;
             $rows .= "            'Login'         => [Login::class,         \\Pramnos\\Auth\\Controllers\\Account::class],\n";
             $rows .= "            'Account'       => [Account::class,       \\Pramnos\\Auth\\Controllers\\Account::class],\n";
             $rows .= "            'TwoFactorAuth' => [TwoFactorAuth::class, \\Pramnos\\Auth\\Controllers\\TwoFactorAuth::class],\n";
+            $rows .= "            'Passkey'       => [Passkey::class,       \\Pramnos\\Auth\\Controllers\\Passkey::class],\n";
+            $rows .= "            'Session'       => [Session::class,       \\Pramnos\\Auth\\Controllers\\Session::class],\n";
             $rows .= "            'TokenActions'  => [TokenActions::class,  \\Pramnos\\Auth\\Controllers\\TokenActionsController::class],\n";
             $rows .= "            'Tokens'        => [Tokens::class,        \\Pramnos\\Auth\\Controllers\\TokensController::class],\n";
             $rows .= "            'Oauth'         => [Oauth::class,         \\Pramnos\\Auth\\Controllers\\Oauth::class],\n";
@@ -1754,6 +1763,11 @@ PHP;
         if ($hasAuthserver) {
             $rows .= "            'Applications'  => [Applications::class,  \\Pramnos\\Auth\\Controllers\\ApplicationsController::class],\n";
             $rows .= "            'Permissions'   => [Permissions::class,   \\Pramnos\\Auth\\Controllers\\PermissionsController::class],\n";
+            $rows .= "            'Discovery'     => [Discovery::class,     \\Pramnos\\Auth\\Controllers\\Discovery::class],\n";
+            $rows .= "            'Device'        => [Device::class,        \\Pramnos\\Auth\\Controllers\\Device::class],\n";
+            $rows .= "            'Gdpr'          => [Gdpr::class,          \\Pramnos\\Auth\\Controllers\\Gdpr::class],\n";
+            $rows .= "            'Capabilities'  => [Capabilities::class,  \\Pramnos\\Auth\\Controllers\\Capabilities::class],\n";
+            $rows .= "            'InternalPermissions' => [InternalPermissions::class, \\Pramnos\\Auth\\Controllers\\InternalPermissions::class],\n";
         }
         if ($hasQueue) {
             $rows .= "            'Queue'         => [Queue::class,          \\Pramnos\\Queue\\Controllers\\QueueController::class],\n";
@@ -3297,6 +3311,16 @@ PHP;
 
         $this->writeFile('src/Controllers/TwoFactorAuth.php', $twoFactorController);
 
+        // ── Passkey + Session controllers ─────────────────────────────────────
+        $this->writeAuthControllerWrapper(
+            $namespace, 'Passkey', 'Passkey',
+            'Passkey (WebAuthn/FIDO2) ceremony + management controller.'
+        );
+        $this->writeAuthControllerWrapper(
+            $namespace, 'Session', 'Session',
+            'Session status controller (check / heartbeat / info / refresh).'
+        );
+
         // ── Login views ───────────────────────────────────────────────────────
         // Not scaffolded into the app: the framework ships themed login/2FA
         // views as fallbacks (see scaffolding/themes/*/views/login/), driven by
@@ -3634,6 +3658,46 @@ $errorMessages
     </div>
 </div>
 HTML;
+    }
+
+    /**
+     * Write a thin controller that extends a framework auth controller, so the
+     * URL resolves (controller name = URL segment) while all logic stays in the
+     * framework. The app opts in per controller by having this file — nothing is
+     * routable that the app did not explicitly scaffold.
+     *
+     * @param string $namespace      App namespace.
+     * @param string $appClass       Controller class name (also the URL segment).
+     * @param string $frameworkClass Framework controller class under Pramnos\Auth\Controllers.
+     * @param string $summary        One-line doc summary for the generated file.
+     */
+    private function writeAuthControllerWrapper(
+        string $namespace,
+        string $appClass,
+        string $frameworkClass,
+        string $summary
+    ): void {
+        $alias = 'Framework' . $frameworkClass;
+        $wrapper = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Auth\\Controllers\\{$frameworkClass} as {$alias};
+
+/**
+ * {$summary}
+ *
+ * Thin wrapper delegating to the framework {$frameworkClass} controller.
+ * Override actions here only if this application needs to customise them.
+ */
+class {$appClass} extends {$alias}
+{
+}
+PHP;
+        $this->writeFile("src/Controllers/{$appClass}.php", $wrapper);
     }
 
     /**
@@ -4014,6 +4078,30 @@ class Permissions extends FrameworkPermissionsController
 PHP;
 
         $this->writeFile('src/Controllers/Permissions.php', $permissionsController);
+
+        // ── Discovery / Device / GDPR + internal (client-credentials) endpoints ─
+        $this->writeAuthControllerWrapper(
+            $namespace, 'Discovery', 'Discovery',
+            'OpenID Connect discovery + JWKS endpoints (/.well-known).'
+        );
+        $this->writeAuthControllerWrapper(
+            $namespace, 'Device', 'Device',
+            'OAuth2 Device Authorization Grant endpoints.'
+        );
+        $this->writeAuthControllerWrapper(
+            $namespace, 'Gdpr', 'Gdpr',
+            'GDPR data-subject request endpoints (export / erase / status).'
+        );
+        // Internal, server-to-server endpoints — they authenticate via
+        // client-credentials (not the user session), so exposing the URL is safe.
+        $this->writeAuthControllerWrapper(
+            $namespace, 'Capabilities', 'Capabilities',
+            'Internal client capabilities manifest sync endpoint (client-credentials).'
+        );
+        $this->writeAuthControllerWrapper(
+            $namespace, 'InternalPermissions', 'InternalPermissions',
+            'Internal permissions resolution endpoint (client-credentials).'
+        );
     }
 
     private function scaffoldQueueWiring(string $namespace): void
