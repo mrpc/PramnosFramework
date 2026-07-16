@@ -254,6 +254,33 @@ class Account extends Controller
         return \Pramnos\Framework\Factory::getDocument();
     }
 
+    /**
+     * Branding passed to the built-in views. Every value is settings-driven with
+     * a safe default, so a scaffolded app rebrands by setting a handful of keys
+     * (or by overriding this method) — no view edits required.
+     *
+     * @return array{name:string, logo:string, primary_color:string, footer:string}
+     */
+    protected function brand(): array
+    {
+        $get = static fn(string $k): string
+            => (string) (\Pramnos\Application\Settings::getSetting($k) ?? '');
+
+        $name = $get('auth_brand_name');
+        if ($name === '') {
+            $name = $get('sitename');
+        }
+
+        $color = $get('auth_brand_primary_color');
+
+        return [
+            'name'          => $name !== '' ? $name : 'Sign in',
+            'logo'          => $get('auth_brand_logo'),
+            'primary_color' => $color !== '' ? $color : '#2563eb',
+            'footer'        => $get('auth_brand_footer'),
+        ];
+    }
+
     /** Resolve the post-login redirect: the return URL, else the dashboard. */
     protected function postLoginTarget(string $return): string
     {
@@ -272,6 +299,7 @@ class Account extends Controller
         $view            = $this->getView('account');
         $view->routeBase = $this->routeBase;
         $view->returnUrl = $this->returnUrl();
+        $view->brand     = $this->brand();
         foreach ($ctx as $key => $value) {
             $view->$key = $value;
         }
@@ -291,6 +319,7 @@ class Account extends Controller
         $view                = $this->getView('account');
         $view->routeBase     = $this->routeBase;
         $view->returnUrl     = $this->returnUrl();
+        $view->brand         = $this->brand();
         $view->pendingUserId = $this->flow()->pendingUserId();
         foreach ($ctx as $key => $value) {
             $view->$key = $value;

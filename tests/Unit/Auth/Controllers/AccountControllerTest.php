@@ -52,6 +52,9 @@ class AccountControllerTest extends TestCase
         $this->assertSame('VIEW:login', $out);
         $this->assertArrayNotHasKey('error', $this->c->view->props);
         $this->assertSame('Login', $this->c->doc->title);
+        // Branding + route base reach the view so it can render + rebrand.
+        $this->assertSame($this->c->brandData, $this->c->view->props['brand']);
+        $this->assertSame('Account', $this->c->view->props['routeBase']);
     }
 
     /** An already-authenticated visitor is bounced to the dashboard, not the form. */
@@ -308,6 +311,13 @@ class AccountControllerTest extends TestCase
         $this->assertSame('hi', $flow->postPublic('x'));
         $this->assertSame('  hi  ', $flow->postPublic('x', false));
         $_POST = [];
+
+        // brand() resolves settings-driven defaults when nothing is configured.
+        $brand = $flow->brandPublic();
+        $this->assertArrayHasKey('name', $brand);
+        $this->assertArrayHasKey('primary_color', $brand);
+        $this->assertNotSame('', $brand['name'], 'brand name always has a fallback');
+        $this->assertNotSame('', $brand['primary_color'], 'brand colour always has a fallback');
     }
 
     /**
@@ -403,6 +413,10 @@ class TestableAccount extends Account
     public ?int $userId = null;
     public bool $csrf = true;
     public string $base = '';
+    /** @var array<string,string> */
+    public array $brandData = [
+        'name' => 'Acme ID', 'logo' => '', 'primary_color' => '#111111', 'footer' => 'Acme Inc.',
+    ];
     public FakeLoginFlow $flow;
     public FakeAccountAuth $auth;
     public StubAccountView $view;
@@ -424,6 +438,7 @@ class TestableAccount extends Account
     protected function currentUserId(): ?int { return $this->userId; }
     protected function checkCsrf(): bool { return $this->csrf; }
     protected function baseUrl(): string { return $this->base; }
+    protected function brand(): array { return $this->brandData; }
 
     // View boundary — return the stub so the real render seams run end-to-end.
     public function &getView($name = '', $type = '', $args = array())
@@ -455,6 +470,7 @@ class ExposedAccount extends Account
     public function baseUrlPublic(): string { return $this->baseUrl(); }
     public function documentPublic(): object { return $this->document(); }
     public function postPublic(string $k, bool $t = true): string { return $this->post($k, $t); }
+    public function brandPublic(): array { return $this->brand(); }
 }
 
 /** Account whose session user is injectable, to drive currentUserId()'s branches. */
