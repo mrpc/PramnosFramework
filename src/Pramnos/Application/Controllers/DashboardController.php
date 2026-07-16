@@ -26,7 +26,7 @@ use Pramnos\Database\Inspector\TimescaleInspector;
  *
  * All eight actions require authentication (manager level: usertype >= 80).
  *
- * Note: This controller is distinct from \Pramnos\Auth\Controllers\Dashboard, which
+ * Note: This controller is distinct from \Pramnos\Auth\Controllers\Account, which
  * handles the end-user account management view. This controller is admin/ops-focused.
  *
  * Thin wrappers in scaffolded apps live at src/Controllers/Dashboard.php.

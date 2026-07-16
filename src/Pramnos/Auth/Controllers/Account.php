@@ -38,16 +38,13 @@ use Pramnos\Auth\LoginFlowResult;
  * are resolved from the application view path; every render/redirect and each
  * collaborator is a protected seam so a scaffolded app can rebrand or re-wire one
  * piece by subclassing, and the flow stays unit-testable.
- *
- * The legacy {@see Dashboard} name remains as a thin subclass for backward
- * compatibility.
  */
 class Account extends Controller
 {
     /**
      * Base route used in internal redirects (e.g. after form submission).
      * Override in subclasses when the controller is exposed under a different URL.
-     * Example: class Dashboard extends Account { protected string $routeBase = 'Dashboard'; }
+     * Example: class MyAccount extends Account { protected string $routeBase = 'MyAccount'; }
      */
     protected string $routeBase = 'Account';
 
@@ -263,22 +260,25 @@ class Account extends Controller
      */
     protected function brand(): array
     {
-        $get = static fn(string $k): string
-            => (string) (\Pramnos\Application\Settings::getSetting($k) ?? '');
-
-        $name = $get('auth_brand_name');
+        $name = $this->setting('auth_brand_name');
         if ($name === '') {
-            $name = $get('sitename');
+            $name = $this->setting('sitename');
         }
 
-        $color = $get('auth_brand_primary_color');
+        $color = $this->setting('auth_brand_primary_color');
 
         return [
             'name'          => $name !== '' ? $name : 'Sign in',
-            'logo'          => $get('auth_brand_logo'),
+            'logo'          => $this->setting('auth_brand_logo'),
             'primary_color' => $color !== '' ? $color : '#2563eb',
-            'footer'        => $get('auth_brand_footer'),
+            'footer'        => $this->setting('auth_brand_footer'),
         ];
+    }
+
+    /** Read a single application setting as a string (seam so tests avoid the DB). */
+    protected function setting(string $key): string
+    {
+        return (string) (\Pramnos\Application\Settings::getSetting($key) ?? '');
     }
 
     /** Resolve the post-login redirect: the return URL, else the dashboard. */
@@ -296,7 +296,7 @@ class Account extends Controller
         $doc        = $this->document();
         $doc->title = 'Login';
 
-        $view            = $this->getView('account');
+        $view            = $this->getView('login');
         $view->routeBase = $this->routeBase;
         $view->returnUrl = $this->returnUrl();
         $view->brand     = $this->brand();
@@ -316,7 +316,7 @@ class Account extends Controller
         $doc        = $this->document();
         $doc->title = 'Two-step verification';
 
-        $view                = $this->getView('account');
+        $view                = $this->getView('login');
         $view->routeBase     = $this->routeBase;
         $view->returnUrl     = $this->returnUrl();
         $view->brand         = $this->brand();
@@ -417,7 +417,7 @@ class Account extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'My Profile';
 
-        $view            = $this->getView('account');
+        $view            = $this->getView('login');
         $view->routeBase = $this->routeBase;
         $view->user      = $currentUser;
 
