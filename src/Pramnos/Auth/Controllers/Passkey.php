@@ -45,8 +45,37 @@ class Passkey extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addaction(['loginOptions', 'login']);
-        $this->addAuthAction(['registerOptions', 'register', 'list', 'rename', 'revoke']);
+        $this->addAuthAction(['display', 'registerOptions', 'register', 'list', 'rename', 'revoke']);
         parent::__construct($application);
+    }
+
+    // ── Management page (auth) ─────────────────────────────────────────────────
+
+    /**
+     * HTML page for managing the logged-in user's passkeys (list / add / rename /
+     * revoke). The heavy lifting is done client-side by pf-webauthn.js against the
+     * JSON endpoints below; this action just renders the page shell. Rendering is
+     * a seam so the flow stays testable without a view layer.
+     */
+    public function display(): mixed
+    {
+        $user = $this->currentUserId();
+        if ($user === null) {
+            $this->redirect(sURL . 'login');
+            return null;
+        }
+        return $this->renderManage();
+    }
+
+    /** Render the passkey management view (overridable / mockable). */
+    protected function renderManage(): mixed
+    {
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = 'Passkeys';
+
+        $view            = $this->getView('passkey');
+        $view->routeBase = 'Passkey';
+        return $view->display('manage');
     }
 
     // ── Registration (auth) ───────────────────────────────────────────────────

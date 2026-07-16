@@ -51,6 +51,9 @@
                     <a href="<?php echo sURL; ?>TwoFactorAuth" class="list-group-item list-group-item-action">
                         <i class="bi bi-phone me-2"></i> Two-Factor Auth
                     </a>
+                    <a href="<?php echo sURL; ?>passkey" class="list-group-item list-group-item-action">
+                        <i class="bi bi-fingerprint me-2"></i> Passkeys
+                    </a>
                     <a href="<?php echo sURL . $routeBase; ?>/exportdata" class="list-group-item list-group-item-action">
                         <i class="bi bi-download me-2"></i> Export My Data
                     </a>
