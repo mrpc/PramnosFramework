@@ -20,6 +20,7 @@ $errorMessages = [
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
+$offerPasskey = in_array('passkey', (array) ($this->methods ?? []), true);
 ?>
 <div class="flex items-center justify-center min-h-screen bg-gray-100 px-4">
     <div class="w-full max-w-sm bg-white rounded-xl shadow-md p-8">
@@ -44,6 +45,12 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
             </div>
             <button type="submit" class="w-full text-white font-medium py-2 px-4 rounded-md transition-colors" style="background-color:<?php echo $primary; ?>">Verify &amp; Sign In</button>
         </form>
+
+        <?php if ($offerPasskey): ?>
+        <div class="text-center text-sm text-gray-400 my-4">or</div>
+        <button type="button" id="passkey-stepup" class="w-full bg-gray-800 hover:bg-gray-900 text-white font-medium py-2 px-4 rounded-md transition-colors">Use a passkey</button>
+        <p id="passkey-error" class="text-red-700 text-sm mt-2 hidden"></p>
+        <?php endif; ?>
 
         <details class="mt-4">
             <summary class="text-sm text-gray-500 cursor-pointer">Use a backup code instead</summary>
@@ -70,3 +77,24 @@ document.getElementById('code').addEventListener('input', function() {
     if (this.value.length === 6) { setTimeout(() => { if (this.value.length === 6) this.form.submit(); }, 100); }
 });
 </script>
+<?php if ($offerPasskey): ?>
+<script>
+(function () {
+    var btn = document.getElementById('passkey-stepup');
+    if (!btn) { return; }
+    if (!window.PramnosWebAuthn || !window.PramnosWebAuthn.supported()) { btn.style.display = 'none'; return; }
+    var base = <?php echo json_encode($base); ?>;
+    var home = <?php echo json_encode(sURL); ?>;
+    btn.addEventListener('click', function () {
+        btn.disabled = true;
+        window.PramnosWebAuthn.authenticate(base + '/passkeyOptions', base + '/passkeyVerify')
+            .then(function (r) { window.location = r.redirect || home; })
+            .catch(function () {
+                btn.disabled = false;
+                var e = document.getElementById('passkey-error');
+                if (e) { e.className = e.className.replace(/\b(d-none|hidden)\b/g, ''); e.style.display = 'block'; e.textContent = 'Passkey sign-in failed. Use your code instead.'; }
+            });
+    });
+})();
+</script>
+<?php endif; ?>

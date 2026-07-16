@@ -7,4 +7,5 @@
         </div>
     </footer>
     <script src="<?php echo sURL; ?>assets/js/pf-utils.js"></script>
+    <script src="<?php echo sURL; ?>assets/js/pf-webauthn.js" defer></script>
     <?php $this->document->renderJs(); ?>

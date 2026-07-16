@@ -9,6 +9,12 @@ use Pramnos\Auth\Auth;
 use Pramnos\Auth\Controllers\Account;
 use Pramnos\Auth\LoginFlow;
 use Pramnos\Auth\LoginFlowResult;
+use Pramnos\Auth\Passkey\AuthenticationOptions;
+use Pramnos\Auth\Passkey\PasskeyCredential;
+use Pramnos\Auth\Passkey\PasskeyException;
+use Pramnos\Auth\Passkey\PasskeyServiceInterface;
+use Pramnos\Auth\Passkey\RegistrationOptions;
+use Pramnos\Auth\Passkey\VerificationResult;
 
 /**
  * Unit tests for the public authentication-entry actions of the Account controller.
@@ -29,16 +35,18 @@ class AccountControllerTest extends TestCase
 
     protected function setUp(): void
     {
-        $_POST = [];
-        $_GET  = [];
+        $_POST    = [];
+        $_GET     = [];
+        $_SESSION = []; // pending step-up + passkey challenge live here; isolate tests
         $_SERVER['REQUEST_METHOD'] = 'GET';
         $this->c = new TestableAccount(null);
     }
 
     protected function tearDown(): void
     {
-        $_POST = [];
-        $_GET  = [];
+        $_POST    = [];
+        $_GET     = [];
+        $_SESSION = [];
         unset($_SERVER['REQUEST_METHOD']);
     }
 
@@ -245,6 +253,92 @@ class AccountControllerTest extends TestCase
         $this->assertSame(['Account'], $this->c->redirects);
     }
 
+    // ── passkey step-up (passkeyOptions / passkeyVerify) ─────────────────────────
+
+    /** Options can only be issued while a step-up is pending. */
+    public function testPasskeyOptionsRequiresPendingLogin(): void
+    {
+        $this->c->flow->pending = null;
+        $r = $this->c->passkeyOptions();
+        $this->assertSame(401, $r->getStatusCode());
+        $this->assertStringContainsString('no_pending_login', $r->getBody());
+    }
+
+    /** Options are pinned to the pending user and stash the challenge server-side. */
+    public function testPasskeyOptionsPinsToPendingUserAndStoresChallenge(): void
+    {
+        $this->c->flow->pending = 7;
+
+        $r = $this->c->passkeyOptions();
+
+        $this->assertSame(200, $r->getStatusCode());
+        $this->assertStringContainsString('options', $r->getBody());
+        $this->assertSame(7, $this->c->passkeys->beganFor, 'ceremony scoped to the pending user');
+        $this->assertSame('stepup-chal', $_SESSION['account_stepup_passkey_challenge']);
+    }
+
+    public function testPasskeyVerifyRequiresPendingLogin(): void
+    {
+        $this->c->flow->pending = null;
+        $r = $this->c->passkeyVerify();
+        $this->assertSame(401, $r->getStatusCode());
+        $this->assertStringContainsString('no_pending_login', $r->getBody());
+    }
+
+    /** Without a matching in-flight challenge the verify is refused. */
+    public function testPasskeyVerifyWithoutCeremonyFails(): void
+    {
+        $this->c->flow->pending = 7; // pending, but no challenge issued
+        $r = $this->c->passkeyVerify();
+        $this->assertSame(400, $r->getStatusCode());
+        $this->assertStringContainsString('no_ceremony', $r->getBody());
+    }
+
+    /** A failed assertion returns 401 and clears the single-use challenge. */
+    public function testPasskeyVerifyRejectsBadAssertion(): void
+    {
+        $this->c->flow->pending = 7;
+        $_SESSION['account_stepup_passkey_challenge'] = 'stepup-chal';
+        $this->c->passkeys->throwOnFinish = true;
+
+        $r = $this->c->passkeyVerify();
+
+        $this->assertSame(401, $r->getStatusCode());
+        $this->assertStringContainsString('authentication_failed', $r->getBody());
+        $this->assertArrayNotHasKey('account_stepup_passkey_challenge', $_SESSION, 'challenge is single-use');
+    }
+
+    /** A valid assertion whose user does not match the pending login is refused. */
+    public function testPasskeyVerifyRejectsWhenFlowRejects(): void
+    {
+        $this->c->flow->pending = 7;
+        $_SESSION['account_stepup_passkey_challenge'] = 'stepup-chal';
+        $this->c->passkeys->verifiedUserId = 9;            // assertion resolves a different user
+        $this->c->flow->passkeyResult = LoginFlowResult::failed();
+
+        $r = $this->c->passkeyVerify();
+
+        $this->assertSame(401, $r->getStatusCode());
+        $this->assertStringContainsString('login_failed', $r->getBody());
+        $this->assertSame(9, $this->c->flow->completedPasskeyUser, 'verified user handed to the flow');
+    }
+
+    /** A valid assertion for the pending user finishes the login and returns the redirect. */
+    public function testPasskeyVerifySuccessReturnsRedirect(): void
+    {
+        $this->c->flow->pending = 7;
+        $_SESSION['account_stepup_passkey_challenge'] = 'stepup-chal';
+        $this->c->passkeys->verifiedUserId = 7;
+        $this->c->flow->passkeyResult = LoginFlowResult::success(7);
+
+        $r = $this->c->passkeyVerify();
+
+        $this->assertSame(200, $r->getStatusCode());
+        $this->assertStringContainsString('"status":"ok"', $r->getBody());
+        $this->assertStringContainsString('"redirect"', $r->getBody());
+        $this->assertSame(7, $this->c->flow->completedPasskeyUser);
+    }
+
     // ── logout() ─────────────────────────────────────────────────────────────────
 
     /** Logout drops any pending step-up, tears the session down, and redirects. */
@@ -375,8 +469,10 @@ class FakeLoginFlow extends LoginFlow
 {
     public ?LoginFlowResult $attemptResult = null;
     public ?LoginFlowResult $completeResult = null;
+    public ?LoginFlowResult $passkeyResult = null;
     public ?array $attemptArgs = null;
     public ?string $completedCode = null;
+    public ?int $completedPasskeyUser = null;
     public ?int $pending = null;
     public bool $cancelled = false;
 
@@ -390,6 +486,12 @@ class FakeLoginFlow extends LoginFlow
     {
         $this->completedCode = $code;
         return $this->completeResult ?? LoginFlowResult::failed();
+    }
+
+    public function completePasskey(int $verifiedUserId): LoginFlowResult
+    {
+        $this->completedPasskeyUser = $verifiedUserId;
+        return $this->passkeyResult ?? LoginFlowResult::failed();
     }
 
     public function pendingUserId(): ?int
@@ -412,6 +514,41 @@ class FakeAccountAuth extends Auth
     {
         $this->loggedOut = true;
     }
+}
+
+/** In-memory passkey service; only the step-up ceremony methods are exercised. */
+class FakeAccountPasskeys implements PasskeyServiceInterface
+{
+    public bool $throwOnFinish = false;
+    public int $verifiedUserId = 7;
+    public ?int $beganFor = null;
+
+    public function beginAuthentication(?int $userId = null): AuthenticationOptions
+    {
+        $this->beganFor = $userId;
+        return new AuthenticationOptions('stepup-chal', '{}', $userId);
+    }
+
+    public function finishAuthentication(AuthenticationOptions $options, string $clientResponse): VerificationResult
+    {
+        if ($this->throwOnFinish) {
+            throw new PasskeyException('nope');
+        }
+        return new VerificationResult($this->verifiedUserId, new PasskeyCredential(1, $this->verifiedUserId, 'cid', 'pk', 1), 1);
+    }
+
+    public function beginRegistration(int $userId, ?string $label = null): RegistrationOptions
+    {
+        return new RegistrationOptions('c', '{}', $userId);
+    }
+    public function finishRegistration(int $userId, RegistrationOptions $options, string $clientResponse): PasskeyCredential
+    {
+        return new PasskeyCredential(1, $userId, 'cid', 'pk', 0);
+    }
+    public function listCredentials(int $userId): array { return []; }
+    public function renameCredential(int $userId, int $credentialId, string $name): bool { return false; }
+    public function revokeCredential(int $userId, int $credentialId): bool { return false; }
+    public function hasCredentials(int $userId): bool { return false; }
 }
 
 /** Minimal view double: captures assigned properties, returns a display marker. */
@@ -443,22 +580,27 @@ class TestableAccount extends Account
     ];
     public FakeLoginFlow $flow;
     public FakeAccountAuth $auth;
+    public FakeAccountPasskeys $passkeys;
+    public string $body = '{}';
     public StubAccountView $view;
     public object $doc;
     public array $redirects = [];
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->flow = new FakeLoginFlow();
-        $this->auth = new FakeAccountAuth();
-        $this->view = new StubAccountView();
-        $this->doc  = new class { public string $title = ''; };
+        $this->flow     = new FakeLoginFlow();
+        $this->auth     = new FakeAccountAuth();
+        $this->passkeys = new FakeAccountPasskeys();
+        $this->view     = new StubAccountView();
+        $this->doc      = new class { public string $title = ''; };
         parent::__construct($application);
     }
 
     // Collaborator seams
     protected function flow(): LoginFlow { return $this->flow; }
     protected function authService(): Auth { return $this->auth; }
+    protected function passkeys(): PasskeyServiceInterface { return $this->passkeys; }
+    protected function rawRequestBody(): string { return $this->body; }
     protected function currentUserId(): ?int { return $this->userId; }
     protected function checkCsrf(): bool { return $this->csrf; }
     protected function baseUrl(): string { return $this->base; }
