@@ -35,6 +35,17 @@
         </div>
     </div>
 
+    <!-- Passkeys -->
+    <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><strong>Passkeys</strong></div>
+        <div class="card-body" style="display:flex;justify-content:space-between;align-items:center">
+            <p style="margin:0;font-size:.9em;color:#666">
+                Sign in without a password using your device's fingerprint, face or screen lock.
+            </p>
+            <a href="<?php echo sURL; ?>passkey" class="btn">Manage Passkeys</a>
+        </div>
+    </div>
+
     <!-- Change password -->
     <div class="card" style="margin-bottom:16px">
         <div class="card-body" style="display:flex;justify-content:space-between;align-items:center">

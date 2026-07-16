@@ -16,6 +16,7 @@
 (function () {
     'use strict';
 
+    /** Decode a base64url string into an ArrayBuffer (for navigator.credentials). */
     function b64urlToBuf(value) {
         var s = String(value).replace(/-/g, '+').replace(/_/g, '/');
         var pad = s.length % 4;
@@ -26,6 +27,7 @@
         return buf.buffer;
     }
 
+    /** Encode an ArrayBuffer as a base64url string (for posting back to the server). */
     function bufToB64url(buf) {
         var bytes = new Uint8Array(buf);
         var bin = '';
@@ -58,6 +60,7 @@
         return o;
     }
 
+    /** Serialise an assertion PublicKeyCredential to the base64url WebAuthn JSON. */
     function serializeAssertion(cred) {
         var r = cred.response;
         return {
@@ -74,6 +77,7 @@
         };
     }
 
+    /** Serialise an attestation PublicKeyCredential to the base64url WebAuthn JSON. */
     function serializeAttestation(cred) {
         var r = cred.response;
         return {
@@ -88,6 +92,7 @@
         };
     }
 
+    /** POST a JSON body same-origin (session cookie included) and return the fetch promise. */
     function postJson(url, body) {
         return fetch(url, {
             method: 'POST',

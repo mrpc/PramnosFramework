@@ -44,6 +44,17 @@
         </div>
     </div>
 
+    <!-- Passkeys -->
+    <div class="bg-white rounded-lg shadow-sm mb-4">
+        <div class="flex items-center justify-between px-4 py-4">
+            <span class="text-sm text-gray-600">Sign in without a password using your device's fingerprint, face or screen lock.</span>
+            <a href="<?php echo sURL; ?>passkey"
+               class="text-sm text-blue-600 hover:underline whitespace-nowrap">
+                Manage Passkeys
+            </a>
+        </div>
+    </div>
+
     <!-- Change password -->
     <div class="bg-white rounded-lg shadow-sm mb-4">
         <div class="flex items-center justify-between px-4 py-4">

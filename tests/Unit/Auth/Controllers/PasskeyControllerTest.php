@@ -206,6 +206,26 @@ class PasskeyControllerTest extends TestCase
         $_GET = [];
     }
 
+    // ── management page (display) ───────────────────────────────────────────────
+
+    /** The management page requires a login; anonymous visitors go to /login. */
+    public function testDisplayRedirectsWhenNotLoggedIn(): void
+    {
+        $this->controller->userId = null;
+        $r = $this->controller->display();
+        $this->assertNull($r);
+        $this->assertStringContainsString('login', (string) $this->controller->redirectedTo);
+    }
+
+    /** A logged-in user gets the management page rendered (real renderManage seam). */
+    public function testDisplayRendersManagePageWhenLoggedIn(): void
+    {
+        $this->controller->userId = 42;
+        $r = $this->controller->display();
+        $this->assertSame('VIEW:manage', $r);
+        $this->assertSame('Passkey', $this->controller->view->props['routeBase']);
+    }
+
     // ── management ─────────────────────────────────────────────────────────────
 
     public function testListRequiresLogin(): void
@@ -333,12 +353,27 @@ class TestablePasskeyController extends Passkey
     public bool $sessionEstablished = true;
     public ?int $loggedInUserId = null;
     public array $inputs = [];
+    public ?string $redirectedTo = null;
     public StubPasskeyService $service;
+    public StubPasskeyView $view;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         parent::__construct($application);
         $this->service = new StubPasskeyService();
+        $this->view    = new StubPasskeyView();
+    }
+
+    /** Capture the redirect target instead of performing (and exiting on) it. */
+    public function redirect($url = null, $quit = true, $code = '302')
+    {
+        $this->redirectedTo = $url;
+    }
+
+    /** Return the in-memory stub view so the real render path runs without files. */
+    public function &getView($name = '', $type = '', $args = array())
+    {
+        return $this->view;
     }
 
     protected function service(): PasskeyServiceInterface
@@ -372,5 +407,24 @@ class TestablePasskeyController extends Passkey
     protected function rawRequestBody(): string
     {
         return '{}';
+    }
+}
+
+/** Minimal view double for the passkey management page. */
+class StubPasskeyView
+{
+    /** @var array<string,mixed> Captured view properties assigned by the controller. */
+    public array $props = [];
+
+    /** Record any property the controller assigns on the view. */
+    public function __set(string $name, mixed $value): void
+    {
+        $this->props[$name] = $value;
+    }
+
+    /** Return a marker identifying which template was rendered. */
+    public function display(?string $template = null): string
+    {
+        return 'VIEW:' . (string) $template;
     }
 }

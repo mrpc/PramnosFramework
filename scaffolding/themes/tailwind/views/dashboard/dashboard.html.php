@@ -43,6 +43,7 @@
                     ['href' => $routeBase . '/privacy',      'label' => 'Privacy Settings'],
                     ['href' => $routeBase . '/changepassword','label' => 'Change Password'],
                     ['href' => 'TwoFactorAuth',               'label' => 'Two-Factor Auth'],
+                    ['href' => 'passkey',                     'label' => 'Passkeys'],
                     ['href' => $routeBase . '/exportdata',   'label' => 'Export My Data'],
                 ];
                 foreach ($navItems as $item): ?>
