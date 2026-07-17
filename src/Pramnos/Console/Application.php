@@ -93,6 +93,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\KeyGenerate());
         // Scaffolding utilities
         $this->add(new \Pramnos\Console\Commands\ScaffoldViews());
+        $this->add(new \Pramnos\Console\Commands\SwitchUi());
         $this->add(new \Pramnos\Console\Commands\LibrariesSync());
         $this->add(new \Pramnos\Console\Commands\ProjectSync());
         $this->add(new \Pramnos\Console\Commands\CacheClear());
