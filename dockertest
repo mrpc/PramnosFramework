@@ -11,6 +11,7 @@
 # PID: if the recorded PID no longer exists, we clear the lock and proceed.
 nobrowser=false
 coverage=false
+nocoverage=false
 testdox=false
 resetdb=false
 force=false
@@ -20,6 +21,12 @@ for arg in "$@"; do
         nobrowser=true
     elif [[ "$arg" == "--coverage" ]]; then
         coverage=true
+    elif [[ "$arg" == "--nocoverage" || "$arg" == "--no-coverage" ]]; then
+        # Fully disable coverage collection for this run. phpunit.xml always
+        # declares a <coverage> block, so PHPUnit otherwise instruments every
+        # line via Xdebug on EVERY run (slow). This flag overrides that and
+        # turns Xdebug off entirely, for the fastest possible run.
+        nocoverage=true
     elif [[ "$arg" == "--testdox" ]]; then
         testdox=true
     elif [[ "$arg" == "--reset-db" ]]; then
@@ -146,6 +153,10 @@ if [[ "$coverage" == true ]]; then
         --coverage-html coverage \
         --coverage-clover coverage/clover.xml \
         $extra_flags "${passthrough[@]}"
+elif [[ "$nocoverage" == true ]]; then
+    # --no-coverage overrides the always-on <coverage> block in phpunit.xml;
+    # XDEBUG_MODE=off removes the per-line instrumentation overhead completely.
+    docker-compose exec -e XDEBUG_MODE=off php-apache-environment php -d memory_limit=1G vendor/bin/phpunit --no-coverage $extra_flags "${passthrough[@]}"
 else
     docker-compose exec php-apache-environment php -d memory_limit=1G vendor/bin/phpunit $extra_flags "${passthrough[@]}"
 fi
