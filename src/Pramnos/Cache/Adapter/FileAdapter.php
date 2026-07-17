@@ -334,6 +334,14 @@ class FileAdapter extends AbstractAdapter
     private function listDirectoryFiles($path)
     {
         $files = [];
+        // A cache group directory only exists once something has been written
+        // to it. Flushing or cleaning a group that was never written — or was
+        // already removed by a previous cleanEmptyDirectories() — is a no-op,
+        // not an error, so bail out instead of letting RecursiveDirectoryIterator
+        // throw on the missing path.
+        if (!is_dir($path)) {
+            return $files;
+        }
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS)
         );
