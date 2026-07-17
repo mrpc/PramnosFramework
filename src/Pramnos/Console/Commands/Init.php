@@ -97,6 +97,12 @@ class Init extends Command
 
         $helper = $this->getHelper('question');
 
+        // Put the terminal's line discipline into UTF-8 mode so backspace at an
+        // interactive prompt erases a whole multibyte character instead of a
+        // single byte (the latter — the default on e.g. WSL — leaves broken
+        // sequences/leftover bytes in answers like passwords).
+        $this->enableUtf8TerminalInput();
+
         $output->writeln([
             '',
             ' <info>╔══════════════════════════════════════════════╗</info>',
@@ -140,7 +146,13 @@ class Init extends Command
         }
 
         $dockerPort  = 8080;
-        $cacheSystem = 'redis';
+        // An explicit --cache-system always wins. Otherwise default to redis
+        // with Docker (a cache container is provisioned) and none without it
+        // (no backend to connect to).
+        $cacheSystemOption = $input->getOption('cache-system');
+        $cacheSystem = $cacheSystemOption !== null
+            ? $cacheSystemOption
+            : ($useDocker ? 'redis' : 'none');
 
         if ($useDocker) {
             while (!$this->isPortAvailable($dockerPort)) {
@@ -149,10 +161,16 @@ class Init extends Command
             $dockerPort = (int) ($input->getOption('docker-port')
                 ?: $helper->ask($input, $output, new Question("Local mapping port [$dockerPort]: ", (string) $dockerPort)));
 
-            $cacheSystemOption = $input->getOption('cache-system');
-            $cacheSystem = $cacheSystemOption !== null
-                ? $cacheSystemOption
-                : $helper->ask($input, $output, new ChoiceQuestion('Cache System [redis]: ', ['redis', 'none', 'memcached'], 0));
+            if ($cacheSystemOption === null) {
+                $cacheSystem = $helper->ask($input, $output, new ChoiceQuestion('Cache System [redis]: ', ['redis', 'none', 'memcached'], 0));
+            }
+        }
+
+        // When a cache backend is selected, enable the 'cache' feature too, so the
+        // CacheServiceProvider boots and feature-aware tooling (DevPanel, health)
+        // recognises caching as on — not just the settings.php connection config.
+        if ($cacheSystem !== 'none' && !in_array('cache', $enabledFeatures, true)) {
+            $enabledFeatures[] = 'cache';
         }
 
         // ── Database config ───────────────────────────────────────────────────
@@ -560,19 +578,34 @@ class Init extends Command
             ? "    'api' => [\n        'prefix'       => '$apiPrefix',\n        'cors_origins' => ['*'],\n        'version'      => 'v1',\n    ],\n"
             : '';
 
-        // Register the auth addon pair when the auth feature is enabled:
-        //   - UserDatabase: handles password verification (type=auth)
-        //   - User:         sets $_SESSION['logged'], uid, username after a successful
-        //                   login and clears cookies on logout (type=user)
-        // Without UserDatabase, Auth::auth() always returns false.
-        // Without User, auth succeeds but $_SESSION['logged'] is never set, so the
-        // app behaves as if the user is not logged in after every login attempt.
+        // When the auth feature is enabled, register only the auth addon.
+        //
+        //   - UserDatabase (type=auth): a thin delegate over the new
+        //     Auth\Drivers\DatabaseAuthDriver. It is kept because its
+        //     onAuthCheck() re-establishes a "remember me" login from cookies,
+        //     which has no built-in replacement yet.
+        //
+        // The deprecated Addon\User\User (type=user) is intentionally NOT
+        // registered: with no user addon, Auth's built-in login/logout
+        // lifecycle (Auth::executeDefaultLogin/Logout) runs instead — it sets
+        // the session, cookies and lastlogin exactly as the addon did, and it
+        // is the path that records login/logout into the activity log
+        // (Auth\ActivityLog). Registering the addon would take the legacy path
+        // and skip that logging.
         $addonsSection = in_array('auth', $features, true)
             ? "    'addons' => [\n"
               . "        ['addon' => 'Pramnos\\\\Addon\\\\Auth\\\\UserDatabase', 'type' => 'auth'],\n"
-              . "        ['addon' => 'Pramnos\\\\Addon\\\\User\\\\User', 'type' => 'user'],\n"
               . "    ],\n"
             : '';
+
+        // HTTP middleware, run explicitly by www/index.php around the dispatch.
+        // SessionTrackingMiddleware populates the `sessions` table (active
+        // devices + force-logout). Declaring it here also makes the framework's
+        // built-in auto-run (Application::bootSessionTracking) stand down, so it
+        // runs exactly once — through this pipeline.
+        $middlewareSection = "    'middleware' => [\n"
+            . "        'Pramnos\\\\Http\\\\Middleware\\\\SessionTrackingMiddleware',\n"
+            . "    ],\n";
 
         // Tailwind's browser build generates CSS at runtime by injecting a
         // <style> element, which a nonce-based style-src blocks. Allowing
@@ -585,7 +618,7 @@ class Init extends Command
             ? "        'style-src'  => [\"'unsafe-inline'\"]\n"
             : "        'style-src'  => []\n";
 
-        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}{$addonsSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
+        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}{$addonsSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
         $this->writeFile($path, $content);
     }
 
@@ -852,6 +885,32 @@ PHP;
      * registered in Application::registerVendorLibraries() and enqueued
      * per-page by controllers via addScript()/addStyle().
      */
+    /**
+     * Re-install a scaffolding UI framework into an existing project (in place).
+     *
+     * Public entry point used by the project:switch-ui command so a project can
+     * flip between plain-css / bootstrap / tailwind. Rewrites the theme chrome
+     * (app/themes/default: theme.html.php, header, footer), www/assets/css/
+     * style.css and the pf-*.js helpers, and pulls the CSS/JS vendor assets the
+     * chosen framework needs (bootstrap / tailwind). Does NOT touch app.php —
+     * the caller updates scaffold_theme and the CSP.
+     *
+     * @param string   $uiSystem plain-css | bootstrap | tailwind
+     * @param string   $appName  Application display name (theme header).
+     * @param string[] $features Enabled feature keys (nav rendering).
+     * @return void
+     */
+    public function installUiFramework(string $uiSystem, string $appName, array $features = []): void
+    {
+        if ($this->scaffoldingDir === '') {
+            $this->scaffoldingDir = $this->resolveScaffoldingDir();
+        }
+        if ($this->targetBaseDir === '') {
+            $this->targetBaseDir = defined('ROOT') ? ROOT : getcwd();
+        }
+        $this->scaffoldTheme($uiSystem, $appName, $this->loadAssetCatalog(), $features);
+    }
+
     private function scaffoldTheme(string $uiSystem, string $appName, array $catalog = [], array $features = []): void
     {
         $themeDir = $this->scaffoldingDir . '/themes/' . $uiSystem;
@@ -878,6 +937,11 @@ PHP;
         $pfWebauthn = $this->scaffoldingDir . '/assets/js/pf-webauthn.js';
         if (file_exists($pfWebauthn)) {
             $this->writeFile('www/assets/js/pf-webauthn.js', file_get_contents($pfWebauthn));
+        }
+
+        $pfAuth = $this->scaffoldingDir . '/assets/js/pf-auth.js';
+        if (file_exists($pfAuth)) {
+            $this->writeFile('www/assets/js/pf-auth.js', file_get_contents($pfAuth));
         }
 
         if ($uiSystem === 'bootstrap') {
@@ -1983,8 +2047,8 @@ class AuthFlowTest extends BaseTestCase
      * Auth::auth() returns true and sets \$_SESSION['logged'] for a valid user.
      *
      * This is the golden path: correct credentials → authenticated session.
-     * The User addon must be registered (type=user) — without it, auth() returns
-     * true from UserDatabase but \$_SESSION['logged'] is never set.
+     * With no user addon registered, Auth's built-in login lifecycle
+     * (executeDefaultLogin) sets \$_SESSION['logged'] after a successful auth().
      */
     public function testAuthReturnsTrueAndSetsSessionForValidUser(): void
     {
@@ -2012,9 +2076,9 @@ class AuthFlowTest extends BaseTestCase
         // Assert — authentication must succeed
         \$this->assertTrue(\$result, 'auth() must return true for valid credentials');
 
-        // Assert — session must be marked as logged in (requires User addon to be registered)
+        // Assert — session must be marked as logged in (built-in login lifecycle)
         \$this->assertNotEmpty(\$_SESSION['logged'] ?? null,
-            '\$_SESSION[logged] must be set after successful auth — check that Addon\\\\User\\\\User is registered in app.php');
+            '\$_SESSION[logged] must be set after successful auth via Auth::executeDefaultLogin()');
 
         // Cleanup — no backtick quotes: works on both MySQL and PostgreSQL
         \$db = \\Pramnos\\Database\\Database::getInstance();
@@ -2184,8 +2248,23 @@ require ROOT . '/vendor/autoload.php';
 
 \$app = new \\$namespace\\Application();
 \$app->init();
-\$app->exec();
-echo \$app->render();
+
+// Run the HTTP middleware declared in app.php ('middleware' => [...]) around
+// the dispatch. SessionTrackingMiddleware lives here so session/device tracking
+// is explicit and opt-in rather than a hidden boot side-effect. When the stack
+// is empty the pipeline is a straight passthrough.
+\$pipeline = new \\Pramnos\\Http\\MiddlewarePipeline();
+foreach (\$app->getMiddleware() as \$middleware) {
+    \$pipeline->pipe(\$middleware);
+}
+
+echo \$pipeline->run(
+    \\Pramnos\\Http\\Request::getInstance(),
+    static function () use (\$app) {
+        \$app->exec();
+        return \$app->render();
+    }
+);
 PHP;
     }
 
@@ -2779,9 +2858,29 @@ PHP;
             $output->writeln('  <error>Invalid email. Please try again.</error>');
         }
 
-        // Generate a strong random password and display it — no prompt needed
-        $adminPassword = $this->generateRandomPassword(16);
-        $output->writeln("  <info>Generated password:</info> <comment>$adminPassword</comment>");
+        // Prompt for a password; pressing enter accepts a strong generated one.
+        // Deliberately a visible prompt (not setHidden) so the user can see the
+        // password they type during local scaffolding.
+        $randomDefault = $this->generateRandomPassword(16);
+        $rawPassword = (string) $helper->ask(
+            $input, $output,
+            new Question("  Admin password [press enter for random: $randomDefault]: ", $randomDefault)
+        );
+
+        // A terminal's line discipline can, on a non-UTF-8-aware setup, delete
+        // one byte per backspace and pass literal backspace/control bytes and
+        // broken multibyte sequences straight through into the input. Sanitise
+        // so the stored password only contains characters the user can actually
+        // reproduce at login (otherwise the saved value silently differs from
+        // what they intended).
+        $adminPassword = $this->sanitizePassword($rawPassword);
+        if ($adminPassword !== $rawPassword) {
+            $output->writeln('  <comment>Note: removed stray/invalid characters from the entered password.</comment>');
+        }
+        if (trim($adminPassword) === '') {
+            $adminPassword = $randomDefault;
+        }
+        $output->writeln("  <info>Using password:</info> <comment>$adminPassword</comment>");
 
         // Escape values for safe injection into the single-quoted PHP string
         $safeUsername = addslashes($adminUsername);
@@ -3026,6 +3125,93 @@ PHP;
             $pass .= $chars[random_int(0, $max)];
         }
         return $pass;
+    }
+
+    /**
+     * Enable UTF-8-aware line editing on the controlling terminal.
+     *
+     * By default some terminals (notably WSL) leave the line discipline in a
+     * byte-oriented mode: pressing backspace deletes a single byte, so erasing
+     * a two-byte character like «ι» removes only half of it and leaves a broken
+     * sequence in the input buffer. `stty iutf8` tells the kernel the input is
+     * UTF-8 so backspace erases a whole character. This is a no-op when stdin is
+     * not an interactive terminal (pipes, CI) or when stty is unavailable
+     * (Windows), so it is always safe to call.
+     */
+    private function enableUtf8TerminalInput(): void
+    {
+        if (DIRECTORY_SEPARATOR === '\\') {
+            return; // Windows: no stty
+        }
+        if (!function_exists('shell_exec')) {
+            return; // @codeCoverageIgnore — disabled/hardened environments
+        }
+        // Only touch the terminal when stdin actually is one.
+        if (defined('STDIN') && function_exists('stream_isatty') && !@stream_isatty(STDIN)) {
+            return;
+        }
+        @shell_exec('stty iutf8 2>/dev/null');
+    }
+
+    /**
+     * Clean a password typed at an interactive prompt.
+     *
+     * When a user edits multibyte input (e.g. types in a non-Latin keyboard
+     * layout, then presses backspace and retypes), some terminals pass through
+     * stray control bytes and leave a broken UTF-8 sequence in the line buffer.
+     * The echoed prompt shows the corrected text, but the raw value read by the
+     * program still contains the garbage — so the stored password no longer
+     * matches what the user believes they typed and they can never log in.
+     *
+     * It reconstructs the line the way a terminal would: a literal backspace
+     * (0x08) or DEL (0x7F) byte deletes the previously accepted character (the
+     * whole multibyte character, not a single byte), invalid UTF-8 bytes are
+     * dropped with a byte-wise resync, and any remaining control characters are
+     * stripped. The caller compares the result with the raw input and warns if
+     * it changed.
+     *
+     * @param string $raw Raw value as read from the prompt.
+     * @return string Sanitised password containing no control/invalid bytes.
+     */
+    private function sanitizePassword(string $raw): string
+    {
+        $chars = [];            // accepted characters, each possibly multibyte
+        $len   = strlen($raw);
+        $i     = 0;
+
+        while ($i < $len) {
+            $ord = ord($raw[$i]);
+
+            // Backspace / DEL: remove the last accepted character and move on.
+            if ($ord === 0x08 || $ord === 0x7F) {
+                array_pop($chars);
+                $i++;
+                continue;
+            }
+
+            // Determine the expected UTF-8 sequence length from the lead byte.
+            if ($ord < 0x80)      { $seq = 1; } // ASCII
+            elseif ($ord >= 0xF0) { $seq = 4; }
+            elseif ($ord >= 0xE0) { $seq = 3; }
+            elseif ($ord >= 0xC0) { $seq = 2; }
+            else                  { $seq = 1; } // stray continuation byte
+
+            $chunk = substr($raw, $i, $seq);
+
+            if (strlen($chunk) === $seq && mb_check_encoding($chunk, 'UTF-8')) {
+                // A well-formed character: keep it unless it is a control char.
+                if ($seq > 1 || ($ord >= 0x20 && $ord !== 0x7F)) {
+                    $chars[] = $chunk;
+                }
+                $i += $seq;
+            } else {
+                // Malformed sequence (e.g. the "�" left by a half-deleted
+                // multibyte char): drop one byte and resync.
+                $i++;
+            }
+        }
+
+        return implode('', $chars);
     }
 
     private function mkdir(string $path): void

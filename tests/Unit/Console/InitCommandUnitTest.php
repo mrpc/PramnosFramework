@@ -314,8 +314,8 @@ class InitCommandUnitTest extends TestCase
         $index = file_get_contents($this->tmpDir . '/www/index.php');
         $this->assertStringContainsString('new \MyVendor\Application()', $index,
             'www/index.php must instantiate the namespace-specific Application subclass');
-        $this->assertStringNotContainsString('getInstance()', $index,
-            'www/index.php must not use the generic getInstance() factory');
+        $this->assertStringNotContainsString('Application::getInstance()', $index,
+            'www/index.php must not use the generic Application::getInstance() factory');
     }
 
     /**
@@ -366,21 +366,22 @@ class InitCommandUnitTest extends TestCase
 
         // Act
         $tester->execute([
-            '--app-name'  => 'MyApp',
-            '--namespace' => 'MyApp',
-            '--features'  => '',
-            '--ui-system' => 'plain-css',
-            '--docker'    => 'n',
-            '--libraries' => '',
-            '--db-type'   => 'mysql',
-            '--db-host'   => 'localhost',
-            '--db-name'   => 'myapp_db',
-            '--db-user'   => 'myapp',
-            '--db-pass'   => 'pass',
-            '--db-prefix' => '',
+            '--app-name'     => 'MyApp',
+            '--namespace'    => 'MyApp',
+            '--features'     => '',
+            '--ui-system'    => 'plain-css',
+            '--docker'       => 'n',
+            '--libraries'    => '',
+            '--cache-system' => 'none',
+            '--db-type'      => 'mysql',
+            '--db-host'      => 'localhost',
+            '--db-name'      => 'myapp_db',
+            '--db-user'      => 'myapp',
+            '--db-pass'      => 'pass',
+            '--db-prefix'    => '',
         ], ['interactive' => false]);
 
-        // Assert
+        // Assert — no features selected and no cache backend ⇒ empty features array
         $appConfig = file_get_contents($this->tmpDir . '/app/app.php');
         $this->assertStringContainsString("'features' => []", $appConfig);
     }
@@ -1247,13 +1248,9 @@ class InitCommandUnitTest extends TestCase
 
         $appConfig = file_get_contents($this->tmpDir . '/app/app.php');
 
-        // UserDatabase handles password verification
+        // UserDatabase handles password verification (+ onAuthCheck remember-me).
         $this->assertStringContainsString("Pramnos\\\\Addon\\\\Auth\\\\UserDatabase", $appConfig,
             'app.php must include UserDatabase addon for password verification');
-
-        // User addon sets $_SESSION[logged|uid|username] after successful login
-        $this->assertStringContainsString("Pramnos\\\\Addon\\\\User\\\\User", $appConfig,
-            'app.php must include User addon to set session state after login');
 
         // UserDatabase must be type=auth
         $this->assertMatchesRegularExpression(
@@ -1262,12 +1259,15 @@ class InitCommandUnitTest extends TestCase
             'UserDatabase must have type=auth'
         );
 
-        // User must be type=user
-        $this->assertMatchesRegularExpression(
-            "/'addon'\s*=>\s*'Pramnos\\\\\\\\Addon\\\\\\\\User\\\\\\\\User'.*'type'\s*=>\s*'user'/s",
-            $appConfig,
-            'User addon must have type=user'
-        );
+        // The deprecated User addon is intentionally NOT registered any more —
+        // Auth's built-in login lifecycle (executeDefaultLogin) sets the session
+        // state instead. Registering it would skip the built-in activity logging.
+        $this->assertStringNotContainsString("Pramnos\\\\Addon\\\\User\\\\User", $appConfig,
+            'app.php must NOT register the deprecated User addon (built-in lifecycle handles session state)');
+
+        // Session tracking is wired explicitly via the middleware pipeline.
+        $this->assertStringContainsString("Pramnos\\\\Http\\\\Middleware\\\\SessionTrackingMiddleware", $appConfig,
+            'app.php must declare the SessionTrackingMiddleware');
     }
 
     /**
@@ -2333,6 +2333,72 @@ class InitCommandUnitTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * sanitizePassword() must reconstruct the line the way a terminal would when
+     * a literal backspace/DEL byte or invalid UTF-8 leaks into the prompt input.
+     *
+     * This is the bug where typing in a non-Latin keyboard layout, pressing
+     * backspace and retyping left the stored admin password containing stray
+     * bytes (e.g. "ικ�ikaria1!") that the user could never reproduce at login —
+     * the echoed prompt showed one value while another was saved.
+     */
+    public function testSanitizePasswordHandlesBackspaceAndInvalidBytes(): void
+    {
+        // Arrange — reach the private helper via reflection.
+        $method = new \ReflectionMethod(Init::class, 'sanitizePassword');
+
+        // Act + Assert — a clean password is returned unchanged.
+        $this->assertSame(
+            'ikaria1!',
+            $method->invoke($this->command, 'ikaria1!'),
+            'A password with no stray bytes must pass through untouched'
+        );
+
+        // A DEL byte (0x7F) deletes the character before it, like a terminal.
+        $this->assertSame(
+            'abd',
+            $method->invoke($this->command, "abc\x7fd"),
+            'DEL (0x7F) must delete the preceding character'
+        );
+
+        // A backspace byte (0x08) does the same.
+        $this->assertSame(
+            'ab',
+            $method->invoke($this->command, "abc\x08"),
+            'Backspace (0x08) must delete the preceding character'
+        );
+
+        // Backspace deletes a whole multibyte character, not a single byte, so
+        // no broken UTF-8 is left behind.
+        $this->assertSame(
+            'ι',
+            $method->invoke($this->command, "ικ\x7f"),
+            'Backspace after a multibyte char must remove the whole character'
+        );
+
+        // A stray/invalid continuation byte (the "�" source) is dropped, and the
+        // valid characters around it are preserved.
+        $this->assertSame(
+            'ικikaria1!',
+            $method->invoke($this->command, "ικ\xCEikaria1!"),
+            'Invalid UTF-8 bytes must be dropped without eating valid neighbours'
+        );
+
+        // Other control characters are stripped entirely.
+        $this->assertSame(
+            'abc',
+            $method->invoke($this->command, "a\x01b\x1fc"),
+            'C0 control characters must be removed'
+        );
+
+        // A well-formed multibyte password survives intact.
+        $this->assertSame(
+            'ικαρια1!',
+            $method->invoke($this->command, 'ικαρια1!'),
+            'Valid multibyte input must be preserved byte-for-byte'
+        );
+    }
 
     private function rmdir(string $dir): void
     {
