@@ -533,12 +533,17 @@ class Controller extends \Pramnos\Framework\Base
             $view = new $className($this);
             return $view;
         }
-        if (file_exists($tp . DS . $name . "." . $type . ".php")
-            || file_exists($tp . DS  . "view." . $type . ".php")) {
-            $view = new \Pramnos\Application\View($this, $tp, $name, $type);
-            return $view;
-        }
-        return new \Pramnos\Application\View($this, $path, $name, $type);
+        // The view-group directory ($tp) exists and holds its templates, so bind the
+        // View to it: display('anyTemplate') then resolves $tp/anyTemplate.<type>.php.
+        //
+        // Historically this only happened when the group also contained a default
+        // "{group}" or "view" template; a group that shipped only secondary templates
+        // (e.g. passkey/manage, account/profile — no passkey/account default) fell back
+        // to $path, the PARENT directory, so every display('sub') resolved a
+        // non-existent $path/sub.<type>.php and rendered nothing (blank page).
+        // Binding to $tp unconditionally is correct — the templates live in $tp — and
+        // is a no-op for groups that already had a default template.
+        return new \Pramnos\Application\View($this, $tp, $name, $type);
     }
 
 

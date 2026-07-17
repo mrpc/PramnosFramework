@@ -177,7 +177,7 @@ class Base
      * @param string $class
      * @return string
      */
-    protected function _printMessages($class = 'pramnosMessage')
+    protected function _printMessages($class = 'message')
     {
         $return = '';
         $messages = $this->_getMessages();
@@ -198,7 +198,7 @@ class Base
      * @param string $class
      * @return string
      */
-    protected function _printErrors($class = 'pramnosError')
+    protected function _printErrors($class = 'error')
     {
         $return = '';
         $messages = $this->_getErrors();
