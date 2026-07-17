@@ -512,6 +512,11 @@ class Oauth extends Controller
                 (int) $client['appid'],
                 $params['scope']
             );
+            \Pramnos\Auth\ActivityLog::record((int) $user->userid, 'application_authorized', [
+                'application_id'   => (int) $client['appid'],
+                'application_name' => (string) ($client['name'] ?? ''),
+                'scope'            => $params['scope'],
+            ]);
             $this->issueCodeAndRedirect($user->userid, $params);
         } else {
             $redirectParams = ['error' => 'access_denied'];

@@ -123,6 +123,8 @@ class Passkey extends Controller
             return Response::json(['error' => 'registration_failed'], 400);
         }
 
+        \Pramnos\Auth\ActivityLog::record($user, 'passkey_added');
+
         return Response::json(['status' => 'ok', 'credential' => $credential->toPublicArray()], 200);
     }
 
@@ -205,6 +207,9 @@ class Passkey extends Controller
             return Response::json(['error' => 'invalid_request'], 400);
         }
         $ok = $this->service()->renameCredential($user, $id, $name);
+        if ($ok) {
+            \Pramnos\Auth\ActivityLog::record($user, 'passkey_renamed');
+        }
         return Response::json(['status' => $ok ? 'ok' : 'not_found'], $ok ? 200 : 404);
     }
 
@@ -220,6 +225,9 @@ class Passkey extends Controller
             return Response::json(['error' => 'invalid_request'], 400);
         }
         $ok = $this->service()->revokeCredential($user, $id);
+        if ($ok) {
+            \Pramnos\Auth\ActivityLog::record($user, 'passkey_removed');
+        }
         return Response::json(['status' => $ok ? 'ok' : 'not_found'], $ok ? 200 : 404);
     }
 

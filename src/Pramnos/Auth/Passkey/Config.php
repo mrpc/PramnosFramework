@@ -64,7 +64,15 @@ final class Config
         $host    = self::hostFromUrl($siteUrl);
         $origin  = self::originFromUrl($siteUrl);
 
+        // RP id must be the effective domain of the origin (no port). Prefer the
+        // explicit setting, then the site-url host, and finally the current
+        // request host — so passkeys work out of the box (e.g. "localhost")
+        // without the deployment having to configure a site URL first.
         $rpId = (string) (Settings::getSetting('passkey_rp_id') ?: $host);
+        if ($rpId === '') {
+            $rpId = self::hostFromRequest();
+        }
+
         $rpName = (string) (Settings::getSetting('passkey_rp_name')
             ?: (Settings::getSetting('sitename') ?: $rpId));
 
@@ -73,6 +81,14 @@ final class Config
             $origins = array_values(array_filter(array_map('trim', explode(',', $originsSetting))));
         } else {
             $origins = $origin !== '' ? [$origin] : [];
+        }
+        // Same fallback for the allowed origin: use the current request origin
+        // (scheme://host[:port]) when nothing is configured.
+        if ($origins === []) {
+            $requestOrigin = self::originFromRequest();
+            if ($requestOrigin !== '') {
+                $origins = [$requestOrigin];
+            }
         }
 
         $timeout = (int) (Settings::getSetting('passkey_timeout') ?: 60000);
@@ -90,6 +106,39 @@ final class Config
     {
         $host = parse_url($url, PHP_URL_HOST);
         return is_string($host) ? $host : '';
+    }
+
+    /**
+     * The current request host without its port (the WebAuthn RP id must be a
+     * bare effective domain, e.g. "localhost"), or '' outside an HTTP request.
+     */
+    private static function hostFromRequest(): string
+    {
+        $host = (string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '');
+        if ($host === '') {
+            return '';
+        }
+        // Strip a port suffix (":8080"); IPv6 literals are left untouched.
+        if (!str_contains($host, ']') && str_contains($host, ':')) {
+            $host = substr($host, 0, strpos($host, ':'));
+        }
+        return $host;
+    }
+
+    /**
+     * The current request origin (scheme://host[:port]), or '' outside an HTTP
+     * request. Used as the allowed-origin fallback when none is configured.
+     */
+    private static function originFromRequest(): string
+    {
+        $host = (string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '');
+        if ($host === '') {
+            return '';
+        }
+        $https  = (string) ($_SERVER['HTTPS'] ?? '');
+        $secure = ($https !== '' && strtolower($https) !== 'off')
+            || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
+        return ($secure ? 'https' : 'http') . '://' . $host;
     }
 
     /** Extract "scheme://host[:port]" from a URL, or '' when it cannot be parsed. */

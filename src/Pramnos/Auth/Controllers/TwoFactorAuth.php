@@ -121,6 +121,7 @@ class TwoFactorAuth extends Controller
         }
 
         if ($this->twoFactorService->completeSetup($currentUser->userid, $code)) {
+            \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'twofactor_enabled');
             $this->redirect(sURL . 'TwoFactorAuth/backup?setup=complete');
         } else {
             $this->redirect(sURL . 'TwoFactorAuth/setup?error=invalid_code');
@@ -147,6 +148,7 @@ class TwoFactorAuth extends Controller
         }
 
         if ($this->twoFactorService->disable($currentUser->userid, $password)) {
+            \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'twofactor_disabled');
             $this->redirect(sURL . 'TwoFactorAuth?success=disabled');
         } else {
             $this->redirect(sURL . 'TwoFactorAuth?error=invalid_password');
