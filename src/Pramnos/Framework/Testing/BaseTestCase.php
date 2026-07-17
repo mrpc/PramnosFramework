@@ -41,20 +41,8 @@ abstract class BaseTestCase extends TestCase
     {
         parent::setUp();
 
-        // Clean up project-specific state if needed
-        $_GET = array();
-        $_POST = array();
-        $_REQUEST = array();
-        $_SERVER['REQUEST_METHOD'] = 'GET';
-
-        // Reset request static state
-        $requestClass = '\Pramnos\Http\Request';
-        if (class_exists($requestClass)) {
-            $request = new $requestClass();
-            $request->setAction('');
-            $requestClass::$originalRequest = '';
-            $requestClass::$requestMethod = 'GET';
-        }
+        // Clean up request-scoped state so nothing leaks between tests.
+        $this->resetRequestState();
 
         // Initialize application if possible
         try {
@@ -74,6 +62,70 @@ abstract class BaseTestCase extends TestCase
 
         // Initialize session
         $this->initializeSession();
+    }
+
+    /**
+     * Reset request-scoped superglobals and the Request static state.
+     *
+     * Controller actions read route parameters from these superglobals — most
+     * importantly the third URL segment, exposed as `$_GET['_option']` (see
+     * {@see \Pramnos\Http\Request::staticGetOption()}). Because they are
+     * process-global, a value set by one test would otherwise leak into the
+     * next. setUp() calls this for every test; test cases that provide their
+     * own bespoke setUp() (and therefore do not chain to this one) should call
+     * it explicitly so they get the same isolation.
+     */
+    protected function resetRequestState(): void
+    {
+        $_GET     = array();
+        $_POST    = array();
+        $_REQUEST = array();
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+
+        $requestClass = '\Pramnos\Http\Request';
+        if (class_exists($requestClass)) {
+            $request = new $requestClass();
+            $request->setAction('');
+            $requestClass::$originalRequest = '';
+            $requestClass::$requestMethod = 'GET';
+        }
+    }
+
+    /**
+     * Build the schema for specific tables by running the real migrations.
+     *
+     * Tests should exercise the same table definitions production ships, not
+     * hand-rolled CREATE TABLE statements that can silently drift from the
+     * migrations. This helper runs the up() of each given migration against the
+     * test database — the migration files (under database/migrations/) are the
+     * single source of truth for the schema.
+     *
+     * Migrations are classmap-autoloaded (see composer.json "classmap"), so
+     * pass fully-qualified class names, e.g.
+     * `\Pramnos\Framework\Migrations\Auth\CreateUserTwofactorTable::class`.
+     *
+     * Each migration's up() is idempotent (it early-returns when the table
+     * already exists); DROP the target tables first if you need a guaranteed
+     * fresh schema.
+     *
+     * @param array<int,class-string<\Pramnos\Database\Migration>> $migrationClasses
+     * @param \Pramnos\Database\Database|null $db Target DB (defaults to the Factory singleton).
+     */
+    protected function runMigrations(array $migrationClasses, $db = null): void
+    {
+        $db = $db ?? \Pramnos\Framework\Factory::getDatabase();
+
+        // A lightweight Application stand-in: migrations only touch
+        // $this->application->database, so a mock with that property set is
+        // enough and avoids booting a full application.
+        $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $app->database = $db;
+
+        foreach ($migrationClasses as $class) {
+            (new $class($app))->up();
+        }
     }
 
     /**
