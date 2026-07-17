@@ -102,6 +102,18 @@ class LoginFlow
         $response = $this->verifyCredentials(trim($username), $password, $remember);
         if ($response === false || empty($response['status']) || empty($response['uid'])) {
             $this->lockout()->recordFailedAttempt('identifier', $identifier);
+            // Attribute the failure (and any lockout it triggers) to a real
+            // account when the identifier resolves to one; unknown identifiers
+            // leave no trail. ActivityLog is self-guarding, so this is a no-op
+            // for apps without the authserver activity table.
+            $failedId = $this->resolveUserId(trim($username));
+            if ($failedId !== null) {
+                ActivityLog::record($failedId, 'login_failed');
+                $after = $this->lockout()->getLockoutStatus('identifier', $identifier);
+                if (!empty($after['locked'])) {
+                    ActivityLog::record($failedId, 'account_locked');
+                }
+            }
             return LoginFlowResult::failed();
         }
 
@@ -216,6 +228,35 @@ class LoginFlow
     protected function lockoutIdentifier(string $username): string
     {
         return strtolower(trim($username));
+    }
+
+    /**
+     * Resolve a login identifier (username or email) to a user id, or null.
+     *
+     * Used only to attribute failed-login / lockout activity to a real account
+     * — an unrecognised identifier returns null and produces no activity entry.
+     *
+     * @param string $identifier The submitted username or email.
+     * @return int|null The matching users.userid, or null when none matches.
+     */
+    protected function resolveUserId(string $identifier): ?int
+    {
+        if ($identifier === '') {
+            return null;
+        }
+        // Best-effort attribution only — never let a DB hiccup here turn a
+        // failed-login into a hard error.
+        try {
+            $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('users')
+                ->select('userid')
+                ->where('username', $identifier)
+                ->orWhere('email', $identifier)
+                ->first();
+            return ($row && $row->numRows > 0) ? (int) $row->fields['userid'] : null;
+        } catch (\Throwable $ex) {
+            return null;
+        }
     }
 
     /** Seconds a pending step-up stays valid before it must be restarted. */

@@ -174,6 +174,20 @@ class Auth extends \Pramnos\Framework\Base
         $request  = \Pramnos\Http\Request::getInstance();
         $session  = \Pramnos\Framework\Factory::getSession();
 
+        // Capture the user id before the session is reset below, so the
+        // logout can still be attributed in the activity log.
+        $userId = (int) ($_SESSION['uid'] ?? 0);
+
+        // Deactivate the web-session token (usertokens) before the session is
+        // torn down, so it no longer counts as an active session/device.
+        if ($userId > 1) {
+            try {
+                (new \Pramnos\User\User($userId))->invalidateWebSessionToken();
+            } catch (\Throwable $ex) {
+                \Pramnos\Logs\Logger::log('Web-session token invalidation failed: ' . $ex->getMessage());
+            }
+        }
+
         if (isset($_SESSION['username'])) {
             try {
                 $sql = $database->prepareQuery(
@@ -193,6 +207,9 @@ class Auth extends \Pramnos\Framework\Base
         $request->cookieset('auth',      '', $past);
         $request->cookieset('language',  '', $past);
         $session->reset();
+
+        // Record the logout (built-in path only; see executeDefaultLogin).
+        ActivityLog::record($userId, 'logout');
     }
 
     /**
@@ -454,6 +471,27 @@ class Auth extends \Pramnos\Framework\Base
             $database->query($sqlLastLogin);
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::log($ex->getMessage());
+        }
+
+        // Record the login in the activity log. This lives in the built-in
+        // lifecycle only (not triggerLogin), so apps that bring their own
+        // Addon\User login handler take the addon path and are never
+        // double-logged. Self-guarding: a no-op when the table is absent.
+        ActivityLog::record((int) $info['uid'], 'login', [
+            'method'   => $info['method'] ?? 'password',
+            'remember' => (bool) ($info['remember'] ?? false),
+        ]);
+
+        // Create the web-session token so per-request activity is attributed in
+        // usertokens/tokenactions (Application::exec() logs each request against
+        // $_SESSION['usertoken']). Built-in path only; best-effort.
+        if ((int) $info['uid'] > 1) {
+            try {
+                (new \Pramnos\User\User((int) $info['uid']))
+                    ->createWebSessionToken($remoteIp !== '' ? $remoteIp : null);
+            } catch (\Throwable $ex) {
+                \Pramnos\Logs\Logger::log('Web-session token creation failed: ' . $ex->getMessage());
+            }
         }
     }
 

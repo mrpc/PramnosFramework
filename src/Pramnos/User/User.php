@@ -999,10 +999,14 @@ class User extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $now = time();
+        // A token is a fresh, unique value, so this is a plain INSERT. (The old
+        // upsert used ON CONFLICT (userid, tokentype, token), but usertokens has
+        // no unique constraint on those columns — which threw on PostgreSQL and
+        // silently degraded to a plain insert on MySQL anyway.)
         if ($database->type == 'postgresql') {
             $database->queryBuilder()
                 ->table('usertokens')
-                ->upsert(
+                ->insert(
                     [
                         'userid'      => $this->userid,
                         'tokentype'   => $tokentype,
@@ -1015,14 +1019,12 @@ class User extends \Pramnos\Framework\Base
                         'removedate'  => 0,
                         'deviceinfo'  => '',
                         'scope'       => '',
-                    ],
-                    ['userid', 'tokentype', 'token'],
-                    ['lastused', 'status']
+                    ]
                 );
         } else {
             $database->queryBuilder()
                 ->table('usertokens')
-                ->upsert(
+                ->insert(
                     [
                         'userid'      => $this->userid,
                         'tokentype'   => $tokentype,
@@ -1036,9 +1038,7 @@ class User extends \Pramnos\Framework\Base
                         'deviceinfo'  => '',
                         'scope'       => '',
                         'parentToken' => $parentToken,
-                    ],
-                    ['userid', 'tokentype', 'token'],
-                    ['lastused', 'status', 'parentToken']
+                    ]
                 );
         }
         return $this;
