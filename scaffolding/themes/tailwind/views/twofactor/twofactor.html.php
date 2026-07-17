@@ -2,13 +2,19 @@
 /**
  * Two-Factor Authentication overview page (Tailwind theme).
  *
+ * Rendered by the TwoFactorAuth controller; the account sidebar/breadcrumb
+ * point at the Account controller via accountBase.
+ *
  * Variables:
  *   $this->user   — User object (userid, username, email)
  *   $this->status — array {enabled: bool, setup: bool, backup_codes_remaining: int}
  */
+$this->accountBase = 'Account';
+$this->activeNav   = 'twofactor';
 ?>
-<div class="max-w-xl mx-auto">
+<div class="container mx-auto px-4 py-8">
 
+    <?php $this->insert('../partials/account_breadcrumb'); ?>
     <h2 class="text-2xl font-bold text-gray-900 mb-6">Two-Factor Authentication</h2>
 
     <?php if (!empty($_GET['error'])): ?>
@@ -23,7 +29,6 @@
             ?>
         </div>
     <?php endif; ?>
-
     <?php if (!empty($_GET['success'])): ?>
         <div class="mb-4 rounded-md bg-green-50 border border-green-200 p-4 text-green-800 text-sm">
             <?php
@@ -33,49 +38,56 @@
         </div>
     <?php endif; ?>
 
-    <div class="bg-white border border-gray-200 rounded-xl shadow-xs p-6">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
 
-        <div class="flex items-center gap-3 mb-4">
-            <?php if ($this->status['enabled']): ?>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    Enabled
-                </span>
-                <h3 class="text-lg font-medium text-gray-900">Your account is protected</h3>
-            <?php else: ?>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                    Disabled
-                </span>
-                <h3 class="text-lg font-medium text-gray-900">Add extra security</h3>
-            <?php endif; ?>
+        <?php $this->insert('../partials/account_sidebar'); ?>
+
+        <div class="md:col-span-3">
+            <div class="bg-white border border-gray-200 rounded-xl shadow-xs p-6 max-w-xl">
+
+                <div class="flex items-center gap-3 mb-4">
+                    <?php if ($this->status['enabled']): ?>
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            Enabled
+                        </span>
+                        <h3 class="text-lg font-medium text-gray-900">Your account is protected</h3>
+                    <?php else: ?>
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                            Disabled
+                        </span>
+                        <h3 class="text-lg font-medium text-gray-900">Add extra security</h3>
+                    <?php endif; ?>
+                </div>
+
+                <p class="text-sm text-gray-500 mb-6">
+                    Two-factor authentication adds a second layer of security to your account.
+                    After entering your password you will be asked for a code from your authenticator app.
+                </p>
+
+                <?php if ($this->status['enabled']): ?>
+                    <div class="bg-gray-50 rounded-lg p-4 mb-6 inline-block">
+                        <div class="text-3xl font-bold text-indigo-600"><?php echo (int) $this->status['backup_codes_remaining']; ?></div>
+                        <div class="text-xs text-gray-500 mt-1">backup codes remaining</div>
+                    </div>
+
+                    <div class="flex gap-3 flex-wrap">
+                        <a href="<?php echo sURL; ?>TwoFactorAuth/backup"
+                           class="inline-flex items-center px-4 py-2 border border-indigo-300 rounded-md text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50 transition-colors">
+                            Manage Backup Codes
+                        </a>
+                        <button type="button" data-modal-show="disableModal"
+                                class="inline-flex items-center px-4 py-2 border border-red-300 rounded-md text-sm font-medium text-red-700 bg-white hover:bg-red-50 transition-colors">
+                            Disable 2FA
+                        </button>
+                    </div>
+                <?php else: ?>
+                    <a href="<?php echo sURL; ?>TwoFactorAuth/setup"
+                       class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors">
+                        Enable Two-Factor Authentication
+                    </a>
+                <?php endif; ?>
+            </div>
         </div>
-
-        <p class="text-sm text-gray-500 mb-6">
-            Two-factor authentication adds a second layer of security to your account.
-            After entering your password you will be asked for a code from your authenticator app.
-        </p>
-
-        <?php if ($this->status['enabled']): ?>
-            <div class="bg-gray-50 rounded-lg p-4 mb-6 inline-block">
-                <div class="text-3xl font-bold text-indigo-600"><?php echo (int) $this->status['backup_codes_remaining']; ?></div>
-                <div class="text-xs text-gray-500 mt-1">backup codes remaining</div>
-            </div>
-
-            <div class="flex gap-3 flex-wrap">
-                <a href="<?php echo sURL; ?>TwoFactorAuth/backup"
-                   class="inline-flex items-center px-4 py-2 border border-indigo-300 rounded-md text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50 transition-colors">
-                    Manage Backup Codes
-                </a>
-                <button type="button" data-modal-show="disableModal"
-                        class="inline-flex items-center px-4 py-2 border border-red-300 rounded-md text-sm font-medium text-red-700 bg-white hover:bg-red-50 transition-colors">
-                    Disable 2FA
-                </button>
-            </div>
-        <?php else: ?>
-            <a href="<?php echo sURL; ?>TwoFactorAuth/setup"
-               class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors">
-                Enable Two-Factor Authentication
-            </a>
-        <?php endif; ?>
     </div>
 
 </div>

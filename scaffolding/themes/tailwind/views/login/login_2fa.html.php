@@ -38,7 +38,7 @@ $offerPasskey = in_array('passkey', (array) ($this->methods ?? []), true);
             <?php endif; ?>
             <div>
                 <label for="code" class="block text-sm font-medium text-gray-700 mb-1">Verification Code</label>
-                <input type="text" id="code" name="code"
+                <input type="text" id="code" name="code" data-pf-otp
                        class="w-full border border-gray-300 rounded-md px-3 py-2 text-center text-2xl font-mono tracking-widest focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                        maxlength="6" pattern="[0-9]{6}" placeholder="000000"
                        autocomplete="one-time-code" required autofocus>
@@ -48,7 +48,12 @@ $offerPasskey = in_array('passkey', (array) ($this->methods ?? []), true);
 
         <?php if ($offerPasskey): ?>
         <div class="text-center text-sm text-gray-400 my-4">or</div>
-        <button type="button" id="passkey-stepup" class="w-full bg-gray-800 hover:bg-gray-900 text-white font-medium py-2 px-4 rounded-md transition-colors">Use a passkey</button>
+        <button type="button" class="w-full bg-gray-800 hover:bg-gray-900 text-white font-medium py-2 px-4 rounded-md transition-colors"
+                data-pf-passkey-stepup
+                data-options-url="<?php echo $base; ?>/passkeyOptions"
+                data-verify-url="<?php echo $base; ?>/passkeyVerify"
+                data-redirect="<?php echo sURL; ?>"
+                data-error="#passkey-error">Use a passkey</button>
         <p id="passkey-error" class="text-red-700 text-sm mt-2 hidden"></p>
         <?php endif; ?>
 
@@ -71,30 +76,5 @@ $offerPasskey = in_array('passkey', (array) ($this->methods ?? []), true);
         </p>
     </div>
 </div>
-<script>
-document.getElementById('code').addEventListener('input', function() {
-    this.value = this.value.replace(/[^0-9]/g, '');
-    if (this.value.length === 6) { setTimeout(() => { if (this.value.length === 6) this.form.submit(); }, 100); }
-});
-</script>
-<?php if ($offerPasskey): ?>
-<script>
-(function () {
-    var btn = document.getElementById('passkey-stepup');
-    if (!btn) { return; }
-    if (!window.PramnosWebAuthn || !window.PramnosWebAuthn.supported()) { btn.style.display = 'none'; return; }
-    var base = <?php echo json_encode($base); ?>;
-    var home = <?php echo json_encode(sURL); ?>;
-    btn.addEventListener('click', function () {
-        btn.disabled = true;
-        window.PramnosWebAuthn.authenticate(base + '/passkeyOptions', base + '/passkeyVerify')
-            .then(function (r) { window.location = r.redirect || home; })
-            .catch(function () {
-                btn.disabled = false;
-                var e = document.getElementById('passkey-error');
-                if (e) { e.className = e.className.replace(/\b(d-none|hidden)\b/g, ''); e.style.display = 'block'; e.textContent = 'Passkey sign-in failed. Use your code instead.'; }
-            });
-    });
-})();
-</script>
-<?php endif; ?>
+<script src="<?php echo sURL; ?>assets/js/pf-webauthn.js"></script>
+<script src="<?php echo sURL; ?>assets/js/pf-auth.js"></script>

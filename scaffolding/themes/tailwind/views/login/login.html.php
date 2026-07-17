@@ -66,7 +66,7 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
             <?php endif; ?>
             <div>
                 <label for="username" class="block text-sm font-medium text-gray-700 mb-1">Username or Email</label>
-                <input type="text" name="username" id="username" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-500" required autocomplete="username" autofocus>
+                <input type="text" name="username" id="username" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-500" value="<?php echo htmlspecialchars((string) ($this->username ?? '')); ?>" required autocomplete="username" autofocus>
             </div>
             <div>
                 <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
@@ -77,6 +77,19 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
             </label>
             <button type="submit" class="login-submit w-full text-white font-medium py-2 px-4 rounded-md transition-colors" style="background-color:<?php echo $primary; ?>">Sign In</button>
         </form>
+
+        <div id="passkey-login-wrap" class="hidden">
+            <div class="text-center text-sm text-gray-400 my-4">or</div>
+            <button type="button" class="w-full bg-gray-800 hover:bg-gray-900 text-white font-medium py-2 px-4 rounded-md transition-colors"
+                    data-pf-passkey-login
+                    data-options-url="<?php echo sURL; ?>Passkey/loginOptions"
+                    data-verify-url="<?php echo sURL; ?>Passkey/login"
+                    data-redirect="<?php echo sURL; ?>"
+                    data-wrap="#passkey-login-wrap"
+                    data-error="#passkey-login-error">Sign in with a passkey</button>
+            <p id="passkey-login-error" class="text-red-700 text-sm mt-2 hidden"></p>
+        </div>
+
         <p class="text-center text-sm mt-4">
             <a href="<?php echo $base; ?>/forgotpassword" class="text-blue-600 hover:underline">Forgot your password?</a>
         </p>
@@ -85,3 +98,5 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
         <?php endif; ?>
     </div>
 </div>
+<script src="<?php echo sURL; ?>assets/js/pf-webauthn.js"></script>
+<script src="<?php echo sURL; ?>assets/js/pf-auth.js"></script>

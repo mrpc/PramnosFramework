@@ -1,40 +1,47 @@
 <?php
 /**
- * Forgot password form (Bootstrap theme).
+ * Forgot-password form (Bootstrap theme) — Account/LoginFlow flow.
  *
- * Variables:
- *   $this->title — Optional page title override
- *   $this->error — Optional error string
+ * Variables (set by Pramnos\Auth\Controllers\Account::renderForgot):
+ *   $this->routeBase, $this->brand, $this->error, $this->message
  */
+$brand   = $this->brand ?? [];
+$primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
+$base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
+
+$errorMessages = [
+    'invalid_token' => 'Your session expired. Please try again.',
+    'invalid_email' => 'Please enter a valid email address.',
+];
+$errorKey  = (string) ($this->error ?? '');
+$errorText = $errorMessages[$errorKey] ?? $errorKey;
+$sent      = (($this->message ?? '') === 'sent');
 ?>
 <div class="container py-5">
     <div class="row justify-content-center">
         <div class="col-sm-10 col-md-6 col-lg-4">
             <div class="card shadow-sm">
                 <div class="card-body p-4">
-                    <h1 class="h4 mb-3"><?php echo htmlspecialchars($this->title ?? 'Forgot Password'); ?></h1>
+                    <h1 class="h4 mb-1">Forgot your password?</h1>
+                    <p class="text-muted small mb-3">Enter your email and we'll send you a reset link.</p>
 
-                    <?php if (!empty($this->error)): ?>
-                        <div class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
+                    <?php if ($sent): ?>
+                        <div class="alert alert-info">If an account exists for that email, a password-reset link is on its way. Check your inbox.</div>
+                    <?php else: ?>
+                        <?php if ($errorText !== ''): ?>
+                            <div class="alert alert-danger"><?php echo htmlspecialchars($errorText); ?></div>
+                        <?php endif; ?>
+                        <form method="POST" action="<?php echo $base; ?>/forgotpassword">
+                            <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                            <div class="mb-3">
+                                <label for="email" class="form-label">Email</label>
+                                <input type="email" name="email" id="email" class="form-control" value="<?php echo htmlspecialchars((string) ($this->email ?? '')); ?>" required autofocus autocomplete="email">
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100" style="background-color:<?php echo $primary; ?>;border-color:<?php echo $primary; ?>">Send reset link</button>
+                        </form>
                     <?php endif; ?>
-                    <?php if ($this->hasErrors()): ?>
-                        <div class="alert alert-danger"><?php echo $this->_printErrors(); ?></div>
-                    <?php endif; ?>
-                    <?php if ($this->hasMessages()): ?>
-                        <div class="alert alert-info"><?php echo $this->_printMessages(); ?></div>
-                    <?php endif; ?>
-
-                    <form method="POST" action="<?php echo sURL; ?>Home/forgotpasswordsubmit">
-                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-                        <div class="mb-3">
-                            <label for="email" class="form-label">Email Address</label>
-                            <input type="email" name="email" id="email" class="form-control" required autocomplete="email">
-                            <div class="form-text">We will send a password reset link to this address.</div>
-                        </div>
-                        <button type="submit" class="btn btn-primary w-100">Send Reset Link</button>
-                    </form>
                     <div class="text-center mt-3">
-                        <a href="<?php echo sURL; ?>Home/login" class="small">&larr; Back to login</a>
+                        <a href="<?php echo $base; ?>/login" class="small">&larr; Back to login</a>
                     </div>
                 </div>
             </div>

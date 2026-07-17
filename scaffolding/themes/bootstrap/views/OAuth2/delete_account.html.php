@@ -1,59 +1,60 @@
 <?php
 /**
  * Delete Account confirmation page (Bootstrap theme).
- * GDPR Article 17 — right to erasure.
+ * GDPR Article 17 — right to erasure. Reached from Privacy.
  *
- * No view variables set by the controller.
- * Error state communicated via $_GET['error'].
+ * Variables:
+ *   $this->routeBase — Account controller route base
  */
-$errorMessages = [
-    'invalid_password'      => 'The password you entered is incorrect.',
-    'confirmation_required' => 'You must type DELETE in the confirmation field.',
-    'deletion_failed'       => 'An error occurred while deleting your account. Please try again.',
-];
+$routeBase = $this->routeBase ?? 'Account';
+$this->activeNav = 'deleteaccount';
 ?>
-<div class="container py-4" style="max-width:540px">
+<div class="container py-4">
 
-    <p><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>">← Back to Dashboard</a></p>
+    <?php $this->insert('../partials/account_breadcrumb'); ?>
+    <h2 class="mb-4">Delete Account</h2>
 
-    <div class="card border-danger">
-        <div class="card-header bg-danger text-white fw-semibold">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i> Delete Account
-        </div>
-        <div class="card-body">
+    <?php if ($this->hasErrors()): ?>
+        <div class="alert alert-danger"><?php echo $this->_printErrors(); ?></div>
+    <?php endif; ?>
 
-            <?php if (!empty($_GET['error']) && isset($errorMessages[$_GET['error']])): ?>
-                <div class="alert alert-danger">
-                    <?php echo htmlspecialchars($errorMessages[$_GET['error']]); ?>
+    <div class="row g-4">
+
+        <?php $this->insert('../partials/account_sidebar'); ?>
+
+        <div class="col-lg-9 col-md-8">
+            <div class="card border-danger" style="max-width:560px">
+                <div class="card-header bg-danger text-white fw-semibold">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i> Delete Account
                 </div>
-            <?php endif; ?>
+                <div class="card-body">
 
-            <div class="alert alert-warning">
-                <strong>Warning — this action is permanent.</strong><br>
-                All your personal data, authorized applications, activity history, and account
-                information will be permanently deleted. This cannot be undone.
+                    <div class="alert alert-warning">
+                        <strong>Warning — this action is permanent.</strong><br>
+                        All your personal data, authorized applications, activity history, and account
+                        information will be permanently deleted. This cannot be undone.
+                    </div>
+
+                    <form method="post" action="<?php echo sURL . $routeBase; ?>/deleteaccount">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <div class="mb-3">
+                            <label for="del_password" class="form-label">Current Password</label>
+                            <input type="password" id="del_password" name="password"
+                                   class="form-control" required autocomplete="current-password">
+                        </div>
+                        <div class="mb-3">
+                            <label for="del_confirm" class="form-label">
+                                Type <strong>DELETE</strong> to confirm
+                            </label>
+                            <input type="text" id="del_confirm" name="confirmation"
+                                   class="form-control" placeholder="DELETE" required autocomplete="off">
+                        </div>
+                        <button type="submit" class="btn btn-danger w-100">
+                            Permanently Delete My Account
+                        </button>
+                    </form>
+                </div>
             </div>
-
-            <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/deleteaccount">
-                <div class="mb-3">
-                    <label for="del_password" class="form-label">Current Password</label>
-                    <input type="password" id="del_password" name="password"
-                           class="form-control" required autocomplete="current-password">
-                </div>
-                <div class="mb-3">
-                    <label for="del_confirm" class="form-label">
-                        Type <strong>DELETE</strong> to confirm
-                    </label>
-                    <input type="text" id="del_confirm" name="confirmation"
-                           class="form-control" placeholder="DELETE" required autocomplete="off">
-                </div>
-                <button type="submit" class="btn btn-danger w-100">
-                    Permanently Delete My Account
-                </button>
-                <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>" class="btn btn-outline-secondary w-100 mt-2">
-                    Cancel
-                </a>
-            </form>
         </div>
     </div>
 
