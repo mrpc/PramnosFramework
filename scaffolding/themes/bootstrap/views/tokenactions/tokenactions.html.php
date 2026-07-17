@@ -44,25 +44,29 @@
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
                 <thead class="table-light">
-                    <tr><th>ID</th><th>Token</th><th>Endpoint</th><th>Status</th><th>Time (ms)</th><th>When</th><th></th></tr>
+                    <tr><th>ID</th><th>User</th><th>Endpoint</th><th>Method</th><th>Status</th><th>Time (ms)</th><th>When</th><th></th></tr>
                 </thead>
                 <tbody>
                 <?php foreach (($this->actions ?? []) as $a): ?>
                     <tr>
-                        <td><?php echo (int)$a['id']; ?></td>
-                        <td class="text-muted small"><?php echo (int)($a['token_id'] ?? 0); ?></td>
-                        <td class="text-truncate" style="max-width:200px"><?php echo htmlspecialchars($a['endpoint'] ?? $a['action'] ?? ''); ?></td>
+                        <td><?php echo (int)$a['actionid']; ?></td>
+                        <td class="text-muted small"><?php echo htmlspecialchars($a['username'] ?? ('#' . (int)($a['tokenid'] ?? 0))); ?></td>
+                        <td class="text-truncate" style="max-width:200px"><?php echo htmlspecialchars($a['endpoint'] ?? ''); ?></td>
+                        <td><?php echo htmlspecialchars($a['method'] ?? ''); ?></td>
                         <td>
-                            <?php $sc = (int)($a['status_code'] ?? 0); ?>
+                            <?php $sc = (int)($a['return_status'] ?? 0); ?>
                             <span class="badge <?php echo $sc >= 500 ? 'bg-danger' : ($sc >= 400 ? 'bg-warning text-dark' : 'bg-success'); ?>"><?php echo $sc ?: '—'; ?></span>
                         </td>
-                        <td><?php echo number_format($a['execution_time'] ?? 0, 0); ?></td>
-                        <td class="text-muted small"><?php echo htmlspecialchars($a['servertime'] ?? $a['created_at'] ?? ''); ?></td>
-                        <td><a href="<?php echo sURL; ?>TokenActions/show/<?php echo (int)$a['id']; ?>" class="btn btn-sm btn-outline-secondary">View</a></td>
+                        <td><?php echo $a['execution_time_ms'] !== null ? number_format((float)$a['execution_time_ms'], 0) : '—'; ?></td>
+                        <td class="text-muted small"><?php
+                            $st = (int)($a['servertime'] ?? 0);
+                            echo $st > 0 ? htmlspecialchars(date('Y-m-d H:i', $st)) : '—';
+                        ?></td>
+                        <td><a href="<?php echo sURL; ?>TokenActions/show/<?php echo (int)$a['actionid']; ?>" class="btn btn-sm btn-outline-secondary">View</a></td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->actions)): ?>
-                    <tr><td colspan="7" class="text-center text-muted py-4">No records found.</td></tr>
+                    <tr><td colspan="8" class="text-center text-muted py-4">No records found.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>

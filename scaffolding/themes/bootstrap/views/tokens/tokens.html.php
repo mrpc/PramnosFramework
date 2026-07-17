@@ -12,8 +12,8 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">OAuth2 Tokens</h2>
         <form method="get" class="d-flex gap-2">
-            <input type="number" name="userid" class="form-control form-control-sm" placeholder="User ID" value="<?php echo (int)($_GET['userid'] ?? 0) ?: ''; ?>">
-            <input type="number" name="applicationid" class="form-control form-control-sm" placeholder="App ID" value="<?php echo (int)($_GET['applicationid'] ?? 0) ?: ''; ?>">
+            <input type="number" name="user_id" class="form-control form-control-sm" placeholder="User ID" value="<?php echo (int)($_GET['user_id'] ?? 0) ?: ''; ?>">
+            <input type="number" name="app_id" class="form-control form-control-sm" placeholder="App ID" value="<?php echo (int)($_GET['app_id'] ?? 0) ?: ''; ?>">
             <button class="btn btn-sm btn-outline-secondary">Filter</button>
         </form>
     </div>
@@ -27,10 +27,16 @@
                 <?php foreach (($this->tokens ?? []) as $tok): ?>
                     <tr>
                         <td><?php echo (int)$tok['tokenid']; ?></td>
-                        <td><?php echo (int)($tok['userid'] ?? 0); ?></td>
-                        <td><?php echo htmlspecialchars($tok['appname'] ?? (string)($tok['applicationid'] ?? '')); ?></td>
-                        <td><?php echo htmlspecialchars($tok['scope'] ?? ''); ?></td>
-                        <td class="text-muted small"><?php echo htmlspecialchars($tok['lastused'] ?? ''); ?></td>
+                        <td><?php echo htmlspecialchars($tok['username'] ?? ''); ?></td>
+                        <td><?php echo htmlspecialchars($tok['app_name'] ?? ('— ' . ($tok['tokentype'] ?? ''))); ?></td>
+                        <td><?php
+                            $sc = trim((string) ($tok['scope'] ?? ''));
+                            echo ($sc === '' || $sc === '[]') ? '—' : htmlspecialchars($sc);
+                        ?></td>
+                        <td class="text-muted small"><?php
+                            $lu = (int) ($tok['lastused'] ?? 0);
+                            echo $lu > 0 ? htmlspecialchars(date('Y-m-d H:i', $lu)) : '—';
+                        ?></td>
                         <td>
                             <?php echo (int)($tok['status'] ?? 1) === 1
                                 ? '<span class="badge bg-success">Active</span>'
