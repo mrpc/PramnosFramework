@@ -361,9 +361,73 @@ class Application extends Base
         $lang = \Pramnos\Translator\Language::getInstance($this->language);
         $lang->load($this->language);
         \Pramnos\Addon\Addon::triger('AppInit', 'system');
+        $this->bootSessionTracking();
         $this->database->setTrackingInfo();
         $this->registerDefaultNavItems($this->applicationInfo['features'] ?? []);
         // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Built-in DB session tracking for apps on the new path.
+     *
+     * Runs {@see \Pramnos\Http\Middleware\SessionTrackingMiddleware::track()}
+     * automatically so a scaffolded app populates the `sessions` table (active
+     * devices, force-logout) with zero wiring. It is deliberately skipped when
+     * the app already handles session tracking another way, so nothing is
+     * tracked twice:
+     *
+     *   - a `middleware` config listing SessionTrackingMiddleware — the app runs
+     *     it explicitly through its own pipeline (the scaffold's default);
+     *   - a registered `Addon\System\Session` (the deprecated addon still used
+     *     by legacy apps such as the reference application), which does the same on AppInit.
+     *
+     * The middleware itself is also idempotent per request (run-once guard), so
+     * this is belt-and-suspenders.
+     *
+     * @return void
+     */
+    /**
+     * The HTTP middleware stack declared in app.php ('middleware' => [...]).
+     *
+     * Returned as-is (FQCN strings or instances) for a front controller to feed
+     * into a {@see \Pramnos\Http\MiddlewarePipeline} around the dispatch. Empty
+     * when the app declares none.
+     *
+     * @return array<int, \Pramnos\Http\MiddlewareInterface|class-string>
+     */
+    public function getMiddleware(): array
+    {
+        $middleware = $this->applicationInfo['middleware'] ?? [];
+        return is_array($middleware) ? $middleware : [];
+    }
+
+    private function bootSessionTracking(): void
+    {
+        $mwClass = \Pramnos\Http\Middleware\SessionTrackingMiddleware::class;
+
+        // Skip when an explicit middleware pipeline will run it.
+        $middleware = $this->applicationInfo['middleware'] ?? [];
+        if (is_array($middleware)) {
+            foreach ($middleware as $mw) {
+                if (is_string($mw) && ltrim($mw, '\\') === $mwClass) {
+                    return;
+                }
+            }
+        }
+
+        // Skip when the deprecated Session addon is registered (it tracks on AppInit).
+        foreach ($this->applicationInfo['addons'] ?? [] as $addon) {
+            $class = is_array($addon) ? ($addon['addon'] ?? '') : (string) $addon;
+            if (ltrim((string) $class, '\\') === \Pramnos\Addon\System\Session::class) {
+                return;
+            }
+        }
+
+        try {
+            (new $mwClass())->track(\Pramnos\Http\Request::getInstance());
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::log('Session tracking failed: ' . $ex->getMessage());
+        }
     }
 
     /**
