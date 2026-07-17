@@ -1,65 +1,60 @@
 <?php
 /**
  * Change Password page (Tailwind theme).
+ *
+ * Server-side rejections arrive as flash errors (Base::addError); client-side
+ * policy hints come from pf-auth.js via [data-pf-password-error].
  */
-$errorMessages = [
-    'wrong_password'         => 'The current password you entered is incorrect.',
-    'password_required'      => 'New password is required.',
-    'password_too_short'     => 'New password must be at least 8 characters.',
-    'password_needs_digit'   => 'New password must contain at least one digit.',
-    'password_needs_symbol'  => 'New password must contain at least one special character.',
-    'passwords_do_not_match' => 'New passwords do not match.',
-];
+$routeBase = $this->routeBase ?? 'Account';
+$this->activeNav = 'changepassword';
+$inputCls = 'w-full border border-gray-300 rounded-sm px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-400';
 ?>
-<div class="max-w-md mx-auto px-4 py-8">
+<div class="container mx-auto px-4 py-8">
 
-    <p class="text-sm mb-4"><a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/security" class="text-blue-600 hover:underline">← Back to Security</a></p>
+    <?php $this->insert('../partials/account_breadcrumb'); ?>
     <h2 class="text-2xl font-bold text-gray-800 mb-6">Change Password</h2>
 
-    <?php if (!empty($_GET['error']) && isset($errorMessages[$_GET['error']])): ?>
+    <?php if ($this->hasErrors()): ?>
         <div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-sm">
-            <?php echo htmlspecialchars($errorMessages[$_GET['error']]); ?>
+            <?php echo $this->_printErrors(); ?>
         </div>
     <?php endif; ?>
 
-    <div class="bg-white rounded-lg shadow-sm p-6">
-        <p class="text-sm text-gray-500 mb-5">
-            Choose a strong password: at least 8 characters, one digit, and one special character.
-        </p>
-        <form method="post" action="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/changepassword" class="space-y-4">
-            <?php
-            $session = \Pramnos\Http\Session::getInstance();
-            echo $session->getTokenField('post');
-            ?>
-            <div>
-                <label for="current_password" class="block text-sm font-medium text-gray-700 mb-1">
-                    Current Password
-                </label>
-                <input type="password" id="current_password" name="current_password"
-                       class="w-full border border-gray-300 rounded-sm px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-400"
-                       required autocomplete="current-password" autofocus>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+
+        <?php $this->insert('../partials/account_sidebar'); ?>
+
+        <div class="md:col-span-3">
+            <div class="bg-white rounded-lg shadow-sm p-6 max-w-xl">
+                <p class="text-sm text-gray-500 mb-5">
+                    Choose a strong password: at least 8 characters, one digit, and one special character.
+                </p>
+                <div data-pf-password-error class="hidden mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-sm"></div>
+                <form method="post" action="<?php echo sURL . $routeBase; ?>/changepassword" class="space-y-4" data-pf-password-policy>
+                    <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                    <div>
+                        <label for="current_password" class="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+                        <input type="password" id="current_password" name="current_password"
+                               class="<?php echo $inputCls; ?>" required autocomplete="current-password" autofocus>
+                    </div>
+                    <div>
+                        <label for="new_password" class="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                        <input type="password" id="new_password" name="new_password"
+                               class="<?php echo $inputCls; ?>" required autocomplete="new-password" minlength="8">
+                    </div>
+                    <div>
+                        <label for="confirm_password" class="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+                        <input type="password" id="confirm_password" name="confirm_password"
+                               class="<?php echo $inputCls; ?>" required autocomplete="new-password">
+                    </div>
+                    <button type="submit"
+                            class="py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-sm transition-colors">
+                        Update Password
+                    </button>
+                </form>
             </div>
-            <div>
-                <label for="new_password" class="block text-sm font-medium text-gray-700 mb-1">
-                    New Password
-                </label>
-                <input type="password" id="new_password" name="new_password"
-                       class="w-full border border-gray-300 rounded-sm px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-400"
-                       required autocomplete="new-password" minlength="8">
-            </div>
-            <div>
-                <label for="confirm_password" class="block text-sm font-medium text-gray-700 mb-1">
-                    Confirm New Password
-                </label>
-                <input type="password" id="confirm_password" name="confirm_password"
-                       class="w-full border border-gray-300 rounded-sm px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-400"
-                       required autocomplete="new-password">
-            </div>
-            <button type="submit"
-                    class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-sm transition-colors">
-                Update Password
-            </button>
-        </form>
+        </div>
     </div>
 
 </div>
+<script src="<?php echo sURL; ?>assets/js/pf-auth.js"></script>

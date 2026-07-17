@@ -7,9 +7,14 @@
  *   $this->authorizedApps  — array[] {appid, name, apikey, description, last_used, token_count}
  *   $this->recentActivity  — array[] {action, created_at, ip_address, user_agent}
  *   $this->twoFactorEnabled — bool
+ *   $this->routeBase       — Account controller route base
  */
+$routeBase = $this->routeBase ?? 'Account';
+$this->activeNav = 'dashboard';
 ?>
-<div class="max-w-4xl mx-auto px-4 py-8">
+<div class="container mx-auto px-4 py-8">
+
+    <?php $this->insert('../partials/account_breadcrumb'); ?>
 
     <div class="flex items-center justify-between mb-6">
         <div>
@@ -29,42 +34,18 @@
         <?php endif; ?>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
 
-        <!-- Navigation -->
-        <div class="md:col-span-1">
-            <div class="bg-white rounded-lg shadow-sm divide-y divide-gray-100">
-                <div class="px-4 py-3 font-semibold text-gray-700 bg-gray-50 rounded-t-lg">Account Settings</div>
-                <?php
-                $routeBase = $this->routeBase ?? 'Dashboard';
-                $navItems = [
-                    ['href' => $routeBase . '/profile',      'label' => 'Profile'],
-                    ['href' => $routeBase . '/applications', 'label' => 'Authorized Applications'],
-                    ['href' => $routeBase . '/security',     'label' => 'Security'],
-                    ['href' => $routeBase . '/privacy',      'label' => 'Privacy Settings'],
-                    ['href' => $routeBase . '/changepassword','label' => 'Change Password'],
-                    ['href' => 'TwoFactorAuth',               'label' => 'Two-Factor Auth'],
-                    ['href' => 'passkey',                     'label' => 'Passkeys'],
-                    ['href' => $routeBase . '/exportdata',   'label' => 'Export My Data'],
-                    ['href' => $routeBase . '/deleteaccount','label' => 'Delete Account'],
-                ];
-                foreach ($navItems as $item): ?>
-                    <a href="<?php echo sURL . $item['href']; ?>"
-                       class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                        <?php echo $item['label']; ?>
-                    </a>
-                <?php endforeach; ?>
-            </div>
-        </div>
+        <?php $this->insert('../partials/account_sidebar'); ?>
 
         <!-- Main content -->
-        <div class="md:col-span-2 space-y-6">
+        <div class="md:col-span-3 space-y-6">
 
             <!-- Authorized apps -->
             <div class="bg-white rounded-lg shadow-sm">
                 <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                     <h3 class="font-semibold text-gray-700">Authorized Applications</h3>
-                    <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/applications"
+                    <a href="<?php echo sURL . $routeBase; ?>/applications"
                        class="text-sm text-blue-600 hover:underline">Manage</a>
                 </div>
                 <?php if (empty($this->authorizedApps)): ?>
@@ -90,7 +71,7 @@
                         <?php endforeach; ?>
                         <?php if (count($this->authorizedApps) > 3): ?>
                             <li class="px-4 py-3 text-center text-sm text-blue-600">
-                                <a href="<?php echo sURL . ($this->routeBase ?? 'Dashboard'); ?>/applications">
+                                <a href="<?php echo sURL . $routeBase; ?>/applications">
                                     + <?php echo count($this->authorizedApps) - 3; ?> more
                                 </a>
                             </li>

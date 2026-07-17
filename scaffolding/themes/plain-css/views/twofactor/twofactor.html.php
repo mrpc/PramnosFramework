@@ -2,13 +2,19 @@
 /**
  * Two-Factor Authentication overview page (plain-CSS theme).
  *
+ * Rendered by the TwoFactorAuth controller (routeBase 'TwoFactorAuth'); the
+ * account sidebar/breadcrumb point at the Account controller via accountBase.
+ *
  * Variables:
  *   $this->user   — User object (userid, username, email)
  *   $this->status — array {enabled: bool, setup: bool, backup_codes_remaining: int}
  */
+$this->accountBase = 'Account';
+$this->activeNav   = 'twofactor';
 ?>
-<div class="page-section" style="max-width:540px;margin:0 auto">
+<div class="page-section">
 
+    <?php $this->insert('../partials/account_breadcrumb'); ?>
     <h2>Two-Factor Authentication</h2>
 
     <?php if (!empty($_GET['error'])): ?>
@@ -23,7 +29,6 @@
             ?>
         </div>
     <?php endif; ?>
-
     <?php if (!empty($_GET['success'])): ?>
         <div class="alert alert-success">
             <?php
@@ -33,45 +38,52 @@
         </div>
     <?php endif; ?>
 
-    <div class="card">
-        <div class="card-body">
-            <p>
-                <strong>Status:</strong>
-                <?php if ($this->status['enabled']): ?>
-                    <span class="badge badge-success">Enabled</span>
-                <?php else: ?>
-                    <span class="badge badge-secondary">Disabled</span>
-                <?php endif; ?>
-            </p>
+    <div class="account-grid">
 
-            <p>
-                Two-factor authentication adds a second layer of security to your account.
-                After entering your password you will be asked for a code from your authenticator app.
-            </p>
+        <?php $this->insert('../partials/account_sidebar'); ?>
 
-            <?php if ($this->status['enabled']): ?>
-                <p><strong><?php echo (int) $this->status['backup_codes_remaining']; ?></strong> backup codes remaining.</p>
+        <div>
+            <div class="card" style="max-width:540px">
+                <div class="card-body">
+                    <p>
+                        <strong>Status:</strong>
+                        <?php if ($this->status['enabled']): ?>
+                            <span class="badge badge-success">Enabled</span>
+                        <?php else: ?>
+                            <span class="badge badge-secondary">Disabled</span>
+                        <?php endif; ?>
+                    </p>
 
-                <p>
-                    <a href="<?php echo sURL; ?>TwoFactorAuth/backup" class="btn">Manage Backup Codes</a>
-                </p>
+                    <p>
+                        Two-factor authentication adds a second layer of security to your account.
+                        After entering your password you will be asked for a code from your authenticator app.
+                    </p>
 
-                <hr>
-                <h4>Disable Two-Factor Authentication</h4>
-                <form method="post" action="<?php echo sURL; ?>TwoFactorAuth/disable">
-                    <div class="form-group">
-                        <label for="confirm_password">Confirm your password to disable 2FA:</label>
-                        <input type="password" id="confirm_password" name="confirm_password"
-                               required autocomplete="current-password" class="form-control">
-                    </div>
-                    <button type="submit" class="btn btn-danger">Disable 2FA</button>
-                </form>
+                    <?php if ($this->status['enabled']): ?>
+                        <p><strong><?php echo (int) $this->status['backup_codes_remaining']; ?></strong> backup codes remaining.</p>
 
-            <?php else: ?>
-                <a href="<?php echo sURL; ?>TwoFactorAuth/setup" class="btn btn-primary">
-                    Enable Two-Factor Authentication
-                </a>
-            <?php endif; ?>
+                        <p>
+                            <a href="<?php echo sURL; ?>TwoFactorAuth/backup" class="btn">Manage Backup Codes</a>
+                        </p>
+
+                        <hr>
+                        <h4>Disable Two-Factor Authentication</h4>
+                        <form method="post" action="<?php echo sURL; ?>TwoFactorAuth/disable">
+                            <div class="form-group">
+                                <label for="confirm_password">Confirm your password to disable 2FA:</label>
+                                <input type="password" id="confirm_password" name="confirm_password"
+                                       required autocomplete="current-password" class="form-control">
+                            </div>
+                            <button type="submit" class="btn btn-danger">Disable 2FA</button>
+                        </form>
+
+                    <?php else: ?>
+                        <a href="<?php echo sURL; ?>TwoFactorAuth/setup" class="btn btn-primary">
+                            Enable Two-Factor Authentication
+                        </a>
+                    <?php endif; ?>
+                </div>
+            </div>
         </div>
     </div>
 
