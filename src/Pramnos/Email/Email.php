@@ -87,7 +87,22 @@ class Email extends \Pramnos\Framework\Base
      * @var string
      */
     public $replyto = '';
-    
+
+    /**
+     * Optional source module label recorded with each send (e.g. 'auth').
+     * Purely for traceability in the mails audit log.
+     * @var string
+     */
+    public $module = '';
+
+    /**
+     * Whether send() records the outbound email in the `mails` table.
+     * On by default so the table is a complete delivery log; set false to
+     * suppress recording for a specific send.
+     * @var bool
+     */
+    public $recordToMails = true;
+
     /**
      * Carbon copy recipients
      * @var string|array
@@ -232,15 +247,79 @@ class Email extends \Pramnos\Framework\Base
             // Reset last error before attempting to send
             $this->lastError = '';
             $this->lastException = null;
-            
-            return $this->sendWithSymfonyMailer();
+
+            $sent = $this->sendWithSymfonyMailer();
         }
         catch (\Exception $exception) {
             $this->lastError = $exception->getMessage();
             $this->lastException = $exception;
             \Pramnos\Logs\Logger::log("Email error: " . $exception->getMessage() . "\n" . $exception->getTraceAsString());
-            return false;
+            $sent = false;
         }
+
+        // Record every outbound email (success or failure) in the mails audit log.
+        $this->recordMail((bool) $sent);
+
+        return $sent;
+    }
+
+    /**
+     * Record this send in the `mails` table — an audit log of every outbound
+     * email. Runs on both success and failure so the log is complete.
+     *
+     * Best-effort: a DB / model failure here must never break (nor change the
+     * result of) the actual send, so it is caught and logged. Suppress per send
+     * with {@see self::$recordToMails} = false. Overridable for custom logging.
+     */
+    protected function recordMail(bool $success): void
+    {
+        if (!$this->recordToMails) {
+            return;
+        }
+        try {
+            $tomail  = $this->emailToString($this->to);
+            $date    = time();
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('mails')
+                ->insert([
+                    // 1 = sent, 0 = failed (matches Pramnos\Messaging\Mail::STATUS_*).
+                    'status'     => $success ? 1 : 0,
+                    'frommail'   => $this->emailToString($this->from),
+                    'fromname'   => '',
+                    'tomail'     => $tomail,
+                    'toname'     => '',
+                    'subject'    => (string) $this->subject,
+                    'content'    => (string) $this->body,
+                    'date'       => $date,
+                    'module'     => (string) $this->module,
+                    'moduleinfo' => '',
+                    'extrainfo'  => $success ? '' : (string) $this->lastError,
+                    'path'       => '',
+                    'hash'       => md5($tomail . '|' . (string) $this->subject . '|' . $date),
+                ]);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Could not record mail in mails table: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Flatten a to/from value — a plain address string, a list of addresses, or
+     * an [email => name] map — into a comma-separated address string for the log.
+     */
+    protected function emailToString($value): string
+    {
+        if (is_string($value)) {
+            return $value;
+        }
+        if (is_array($value)) {
+            $parts = [];
+            foreach ($value as $key => $val) {
+                // [email => name] → use the key; [0 => email] → use the value.
+                $parts[] = is_string($key) ? $key : (string) $val;
+            }
+            return implode(', ', $parts);
+        }
+        return '';
     }
     
     /**
