@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Pramnos\Auth\Controllers;
 
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Application\Application;
 use Pramnos\Auth\Controllers\TwoFactorAuth;
 use Pramnos\Auth\TwoFactorAuthService;
@@ -61,12 +62,17 @@ class TestableTwoFactorAuthSoft extends TestableTwoFactorAuth
     }
 }
 
-class TwoFactorAuthTest extends TestCase
+class TwoFactorAuthTest extends BaseTestCase
 {
     private TestableTwoFactorAuth $controller;
 
     protected function setUp(): void
     {
+        // Intentionally NOT calling parent::setUp(): BaseTestCase::setUp() runs a
+        // full application init that (re)creates FK tables like userstogroups,
+        // which would block this test's TRUNCATE of #PREFIX#users. We extend
+        // BaseTestCase only for its runMigrations() helper and manage our own
+        // request/DB state below.
         \Pramnos\Application\Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         \Pramnos\Application\Settings::loadSettings($settingsFile);
@@ -94,44 +100,20 @@ class TwoFactorAuthTest extends TestCase
             PRIMARY KEY (`userid`)
         )");
 
-        $db->query("CREATE TABLE IF NOT EXISTS `authserver_user_twofactor` (
-            `userid` int(11) NOT NULL,
-            `enabled` tinyint(1) NOT NULL DEFAULT '0',
-            `secret` varchar(255) DEFAULT NULL,
-            `backup_codes` text DEFAULT NULL,
-            `last_used` int(11) NOT NULL DEFAULT '0',
-            `setup_completed_at` int(11) DEFAULT NULL,
-            `created_at` int(11) NOT NULL,
-            `updated_at` int(11) NOT NULL,
-            PRIMARY KEY (`userid`)
-        )");
+        // Build the 2FA schema from the real migrations (the single source of
+        // truth) rather than hand-rolled DDL that can drift from production.
+        // DROP first so the idempotent up() recreates a fresh table.
+        $db->query("DROP TABLE IF EXISTS `authserver_user_twofactor`");
+        $db->query("DROP TABLE IF EXISTS `authserver_twofactor_setup`");
+        $db->query("DROP TABLE IF EXISTS `authserver_twofactor_attempts`");
+        $this->runMigrations([
+            \Pramnos\Framework\Migrations\Auth\CreateUserTwofactorTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateTwofactorSetupTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateTwofactorAttemptsTable::class,
+        ], $db);
 
-        $db->query("CREATE TABLE IF NOT EXISTS `authserver_twofactor_setup` (
-            `id` int(11) NOT NULL AUTO_INCREMENT,
-            `userid` int(11) NOT NULL,
-            `temp_secret` varchar(255) NOT NULL,
-            `used` tinyint(1) NOT NULL DEFAULT '0',
-            `expires_at` int(11) NOT NULL,
-            `created_at` int(11) NOT NULL,
-            PRIMARY KEY (`id`)
-        )");
-
-        $db->query("CREATE TABLE IF NOT EXISTS `authserver_twofactor_attempts` (
-            `id` int(11) NOT NULL AUTO_INCREMENT,
-            `userid` int(11) NOT NULL,
-            `success` tinyint(1) NOT NULL,
-            `ip_address` varchar(45) DEFAULT NULL,
-            `code_used` varchar(8) NOT NULL,
-            `user_agent` text,
-            `attempt_time` datetime NOT NULL,
-            PRIMARY KEY (`id`)
-        )");
-
-        $db->query("TRUNCATE TABLE `#PREFIX#users`");
-        $db->query("TRUNCATE TABLE `authserver_user_twofactor`");
-        $db->query("TRUNCATE TABLE `authserver_twofactor_setup`");
-        $db->query("TRUNCATE TABLE `authserver_twofactor_attempts`");
-
+        // #PREFIX#users was just dropped and recreated empty above — no TRUNCATE
+        // needed (and TRUNCATE would be blocked by the userstogroups FK anyway).
         $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`) VALUES (2, 'testuser', 'test@test.com')");
 
         $app = \Pramnos\Application\Application::getInstance();

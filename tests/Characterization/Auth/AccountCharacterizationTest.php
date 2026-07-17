@@ -6,6 +6,7 @@ namespace Pramnos\Tests\Characterization\Auth;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
 use Pramnos\Auth\Controllers\Account;
@@ -34,7 +35,7 @@ use Pramnos\User\User;
  * table names in the controller to work on PG — a pre-existing issue.
  */
 #[CoversClass(Account::class)]
-class AccountCharacterizationTest extends TestCase
+class AccountCharacterizationTest extends BaseTestCase
 {
     private \Pramnos\Database\Database $db;
 
@@ -46,6 +47,9 @@ class AccountCharacterizationTest extends TestCase
 
     protected function setUp(): void
     {
+        // Intentionally NOT calling parent::setUp(): we extend BaseTestCase only
+        // for its runMigrations() helper and manage our own settings/DB bootstrap
+        // below (a full app init would recreate FK tables this test manipulates).
         // Arrange — bootstrap MySQL application settings
         if (!defined('CONFIG')) {
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
@@ -76,10 +80,10 @@ class AccountCharacterizationTest extends TestCase
         // Remove test rows (preserve table structure for the next test in the same run)
         foreach ($this->createdUserIds as $uid) {
             $this->db->queryBuilder()->table('authserver.oauth2_user_consents')->where('userid', $uid)->delete();
-            $this->db->queryBuilder()->table('user_activity_log')->where('userid', $uid)->delete();
+            $this->db->queryBuilder()->table('authserver.user_activity_log')->where('userid', $uid)->delete();
             $this->db->queryBuilder()->table('authserver.user_privacy_settings')->where('userid', $uid)->delete();
-            $this->db->queryBuilder()->table('user_twofactor')->where('userid', $uid)->delete();
-            $this->db->queryBuilder()->table('twofactor_setup')->where('userid', $uid)->delete();
+            $this->db->queryBuilder()->table('authserver.user_twofactor')->where('userid', $uid)->delete();
+            $this->db->queryBuilder()->table('authserver.twofactor_setup')->where('userid', $uid)->delete();
             $this->db->queryBuilder()->table('usertokens')->where('userid', $uid)->delete();
             $this->db->queryBuilder()->table('users')->where('userid', $uid)->delete();
         }
@@ -116,7 +120,7 @@ class AccountCharacterizationTest extends TestCase
 
         // user_activity_log — column names match what Account::getActivityLog() selects
         $this->db->query(
-            "CREATE TABLE IF NOT EXISTS `{$p}user_activity_log` (
+            "CREATE TABLE IF NOT EXISTS `{$p}authserver_user_activity_log` (
                 `id`         bigint AUTO_INCREMENT PRIMARY KEY,
                 `userid`     bigint NOT NULL,
                 `action`     varchar(100) NOT NULL,
@@ -153,24 +157,15 @@ class AccountCharacterizationTest extends TestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 
-        // user_twofactor — columns match Account::isTwoFactorEnabled()
-        $this->db->query(
-            "CREATE TABLE IF NOT EXISTS `{$p}user_twofactor` (
-                `userid`  bigint NOT NULL PRIMARY KEY,
-                `secret`  varchar(255) DEFAULT NULL,
-                `enabled` tinyint NOT NULL DEFAULT 0
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
-        );
-
-        // twofactor_setup — referenced by Account::eraseUserData()
-        $this->db->query(
-            "CREATE TABLE IF NOT EXISTS `{$p}twofactor_setup` (
-                `id`        bigint AUTO_INCREMENT PRIMARY KEY,
-                `userid`    bigint NOT NULL,
-                `secret`    varchar(255) DEFAULT NULL,
-                `created_at` datetime DEFAULT NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
-        );
+        // user_twofactor + twofactor_setup — built from the real migrations (the
+        // single source of truth) instead of hand-rolled DDL. DROP first so the
+        // idempotent up() recreates a fresh table authoritative for this test.
+        $this->db->query("DROP TABLE IF EXISTS `{$p}authserver_user_twofactor`");
+        $this->db->query("DROP TABLE IF EXISTS `{$p}authserver_twofactor_setup`");
+        $this->runMigrations([
+            \Pramnos\Framework\Migrations\Auth\CreateUserTwofactorTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateTwofactorSetupTable::class,
+        ], $this->db);
     }
 
     /**
@@ -324,7 +319,7 @@ class AccountCharacterizationTest extends TestCase
         // Insert 5 rows with distinct timestamps so ordering is deterministic
         $base = time() - 1000;
         for ($i = 0; $i < 5; $i++) {
-            $this->db->queryBuilder()->table('user_activity_log')->insert([
+            $this->db->queryBuilder()->table('authserver.user_activity_log')->insert([
                 'userid'     => $userId,
                 'action'     => "action_{$i}",
                 'created_at' => date('Y-m-d H:i:s', $base + ($i * 100)),
@@ -366,8 +361,11 @@ class AccountCharacterizationTest extends TestCase
         $this->assertFalse($result, 'Must return false when no row exists');
 
         // Arrange — insert row with enabled = 0
-        $this->db->queryBuilder()->table('user_twofactor')
-            ->insert(['userid' => $userId, 'secret' => 'base32abc', 'enabled' => 0]);
+        $this->db->queryBuilder()->table('authserver.user_twofactor')
+            ->insert([
+                'userid' => $userId, 'secret' => 'base32abc', 'enabled' => 0,
+                'created_at' => time(), 'updated_at' => time(),
+            ]);
 
         // Act
         $result = $this->callPrivate($dashboard, 'isTwoFactorEnabled', $userId);
@@ -376,7 +374,7 @@ class AccountCharacterizationTest extends TestCase
         $this->assertFalse($result, 'enabled = 0 must return false');
 
         // Arrange — update to enabled = 1
-        $this->db->queryBuilder()->table('user_twofactor')
+        $this->db->queryBuilder()->table('authserver.user_twofactor')
             ->where('userid', $userId)
             ->update(['enabled' => 1]);
 
@@ -430,22 +428,24 @@ class AccountCharacterizationTest extends TestCase
      * verifyUserPassword() must return true for the correct bcrypt password
      * and false for wrong password or inactive user.
      *
-     * Tests the QB SELECT + password_verify() branch.
-     * Note: the users table has no `salt` column; the legacy SHA-256+salt
-     * path was removed as a pre-existing bug fix (the column was dropped
-     * from the schema).
+     * Tests the QB SELECT + User::verifyPassword() branch. verifyUserPassword()
+     * delegates to the User model, which salts the password with
+     * md5(securitySalt . userid) — exactly as DatabaseAuthDriver does — so the
+     * stored hash must be produced by User::setPassword(), not a bare
+     * password_hash() (which would never verify under the salted scheme).
      */
     public function testVerifyUserPasswordBcryptBranch(): void
     {
-        // Arrange — create user with known password
+        // Arrange — create user and set the password via the salted scheme.
         $userId = $this->makeUser();
 
-        // Update the user to be active with known bcrypt hash
-        $hash = password_hash('Secr3t!pass', PASSWORD_BCRYPT);
+        $u = new \Pramnos\User\User($userId);
+        $u->setPassword('Secr3t!pass');
+        $u->save();
         $this->db->queryBuilder()
             ->table('users')
             ->where('userid', $userId)
-            ->update(['password' => $hash, 'active' => 1]);
+            ->update(['active' => 1]);
 
         // Act — correct password
         $dashboard = new Account();
@@ -460,26 +460,24 @@ class AccountCharacterizationTest extends TestCase
         // Assert
         $this->assertFalse($result, 'Wrong password must return false');
 
-        // Arrange — deactivate the user
-        $this->db->queryBuilder()
-            ->table('users')
-            ->where('userid', $userId)
-            ->update(['active' => 0]);
+        // Arrange — deactivate the user through the real model API. deactivate()
+        // persists active = 0 AND flushes the 'userlist' + instance caches, so a
+        // subsequent load reflects the change (no manual cache surgery needed).
+        (new \Pramnos\User\User($userId))->deactivate();
 
         // Act — correct password but inactive user
         $result = $this->callPrivate($dashboard, 'verifyUserPassword', $userId, 'Secr3t!pass');
 
-        // Assert — active = 0 row is not returned by the WHERE active = 1 clause
+        // Assert — verifyUserPassword() reads active from the reloaded model and
+        // rejects the inactive account even with the correct password.
         $this->assertFalse($result, 'Inactive user must not verify even with correct password');
     }
 
     // ── Tests — updatePassword ────────────────────────────────────────────────
 
     /**
-     * updatePassword() must store a new bcrypt hash that verifies correctly
-     * and update the modified timestamp.
-     *
-     * Tests the QB UPDATE with raw NOW() expression.
+     * updatePassword() must store a new hash (via User::setPassword, salted with
+     * md5(securitySalt . userid)) that verifies under the same scheme.
      */
     public function testUpdatePasswordPersistsNewHash(): void
     {
@@ -494,21 +492,16 @@ class AccountCharacterizationTest extends TestCase
         $dashboard = new Account();
         $this->callPrivate($dashboard, 'updatePassword', $userId, 'N3wP@ssword!');
 
-        // Assert — load the new hash directly from DB
-        $result = $this->db->queryBuilder()
-            ->table('users')
-            ->select(['password'])
-            ->where('userid', $userId)
-            ->first();
-
-        $this->assertNotNull($result, 'Row must still exist after update');
-        $storedHash = (string) $result->fields['password'];
+        // Assert — verify through the User model (same salted scheme). A bare
+        // password_verify() against the stored hash would fail because the hash
+        // includes the md5(securitySalt . userid) suffix.
+        $u = new \Pramnos\User\User($userId);
         $this->assertTrue(
-            password_verify('N3wP@ssword!', $storedHash),
+            $u->verifyPassword('N3wP@ssword!'),
             'Newly stored hash must verify against the new password'
         );
         $this->assertFalse(
-            password_verify('Secr3t!pass', $storedHash),
+            $u->verifyPassword('Secr3t!pass'),
             'Old password must no longer verify'
         );
     }
@@ -538,7 +531,7 @@ class AccountCharacterizationTest extends TestCase
         $this->db->queryBuilder()->table('authserver.oauth2_user_consents')->insert([
             'userid' => $targetId, 'applicationid' => $appId,
         ]);
-        $this->db->queryBuilder()->table('user_activity_log')->insert([
+        $this->db->queryBuilder()->table('authserver.user_activity_log')->insert([
             'userid' => $targetId, 'action' => 'login',
             'created_at' => date('Y-m-d H:i:s'),
         ]);
@@ -546,11 +539,13 @@ class AccountCharacterizationTest extends TestCase
             'userid' => $targetId, 'share_usage_analytics' => 1, 'marketing_emails' => 0,
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
-        $this->db->queryBuilder()->table('user_twofactor')->insert([
+        $this->db->queryBuilder()->table('authserver.user_twofactor')->insert([
             'userid' => $targetId, 'secret' => 'abc', 'enabled' => 1,
+            'created_at' => time(), 'updated_at' => time(),
         ]);
-        $this->db->queryBuilder()->table('twofactor_setup')->insert([
-            'userid' => $targetId, 'secret' => 'def',
+        $this->db->queryBuilder()->table('authserver.twofactor_setup')->insert([
+            'userid' => $targetId, 'temp_secret' => 'def',
+            'expires_at' => time() + 900, 'created_at' => time(),
         ]);
 
         // Also add a token for the survivor so we can verify it's untouched
@@ -585,7 +580,7 @@ class AccountCharacterizationTest extends TestCase
         );
         $this->assertSame(
             0,
-            $this->db->queryBuilder()->table('user_activity_log')->where('userid', $targetId)->count(),
+            $this->db->queryBuilder()->table('authserver.user_activity_log')->where('userid', $targetId)->count(),
             'user_activity_log rows must be deleted'
         );
         $this->assertSame(
@@ -595,12 +590,12 @@ class AccountCharacterizationTest extends TestCase
         );
         $this->assertSame(
             0,
-            $this->db->queryBuilder()->table('user_twofactor')->where('userid', $targetId)->count(),
+            $this->db->queryBuilder()->table('authserver.user_twofactor')->where('userid', $targetId)->count(),
             'user_twofactor rows must be deleted'
         );
         $this->assertSame(
             0,
-            $this->db->queryBuilder()->table('twofactor_setup')->where('userid', $targetId)->count(),
+            $this->db->queryBuilder()->table('authserver.twofactor_setup')->where('userid', $targetId)->count(),
             'twofactor_setup rows must be deleted'
         );
 
