@@ -24,6 +24,11 @@ class QueueControllerPostgreSQLTest extends QueueControllerMySQLTest
 {
     protected function setUp(): void
     {
+        // This bespoke setUp swaps in a PostgreSQL connection and does NOT chain
+        // to BaseTestCase::setUp(), so reset request superglobals here too —
+        // otherwise a prior test's $_GET['_option'] leaks into this one.
+        $this->resetRequestState();
+
         if (!defined('sURL')) {
             define('sURL', 'http://localhost/');
         }

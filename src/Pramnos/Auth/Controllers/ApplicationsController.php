@@ -50,7 +50,7 @@ class ApplicationsController extends Controller
             return null;
         }
 
-        $id = (int) ($id ?? 0);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
             $this->redirect(sURL . 'applications?error=invalid_id');
             return null;
@@ -179,7 +179,7 @@ class ApplicationsController extends Controller
             return null;
         }
 
-        $id  = (int) ($id ?? 0);
+        $id  = (int) \Pramnos\Http\Request::staticGetOption();
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->title = $id > 0 ? 'Edit Application' : 'New Application';
 
@@ -297,7 +297,7 @@ class ApplicationsController extends Controller
             return;
         }
 
-        $id = (int) ($id ?? 0);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
             $this->redirect(sURL . 'applications?error=invalid_id');
             return;
@@ -330,7 +330,7 @@ class ApplicationsController extends Controller
             return null;
         }
 
-        $appId = (int) ($id ?? 0);
+        $appId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($appId <= 0) {
             $this->redirect(sURL . 'applications?error=invalid_id');
             return null;
@@ -378,7 +378,7 @@ class ApplicationsController extends Controller
             return;
         }
 
-        $id = (int) ($id ?? 0);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
             $this->redirect(sURL . 'applications?error=invalid_id');
             return;

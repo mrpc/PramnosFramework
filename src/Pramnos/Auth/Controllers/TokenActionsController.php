@@ -62,8 +62,10 @@ class TokenActionsController extends Controller
             ->table('#PREFIX#tokenactions ta')
             ->join('#PREFIX#usertokens ut', 'ta.tokenid', '=', 'ut.tokenid')
             ->join('#PREFIX#users u',      'ut.userid',  '=', 'u.userid')
+            ->leftJoin('#PREFIX#urls url', 'ta.urlid', '=', 'url.urlid')
             ->select([
-                'ta.id', 'u.username', 'ta.tokenid', 'ta.urlid',
+                'ta.actionid', 'u.username', 'ta.tokenid', 'ta.urlid',
+                'url.url AS endpoint',
                 'ta.method', 'ta.return_status', 'ta.execution_time_ms',
                 'ta.servertime',
             ]);
@@ -87,7 +89,9 @@ class TokenActionsController extends Controller
             return null;
         }
 
-        $actionId = (int) ($id ?? 0);
+        // The 3rd URL segment (…/show/<id>) is exposed by the request as the
+        // "option" — the dispatcher does not pass it as a method argument.
+        $actionId = (int) (\Pramnos\Http\Request::staticGetOption() ?? 0);
         if ($actionId <= 0) {
             $this->redirect(sURL . 'tokenactions?error=invalid_id');
             return null;
@@ -98,10 +102,12 @@ class TokenActionsController extends Controller
             ->table('#PREFIX#tokenactions ta')
             ->join('#PREFIX#usertokens ut', 'ta.tokenid', '=', 'ut.tokenid')
             ->join('#PREFIX#users u',      'ut.userid',  '=', 'u.userid')
+            ->leftJoin('#PREFIX#urls url', 'ta.urlid', '=', 'url.urlid')
             ->select([
                 'ta.*', 'u.username', 'u.email',
+                'url.url AS endpoint', 'ut.tokentype', 'ut.ipaddress',
             ])
-            ->where('ta.id', $actionId)
+            ->where('ta.actionid', $actionId)
             ->first();
 
         if (!$result || $result->numRows === 0) {
@@ -155,8 +161,11 @@ class TokenActionsController extends Controller
             ->table('#PREFIX#tokenactions ta')
             ->join('#PREFIX#usertokens ut', 'ta.tokenid', '=', 'ut.tokenid')
             ->join('#PREFIX#users u',       'ut.userid',  '=', 'u.userid')
+            // LEFT join urls so the export carries the human-readable endpoint
+            // path (urls.url) instead of the opaque integer urlid FK.
+            ->leftJoin('#PREFIX#urls url', 'ta.urlid', '=', 'url.urlid')
             ->select([
-                'ta.id', 'u.username', 'ta.tokenid', 'ta.urlid',
+                'ta.actionid', 'u.username', 'ta.tokenid', 'url.url AS endpoint',
                 'ta.method', 'ta.return_status', 'ta.execution_time_ms',
                 'ta.servertime',
             ]);
@@ -170,15 +179,15 @@ class TokenActionsController extends Controller
         header('Cache-Control: no-cache, must-revalidate');
 
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['id', 'username', 'tokenid', 'urlid', 'method', 'return_status', 'execution_time_ms', 'servertime'], ',', '"', "\\");
+        fputcsv($out, ['id', 'username', 'tokenid', 'endpoint', 'method', 'return_status', 'execution_time_ms', 'servertime'], ',', '"', "\\");
 
         if ($result) {
             while ($result->fetch()) {
                 fputcsv($out, [
-                    $result->fields['id'],
+                    $result->fields['actionid'],
                     $result->fields['username'],
                     $result->fields['tokenid'],
-                    $result->fields['urlid'],
+                    $result->fields['endpoint'] ?? '',
                     $result->fields['method'],
                     $result->fields['return_status'],
                     $result->fields['execution_time_ms'],

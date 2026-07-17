@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Pramnos\Auth\Controllers;
 
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Application\Application;
 use Pramnos\Auth\Controllers\TokensController;
 use Pramnos\User\User;
@@ -37,12 +38,13 @@ class TestableTokensController extends TokensController
     }
 }
 
-class TokensControllerTest extends TestCase
+class TokensControllerTest extends BaseTestCase
 {
     private TestableTokensController $controller;
 
     protected function setUp(): void
     {
+        parent::setUp();
         \Pramnos\Application\Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         \Pramnos\Application\Settings::loadSettings($settingsFile);
@@ -231,6 +233,7 @@ class TokensControllerTest extends TestCase
         $this->expectExceptionMessage('redirect_quit');
 
         try {
+            $_GET['_option'] = 10;
             $this->controller->revoke(10);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);

@@ -55,10 +55,12 @@ class TokensController extends Controller
         $qb = $db->queryBuilder()
             ->table('#PREFIX#usertokens ut')
             ->join('#PREFIX#users u', 'ut.userid', '=', 'u.userid')
-            ->join('applications a', 'ut.applicationid', '=', 'a.appid')
+            // LEFT join: session/API tokens (web_session, apns, …) have no
+            // applicationid — an inner join would hide every non-OAuth token.
+            ->leftJoin('applications a', 'ut.applicationid', '=', 'a.appid')
             ->select([
                 'ut.tokenid', 'u.username', 'u.email', 'a.name AS app_name',
-                'ut.scope', 'ut.expires', 'ut.lastused', 'ut.status',
+                'ut.tokentype', 'ut.scope', 'ut.expires', 'ut.lastused', 'ut.status',
             ])
             ->where('ut.status', 1);
 
@@ -91,7 +93,9 @@ class TokensController extends Controller
             return;
         }
 
-        $tokenId = (int) ($id ?? 0);
+        // The …/revoke/<id> segment is exposed by the request as the "option"
+        // — the dispatcher does not pass it as a method argument.
+        $tokenId = (int) (\Pramnos\Http\Request::staticGetOption() ?? 0);
         if ($tokenId <= 0) {
             $this->redirect(sURL . 'tokens?error=invalid_id');
             return;

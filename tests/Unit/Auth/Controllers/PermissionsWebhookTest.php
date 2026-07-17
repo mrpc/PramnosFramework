@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Unit\Auth\Controllers;
 
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Auth\Controllers\PermissionsController;
 use Pramnos\Auth\WebhookService;
 use Pramnos\Database\Database;
@@ -70,13 +71,14 @@ class TestablePermissionsController extends PermissionsController
  * Covers the emit helper (user vs role targeting, failure-swallowing) and the
  * save()/delete() call sites that fire it.
  */
-class PermissionsWebhookTest extends TestCase
+class PermissionsWebhookTest extends BaseTestCase
 {
     private TestablePermissionsController $controller;
     private $originalDb;
 
     protected function setUp(): void
     {
+        parent::setUp();
         $this->controller = new TestablePermissionsController();
         $_POST = [];
     }
@@ -220,6 +222,8 @@ class PermissionsWebhookTest extends TestCase
             $qb->method('first')->willReturn($row);
             $qb->method('delete')->willReturn(true);
         });
+
+        $_GET['_option'] = 42;
 
         $this->controller->delete(42);
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Pramnos\Auth\Controllers;
 
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Application\Application;
 use Pramnos\Auth\Controllers\TokenActionsController;
 use Pramnos\User\User;
@@ -38,12 +39,13 @@ class TestableTokenActionsController extends TokenActionsController
     }
 }
 
-class TokenActionsControllerTest extends TestCase
+class TokenActionsControllerTest extends BaseTestCase
 {
     private TestableTokenActionsController $controller;
 
     protected function setUp(): void
     {
+        parent::setUp();
         \Pramnos\Application\Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         \Pramnos\Application\Settings::loadSettings($settingsFile);
@@ -72,29 +74,42 @@ class TokenActionsControllerTest extends TestCase
             `email` varchar(255) NOT NULL,
             PRIMARY KEY (`userid`)
         )");
+        // usertokens carries ipaddress — show() selects ut.ipaddress.
         $db->query("CREATE TABLE `#PREFIX#usertokens` (
             `tokenid` int(11) NOT NULL AUTO_INCREMENT,
             `userid` bigint NOT NULL,
             `tokentype` varchar(50) NOT NULL DEFAULT 'oauth',
             `token` varchar(255) NOT NULL DEFAULT 'testtoken',
+            `ipaddress` varchar(45) NULL,
             PRIMARY KEY (`tokenid`)
         )");
         $db->query("DROP TABLE IF EXISTS `#PREFIX#tokenactions`");
+        $db->query("DROP TABLE IF EXISTS `#PREFIX#urls`");
 
+        // Real schema: actionid PK, urlid is an integer FK into the urls table
+        // (the endpoint string lives in urls.url, joined via ta.urlid = url.urlid).
         $db->query("CREATE TABLE `#PREFIX#tokenactions` (
-            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `actionid` int(11) NOT NULL AUTO_INCREMENT,
             `tokenid` int(11) NOT NULL,
-            `urlid` varchar(255) NOT NULL,
+            `urlid` int(11) NOT NULL,
             `method` varchar(10) NOT NULL,
+            `params` text NULL,
             `return_status` int(11) NOT NULL,
             `execution_time_ms` float NOT NULL,
             `servertime` int(11) NOT NULL,
-            PRIMARY KEY (`id`)
+            PRIMARY KEY (`actionid`)
+        )");
+        $db->query("CREATE TABLE `#PREFIX#urls` (
+            `urlid` int(11) NOT NULL AUTO_INCREMENT,
+            `url` varchar(255) NULL,
+            `hash` bigint NOT NULL DEFAULT 0,
+            PRIMARY KEY (`urlid`)
         )");
 
         $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`) VALUES (1, 'testuser', 'test@test.com')");
-        $db->query("INSERT INTO `#PREFIX#usertokens` (`tokenid`, `userid`, `tokentype`, `token`) VALUES (10, 1, 'oauth', 'testtoken')");
-        $db->query("INSERT INTO `#PREFIX#tokenactions` (`id`, `tokenid`, `urlid`, `method`, `return_status`, `execution_time_ms`, `servertime`) VALUES (100, 10, '/api/test', 'GET', 200, 15.5, " . time() . ")");
+        $db->query("INSERT INTO `#PREFIX#usertokens` (`tokenid`, `userid`, `tokentype`, `token`, `ipaddress`) VALUES (10, 1, 'oauth', 'testtoken', '127.0.0.1')");
+        $db->query("INSERT INTO `#PREFIX#urls` (`urlid`, `url`, `hash`) VALUES (1, '/api/test', 0)");
+        $db->query("INSERT INTO `#PREFIX#tokenactions` (`actionid`, `tokenid`, `urlid`, `method`, `params`, `return_status`, `execution_time_ms`, `servertime`) VALUES (100, 10, 1, 'GET', '', 200, 15.5, " . time() . ")");
 
         $app = \Pramnos\Application\Application::getInstance();
         if (!$app) {
@@ -132,6 +147,7 @@ class TokenActionsControllerTest extends TestCase
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->query("SET FOREIGN_KEY_CHECKS=0");
         $db->query("DROP TABLE IF EXISTS `#PREFIX#tokenactions`");
+        $db->query("DROP TABLE IF EXISTS `#PREFIX#urls`");
         $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
         $db->query("DROP TABLE IF EXISTS `#PREFIX#users`");
         $db->query("SET FOREIGN_KEY_CHECKS=1");
@@ -219,6 +235,7 @@ class TokenActionsControllerTest extends TestCase
         
         ob_start();
         try {
+            $_GET['_option'] = 100;
             $output = $this->controller->show(100);
         } finally {
             $obOutput = ob_get_clean();
@@ -256,6 +273,7 @@ class TokenActionsControllerTest extends TestCase
         $this->expectExceptionMessage('redirect_quit');
 
         try {
+            $_GET['_option'] = 999;
             $this->controller->show(999);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
@@ -286,7 +304,7 @@ class TokenActionsControllerTest extends TestCase
         $this->controller->export();
         $output = ob_get_clean();
 
-        $this->assertStringContainsString('id,username,tokenid,urlid,method,return_status,execution_time_ms,servertime', $output);
+        $this->assertStringContainsString('id,username,tokenid,endpoint,method,return_status,execution_time_ms,servertime', $output);
         $this->assertStringContainsString('100,testuser,10,/api/test,GET,200', $output);
     }
 

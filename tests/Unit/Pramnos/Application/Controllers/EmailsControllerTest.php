@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Pramnos\Application\Controllers;
 
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Controllers\EmailsController;
 use Pramnos\User\User;
@@ -56,12 +57,13 @@ class TestableEmailsControllerSoft extends TestableEmailsController
     }
 }
 
-class EmailsControllerTest extends TestCase
+class EmailsControllerTest extends BaseTestCase
 {
     private TestableEmailsController $controller;
 
     protected function setUp(): void
     {
+        parent::setUp();
         \Pramnos\Application\Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         \Pramnos\Application\Settings::loadSettings($settingsFile);
@@ -212,6 +214,7 @@ class EmailsControllerTest extends TestCase
         
         ob_start();
         try {
+            $_GET['_option'] = 1;
             $output = $this->controller->show(1);
         } finally {
             $obOutput = ob_get_clean();
@@ -249,6 +252,7 @@ class EmailsControllerTest extends TestCase
         $this->expectExceptionMessage('redirect_quit');
 
         try {
+            $_GET['_option'] = 999;
             $this->controller->show(999);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
@@ -264,6 +268,7 @@ class EmailsControllerTest extends TestCase
         $this->expectExceptionMessage('redirect_quit');
 
         try {
+            $_GET['_option'] = 2;
             $this->controller->resend(2); // failed email
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
@@ -380,6 +385,7 @@ class EmailsControllerTest extends TestCase
         $soft = new TestableEmailsControllerSoft($app);
 
         // Act
+        $_GET['_option'] = 1;
         $result = $soft->show(1);
 
         // Assert — guard-clause return null (80) was reached after redirect (150)
@@ -405,6 +411,7 @@ class EmailsControllerTest extends TestCase
         $soft = new TestableEmailsControllerSoft($app);
 
         // Act — resend() must reach its guard-clause return (117) after redirect fires
+        $_GET['_option'] = 1;
         $soft->resend(1);
 
         // Assert — redirect was issued (no exception); the return at line 117 was reached
