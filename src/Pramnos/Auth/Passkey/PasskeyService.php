@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Pramnos\Auth\Passkey;
 
-use Pramnos\Cache\Cache;
 use Pramnos\Framework\Factory;
 
 /**
@@ -14,7 +13,7 @@ use Pramnos\Framework\Factory;
  * raw cryptography:
  *
  *   - **Challenge store** — a begin* call stashes the issued options in the
- *     cache keyed by their challenge (TTL {@see self::CHALLENGE_TTL} seconds);
+ *     session keyed by their challenge (TTL {@see self::CHALLENGE_TTL} seconds);
  *     the matching finish* call loads and immediately deletes that entry. This
  *     makes every challenge single-use: an expired or already-consumed challenge
  *     fails, which is the front-line replay defence for the ceremony itself.
@@ -38,9 +37,6 @@ class PasskeyService implements PasskeyServiceInterface
 {
     /** Challenge lifetime in seconds (design: 5 minutes). */
     protected const CHALLENGE_TTL = 300;
-
-    /** Cache category the challenge store lives under. */
-    protected const CHALLENGE_CATEGORY = 'passkey_challenge';
 
     protected const TABLE = 'authserver.passkey_credentials';
 
@@ -224,12 +220,23 @@ class PasskeyService implements PasskeyServiceInterface
 
     // ── Challenge store (protected seams) ─────────────────────────────────────
 
-    /** Store an issued ceremony's state under its challenge (single-use, TTL). */
+    /**
+     * Store an issued ceremony's state under its challenge (single-use, TTL).
+     *
+     * Backed by the session: a WebAuthn ceremony always spans two requests from
+     * the same browser (begin → finish), so the session — which persists per-user
+     * via the session cookie — is the natural, always-available store. This makes
+     * passkeys work out of the box without the deployment configuring a shared
+     * cache backend (a plain per-request cache would lose the challenge between
+     * the two requests, failing every ceremony with "unknown challenge").
+     */
     protected function storeChallenge(string $type, string $challenge, array $data): void
     {
-        $cache = $this->cache();
-        $cache->timeout = self::CHALLENGE_TTL;
-        $cache->save(json_encode($data), $this->challengeKey($type, $challenge));
+        $this->sessionStart();
+        $_SESSION[$this->challengeKey($type, $challenge)] = [
+            'data'    => $data,
+            'expires' => time() + self::CHALLENGE_TTL,
+        ];
     }
 
     /**
@@ -239,21 +246,29 @@ class PasskeyService implements PasskeyServiceInterface
      */
     protected function consumeChallenge(string $type, string $challenge): ?array
     {
-        $cache = $this->cache();
-        $key   = $this->challengeKey($type, $challenge);
-        $raw   = $cache->load($key, null, self::CHALLENGE_TTL);
-        if ($raw === false) {
+        $this->sessionStart();
+        $key = $this->challengeKey($type, $challenge);
+        if (!isset($_SESSION[$key]) || !is_array($_SESSION[$key])) {
             return null;
         }
-        $cache->delete($key);
-        $data = json_decode((string) $raw, true);
+        $entry = $_SESSION[$key];
+        unset($_SESSION[$key]); // single-use: consumed whether valid or not
+        if ((int) ($entry['expires'] ?? 0) < time()) {
+            return null;
+        }
+        $data = $entry['data'] ?? null;
         return is_array($data) ? $data : null;
     }
 
-    /** The cache instance backing the challenge store. */
-    protected function cache(): Cache
+    /** Ensure a session exists to back the challenge store (no-op in CLI/tests). */
+    protected function sessionStart(): void
     {
-        return Factory::getCache(self::CHALLENGE_CATEGORY);
+        if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        if (!isset($_SESSION)) {
+            $_SESSION = [];
+        }
     }
 
     /** Sanitised, collision-free cache key for a ceremony challenge. */

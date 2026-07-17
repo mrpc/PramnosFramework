@@ -64,12 +64,16 @@ class Account extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         // Public authentication-entry actions.
-        $this->addaction(['login', 'verify', 'passkeyOptions', 'passkeyVerify', 'logout']);
+        $this->addaction([
+            'login', 'verify', 'passkeyOptions', 'passkeyVerify', 'logout',
+            'forgotpassword', 'resetpassword',
+        ]);
         // Authenticated account-management actions.
         $this->addAuthAction([
             'applications', 'revokeapplication',
             'exportdata', 'deleteaccount',
             'privacy', 'security', 'changepassword',
+            'sessions', 'revokesession',
             'profile',
         ]);
         parent::__construct($application);
@@ -98,19 +102,19 @@ class Account extends Controller
             return $this->renderLogin([]);
         }
 
-        if (!$this->checkCsrf()) {
-            return $this->renderLogin(['error' => 'invalid_token']);
-        }
-
         $username = $this->post('username');
         $password = $this->post('password', false); // never trim a password
         $remember = $this->post('remember') !== '';
 
-        if ($username === '' || $password === '') {
-            return $this->renderLogin(['error' => 'missing_credentials']);
+        if (!$this->checkCsrf()) {
+            return $this->renderLogin(['error' => 'invalid_token', 'username' => $username]);
         }
 
-        return $this->presentResult($this->flow()->attempt($username, $password, $remember));
+        if ($username === '' || $password === '') {
+            return $this->renderLogin(['error' => 'missing_credentials', 'username' => $username]);
+        }
+
+        return $this->presentResult($this->flow()->attempt($username, $password, $remember), $username);
     }
 
     /**
@@ -223,6 +227,92 @@ class Account extends Controller
         $this->flow()->cancel();
         $this->authService()->logout();
         $this->redirect(sURL . 'login');
+    }
+
+    /**
+     * Forgot password. GET renders the email form; POST issues a reset link.
+     *
+     * To avoid revealing which emails have accounts, the POST response is always
+     * the same generic "if that email exists, we've sent a link" — whether or not
+     * a matching user was found. The token is random, stored only as a SHA-256
+     * hash (in userdetails), and expires in one hour.
+     */
+    public function forgotpassword(): mixed
+    {
+        if ($this->currentUserId() !== null) {
+            $this->redirect($this->postLoginTarget($this->returnUrl()));
+            return null;
+        }
+        if ($this->requestMethod() !== 'POST') {
+            return $this->renderForgot([]);
+        }
+        $email = $this->post('email');
+
+        if (!$this->checkCsrf()) {
+            return $this->renderForgot(['error' => 'invalid_token', 'email' => $email]);
+        }
+        if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            return $this->renderForgot(['error' => 'invalid_email', 'email' => $email]);
+        }
+
+        $userId = $this->findUserIdByEmail($email);
+        if ($userId !== null) {
+            $token = $this->generateResetToken();
+            $this->storeResetToken($userId, hash('sha256', $token), time() + 3600);
+            $this->sendResetEmail($email, $token);
+            \Pramnos\Auth\ActivityLog::record($userId, 'password_reset_requested');
+        }
+
+        // Same message regardless of whether the email matched (anti-enumeration).
+        return $this->renderForgot(['message' => 'sent']);
+    }
+
+    /**
+     * Reset password. GET (with a token) renders the new-password form; POST
+     * verifies the token, enforces the password policy and updates the password.
+     *
+     * A wrong / expired token or a policy failure re-renders the form; success
+     * consumes the token and sends the user to the login page.
+     */
+    public function resetpassword(): mixed
+    {
+        if ($this->currentUserId() !== null) {
+            $this->redirect($this->postLoginTarget($this->returnUrl()));
+            return null;
+        }
+
+        $token = $this->requestMethod() === 'POST' ? $this->post('token') : $this->query('token');
+
+        if ($this->requestMethod() !== 'POST') {
+            if ($token === '') {
+                return $this->renderForgot(['error' => 'invalid_reset_link']);
+            }
+            return $this->renderReset(['token' => $token]);
+        }
+
+        if (!$this->checkCsrf()) {
+            return $this->renderReset(['token' => $token, 'error' => 'invalid_token']);
+        }
+
+        $userId = $this->consumeResetToken($token);
+        if ($userId === null) {
+            return $this->renderReset(['token' => '', 'error' => 'invalid_reset_link']);
+        }
+
+        $new     = $this->post('password', false);
+        $confirm = $this->post('confirm_password', false);
+        $policyError = $this->validatePasswordPolicy($new, $confirm);
+        if ($policyError !== null) {
+            return $this->renderReset(['token' => $token, 'error' => $policyError]);
+        }
+
+        $this->updatePassword($userId, $new);
+        $this->clearResetToken($userId);
+        \Pramnos\Auth\ActivityLog::record($userId, 'password_reset_completed');
+
+        $this->addMessage('Your password has been reset. Please sign in with your new password.');
+        $this->redirect(sURL . 'login');
+        return null;
     }
 
     // ── Authentication seams (overridable / mockable) ───────────────────────────
@@ -411,7 +501,7 @@ class Account extends Controller
     }
 
     /** Branch on a LoginFlow result into the right response. */
-    protected function presentResult(LoginFlowResult $result): mixed
+    protected function presentResult(LoginFlowResult $result, string $username = ''): mixed
     {
         if ($result->isSuccess()) {
             $this->redirect($this->postLoginTarget($this->returnUrl()));
@@ -424,9 +514,160 @@ class Account extends Controller
             return $this->renderLogin([
                 'error'          => 'locked',
                 'lockoutSeconds' => $result->lockoutRemaining,
+                'username'       => $username,
             ]);
         }
-        return $this->renderLogin(['error' => 'invalid_credentials']);
+        return $this->renderLogin(['error' => 'invalid_credentials', 'username' => $username]);
+    }
+
+    // ── Forgot / reset password seams ───────────────────────────────────────────
+
+    /** A GET/query field (seam for tests). */
+    protected function query(string $key): string
+    {
+        return isset($_GET[$key]) ? trim((string) $_GET[$key]) : '';
+    }
+
+    /** A fresh, cryptographically-random reset token (raw; only its hash is stored). */
+    protected function generateResetToken(): string
+    {
+        return bin2hex(random_bytes(32));
+    }
+
+    /** Resolve a user id from an email, or null when no active user matches. */
+    protected function findUserIdByEmail(string $email): ?int
+    {
+        $uid = (int) \Pramnos\User\User::getuserid($email, 'email');
+        return $uid > 1 ? $uid : null;
+    }
+
+    /**
+     * Store the reset token hash + expiry for a user in the userdetails key-value
+     * store (no dedicated table needed).
+     */
+    protected function storeResetToken(int $userId, string $tokenHash, int $expires): void
+    {
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        foreach ([
+            'password_reset_hash'    => $tokenHash,
+            'password_reset_expires' => (string) $expires,
+        ] as $field => $value) {
+            $db->queryBuilder()->table('userdetails')->upsert(
+                ['userid' => $userId, 'fieldname' => $field, 'value' => $value],
+                ['userid', 'fieldname'],
+                ['value']
+            );
+        }
+    }
+
+    /**
+     * Resolve the user id for a raw reset token, or null when it is unknown or
+     * expired. An expired token is cleared as a side effect.
+     */
+    protected function consumeResetToken(string $token): ?int
+    {
+        if ($token === '') {
+            return null;
+        }
+        $db  = \Pramnos\Framework\Factory::getDatabase();
+        $row = $db->queryBuilder()->table('userdetails')
+            ->select(['userid'])
+            ->where('fieldname', 'password_reset_hash')
+            ->where('value', hash('sha256', $token))
+            ->first();
+        if (!$row || $row->numRows < 1) {
+            return null;
+        }
+        $userId  = (int) $row->fields['userid'];
+        $expRow  = $db->queryBuilder()->table('userdetails')
+            ->select(['value'])
+            ->where('userid', $userId)
+            ->where('fieldname', 'password_reset_expires')
+            ->first();
+        $expires = ($expRow && $expRow->numRows > 0) ? (int) $expRow->fields['value'] : 0;
+        if ($expires < time()) {
+            $this->clearResetToken($userId);
+            return null;
+        }
+        return $userId;
+    }
+
+    /** Remove a user's reset token rows (single-use / cleanup). */
+    protected function clearResetToken(int $userId): void
+    {
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        foreach (['password_reset_hash', 'password_reset_expires'] as $field) {
+            $db->queryBuilder()->table('userdetails')
+                ->where('userid', $userId)
+                ->where('fieldname', $field)
+                ->delete();
+        }
+    }
+
+    /** The absolute URL of the reset form for a raw token. */
+    protected function resetLink(string $token): string
+    {
+        return sURL . $this->routeBase . '/resetpassword?token=' . urlencode($token);
+    }
+
+    /** Email a password-reset link (seam so tests do not send mail). */
+    protected function sendResetEmail(string $email, string $token): void
+    {
+        $brand = $this->brand();
+        $link  = $this->resetLink($token);
+        $name  = htmlspecialchars((string) ($brand['name'] ?? 'Account'), ENT_QUOTES);
+        $body  = '<p>We received a request to reset your ' . $name . ' password.</p>'
+            . '<p>To choose a new password, follow this link (valid for one hour):</p>'
+            . '<p><a href="' . htmlspecialchars($link, ENT_QUOTES) . '">'
+            . htmlspecialchars($link, ENT_QUOTES) . '</a></p>'
+            . '<p>If you did not request this, you can safely ignore this email.</p>';
+        try {
+            $mailer = new \Pramnos\Email\Email();
+            $mailer->subject = 'Password reset';
+            $mailer->body    = $body;
+            $mailer->to      = $email;
+            $mailer->module  = 'auth'; // tag it in the mails audit log
+            $mailer->send();
+        } catch (\Throwable $e) {
+            // A mail-transport failure must not break the flow (nor reveal, via a
+            // 500, whether the email matched an account). The reset token is still
+            // stored; the request can be retried once mail is configured.
+            \Pramnos\Logs\Logger::log('Password-reset email failed: ' . $e->getMessage(), 'auth');
+        }
+    }
+
+    /**
+     * Render the forgot-password form. $ctx carries optional 'error' / 'message'.
+     */
+    protected function renderForgot(array $ctx): mixed
+    {
+        $doc        = $this->document();
+        $doc->title = 'Forgot password';
+
+        $view            = $this->getView('login');
+        $view->routeBase = $this->routeBase;
+        $view->brand     = $this->brand();
+        foreach ($ctx as $key => $value) {
+            $view->$key = $value;
+        }
+        return $view->display('forgotpassword');
+    }
+
+    /**
+     * Render the reset-password form. $ctx carries 'token' and optional 'error'.
+     */
+    protected function renderReset(array $ctx): mixed
+    {
+        $doc        = $this->document();
+        $doc->title = 'Reset password';
+
+        $view            = $this->getView('login');
+        $view->routeBase = $this->routeBase;
+        $view->brand     = $this->brand();
+        foreach ($ctx as $key => $value) {
+            $view->$key = $value;
+        }
+        return $view->display('resetpassword');
     }
 
     // ── Display ───────────────────────────────────────────────────────────────
@@ -473,7 +714,8 @@ class Account extends Controller
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $session = \Pramnos\Http\Session::getInstance();
             if (!$session->checkToken('post')) {
-                $this->redirect(sURL . $this->routeBase . '/profile?error=invalid_token');
+                $this->addError('Your session expired. Please try again.');
+                $this->redirect(sURL . $this->routeBase . '/profile');
                 return;
             }
 
@@ -483,7 +725,8 @@ class Account extends Controller
             $phone     = trim((string) ($_POST['phone']     ?? ''));
 
             if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
-                $this->redirect(sURL . $this->routeBase . '/profile?error=invalid_email');
+                $this->addError('Please enter a valid email address.');
+                $this->redirect(sURL . $this->routeBase . '/profile');
                 return;
             }
 
@@ -493,14 +736,15 @@ class Account extends Controller
             $currentUser->phone     = $phone;
             $currentUser->save();
 
-            $this->redirect(sURL . $this->routeBase . '/profile?message=profile_saved');
+            $this->addMessage('Your profile has been updated.');
+            $this->redirect(sURL . $this->routeBase . '/profile');
             return;
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'My Profile';
 
-        $view            = $this->getView('login');
+        $view            = $this->getView('profile');
         $view->routeBase = $this->routeBase;
         $view->user      = $currentUser;
 
@@ -583,6 +827,11 @@ class Account extends Controller
                 ->where('applicationid', $appId)
                 ->delete();
 
+            \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'application_revoked', [
+                'application_id'   => $appId,
+                'application_name' => $appName,
+            ]);
+
             $this->sendRevokeResponse($isAjax, true, "Access revoked for {$appName}");
 
         } catch (\Exception $ex) {
@@ -601,24 +850,50 @@ class Account extends Controller
      * Export all personal data for the current user as a JSON download.
      * GDPR Article 20 — right to data portability.
      */
-    public function exportdata(): void
+    /**
+     * Export all personal data (GDPR Article 20).
+     * GET  : confirmation page (what will be exported + a download button).
+     * POST : build the full export and stream it as a JSON download.
+     */
+    public function exportdata()
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
 
-        try {
-            $data = $this->buildExportData((int) $currentUser->userid);
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            if (!\Pramnos\Http\Session::getInstance()->checkToken('post')) {
+                $this->addError('Your session expired. Please try again.');
+                $this->redirect(sURL . $this->routeBase . '/exportdata');
+                return null;
+            }
 
-            header('Content-Type: application/json');
-            header('Content-Disposition: attachment; filename="user_data_export_' . date('Y-m-d') . '.json"');
-            header('Cache-Control: no-cache, must-revalidate');
+            try {
+                $data = $this->buildExportData((int) $currentUser->userid);
+                \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'data_export_requested');
 
-            echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-            $this->terminate();
+                header('Content-Type: application/json');
+                header('Content-Disposition: attachment; filename="user_data_export_' . date('Y-m-d') . '.json"');
+                header('Cache-Control: no-cache, must-revalidate');
 
-        } catch (\Exception $ex) {
-            \Pramnos\Logs\Logger::log('Error exporting user data: ' . $ex->getMessage());
-            $this->redirect(sURL . $this->routeBase);
+                echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                $this->terminate();
+            } catch (\Exception $ex) {
+                \Pramnos\Logs\Logger::log('Error exporting user data: ' . $ex->getMessage());
+                $this->addError('An error occurred while exporting your data. Please try again.');
+                $this->redirect(sURL . $this->routeBase . '/exportdata');
+            }
+            return null;
         }
+
+        // GET — confirmation page.
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = 'Export My Data';
+
+        $view                 = $this->getView('OAuth2');
+        $view->routeBase       = $this->routeBase;
+        // NB: NOT 'sections' — that name is reserved by View's layout system.
+        $view->exportSections  = $this->exportSectionLabels();
+
+        return $view->display('export_data');
     }
 
     // ── GDPR — account deletion ───────────────────────────────────────────────
@@ -633,20 +908,32 @@ class Account extends Controller
         $currentUser = \Pramnos\User\User::getCurrentUser();
 
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            if (!\Pramnos\Http\Session::getInstance()->checkToken('post')) {
+                $this->addError('Your session expired. Please try again.');
+                $this->redirect(sURL . $this->routeBase . '/deleteaccount');
+                return;
+            }
+
             $password     = (string) ($_POST['password']     ?? '');
             $confirmation = (string) ($_POST['confirmation'] ?? '');
 
             if (!$this->verifyUserPassword((int) $currentUser->userid, $password)) {
-                $this->redirect(sURL . $this->routeBase . '/deleteaccount?error=invalid_password');
+                $this->addError('The password you entered is incorrect.');
+                $this->redirect(sURL . $this->routeBase . '/deleteaccount');
                 return;
             }
 
             if ($confirmation !== 'DELETE') {
-                $this->redirect(sURL . $this->routeBase . '/deleteaccount?error=confirmation_required');
+                $this->addError('You must type DELETE in the confirmation field.');
+                $this->redirect(sURL . $this->routeBase . '/deleteaccount');
                 return;
             }
 
             try {
+                // NB: no activity-log entry here — eraseUserData() hard-deletes
+                // this user's user_activity_log rows in the same flow, so any
+                // 'account_deletion' entry would be wiped immediately. A durable
+                // deletion audit would need a separate, non-erased store.
                 $this->eraseUserData((int) $currentUser->userid);
 
                 $auth = \Pramnos\Framework\Factory::getAuth();
@@ -656,7 +943,8 @@ class Account extends Controller
 
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::log('Error deleting account: ' . $ex->getMessage());
-                $this->redirect(sURL . $this->routeBase . '/deleteaccount?error=deletion_failed');
+                $this->addError('An error occurred while deleting your account. Please try again.');
+                $this->redirect(sURL . $this->routeBase . '/deleteaccount');
             }
             return;
         }
@@ -695,6 +983,12 @@ class Account extends Controller
                    ['share_usage_analytics', 'marketing_emails', 'updated_at']
                );
 
+            \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'privacy_settings_updated', [
+                'analytics' => isset($_POST['analytics']),
+                'marketing' => isset($_POST['marketing']),
+            ]);
+
+            $this->addMessage('Your privacy settings have been saved.');
             $this->redirect(sURL . $this->routeBase . '/privacy');
             return;
         }
@@ -725,8 +1019,42 @@ class Account extends Controller
         $view->routeBase        = $this->routeBase;
         $view->recentActivity   = $this->getActivityLog((int) $currentUser->userid, 20);
         $view->twoFactorEnabled = $this->isTwoFactorEnabled((int) $currentUser->userid);
+        $view->activeSessions   = $this->getActiveSessions((int) $currentUser->userid);
+        $view->currentSid       = md5(session_id());
 
         return $view->display('security');
+    }
+
+    /**
+     * Sign out one of the current user's other sessions/devices (POST only).
+     *
+     * Sets `sessions.logout = 1` for the target sid, scoped to the current user
+     * so nobody can revoke another account's session. The session-tracking layer
+     * force-logs-out that device on its next request (it clears the session when
+     * it sees logout=1 for the visitor).
+     */
+    public function revokesession(): void
+    {
+        $currentUser = \Pramnos\User\User::getCurrentUser();
+
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST'
+            || !\Pramnos\Http\Session::getInstance()->checkToken('post')) {
+            $this->redirect(sURL . $this->routeBase . '/security');
+            return;
+        }
+
+        $sid = (string) ($_POST['sid'] ?? '');
+        if ($sid !== '') {
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('sessions')
+                ->where('userid', (int) $currentUser->userid)
+                ->where('sid', $sid)
+                ->update(['logout' => 1]);
+            \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'session_revoked');
+            $this->addMessage('The selected session has been signed out.');
+        }
+
+        $this->redirect(sURL . $this->routeBase . '/security');
     }
 
     // ── Change password ───────────────────────────────────────────────────────
@@ -745,6 +1073,7 @@ class Account extends Controller
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $session = \Pramnos\Http\Session::getInstance();
             if (!$session->checkToken('post')) {
+                $this->addError('Your session expired. Please try again.');
                 $this->redirect(sURL . $this->routeBase . '/changepassword');
                 return;
             }
@@ -754,18 +1083,25 @@ class Account extends Controller
             $confirmPassword = (string) ($_POST['confirm_password'] ?? '');
 
             if (!$this->verifyUserPassword((int) $currentUser->userid, $currentPassword)) {
-                $this->redirect(sURL . $this->routeBase . '/changepassword?error=wrong_password');
+                $this->addError($this->passwordErrorMessage('wrong_password'));
+                $this->redirect(sURL . $this->routeBase . '/changepassword');
                 return;
             }
 
             $policyError = $this->validatePasswordPolicy($newPassword, $confirmPassword);
             if ($policyError !== null) {
-                $this->redirect(sURL . $this->routeBase . '/changepassword?error=' . urlencode($policyError));
+                $this->addError($this->passwordErrorMessage($policyError));
+                $this->redirect(sURL . $this->routeBase . '/changepassword');
                 return;
             }
 
             $this->updatePassword((int) $currentUser->userid, $newPassword);
-            $this->redirect(sURL . $this->routeBase . '/security?message=password_changed');
+            \Pramnos\Auth\ActivityLog::record(
+                (int) $currentUser->userid,
+                'password_changed'
+            );
+            $this->addMessage('Your password has been updated successfully.');
+            $this->redirect(sURL . $this->routeBase . '/security');
             return;
         }
 
@@ -823,7 +1159,7 @@ class Account extends Controller
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('user_activity_log')
+            ->table('authserver.user_activity_log')
             ->select(['action', 'created_at', 'ip_address', 'user_agent'])
             ->where('userid', $userId)
             ->orderBy('created_at', 'desc')
@@ -841,13 +1177,45 @@ class Account extends Controller
     }
 
     /**
+     * Return the user's currently-active sessions (devices).
+     *
+     * Reads the `sessions` table (public schema — populated by the built-in
+     * session tracking): non-guest, non-revoked rows for this user, newest
+     * first. Each row carries the sid used to revoke it and the agent/IP/time
+     * for display.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function getActiveSessions(int $userId): array
+    {
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('sessions')
+            ->select(['sid', 'host_addr', 'agent', 'time', 'url'])
+            ->where('userid', $userId)
+            ->where('guest', 0)
+            ->where('logout', 0)
+            ->orderBy('time', 'desc')
+            ->get();
+
+        $rows = [];
+        if ($result) {
+            while ($result->fetch()) {
+                $rows[] = (array) $result->fields;
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
      * Check whether 2FA is currently enabled for a user.
      */
     protected function isTwoFactorEnabled(int $userId): bool
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('user_twofactor')
+            ->table('authserver.user_twofactor')
             ->select(['enabled'])
             ->where('userid', $userId)
             ->first();
@@ -873,14 +1241,233 @@ class Account extends Controller
         // Remove sensitive fields
         unset($userData['password'], $userData['salt']);
 
-        return [
+        $export = [
             'export_date'      => date('c'),
             'userid'           => $userId,
-            'data'             => $userData,
+            'profile'          => $userData,
             'authorized_apps'  => $this->getAuthorizedApplications($userId),
-            'recent_activity'  => $this->getActivityLog($userId, 1000),
+            'oauth_consents'   => $this->exportOauthConsents($userId),
+            'passkeys'         => $this->exportPasskeys($userId),
+            'two_factor'       => $this->exportTwoFactorStatus($userId),
+            'active_sessions'  => $this->getActiveSessions($userId),
+            'tokens'           => $this->exportTokens($userId),
+            'token_actions'    => $this->exportTokenActions($userId),
+            'account_details'  => $this->exportUserDetails($userId),
             'privacy_settings' => $this->getPrivacySettings($userId),
+            'activity_log'     => $this->getActivityLog($userId, 1000),
         ];
+
+        // Extensibility: applications built on the framework contribute their
+        // own sections by listening for 'account.data_export' and returning an
+        // associative array of [section => data]. Core keys are protected from
+        // being overwritten.
+        foreach (\Pramnos\Event\Event::fire('account.data_export', $userId) as $extra) {
+            if (!is_array($extra)) {
+                continue;
+            }
+            foreach ($extra as $section => $rows) {
+                if (!array_key_exists($section, $export)) {
+                    $export[$section] = $rows;
+                }
+            }
+        }
+
+        return $export;
+    }
+
+    /**
+     * Human-readable labels of the sections the export will contain — shown on
+     * the confirmation page. Includes a note when applications have registered
+     * extra sections via the 'account.data_export' event.
+     *
+     * @return array<int, string>
+     */
+    protected function exportSectionLabels(): array
+    {
+        $labels = [
+            'Profile information',
+            'Authorized applications',
+            'OAuth consents',
+            'Passkeys (metadata only)',
+            'Two-factor status',
+            'Active sessions / devices',
+            'Access tokens (metadata)',
+            'Token activity',
+            'Account details',
+            'Privacy settings',
+            'Activity log',
+        ];
+        if (\Pramnos\Event\Event::hasListeners('account.data_export')) {
+            $labels[] = 'Application-specific data';
+        }
+        return $labels;
+    }
+
+    /**
+     * OAuth2 consents granted by the user. Guarded — returns [] if unavailable.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function exportOauthConsents(int $userId): array
+    {
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('authserver.oauth2_user_consents')
+                ->select(['applicationid', 'scope', 'created_at', 'updated_at'])
+                ->where('userid', $userId)
+                ->get();
+            $rows = [];
+            if ($result) {
+                while ($result->fetch()) {
+                    $rows[] = (array) $result->fields;
+                }
+            }
+            return $rows;
+        } catch (\Throwable $ex) {
+            return [];
+        }
+    }
+
+    /**
+     * Passkey metadata (never the public key / credential id / counters that
+     * would aid impersonation). Guarded.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function exportPasskeys(int $userId): array
+    {
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('authserver.passkey_credentials')
+                ->select(['name', 'transports', 'is_active', 'created_at', 'last_used_at'])
+                ->where('userid', $userId)
+                ->get();
+            $rows = [];
+            if ($result) {
+                while ($result->fetch()) {
+                    $rows[] = (array) $result->fields;
+                }
+            }
+            return $rows;
+        } catch (\Throwable $ex) {
+            return [];
+        }
+    }
+
+    /**
+     * Two-factor status only — never the shared secret or backup codes. Guarded.
+     *
+     * @return array<string, mixed>
+     */
+    protected function exportTwoFactorStatus(int $userId): array
+    {
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('authserver.user_twofactor')
+                ->select(['enabled', 'setup_completed_at', 'created_at'])
+                ->where('userid', $userId)
+                ->first();
+            return ($result && $result->numRows > 0) ? (array) $result->fields : ['enabled' => 0];
+        } catch (\Throwable $ex) {
+            return [];
+        }
+    }
+
+    /**
+     * Extra per-user key/value details (userdetails EAV), excluding security
+     * tokens (password-reset hash/expiry). Guarded.
+     *
+     * @return array<string, mixed>
+     */
+    protected function exportUserDetails(int $userId): array
+    {
+        $deny = ['password_reset_hash', 'password_reset_expires'];
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('userdetails')
+                ->select(['fieldname', 'value'])
+                ->where('userid', $userId)
+                ->get();
+            $rows = [];
+            if ($result) {
+                while ($result->fetch()) {
+                    $field = (string) ($result->fields['fieldname'] ?? '');
+                    if ($field === '' || in_array($field, $deny, true)) {
+                        continue;
+                    }
+                    $rows[$field] = $result->fields['value'] ?? null;
+                }
+            }
+            return $rows;
+        } catch (\Throwable $ex) {
+            return [];
+        }
+    }
+
+    /**
+     * The user's issued tokens (usertokens) — metadata only. Never the token
+     * value itself or the PKCE challenge (both secrets). Guarded.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function exportTokens(int $userId): array
+    {
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('usertokens')
+                ->select([
+                    'tokentype', 'notes', 'created', 'lastused', 'status',
+                    'applicationid', 'actions', 'expires', 'ipaddress',
+                    'deviceinfo', 'removedate',
+                ])
+                ->where('userid', $userId)
+                ->orderBy('created', 'desc')
+                ->get();
+            $rows = [];
+            if ($result) {
+                while ($result->fetch()) {
+                    $rows[] = (array) $result->fields;
+                }
+            }
+            return $rows;
+        } catch (\Throwable $ex) {
+            return [];
+        }
+    }
+
+    /**
+     * Per-token activity (tokenactions) across the user's tokens, joined to the
+     * URL registry. The `params` column is intentionally excluded — it stores
+     * raw request bodies that can contain submitted secrets. Capped to keep the
+     * in-memory JSON export bounded. Guarded.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function exportTokenActions(int $userId, int $limit = 5000): array
+    {
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('tokenactions ta')
+                ->join('usertokens ut', 'ta.tokenid', '=', 'ut.tokenid')
+                ->leftJoin('urls u', 'ta.urlid', '=', 'u.urlid')
+                ->select([
+                    'ta.tokenid', 'u.url', 'ta.method',
+                    'ta.servertime', 'ta.return_status', 'ta.action_time',
+                ])
+                ->where('ut.userid', $userId)
+                ->orderBy('ta.servertime', 'desc')
+                ->limit($limit)
+                ->get();
+            $rows = [];
+            if ($result) {
+                while ($result->fetch()) {
+                    $rows[] = (array) $result->fields;
+                }
+            }
+            return $rows;
+        } catch (\Throwable $ex) {
+            return [];
+        }
     }
 
     /**
@@ -893,10 +1480,10 @@ class Account extends Controller
         $tables = [
             'usertokens'            => 'userid',
             'authserver.oauth2_user_consents' => 'userid',
-            'user_activity_log'     => 'userid',
+            'authserver.user_activity_log'     => 'userid',
             'authserver.user_privacy_settings' => 'userid',
-            'user_twofactor'        => 'userid',
-            'twofactor_setup'       => 'userid',
+            'authserver.user_twofactor'        => 'userid',
+            'authserver.twofactor_setup'       => 'userid',
         ];
 
         foreach ($tables as $table => $col) {
@@ -941,26 +1528,45 @@ class Account extends Controller
      */
     protected function verifyUserPassword(int $userId, string $password): bool
     {
-        $db     = \Pramnos\Framework\Factory::getDatabase();
-        $result = $db->queryBuilder()
-            ->table('users')
-            ->select(['password'])
-            ->where('userid', $userId)
-            ->where('active', 1)
-            ->first();
-
-        if (!$result || $result->numRows == 0) {
+        // Load through the User model — the single source of truth. Every
+        // status mutation (activate/deactivate/save/deleteuser) flushes the
+        // 'userlist' cache and the in-process instance cache, so the loaded
+        // row (active flag included) reflects the current database state.
+        $user = new \Pramnos\User\User($userId);
+        if ((int) $user->userid < 2) {
             return false;
         }
 
-        $stored = (string) ($result->fields['password'] ?? '');
-
-        // Bcrypt hashes (default since v1.2); legacy SHA-256 plain fallback
-        if (str_starts_with($stored, '$2')) {
-            return password_verify($password, $stored);
+        // Only an active account may confirm its password (inactive/banned/
+        // deleted must not verify). 1 or 't' (PostgreSQL boolean) both mean
+        // active.
+        $active = $user->active;
+        if ($active != 1 && $active !== 't' && $active !== true) {
+            return false;
         }
 
-        return hash('sha256', $password) === $stored;
+        // verifyPassword() applies the same md5(securitySalt . userid) salt
+        // DatabaseAuthDriver uses — a bare password_verify() here would reject
+        // every correct password.
+        return $user->verifyPassword($password);
+    }
+
+    /**
+     * Map a password error key to a human-readable message.
+     *
+     * Shared by the change-password flow so server-side rejections surface as
+     * flash errors (addError) instead of query-string keys the view must decode.
+     */
+    protected function passwordErrorMessage(string $key): string
+    {
+        return [
+            'wrong_password'         => 'The current password you entered is incorrect.',
+            'password_required'      => 'New password is required.',
+            'password_too_short'     => 'New password must be at least 8 characters.',
+            'password_needs_digit'   => 'New password must contain at least one digit.',
+            'password_needs_symbol'  => 'New password must contain at least one special character.',
+            'passwords_do_not_match' => 'New passwords do not match.',
+        ][$key] ?? 'Could not change your password. Please try again.';
     }
 
     /**
@@ -992,15 +1598,14 @@ class Account extends Controller
      */
     protected function updatePassword(int $userId, string $newPassword): void
     {
-        $db   = \Pramnos\Framework\Factory::getDatabase();
-        $hash = password_hash($newPassword, PASSWORD_BCRYPT);
-        $db->queryBuilder()
-           ->table('users')
-           ->where('userid', $userId)
-           ->update([
-               'password' => $hash,
-               'modified' => time(),
-           ]);
+        // Use the User model's setPassword(), which salts with
+        // md5(securitySalt . userid) exactly as DatabaseAuthDriver verifies —
+        // a raw password_hash() here would store a hash login could never match.
+        $user = new \Pramnos\User\User($userId);
+        if ((int) $user->userid > 1) {
+            $user->setPassword($newPassword);
+            $user->save();
+        }
     }
 
     // ── Private — response helpers ────────────────────────────────────────────
@@ -1016,8 +1621,11 @@ class Account extends Controller
             return;
         }
 
-        if (!$success) {
-            $this->redirect(sURL . $this->routeBase . '/applications?error=' . urlencode($message));
+        // Non-AJAX: surface the outcome as a flash message on the applications page.
+        if ($success) {
+            $this->addMessage($message);
+        } else {
+            $this->addError($message);
         }
     }
 

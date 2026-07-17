@@ -12,6 +12,22 @@ use Pramnos\User\User;
 
 class TestableAccountControllerIT extends Account
 {
+    /**
+     * Controllable result for verifyUserPassword() so flow tests don't depend
+     * on the salted password crypto (covered by AccountCharacterizationTest).
+     */
+    public bool $verifyPasswordResult = true;
+
+    protected function verifyUserPassword(int $userId, string $password): bool
+    {
+        return $this->verifyPasswordResult;
+    }
+
+    protected function updatePassword(int $userId, string $newPassword): void
+    {
+        // No-op: password persistence is exercised by the characterization suite.
+    }
+
     protected function terminate(): void
     {
         // Do nothing to avoid exit;
@@ -175,9 +191,11 @@ class AccountControllerIntegrationTest extends TestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('message=profile_saved', $echoed);
+        $this->assertStringContainsString('/profile', $echoed);
+        // Success is now a flash message (not a query-string param).
+        $this->assertNotEmpty($_SESSION['_messages'] ?? []);
     }
-    
+
     public function testProfilePostInvalidEmail()
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
@@ -189,7 +207,9 @@ class AccountControllerIntegrationTest extends TestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('error=invalid_email', $echoed);
+        $this->assertStringContainsString('/profile', $echoed);
+        // Invalid email is now a flash error (not a query-string param).
+        $this->assertNotEmpty($_SESSION['_errors'] ?? []);
     }
 
     public function testApplications()
@@ -243,6 +263,10 @@ class AccountControllerIntegrationTest extends TestCase
 
     public function testExportData()
     {
+        // GET renders a confirmation page; the actual JSON download is POST-only.
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->bypassCsrf();
+
         $mockResult = new \stdClass();
         $mockResult->numRows = 1;
         $mockResult->fields = ['userid' => 100, 'username' => 'tester', 'password' => 'secret'];
@@ -255,7 +279,7 @@ class AccountControllerIntegrationTest extends TestCase
         $data = json_decode($echoed, true);
         $this->assertIsArray($data);
         $this->assertEquals(100, $data['userid']);
-        $this->assertArrayNotHasKey('password', $data['data']); // verify sensitive data is removed
+        $this->assertArrayNotHasKey('password', $data['profile']); // sensitive data removed
     }
 
     public function testDeleteAccountGet()
@@ -316,18 +340,16 @@ class AccountControllerIntegrationTest extends TestCase
         $_POST['new_password'] = 'short';
         $_POST['confirm_password'] = 'short';
         $this->bypassCsrf();
-
-        $mockResult = new \stdClass();
-        $mockResult->numRows = 1;
-        $mockResult->fields = ['password' => password_hash('old_secret', PASSWORD_BCRYPT)];
-        $this->queryBuilderMock->method('first')->willReturn($mockResult);
+        $this->controller->verifyPasswordResult = true; // current password OK → reach policy
 
         ob_start();
         $this->controller->changepassword();
         $echoed = ob_get_clean();
 
+        // Policy failure is now a flash error + redirect back to changepassword.
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('error=password_too_short', $echoed);
+        $this->assertStringContainsString('/changepassword', $echoed);
+        $this->assertNotEmpty($_SESSION['_errors'] ?? []);
     }
 
     public function testChangePasswordPostSuccess()
@@ -337,20 +359,16 @@ class AccountControllerIntegrationTest extends TestCase
         $_POST['new_password'] = 'Strong1!Pass';
         $_POST['confirm_password'] = 'Strong1!Pass';
         $this->bypassCsrf();
-
-        $mockResult = new \stdClass();
-        $mockResult->numRows = 1;
-        $mockResult->fields = ['password' => password_hash('old_secret', PASSWORD_BCRYPT)];
-        $this->queryBuilderMock->method('first')->willReturn($mockResult);
-
-        $this->queryBuilderMock->expects($this->once())->method('update')->willReturn(true);
+        $this->controller->verifyPasswordResult = true;
 
         ob_start();
         $this->controller->changepassword();
         $echoed = ob_get_clean();
 
+        // Success now redirects to security with a flash message.
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('message=password_changed', $echoed);
+        $this->assertStringContainsString('/security', $echoed);
+        $this->assertNotEmpty($_SESSION['_messages'] ?? []);
     }
 
     // ── deleteaccount() POST branches ─────────────────────────────────────────
@@ -377,11 +395,12 @@ class AccountControllerIntegrationTest extends TestCase
      */
     public function testDeleteAccountPostWrongPasswordRedirectsWithError(): void
     {
-        // Arrange — stored password differs from the submitted one
+        // Arrange — wrong password
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST['password']         = 'wrong-password';
         $_POST['confirmation']     = 'DELETE';
-        $this->stubStoredPassword('the-real-password');
+        $this->bypassCsrf();
+        $this->controller->verifyPasswordResult = false;
 
         // delete() must never run on a failed password check
         $this->queryBuilderMock->expects($this->never())->method('delete');
@@ -391,8 +410,9 @@ class AccountControllerIntegrationTest extends TestCase
         $this->controller->deleteaccount();
         $echoed = ob_get_clean();
 
-        // Assert
-        $this->assertStringContainsString('error=invalid_password', $echoed);
+        // Assert — flash error, redirect back, nothing deleted
+        $this->assertStringContainsString('/deleteaccount', $echoed);
+        $this->assertNotEmpty($_SESSION['_errors'] ?? []);
     }
 
     /**
@@ -406,7 +426,8 @@ class AccountControllerIntegrationTest extends TestCase
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST['password']         = 'the-real-password';
         $_POST['confirmation']     = 'delete'; // must be exactly 'DELETE'
-        $this->stubStoredPassword('the-real-password');
+        $this->bypassCsrf();
+        $this->controller->verifyPasswordResult = true;
 
         $this->queryBuilderMock->expects($this->never())->method('delete');
 
@@ -415,8 +436,9 @@ class AccountControllerIntegrationTest extends TestCase
         $this->controller->deleteaccount();
         $echoed = ob_get_clean();
 
-        // Assert
-        $this->assertStringContainsString('error=confirmation_required', $echoed);
+        // Assert — flash error, redirect back, nothing deleted
+        $this->assertStringContainsString('/deleteaccount', $echoed);
+        $this->assertNotEmpty($_SESSION['_errors'] ?? []);
     }
 
     /**
@@ -430,7 +452,8 @@ class AccountControllerIntegrationTest extends TestCase
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST['password']         = 'the-real-password';
         $_POST['confirmation']     = 'DELETE';
-        $this->stubStoredPassword('the-real-password');
+        $this->bypassCsrf();
+        $this->controller->verifyPasswordResult = true;
 
         // 6 GDPR-related tables + users = 7 delete() calls expected
         $this->queryBuilderMock->expects($this->exactly(7))
@@ -459,7 +482,8 @@ class AccountControllerIntegrationTest extends TestCase
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST['password']         = 'the-real-password';
         $_POST['confirmation']     = 'DELETE';
-        $this->stubStoredPassword('the-real-password');
+        $this->bypassCsrf();
+        $this->controller->verifyPasswordResult = true;
 
         $this->queryBuilderMock->method('delete')
             ->willThrowException(new \Exception('FK constraint boom'));
@@ -469,7 +493,8 @@ class AccountControllerIntegrationTest extends TestCase
         $this->controller->deleteaccount();
         $echoed = ob_get_clean();
 
-        // Assert — graceful failure path
-        $this->assertStringContainsString('error=deletion_failed', $echoed);
+        // Assert — graceful failure path (flash error, redirect back)
+        $this->assertStringContainsString('/deleteaccount', $echoed);
+        $this->assertNotEmpty($_SESSION['_errors'] ?? []);
     }
 }
