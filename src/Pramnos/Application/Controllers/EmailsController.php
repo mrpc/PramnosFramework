@@ -80,7 +80,7 @@ class EmailsController extends Controller
             return null;
         }
 
-        $mailId = (int) ($id ?? 0);
+        $mailId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($mailId <= 0) {
             $this->redirect(sURL . 'emails?error=invalid_id');
             return null;
@@ -117,7 +117,7 @@ class EmailsController extends Controller
             return;
         }
 
-        $mailId = (int) ($id ?? 0);
+        $mailId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($mailId <= 0) {
             $this->redirect(sURL . 'emails?error=invalid_id');
             return;

@@ -6,6 +6,7 @@ namespace Pramnos\Tests\Unit\Queue\Controllers;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Database\Database;
 use Pramnos\Database\QueryBuilder;
 use Pramnos\Queue\Controllers\QueueController;
@@ -53,7 +54,7 @@ class TestableQueueController extends QueueController
  * The mock QB is configured to accept any fluent chain and return safe defaults.
  */
 #[CoversClass(QueueController::class)]
-class QueueControllerTest extends TestCase
+class QueueControllerTest extends BaseTestCase
 {
     private TestableQueueController $ctrl;
     private QueryBuilder&\PHPUnit\Framework\MockObject\MockObject $qbMock;
@@ -61,6 +62,7 @@ class QueueControllerTest extends TestCase
 
     protected function setUp(): void
     {
+        parent::setUp();
         // Ensure the sURL constant exists (required by redirect paths)
         if (!defined('sURL')) {
             define('sURL', 'http://localhost/');
@@ -258,6 +260,7 @@ class QueueControllerTest extends TestCase
             ->willReturn(1);
 
         // Act
+        $_GET['_option'] = 42;
         $this->ctrl->retry(42);
 
         // Assert — redirect to success URL
@@ -318,6 +321,7 @@ class QueueControllerTest extends TestCase
             ->willReturn(1);
 
         // Act
+        $_GET['_option'] = 7;
         $this->ctrl->delete(7);
 
         // Assert

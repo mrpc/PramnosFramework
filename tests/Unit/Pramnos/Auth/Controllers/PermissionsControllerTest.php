@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Pramnos\Auth\Controllers;
 
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Application\Application;
 use Pramnos\Auth\Controllers\PermissionsController;
 use Pramnos\User\User;
@@ -38,12 +39,13 @@ class TestablePermissionsController extends PermissionsController
     }
 }
 
-class PermissionsControllerTest extends TestCase
+class PermissionsControllerTest extends BaseTestCase
 {
     private TestablePermissionsController $controller;
 
     protected function setUp(): void
     {
+        parent::setUp();
         \Pramnos\Application\Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         \Pramnos\Application\Settings::loadSettings($settingsFile);
@@ -215,6 +217,7 @@ class PermissionsControllerTest extends TestCase
         
         ob_start();
         try {
+            $_GET['_option'] = 1;
             $output = $this->controller->edit(1);
         } finally {
             $obOutput = ob_get_clean();
@@ -237,6 +240,7 @@ class PermissionsControllerTest extends TestCase
         $this->expectExceptionMessage('redirect_quit');
 
         try {
+            $_GET['_option'] = 999;
             $this->controller->edit(999);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
@@ -328,6 +332,7 @@ class PermissionsControllerTest extends TestCase
         $this->expectExceptionMessage('redirect_quit');
 
         try {
+            $_GET['_option'] = 1;
             $this->controller->delete(1);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);

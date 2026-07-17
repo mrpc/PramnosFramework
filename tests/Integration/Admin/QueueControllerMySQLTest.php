@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Integration\Admin;
 
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Controller;
 use Pramnos\Application\Settings;
@@ -45,7 +46,7 @@ class TestableQueueController extends QueueController
  *
  * Requires the Docker MySQL container (host: db, port: 3306).
  */
-class QueueControllerMySQLTest extends TestCase
+class QueueControllerMySQLTest extends BaseTestCase
 {
     protected Database $db;
     protected Application $app;
@@ -57,6 +58,7 @@ class QueueControllerMySQLTest extends TestCase
 
     protected function setUp(): void
     {
+        parent::setUp();
         if (!defined('sURL')) {
             define('sURL', 'http://localhost/');
         }
@@ -104,6 +106,7 @@ class QueueControllerMySQLTest extends TestCase
         $id = (int) $this->db->getInsertId();
 
         // Act
+        $_GET['_option'] = $id;
         $this->ctrl->retry($id);
 
         // Assert — status must now be 'pending'
@@ -127,6 +130,7 @@ class QueueControllerMySQLTest extends TestCase
         $id = (int) $this->db->getInsertId();
 
         // Act
+        $_GET['_option'] = $id;
         $this->ctrl->retry($id);
 
         // Assert — status unchanged (the WHERE status='failed' guard must hold)
@@ -193,6 +197,7 @@ class QueueControllerMySQLTest extends TestCase
         $id = (int) $this->db->getInsertId();
 
         // Act
+        $_GET['_option'] = $id;
         $this->ctrl->delete($id);
 
         // Assert — row still exists, status changed to 'deleted'

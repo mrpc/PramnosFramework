@@ -40,29 +40,39 @@
             </form>
         </div>
     </div>
+    <style>
+    .pf-table{width:100%;border-collapse:collapse}
+    .pf-table th,.pf-table td{text-align:left;padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+    .pf-table thead th{background:#f5f5f5;border-bottom:1px solid #e5e5e5;font-weight:600}
+    .pf-table td:last-child,.pf-table th:last-child{text-align:right}
+    </style>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
-        <div class="card-body" style="padding:16px" style="padding:0">
-            <table style="width:100%;border-collapse:collapse">
-                <thead style="background:#f5f5f5">
-                    <tr><th>ID</th><th>Token</th><th>Endpoint</th><th>Status</th><th>Time (ms)</th><th>When</th><th></th></tr>
+        <div class="card-body" style="padding:0">
+            <table class="pf-table">
+                <thead>
+                    <tr><th>ID</th><th>User</th><th>Endpoint</th><th>Method</th><th>Status</th><th>Time (ms)</th><th>When</th><th></th></tr>
                 </thead>
                 <tbody>
                 <?php foreach (($this->actions ?? []) as $a): ?>
                     <tr>
-                        <td><?php echo (int)$a['id']; ?></td>
-                        <td style="color:#888;font-size:0.8em"><?php echo (int)($a['token_id'] ?? 0); ?></td>
-                        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo htmlspecialchars($a['endpoint'] ?? $a['action'] ?? ''); ?></td>
+                        <td><?php echo (int)$a['actionid']; ?></td>
+                        <td><?php echo htmlspecialchars($a['username'] ?? ('#' . (int)($a['tokenid'] ?? 0))); ?></td>
+                        <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo htmlspecialchars($a['endpoint'] ?? ''); ?></td>
+                        <td><?php echo htmlspecialchars($a['method'] ?? ''); ?></td>
                         <td>
-                            <?php $sc = (int)($a['status_code'] ?? 0); ?>
+                            <?php $sc = (int)($a['return_status'] ?? 0); ?>
                             <span class="badge <?php echo $sc >= 500 ? 'bg-danger' : ($sc >= 400 ? 'bg-warning text-dark' : 'bg-success'); ?>"><?php echo $sc ?: '—'; ?></span>
                         </td>
-                        <td><?php echo number_format($a['execution_time'] ?? 0, 0); ?></td>
-                        <td style="color:#888;font-size:0.8em"><?php echo htmlspecialchars($a['servertime'] ?? $a['created_at'] ?? ''); ?></td>
-                        <td><a href="<?php echo sURL; ?>TokenActions/show/<?php echo (int)$a['id']; ?>" class="btn btn-sm btn-outline-secondary">View</a></td>
+                        <td><?php echo $a['execution_time_ms'] !== null ? number_format((float)$a['execution_time_ms'], 0) : '—'; ?></td>
+                        <td style="color:#888;font-size:0.8em"><?php
+                            $st = (int)($a['servertime'] ?? 0);
+                            echo $st > 0 ? htmlspecialchars(date('Y-m-d H:i', $st)) : '—';
+                        ?></td>
+                        <td><a href="<?php echo sURL; ?>TokenActions/show/<?php echo (int)$a['actionid']; ?>" class="btn btn-sm btn-outline-secondary">View</a></td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->actions)): ?>
-                    <tr><td colspan="7" style="text-align:center;color:#888;padding:24px">No records found.</td></tr>
+                    <tr><td colspan="8" style="text-align:center;color:#888;padding:24px">No records found.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>

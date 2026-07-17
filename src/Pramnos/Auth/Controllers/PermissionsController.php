@@ -86,7 +86,7 @@ class PermissionsController extends Controller
             return null;
         }
 
-        $id  = (int) ($id ?? 0);
+        $id  = (int) \Pramnos\Http\Request::staticGetOption();
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->title = $id > 0 ? 'Edit Permission' : 'New Permission';
 
@@ -181,7 +181,7 @@ class PermissionsController extends Controller
             return;
         }
 
-        $id = (int) ($id ?? 0);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
             $this->redirect(sURL . 'permissions?error=invalid_id');
             return;

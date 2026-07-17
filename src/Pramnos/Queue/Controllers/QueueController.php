@@ -90,7 +90,7 @@ class QueueController extends Controller
             return;
         }
 
-        $taskId = (int) ($id ?? 0);
+        $taskId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($taskId <= 0) {
             $this->redirect(sURL . 'queue?error=invalid_id');
             return;
@@ -145,7 +145,7 @@ class QueueController extends Controller
             return;
         }
 
-        $taskId = (int) ($id ?? 0);
+        $taskId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($taskId <= 0) {
             $this->redirect(sURL . 'queue?error=invalid_id');
             return;

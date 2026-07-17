@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Unit\Auth\Controllers;
 
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Auth\Controllers\ApplicationsController;
 use Pramnos\Database\Database;
 use Pramnos\Database\QueryBuilder;
@@ -71,7 +72,7 @@ class TestableApplicationsController extends ApplicationsController
     }
 }
 
-class ApplicationsControllerIntegrationTest extends TestCase
+class ApplicationsControllerIntegrationTest extends BaseTestCase
 {
     private TestableApplicationsController $controller;
     private $dbMock;
@@ -80,6 +81,7 @@ class ApplicationsControllerIntegrationTest extends TestCase
 
     protected function setUp(): void
     {
+        parent::setUp();
         \Pramnos\Http\Session::getInstance();
 
         // Save original database reference
@@ -169,7 +171,8 @@ class ApplicationsControllerIntegrationTest extends TestCase
         $this->queryBuilderMock->method('get')->willReturn([]);
 
         ob_start();
-        $this->controller->view(1);
+        $_GET['_option'] = 1;
+        $this->controller->view();
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('View App: Existing App', $echoed);
@@ -180,7 +183,8 @@ class ApplicationsControllerIntegrationTest extends TestCase
         $this->queryBuilderMock->method('first')->willReturn(false);
 
         ob_start();
-        $this->controller->view(999);
+        $_GET['_option'] = 999;
+        $this->controller->view();
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
@@ -205,7 +209,8 @@ class ApplicationsControllerIntegrationTest extends TestCase
         $this->queryBuilderMock->method('first')->willReturn($mockResult);
 
         ob_start();
-        $this->controller->edit(1);
+        $_GET['_option'] = 1;
+        $this->controller->edit();
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('Edit App: Existing App Edit', $echoed);
@@ -216,7 +221,8 @@ class ApplicationsControllerIntegrationTest extends TestCase
         $this->queryBuilderMock->method('first')->willReturn(false);
 
         ob_start();
-        $this->controller->edit(999);
+        $_GET['_option'] = 999;
+        $this->controller->edit();
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
@@ -271,7 +277,8 @@ class ApplicationsControllerIntegrationTest extends TestCase
         $this->queryBuilderMock->expects($this->exactly(2))->method('update')->willReturn(true);
 
         ob_start();
-        $this->controller->delete(1);
+        $_GET['_option'] = 1;
+        $this->controller->delete();
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
@@ -288,7 +295,8 @@ class ApplicationsControllerIntegrationTest extends TestCase
         $this->queryBuilderMock->method('get')->willReturn([]);
 
         ob_start();
-        $this->controller->tokens(1);
+        $_GET['_option'] = 1;
+        $this->controller->tokens();
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('Tokens App: App With Tokens', $echoed);
@@ -299,7 +307,8 @@ class ApplicationsControllerIntegrationTest extends TestCase
         $this->queryBuilderMock->expects($this->once())->method('update')->willReturn(true);
 
         ob_start();
-        $this->controller->rotate(1);
+        $_GET['_option'] = 1;
+        $this->controller->rotate();
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
