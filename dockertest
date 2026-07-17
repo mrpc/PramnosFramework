@@ -86,6 +86,29 @@ _die_docker_wedged() {
     exit 1
 }
 
+# Wait until the php container can actually run a command. A freshly started
+# container (especially under WSL / Docker Desktop) does not accept 'exec' for
+# several seconds after 'up -d'; the very first exec then blocks indefinitely —
+# which a blind 'sleep' cannot reliably cover. Each attempt is hard-bounded with
+# 'timeout -k' so a stuck exec is SIGKILLed and retried, never hung. Returns
+# non-zero only if the container never becomes ready within the deadline.
+# NOTE on '< /dev/null': 'docker-compose exec' attaches the caller's stdin to
+# the remote process even with '-T'. When invoked from an interactive terminal
+# (e.g. Windows Terminal -> WSL) that stdin is a TTY, and the exec blocks on the
+# TTY attach — hanging forever. Redirecting stdin from /dev/null gives an
+# immediate EOF so the exec returns cleanly. This is why the script hangs in an
+# interactive shell but not when driven non-interactively (pipe/CI).
+_wait_php_ready() {
+    local deadline=$((SECONDS + 60))
+    while (( SECONDS < deadline )); do
+        if timeout -k 3 10 docker-compose exec -T php-apache-environment true </dev/null >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 # Preflight: fail fast if the daemon is unresponsive or not running.
 if ! timeout 15 docker version >/dev/null 2>&1; then
     echo "" >&2
@@ -97,13 +120,13 @@ fi
 
 # Check if containers are running. Capture ps output separately so a timeout is
 # distinguishable from "containers down" (piping to grep would hide the 124).
-ps_out=$(timeout "$DOCKER_CTL_TIMEOUT" docker-compose ps 2>/dev/null)
+ps_out=$(timeout -k 5 "$DOCKER_CTL_TIMEOUT" docker-compose ps 2>/dev/null)
 [[ $? -eq 124 ]] && _die_docker_wedged "docker-compose ps"
 if ! grep -q "pramnos_php.*Up" <<<"$ps_out"; then
     echo "Containers not running. Starting them..."
     # Plain 'up -d' starts existing images and is normally quick; allow extra
     # headroom in case a first-time image build is triggered.
-    if ! timeout 300 docker-compose up -d; then
+    if ! timeout -k 10 300 docker-compose up -d; then
         rc=$?
         [[ $rc -eq 124 ]] && _die_docker_wedged "docker-compose up -d"
         echo "ERROR: 'docker-compose up -d' failed (exit $rc)." >&2
@@ -111,7 +134,9 @@ if ! grep -q "pramnos_php.*Up" <<<"$ps_out"; then
         exit 1
     fi
     echo "Waiting for services to be ready..."
-    sleep 10
+    if ! _wait_php_ready; then
+        _die_docker_wedged "waiting for the php container to accept 'exec' after 'up -d'"
+    fi
 fi
 
 # Optionally reset test databases to a clean slate (drops all accumulated tables
@@ -128,19 +153,29 @@ if [[ "$resetdb" == true ]]; then
 fi
 
 # Warm up Apache / trigger the app so the first real request isn't cold.
+# Hard-bounded on every axis: --connect-timeout guards a port proxy that
+# accepts the TCP connection but never answers (a common WSL / Docker Desktop
+# state right after 'up -d'), --max-time caps the whole request, and an outer
+# 'timeout' is a belt-and-suspenders backstop in case curl itself misbehaves.
+# The warmup is best-effort: a failure here must never block the test run.
 echo "Making sure apache is active..."
-curl -s --max-time 10 http://localhost:18081/ > /dev/null 2>&1
+timeout 15 curl -s -o /dev/null --connect-timeout 3 --max-time 10 http://localhost:18081/ 2>/dev/null
+echo "  apache warmup done (rc=$?)"
 
 # Ensure dependencies are installed. 'docker-compose exec' is the call most prone
 # to freezing on a wedged daemon (see header note), so bound it and treat a
 # timeout as fatal rather than falling through to a composer install that would
 # hang too. Use -T so no TTY is expected under the timeout wrapper.
-timeout "$DOCKER_CTL_TIMEOUT" docker-compose exec -T php-apache-environment test -f vendor/bin/phpunit
+echo "Checking dependencies..."
+# Guarantee the container is actually ready (cheap ~90ms when it already is);
+# this is what prevents the first exec from hanging on a fresh 'up -d'.
+_wait_php_ready || _die_docker_wedged "php container not ready for dependency check"
+timeout -k 5 "$DOCKER_CTL_TIMEOUT" docker-compose exec -T php-apache-environment test -f vendor/bin/phpunit </dev/null
 dep_rc=$?
 [[ $dep_rc -eq 124 ]] && _die_docker_wedged "docker-compose exec (dependency check)"
 if [[ $dep_rc -ne 0 ]]; then
     echo "Installing composer dependencies..."
-    docker-compose exec php-apache-environment composer install
+    docker-compose exec -T php-apache-environment composer install </dev/null
 fi
 
 # Run tests
