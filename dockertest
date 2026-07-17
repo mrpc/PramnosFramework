@@ -127,8 +127,8 @@ if [[ "$resetdb" == true ]]; then
         && echo "  PostgreSQL pramnos_test reset OK" || echo "  PostgreSQL reset skipped (container not ready)"
 fi
 
-# Check if database is initialized by accessing the app
-echo "Ensuring database is initialized..."
+# Warm up Apache / trigger the app so the first real request isn't cold.
+echo "Making sure apache is active..."
 curl -s --max-time 10 http://localhost:18081/ > /dev/null 2>&1
 
 # Ensure dependencies are installed. 'docker-compose exec' is the call most prone
