@@ -2463,11 +2463,11 @@ fi
 
 # Capture ps output separately so a timeout (124) is distinguishable from
 # "containers down" — piping straight to grep would hide the timeout.
-ps_out=\$(timeout "\$DOCKER_CTL_TIMEOUT" docker-compose ps 2>/dev/null)
+ps_out=\$(timeout -k 5 "\$DOCKER_CTL_TIMEOUT" docker-compose ps 2>/dev/null)
 [[ \$? -eq 124 ]] && _die_docker_wedged "docker-compose ps"
 if ! grep -q "app.*Up" <<<"\$ps_out"; then
     echo "Containers not running. Starting them..."
-    if ! timeout 300 docker-compose up -d; then
+    if ! timeout -k 10 300 docker-compose up -d; then
         rc=\$?
         [[ \$rc -eq 124 ]] && _die_docker_wedged "docker-compose up -d"
         echo "ERROR: 'docker-compose up -d' failed (exit \$rc)." >&2
