@@ -473,7 +473,7 @@ class DevPanelController extends Controller
         $items      = $cache->getAllItems($ns, 100);
 
         $flushButton = <<<HTML
-            <form method="POST">
+            <form method="POST" data-cache-flush>
                 <input type="hidden" name="action" value="flush">
                 <button type="submit" class="btn-danger" data-confirm="Flush entire cache?">Flush All Cache</button>
             </form>
@@ -553,6 +553,27 @@ class DevPanelController extends Controller
                     document.getElementById('inspect-title').textContent = 'Error';
                     document.getElementById('inspect-content').textContent = String(e);
                 });
+            });
+
+            // Flush cache via AJAX so the POST does not navigate to the JSON body.
+            document.addEventListener('submit', function(e) {
+                var form = e.target.closest('[data-cache-flush]');
+                if (!form) return;
+                e.preventDefault();
+                var btn = form.querySelector('[data-confirm]');
+                var msg = btn ? btn.getAttribute('data-confirm') : 'Are you sure?';
+                if (!window.confirm(msg)) return;
+                if (btn) { btn.disabled = true; }
+                var body = new URLSearchParams(); body.set('action', 'flush');
+                fetch(window.location.href, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body.toString()
+                }).then(function(r){ return r.json(); }).then(function(d){
+                    if (d && d.ok) { window.location.reload(); }
+                    else { if (btn) { btn.disabled = false; } alert('Flush failed: ' + ((d && d.error) || 'unknown error')); }
+                }).catch(function(err){ if (btn) { btn.disabled = false; } alert('Flush failed: ' + err); });
             });
             </script>
         HTML;
