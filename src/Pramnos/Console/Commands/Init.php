@@ -2382,6 +2382,7 @@ PHP;
 
 nobrowser=false
 coverage=false
+nocoverage=false
 testdox=false
 force=false
 passthrough=()
@@ -2390,6 +2391,12 @@ for arg in "\$@"; do
         nobrowser=true
     elif [[ "\$arg" == "--coverage" ]]; then
         coverage=true
+    elif [[ "\$arg" == "--nocoverage" || "\$arg" == "--no-coverage" ]]; then
+        # Fully disable coverage collection for this run. phpunit.xml declares a
+        # <coverage> block, so PHPUnit otherwise instruments every line via
+        # Xdebug on EVERY run (slow). This flag overrides that and turns Xdebug
+        # off entirely, for the fastest possible run.
+        nocoverage=true
     elif [[ "\$arg" == "--testdox" ]]; then
         testdox=true
     elif [[ "\$arg" == "--force" ]]; then
@@ -2481,6 +2488,10 @@ extra_flags="--display-deprecations --display-warnings --display-notices --displ
 if [[ "\$coverage" == true ]]; then
     mkdir -p coverage
     docker-compose exec app vendor/bin/phpunit --coverage-html coverage \$extra_flags "\${passthrough[@]}"
+elif [[ "\$nocoverage" == true ]]; then
+    # --no-coverage overrides any <coverage> block in phpunit.xml; XDEBUG_MODE=off
+    # removes the per-line instrumentation overhead completely.
+    docker-compose exec -e XDEBUG_MODE=off app vendor/bin/phpunit --no-coverage \$extra_flags "\${passthrough[@]}"
 else
     docker-compose exec app vendor/bin/phpunit \$extra_flags "\${passthrough[@]}"
 fi
