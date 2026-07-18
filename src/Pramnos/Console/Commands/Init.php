@@ -1121,16 +1121,14 @@ HTML,
             'bootstrap' => <<<HTML
     <footer class="bg-dark text-light py-4 mt-auto">
         <div class="container text-center">
-            <p class="mb-1">&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
-            <p class="mb-0 text-muted small">Powered by <a href="https://github.com/mrpc/PramnosFramework" target="_blank" class="text-secondary">PramnosFramework</a></p>
+            <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
         </div>
     </footer>
 HTML,
             'tailwind' => <<<HTML
     <footer class="bg-gray-800 text-gray-300 py-8 mt-auto">
         <div class="container mx-auto px-4 max-w-5xl text-center">
-            <p class="mb-1">&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
-            <p class="text-sm text-gray-500">Powered by <a href="https://github.com/mrpc/PramnosFramework" target="_blank" class="text-gray-400 hover:text-white">PramnosFramework</a></p>
+            <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
         </div>
     </footer>
 HTML,
@@ -3235,7 +3233,15 @@ PHP;
 
     private function writeFile(string $path, string $content): void
     {
-        file_put_contents($this->targetBaseDir . '/' . $path, $content);
+        $full = $this->targetBaseDir . '/' . $path;
+        // Ensure the parent directory exists. During a full init the tree is
+        // pre-created, but installUiFramework() can be called standalone (e.g.
+        // project:switch-ui) against a project missing a sub-directory.
+        $dir = dirname($full);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+        file_put_contents($full, $content);
     }
 
     private function isPortAvailable(int $port): bool
