@@ -6,10 +6,38 @@ namespace Pramnos\Tests\Unit\Console;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Pramnos\Console\Commands\Init;
 use Pramnos\Console\Commands\SwitchUi;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
+
+/**
+ * Init stub whose asset installation is a no-op (or throws on demand), so the
+ * command's execute() flow can be exercised without pulling vendor assets.
+ */
+class StubInit extends Init
+{
+    public bool $throw = false;
+
+    public function installUiFramework(string $uiSystem, string $appName, array $features = []): void
+    {
+        if ($this->throw) {
+            throw new \RuntimeException('install failed');
+        }
+    }
+}
+
+/** SwitchUi that installs assets via an injectable stub. */
+class TestableSwitchUi extends SwitchUi
+{
+    public StubInit $stub;
+
+    protected function makeInit(): Init
+    {
+        return $this->stub;
+    }
+}
 
 /**
  * Unit tests for the project:switch-ui command.
@@ -145,6 +173,82 @@ class SwitchUiTest extends TestCase
         $this->assertStringContainsString("'scaffold_theme' => 'bootstrap'", $config);
         $this->assertStringContainsString("'style-src'  => []", $config,
             'bootstrap must reset style-src to the strict empty list');
+    }
+
+    /** Build a TestableSwitchUi (stubbed asset install) + its CommandTester. */
+    private function testableTester(bool $throwOnInstall = false): array
+    {
+        $cmd = new TestableSwitchUi();
+        $cmd->targetBaseDir = $this->tmpDir;
+        $cmd->stub = new StubInit();
+        $cmd->stub->throw = $throwOnInstall;
+        $app = new Application();
+        $app->add($cmd);
+        return [$cmd, new CommandTester($cmd)];
+    }
+
+    /**
+     * Switching to a non-plain-css framework succeeds (assets stubbed) and
+     * reports the vendor-assets line.
+     */
+    public function testSwitchToBootstrapReportsVendorAssets(): void
+    {
+        $this->writeAppConfig(
+            "    'name' => 'MyApp',\n    'theme' => 'default',\n    'scaffold_theme' => 'plain-css',\n"
+            . "    'features' => ['auth'],\n    'csp' => [\n        'style-src'  => []\n    ],\n"
+        );
+        [, $tester] = $this->testableTester();
+
+        $exit = $tester->execute(['framework' => 'bootstrap']);
+
+        $this->assertSame(Command::SUCCESS, $exit, $tester->getDisplay());
+        $this->assertStringContainsString('vendor assets installed', $tester->getDisplay());
+        $this->assertStringContainsString("'scaffold_theme' => 'bootstrap'",
+            file_get_contents($this->tmpDir . '/app/app.php'));
+    }
+
+    /**
+     * A failure during asset installation surfaces as FAILURE (the catch path).
+     */
+    public function testInstallFailureReturnsFailure(): void
+    {
+        $this->writeAppConfig("    'theme' => 'default',\n    'scaffold_theme' => 'plain-css',\n");
+        [, $tester] = $this->testableTester(throwOnInstall: true);
+
+        $exit = $tester->execute(['framework' => 'tailwind']);
+
+        $this->assertSame(Command::FAILURE, $exit);
+        $this->assertStringContainsString('Failed to install UI assets', $tester->getDisplay());
+    }
+
+    /**
+     * Switching to the framework already in use re-installs assets and says so
+     * (the current === target branch).
+     */
+    public function testAlreadyCurrentFrameworkReinstalls(): void
+    {
+        $this->writeAppConfig("    'theme' => 'default',\n    'scaffold_theme' => 'plain-css',\n    'csp' => [\n        'style-src'  => []\n    ],\n");
+        [, $tester] = $this->testableTester();
+
+        $exit = $tester->execute(['framework' => 'plain-css']);
+
+        $this->assertSame(Command::SUCCESS, $exit, $tester->getDisplay());
+        $this->assertStringContainsString("already 'plain-css'", $tester->getDisplay());
+    }
+
+    /**
+     * An app.php with no `features` key is tolerated (defaults to an empty list).
+     */
+    public function testFeaturesKeyAbsentIsTolerated(): void
+    {
+        $this->writeAppConfig("    'name' => 'MyApp',\n    'theme' => 'default',\n    'scaffold_theme' => 'bootstrap',\n    'csp' => [\n        'style-src'  => []\n    ],\n");
+        [, $tester] = $this->testableTester();
+
+        $exit = $tester->execute(['framework' => 'tailwind']);
+
+        $this->assertSame(Command::SUCCESS, $exit, $tester->getDisplay());
+        $this->assertStringContainsString("'scaffold_theme' => 'tailwind'",
+            file_get_contents($this->tmpDir . '/app/app.php'));
     }
 
     private function rmdir(string $dir): void
