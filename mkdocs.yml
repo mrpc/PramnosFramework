@@ -90,6 +90,8 @@ nav:
     - Authentication: Pramnos_Authentication_Guide.md
     - Authorization: Pramnos_Authorization_Guide.md
     - Security Hardening: Pramnos_Security_Guide.md
+    - Account & Security (End Users): Pramnos_Account_Guide.md
+    - Third-Party Integration: Pramnos_AuthServer_Integration_Guide.md
   - APIs & Integrations:
     - API Guide: Pramnos_API_Guide.md
     - Email: Pramnos_Email_Guide.md
