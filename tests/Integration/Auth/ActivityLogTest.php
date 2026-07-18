@@ -228,6 +228,35 @@ class ActivityLogTest extends BaseTestCase
     }
 
     /**
+     * If the table-existence probe itself throws, it is treated as "unavailable"
+     * and record() is a silent no-op — the probe exception is swallowed.
+     */
+    public function testTableProbeExceptionIsSwallowed(): void
+    {
+        // Arrange — swap in a DB whose tableExists() throws.
+        $throwingDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['tableExists'])
+            ->getMock();
+        $throwingDb->method('tableExists')
+            ->willThrowException(new \RuntimeException('probe boom'));
+
+        $ref  = &\Pramnos\Database\Database::getInstance();
+        $orig = $ref;
+        $ref  = $throwingDb;
+        ActivityLog::resetTableCache();
+
+        try {
+            // Act + Assert — must not throw despite the probe failure.
+            ActivityLog::record(42, 'login');
+            $this->assertTrue(true, 'a throwing table probe must be swallowed');
+        } finally {
+            $ref = $orig; // restore the real singleton
+            ActivityLog::resetTableCache();
+        }
+    }
+
+    /**
      * resetTableCache() forces the next call to re-probe: after a reset the
      * writer sees a freshly-created table and writes again.
      */
