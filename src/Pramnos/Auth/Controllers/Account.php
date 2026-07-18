@@ -930,10 +930,15 @@ class Account extends Controller
             }
 
             try {
-                // NB: no activity-log entry here — eraseUserData() hard-deletes
-                // this user's user_activity_log rows in the same flow, so any
-                // 'account_deletion' entry would be wiped immediately. A durable
-                // deletion audit would need a separate, non-erased store.
+                // Durable deletion audit: the activity_log rows for this user are
+                // hard-deleted by eraseUserData() in the same flow, so record the
+                // deletion in the framework log (which the erase never touches)
+                // BEFORE erasing. Keeps a who/when trail without a new table.
+                \Pramnos\Logs\Logger::log(
+                    'account_deleted: userid=' . (int) $currentUser->userid
+                        . ' ip=' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'),
+                    'auth'
+                );
                 $this->eraseUserData((int) $currentUser->userid);
 
                 $auth = \Pramnos\Framework\Factory::getAuth();
