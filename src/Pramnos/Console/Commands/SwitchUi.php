@@ -83,7 +83,7 @@ class SwitchUi extends Command
         }
 
         // 1. Re-install theme chrome + assets (delegates to Init).
-        $init = new Init();
+        $init = $this->makeInit();
         $init->targetBaseDir = $base;
         try {
             $init->installUiFramework($ui, $appName, $features);
@@ -104,6 +104,17 @@ class SwitchUi extends Command
         $output->writeln('<comment>Reload the app to see the new framework.</comment>');
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Build the Init command used to (re)install the UI framework's assets.
+     *
+     * A protected seam so tests can inject a stub that skips the real asset
+     * installation (which would otherwise pull vendor CSS/JS).
+     */
+    protected function makeInit(): Init
+    {
+        return new Init();
     }
 
     /**
