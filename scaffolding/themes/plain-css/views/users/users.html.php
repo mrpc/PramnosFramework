@@ -7,8 +7,10 @@
  *   $this->success   — optional success flash message
  *   $this->error     — optional error flash message
  */
+$this->activeNav = 'users';
 ?>
 <div class="page-section">
+    <?php $this->insert('../partials/admin_breadcrumb'); ?>
     <?php if (!empty($this->success)): ?>
         <div style="padding:10px 14px;background:#d4edda;border:1px solid #c3e6cb;border-radius:4px;margin-bottom:12px;color:#155724"><?php echo htmlspecialchars($this->success); ?></div>
     <?php endif; ?>

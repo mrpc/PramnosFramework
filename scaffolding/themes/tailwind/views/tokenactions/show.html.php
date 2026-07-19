@@ -9,8 +9,8 @@ $a  = $this->action ?? [];
 $st = (int) ($a['servertime'] ?? 0);
 ?>
 <div class="max-w-4xl mx-auto py-6 px-4">
+    <?php $this->activeNav = 'tokenactions_show'; $this->insert('../partials/admin_breadcrumb'); ?>
     <div class="flex items-center gap-3 mb-4">
-        <a href="<?php echo sURL; ?>TokenActions" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
         <h2 >Audit Log #<?php echo (int)($a['actionid'] ?? 0); ?></h2>
     </div>
     <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-4">

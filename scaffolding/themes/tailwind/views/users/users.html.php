@@ -9,6 +9,7 @@
  */
 ?>
 <div class="px-4 py-6">
+    <?php $this->activeNav = 'users'; $this->insert('../partials/admin_breadcrumb'); ?>
     <?php if (!empty($this->success)): ?>
         <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 rounded-sm text-green-800 text-sm"><?php echo htmlspecialchars($this->success); ?></div>
     <?php endif; ?>

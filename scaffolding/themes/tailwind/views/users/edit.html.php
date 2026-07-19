@@ -10,6 +10,7 @@
 $u = $this->user ?? [];
 ?>
 <div class="max-w-2xl mx-auto py-6 px-4">
+    <?php $this->activeNav = 'users_edit'; $this->insert('../partials/admin_breadcrumb'); ?>
     <h2 class="mb-6"><?php echo $this->isNew ? 'New User' : 'Edit User'; ?></h2>
     <?php if (!empty($this->error)): ?>
         <div class="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-sm mb-4"><?php echo htmlspecialchars($this->error); ?></div>

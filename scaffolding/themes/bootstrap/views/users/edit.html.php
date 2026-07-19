@@ -10,6 +10,7 @@
 $u = $this->user ?? [];
 ?>
 <div class="container py-4" style="max-width:640px">
+    <?php $this->activeNav = 'users_edit'; $this->insert('../partials/admin_breadcrumb'); ?>
     <h2 class="mb-4"><?php echo $this->isNew ? 'New User' : 'Edit User'; ?></h2>
     <?php if (!empty($this->error)): ?>
         <div class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
@@ -68,7 +69,7 @@ $u = $this->user ?? [];
                     <button type="submit" class="btn btn-primary">Save</button>
                     <a href="<?php echo sURL; ?>users" class="btn btn-outline-secondary">Cancel</a>
                     <?php if (!$this->isNew): ?>
-                        <a href="<?php echo sURL; ?>users/tokens/<?php echo (int)($u['userid'] ?? 0); ?>" class="btn btn-outline-info ms-auto">Tokens</a>
+                        <a href="<?php echo sURL; ?>Tokens/userid/<?php echo (int)($u['userid'] ?? 0); ?>" class="btn btn-outline-info ms-auto">Tokens</a>
                         <a href="<?php echo sURL; ?>users/sessions/<?php echo (int)($u['userid'] ?? 0); ?>" class="btn btn-outline-secondary">Sessions</a>
                     <?php endif; ?>
                 </div>

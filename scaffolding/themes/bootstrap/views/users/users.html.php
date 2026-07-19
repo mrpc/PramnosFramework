@@ -9,6 +9,7 @@
  */
 ?>
 <div class="container-fluid py-4">
+    <?php $this->activeNav = 'users'; $this->insert('../partials/admin_breadcrumb'); ?>
     <?php if (!empty($this->success)): ?>
         <div class="alert alert-success"><?php echo htmlspecialchars($this->success); ?></div>
     <?php endif; ?>

@@ -9,10 +9,11 @@
  */
 ?>
 <div class="container-fluid py-4">
+    <?php $this->activeNav = 'tokenactions'; $this->insert('../partials/admin_breadcrumb'); ?>
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">API Audit Log</h2>
         <div class="d-flex gap-2">
-            <a href="<?php echo sURL; ?>TokenActions/stats" class="btn btn-outline-info btn-sm">Stats</a>
+            <button type="button" class="btn btn-outline-info btn-sm" data-stats-open data-stats-url="<?php echo sURL; ?>TokenActions/stats">Stats</button>
             <a href="<?php echo sURL; ?>TokenActions/export<?php echo !empty($_SERVER['QUERY_STRING']) ? '?' . htmlspecialchars($_SERVER['QUERY_STRING']) : ''; ?>" class="btn btn-outline-secondary btn-sm">Export CSV</a>
         </div>
     </div>
@@ -70,6 +71,21 @@
                 <?php endif; ?>
                 </tbody>
             </table>
+        </div>
+    </div>
+</div>
+
+<!-- Stats modal: pf-utils.js fetches data-stats-url (JSON) and renders it here,
+     instead of navigating the browser to a raw JSON dump. Behaviour is wired via
+     data-attributes (no inline JS) to comply with the nonce-based CSP. -->
+<div id="pf-stats-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1050">
+    <div style="max-width:720px;margin:5vh auto;background:#fff;border-radius:6px;box-shadow:0 10px 40px rgba(0,0,0,.3);max-height:90vh;overflow:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #eee">
+            <h3 style="margin:0;font-size:18px">API Performance (last 24h)</h3>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-stats-close>&times; Close</button>
+        </div>
+        <div id="pf-stats-body" style="padding:18px">
+            <p style="color:#888">Loading…</p>
         </div>
     </div>
 </div>

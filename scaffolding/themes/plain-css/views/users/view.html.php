@@ -33,10 +33,11 @@ $initials = strtoupper(substr(
     0, 1
 ));
 $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
+$this->activeNav = 'users_view';
 ?>
 <div class="page-section">
+    <?php $this->insert('../partials/admin_breadcrumb'); ?>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
-        <a href="<?php echo sURL; ?>users" class="btn btn-outline-secondary">&larr; Users</a>
         <h2 style="margin:0"><?php echo htmlspecialchars($user['username'] ?? '', ENT_QUOTES, 'UTF-8'); ?></h2>
         <?php if (!$isActive): ?>
             <span style="background:#f8d7da;color:#842029;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600">Inactive</span>
@@ -74,7 +75,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                         <span><?php echo $val; ?></span>
                     </div>
                 <?php }; ?>
-                <?php $row('Tokens', '<a href="' . sURL . 'users/tokens/' . $uid . '" style="font-weight:600">' . (int)($usageStats['total_tokens'] ?? 0) . '</a>'); ?>
+                <?php $row('Tokens', '<a href="' . sURL . 'Tokens/userid/' . $uid . '" style="font-weight:600">' . (int)($usageStats['total_tokens'] ?? 0) . '</a>'); ?>
                 <?php $row('Unique Apps', '<strong>' . (int)($usageStats['unique_apps'] ?? 0) . '</strong>'); ?>
                 <?php $row('Sessions', '<a href="' . sURL . 'users/sessions/' . $uid . '" style="font-weight:600">' . $sessionCount . '</a>'); ?>
                 <?php $row('Registered', ($user['regdate'] ?? 0) > 0 ? date('Y-m-d', (int)$user['regdate']) : '—'); ?>
@@ -91,7 +92,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     <?php else: ?>
                         <a href="<?php echo sURL; ?>users/unlock/<?php echo $uid; ?>" class="btn btn-outline-success" style="text-align:center">Unlock Account</a>
                     <?php endif; ?>
-                    <a href="<?php echo sURL; ?>users/tokens/<?php echo $uid; ?>" class="btn btn-outline-secondary" style="text-align:center">All Tokens</a>
+                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="btn btn-outline-secondary" style="text-align:center">All Tokens</a>
                     <a href="<?php echo sURL; ?>users/sessions/<?php echo $uid; ?>" class="btn btn-outline-secondary" style="text-align:center">Sessions</a>
                 </div>
             </div>
@@ -140,9 +141,10 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
 
             <?php if (!empty($recentTokens)): ?>
             <div class="card">
+                <style>tr.pf-token-row{cursor:pointer}tr.pf-token-row:hover{background:#f8f9fa}</style>
                 <div style="padding:10px 16px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center">
                     <span style="font-weight:600">Recent Tokens</span>
-                    <a href="<?php echo sURL; ?>users/tokens/<?php echo $uid; ?>" class="btn btn-sm btn-outline-primary">All Tokens</a>
+                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="btn btn-sm btn-outline-primary">All Tokens</a>
                 </div>
                 <div style="overflow-x:auto">
                     <table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -162,8 +164,11 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                             $sColors = [0 => '#6c757d', 1 => '#198754', 2 => '#343a40', 3 => '#dc3545'];
                             $sLabels = [0 => 'Inactive', 1 => 'Active', 2 => 'Deleted', 3 => 'Revoked'];
                             $exp = (int) ($tok['expires'] ?? 0);
+                            $tokActionsUrl = sURL . 'TokenActions?token_id=' . (int) $tok['tokenid'] . '&from=user&uid=' . $uid;
                         ?>
-                            <tr style="border-top:1px solid #f0f0f0">
+                            <tr class="pf-token-row" style="border-top:1px solid #f0f0f0"
+                                data-href="<?php echo $tokActionsUrl; ?>"
+                                title="View token actions">
                                 <td style="padding:6px 12px;font-family:monospace;color:#666"><?php echo (int) $tok['tokenid']; ?></td>
                                 <td style="padding:6px 12px"><span style="background:#e9ecef;padding:2px 6px;border-radius:3px;font-size:11px"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth', ENT_QUOTES, 'UTF-8'); ?></span></td>
                                 <td style="padding:6px 12px"><span style="color:<?php echo $sColors[$s] ?? '#666'; ?>;font-weight:600;font-size:12px"><?php echo $sLabels[$s] ?? '?'; ?></span></td>

@@ -9,6 +9,7 @@
  */
 ?>
 <div class="px-4 py-6">
+    <?php $this->activeNav = 'tokens'; $this->insert('../partials/admin_breadcrumb'); ?>
     <div class="flex justify-between items-center mb-4">
         <h2 >OAuth2 Tokens</h2>
         <form method="get" class="flex gap-2">
@@ -33,7 +34,8 @@
                 </thead>
                 <tbody>
                 <?php foreach (($this->tokens ?? []) as $tok): ?>
-                    <tr>
+                    <?php $actionsUrl = sURL . 'TokenActions?token_id=' . (int) $tok['tokenid'] . '&from=tokens'; ?>
+                    <tr class="cursor-pointer hover:bg-gray-50" data-href="<?php echo $actionsUrl; ?>" title="View token actions">
                         <td><?php echo (int)$tok['tokenid']; ?></td>
                         <td><?php echo htmlspecialchars($tok['username'] ?? ''); ?></td>
                         <td><?php echo htmlspecialchars($tok['app_name'] ?? ('— ' . ($tok['tokentype'] ?? ''))); ?></td>
