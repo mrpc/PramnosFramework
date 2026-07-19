@@ -35,8 +35,8 @@ $initials = strtoupper(substr(
 $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
 ?>
 <div class="px-4 py-6">
+    <?php $this->activeNav = 'users_view'; $this->insert('../partials/admin_breadcrumb'); ?>
     <div class="flex items-center gap-3 mb-6">
-        <a href="<?php echo sURL; ?>users" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">&larr; Users</a>
         <h2 class="text-2xl font-semibold"><?php echo htmlspecialchars($user['username'] ?? '', ENT_QUOTES, 'UTF-8'); ?></h2>
         <?php if (!$isActive): ?>
             <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-red-100 text-red-700">Inactive</span>
@@ -73,7 +73,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 <div class="divide-y divide-gray-100 text-sm">
                     <div class="px-4 py-2.5 flex justify-between">
                         <span class="text-gray-500">Tokens</span>
-                        <a href="<?php echo sURL; ?>users/tokens/<?php echo $uid; ?>" class="font-semibold text-indigo-600 hover:underline">
+                        <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="font-semibold text-indigo-600 hover:underline">
                             <?php echo (int) ($usageStats['total_tokens'] ?? 0); ?>
                         </a>
                     </div>
@@ -111,7 +111,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                         <a href="<?php echo sURL; ?>users/unlock/<?php echo $uid; ?>"
                            class="block text-center px-3 py-2 text-sm border border-green-400 text-green-700 rounded-sm hover:bg-green-50">Unlock Account</a>
                     <?php endif; ?>
-                    <a href="<?php echo sURL; ?>users/tokens/<?php echo $uid; ?>"
+                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>"
                        class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">All Tokens</a>
                     <a href="<?php echo sURL; ?>users/sessions/<?php echo $uid; ?>"
                        class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">Sessions</a>
@@ -164,7 +164,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
             <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
                 <div class="px-6 py-3 border-b border-gray-100 flex justify-between items-center">
                     <span class="font-semibold text-gray-700">Recent Tokens</span>
-                    <a href="<?php echo sURL; ?>users/tokens/<?php echo $uid; ?>"
+                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>"
                        class="text-sm text-indigo-600 hover:underline">All Tokens</a>
                 </div>
                 <table class="w-full text-sm">
@@ -184,8 +184,9 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                         $sMap = [0 => ['bg-gray-100 text-gray-600','Inactive'], 1 => ['bg-green-100 text-green-700','Active'], 2 => ['bg-gray-800 text-white','Deleted'], 3 => ['bg-red-100 text-red-700','Revoked']];
                         [$sCls, $sLabel] = $sMap[$s] ?? ['bg-gray-100 text-gray-600','Unknown'];
                         $exp = (int) ($tok['expires'] ?? 0);
+                        $tokActionsUrl = sURL . 'TokenActions?token_id=' . (int) $tok['tokenid'] . '&from=user&uid=' . $uid;
                     ?>
-                        <tr class="hover:bg-gray-50">
+                        <tr class="hover:bg-gray-50 cursor-pointer" data-href="<?php echo $tokActionsUrl; ?>" title="View token actions">
                             <td class="px-4 py-2 font-mono text-xs text-gray-500"><?php echo (int) $tok['tokenid']; ?></td>
                             <td class="px-4 py-2"><span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-sm"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth', ENT_QUOTES, 'UTF-8'); ?></span></td>
                             <td class="px-4 py-2"><span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $sCls; ?>"><?php echo $sLabel; ?></span></td>

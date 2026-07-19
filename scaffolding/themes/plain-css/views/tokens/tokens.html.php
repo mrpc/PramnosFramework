@@ -7,8 +7,10 @@
  *   $this->page   — current page
  *   $this->total  — total count
  */
+$this->activeNav = 'tokens';
 ?>
 <div class="page-section">
+    <?php $this->insert('../partials/admin_breadcrumb'); ?>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2 >OAuth2 Tokens</h2>
         <form method="get" style="display:flex;gap:8px">
@@ -22,6 +24,8 @@
     .pf-table th,.pf-table td{text-align:left;padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
     .pf-table thead th{background:#f5f5f5;border-bottom:1px solid #e5e5e5;font-weight:600}
     .pf-table td:last-child,.pf-table th:last-child{text-align:right}
+    .pf-table tbody tr.pf-clickable{cursor:pointer}
+    .pf-table tbody tr.pf-clickable:hover{background:#f8f9fa}
     </style>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
         <div class="card-body" style="padding:0">
@@ -31,7 +35,8 @@
                 </thead>
                 <tbody>
                 <?php foreach (($this->tokens ?? []) as $tok): ?>
-                    <tr>
+                    <?php $actionsUrl = sURL . 'TokenActions?token_id=' . (int) $tok['tokenid'] . '&from=tokens'; ?>
+                    <tr class="pf-clickable" data-href="<?php echo $actionsUrl; ?>" title="View token actions">
                         <td><?php echo (int)$tok['tokenid']; ?></td>
                         <td><?php echo htmlspecialchars($tok['username'] ?? ''); ?></td>
                         <td><?php echo htmlspecialchars($tok['app_name'] ?? ('— ' . ($tok['tokentype'] ?? ''))); ?></td>

@@ -35,8 +35,8 @@ $initials = strtoupper(substr(
 $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
 ?>
 <div class="container-fluid py-4">
+    <?php $this->activeNav = 'users_view'; $this->insert('../partials/admin_breadcrumb'); ?>
     <div class="d-flex align-items-center gap-2 mb-4">
-        <a href="<?php echo sURL; ?>users" class="btn btn-sm btn-outline-secondary">&larr; Users</a>
         <h2 class="mb-0"><?php echo htmlspecialchars($user['username'] ?? '', ENT_QUOTES, 'UTF-8'); ?></h2>
         <?php if (!$isActive): ?>
             <span class="badge bg-danger">Inactive</span>
@@ -70,7 +70,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 <div class="list-group list-group-flush small">
                     <div class="list-group-item d-flex justify-content-between align-items-center">
                         <span class="text-muted">Tokens</span>
-                        <a href="<?php echo sURL; ?>users/tokens/<?php echo $uid; ?>" class="fw-semibold text-decoration-none">
+                        <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="fw-semibold text-decoration-none">
                             <?php echo (int) ($usageStats['total_tokens'] ?? 0); ?>
                         </a>
                     </div>
@@ -105,7 +105,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     <?php else: ?>
                         <a href="<?php echo sURL; ?>users/unlock/<?php echo $uid; ?>" class="btn btn-outline-success btn-sm">Unlock Account</a>
                     <?php endif; ?>
-                    <a href="<?php echo sURL; ?>users/tokens/<?php echo $uid; ?>" class="btn btn-outline-secondary btn-sm">All Tokens</a>
+                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="btn btn-outline-secondary btn-sm">All Tokens</a>
                     <a href="<?php echo sURL; ?>users/sessions/<?php echo $uid; ?>" class="btn btn-outline-secondary btn-sm">Sessions</a>
                 </div>
             </div>
@@ -177,7 +177,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <span class="fw-semibold">Recent Tokens</span>
-                    <a href="<?php echo sURL; ?>users/tokens/<?php echo $uid; ?>" class="btn btn-sm btn-outline-primary">All Tokens</a>
+                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="btn btn-sm btn-outline-primary">All Tokens</a>
                 </div>
                 <div class="card-body p-0">
                     <table class="table table-sm table-hover align-middle mb-0">
@@ -193,8 +193,9 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                             $sMap = [0 => ['secondary','Inactive'], 1 => ['success','Active'], 2 => ['dark','Deleted'], 3 => ['danger','Revoked']];
                             [$sBadge, $sLabel] = $sMap[$s] ?? ['secondary','Unknown'];
                             $exp = (int) ($tok['expires'] ?? 0);
+                            $tokActionsUrl = sURL . 'TokenActions?token_id=' . (int) $tok['tokenid'] . '&from=user&uid=' . $uid;
                         ?>
-                            <tr>
+                            <tr style="cursor:pointer" data-href="<?php echo $tokActionsUrl; ?>" title="View token actions">
                                 <td><code class="small"><?php echo (int) $tok['tokenid']; ?></code></td>
                                 <td><span class="badge bg-secondary"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth', ENT_QUOTES, 'UTF-8'); ?></span></td>
                                 <td><span class="badge bg-<?php echo $sBadge; ?>"><?php echo $sLabel; ?></span></td>

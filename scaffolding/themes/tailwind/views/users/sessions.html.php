@@ -8,24 +8,25 @@
  */
 ?>
 <div class="px-4 py-6">
+    <?php $this->activeNav = 'users_sessions'; $this->insert('../partials/admin_breadcrumb'); ?>
     <div class="flex items-center gap-3 mb-4">
-        <a href="<?php echo sURL; ?>Users" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
         <h2 >Sessions — <?php echo htmlspecialchars($this->user['username'] ?? ''); ?></h2>
     </div>
     <div class="bg-white rounded-xl shadow-xs border border-gray-200">
         <div >
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
-                    <tr><th>Session ID</th><th>IP Address</th><th>User Agent</th><th>Started</th><th>Last Active</th></tr>
+                    <tr><th>Session ID</th><th>IP Address</th><th>User Agent</th><th>Last Active</th><th>Status</th></tr>
                 </thead>
                 <tbody>
                 <?php foreach (($this->sessionList ?? []) as $s): ?>
+                    <?php $active = (int) ($s['logout'] ?? 0) === 0; ?>
                     <tr>
-                        <td class="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-500"><?php echo htmlspecialchars(substr($s['sessionid'] ?? '', 0, 16)) . '…'; ?></td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900"><?php echo htmlspecialchars($s['ip'] ?? ''); ?></td>
-                        <td class="px-6 py-4 text-sm text-gray-500"><?php echo htmlspecialchars(substr($s['useragent'] ?? '', 0, 60)); ?></td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?php echo htmlspecialchars(isset($s['date']) ? date('d/m/Y H:i', $s['date']) : ''); ?></td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"></td>
+                        <td class="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-500"><?php echo htmlspecialchars(substr((string) ($s['visitorid'] ?? ''), 0, 16)) . '…'; ?></td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900"><?php echo htmlspecialchars($s['host_addr'] ?? ''); ?></td>
+                        <td class="px-6 py-4 text-sm text-gray-500"><?php echo htmlspecialchars(substr((string) ($s['agent'] ?? ''), 0, 60)); ?></td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?php echo isset($s['time']) ? htmlspecialchars(date('d/m/Y H:i', (int) $s['time'])) : ''; ?></td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm"><span class="px-2 py-0.5 rounded-full text-xs font-medium <?php echo $active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'; ?>"><?php echo $active ? 'Active' : 'Logged out'; ?></span></td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->sessionList)): ?>

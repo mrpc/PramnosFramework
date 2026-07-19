@@ -8,8 +8,10 @@
  *   $this->error  — string error message
  */
 $u = $this->user ?? [];
+$this->activeNav = 'users_edit';
 ?>
-<div class="page-section"max-width:640px">
+<div class="page-section" style="max-width:640px">
+    <?php $this->insert('../partials/admin_breadcrumb'); ?>
     <h2 style="margin-bottom:16px"><?php echo $this->isNew ? 'New User' : 'Edit User'; ?></h2>
     <?php if (!empty($this->error)): ?>
         <div class="alert" style="background:#fde8e8;border:1px solid #f5c6cb;padding:12px 16px;border-radius:4px;margin-bottom:12px"><?php echo htmlspecialchars($this->error); ?></div>

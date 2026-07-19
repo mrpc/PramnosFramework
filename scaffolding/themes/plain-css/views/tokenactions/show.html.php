@@ -14,9 +14,10 @@ $st = (int) ($a['servertime'] ?? 0);
 .pf-dl dt{font-weight:600;min-width:160px;color:#444}
 .pf-dl dd{margin:0;color:#333;word-break:break-word}
 </style>
+<?php $this->activeNav = 'tokenactions_show'; ?>
 <div class="page-section" style="max-width:860px">
+    <?php $this->insert('../partials/admin_breadcrumb'); ?>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-        <a href="<?php echo sURL; ?>TokenActions" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
         <h2 style="margin:0">Audit Log #<?php echo (int)($a['actionid'] ?? 0); ?></h2>
     </div>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
