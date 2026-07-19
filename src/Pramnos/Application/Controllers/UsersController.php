@@ -444,16 +444,21 @@ class UsersController extends Controller
         }
         $doc->title = 'Sessions: ' . htmlspecialchars($user->username ?? '', ENT_QUOTES, 'UTF-8');
 
+        // The sessions table tracks last activity in the `time` column (unix ts)
+        // and marks terminated sessions with logout=1 — there is no `date` column,
+        // so ordering by it silently returned no rows. Show active sessions first.
         $db = \Pramnos\Database\Database::getInstance();
         $sessionList = $db->queryBuilder()
             ->table('#PREFIX#sessions')
             ->where('userid', $id)
-            ->orderBy('date', 'desc')
+            ->orderBy('time', 'desc')
             ->getAll();
 
         $view              = $this->getView('users');
         $view->action      = 'sessions';
-        $view->user        = ['username' => (string) ($user->username ?? '')];
+        // Include userid so the breadcrumb can link the username crumb back to
+        // the user's detail page (users/view/:id).
+        $view->user        = ['userid' => (int) ($user->userid ?? 0), 'username' => (string) ($user->username ?? '')];
         $view->sessionList = $sessionList;
         return $view->display('sessions');
     }
@@ -461,32 +466,21 @@ class UsersController extends Controller
     /**
      * List all tokens for a specific user.
      *
+     * Token management was unified under the Tokens controller; this route is
+     * kept as a backward-compatible redirect to `Tokens/userid/{id}`.
+     *
      * @param string|int|null $id User ID.
      */
-    public function tokens(mixed $id = null): mixed
+    public function tokens(mixed $id = null): void
     {
-        $doc = Factory::getDocument();
-
         $this->requireMinUserType($this->requiredUserType);
-
-        $id   = (int) \Pramnos\Http\Request::staticGetOption();
-        $user = new User();
-        if ($id > 0) {
-            $user->load($id);
-        }
-        $doc->title = 'Tokens: ' . htmlspecialchars($user->username ?? '', ENT_QUOTES, 'UTF-8');
-
-        $tokenList = $user->getAllTokens();
-
-        $view            = $this->getView('users');
-        $view->action    = 'tokens';
-        $view->user      = ['userid' => (int) ($user->userid ?? 0), 'username' => (string) ($user->username ?? '')];
-        $view->tokenList = $tokenList;
-        return $view->display('tokens');
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
+        $this->redirect(sURL . 'Tokens/userid/' . $id);
     }
 
     /**
      * Deactivate a specific token belonging to a user.
+     * Kept for backward compatibility — delegates to Tokens/deactivate.
      * Expects POST: userid, tokenid.
      */
     public function deactivateToken(): void
@@ -504,11 +498,12 @@ class UsersController extends Controller
             }
         }
 
-        $this->redirect(sURL . 'users/tokens/' . $userId);
+        $this->redirect(sURL . 'Tokens/userid/' . $userId);
     }
 
     /**
      * Delete (status=2) a specific token belonging to a user.
+     * Kept for backward compatibility — delegates to Tokens/delete.
      * Expects POST: userid, tokenid.
      */
     public function deleteToken(): void
@@ -526,7 +521,7 @@ class UsersController extends Controller
             }
         }
 
-        $this->redirect(sURL . 'users/tokens/' . $userId);
+        $this->redirect(sURL . 'Tokens/userid/' . $userId);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

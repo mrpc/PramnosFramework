@@ -13,24 +13,37 @@ use Pramnos\Application\Controller;
  * security/compliance purposes. Tokens are never deleted — revoking sets
  * status=3 (revoked) and records a removedate timestamp for the audit trail.
  *
- * Actions:
- *   - display()    — paginated DataTable of active tokens (with user and app info)
- *   - revoke($id)  — revoke a single token by tokenid
- *   - revokeall()  — POST: bulk revoke by filters (userid and/or applicationid)
+ * This is the single controller for all token management. It serves two tiers:
  *
- * All actions require authentication + usertype >= 90 (admin).
+ *   Global (cross-user) — the OAuth/authserver admin view. Sensitive because it
+ *   exposes every user's tokens at once, so it requires usertype >= 90:
+ *     - display()    — paginated list of active tokens (with user and app info)
+ *     - revoke($id)  — revoke a single token by tokenid
+ *     - revokeall()  — POST: bulk revoke by filters (userid and/or applicationid)
+ *
+ *   Per-user — token management for one user, part of the base `auth` User
+ *   admin, so it requires only usertype >= 80 (same tier as the Users admin):
+ *     - userid($id)     — all tokens for one user (any status) with management actions
+ *     - deactivate()    — POST: set a user's token to inactive (status=0)
+ *     - delete()        — POST: soft-delete a user's token (status=2)
+ *
+ * The per-user view is reachable as `Tokens/userid/{id}`; the legacy
+ * `users/tokens/{id}` route redirects here for backward compatibility.
  *
  * Scaffold wrappers at `src/Controllers/Tokens.php` (authserver feature only).
  *
  */
 class TokensController extends Controller
 {
-    /** Minimum usertype to access any tokens action. */
+    /** Minimum usertype for the global, cross-user token views (display/revoke). */
     protected int $requiredUserType = 90;
+
+    /** Minimum usertype for per-user token management (userid/deactivate/delete). */
+    protected int $perUserUserType = 80;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'revoke', 'revokeall']);
+        $this->addAuthAction(['display', 'revoke', 'revokeall', 'userid', 'deactivate', 'delete']);
         parent::__construct($application);
     }
 
@@ -154,7 +167,89 @@ class TokensController extends Controller
         $this->redirect(sURL . 'tokens?message=revoked_all');
     }
 
+    // ── Per-user token management (base auth tier, usertype >= 80) ──────────────
+
+    /**
+     * List every token (any status) belonging to a single user, with per-token
+     * management actions. Reached as `Tokens/userid/{id}`.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption).
+     */
+    public function userid(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->perUserUserType)) {
+            return null;
+        }
+
+        // The …/userid/<id> segment is exposed by the request as the "option".
+        $userId = (int) (\Pramnos\Http\Request::staticGetOption() ?? 0);
+        if ($userId <= 0) {
+            $this->redirect(sURL . 'users');
+            return null;
+        }
+
+        $user = new \Pramnos\User\User();
+        $user->load($userId);
+        if ((int) $user->userid !== $userId) {
+            $this->redirect(sURL . 'users');
+            return null;
+        }
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = 'Tokens: ' . htmlspecialchars((string) $user->username, ENT_QUOTES, 'UTF-8');
+
+        $view            = $this->getView('tokens');
+        $view->user      = ['userid' => (int) $user->userid, 'username' => (string) $user->username];
+        $view->tokenList = $user->getAllTokens();
+        return $view->display('user');
+    }
+
+    /**
+     * Deactivate (status=0) a specific token belonging to a user.
+     * Expects POST: userid, tokenid. Redirects back to the per-user list.
+     */
+    public function deactivate(): void
+    {
+        $this->tokenStatusAction('deactivateToken');
+    }
+
+    /**
+     * Soft-delete (status=2) a specific token belonging to a user.
+     * Expects POST: userid, tokenid. Redirects back to the per-user list.
+     */
+    public function delete(): void
+    {
+        $this->tokenStatusAction('deleteToken');
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Shared handler for the per-user token POST actions (deactivate/delete):
+     * validates ownership then calls the matching User method.
+     *
+     * @param string $method User method to invoke ('deactivateToken'|'deleteToken').
+     */
+    private function tokenStatusAction(string $method): void
+    {
+        if ($this->requireMinUserType($this->perUserUserType)) {
+            return;
+        }
+
+        $userId  = (int) ($_POST['userid']  ?? 0);
+        $tokenId = (int) ($_POST['tokenid'] ?? 0);
+
+        if ($userId > 0 && $tokenId > 0) {
+            $user = new \Pramnos\User\User();
+            $user->load($userId);
+            // Only act when the token truly belongs to the loaded user.
+            if ((int) $user->userid === $userId) {
+                $user->$method($tokenId);
+            }
+        }
+
+        $this->redirect(sURL . 'Tokens/userid/' . $userId);
+    }
 
     /**
      * Redirects to sURL if the current user's usertype is below $minType.

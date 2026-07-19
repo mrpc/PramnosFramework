@@ -98,15 +98,24 @@ class UsersControllerTest extends TestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
 
-        // sessions schema for UsersController (userid, date, ip, useragent columns)
+        // sessions schema — mirrors the framework migration
+        // (database/migrations/framework/core/*_create_sessions_table.php):
+        // the real table tracks last activity in `time`, the address in
+        // `host_addr`, the UA in `agent`, and is keyed by `visitorid`.
         $this->db->query('
             CREATE TABLE `sessions` (
-                `sessionid` varchar(255) NOT NULL,
-                `userid` bigint NOT NULL,
-                `date` bigint NOT NULL,
-                `ip` varchar(45) NOT NULL,
-                `useragent` text NOT NULL,
-                PRIMARY KEY (`sessionid`)
+                `visitorid` varchar(255) NOT NULL,
+                `uname` varchar(128) NOT NULL DEFAULT \'\',
+                `time` int unsigned NOT NULL,
+                `host_addr` varchar(39) NOT NULL DEFAULT \'\',
+                `guest` tinyint NOT NULL DEFAULT 0,
+                `agent` varchar(255) NOT NULL,
+                `userid` bigint DEFAULT NULL,
+                `url` varchar(255) NOT NULL,
+                `history` text NOT NULL,
+                `logout` tinyint NOT NULL DEFAULT 0,
+                `sid` varchar(32) NOT NULL,
+                PRIMARY KEY (`visitorid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
 
@@ -421,28 +430,28 @@ class UsersControllerTest extends TestCase
 
     public function testSessionsList(): void
     {
-        $this->db->query("INSERT INTO `sessions` (`sessionid`, `userid`, `date`, `ip`, `useragent`) VALUES ('abc', 3, 12345, '127.0.0.1', 'test')");
-        
+        // Insert an active session using the real column names (visitorid/time/
+        // host_addr/agent) so the query's ORDER BY `time` resolves.
+        $this->db->query("INSERT INTO `sessions` (`visitorid`, `userid`, `time`, `host_addr`, `agent`, `url`, `history`, `sid`) VALUES ('abc', 3, 12345, '127.0.0.1', 'test', '', '', '')");
+
         $_GET['_option'] = 3;
         ob_start();
         $result = $this->controller->sessions();
         $output = ob_get_clean() . $result;
-        
+
         $this->assertStringContainsString('testuser', $output);
         $this->assertStringContainsString('127.0.0.1', $output);
     }
 
     public function testTokensList(): void
     {
-        $this->db->query("INSERT INTO `usertokens` (`userid`, `tokentype`, `token`, `expires`, `created`) VALUES (3, 'api', '123', 0, 0)");
-        
+        // Token management was unified under the Tokens controller; the legacy
+        // users/tokens route now redirects to Tokens/userid/{id}.
         $_GET['_option'] = 3;
-        ob_start();
-        $result = $this->controller->tokens();
-        $output = ob_get_clean() . $result;
-        
-        $this->assertStringContainsString('testuser', $output);
-        $this->assertStringContainsString('api', $output);
+        $this->controller->tokens();
+
+        $this->assertNotNull($this->redirectUrl);
+        $this->assertStringContainsString('Tokens/userid/3', (string) $this->redirectUrl);
     }
 
     public function testDeactivateToken(): void
