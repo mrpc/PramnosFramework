@@ -29,7 +29,9 @@ class TestableTokensController extends TokensController
             public mixed $tokens;
             public mixed $total;
             public mixed $page;
-            
+            public mixed $user;
+            public mixed $tokenList;
+
             public function display($view = '') {
                 return 'mock html view for ' . $view;
             }
@@ -403,6 +405,114 @@ class TokensControllerTest extends BaseTestCase
                 'revokeall() must redirect exactly once after bulk revocation');
             $this->assertStringContainsString('message=revoked_all', $this->controller->redirectedTo[0],
                 'revokeall() must redirect with message=revoked_all when both filters are provided');
+        }
+    }
+
+    // ── Per-user token management (userid / deactivate / delete) ────────────────
+
+    /**
+     * userid() renders the per-user token view for a valid user at the base
+     * (usertype >= 80) tier — the unified home for a single user's tokens.
+     */
+    public function testUseridListsUserTokens(): void
+    {
+        // Arrange — manager-level user (80) requesting user 1's tokens
+        $this->setMockUser(80);
+        $_GET['_option'] = 1;
+
+        // Act
+        $output = $this->controller->userid();
+
+        // Assert — the per-user template was rendered, no redirect issued
+        $this->assertSame('mock html view for user', $output,
+            'userid() must render the tokens/user template');
+        $this->assertEmpty($this->controller->redirectedTo,
+            'userid() must not redirect for a valid user at usertype >= 80');
+    }
+
+    /**
+     * userid() belongs to the base auth tier (usertype >= 80): a lower usertype
+     * must be redirected away before any data is exposed.
+     */
+    public function testUseridRedirectsWhenBelowUserType(): void
+    {
+        // Arrange — usertype 79 is below the per-user threshold (80)
+        $this->setMockUser(79);
+        $_GET['_option'] = 1;
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        // Act — redirect() throws in the test double
+        $this->controller->userid();
+    }
+
+    /**
+     * userid() must bail out (redirect to the users list) when the target user
+     * id is missing/invalid rather than querying with id 0.
+     */
+    public function testUseridRedirectsWhenInvalidId(): void
+    {
+        // Arrange — no/zero option
+        $this->setMockUser(80);
+        $_GET['_option'] = 0;
+
+        try {
+            // Act
+            $this->controller->userid();
+            $this->fail('userid() should have redirected on an invalid id');
+        } catch (\RuntimeException $e) {
+            // Assert
+            $this->assertCount(1, $this->controller->redirectedTo);
+            $this->assertStringContainsString('users', $this->controller->redirectedTo[0]);
+        }
+    }
+
+    /**
+     * deactivate() sets the target token's status to 0 (inactive) and redirects
+     * back to the unified per-user list.
+     */
+    public function testDeactivateSetsStatusInactive(): void
+    {
+        // Arrange — active token 10 belongs to user 1
+        $this->setMockUser(80);
+        $_POST = ['userid' => 1, 'tokenid' => 10];
+
+        try {
+            // Act — redirect() throws after the update
+            $this->controller->deactivate();
+            $this->fail('deactivate() should redirect after acting');
+        } catch (\RuntimeException $e) {
+            // Assert — status flipped to 0 and redirected to the per-user list
+            $db  = \Pramnos\Framework\Factory::getDatabase();
+            $row = $db->queryBuilder()->table('#PREFIX#usertokens')->where('tokenid', 10)->first();
+            $this->assertEquals(0, (int) $row->fields['status'],
+                'deactivate() must set the token status to 0');
+            $this->assertStringContainsString('Tokens/userid/1', $this->controller->redirectedTo[0]);
+        }
+    }
+
+    /**
+     * delete() soft-deletes the target token (status=2) and redirects back to
+     * the unified per-user list.
+     */
+    public function testDeleteSetsStatusDeleted(): void
+    {
+        // Arrange — active token 10 belongs to user 1
+        $this->setMockUser(80);
+        $_POST = ['userid' => 1, 'tokenid' => 10];
+
+        try {
+            // Act
+            $this->controller->delete();
+            $this->fail('delete() should redirect after acting');
+        } catch (\RuntimeException $e) {
+            // Assert — status set to 2 (deleted) and redirected to the per-user list
+            $db  = \Pramnos\Framework\Factory::getDatabase();
+            $row = $db->queryBuilder()->table('#PREFIX#usertokens')->where('tokenid', 10)->first();
+            $this->assertEquals(2, (int) $row->fields['status'],
+                'delete() must set the token status to 2');
+            $this->assertStringContainsString('Tokens/userid/1', $this->controller->redirectedTo[0]);
         }
     }
 }

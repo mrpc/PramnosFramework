@@ -127,22 +127,73 @@ class TokenActionsController extends Controller
     /**
      * JSON endpoint: performance statistics for the last 24h.
      * Delegates to ApiPerformanceService for consistency with the Dashboard.
+     *
+     * Switches the active document to the JSON type before returning so the
+     * theme's HTML chrome is not appended to the payload — otherwise the
+     * response is JSON followed by the full page layout, which breaks any
+     * client doing response.json() (e.g. the Stats modal).
      */
-    public function stats(): void
+    public function stats(): mixed
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
-            return;
+            return null;
         }
+
+        \Pramnos\Framework\Factory::getDocument('json');
 
         $service = new \Pramnos\Application\Statistics\ApiPerformanceService();
         $window  = (int) ($_GET['window'] ?? \Pramnos\Application\Statistics\ApiPerformanceService::WINDOW_24H);
 
-        header('Content-Type: application/json');
-        echo json_encode([
+        // The service returns endpoints keyed by the opaque urlid FK; resolve
+        // each to its human-readable URL so the UI can show the path instead.
+        $topSlow   = $service->getTopSlowEndpoints(10, $window);
+        $topCalled = $service->getTopCalledEndpoints(10, $window);
+        $this->resolveEndpointUrls($topSlow);
+        $this->resolveEndpointUrls($topCalled);
+
+        return \Pramnos\Http\Response::json([
             'summary'        => $service->getSummary($window),
-            'top_slow'       => $service->getTopSlowEndpoints(10, $window),
-            'top_called'     => $service->getTopCalledEndpoints(10, $window),
+            'top_slow'       => $topSlow,
+            'top_called'     => $topCalled,
         ]);
+    }
+
+    /**
+     * Enrich a list of endpoint stat rows (each containing a `urlid`) with a
+     * `url` field resolved from the `#PREFIX#urls` table, in a single query.
+     *
+     * Rows whose urlid has no matching url row get an empty string, so the
+     * client can fall back gracefully. Modifies the array in place.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     */
+    private function resolveEndpointUrls(array &$rows): void
+    {
+        if ($rows === []) {
+            return;
+        }
+
+        $ids = array_values(array_unique(array_map(
+            static fn (array $r): int => (int) ($r['urlid'] ?? 0),
+            $rows
+        )));
+
+        $result = \Pramnos\Framework\Factory::getDatabase()
+            ->queryBuilder()
+            ->table('#PREFIX#urls')
+            ->select(['urlid', 'url'])
+            ->whereIn('urlid', $ids)
+            ->getAll();
+
+        $map = [];
+        foreach ($result as $row) {
+            $map[(int) $row['urlid']] = (string) $row['url'];
+        }
+
+        foreach ($rows as &$r) {
+            $r['url'] = $map[(int) ($r['urlid'] ?? 0)] ?? '';
+        }
+        unset($r);
     }
 
     /**

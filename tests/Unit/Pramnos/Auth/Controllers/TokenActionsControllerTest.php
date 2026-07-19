@@ -285,11 +285,10 @@ class TokenActionsControllerTest extends BaseTestCase
     {
         $this->setMockUser(80);
 
-        ob_start();
-        $this->controller->stats();
-        $output = ob_get_clean();
-
-        $json = json_decode($output, true);
+        // stats() now returns a JSON Response (rendered by the framework) instead
+        // of echoing, so the layout chrome is never appended to the payload.
+        $response = $this->controller->stats();
+        $json = json_decode($response->getBody(), true);
         $this->assertIsArray($json);
         $this->assertArrayHasKey('summary', $json);
         $this->assertArrayHasKey('top_slow', $json);
