@@ -1266,6 +1266,37 @@ class ApiDocToOpenAPIConverter {
         }
       });
     }
+
+    // Merge custom paths (endpoints apidoc cannot infer — e.g. the OAuth server,
+    // which lives on the main front controller and is not scanned from
+    // src/Api/Controllers). Auto-generated paths win on key collision.
+    if (customData.paths) {
+      openapi.paths = { ...customData.paths, ...openapi.paths };
+    }
+
+    // Replace the global security requirement when overridden (e.g. to advertise
+    // the oauth2 scheme as the default).
+    if (customData.security) {
+      openapi.security = customData.security;
+    }
+
+    // Merge custom components. securitySchemes lets the overrides add an oauth2
+    // scheme (drives RapiDoc's "Authorize" button); nested schemas are merged too
+    // so both the flat `schemas` key and `components.schemas` are honoured.
+    if (customData.components) {
+      if (customData.components.securitySchemes) {
+        openapi.components.securitySchemes = {
+          ...openapi.components.securitySchemes,
+          ...customData.components.securitySchemes
+        };
+      }
+      if (customData.components.schemas) {
+        openapi.components.schemas = {
+          ...openapi.components.schemas,
+          ...customData.components.schemas
+        };
+      }
+    }
   }
 
   /**
