@@ -306,7 +306,13 @@ class Init extends Command
         if ($withRestApi) {
             $this->scaffoldRestApi($namespace);
             if ($withApiDocs) {
-                $this->scaffoldApiDocs($appName, $namespace, $apiUrl, $apiColor);
+                // When the OAuth server is also enabled, the generated OpenAPI is
+                // enriched with an oauth2 security scheme + the machine OAuth
+                // endpoints so API consumers can obtain a token (RapiDoc "Authorize").
+                $this->scaffoldApiDocs(
+                    $appName, $namespace, $apiUrl, $apiColor,
+                    in_array('authserver', $enabledFeatures, true)
+                );
             }
         }
 
@@ -698,7 +704,7 @@ class Init extends Command
         return [$enabled, $apiUrl, $apiColor];
     }
 
-    private function scaffoldApiDocs(string $appName, string $namespace, string $apiUrl, string $apiColor): void
+    private function scaffoldApiDocs(string $appName, string $namespace, string $apiUrl, string $apiColor, bool $withAuthServer = false): void
     {
         $this->mkdir('scripts');
         $this->mkdir('www/api/docs');
@@ -713,9 +719,26 @@ class Init extends Command
             'APP_KEY'       => $appKey,
         ]));
 
-        $this->writeFile('src/Api/openapi-overrides.json', $this->renderStub('openapi-overrides.json', [
-            'APP_NAME' => $appName,
-        ]));
+        // The OAuth server lives on the main web front controller (not the REST
+        // API layer), so its machine endpoints never get picked up by apidoc
+        // (which only scans src/Api/Controllers). When it is enabled we pre-fill
+        // openapi-overrides.json — deep-merged over the generated spec — with an
+        // oauth2 security scheme and the token/userinfo/introspect/revoke/device
+        // endpoints, so consumers can authenticate and call the API. Otherwise we
+        // keep the empty stub.
+        if ($withAuthServer) {
+            $this->writeFile(
+                'src/Api/openapi-overrides.json',
+                json_encode(
+                    $this->buildOAuthApiOverrides($appName, $apiUrl),
+                    JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+                ) . "\n"
+            );
+        } else {
+            $this->writeFile('src/Api/openapi-overrides.json', $this->renderStub('openapi-overrides.json', [
+                'APP_NAME' => $appName,
+            ]));
+        }
 
         $scriptSrc = $this->scaffoldingDir . '/scripts/apidoc-to-openapi.js';
         if (file_exists($scriptSrc)) {
@@ -738,6 +761,171 @@ class Init extends Command
                 file_put_contents($gitignorePath, "\n# API documentation output\nwww/api/openapi*.json\nwww/api/docs/\n", FILE_APPEND);
             }
         }
+    }
+
+    /**
+     * Build the openapi-overrides.json payload that documents the OAuth2 server.
+     *
+     * The overrides are deep-merged over the auto-generated OpenAPI spec by
+     * scripts/apidoc-to-openapi.js, so this only has to contribute the pieces
+     * apidoc cannot infer: an oauth2 security scheme (which drives RapiDoc's
+     * "Authorize" button) and the machine OAuth endpoints. Scopes come from the
+     * framework Scopes registry so the docs stay in sync with what the server
+     * actually grants. Endpoint URLs are derived from the API base URL's origin;
+     * adjust them in the generated file if the auth server is hosted elsewhere.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildOAuthApiOverrides(string $appName, string $apiUrl): array
+    {
+        // Origin (scheme://host[:port]) of the API base URL — the OAuth server is
+        // assumed to be reachable at the same origin under /oauth/*.
+        $parts  = parse_url(rtrim($apiUrl, '/'));
+        $scheme = $parts['scheme'] ?? 'https';
+        $host   = $parts['host']   ?? 'api.example.com';
+        $port   = isset($parts['port']) ? ':' . $parts['port'] : '';
+        $origin = "$scheme://$host$port";
+
+        $authorizeUrl = "$origin/oauth/authorize";
+        $tokenUrl     = "$origin/oauth/token";
+
+        // scope => description, straight from the framework registry.
+        $scopes = \Pramnos\Auth\Scopes::getScopeDescriptions();
+
+        $formToken = static function (array $properties, array $required = []): array {
+            $schema = ['type' => 'object', 'properties' => $properties];
+            if ($required !== []) {
+                $schema['required'] = $required;
+            }
+            return ['required' => true, 'content' => ['application/x-www-form-urlencoded' => ['schema' => $schema]]];
+        };
+        $jsonResponse = static function (string $description, array $properties = []): array {
+            $schema = ['type' => 'object'];
+            if ($properties !== []) {
+                $schema['properties'] = $properties;
+            }
+            return ['description' => $description, 'content' => ['application/json' => ['schema' => $schema]]];
+        };
+
+        return [
+            '_comment' => 'Optional manual overrides deep-merged over the auto-generated OpenAPI spec.',
+            '_usage'   => 'OAuth2 security scheme and endpoints were pre-filled because the OAuth server feature is enabled. Adjust the oauth URLs if the authorization server is hosted on a different host than the API.',
+            'info' => [
+                'contact' => [
+                    'name'  => "$appName Support",
+                    'email' => 'support@example.com',
+                ],
+            ],
+            'security' => [
+                ['OAuth2' => array_keys($scopes)],
+            ],
+            'paths' => [
+                '/oauth/token' => [
+                    'post' => [
+                        'tags'        => ['OAuth2'],
+                        'summary'     => 'Issue an access token',
+                        'description' => 'OAuth2 token endpoint (RFC 6749). Accepts application/x-www-form-urlencoded. Public endpoint; the client authenticates via credentials in the body or the Authorization header.',
+                        'security'    => [],
+                        'requestBody' => $formToken([
+                            'grant_type'    => ['type' => 'string', 'example' => 'client_credentials', 'description' => 'authorization_code | client_credentials | refresh_token | urn:ietf:params:oauth:grant-type:device_code'],
+                            'client_id'     => ['type' => 'string'],
+                            'client_secret' => ['type' => 'string'],
+                            'code'          => ['type' => 'string', 'description' => 'Authorization code (authorization_code grant)'],
+                            'redirect_uri'  => ['type' => 'string'],
+                            'refresh_token' => ['type' => 'string'],
+                            'scope'         => ['type' => 'string'],
+                        ], ['grant_type']),
+                        'responses' => [
+                            '200' => $jsonResponse('Token issued', [
+                                'access_token'  => ['type' => 'string'],
+                                'token_type'    => ['type' => 'string', 'example' => 'Bearer'],
+                                'expires_in'    => ['type' => 'integer'],
+                                'refresh_token' => ['type' => 'string'],
+                                'scope'         => ['type' => 'string'],
+                                'id_token'      => ['type' => 'string', 'description' => 'Present when the openid scope is granted'],
+                            ]),
+                            '400' => ['description' => 'invalid_request / invalid_grant'],
+                            '401' => ['description' => 'invalid_client'],
+                        ],
+                    ],
+                ],
+                '/oauth/userinfo' => [
+                    'get' => [
+                        'tags'        => ['OAuth2'],
+                        'summary'     => 'OpenID Connect UserInfo',
+                        'description' => 'Returns claims about the authenticated user. Requires a Bearer access token carrying the openid scope.',
+                        'security'    => [['OAuth2' => ['openid', 'profile', 'email']]],
+                        'responses'   => [
+                            '200' => $jsonResponse('User claims'),
+                            '401' => ['description' => 'invalid_token'],
+                        ],
+                    ],
+                ],
+                '/oauth/introspect' => [
+                    'post' => [
+                        'tags'        => ['OAuth2'],
+                        'summary'     => 'Token introspection (RFC 7662)',
+                        'description' => 'Requires client authentication. Accepts application/x-www-form-urlencoded.',
+                        'requestBody' => $formToken(['token' => ['type' => 'string']], ['token']),
+                        'responses'   => [
+                            '200' => $jsonResponse('Introspection result', ['active' => ['type' => 'boolean']]),
+                            '401' => ['description' => 'invalid_client'],
+                        ],
+                    ],
+                ],
+                '/oauth/revoke' => [
+                    'post' => [
+                        'tags'        => ['OAuth2'],
+                        'summary'     => 'Token revocation (RFC 7009)',
+                        'requestBody' => $formToken(['token' => ['type' => 'string']], ['token']),
+                        'responses'   => [
+                            '200' => $jsonResponse('Token revoked', ['success' => ['type' => 'boolean']]),
+                            '400' => ['description' => 'invalid_request'],
+                        ],
+                    ],
+                ],
+                '/oauth/deviceauthorization' => [
+                    'post' => [
+                        'tags'        => ['OAuth2'],
+                        'summary'     => 'Device authorization (RFC 8628)',
+                        'requestBody' => $formToken([
+                            'client_id' => ['type' => 'string'],
+                            'scope'     => ['type' => 'string'],
+                        ]),
+                        'responses' => [
+                            '200' => $jsonResponse('Device and user codes', [
+                                'device_code'      => ['type' => 'string'],
+                                'user_code'        => ['type' => 'string'],
+                                'verification_uri' => ['type' => 'string'],
+                                'expires_in'       => ['type' => 'integer'],
+                                'interval'         => ['type' => 'integer'],
+                            ]),
+                        ],
+                    ],
+                ],
+            ],
+            'components' => [
+                'securitySchemes' => [
+                    'OAuth2' => [
+                        'type'        => 'oauth2',
+                        'description' => 'OAuth2 / OpenID Connect authorization server for this application.',
+                        'flows'       => [
+                            'authorizationCode' => [
+                                'authorizationUrl' => $authorizeUrl,
+                                'tokenUrl'         => $tokenUrl,
+                                'refreshUrl'       => $tokenUrl,
+                                'scopes'           => $scopes,
+                            ],
+                            'clientCredentials' => [
+                                'tokenUrl' => $tokenUrl,
+                                'scopes'   => $scopes,
+                            ],
+                        ],
+                    ],
+                ],
+                'schemas' => (object) [],
+            ],
+        ];
     }
 
     private function ensurePackageJsonApiScripts(string $namespace): void
