@@ -1,0 +1,3 @@
+# Placeholder so the Feature testsuite directory referenced by phpunit.xml
+# always exists (git does not track empty directories). Remove once real
+# Feature tests are added here.

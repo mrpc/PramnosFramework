@@ -4,11 +4,11 @@
 # databases, so two overlapping runs will stomp each other's tables and produce
 # spurious failures.
 #
-# Lock strategy: flock on a file descriptor is automatically released when the
-# process exits — even on SIGKILL — because the kernel closes all fds.
-# The only way the lock can be "stuck" is if the process is still alive but
-# hanging (e.g. docker-compose exec frozen). In that case we detect a stale
-# PID: if the recorded PID no longer exists, we clear the lock and proceed.
+# Lock strategy: a portable mkdir-based lock (see below). mkdir is atomic on
+# Linux, macOS and WSL alike — unlike flock, which is Linux-only and made every
+# macOS run falsely report "already in progress". The lock is released via an
+# EXIT trap; if a run is hard-killed before the trap fires, the next run detects
+# the stale PID (recorded in the lock dir) and clears it automatically.
 nobrowser=false
 coverage=false
 nocoverage=false
@@ -38,38 +38,105 @@ for arg in "$@"; do
     fi
 done
 
-LOCK_FILE="/tmp/dockertest-pramnos.lock"
+# Concurrency lock. The previous implementation used flock, which is Linux-only
+# and absent on macOS (there `flock: command not found` made every run think one
+# was already in progress). We use a portable mkdir-based lock instead: mkdir is
+# atomic on every platform — it succeeds only if the directory does not already
+# exist. A PID file inside the lock dir lets a later run detect a stale lock left
+# behind by a hard-killed process.
+LOCK_DIR="/tmp/dockertest-pramnos.lock.d"
+LOCK_PID_FILE="$LOCK_DIR/pid"
+
+_lock_pid()     { cat "$LOCK_PID_FILE" 2>/dev/null; }
+_release_lock() { rm -rf "$LOCK_DIR"; }
+_acquire_lock() {
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo $$ >"$LOCK_PID_FILE"
+        return 0
+    fi
+    return 1
+}
 
 if [[ "$force" == true ]]; then
-    existing_pid=$(cat "$LOCK_FILE" 2>/dev/null)
+    existing_pid=$(_lock_pid)
     if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
         echo "Killing existing dockertest process (PID: $existing_pid) due to --force..." >&2
         kill -9 "$existing_pid" 2>/dev/null
     fi
-    rm -f "$LOCK_FILE"
+    _release_lock
 fi
 
-_acquire_lock() {
-    exec 9>>"$LOCK_FILE"
-    flock -n 9
-}
-
 if ! _acquire_lock; then
-    existing_pid=$(cat "$LOCK_FILE" 2>/dev/null)
-    # Stale lock: the recorded process is no longer running.
-    if [[ -n "$existing_pid" ]] && ! kill -0 "$existing_pid" 2>/dev/null; then
-        echo "Stale lock detected (PID $existing_pid is gone). Clearing and proceeding." >&2
-        rm -f "$LOCK_FILE"
+    existing_pid=$(_lock_pid)
+    # Stale lock: the recorded process is no longer running (e.g. hard-killed
+    # before its EXIT trap could clean up).
+    if [[ -z "$existing_pid" ]] || ! kill -0 "$existing_pid" 2>/dev/null; then
+        echo "Stale lock detected (PID ${existing_pid:-unknown} is gone). Clearing and proceeding." >&2
+        _release_lock
         _acquire_lock || { echo "Could not acquire lock after clearing stale entry." >&2; exit 1; }
     else
-        echo "Another ./dockertest run is already in progress (PID: ${existing_pid:-unknown})." >&2
-        [[ -n "$existing_pid" ]] && echo "  To kill it:  kill $existing_pid  or run with --force" >&2
+        echo "Another ./dockertest run is already in progress (PID: ${existing_pid})." >&2
+        echo "  To kill it:  kill $existing_pid  or run with --force" >&2
         exit 1
     fi
 fi
-# Record our PID so a subsequent caller can detect staleness.
-> "$LOCK_FILE"
-echo $$ >"$LOCK_FILE"
+
+# Release the lock on any exit (normal, error, or Ctrl-C). A hard SIGKILL won't
+# run this — that case is handled by the stale-PID check above on the next run.
+trap '_release_lock' EXIT
+
+# Portable `timeout`. The daemon-hang guards below rely on GNU coreutils
+# `timeout`, which is absent on macOS by default (there was no `timeout` and no
+# `gtimeout`). Prefer a real one when present; otherwise fall back to a bash
+# implementation that mirrors the two call forms used here — `timeout DURATION
+# cmd…` and `timeout -k KILL_AFTER DURATION cmd…` — and, like GNU timeout,
+# returns 124 when the command is killed for exceeding its deadline (the callers
+# test for 124 to detect a wedged daemon).
+_bash_timeout() {
+    local kill_after=""
+    if [[ "$1" == "-k" ]]; then kill_after="$2"; shift 2; fi
+    local duration="${1%[sS]}"; shift
+
+    # The timer touches this marker the moment the deadline is reached — a
+    # reliable "did we time out?" signal that survives the -k kill-after window
+    # (during which the timer is still alive, so a liveness check misclassifies).
+    local marker
+    marker="$(mktemp 2>/dev/null || echo "/tmp/dockertest-timeout.$$.$RANDOM")"
+    rm -f "$marker"
+
+    ( "$@" ) &
+    local cmd_pid=$!
+
+    (
+        sleep "$duration"
+        : >"$marker"
+        kill -TERM "$cmd_pid" 2>/dev/null
+        if [[ -n "$kill_after" ]]; then
+            sleep "$kill_after"
+            kill -KILL "$cmd_pid" 2>/dev/null
+        fi
+    ) 2>/dev/null &
+    local timer_pid=$!
+
+    wait "$cmd_pid" 2>/dev/null
+    local rc=$?
+
+    # Command has exited (on its own, or via the timer's TERM/KILL). Stop the
+    # timer and, if it had reached the deadline, report GNU timeout's 124.
+    kill -TERM "$timer_pid" 2>/dev/null
+    wait "$timer_pid" 2>/dev/null
+    [[ -e "$marker" ]] && rc=124
+    rm -f "$marker"
+    return $rc
+}
+
+if ! command -v timeout >/dev/null 2>&1; then
+    if command -v gtimeout >/dev/null 2>&1; then
+        timeout() { gtimeout "$@"; }
+    else
+        timeout() { _bash_timeout "$@"; }
+    fi
+fi
 
 # Docker can hang indefinitely when the daemon is wedged — a common WSL / Docker
 # Desktop failure mode. Every docker *control* call below is bounded by a timeout
@@ -82,7 +149,7 @@ _die_docker_wedged() {
     echo "ERROR: Docker did not respond within ${DOCKER_CTL_TIMEOUT}s while running: $1" >&2
     echo "The Docker daemon appears to be wedged (common on WSL / Docker Desktop)." >&2
     echo "Try restarting Docker Desktop, or run 'wsl.exe --shutdown' from PowerShell, then retry." >&2
-    rm -f "$LOCK_FILE"
+    _release_lock
     exit 1
 }
 
@@ -114,7 +181,7 @@ if ! timeout 15 docker version >/dev/null 2>&1; then
     echo "" >&2
     echo "ERROR: Docker is not responding (timed out after 15s, or the daemon is not running)." >&2
     echo "Start Docker Desktop / the daemon (on WSL you may need 'wsl.exe --shutdown' then reopen) and retry." >&2
-    rm -f "$LOCK_FILE"
+    _release_lock
     exit 1
 fi
 
@@ -130,7 +197,7 @@ if ! grep -q "pramnos_php.*Up" <<<"$ps_out"; then
         rc=$?
         [[ $rc -eq 124 ]] && _die_docker_wedged "docker-compose up -d"
         echo "ERROR: 'docker-compose up -d' failed (exit $rc)." >&2
-        rm -f "$LOCK_FILE"
+        _release_lock
         exit 1
     fi
     echo "Waiting for services to be ready..."
