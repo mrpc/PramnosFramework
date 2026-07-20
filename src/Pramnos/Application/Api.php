@@ -203,7 +203,10 @@ class Api extends Application
             // array/string envelope of _translateStatus(). Array/string returns
             // keep the classic envelope for backward compatibility.
             if ($response instanceof \Pramnos\Http\Response) {
-                if (!headers_sent()) {
+                // Skip real header emission under CLI (PHPUnit) — matches the
+                // guard used by _translateStatus() and avoids the harmless
+                // "http_response_code() has no effect" warning during tests.
+                if (PHP_SAPI !== 'cli' && !headers_sent()) {
                     http_response_code($response->getStatusCode());
                     foreach ($response->getHeaders() as $name => $values) {
                         foreach ((array) $values as $value) {
