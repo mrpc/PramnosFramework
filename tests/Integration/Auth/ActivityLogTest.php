@@ -233,12 +233,14 @@ class ActivityLogTest extends BaseTestCase
      */
     public function testTableProbeExceptionIsSwallowed(): void
     {
-        // Arrange — swap in a DB whose tableExists() throws.
+        // Arrange — swap in a DB whose schema() probe throws. ActivityLog
+        // probes via $database->schema()->hasTable('authserver.user_activity_log'),
+        // so making schema() itself throw exercises the probe-failure branch.
         $throwingDb = $this->getMockBuilder(\Pramnos\Database\Database::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['tableExists'])
+            ->onlyMethods(['schema'])
             ->getMock();
-        $throwingDb->method('tableExists')
+        $throwingDb->method('schema')
             ->willThrowException(new \RuntimeException('probe boom'));
 
         $ref  = &\Pramnos\Database\Database::getInstance();
