@@ -135,6 +135,30 @@ class ApiAuthMiddlewareTest extends TestCase
     }
 
     /**
+     * A token-less API request must be ANONYMOUS: any ambient session identity
+     * (e.g. a same-domain web-login cookie) is cleared, so it can never
+     * authenticate an API call. Only a valid accessToken authenticates.
+     */
+    public function testNoTokenClearsAmbientSessionIdentity(): void
+    {
+        // Arrange — a stale web session is present, but no accessToken is sent.
+        $_SERVER['HTTP_APIKEY'] = 'valid-key';
+        $_SESSION['logged'] = true;
+        $_SESSION['uid']    = 42;
+        $_SESSION['user']   = (object) ['userid' => 42];
+        $mw = new ApiAuthMiddleware(fn(string $k) => true);
+
+        // Act
+        $result = $mw->handle(Request::create('/api/me', 'GET'), fn() => 'ok');
+
+        // Assert — the ambient identity is wiped; the request is anonymous.
+        $this->assertSame('ok', $result);
+        $this->assertArrayNotHasKey('user', $_SESSION);
+        $this->assertArrayNotHasKey('logged', $_SESSION);
+        $this->assertArrayNotHasKey('uid', $_SESSION);
+    }
+
+    /**
      * The API key checker receives exactly the value from HTTP_APIKEY.
      */
     public function testApiKeyCheckerReceivesCorrectKey(): void

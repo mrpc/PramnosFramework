@@ -124,6 +124,12 @@ class ApiAuthMiddleware implements MiddlewareInterface
                 $user = $this->resolveUser($_SESSION['uid']);
                 $_SESSION['user'] = $user;
             }
+        } else {
+            // No access token (and no legacy user-auth) presented. The REST API is
+            // stateless: a request without a token is ANONYMOUS. Clear any ambient
+            // session identity (e.g. a same-domain web-login cookie) so it can never
+            // authenticate an API call — only a valid accessToken does.
+            unset($_SESSION['user'], $_SESSION['logged'], $_SESSION['uid']);
         }
 
         return $next($request);

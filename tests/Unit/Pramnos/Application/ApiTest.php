@@ -243,8 +243,43 @@ class ApiTest extends TestCase
         $api->database = $dbMock;
 
         $api->_executeCore(microtime(true));
-        
+
         $this->assertTrue(true);
+    }
+
+    /**
+     * A routes.php that returns a Response object must be emitted AS-IS — its raw
+     * JSON body and status code — not wrapped in the legacy {status,statusmessage,
+     * message,error} envelope of _translateStatus().
+     */
+    public function testExecuteCoreEmitsResponseObjectRaw()
+    {
+        if (!is_dir(ROOT . '/src/Api')) {
+            mkdir(ROOT . '/src/Api', 0777, true);
+        }
+        file_put_contents(
+            ROOT . '/src/Api/routes.php',
+            '<?php return \Pramnos\Http\Response::json(["error" => "missing_credentials"], 400);'
+        );
+
+        $api = new class extends Api {
+            public $database;
+            public $applicationInfo = ['name' => 'test'];
+            public function __construct() { }
+        };
+        $api->database = $this->createMock(\Pramnos\Database\Database::class);
+
+        // Reset accumulated document content so the assertion sees only this run.
+        \Pramnos\Framework\Factory::getDocument('raw')->setContent('');
+
+        $result = $api->_executeCore(microtime(true));
+
+        $this->assertNull($result, 'a handled Response returns null from _executeCore');
+        $content = \Pramnos\Framework\Factory::getDocument('raw')->getContent();
+        $this->assertStringContainsString('"error":"missing_credentials"', $content,
+            'the raw controller JSON must be emitted');
+        $this->assertStringNotContainsString('statusmessage', $content,
+            'the legacy envelope must NOT wrap a Response object');
     }
 
     public function testExecuteCoreWithRoutesPhpValidationException()
