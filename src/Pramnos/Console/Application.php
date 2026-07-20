@@ -96,6 +96,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\SwitchUi());
         $this->add(new \Pramnos\Console\Commands\LibrariesSync());
         $this->add(new \Pramnos\Console\Commands\ProjectSync());
+        $this->add(new \Pramnos\Console\Commands\ProjectResync());
         $this->add(new \Pramnos\Console\Commands\CacheClear());
         // MCP server + debug status (Phase 13)
         $this->add(new \Pramnos\Console\Commands\McpServe());
