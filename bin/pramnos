@@ -7,17 +7,30 @@ if (PHP_VERSION_ID < 80100) {
 }
 
 $possibleAutoloadPaths = [
+     // Composer's own bin-proxy hint — always points at the *consuming*
+     // project's autoloader, even when this package is installed as a
+     // symlinked path repository (where __DIR__ resolves to the real
+     // framework directory and the relative guesses below all miss).
+     $GLOBALS['_composer_autoload_path'] ?? null,
      // dependency
      __DIR__ . '/../../../autoload.php',
      // local dev repository
      __DIR__ . '/../vendor/autoload.php',
 ];
 
+$autoloadLoaded = false;
 foreach ($possibleAutoloadPaths as $possibleAutoloadPath) {
-    if (file_exists($possibleAutoloadPath)) {
+    if ($possibleAutoloadPath !== null && file_exists($possibleAutoloadPath)) {
         require_once $possibleAutoloadPath;
+        $autoloadLoaded = true;
         break;
     }
+}
+
+if (!$autoloadLoaded) {
+    fwrite(STDERR, "Pramnos: could not locate a Composer autoloader. "
+        . "Run 'composer install' (or 'composer dump-autoload') first.\n");
+    exit(1);
 }
 
 if (!defined('ROOT')) {
