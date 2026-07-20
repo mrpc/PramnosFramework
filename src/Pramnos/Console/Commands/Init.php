@@ -326,6 +326,30 @@ class Init extends Command
             // All tests set skipDockerRun = true; the Docker compose lifecycle (up --build,
             // waitForDatabase, container composer sync, migrate, createAdminUser) is never
             // exercised in the unit test suite.
+            // Pull the image-only services (db, cache, adminer) as an explicit,
+            // retryable step *before* building/starting. Large images (e.g.
+            // TimescaleDB ~1.4GB) can fail or time out on the first fetch; folding
+            // the pull into "up --build" turns such a failure into a confusing
+            // "No such image" at container-create time (the pull is skipped and the
+            // create then finds nothing locally). A dedicated pull surfaces progress
+            // (stderr is intentionally kept so the spinner's slow-step escalation can
+            // show it) and retries transient network/registry hiccups. The "app"
+            // build service has no image and is simply skipped by "pull".
+            $pullOk = false;
+            for ($attempt = 1; $attempt <= 3; $attempt++) {
+                $label = $attempt === 1
+                    ? 'Pulling Docker images'
+                    : "Pulling Docker images (retry $attempt/3)";
+                if ($this->runProcessWithSpinner('docker-compose pull', $label, $output) === 0) {
+                    $pullOk = true;
+                    break;
+                }
+                $output->writeln('  <comment>Image pull failed — retrying...</comment>');
+            }
+            if (!$pullOk) {
+                $output->writeln('  <comment>Warning: could not pre-pull all Docker images; "up" will attempt the pull again.</comment>');
+            }
+
             $this->dockerSuccess = ($this->runProcessWithSpinner(
                 'docker-compose up -d --build 2>/dev/null', 'Starting Docker environment', $output
             ) === 0);
