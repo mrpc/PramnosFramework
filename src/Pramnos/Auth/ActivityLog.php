@@ -98,9 +98,14 @@ class ActivityLog
     /**
      * Whether the activity-log table exists on the current connection.
      *
-     * The result is memoized for the request. `table_name` is matched
-     * schema-independently by {@see \Pramnos\Database\Database::tableExists()},
-     * so the `authserver.` schema qualifier is not required here.
+     * The result is memoized for the request. The probe goes through the
+     * schema builder ({@see \Pramnos\Database\SchemaBuilder::hasTable()}) with
+     * the fully-qualified `authserver.user_activity_log` name — the same call
+     * the creating migration uses. This is driver-aware: on PostgreSQL it
+     * resolves to the real `authserver` schema, and on MySQL to the
+     * `authserver_` table-prefix emulation. A plain
+     * {@see \Pramnos\Database\Database::tableExists()} would only match the
+     * unqualified name and so miss the prefixed physical table on MySQL.
      *
      * @param \Pramnos\Database\Database $database Active database handle.
      * @return bool
@@ -109,7 +114,8 @@ class ActivityLog
     {
         if (self::$tableAvailable === null) {
             try {
-                self::$tableAvailable = (bool) $database->tableExists('user_activity_log');
+                self::$tableAvailable = $database->schema()
+                    ->hasTable('authserver.user_activity_log');
             } catch (\Throwable $ex) {
                 self::$tableAvailable = false;
             }
