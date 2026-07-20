@@ -198,6 +198,24 @@ class Api extends Application
                 );
             }
 
+            // Modern controllers/routes return a Response object — emit it as-is
+            // (its own status code, headers and JSON body), bypassing the legacy
+            // array/string envelope of _translateStatus(). Array/string returns
+            // keep the classic envelope for backward compatibility.
+            if ($response instanceof \Pramnos\Http\Response) {
+                if (!headers_sent()) {
+                    http_response_code($response->getStatusCode());
+                    foreach ($response->getHeaders() as $name => $values) {
+                        foreach ((array) $values as $value) {
+                            header($name . ': ' . $value, false);
+                        }
+                    }
+                }
+                $this->_recordTokenAction($startTime, ['status' => $response->getStatusCode()]);
+                $doc->addContent($response->getBody());
+                return null;
+            }
+
             if ($response) {
                 $content = $this->_translateStatus($response);
                 $this->_recordTokenAction($startTime, $response);
