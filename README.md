@@ -581,7 +581,7 @@ The framework includes a fully containerized development and testing environment
 If you are developing the framework and want to test the full "new project" experience locally, you can use this one-liner (adjust `APP_NAME` and the path to `PramnosFramework` as needed):
 
 ```bash
-APP_NAME=test-app; mkdir $APP_NAME && cd $APP_NAME && composer init -n && composer config version dev-main && composer config minimum-stability dev && composer config repositories.pramnos path ../PramnosFramework && composer require mrpc/pramnosframework:dev-main && php vendor/bin/pramnos init
+APP_NAME=test-app; mkdir $APP_NAME && cd $APP_NAME && composer init -n --name="app/$APP_NAME" && composer config version dev-main && composer config minimum-stability dev && composer config repositories.pramnos path ../PramnosFramework && composer require mrpc/pramnosframework:dev-main && php vendor/bin/pramnos init
 ```
 
 ## 🆘 Support
