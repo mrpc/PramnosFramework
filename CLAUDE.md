@@ -3,7 +3,7 @@
 ## Project context
 
 - **Branch:** active development happens on **`main`**. `v1.2` is released/frozen — do **not** commit new work to `v1.2-dev` (kept only for reference). New fixes/features land on `main`.
-- **Stack:** PHP 8.4, MySQL 8.0, PostgreSQL 14, TimescaleDB (Docker)
+- **Stack:** PHP 8.5, MySQL 8.0, PostgreSQL 14, TimescaleDB (Docker)
 - **Test suites:** `vendor/bin/phpunit` (framework, 171 tests) and the reference application integration suite (`the application integration test suite`, 5 176 tests)
 - **Roadmap:** `ROADMAP_1.2.md` — always check before deciding what to work on next
 - **Progress log:** `PROGRESS.md` — update after completing any non-trivial task
@@ -34,7 +34,9 @@ Implementation order: **Phase 1 (Grammar → DDL) → Phase 4 (Infra) → Phase 
 ./dockertest --testdox               # human-readable output
 ```
 
-The script ensures the Docker containers are up, dependencies are installed, and the PHP environment inside the container is used (PHP 8.4 + correct extensions). Running phpunit outside Docker may use a different PHP version, miss extensions, or skip database integration tests entirely.
+The script ensures the Docker containers are up, dependencies are installed, and the PHP environment inside the container is used (PHP 8.5 + correct extensions). Running phpunit outside Docker may use a different PHP version, miss extensions, or skip database integration tests entirely.
+
+`./dockertest` is portable across Linux, macOS and WSL: it uses a mkdir-based lock (not `flock`) and falls back to a bash `timeout` when GNU coreutils is absent, so no extra tooling is required on macOS.
 
 ### 5. Commit discipline
 
