@@ -1,21 +1,63 @@
 #!/usr/bin/env bash
-# Generate API documentation (OpenAPI JSON + RapiDoc HTML viewer).
-# Run from the project root: bash scripts/doc.sh
+# Generate API documentation (apiDoc HTML + OpenAPI JSON + RapiDoc viewer).
+#
+# By default this runs inside the Docker "app" container, where Node/npm and
+# apidoc are installed — no local Node needed. Pass --host (or --local) to run
+# directly on the host machine instead (requires Node + npm installed locally).
+#
+#   bash scripts/doc.sh            # inside Docker (default)
+#   bash scripts/doc.sh --host     # on the host machine
+#
+# Run from the project root (or via `npm run docs`).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SELF="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
 cd "${PROJECT_ROOT}"
 
-# Install Node deps if needed
-if [ ! -d node_modules ]; then
-  echo "Installing Node dependencies..."
-  npm install
-fi
+RUN_ON_HOST=0
+for arg in "$@"; do
+  case "$arg" in
+    --host|--local) RUN_ON_HOST=1 ;;
+    -h|--help)
+      grep '^#' "${SELF}" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) echo "Unknown option: $arg (use --host to run on the host machine)" >&2; exit 2 ;;
+  esac
+done
 
-echo "Generating OpenAPI spec..."
-node scripts/apidoc-to-openapi.js
+# The legacy apiDoc HTML step (apidoc:generate) hard-errors with "No files found"
+# when src/Api/Controllers has no annotated controllers yet — the normal state of
+# a fresh project. So run the full docs:build only when controllers exist;
+# otherwise generate the OpenAPI/RapiDoc output only (which handles an empty API
+# gracefully and still includes any OAuth overrides). Runs inside the container
+# by default, or on the host with --host.
+GEN_CMD='if ls src/Api/Controllers/*.php >/dev/null 2>&1; then npm run docs:build; else echo "No API controllers found — skipping apiDoc HTML; generating OpenAPI only."; npm run openapi:generate; fi'
+
+if [ "$RUN_ON_HOST" -eq 1 ]; then
+  echo "Generating API documentation on the host machine..."
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "ERROR: npm is not installed on the host. Install Node.js, or omit --host to run inside Docker." >&2
+    exit 1
+  fi
+  [ -d node_modules ] || { echo "Installing Node dependencies..."; npm install; }
+  sh -c "$GEN_CMD"
+else
+  echo "Generating API documentation inside the Docker app container..."
+  # Prefer the v2 plugin syntax, fall back to the legacy binary.
+  if docker compose version >/dev/null 2>&1; then
+    DC="docker compose"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    DC="docker-compose"
+  else
+    echo "ERROR: docker compose is not available. Start Docker, or run on the host with: bash scripts/doc.sh --host" >&2
+    exit 1
+  fi
+  $DC exec -T app sh -c '[ -d node_modules ] || npm install'
+  $DC exec -T app sh -c "$GEN_CMD"
+fi
 
 echo "Done. Documentation available at www/api/docs/index.html"

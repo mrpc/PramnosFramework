@@ -44,13 +44,20 @@ class ApiDocToOpenAPIConverter {
 
     const baseUrl = (apidocConfig.url || 'https://api.example.com').replace(/\/$/, '');
 
-    // Build servers list: production from apidoc.json + additional from config
-    const servers = [
-      {
-        url: baseUrl + '/' + version,
-        description: 'Production server'
-      }
-    ];
+    // Build servers list. When a local server is configured (e.g. the Docker
+    // environment) it goes FIRST so it becomes RapiDoc's default target for
+    // "Try it"; production and any additional servers follow.
+    const servers = [];
+    if (apidocConfig.localServer) {
+      servers.push({
+        url: apidocConfig.localServer.replace(/\/$/, '') + '/' + version,
+        description: 'Local development server (Docker)'
+      });
+    }
+    servers.push({
+      url: baseUrl + '/' + version,
+      description: 'Production server'
+    });
 
     // Add additional servers from apidoc.json config
     const additionalServers = apidocConfig.additionalServers || [];
@@ -881,6 +888,7 @@ class ApiDocToOpenAPIConverter {
     const theme       = apidocConfig.theme         || 'dark';
     const prefsKey    = apidocConfig.prefsKey      || 'app-api-prefs';
 
+    const defaultApiKey  = apidocConfig.defaultApiKey || ''; // pre-fills RapiDoc "Authorize"
     const defaultVersion = versions[0]; // Latest version is first
     const versionOptions = versions.map(v =>
       `<option value="${specFiles[v]}" ${v === defaultVersion ? 'selected' : ''}>Version ${v}</option>`
@@ -976,7 +984,7 @@ class ApiDocToOpenAPIConverter {
 
     api-key-name="apiKey"
     api-key-location="header"
-    api-key-value=""
+    api-key-value="${defaultApiKey}"
 
     show-curl-before-try="true"
     request-panel="examples"
@@ -1014,6 +1022,9 @@ class ApiDocToOpenAPIConverter {
     localStorage.removeItem('preferredApiVersion');
 
     const PREFS_KEY = '${prefsKey}';
+    // A ready-to-use API key pre-applied to the ApiKeyAuth scheme so "Try it"
+    // works immediately (empty when none was configured).
+    const DEFAULT_API_KEY = '${defaultApiKey}';
 
     function savePrefs(update) {
       const prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
@@ -1053,15 +1064,22 @@ class ApiDocToOpenAPIConverter {
             rapidoc.setApiServer(prefs.serverUrl);
           }
 
+          // Pre-apply the default API key (unless the user already saved one) so
+          // the "Authorize" panel shows it applied and "Try it" works instantly.
+          const effectiveApiKey = prefs.apiKey || DEFAULT_API_KEY;
+          if (effectiveApiKey && typeof rapidoc.setApiKey === 'function') {
+            rapidoc.setApiKey('ApiKeyAuth', effectiveApiKey);
+          }
+
           // Restore auth values
           const root = rapidoc.shadowRoot;
           if (!root) return;
 
-          if (prefs.apiKey || prefs.accessToken) {
+          if (effectiveApiKey || prefs.accessToken) {
             root.querySelectorAll('input').forEach(input => {
               const pname = (input.dataset.pname || '').toLowerCase();
-              if (pname === 'apikey' && prefs.apiKey) {
-                input.value = prefs.apiKey;
+              if (pname === 'apikey' && effectiveApiKey) {
+                input.value = effectiveApiKey;
                 input.dispatchEvent(new Event('change', { bubbles: true }));
               }
               if (pname === 'accesstoken' && prefs.accessToken) {
@@ -1348,6 +1366,16 @@ class ApiDocToOpenAPIConverter {
 
     // Phase 1: Process all files and group endpoints by version
     this.processDirectory(this.config.sourceDir);
+
+    // No @apiVersion found in any controller — e.g. a fresh project whose only
+    // paths come from openapi-overrides.json (such as the OAuth server), or one
+    // with no API controllers yet. Fall back to the URL version segment the app
+    // actually routes under ("v1" — the src/Api/routes.php group prefix), so the
+    // server URL (base + "/v1") matches real endpoints, a versioned spec file is
+    // written, and RapiDoc gets a valid spec-url instead of "../undefined".
+    if (this.versions.size === 0) {
+      this.versions.add('1.0');
+    }
 
     // Sort versions (newest first)
     const sortedVersions = Array.from(this.versions).sort((a, b) => {
