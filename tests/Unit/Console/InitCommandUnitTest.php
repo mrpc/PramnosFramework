@@ -240,6 +240,226 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * With auth + authserver features and the REST API enabled, the scaffold
+     * emits thin API-controller wrappers over the framework Auth controllers and
+     * wires their routes. Verifies the files exist, are valid PHP, extend the
+     * right base classes, and that routes.php references them.
+     */
+    public function testScaffoldsDefaultApiControllersForAuthFeatures(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'TestApp',
+            '--namespace' => 'TestApp',
+            '--features'  => 'auth,authserver',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--rest-api'  => 'y',
+            '--api-docs'  => 'y',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'testapp_db',
+            '--db-user'   => 'testapp',
+            '--db-pass'   => 'secret',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — wrapper files exist and are valid PHP
+        $ctrlDir = $this->tmpDir . '/src/Api/Controllers';
+        foreach (['Session', 'Me', 'Account', 'Capabilities'] as $class) {
+            $this->assertFileExists("$ctrlDir/$class.php");
+            $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg("$ctrlDir/$class.php") . ' 2>&1');
+            $this->assertMatchesRegularExpression('/No syntax errors/', (string) $lint,
+                "$class.php must be valid PHP");
+        }
+
+        // Assert — each extends the correct framework Auth controller
+        $this->assertStringContainsString('class Session extends \Pramnos\Auth\Controllers\Session',
+            file_get_contents("$ctrlDir/Session.php"));
+        $this->assertStringContainsString('class Me extends \Pramnos\Auth\Controllers\Me',
+            file_get_contents("$ctrlDir/Me.php"),
+            'Me delegates to the framework Me controller (profile + personal tokens)');
+        $this->assertStringContainsString('class Account extends \Pramnos\Auth\Controllers\ApiAccount',
+            file_get_contents("$ctrlDir/Account.php"),
+            'the API Account wrapper delegates to the JSON ApiAccount controller, not the web Account');
+        $this->assertStringContainsString('class Capabilities extends \Pramnos\Auth\Controllers\Capabilities',
+            file_get_contents("$ctrlDir/Capabilities.php"));
+
+        // Assert — routes wired and the whole routes.php is valid PHP
+        $routes = file_get_contents($this->tmpDir . '/src/Api/routes.php');
+        $this->assertStringContainsString("\$r->get('/me'", $routes);
+        $this->assertStringContainsString("\$r->get('/me/tokens'", $routes);
+        $this->assertStringContainsString("\$r->delete('/me/tokens/{tokenid}'", $routes);
+        $this->assertStringContainsString("\$r->get('/session/info'", $routes);
+        $this->assertStringContainsString("\$r->post('/capabilities/sync'", $routes);
+        $this->assertStringContainsString('TestApp\Api\Controllers\Me', $routes,
+            'routes target the app Api\\Controllers namespace explicitly');
+        $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($this->tmpDir . '/src/Api/routes.php') . ' 2>&1');
+        $this->assertMatchesRegularExpression('/No syntax errors/', (string) $lint, 'routes.php must be valid PHP');
+
+        // Assert — the inherited endpoints are documented via openapi-overrides.json
+        // (apidoc can't see them, so their OpenAPI paths are injected here).
+        $overrides = json_decode(file_get_contents($this->tmpDir . '/src/Api/openapi-overrides.json'), true);
+        $this->assertArrayHasKey('/me', $overrides['paths']);
+        $this->assertArrayHasKey('/session/info', $overrides['paths']);
+        $this->assertArrayHasKey('/account/login', $overrides['paths']);
+        $this->assertArrayHasKey('/capabilities/sync', $overrides['paths']);
+        // OAuth endpoints ARE documented, but with a path-level server override to
+        // the site ROOT (they live on the web front controller, not the API base).
+        $this->assertArrayHasKey('/oauth/token', $overrides['paths']);
+        $this->assertArrayHasKey('servers', $overrides['paths']['/oauth/token'],
+            'OAuth paths carry a server override to the site root');
+        $this->assertStringNotContainsString('/1.0', $overrides['paths']['/oauth/token']['servers'][0]['url'],
+            'the OAuth server is the site root, not the versioned API base');
+        $this->assertArrayHasKey('OAuth2', $overrides['components']['securitySchemes'],
+            'authserver adds the oauth2 security scheme');
+
+        // Endpoints use per-resource groups + operationIds (apidoc house style),
+        // not descriptions.
+        $this->assertSame(['Me'], $overrides['paths']['/me']['get']['tags']);
+        $this->assertSame('getMe', $overrides['paths']['/me']['get']['operationId']);
+        $this->assertSame(['Account'], $overrides['paths']['/account/login']['post']['tags']);
+        $this->assertSame('login', $overrides['paths']['/account/login']['post']['operationId']);
+        $this->assertSame(['Session'], $overrides['paths']['/session/info']['get']['tags']);
+
+        // Without Docker there is no local server override, but the OAuth server
+        // still yields a pre-filled dev API key for the docs.
+        $apidoc = json_decode(file_get_contents($this->tmpDir . '/src/Api/apidoc.json'), true);
+        $this->assertSame('', $apidoc['localServer']);
+        $this->assertSame('localtestkey', $apidoc['defaultApiKey'],
+            'authserver pre-fills the stable dev API key into the docs');
+    }
+
+    /**
+     * With Docker enabled, apidoc.json records the local Docker environment as the
+     * localServer (which the generator makes the default server in the docs).
+     */
+    public function testApiDocsRecordsDockerLocalServer(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — Docker on (the Step-6 lifecycle is skipped via skipDockerRun).
+        $tester->execute([
+            '--app-name'    => 'TestApp',
+            '--namespace'   => 'TestApp',
+            '--features'    => 'auth,authserver',
+            '--ui-system'   => 'plain-css',
+            '--docker'      => 'y',
+            '--docker-port' => '8080',
+            '--cache-system' => 'none',
+            '--libraries'   => '',
+            '--rest-api'    => 'y',
+            '--api-docs'    => 'y',
+            '--db-type'     => 'mysql',
+            '--db-host'     => 'db',
+            '--db-name'     => 'testapp_db',
+            '--db-user'     => 'testapp',
+            '--db-pass'     => 'secret',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert — Docker env is the (default) local server, and a dev API key is
+        // pre-filled for instant "Authorize" in the docs.
+        $apidoc = json_decode(file_get_contents($this->tmpDir . '/src/Api/apidoc.json'), true);
+        $this->assertSame('http://localhost:8080/api', $apidoc['localServer'],
+            'the Docker environment is recorded as the local server');
+        $this->assertSame('localtestkey', $apidoc['defaultApiKey']);
+    }
+
+    /**
+     * With the auth feature but NOT authserver, the overrides document the
+     * auth/session endpoints but include no OAuth2 scheme or /oauth paths.
+     */
+    public function testApiOverridesForAuthWithoutServer(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'  => 'TestApp',
+            '--namespace' => 'TestApp',
+            '--features'  => 'auth',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--rest-api'  => 'y',
+            '--api-docs'  => 'y',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'testapp_db',
+            '--db-user'   => 'testapp',
+            '--db-pass'   => 'secret',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert
+        $overrides = json_decode(file_get_contents($this->tmpDir . '/src/Api/openapi-overrides.json'), true);
+        $this->assertArrayHasKey('/me', $overrides['paths']);
+        $this->assertArrayHasKey('/session/info', $overrides['paths']);
+        $this->assertArrayNotHasKey('/oauth/token', $overrides['paths'],
+            'no OAuth paths without the authserver feature');
+        $this->assertArrayNotHasKey('securitySchemes', $overrides['components'],
+            'no OAuth2 scheme without the authserver feature');
+    }
+
+    /**
+     * With the REST API enabled but no auth-related features, no API controllers
+     * are scaffolded and routes.php keeps only the commented example.
+     */
+    public function testNoApiControllersWithoutAuthFeatures(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — REST API + API docs on, but no features
+        $tester->execute([
+            '--app-name'  => 'TestApp',
+            '--namespace' => 'TestApp',
+            '--features'  => '',
+            '--ui-system' => 'plain-css',
+            '--docker'    => 'n',
+            '--libraries' => '',
+            '--rest-api'  => 'y',
+            '--api-docs'  => 'y',
+            '--db-type'   => 'mysql',
+            '--db-host'   => 'localhost',
+            '--db-name'   => 'testapp_db',
+            '--db-user'   => 'testapp',
+            '--db-pass'   => 'secret',
+            '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert — no wrapper controllers, and routes.php has only the example
+        $this->assertFileDoesNotExist($this->tmpDir . '/src/Api/Controllers/Session.php');
+        $this->assertFileDoesNotExist($this->tmpDir . '/src/Api/Controllers/Capabilities.php');
+        $routes = file_get_contents($this->tmpDir . '/src/Api/routes.php');
+        $this->assertStringContainsString('// Example:', $routes);
+        $this->assertStringNotContainsString("\$r->get('/me'", $routes);
+
+        // Assert — with no features the overrides are the empty stub (paths: {})
+        $overrides = json_decode(file_get_contents($this->tmpDir . '/src/Api/openapi-overrides.json'), true);
+        $this->assertSame([], $overrides['paths'], 'no endpoints injected without features');
+    }
+
+    /**
      * www/.htaccess must route via r=$1 so that Pramnos\Http\Request::calcParams()
      * is triggered for every request — the framework reads $_GET['r'] to determine
      * the controller.  Using url=$1 (the wrong key) leaves self::$_controller
@@ -1065,7 +1285,7 @@ class InitCommandUnitTest extends TestCase
      * src/Api/routes.php must demonstrate Router::group() usage so developers
      * have a working template to extend.
      *
-     * The group call is the canonical way to apply a shared prefix (e.g. /v1)
+     * The group call is the canonical way to apply a shared prefix (e.g. /1.0)
      * and middleware to a set of API routes.
      */
     public function testRestApiRoutesFileContainsRouterGroupAndNamespaceComment(): void
@@ -1106,9 +1326,10 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('$router->group(', $routes,
             'routes.php must demonstrate Router::group() usage');
 
-        // Assert — version prefix /v1 is present
-        $this->assertStringContainsString("'prefix' => '/v1'", $routes,
-            'routes.php group must define a /v1 prefix');
+        // Assert — the version prefix derives from the APIVERSION constant
+        // (single source of truth with app.php 'api_version').
+        $this->assertStringContainsString("'prefix' => '/' . (defined('APIVERSION') ? APIVERSION : '1.0')", $routes,
+            'routes.php group prefix must derive from APIVERSION');
 
         // Assert — dispatch call returns to _executeCore caller
         $this->assertStringContainsString('return $router->dispatch($newRequest)', $routes,
@@ -1159,10 +1380,14 @@ class InitCommandUnitTest extends TestCase
             "app.php must contain 'api' key when --rest-api=y");
         $this->assertStringContainsString("'prefix'", $appConfig,
             "api section must contain 'prefix' key");
-        $this->assertStringContainsString('/api/v1', $appConfig,
-            "api prefix must default to /api/v1");
+        $this->assertStringContainsString('/api/1.0', $appConfig,
+            "api prefix must default to /api/1.0");
         $this->assertStringContainsString("'cors_origins'", $appConfig,
             "api section must contain 'cors_origins' key");
+        // Top-level api_version drives the APIVERSION constant (version checks +
+        // routes prefix).
+        $this->assertStringContainsString("'api_version' => '1.0'", $appConfig,
+            "app.php must set top-level 'api_version' so APIVERSION is defined");
         $this->assertStringContainsString("'version'", $appConfig,
             "api section must contain 'version' key");
     }

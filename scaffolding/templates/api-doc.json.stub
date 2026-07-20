@@ -8,5 +8,8 @@
     "theme": "dark",
     "prefsKey": "{{ APP_KEY }}-api-prefs",
 
-    "additionalServers": []
+    "localServer": "{{ LOCAL_SERVER }}",
+    "additionalServers": [],
+
+    "defaultApiKey": "{{ DEFAULT_API_KEY }}"
 }

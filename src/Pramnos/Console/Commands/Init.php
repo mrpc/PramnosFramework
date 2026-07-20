@@ -131,6 +131,13 @@ class Init extends Command
             [$withApiDocs, $apiUrl, $apiColor] = $this->askApiDocs($input, $output, $helper, $appName);
         }
 
+        // A ready-to-use, stable API key for the seed "Development" application,
+        // created after migrations. Fixed value (not random) so it is predictable
+        // for local testing: pre-filled into the API docs (RapiDoc "Authorize")
+        // and reported in the final summary. Only with the OAuth server, whose
+        // migrations create the `applications` table.
+        $apiKey = in_array('authserver', $enabledFeatures, true) ? 'localtestkey' : '';
+
         // ── Step 3: UI system ─────────────────────────────────────────────────
         $uiSystem = $this->askUiSystem($input, $output, $helper);
 
@@ -297,21 +304,26 @@ class Init extends Command
         }
 
         if ($useDocker) {
-            $this->scaffoldDocker($namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem, $dbRootPass, $cliName);
+            // $withApiDocs implies the app image needs Node/npm + apidoc so the
+            // OpenAPI/RapiDoc docs can be generated inside the container.
+            $this->scaffoldDocker($namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem, $dbRootPass, $cliName, $withApiDocs);
         }
 
         $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker, $enabledFeatures);
         $this->scaffoldGitignore($enabledFeatures);
 
         if ($withRestApi) {
-            $this->scaffoldRestApi($namespace);
+            $this->scaffoldRestApi($namespace, $enabledFeatures);
             if ($withApiDocs) {
-                // When the OAuth server is also enabled, the generated OpenAPI is
-                // enriched with an oauth2 security scheme + the machine OAuth
-                // endpoints so API consumers can obtain a token (RapiDoc "Authorize").
+                // The generated OpenAPI is enriched (via openapi-overrides.json)
+                // with the endpoints of the feature-scaffolded API controllers —
+                // whose actions are inherited from framework controllers and so are
+                // invisible to apidoc — plus the OAuth2 security scheme when the
+                // server is enabled.
                 $this->scaffoldApiDocs(
-                    $appName, $namespace, $apiUrl, $apiColor,
-                    in_array('authserver', $enabledFeatures, true)
+                    $appName, $namespace, $apiUrl, $apiColor, $enabledFeatures,
+                    $useDocker ? "http://localhost:{$dockerPort}/api" : '',
+                    $apiKey
                 );
             }
         }
@@ -385,6 +397,22 @@ class Init extends Command
                         $output->writeln('  <comment>Admin user creation skipped — migrations did not complete successfully.</comment>');
                         $output->writeln("  Run manually after fixing migrations: docker-compose exec app php $cliName.php migrate --scope=framework");
                     }
+
+                    // Seed a "Development" OAuth application with the pre-generated
+                    // API key so the REST API can be exercised immediately (the key
+                    // is pre-filled into the docs and printed in the summary).
+                    if ($this->migrationsSuccess && $apiKey !== '') {
+                        $this->createApiApplication($output, $apiKey);
+                    }
+                }
+
+                // Generate the API documentation now that Node is available in the
+                // container (installed only when API docs are enabled). Best-effort:
+                // a failure here must never fail init. doc.sh runs docs:build in the
+                // container and already skips the apiDoc HTML step when there are no
+                // annotated controllers yet.
+                if ($withApiDocs) {
+                    $this->runProcessWithSpinner('bash scripts/doc.sh 2>&1', 'Generating API documentation', $output);
                 }
             }
             // @codeCoverageIgnoreEnd
@@ -395,9 +423,18 @@ class Init extends Command
             if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {
                 $this->autoloadSuccess = false; // @codeCoverageIgnore — composer sync always exits 0 in the test environment
             }
+
+            // Generate the API documentation on the host (best-effort; requires a
+            // local Node/npm). Guarded by skipDockerRun so the unit-test scaffold
+            // never shells out to npm.
+            if ($withApiDocs && !$this->skipDockerRun) {
+                // @codeCoverageIgnoreStart — never exercised: tests set skipDockerRun
+                $this->runProcessWithSpinner('bash scripts/doc.sh --host 2>&1', 'Generating API documentation', $output);
+                // @codeCoverageIgnoreEnd
+            }
         }
 
-        $this->printSummary($output, $useDocker, $dockerPort, $dbType, $dbUser, $dbPass, $dbRootPass, $cliName, (bool) $input->getOption('no-migrations'), $withRestApi);
+        $this->printSummary($output, $useDocker, $dockerPort, $dbType, $dbUser, $dbPass, $dbRootPass, $cliName, (bool) $input->getOption('no-migrations'), $withRestApi, $withApiDocs, $apiKey);
 
         return 0;
     }
@@ -594,7 +631,7 @@ class Init extends Command
         array  $features,
         string $scaffoldTheme = '',
         bool   $withApi = false,
-        string $apiPrefix = '/api/v1'
+        string $apiPrefix = '/api/1.0'
     ): void {
         $featuresPhp = empty($features)
             ? "    'features' => [],\n"
@@ -604,8 +641,12 @@ class Init extends Command
             ? "    'scaffold_theme' => '$scaffoldTheme',\n"
             : '';
 
+        // 'api_version' (top-level) is what Api::__construct reads to define the
+        // APIVERSION constant — used for version checks and the routes.php group
+        // prefix. Keep it in sync with the 'api' section + the routes prefix.
         $apiSection = $withApi
-            ? "    'api' => [\n        'prefix'       => '$apiPrefix',\n        'cors_origins' => ['*'],\n        'version'      => 'v1',\n    ],\n"
+            ? "    'api_version' => '1.0',\n"
+              . "    'api' => [\n        'prefix'       => '$apiPrefix',\n        'cors_origins' => ['*'],\n        'version'      => '1.0',\n    ],\n"
             : '';
 
         // When the auth feature is enabled, register only the auth addon.
@@ -704,7 +745,7 @@ class Init extends Command
         return [$enabled, $apiUrl, $apiColor];
     }
 
-    private function scaffoldApiDocs(string $appName, string $namespace, string $apiUrl, string $apiColor, bool $withAuthServer = false): void
+    private function scaffoldApiDocs(string $appName, string $namespace, string $apiUrl, string $apiColor, array $enabledFeatures = [], string $localServerUrl = '', string $defaultApiKey = ''): void
     {
         $this->mkdir('scripts');
         $this->mkdir('www/api/docs');
@@ -712,25 +753,32 @@ class Init extends Command
 
         $appKey = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $namespace));
 
+        // localServer (when set — e.g. the Docker environment) becomes the default
+        // server in the generated docs; an empty value is ignored by the generator.
+        // defaultApiKey pre-fills RapiDoc's "Authorize" api key for instant testing.
         $this->writeFile('src/Api/apidoc.json', $this->renderStub('api-doc.json', [
-            'APP_NAME'      => $appName,
-            'API_URL'       => rtrim($apiUrl, '/'),
-            'PRIMARY_COLOR' => $apiColor,
-            'APP_KEY'       => $appKey,
+            'APP_NAME'        => $appName,
+            'API_URL'         => rtrim($apiUrl, '/'),
+            'PRIMARY_COLOR'   => $apiColor,
+            'APP_KEY'         => $appKey,
+            'LOCAL_SERVER'    => rtrim($localServerUrl, '/'),
+            'DEFAULT_API_KEY' => $defaultApiKey,
         ]));
 
-        // The OAuth server lives on the main web front controller (not the REST
-        // API layer), so its machine endpoints never get picked up by apidoc
-        // (which only scans src/Api/Controllers). When it is enabled we pre-fill
-        // openapi-overrides.json — deep-merged over the generated spec — with an
-        // oauth2 security scheme and the token/userinfo/introspect/revoke/device
-        // endpoints, so consumers can authenticate and call the API. Otherwise we
-        // keep the empty stub.
-        if ($withAuthServer) {
+        // The scaffolded API controllers (Me/Session/Account/Capabilities) inherit
+        // their actions from framework controllers, and the OAuth server lives on
+        // the main web front controller — so apidoc (which only scans
+        // src/Api/Controllers) never sees any of these endpoints. When a relevant
+        // feature is enabled we pre-fill openapi-overrides.json — deep-merged over
+        // the generated spec — with those paths (and, for the OAuth server, an
+        // oauth2 security scheme). Otherwise we keep the empty stub.
+        $hasAuth       = in_array('auth', $enabledFeatures, true);
+        $hasAuthServer = in_array('authserver', $enabledFeatures, true);
+        if ($hasAuth || $hasAuthServer) {
             $this->writeFile(
                 'src/Api/openapi-overrides.json',
                 json_encode(
-                    $this->buildOAuthApiOverrides($appName, $apiUrl),
+                    self::buildApiOverrides($appName, $apiUrl, $hasAuth, $hasAuthServer, $localServerUrl),
                     JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
                 ) . "\n"
             );
@@ -776,15 +824,28 @@ class Init extends Command
      *
      * @return array<string, mixed>
      */
-    private function buildOAuthApiOverrides(string $appName, string $apiUrl): array
+    /**
+     * Build the openapi-overrides.json payload documenting the feature-scaffolded
+     * API controllers' endpoints (whose actions are inherited from framework
+     * controllers, so apidoc can't see them). Public + static so `project:resync`
+     * can reuse it and keep old projects' docs in sync with `init`.
+     *
+     * @return array<string, mixed>
+     */
+    public static function buildApiOverrides(string $appName, string $apiUrl, bool $hasAuth, bool $hasAuthServer, string $localServerUrl = ''): array
     {
-        // Origin (scheme://host[:port]) of the API base URL — the OAuth server is
-        // assumed to be reachable at the same origin under /oauth/*.
-        $parts  = parse_url(rtrim($apiUrl, '/'));
-        $scheme = $parts['scheme'] ?? 'https';
-        $host   = $parts['host']   ?? 'api.example.com';
-        $port   = isset($parts['port']) ? ':' . $parts['port'] : '';
-        $origin = "$scheme://$host$port";
+        // The OAuth server lives on the main web front controller at the site
+        // ROOT (/oauth/*), NOT under the API base — so its URLs use the plain
+        // origin (scheme://host[:port]). Prefer the local (Docker) origin when set
+        // so the "Authorize" flow works during local testing; else the API host.
+        $originOf = static function (string $url): string {
+            $p = parse_url(rtrim($url, '/'));
+            $scheme = $p['scheme'] ?? 'https';
+            $host   = $p['host']   ?? 'api.example.com';
+            $port   = isset($p['port']) ? ':' . $p['port'] : '';
+            return "$scheme://$host$port";
+        };
+        $origin = $originOf($localServerUrl !== '' ? $localServerUrl : $apiUrl);
 
         $authorizeUrl = "$origin/oauth/authorize";
         $tokenUrl     = "$origin/oauth/token";
@@ -807,125 +868,306 @@ class Init extends Command
             return ['description' => $description, 'content' => ['application/json' => ['schema' => $schema]]];
         };
 
-        return [
+        $paths = [];
+
+        // ── auth feature: the scaffolded /me, /session and /account wrappers ──
+        // Their endpoints are inherited from framework controllers, so apidoc
+        // (which scans only src/Api/Controllers) can't see them — document them
+        // here instead.
+        if ($hasAuth) {
+            // Per-resource groups (@apiGroup) with short titles (summary) and
+            // camelCase names (operationId) — matching the apidoc house style.
+            $paths['/me'] = [
+                'get' => [
+                    'tags'        => ['Me'],
+                    'operationId' => 'getMe',
+                    'summary'     => 'Get',
+                    'description' => "The current authenticated user's public profile.",
+                    'responses'   => [
+                        '200' => $jsonResponse('Current user', ['data' => ['type' => 'object']]),
+                        '401' => ['description' => 'not_authenticated'],
+                    ],
+                ],
+            ];
+            $paths['/me/tokens'] = [
+                'get' => [
+                    'tags'        => ['Me'],
+                    'operationId' => 'getMeTokens',
+                    'summary'     => 'Get Tokens',
+                    'description' => "The current user's active tokens.",
+                    'responses'   => [
+                        '200' => $jsonResponse('Active tokens', ['data' => ['type' => 'array', 'items' => ['type' => 'object']]]),
+                        '401' => ['description' => 'not_authenticated'],
+                    ],
+                ],
+            ];
+            $paths['/me/tokens/{tokenid}'] = [
+                'delete' => [
+                    'tags'        => ['Me'],
+                    'operationId' => 'deleteMeToken',
+                    'summary'     => 'Revoke Token',
+                    'description' => "Revoke one of the current user's tokens.",
+                    'parameters'  => [
+                        ['name' => 'tokenid', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']],
+                    ],
+                    'responses'   => [
+                        '200' => $jsonResponse('Token revoked', ['status' => ['type' => 'string']]),
+                        '400' => ['description' => 'invalid_request'],
+                        '401' => ['description' => 'not_authenticated'],
+                    ],
+                ],
+            ];
+            $paths['/session/info'] = [
+                'get' => [
+                    'tags'        => ['Session'],
+                    'operationId' => 'getSessionInfo',
+                    'summary'     => 'Info',
+                    'description' => 'Detailed session + user info.',
+                    'responses'   => [
+                        '200' => $jsonResponse('Session info'),
+                        '401' => ['description' => 'Not authenticated'],
+                    ],
+                ],
+            ];
+            $paths['/session/check'] = [
+                'get' => [
+                    'tags'        => ['Session'],
+                    'operationId' => 'getSessionCheck',
+                    'summary'     => 'Check',
+                    'description' => 'Is the session / token still valid?',
+                    'responses'   => ['200' => $jsonResponse('Validity')],
+                ],
+            ];
+            $paths['/session/heartbeat'] = [
+                'get' => [
+                    'tags'        => ['Session'],
+                    'operationId' => 'sessionHeartbeat',
+                    'summary'     => 'Heartbeat',
+                    'description' => 'Extend session last_activity.',
+                    'responses'   => ['200' => $jsonResponse('Heartbeat')],
+                ],
+            ];
+            $paths['/session/refresh'] = [
+                'post' => [
+                    'tags'        => ['Session'],
+                    'operationId' => 'sessionRefresh',
+                    'summary'     => 'Refresh',
+                    'description' => 'Extend session lifetime (session-cookie clients only).',
+                    'responses'   => [
+                        '200' => $jsonResponse('Refreshed'),
+                        '400' => ['description' => 'Bearer clients must use the refresh_token grant'],
+                    ],
+                ],
+            ];
+            $paths['/account/login'] = [
+                'post' => [
+                    'tags'        => ['Account'],
+                    'operationId' => 'login',
+                    'summary'     => 'Login',
+                    'description' => 'Authenticate with credentials (JSON) and receive a bearer access token. Send the token back in the accessToken header on subsequent requests.',
+                    'security'    => [],
+                    'requestBody' => [
+                        'required' => true,
+                        'content'  => ['application/json' => ['schema' => [
+                            'type'       => 'object',
+                            'required'   => ['username', 'password'],
+                            'properties' => [
+                                'username' => ['type' => 'string'],
+                                'password' => ['type' => 'string', 'format' => 'password'],
+                            ],
+                        ]]],
+                    ],
+                    'responses' => [
+                        '200' => $jsonResponse('Authenticated', [
+                            'status'       => ['type' => 'string', 'example' => 'success'],
+                            'access_token' => ['type' => 'string'],
+                            'token_type'   => ['type' => 'string', 'example' => 'Bearer'],
+                            'user'         => ['type' => 'object'],
+                        ]),
+                        '400' => ['description' => 'missing_credentials'],
+                        '401' => ['description' => 'invalid_credentials'],
+                    ],
+                ],
+            ];
+            $paths['/account/logout'] = [
+                'post' => [
+                    'tags'        => ['Account'],
+                    'operationId' => 'logout',
+                    'summary'     => 'Logout',
+                    'description' => 'Revoke the presented access token (accessToken header).',
+                    'responses'   => ['200' => $jsonResponse('Logged out', ['status' => ['type' => 'string']])],
+                ],
+            ];
+        }
+
+        // ── authserver feature: OAuth2 endpoints + capability sync ──
+        if ($hasAuthServer) {
+            // The OAuth server lives on the web front controller at the site ROOT
+            // (/oauth/*), NOT under the API base (/api/<version>). So each OAuth
+            // path carries its own `servers` override pointing at the root origin,
+            // so the docs list them AND "Try it" targets the correct URL. Local
+            // (Docker) first so it is the default; production second.
+            $oauthServers = [];
+            if ($localServerUrl !== '') {
+                $oauthServers[] = ['url' => $originOf($localServerUrl), 'description' => 'Local development (Docker)'];
+            }
+            $oauthServers[] = ['url' => $originOf($apiUrl), 'description' => 'Authorization server'];
+
+            $paths['/oauth/token'] = [
+                'servers' => $oauthServers,
+                'post'    => [
+                    'tags'        => ['OAuth2'],
+                    'operationId' => 'oauthToken',
+                    'summary'     => 'Token',
+                    'description' => 'OAuth2 token endpoint (RFC 6749). Lives at the site root, not under the API base. Accepts application/x-www-form-urlencoded; the client authenticates via credentials in the body or the Authorization header.',
+                    'security'    => [],
+                    'requestBody' => $formToken([
+                        'grant_type'    => ['type' => 'string', 'example' => 'client_credentials', 'description' => 'authorization_code | client_credentials | refresh_token | urn:ietf:params:oauth:grant-type:device_code'],
+                        'client_id'     => ['type' => 'string'],
+                        'client_secret' => ['type' => 'string'],
+                        'code'          => ['type' => 'string', 'description' => 'Authorization code (authorization_code grant)'],
+                        'redirect_uri'  => ['type' => 'string'],
+                        'refresh_token' => ['type' => 'string'],
+                        'scope'         => ['type' => 'string'],
+                    ], ['grant_type']),
+                    'responses' => [
+                        '200' => $jsonResponse('Token issued', [
+                            'access_token'  => ['type' => 'string'],
+                            'token_type'    => ['type' => 'string', 'example' => 'Bearer'],
+                            'expires_in'    => ['type' => 'integer'],
+                            'refresh_token' => ['type' => 'string'],
+                            'scope'         => ['type' => 'string'],
+                            'id_token'      => ['type' => 'string', 'description' => 'Present when the openid scope is granted'],
+                        ]),
+                        '400' => ['description' => 'invalid_request / invalid_grant'],
+                        '401' => ['description' => 'invalid_client'],
+                    ],
+                ],
+            ];
+            $paths['/oauth/userinfo'] = [
+                'servers' => $oauthServers,
+                'get'     => [
+                    'tags'        => ['OAuth2'],
+                    'operationId' => 'oauthUserinfo',
+                    'summary'     => 'UserInfo',
+                    'description' => 'OpenID Connect UserInfo. Requires a Bearer access token carrying the openid scope.',
+                    'security'    => [['OAuth2' => ['openid', 'profile', 'email']]],
+                    'responses'   => [
+                        '200' => $jsonResponse('User claims'),
+                        '401' => ['description' => 'invalid_token'],
+                    ],
+                ],
+            ];
+            $paths['/oauth/introspect'] = [
+                'servers' => $oauthServers,
+                'post'    => [
+                    'tags'        => ['OAuth2'],
+                    'operationId' => 'oauthIntrospect',
+                    'summary'     => 'Introspect',
+                    'description' => 'Token introspection (RFC 7662). Requires client authentication; form-encoded.',
+                    'requestBody' => $formToken(['token' => ['type' => 'string']], ['token']),
+                    'responses'   => [
+                        '200' => $jsonResponse('Introspection result', ['active' => ['type' => 'boolean']]),
+                        '401' => ['description' => 'invalid_client'],
+                    ],
+                ],
+            ];
+            $paths['/oauth/revoke'] = [
+                'servers' => $oauthServers,
+                'post'    => [
+                    'tags'        => ['OAuth2'],
+                    'operationId' => 'oauthRevoke',
+                    'summary'     => 'Revoke',
+                    'description' => 'Token revocation (RFC 7009); form-encoded.',
+                    'requestBody' => $formToken(['token' => ['type' => 'string']], ['token']),
+                    'responses'   => [
+                        '200' => $jsonResponse('Token revoked', ['success' => ['type' => 'boolean']]),
+                        '400' => ['description' => 'invalid_request'],
+                    ],
+                ],
+            ];
+            $paths['/oauth/deviceauthorization'] = [
+                'servers' => $oauthServers,
+                'post'    => [
+                    'tags'        => ['OAuth2'],
+                    'operationId' => 'oauthDeviceAuthorization',
+                    'summary'     => 'Device Authorization',
+                    'description' => 'Device authorization (RFC 8628); form-encoded.',
+                    'requestBody' => $formToken([
+                        'client_id' => ['type' => 'string'],
+                        'scope'     => ['type' => 'string'],
+                    ]),
+                    'responses' => [
+                        '200' => $jsonResponse('Device and user codes', [
+                            'device_code'      => ['type' => 'string'],
+                            'user_code'        => ['type' => 'string'],
+                            'verification_uri' => ['type' => 'string'],
+                            'expires_in'       => ['type' => 'integer'],
+                            'interval'         => ['type' => 'integer'],
+                        ]),
+                    ],
+                ],
+            ];
+
+            // Capability sync IS an API-layer endpoint (under /api/<version>) — no
+            // server override.
+            $paths['/capabilities/sync'] = [
+                'post' => [
+                    'tags'        => ['Capabilities'],
+                    'operationId' => 'capabilitiesSync',
+                    'summary'     => 'Sync',
+                    'description' => 'Sync OAuth client capabilities.',
+                    'responses'   => [
+                        '200' => $jsonResponse('Capabilities synced'),
+                        '401' => ['description' => 'unauthorized'],
+                        '405' => ['description' => 'method_not_allowed'],
+                    ],
+                ],
+            ];
+        }
+
+        $overrides = [
             '_comment' => 'Optional manual overrides deep-merged over the auto-generated OpenAPI spec.',
-            '_usage'   => 'OAuth2 security scheme and endpoints were pre-filled because the OAuth server feature is enabled. Adjust the oauth URLs if the authorization server is hosted on a different host than the API.',
+            '_usage'   => 'Endpoints for the scaffolded API controllers were pre-filled from the enabled features (their actions are inherited from framework controllers, so apidoc cannot see them). Adjust or extend as needed; for OAuth, update the oauth URLs if the authorization server is hosted on a different host than the API.',
             'info' => [
                 'contact' => [
                     'name'  => "$appName Support",
                     'email' => 'support@example.com',
                 ],
             ],
-            'security' => [
-                ['OAuth2' => array_keys($scopes)],
-            ],
-            'paths' => [
-                '/oauth/token' => [
-                    'post' => [
-                        'tags'        => ['OAuth2'],
-                        'summary'     => 'Issue an access token',
-                        'description' => 'OAuth2 token endpoint (RFC 6749). Accepts application/x-www-form-urlencoded. Public endpoint; the client authenticates via credentials in the body or the Authorization header.',
-                        'security'    => [],
-                        'requestBody' => $formToken([
-                            'grant_type'    => ['type' => 'string', 'example' => 'client_credentials', 'description' => 'authorization_code | client_credentials | refresh_token | urn:ietf:params:oauth:grant-type:device_code'],
-                            'client_id'     => ['type' => 'string'],
-                            'client_secret' => ['type' => 'string'],
-                            'code'          => ['type' => 'string', 'description' => 'Authorization code (authorization_code grant)'],
-                            'redirect_uri'  => ['type' => 'string'],
-                            'refresh_token' => ['type' => 'string'],
-                            'scope'         => ['type' => 'string'],
-                        ], ['grant_type']),
-                        'responses' => [
-                            '200' => $jsonResponse('Token issued', [
-                                'access_token'  => ['type' => 'string'],
-                                'token_type'    => ['type' => 'string', 'example' => 'Bearer'],
-                                'expires_in'    => ['type' => 'integer'],
-                                'refresh_token' => ['type' => 'string'],
-                                'scope'         => ['type' => 'string'],
-                                'id_token'      => ['type' => 'string', 'description' => 'Present when the openid scope is granted'],
-                            ]),
-                            '400' => ['description' => 'invalid_request / invalid_grant'],
-                            '401' => ['description' => 'invalid_client'],
-                        ],
-                    ],
-                ],
-                '/oauth/userinfo' => [
-                    'get' => [
-                        'tags'        => ['OAuth2'],
-                        'summary'     => 'OpenID Connect UserInfo',
-                        'description' => 'Returns claims about the authenticated user. Requires a Bearer access token carrying the openid scope.',
-                        'security'    => [['OAuth2' => ['openid', 'profile', 'email']]],
-                        'responses'   => [
-                            '200' => $jsonResponse('User claims'),
-                            '401' => ['description' => 'invalid_token'],
-                        ],
-                    ],
-                ],
-                '/oauth/introspect' => [
-                    'post' => [
-                        'tags'        => ['OAuth2'],
-                        'summary'     => 'Token introspection (RFC 7662)',
-                        'description' => 'Requires client authentication. Accepts application/x-www-form-urlencoded.',
-                        'requestBody' => $formToken(['token' => ['type' => 'string']], ['token']),
-                        'responses'   => [
-                            '200' => $jsonResponse('Introspection result', ['active' => ['type' => 'boolean']]),
-                            '401' => ['description' => 'invalid_client'],
-                        ],
-                    ],
-                ],
-                '/oauth/revoke' => [
-                    'post' => [
-                        'tags'        => ['OAuth2'],
-                        'summary'     => 'Token revocation (RFC 7009)',
-                        'requestBody' => $formToken(['token' => ['type' => 'string']], ['token']),
-                        'responses'   => [
-                            '200' => $jsonResponse('Token revoked', ['success' => ['type' => 'boolean']]),
-                            '400' => ['description' => 'invalid_request'],
-                        ],
-                    ],
-                ],
-                '/oauth/deviceauthorization' => [
-                    'post' => [
-                        'tags'        => ['OAuth2'],
-                        'summary'     => 'Device authorization (RFC 8628)',
-                        'requestBody' => $formToken([
-                            'client_id' => ['type' => 'string'],
-                            'scope'     => ['type' => 'string'],
-                        ]),
-                        'responses' => [
-                            '200' => $jsonResponse('Device and user codes', [
-                                'device_code'      => ['type' => 'string'],
-                                'user_code'        => ['type' => 'string'],
-                                'verification_uri' => ['type' => 'string'],
-                                'expires_in'       => ['type' => 'integer'],
-                                'interval'         => ['type' => 'integer'],
-                            ]),
-                        ],
-                    ],
-                ],
-            ],
+            'paths'      => $paths,
             'components' => [
-                'securitySchemes' => [
-                    'OAuth2' => [
-                        'type'        => 'oauth2',
-                        'description' => 'OAuth2 / OpenID Connect authorization server for this application.',
-                        'flows'       => [
-                            'authorizationCode' => [
-                                'authorizationUrl' => $authorizeUrl,
-                                'tokenUrl'         => $tokenUrl,
-                                'refreshUrl'       => $tokenUrl,
-                                'scopes'           => $scopes,
-                            ],
-                            'clientCredentials' => [
-                                'tokenUrl' => $tokenUrl,
-                                'scopes'   => $scopes,
-                            ],
-                        ],
-                    ],
-                ],
                 'schemas' => (object) [],
             ],
         ];
+
+        // The OAuth2 security scheme (and the global security requirement that
+        // drives RapiDoc's "Authorize" button) only make sense with the server.
+        if ($hasAuthServer) {
+            $overrides['security'] = [
+                ['OAuth2' => array_keys($scopes)],
+            ];
+            $overrides['components']['securitySchemes'] = [
+                'OAuth2' => [
+                    'type'        => 'oauth2',
+                    'description' => 'OAuth2 / OpenID Connect authorization server for this application.',
+                    'flows'       => [
+                        'authorizationCode' => [
+                            'authorizationUrl' => $authorizeUrl,
+                            'tokenUrl'         => $tokenUrl,
+                            'refreshUrl'       => $tokenUrl,
+                            'scopes'           => $scopes,
+                        ],
+                        'clientCredentials' => [
+                            'tokenUrl' => $tokenUrl,
+                            'scopes'   => $scopes,
+                        ],
+                    ],
+                ],
+            ];
+        }
+
+        return $overrides;
     }
 
     private function ensurePackageJsonApiScripts(string $namespace): void
@@ -941,16 +1183,37 @@ class Init extends Command
                 'description' => 'Node tooling for ' . $namespace,
             ];
         }
+        $pkg = self::mergeApiDocsPackageJson($pkg);
+        file_put_contents($pkgPath, json_encode($pkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+    }
+
+    /**
+     * Merge the API-docs npm scripts + dev-dependencies into a package.json array.
+     *
+     * Single source of truth shared by `init` (first scaffold) and
+     * `project:resync` (refresh an existing project), so the two never drift.
+     * Existing keys are preserved; only the API-docs entries are added/updated.
+     *
+     * @param array<string, mixed> $pkg Decoded package.json (may be empty)
+     * @return array<string, mixed>
+     */
+    public static function mergeApiDocsPackageJson(array $pkg): array
+    {
         $pkg['scripts'] = array_merge($pkg['scripts'] ?? [], [
-            'apidoc'   => 'node scripts/apidoc-to-openapi.js',
-            'docs'     => 'bash scripts/doc.sh',
+            'apidoc:generate'  => 'apidoc -i src/Api/Controllers/ -o www/api/docs/old -c src/Api/apidoc.json',
+            'openapi:generate' => 'node scripts/apidoc-to-openapi.js',
+            'docs:build'       => 'npm run apidoc:generate && npm run openapi:generate',
+            // Wrapper: runs docs:build inside the Docker container by default, or
+            // on the host with `bash scripts/doc.sh --host`.
+            'docs'             => 'bash scripts/doc.sh',
         ]);
         if (!isset($pkg['dependencies']['rapidoc'])) {
             $pkg['devDependencies'] = array_merge($pkg['devDependencies'] ?? [], [
+                'apidoc'  => '^1.2.0',
                 'rapidoc' => '^9.3.4',
             ]);
         }
-        file_put_contents($pkgPath, json_encode($pkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        return $pkg;
     }
 
     /**
@@ -1017,9 +1280,22 @@ PHP;
         }
     }
 
-    private function scaffoldRestApi(string $namespace): void
+    private function scaffoldRestApi(string $namespace, array $enabledFeatures = []): void
     {
         $this->mkdir('src/Api/Controllers');
+
+        // Default API controllers (thin wrappers over framework Auth controllers)
+        // + their route registrations, gated by the enabled features.
+        $routeBlock = $this->scaffoldApiControllers($namespace, $enabledFeatures);
+        if (trim($routeBlock) === '') {
+            // No auth-related features: leave a working commented example. The API
+            // Router executes closures (not [Class, 'method'] arrays), so the
+            // example instantiates the controller and calls the action directly.
+            $routeBlock = "        // Example:\n"
+                . "        // \$r->get('/hello', function () {\n"
+                . "        //     return (new \\{$namespace}\\Api\\Controllers\\HelloController(\$this))->index();\n"
+                . "        // });";
+        }
 
         $routesStub = <<<'ROUTES'
 <?php
@@ -1032,16 +1308,18 @@ $router     = new \Pramnos\Routing\Router($this);
 $newRequest = new \Pramnos\Http\Request();
 
 $router->group(
-    ['prefix' => '/v1'],
+    // Version prefix from the APIVERSION constant (set from app.php 'api_version'),
+    // so routing and version checks share one source of truth.
+    ['prefix' => '/' . (defined('APIVERSION') ? APIVERSION : '1.0')],
     function (\Pramnos\Routing\Router $r): void {
-        // Example: $r->get('/hello', [{{ namespace }}\Api\Controllers\HelloController::class, 'index']);
+{{ routes }}
     }
 );
 
 return $router->dispatch($newRequest);
 ROUTES;
 
-        $this->writeFile('src/Api/routes.php', str_replace('{{ namespace }}', $namespace, $routesStub));
+        $this->writeFile('src/Api/routes.php', str_replace('{{ routes }}', $routeBlock, $routesStub));
 
         $apiClass = <<<PHP
 <?php
@@ -1074,6 +1352,127 @@ PHP;
             . "RewriteCond %{REQUEST_FILENAME} !-d\n"
             . "RewriteRule ^(.*)\$ index.php?r=\$1 [QSA,L]\n";
         $this->writeFile('www/api/.htaccess', $apiHtaccess);
+    }
+
+    /**
+     * Scaffold default API controllers as thin wrappers over framework Auth
+     * controllers, gated by the enabled features, and return the PHP source for
+     * their route registrations (to be injected into src/Api/routes.php).
+     *
+     * The routes use closures that instantiate the controller and call the action
+     * directly — the API Router executes closures, and this targets the app's
+     * Api\Controllers namespace explicitly (getController() resolves the web
+     * Controllers namespace, not Api\Controllers).
+     *
+     * @param list<string> $features
+     */
+    private function scaffoldApiControllers(string $namespace, array $features): string
+    {
+        $fqcn = static fn(string $class): string => '\\' . $namespace . '\\Api\\Controllers\\' . $class;
+        $lines = [];
+
+        if (in_array('auth', $features, true)) {
+            $this->writeApiWrapper(
+                $namespace,
+                'Session',
+                '\\Pramnos\\Auth\\Controllers\\Session',
+                'Session API — current session state (check / info / heartbeat / refresh).'
+            );
+            $this->writeApiWrapper(
+                $namespace,
+                'Me',
+                '\\Pramnos\\Auth\\Controllers\\Me',
+                'Me API — the current authenticated user: profile + personal token management.'
+            );
+            $this->writeApiWrapper(
+                $namespace,
+                'Account',
+                '\\Pramnos\\Auth\\Controllers\\ApiAccount',
+                'Account API — token-based auth (login issues a bearer token; logout revokes it). JSON-only, distinct from the web Account controller.'
+            );
+
+            $me      = $fqcn('Me');
+            $session = $fqcn('Session');
+            $account = $fqcn('Account');
+
+            $lines[] = "        // Current authenticated user (profile + personal tokens)";
+            $lines[] = "        \$r->get('/me', function () {";
+            $lines[] = "            return (new {$me}(\$this))->display();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->get('/me/tokens', function () {";
+            $lines[] = "            return (new {$me}(\$this))->tokens();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->delete('/me/tokens/{tokenid}', function (\$tokenid) {";
+            $lines[] = "            return (new {$me}(\$this))->deleteTokens(\$tokenid);";
+            $lines[] = "        });";
+            $lines[] = "";
+            $lines[] = "        // Session state";
+            $lines[] = "        \$r->get('/session/info', function () {";
+            $lines[] = "            return (new {$session}(\$this))->info();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->get('/session/check', function () {";
+            $lines[] = "            return (new {$session}(\$this))->check();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->get('/session/heartbeat', function () {";
+            $lines[] = "            return (new {$session}(\$this))->heartbeat();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->post('/session/refresh', function () {";
+            $lines[] = "            return (new {$session}(\$this))->refresh();";
+            $lines[] = "        });";
+            $lines[] = "";
+            $lines[] = "        // Account — token-based auth (login issues a bearer token)";
+            $lines[] = "        \$r->post('/account/login', function () {";
+            $lines[] = "            return (new {$account}(\$this))->login();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->post('/account/logout', function () {";
+            $lines[] = "            return (new {$account}(\$this))->logout();";
+            $lines[] = "        });";
+        }
+
+        if (in_array('authserver', $features, true)) {
+            $this->writeApiWrapper(
+                $namespace,
+                'Capabilities',
+                '\\Pramnos\\Auth\\Controllers\\Capabilities',
+                'Capabilities API — OAuth client capability sync.'
+            );
+            $cap = $fqcn('Capabilities');
+
+            if ($lines !== []) {
+                $lines[] = "";
+            }
+            $lines[] = "        // OAuth client capability sync";
+            $lines[] = "        \$r->post('/capabilities/sync', function () {";
+            $lines[] = "            return (new {$cap}(\$this))->sync();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->post('/capabilities/sync/{clientId}', function (\$clientId) {";
+            $lines[] = "            return (new {$cap}(\$this))->sync(\$clientId);";
+            $lines[] = "        });";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Write one thin API-controller wrapper: a class in the app's
+     * Api\Controllers namespace that extends a framework controller, so the app
+     * inherits its behaviour and can override actions in place.
+     */
+    private function writeApiWrapper(string $namespace, string $class, string $baseFqcn, string $summary): void
+    {
+        $content = "<?php\n\n"
+            . "declare(strict_types=1);\n\n"
+            . "namespace {$namespace}\\Api\\Controllers;\n\n"
+            . "/**\n"
+            . " * {$summary}\n"
+            . " *\n"
+            . " * Thin wrapper over {$baseFqcn}. Override any action to customise the\n"
+            . " * JSON payload for this application.\n"
+            . " */\n"
+            . "class {$class} extends {$baseFqcn}\n"
+            . "{\n"
+            . "}\n";
+        $this->writeFile("src/Api/Controllers/{$class}.php", $content);
     }
 
     private function scaffoldSettings(string $path, string $type, string $host, string $name, string $user, string $pass, string $prefix, bool $dev, string $cacheSystem = 'none'): void
@@ -2478,7 +2877,7 @@ echo \$pipeline->run(
 PHP;
     }
 
-    private function scaffoldDocker(string $namespace, int $port, string $dbType, string $dbName, string $dbUser, string $dbPass, string $cacheSystem, string $dbRootPass, string $cliName = ''): void
+    private function scaffoldDocker(string $namespace, int $port, string $dbType, string $dbName, string $dbUser, string $dbPass, string $cacheSystem, string $dbRootPass, string $cliName = '', bool $withApiDocs = false): void
     {
         $isPostgres = ($dbType === 'postgresql' || $dbType === 'timescaledb');
         $slug       = strtolower(str_replace([' ', '_'], '-', $namespace));
@@ -2537,6 +2936,11 @@ PHP;
         $dockerfile .= "RUN docker-php-ext-install pdo $phpExts intl mbstring zip bcmath gd\n";
         $dockerfile .= "RUN pecl install xdebug && docker-php-ext-enable xdebug\n";
         $dockerfile .= "RUN echo \"xdebug.mode=coverage\" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini\n";
+        // Node/npm + apidoc, only when API docs are enabled, so the OpenAPI/RapiDoc
+        // docs can be generated inside the container (docker-compose exec app npm run docs:build).
+        if ($withApiDocs) {
+            $dockerfile .= "RUN apt-get update && apt-get install -y nodejs npm && npm install -g apidoc && rm -rf /var/lib/apt/lists/*\n";
+        }
         $dockerfile .= "RUN a2enmod rewrite\n";
         $dockerfile .= "ENV APACHE_DOCUMENT_ROOT $docRoot\n";
         $dockerfile .= "RUN sed -ri -e 's!/var/www/html!$docRoot!g' /etc/apache2/sites-available/*.conf\n";
@@ -2800,7 +3204,9 @@ BASH;
         string          $cliName       = '',
         bool            $skipMigrations = false,
         bool            $withApi        = false,
-        string          $apiPrefix      = '/api/v1'
+        bool            $withApiDocs    = false,
+        string          $apiKey         = '',
+        string          $apiPrefix      = '/api/1.0'
     ): void {
         $output->writeln("\nNext steps:");
         $steps = [];
@@ -2813,6 +3219,13 @@ BASH;
             $steps[] = "Access your app at <comment>$appUrl</comment>";
             if ($withApi) {
                 $steps[] = "API base URL: <comment>{$appUrl}{$apiPrefix}</comment>";
+            }
+            if ($withApiDocs) {
+                $steps[] = "API documentation: <comment>{$appUrl}/api/docs/index.html</comment>";
+            }
+            if ($apiKey !== '') {
+                $steps[] = "Development API key (send as the <comment>apiKey</comment> header — already pre-filled in the docs):\n"
+                    . "    <comment>$apiKey</comment>";
             }
             $toolPort = $dockerPort + 1;
             $toolName = ($dbType === 'mysql') ? 'PHPMyAdmin' : 'Adminer';
@@ -2962,7 +3375,7 @@ PHP;
         string $dbType,
         string $cliName,
         bool   $withApi    = false,
-        string $apiPrefix  = '/api/v1'
+        string $apiPrefix  = '/api/1.0'
     ): string {
         $toolPort     = $dockerPort + 1;
         $toolName     = ($dbType === 'mysql') ? 'PHPMyAdmin' : 'Adminer';
@@ -3178,6 +3591,74 @@ PHP;
             $msg = str_starts_with($result, 'FAIL:') ? substr($result, 5) : $result;
             $output->writeln("  <error>Admin user creation failed: $msg</error>");
             $output->writeln("  Run manually: docker-compose exec app php $cliName.php user:create --admin");
+        }
+        // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Seed a "Development" OAuth application carrying the pre-generated API key,
+     * so the REST API can be exercised immediately after scaffolding. Runs the
+     * insert inside the app container (where the database is reachable) and is
+     * idempotent (skips if an application with the key already exists).
+     * Best-effort: a failure here must never fail init.
+     */
+    private function createApiApplication(OutputInterface $output, string $apiKey): void
+    {
+        // @codeCoverageIgnoreStart
+        // Only reached on the Docker + migrations success path; all tests set
+        // skipDockerRun = true, so this is never exercised in the unit suite.
+        $safeKey    = addslashes($apiKey);
+        $safeSecret = addslashes(bin2hex(random_bytes(32)));
+
+        $phpSnippet = <<<PHP
+ob_start();
+define('ROOT', '/var/www/html');
+define('SP', 1);
+require ROOT . '/vendor/autoload.php';
+\$app = \Pramnos\Application\Application::getInstance();
+\$app->init();
+ob_end_clean();
+try {
+    \$db = \Pramnos\Framework\Factory::getDatabase();
+    \$existing = \$db->queryBuilder()->table('applications')->where('apikey', '$safeKey')->count();
+    if (\$existing > 0) {
+        echo 'EXISTS';
+    } else {
+        \$db->queryBuilder()->table('applications')->insert([
+            'name'      => 'Development',
+            'apikey'    => '$safeKey',
+            'apisecret' => '$safeSecret',
+            'status'    => 1,
+            'added'     => time(),
+        ]);
+        echo 'OK';
+    }
+} catch (\Throwable \$e) {
+    echo 'ERROR:' . \$e->getMessage();
+}
+PHP;
+
+        $tmpFile = sys_get_temp_dir() . '/pramnos_app_' . uniqid() . '.php';
+        file_put_contents($tmpFile, '<?php ' . $phpSnippet);
+
+        $containerName = trim((string) shell_exec("docker-compose ps -q app 2>/dev/null"));
+        if ($containerName === '') {
+            $output->writeln('  <comment>Could not determine container — API application creation skipped.</comment>');
+            @unlink($tmpFile);
+            return;
+        }
+
+        shell_exec('docker cp ' . escapeshellarg($tmpFile) . ' ' . escapeshellarg($containerName . ':/tmp/pramnos_app.php') . ' 2>/dev/null');
+        @unlink($tmpFile);
+
+        $result = trim((string) shell_exec('docker-compose exec -T app php /tmp/pramnos_app.php 2>&1'));
+        shell_exec('docker-compose exec -T app rm -f /tmp/pramnos_app.php 2>/dev/null');
+
+        if (str_starts_with($result, 'OK') || str_starts_with($result, 'EXISTS')) {
+            $output->writeln('  <info>Development API application ready.</info>');
+        } else {
+            $msg = str_starts_with($result, 'ERROR:') ? substr($result, 6) : $result;
+            $output->writeln("  <comment>API application creation skipped: $msg</comment>");
         }
         // @codeCoverageIgnoreEnd
     }
