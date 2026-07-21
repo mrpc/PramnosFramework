@@ -646,6 +646,16 @@ class InitCommandTest extends TestCase
         $this->assertStringContainsString("registerStyle('datatables'", $content);
         $this->assertStringContainsString("assets/vendor/datatables/", $content);
 
+        // Assert — selecting DataTables auto-pulls the Pramnos REST adapter, and
+        // the bundled pramnos-adapters library is registered under per-file
+        // handles (not collapsed onto one) so pramnos-datatable.js survives. This
+        // is the handle the scaffolded CRUD controller enqueues.
+        $this->assertStringContainsString("registerScript('pramnos-datatable'", $content,
+            'DataTables selection must register the pramnos-datatable adapter handle');
+        $this->assertStringContainsString("registerScript('pramnos-gridjs'", $content,
+            'the second bundled adapter file must keep its own handle');
+        $this->assertStringContainsString("assets/vendor/pramnos/", $content);
+
         // Assert — no CDN references; runtime must not reach out to external hosts
         foreach (['cdn.', 'jsdelivr', 'cdnjs', 'unpkg'] as $cdn) {
             $this->assertStringNotContainsString($cdn, $content,

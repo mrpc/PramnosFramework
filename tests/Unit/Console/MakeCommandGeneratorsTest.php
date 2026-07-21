@@ -396,6 +396,99 @@ class MakeCommandGeneratorsTest extends TestCase
         $this->addCleanup($testFile);
     }
 
+    /**
+     * When DataTables is installed, the generated CRUD controller must enqueue
+     * the Pramnos REST adapter under the `pramnos-datatable` handle — guarded by
+     * isScriptRegistered() — and must NOT enqueue the old bundle handle
+     * `pramnos-adapters`, which was never registered and fataled the page
+     * ("Cannot find script: pramnos-adapters").
+     */
+    public function testWizardControllerEnqueuesGuardedDatatableAdapter(): void
+    {
+        // Arrange — output sink + a fake installed DataTables vendor dir so
+        // detectUiSetup() reports datatables=true (drives the enqueue block).
+        $refl = new \ReflectionProperty(\Pramnos\Console\Commands\MakeCommandBase::class, 'output');
+        $refl->setValue($this->command, new BufferedOutput());
+
+        $vendorDt = ROOT . '/www/assets/vendor/datatables';
+        $createdDirs = [];
+        foreach ([ROOT . '/www', ROOT . '/www/assets', ROOT . '/www/assets/vendor', $vendorDt] as $dir) {
+            if (!is_dir($dir)) {
+                mkdir($dir);
+                $createdDirs[] = $dir; // remember only what we created, to clean up
+            }
+        }
+
+        $columns = [
+            ['name' => 'title', 'type' => 'string', 'options' => [], 'nullable' => false, 'default' => '', 'unique' => false, 'comment' => '', 'unsigned' => false]
+        ];
+
+        $ctrlFile = ROOT . '/src/Controllers/Gridentities.php';
+        try {
+            // Act
+            $this->command->exposeCreateController('GridEntity', true, $columns);
+            $this->assertFileExists($ctrlFile);
+            $content = (string) file_get_contents($ctrlFile);
+
+            // Assert — guarded adapter enqueue, old bundle handle gone
+            $this->assertStringContainsString("enqueueScript('pramnos-datatable')", $content,
+                'controller must enqueue the pramnos-datatable adapter handle');
+            $this->assertStringContainsString("isScriptRegistered('pramnos-datatable')", $content,
+                'the adapter enqueue must be guarded so a missing handle never fatals');
+            $this->assertStringNotContainsString("enqueueScript('pramnos-adapters')", $content,
+                'the unregistered bundle handle must no longer be enqueued');
+
+            // Assert — getApiList returns JSON (a Response), reads the adapter's
+            // query params from the request, and no longer wraps its payload in
+            // the HTML theme (the "Invalid JSON response" regression).
+            $this->assertStringContainsString('Pramnos\Http\Response::json(', $content,
+                'getApiList must return a JSON Response so the theme is not rendered');
+            $this->assertStringContainsString('new \Pramnos\Http\Request()', $content,
+                'getApiList must read DataTables params from the request, not method args');
+            $this->assertStringContainsString("\$request->get('page'", $content);
+            $this->assertStringNotContainsString("getDocument('json')", $content,
+                'the old getDocument(json)+return-array pattern must be gone');
+
+            // Assert — every action is registered so Controller::exec() dispatches
+            // getApiList/show instead of falling back to display(); writes
+            // (edit form + save/delete) are login-gated.
+            $this->assertStringContainsString("addaction(['show', 'getApiList'])", $content,
+                'public read/JSON actions must be registered or exec() falls back to display()');
+            $this->assertStringContainsString("addAuthAction(['edit', 'save', 'delete'])", $content,
+                'the create/edit form and mutations must require login');
+
+            // Assert — the DataTables stylesheet is enqueued (guarded) so the
+            // list controls are styled, not bare HTML.
+            $this->assertStringContainsString("isStyleRegistered('datatables')", $content);
+            $this->assertStringContainsString("enqueueStyle('datatables')", $content);
+
+            // Assert — the generated controller is valid PHP.
+            $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($ctrlFile) . ' 2>&1');
+            $this->assertMatchesRegularExpression('/No syntax errors/', (string) $lint,
+                'generated controller must be valid PHP');
+        } finally {
+            // Cleanup — generated files + only the dirs we created (deepest first)
+            $this->addCleanup($ctrlFile);
+            $this->addCleanup(ROOT . '/tests/Feature/GridentitiesTest.php');
+            // The wizard also writes a views/<entity>/ directory — remove it so it
+            // does not linger as untracked cruft in the framework repo.
+            $viewDir = ROOT . '/src/Views/gridentity';
+            if (is_dir($viewDir)) {
+                foreach ((array) glob($viewDir . '/*') as $vf) {
+                    if (is_file($vf)) {
+                        @unlink($vf);
+                    }
+                }
+                @rmdir($viewDir);
+            }
+            foreach (array_reverse($createdDirs) as $dir) {
+                if (is_dir($dir)) {
+                    rmdir($dir);
+                }
+            }
+        }
+    }
+
     public function testCreateApi(): void
     {
         file_put_contents(ROOT . '/src/Api/routes.php', '<?php');

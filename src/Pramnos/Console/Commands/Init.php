@@ -143,6 +143,15 @@ class Init extends Command
 
         // ── Step 4: Extra libraries ───────────────────────────────────────────
         $selectedLibraries = $this->askLibraries($input, $output, $helper, $uiSystem);
+        // The scaffolded DataTables CRUD views load the Pramnos REST adapter
+        // (pramnos-datatable.js, shipped in the bundled `pramnos-adapters`
+        // library). Pull it in automatically whenever DataTables is selected so
+        // generated controllers always have the script handle they enqueue —
+        // otherwise the page fatals with "Cannot find script: pramnos-adapters".
+        if (in_array('datatables', $selectedLibraries, true)
+            && !in_array('pramnos-adapters', $selectedLibraries, true)) {
+            $selectedLibraries[] = 'pramnos-adapters';
+        }
 
         // ── Docker setup ──────────────────────────────────────────────────────
         $dockerOption = $input->getOption('docker');
@@ -549,8 +558,10 @@ class Init extends Command
         // These UI-framework libraries are bundled automatically by their theme
         // (ensureBootstrapAssets / ensureTailwindAssets), so never offer them as
         // an "extra" library — the user already picked them via the UI system.
-        // Mandatory libraries are auto-included and never prompted for.
-        $skipAlways = array_merge(['bootstrap', 'tailwind'], $this->mandatoryLibraries());
+        // `pramnos-adapters` is not a standalone choice either: it is the REST
+        // adapter for scaffolded DataTables views and is auto-included alongside
+        // DataTables (see execute()). Mandatory libraries are never prompted for.
+        $skipAlways = array_merge(['bootstrap', 'tailwind', 'pramnos-adapters'], $this->mandatoryLibraries());
         $selected   = [];
 
         foreach ($catalog['libraries'] as $key => $lib) {
@@ -3282,10 +3293,18 @@ BASH;
             });
             $cssDepsPhp = $cssDeps ? "['" . implode("', '", $cssDeps) . "']" : '[]';
 
+            $bundled = !empty($libDef['bundled']);
             foreach ($libDef['js'] as $url) {
                 $filename = basename(parse_url($url, PHP_URL_PATH));
                 $path     = $libDef['local_path'] . '/' . $filename;
-                $lines[]  = "        \$doc->registerScript('$lib', sURL . '$path', $depsPhp, '$version', true);";
+                // A bundled library can ship several JS files under one catalog
+                // key (e.g. `pramnos-adapters` → pramnos-datatable.js +
+                // pramnos-gridjs.js). registerScript() keys by handle, so reusing
+                // $lib would make each file overwrite the previous one and only
+                // the last would survive. Register each bundled file under its own
+                // handle (filename without extension) instead.
+                $handle  = $bundled ? preg_replace('/\.js$/', '', $filename) : $lib;
+                $lines[] = "        \$doc->registerScript('$handle', sURL . '$path', $depsPhp, '$version', true);";
             }
             foreach ($libDef['css'] as $url) {
                 $filename = basename(parse_url($url, PHP_URL_PATH));

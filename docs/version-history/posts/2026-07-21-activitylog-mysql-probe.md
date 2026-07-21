@@ -12,6 +12,9 @@ tags:
   - routing
   - seo
   - http
+  - scaffolding
+  - datatables
+  - css
 ---
 
 # Activity log now writes on MySQL (schema-aware table probe)
@@ -92,3 +95,34 @@ type; known types and the historical HTML default are unchanged.
 unsaved record (e.g. an `edit/0` create form) that name is null, and PHP 8.5
 deprecates null array offsets — emitting warnings on every such page. The key is
 now coerced to a string (`''` for null); lookup semantics are unchanged.
+
+---
+
+## Scaffolded DataTables CRUD now works end-to-end
+
+Generating a CRUD controller (`create:migration` wizard → controller) on a
+project with DataTables installed produced a list page that fatally errored,
+returned HTML instead of JSON, skipped auth on writes, and rendered unstyled.
+Fixed across the generators and the plain-css theme.
+
+### Fixed
+
+- **`pramnos-adapters` is auto-included with DataTables** and its bundled files
+  register under per-file handles (`pramnos-datatable`, `pramnos-gridjs`) instead
+  of colliding on one — fixing the `Cannot find script: pramnos-adapters` fatal.
+  The controller enqueues `pramnos-datatable`, guarded by `isScriptRegistered()`.
+- **`getApiList()` returns JSON, not the HTML theme.** It reads the adapter's
+  query params (`page`/`perpage`/`search`/`order`/`fields`, `format`) from the
+  request and returns `\Pramnos\Http\Response::json(...)`.
+- **All actions are registered** so `Controller::exec()` dispatches them instead
+  of falling back to `display()`: `show`/`getApiList` are public, while the
+  create/edit form and `save`/`delete` require login (previously create/edit were
+  reachable without authentication).
+- **The DataTables stylesheet is enqueued** (guarded) so the list controls are
+  styled.
+- **Breadcrumbs render** on the generated CRUD views — the controller populated
+  them but nothing displayed them.
+- **Forms use the theme's semantic classes on plain-css too** (`form-control`,
+  `btn btn-primary/secondary`, `card`) instead of empty `class=""`; the plain-css
+  `.btn` gained `line-height`/`vertical-align` so `<a>` and `<button>` buttons
+  match in height.

@@ -2788,8 +2788,21 @@ content;
         $viewName   = strtolower($name);
         $primaryKey = $this->getSingularPrimaryKey($tableName);
         $ui         = $this->detectUiSetup();
+        // jquery + datatables are always registered by the framework Document;
+        // the pramnos-datatable REST adapter and the DataTables stylesheet are
+        // registered by the app only when DataTables was installed at init, so
+        // guard them to avoid a fatal ("Cannot find script/style") on projects
+        // that predate the wiring. The stylesheet is what makes the Show/Search/
+        // pagination controls look styled instead of bare HTML.
         $enqueueScripts = $ui['datatables']
-            ? "        \$doc->enqueueScript('jquery');\n        \$doc->enqueueScript('datatables');\n        \$doc->enqueueScript('pramnos-adapters');\n"
+            ? "        \$doc->enqueueScript('jquery');\n"
+            . "        \$doc->enqueueScript('datatables');\n"
+            . "        if (\$doc->isScriptRegistered('pramnos-datatable')) {\n"
+            . "            \$doc->enqueueScript('pramnos-datatable');\n"
+            . "        }\n"
+            . "        if (\$doc->isStyleRegistered('datatables')) {\n"
+            . "            \$doc->enqueueStyle('datatables');\n"
+            . "        }\n"
             : '';
 
         // ── Build $saveContent from wizard columns ──────────────────────────
@@ -2853,7 +2866,12 @@ class {$className} extends \Pramnos\Application\Controller
      */
     public function __construct(?\Pramnos\Application\Application \$application = null)
     {
-        \$this->addAuthAction(['save', 'delete']);
+        // Every action must be registered or Controller::exec() falls back to
+        // display(); the JSON getApiList endpoint in particular would otherwise
+        // return the HTML list page. Public reads (list/detail/JSON) vs.
+        // login-gated writes (the create/edit form and the save/delete actions).
+        \$this->addaction(['show', 'getApiList']);
+        \$this->addAuthAction(['edit', 'save', 'delete']);
         parent::__construct(\$application);
     }
 
@@ -2936,19 +2954,31 @@ class {$className} extends \Pramnos\Application\Controller
     }
 
     /**
-     * Return an API list (REST format with optional DataTables wrapper)
+     * AJAX endpoint for the DataTables list — returns JSON, never the theme.
+     *
+     * The PramnosDataTable adapter sends its parameters on the query string
+     * (page/perpage/search/order/fields, plus format=datatables from the table's
+     * data-dt-api URL); they arrive via the request, not as method arguments, so
+     * we read them from \Pramnos\Http\Request here. Returning a
+     * \Pramnos\Http\Response makes the front controller emit raw JSON instead of
+     * wrapping the payload in the site theme (which produced an HTML body and the
+     * DataTables "Invalid JSON response" warning).
      */
-    public function getApiList(\$fields = [], \$search = '',
-        \$order = '', \$page = 0, \$itemsPerPage = 10,
-        \$debug = false, \$returnAsModels = false, \$useGetData = true,
-        \$format = '')
+    public function getApiList()
     {
-        \Pramnos\Framework\Factory::getDocument('json');
-        \$model = new \\{$modelNameSpace}\\{$modelClass}(\$this);
-        return \$model->getApiList(
-            \$fields, \$search, \$order, \$page, \$itemsPerPage,
-            \$debug, \$returnAsModels, \$useGetData
+        \$request = new \Pramnos\Http\Request();
+        \$model   = new \\{$modelNameSpace}\\{$modelClass}(\$this);
+        \$data = \$model->_getApiList(
+            \$request->get('fields', '', 'get'),
+            \$request->get('search', '', 'get'),
+            \$request->get('order', '', 'get'),
+            '', '', '', null, null,
+            (int) \$request->get('page', 1, 'get'),
+            (int) \$request->get('perpage', 10, 'get'),
+            false, false, true, false, false,
+            (string) \$request->get('format', '', 'get')
         );
+        return \Pramnos\Http\Response::json(\$data);
     }
 
 }
@@ -3014,6 +3044,12 @@ PHP;
         $useBootstrap  = $ui['bootstrap'];
         $useDatatables = $ui['datatables'];
         $useSelect2    = $ui['select2'];
+        // The plain-css scaffold theme deliberately ships Bootstrap-compatible
+        // class names (.card, .form-control, .btn, .btn-primary/secondary,
+        // .form-group), so it should get the same semantic classes as Bootstrap
+        // — otherwise forms render with empty class="" attributes and look
+        // unstyled. Tailwind uses utility classes and is handled separately.
+        $semanticUi = $useBootstrap || (($ui['theme'] ?? '') === 'plain-css');
 
         $fkByColumn = [];
         foreach ($foreignKeys as $fk) {
@@ -3072,7 +3108,7 @@ HTML;
 })();
 </script>
 HTML;
-        } elseif ($useBootstrap) {
+        } elseif ($semanticUi) {
             $tableHeaders = '';
             foreach ($columns as $col) {
                 if ($col['name'] === $primaryKey) continue;
@@ -3160,7 +3196,7 @@ HTML;
             $required = $nullable ? '' : ' required';
             $isFk     = isset($fkByColumn[$colName]);
 
-            if ($useBootstrap) {
+            if ($semanticUi) {
                 $formFields .= "<div class=\"form-group mb-3\">\n";
                 $formFields .= "    <label for=\"{$colName}\" class=\"form-label\">{$display}</label>\n";
             } else {
@@ -3173,7 +3209,7 @@ HTML;
                 $isUserFk   = ($refTable === 'users' || $refTable === '#PREFIX#users');
                 $listVar    = $isUserFk ? 'userList' : lcfirst(self::getProperClassName($refTable, true)) . 'List';
                 $select2Cls = $useSelect2 ? ' select2' : '';
-                $bsCls      = $useBootstrap ? ' form-select' : '';
+                $bsCls      = $useBootstrap ? ' form-select' : ($semanticUi ? ' form-control' : '');
                 $formFields .= "<select id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}{$select2Cls}\"{$required}>\n";
                 $formFields .= "    <option value=\"\">-- Select {$display} --</option>\n";
                 $formFields .= "    <?php if (is_array(\$this->{$listVar})): foreach (\$this->{$listVar} as \$opt): ?>\n";
@@ -3187,24 +3223,24 @@ HTML;
                 $bsCls = $useBootstrap ? ' form-check-input' : '';
                 $formFields .= "<input type=\"checkbox\" id=\"{$colName}\" name=\"{$colName}\" value=\"1\" class=\"{$bsCls}\" <?php echo \$this->model->{$colName} ? 'checked' : ''; ?>>\n";
             } elseif (in_array($colType, ['text', 'longtext'], true)) {
-                $bsCls = $useBootstrap ? ' form-control' : '';
+                $bsCls = $semanticUi ? ' form-control' : '';
                 $formFields .= "<textarea id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}\" rows=\"4\"{$required}><?php echo htmlspecialchars((string)(\$this->model->{$colName} ?? '')); ?></textarea>\n";
             } elseif (in_array($colType, ['date', 'datetime', 'timestamp'], true)) {
                 $inputType = $colType === 'date' ? 'date' : 'datetime-local';
-                $bsCls = $useBootstrap ? ' form-control' : '';
+                $bsCls = $semanticUi ? ' form-control' : '';
                 $formFields .= "<input type=\"{$inputType}\" id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}\" value=\"<?php echo htmlspecialchars((string)(\$this->model->{$colName} ?? '')); ?>\"{$required}>\n";
             } else {
                 $inputType = in_array($colType, ['integer', 'biginteger', 'tinyinteger', 'smallinteger', 'decimal', 'float', 'double'], true) ? 'number' : 'text';
-                $bsCls = $useBootstrap ? ' form-control' : '';
+                $bsCls = $semanticUi ? ' form-control' : '';
                 $formFields .= "<input type=\"{$inputType}\" id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}\" value=\"<?php echo htmlspecialchars((string)(\$this->model->{$colName} ?? '')); ?>\"{$required}>\n";
             }
             $formFields .= "</div>\n";
         }
 
-        $submitCls = $useBootstrap ? ' btn btn-primary' : '';
-        $backCls   = $useBootstrap ? ' btn btn-secondary' : '';
-        $cardStart = $useBootstrap ? "<div class=\"card\">\n    <div class=\"card-header\"><h1 class=\"h4 mb-0\"><?php echo \$this->model->{$primaryKey} > 0 ? 'Edit' : 'Create'; ?> {$objectName}</h1></div>\n    <div class=\"card-body\">\n" : "<h1><?php echo \$this->model->{$primaryKey} > 0 ? 'Edit' : 'Create'; ?> {$objectName}</h1>\n";
-        $cardEnd   = $useBootstrap ? "    </div>\n</div>\n" : '';
+        $submitCls = $semanticUi ? ' btn btn-primary' : '';
+        $backCls   = $semanticUi ? ' btn btn-secondary' : '';
+        $cardStart = $semanticUi ? "<div class=\"card\">\n    <div class=\"card-header\"><h1 class=\"h4 mb-0\"><?php echo \$this->model->{$primaryKey} > 0 ? 'Edit' : 'Create'; ?> {$objectName}</h1></div>\n    <div class=\"card-body\">\n" : "<h1><?php echo \$this->model->{$primaryKey} > 0 ? 'Edit' : 'Create'; ?> {$objectName}</h1>\n";
+        $cardEnd   = $semanticUi ? "    </div>\n</div>\n" : '';
 
         $editContent = <<<HTML
 {$cardStart}<form method="post" action="<?php echo sURL;?>{$className}/save/<?php echo \$this->model->{$primaryKey}; ?>">
@@ -3216,12 +3252,12 @@ HTML;
 HTML;
 
         // ── Show (detail) view ────────────────────────────────────────────────
-        $editBtn  = $useBootstrap ? "class=\"btn btn-primary\"" : '';
-        $delBtn   = $useBootstrap ? "class=\"btn btn-danger\" data-confirm=\"Delete?\"" : "data-confirm=\"Delete?\"";
-        $backBtn  = $useBootstrap ? "class=\"btn btn-secondary\"" : '';
-        $cardS    = $useBootstrap ? "<div class=\"card\">\n    <div class=\"card-header\">" : '';
-        $cardH    = $useBootstrap ? "</div>\n    <div class=\"card-body\">" : '';
-        $cardE    = $useBootstrap ? "\n    </div>\n</div>" : '';
+        $editBtn  = $semanticUi ? "class=\"btn btn-primary\"" : '';
+        $delBtn   = $semanticUi ? "class=\"btn btn-danger\" data-confirm=\"Delete?\"" : "data-confirm=\"Delete?\"";
+        $backBtn  = $semanticUi ? "class=\"btn btn-secondary\"" : '';
+        $cardS    = $semanticUi ? "<div class=\"card\">\n    <div class=\"card-header\">" : '';
+        $cardH    = $semanticUi ? "</div>\n    <div class=\"card-body\">" : '';
+        $cardE    = $semanticUi ? "\n    </div>\n</div>" : '';
 
         $showContent = <<<HTML
 {$cardS}<h1 class="h4 mb-0">View {$objectName}</h1>{$cardH}
@@ -3256,6 +3292,7 @@ HTML;
  */
 defined('SP') or die('No startpoint defined...');
 ?>
+<?php echo \Pramnos\Application\Application::getInstance()->renderBreadcrumbs(); ?>
 VIEW_CONTENT
 VPHP;
 
