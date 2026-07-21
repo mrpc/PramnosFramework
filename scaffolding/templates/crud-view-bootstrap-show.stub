@@ -1,0 +1,41 @@
+<?php
+/**
+ * {{ objectName }} detail (read-only) view (Bootstrap theme) — auto-generated CRUD view.
+ *
+ * Variables:
+ *   $this->model — the {{ objectName }} model instance to display
+ */
+defined('SP') or die('No startpoint defined...');
+$data = $this->model->getData();
+$pk   = $this->model->{{ primaryKey }};
+?>
+<div class="container-fluid py-4">
+    <?php echo \Pramnos\Application\Application::getInstance()->renderBreadcrumbs(); ?>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">{{ objectName }}</h2>
+        <div class="d-flex gap-2">
+            <a href="<?php echo sURL; ?>{{ className }}" class="btn btn-outline-secondary">&laquo; Back</a>
+            <a href="<?php echo sURL; ?>{{ className }}/edit/<?php echo $pk; ?>" class="btn btn-primary">Edit</a>
+            <a href="<?php echo sURL; ?>{{ className }}/delete/<?php echo $pk; ?>" class="btn btn-outline-danger" data-confirm="Delete this {{ objectName }}?">Delete</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-striped table-bordered align-middle mb-0">
+                <tbody>
+                    <?php foreach ($data as $field => $value): ?>
+                    <tr>
+                        <th class="text-muted" style="width:220px"><?php echo ucwords(str_replace('_', ' ', htmlspecialchars((string) $field))); ?></th>
+                        <td><?php
+                            if (is_bool($value)) { echo $value ? 'Yes' : 'No'; }
+                            elseif ($value === null || $value === '') { echo '<span class="text-muted">—</span>'; }
+                            elseif (is_array($value)) { echo '<pre class="mb-0">' . htmlspecialchars((string) json_encode($value, JSON_PRETTY_PRINT)) . '</pre>'; }
+                            else { echo htmlspecialchars((string) $value); }
+                        ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

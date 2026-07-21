@@ -1,0 +1,39 @@
+<?php
+/**
+ * {{ objectName }} detail (read-only) view (Tailwind theme) — auto-generated CRUD view.
+ *
+ * Variables:
+ *   $this->model — the {{ objectName }} model instance to display
+ */
+defined('SP') or die('No startpoint defined...');
+$data = $this->model->getData();
+$pk   = $this->model->{{ primaryKey }};
+?>
+<div class="px-4 py-6">
+    <?php echo \Pramnos\Application\Application::getInstance()->renderBreadcrumbs(); ?>
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-semibold">{{ objectName }}</h2>
+        <div class="flex gap-2">
+            <a href="<?php echo sURL; ?>{{ className }}" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">&laquo; Back</a>
+            <a href="<?php echo sURL; ?>{{ className }}/edit/<?php echo $pk; ?>" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">Edit</a>
+            <a href="<?php echo sURL; ?>{{ className }}/delete/<?php echo $pk; ?>" class="px-4 py-2 border border-red-400 text-red-700 text-sm rounded-sm hover:bg-red-50" data-confirm="Delete this {{ objectName }}?">Delete</a>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+            <tbody class="divide-y divide-gray-100">
+                <?php foreach ($data as $field => $value): ?>
+                <tr>
+                    <th class="px-4 py-2.5 text-left text-gray-500 bg-gray-50 align-top" style="width:220px"><?php echo ucwords(str_replace('_', ' ', htmlspecialchars((string) $field))); ?></th>
+                    <td class="px-4 py-2.5 text-gray-800"><?php
+                        if (is_bool($value)) { echo $value ? 'Yes' : 'No'; }
+                        elseif ($value === null || $value === '') { echo '<span class="text-gray-300">—</span>'; }
+                        elseif (is_array($value)) { echo '<pre class="m-0">' . htmlspecialchars((string) json_encode($value, JSON_PRETTY_PRINT)) . '</pre>'; }
+                        else { echo htmlspecialchars((string) $value); }
+                    ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>

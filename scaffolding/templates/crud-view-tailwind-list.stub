@@ -1,0 +1,29 @@
+<?php
+/**
+ * {{ objectNamePlural }} list (Tailwind theme) — auto-generated CRUD view.
+ *
+ * The list is rendered by the framework's server-side DataTable: the controller
+ * builds a \Pramnos\Html\Datatable and streams rows over AJAX from the data()
+ * action, so this view only prints the widget shell.
+ *
+ * Variables:
+ *   $this->datatable — \Pramnos\Html\Datatable instance (server-side AJAX)
+ *   $this->success   — optional success flash message
+ *   $this->error     — optional error flash message
+ */
+defined('SP') or die('No startpoint defined...');
+?>
+<div class="px-4 py-6">
+    <?php echo \Pramnos\Application\Application::getInstance()->renderBreadcrumbs(); ?>
+    <?php if (!empty($this->success)): ?>
+        <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 rounded-sm text-green-800 text-sm"><?php echo htmlspecialchars($this->success); ?></div>
+    <?php endif; ?>
+    <?php if (!empty($this->error)): ?>
+        <div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-sm text-red-800 text-sm"><?php echo htmlspecialchars($this->error); ?></div>
+    <?php endif; ?>
+    <div class="flex justify-between items-center mb-4">
+        <h2>{{ objectNamePlural }}</h2>
+        <a href="<?php echo sURL; ?>{{ className }}/edit/0" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">+ New {{ objectName }}</a>
+    </div>
+    <?php echo $this->datatable->render(); ?>
+</div>
