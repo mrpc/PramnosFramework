@@ -201,9 +201,13 @@ class View extends \Pramnos\Framework\Base
     public function addModel(\Pramnos\Application\Model &$model, $default=true)
     {
         if (is_object($model)){
-            $this->models[$model->name] = $model;
+            // A model whose `name` is not set (e.g. an unsaved record on an
+            // "edit/0" form) yields a null key; PHP 8.5 deprecates null array
+            // offsets, so coerce to string ('' for null).
+            $key = (string) ($model->name ?? '');
+            $this->models[$key] = $model;
             if ($default !== false) {
-                $this->defaultModel = $model->name;
+                $this->defaultModel = $key;
                 $this->model =& $this->getModel($this->defaultModel);
             }
         }
@@ -216,9 +220,11 @@ class View extends \Pramnos\Framework\Base
      */
     public function &getModel($model='')
     {
-        if ($model === ''){
+        if ($model === '' || $model === null){
             $model = $this->defaultModel;
         }
+        // Guard against a null/collection key — PHP 8.5 deprecates null offsets.
+        $model = (string) ($model ?? '');
         if (isset($this->models[$model])
             && is_object($this->models[$model])) {
             return $this->models[$model];

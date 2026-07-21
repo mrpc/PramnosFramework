@@ -53,6 +53,37 @@ class ViewTest extends TestCase
         $this->assertFalse($view->getModel('NonExistent'));
     }
 
+    /**
+     * A model whose `name` is null (e.g. an unsaved record on an "edit/0" form)
+     * must be added and retrieved without triggering PHP 8.5's "null as array
+     * offset" deprecation: the null name is coerced to an empty-string key.
+     */
+    public function testAddModelWithNullNameDoesNotUseNullOffset(): void
+    {
+        // Arrange — a model with an explicitly null name
+        $ctrl  = $this->getController();
+        $view  = new View($ctrl, '/some/path', 'MyView', 'html');
+        $model = new class(null, null) extends Model {
+            public $name = null; // unset/unsaved record
+            public function __construct($a, $b) {}
+        };
+
+        // Act — promote a deprecation to a throwable so the test fails on regression
+        set_error_handler(static function (int $errno, string $errstr): bool {
+            throw new \RuntimeException($errstr);
+        }, E_ALL);
+        try {
+            $view->addModel($model, true);
+            $resolved = $view->getModel();       // default lookup (null → '')
+        } finally {
+            restore_error_handler();
+        }
+
+        // Assert — the model is stored under the '' key and returned as default
+        $this->assertSame($model, $resolved,
+            'a null-named model must be retrievable as the default without a null offset');
+    }
+
     public function testEscape(): void
     {
         $ctrl = $this->getController();
