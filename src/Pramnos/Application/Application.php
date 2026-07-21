@@ -614,6 +614,57 @@ class Application extends Base
     }
 
     /**
+     * Emit an SEO-friendly HTTP 404 "Not Found" response and terminate.
+     *
+     * Used when a request resolves to a controller that does not exist. A real
+     * 404 status — rather than a 200 "There is no controller to run..." string
+     * or a blanket 301 redirect to the home page — is the correct signal for
+     * search engines: redirecting every unknown URL to "/" is treated as a
+     * soft-404 and hurts indexing, whereas a genuine 404 tells crawlers the URL
+     * has no content. The page carries a `noindex` robots directive and a link
+     * back to the home page.
+     *
+     * @param string $message Optional human-readable message shown on the page.
+     */
+    public function notFound($message = '')
+    {
+        if (function_exists('http_response_code') && PHP_SAPI !== 'cli' && !headers_sent()) {
+            http_response_code(404);
+        }
+        if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
+            \Pramnos\Logs\Logger::log(
+                'Controller not found: ' . $this->controller
+                . ' (URL: ' . ($_SERVER['REQUEST_URI'] ?? '') . ')',
+                'notFound'
+            );
+        }
+        $home = defined('sURL') && sURL !== '' ? sURL : '/';
+        if ($message === '') {
+            $message = 'The page you are looking for could not be found.';
+        }
+        $safeMessage = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
+        $safeHome    = htmlspecialchars($home, ENT_QUOTES, 'UTF-8');
+        $this->close(
+            '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<meta name="robots" content="noindex, follow">'
+            . '<title>404 - Page Not Found</title>'
+            . '<style>body{background:#f4f5f7;font-family:-apple-system,"Segoe UI",'
+            . 'Roboto,Helvetica,Arial,sans-serif;color:#2d3748;margin:0}'
+            . '.wrap{max-width:520px;margin:12vh auto;padding:40px 24px;text-align:center}'
+            . 'h1{font-size:72px;margin:0;color:#4a5568}'
+            . 'h2{font-size:22px;margin:8px 0 16px;font-weight:600}'
+            . 'p{color:#718096;line-height:1.6}'
+            . 'a{display:inline-block;margin-top:24px;padding:10px 22px;background:#4CAF50;'
+            . 'color:#fff;text-decoration:none;border-radius:6px}</style></head>'
+            . '<body><div class="wrap"><h1>404</h1><h2>Page Not Found</h2>'
+            . '<p>' . $safeMessage . '</p>'
+            . '<a href="' . $safeHome . '">Go to homepage</a>'
+            . '</div></body></html>'
+        );
+    }
+
+    /**
      * Force redirect of the page to another url
      * @param string  $url  Url to redirect to
      * @param boolean $quit If you want to quit after redirecting.
@@ -774,7 +825,7 @@ class Application extends Base
             if ($this->defaultController !== "") {
                 $this->controller = $this->defaultController;
             } else {
-                $this->close('There is no controller to run...');
+                $this->notFound();
             }
         } elseif ($controller != '') {
             $this->controller = $controller;
@@ -839,7 +890,7 @@ class Application extends Base
             } catch (\Throwable) {
             }
             //\Pramnos\Logs\Logger::log($Exception->getMessage());
-            $this->close('There is no controller to run...');
+            $this->notFound();
         }
         \Pramnos\Debug\DebugBar::stopTimer('routing');
         $this->activeController = $controllerObject;

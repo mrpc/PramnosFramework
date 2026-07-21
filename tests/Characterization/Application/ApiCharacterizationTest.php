@@ -204,6 +204,61 @@ class ApiCharacterizationTest extends TestCase
         $this->assertIsString($json);
         $this->assertNotFalse(json_decode($json, true));
     }
+
+    /**
+     * notFound() returns a JSON 404 envelope (not an HTML page and not the old
+     * "There is no controller to run..." string) and terminates via close().
+     *
+     * Why it matters: an API hit on a missing controller must answer with a
+     * machine-readable 404 so clients can branch on it. Under PRAMNOS_TESTING
+     * close() throws, carrying the emitted body in the exception message.
+     */
+    public function testNotFoundEmitsJson404Envelope(): void
+    {
+        // Arrange
+        $api = $this->makeApiStub();
+
+        // Act — capture the body close() would have exit()'d with
+        $body = '';
+        try {
+            $api->notFound();
+            $this->fail('notFound() must terminate via close()');
+        } catch (\Exception $e) {
+            $body = $e->getMessage();
+        }
+
+        // Assert — the envelope is valid JSON with a 404 status
+        $json = substr($body, (int) strpos($body, '{'));
+        $data = json_decode($json, true);
+        $this->assertIsArray($data, 'notFound() body must be JSON');
+        $this->assertSame(404, $data['status']);
+        $this->assertSame('NotFound', $data['error']);
+        $this->assertSame('Resource not found', $data['message']);
+        // statusmessage is filled from the HTTP status text map
+        $this->assertSame('Resource not found', $data['statusmessage']);
+    }
+
+    /**
+     * notFound() honours a caller-supplied message while keeping the 404 status.
+     */
+    public function testNotFoundUsesCustomMessage(): void
+    {
+        // Arrange
+        $api = $this->makeApiStub();
+
+        // Act
+        $body = '';
+        try {
+            $api->notFound('Unknown endpoint');
+        } catch (\Exception $e) {
+            $body = $e->getMessage();
+        }
+
+        // Assert
+        $data = json_decode(substr($body, (int) strpos($body, '{')), true);
+        $this->assertSame(404, $data['status']);
+        $this->assertSame('Unknown endpoint', $data['message']);
+    }
 }
 
 /**

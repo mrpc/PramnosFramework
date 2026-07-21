@@ -89,7 +89,7 @@ class Api extends Application
             if ($this->defaultController !== '') {
                 $this->controller = $this->defaultController;
             } else {
-                $this->close('There is no controller to run...');
+                $this->notFound();
             }
         } elseif ($controller !== '') {
             $this->controller = $controller;
@@ -353,6 +353,31 @@ class Api extends Application
             }
         }
         return false;
+    }
+
+    /**
+     * Emit a JSON HTTP 404 response and terminate.
+     *
+     * API override of {@see Application::notFound()}: instead of an HTML page it
+     * returns the standard JSON error envelope with a 404 status, so API
+     * consumers receive a machine-readable "not found" rather than the old
+     * "There is no controller to run..." plain-text string. _translateStatus()
+     * sets the 404 HTTP status code itself.
+     *
+     * @param string $message Optional error message; defaults to "Resource not found".
+     */
+    public function notFound($message = '')
+    {
+        if (!headers_sent() && PHP_SAPI !== 'cli') {
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        $this->close(
+            $this->_translateStatus([
+                'status'  => 404,
+                'message' => $message !== '' ? $message : 'Resource not found',
+                'error'   => 'NotFound',
+            ])
+        );
     }
 
     /**
