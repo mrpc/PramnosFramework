@@ -181,4 +181,61 @@ class ApplicationRuntimeCharacterizationTest extends TestCase
         $this->assertStringContainsString('characterization test', $content);
         $this->assertFalse($existsAfterStop);
     }
+
+    /**
+     * notFound() renders an SEO-friendly 404 HTML page (not the old
+     * "There is no controller to run..." string) and terminates via close().
+     *
+     * Why it matters: a request to a missing controller must produce a real
+     * 404 so crawlers do not index a dead URL. We verify the page advertises
+     * itself as a 404, carries a noindex robots directive, and offers a link
+     * back to the home page. Under PRAMNOS_TESTING, close() throws instead of
+     * exit(), carrying the emitted body in the exception message.
+     */
+    public function testNotFoundEmits404HtmlPage(): void
+    {
+        // Arrange
+        $app = $this->makeAppStub();
+
+        // Act — capture the body close() would have exit()'d with
+        $body = '';
+        try {
+            $app->notFound();
+            $this->fail('notFound() must terminate via close()');
+        } catch (\Exception $e) {
+            $body = $e->getMessage();
+        }
+
+        // Assert — SEO-friendly 404 markers are present
+        $this->assertStringContainsString('404', $body, 'page must identify itself as a 404');
+        $this->assertStringContainsString('<title>404 - Page Not Found</title>', $body);
+        // noindex tells search engines not to index the dead URL
+        $this->assertStringContainsString('name="robots" content="noindex', $body);
+        // a link home keeps the visitor journey alive
+        $this->assertStringContainsString('Go to homepage', $body);
+        // the old plain-text response must be gone
+        $this->assertStringNotContainsString('There is no controller to run', $body);
+    }
+
+    /**
+     * notFound() escapes a caller-supplied message so it cannot inject markup
+     * into the 404 page (defends against reflected XSS via the message arg).
+     */
+    public function testNotFoundEscapesCustomMessage(): void
+    {
+        // Arrange
+        $app = $this->makeAppStub();
+
+        // Act
+        $body = '';
+        try {
+            $app->notFound('<script>alert(1)</script>');
+        } catch (\Exception $e) {
+            $body = $e->getMessage();
+        }
+
+        // Assert — the script tag is HTML-encoded, not emitted raw
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $body);
+        $this->assertStringContainsString('&lt;script&gt;', $body);
+    }
 }
