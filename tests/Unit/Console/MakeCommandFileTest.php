@@ -229,21 +229,22 @@ class MakeCommandFileTest extends TestCase
     }
 
     /**
-     * create:controller must exit 0 and report "Controller created".
+     * create:controller now ALWAYS generates a full CRUD controller from the
+     * live table schema (the "simple skeleton" mode was removed). With no table
+     * present — and no database connection in this file-level harness — the
+     * command must fail loudly instead of silently emitting a schema-less stub.
      */
-    public function testMakeController(): void
+    public function testMakeControllerRequiresTable(): void
     {
         // Arrange
         $command = $this->consoleApp->find('create:controller');
         $tester  = new CommandTester($command);
         $name    = 'ZzzCtrl' . $this->testId;
 
-        // Act
-        $exit = $tester->execute(['name' => $name]);
-
-        // Assert
-        $this->assertSame(0, $exit);
-        $this->assertStringContainsString('Controller created', $tester->getDisplay());
+        // Assert + Act — generation aborts because the table cannot be
+        // introspected (no schema-less fallback exists any more).
+        $this->expectException(\Exception::class);
+        $tester->execute(['name' => $name]);
     }
 
     /**

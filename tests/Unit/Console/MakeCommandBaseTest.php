@@ -237,14 +237,15 @@ class MakeCommandBaseTest extends TestCase
     }
 
     /**
-     * renderStub() for 'controller' produces a class extending Controller
-     * with all five CRUD action methods and correct namespace injection.
+     * renderStub() for 'controller' produces a class extending Controller with a
+     * display() action and correct namespace/token injection.
      *
-     * The modernised controller stub replaces the old broken inline heredoc
-     * that used undefined variables ($viewName, $modelNameSpace etc.) — this
-     * test guards against a regression to that state.
+     * The on-disk controller.stub was removed (create:controller now always
+     * generates a full CRUD controller from crud-controller.stub), so
+     * renderStub('controller') falls back to the embedded minimal skeleton in
+     * StubRenderer — this test pins that fallback's shape.
      */
-    public function testRenderStubControllerProducesFullSkeleton(): void
+    public function testRenderStubControllerProducesFallbackSkeleton(): void
     {
         // Act
         $result = $this->command->renderStub('controller', [
@@ -257,12 +258,8 @@ class MakeCommandBaseTest extends TestCase
         $this->assertStringContainsString('namespace App\\Controllers;', $result);
         $this->assertStringContainsString('class Product', $result);
         $this->assertStringContainsString('extends Controller', $result);
-        // All five standard action methods must be present
+        // The embedded fallback exposes a single display() action
         $this->assertStringContainsString('public function display()', $result);
-        $this->assertStringContainsString('public function show()', $result);
-        $this->assertStringContainsString('public function edit()', $result);
-        $this->assertStringContainsString('public function save()', $result);
-        $this->assertStringContainsString('public function delete()', $result);
         // View token substituted — no literal '{{ view }}' left in output
         $this->assertStringContainsString("getView('product')", $result);
         $this->assertStringNotContainsString('{{ view }}', $result);

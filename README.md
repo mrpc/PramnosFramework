@@ -314,8 +314,8 @@ while ($result->fetch()) {
 The framework includes powerful console commands for development. If using Docker, run these via `docker-compose exec php-apache-environment ...`.
 
 ```bash
-# Generate a new controller
-php bin/pramnos create:controller UserController --full
+# Generate a full CRUD controller from an existing table
+php bin/pramnos create:controller UserController
 
 # Generate a new model
 php bin/pramnos create:model User
