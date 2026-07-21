@@ -160,3 +160,16 @@ controller. Both full paths now converge on `createControllerAndViewsFromWizard(
 DB-introspected tables are normalised into the same column/foreign-key shape as the
 wizard (`introspectTableAsWizardColumns()`) and rendered from `crud-controller.stub`.
 `simple` vs `full` remains the only choice; `full` is a strict superset of `simple`.
+
+---
+
+## Model scaffolding: one schema-first path, rendered from a stub
+
+The model generator mirrored the controller's old shape: a schema-first builder
+(`buildModelFromWizardColumns()`) plus a separate DB-introspection variant built
+from its own inline heredocs. The builder now renders from
+`scaffolding/templates/crud-model.stub`, and `createModel()`'s introspection path
+normalises the live table into the wizard column shape
+(`introspectTableAsWizardColumns()`) and delegates to that one builder — so a full
+model is always produced from the same stub. The divergent introspection heredoc
+(~260 lines) is gone.

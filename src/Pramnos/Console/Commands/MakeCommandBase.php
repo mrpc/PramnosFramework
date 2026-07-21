@@ -3236,98 +3236,18 @@ VPHP;
             ? "    /** @var string */\n    protected \$_dbschema = '{$this->schema}';\n\n"
             : '';
 
-        return <<<PHP
-<?php
-namespace {$namespace};
-
-/**
- * {$className} Model
- * Auto generated at: {$date}
- */
-class {$className} extends \Pramnos\Application\Model
-{
-
-{$props}
-{$schemaBlock}    /**
-     * Primary key in database
-     * @var string
-     */
-    protected \$_primaryKey = "{$primaryKey}";
-
-    /**
-     * Database table
-     * @var string
-     */
-    protected \$_dbtable = "{$tableName}";
-
-    /**
-     * Load from database
-     * @param string {$primaryKeyVal} ID to load
-     * @param string \$key Primary key on database
-     * @param boolean \$debug Show debug information
-     * @return \$this
-     */
-    public function load({$primaryKeyVal}, \$key = null, \$debug = false)
-    {
-        return parent::_load({$primaryKeyVal}, null, \$key, \$debug);
-    }
-
-    /**
-     * Save to database
-     * @param boolean \$autoGetValues If true, get all values from \$_REQUEST
-     * @param boolean \$debug Show debug information
-     * @return \$this
-     */
-    public function save(\$autoGetValues = false, \$debug = false)
-    {
-{$foreignFixes}
-        return parent::_save(null, null, \$autoGetValues, \$debug);
-    }
-
-    /**
-     * Delete from database
-     * @param integer {$primaryKeyVal} ID to delete
-     * @return \$this
-     */
-    public function delete({$primaryKeyVal})
-    {
-        return parent::_delete({$primaryKeyVal}, null, null);
-    }
-
-    /**
-     * Return all data as array
-     * @return array
-     */
-    public function getData()
-    {
-        \$data = parent::getData();
-{$arrayFix}
-        return \$data;
-    }
-
-    /**
-     * Return an API-formatted list with pagination, field selection, and search
-     * @param array  \$fields       Fields to include (empty = all)
-     * @param string \$search       Global search term
-     * @param string \$order        ORDER BY clause
-     * @param int    \$page         Page number (0 = no pagination)
-     * @param int    \$itemsPerPage Items per page
-     * @param bool   \$debug        Show debug info
-     * @param bool   \$returnAsModels Return model objects instead of arrays
-     * @param bool   \$useGetData   Use getData() to extract data
-     * @return array
-     */
-    public function getApiList(\$fields = [], \$search = '',
-        \$order = '', \$page = 0, \$itemsPerPage = 10,
-        \$debug = false, \$returnAsModels = false, \$useGetData = true)
-    {
-        return parent::_getApiList(
-            \$fields, \$search, \$order, '', '', '',
-            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
-        );
-    }
-}
-PHP;
+        return $this->renderStub('crud-model', [
+            'namespace'     => $namespace,
+            'className'     => $className,
+            'date'          => $date,
+            'props'         => $props,
+            'schemaBlock'   => $schemaBlock,
+            'primaryKey'    => $primaryKey,
+            'tableName'     => $tableName,
+            'primaryKeyVal' => $primaryKeyVal,
+            'foreignFixes'  => $foreignFixes,
+            'arrayFix'      => $arrayFix,
+        ]);
     }
 
     /**
@@ -3461,266 +3381,21 @@ PHP;
         }
 
 
-        $date = date('d/m/Y H:i');
-        $fileContent = <<<content
-<?php
-namespace {$namespace};
-
-/**
- * {$className} Model
- * Auto generated at: {$date}
- */
-class {$className} extends \Pramnos\Application\Model
-{
-
-
-    
-
-content;
-
-        if ($this->schema != '') {
-            $fileContent .= <<<content
-    /**
-     * Database schema
-     * @var string
-     */
-    protected \$_dbschema = '{$this->schema}';
-
-content;
+        // Normalise the live table definition into the SAME wizard column /
+        // foreign-key array shape and delegate to the shared schema-first
+        // generator (crud-model.stub), so the DB-introspection path and the
+        // migration-wizard path converge on one code path — mirroring
+        // createController()/createControllerAndViewsFromWizard().
+        if (!empty($wizardColumns)) {
+            $columns     = $wizardColumns;
+            $foreignKeys = $wizardForeignKeys;
+        } else {
+            [$columns, $foreignKeys] = $this->introspectTableAsWizardColumns($tableName);
         }
 
-        $arrayFix = '';
-        $foreignFixes = '';
-        $primaryKey = '';
-        $firstNonPrimaryField = '';
-        $count = 0;
-        
-        // First pass - find primary key and first non-primary field
-        $result = $database->getColumns($tableName, $this->schema);
-        while ($result->fetch()) {
-            $count++;
-            $isPrimary = false;
-            if ($database->type == 'postgresql') {
-                if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
-                    $primaryKey = $result->fields['Field'];
-                    $isPrimary = true;
-                }
-            } elseif (isset($result->fields['Key']) && $result->fields['Key'] == 'PRI') {
-                $primaryKey = $result->fields['Field'];
-                $isPrimary = true;
-            }
-            
-            // Get the first non-primary field to use for display
-            if (!$isPrimary && empty($firstNonPrimaryField)) {
-                $firstNonPrimaryField = $result->fields['Field'];
-            }
-        }
-        
-        // If no field was found, use 'name' as a fallback
-        if (empty($firstNonPrimaryField)) {
-            $firstNonPrimaryField = 'name';
-        }
-        
-        // Get columns again for the second pass since we can't rewind/reset the previous result
-        $result = $database->getColumns($tableName, $this->schema);
-
-        // Store all field names for the getJsonList method
-        $allFields = array();
-        
-        while ($result->fetch()) {
-            $primary = false;
-            if ($database->type == 'postgresql') {
-                if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
-                    $primaryKey = $result->fields['Field'];
-                    $primary = true;
-                }
-            } elseif (isset($result->fields['Key'])
-                && $result->fields['Key'] == 'PRI') {
-                    $primaryKey = $result->fields['Field'];
-                    $primary = true;
-            }
-            
-            // Store field name for use in getJsonList
-            $allFields[] = $result->fields['Field'];
-            
-            $type = 'string';
-            $basicType = explode('(', $result->fields['Type']);
-            switch ($basicType[0]) {
-                case "tinyint":
-                case "smallint":
-                case "integer":
-                case "int":
-                case "mediumint":
-                case "bigint":
-                    if ($database->type == 'postgresql' && $result->fields['ForeignKey'] == "t") {
-                        $foreignFixes .= '        if ($this->' . $result->fields['Field'] . ' == 0) {' . "\n";
-                        $foreignFixes .= '            $this->' . $result->fields['Field'] . ' = null;' . "\n";
-                        $foreignFixes .= '        }' . "\n";
-                    }
-                    $type = 'int';
-                    $arrayFix .= '        if (isset($data[\'' . $result->fields['Field'] . '\']) &&  $data[\'' . $result->fields['Field'] . '\'] !== null) {' . "\n";
-                    $arrayFix .= '            $data[\'' . $result->fields['Field'] . '\'] = (int) $this->' . $result->fields['Field'] . ";\n";
-                    $arrayFix .= '        }' . "\n";
-                    break;
-                case "decimal":
-                case "numeric":
-                case "float":
-                case "double":
-                    $type = 'float';
-                    $arrayFix .= '        if (isset($data[\'' . $result->fields['Field'] . '\']) &&  $data[\'' . $result->fields['Field'] . '\'] !== null) {' . "\n";
-                    $arrayFix .= '            $data[\'' . $result->fields['Field'] . '\'] = (float) $this->' . $result->fields['Field'] . ";\n";
-                    $arrayFix .= '        }' . "\n";
-                    break;
-                case "bool":
-                case "boolean":
-                    $type = 'bool';
-                    $arrayFix .= '        $data[\'' . $result->fields['Field'] . '\'] = (bool) $this->' . $result->fields['Field'] . ";\n";
-                    break;
-                default: 
-                    $type = 'string';
-                    break;
-            }
-
-            $fileContent .= "    /**\n";
-            if ($result->fields['Comment'] != '') {
-                $fileContent .= "     * "
-                    . $result->fields['Comment']
-                    . "\n";
-            }
-            if ($primary) {
-                if ($result->fields['Comment'] != '') {
-                    $fileContent .= "     * Primary Key \n";
-                } else {
-                    $fileContent .= "     * (Primary Key) \n";
-                }
-            }
-            $fileContent .= "     * @var "
-                . $type
-                . "\n"
-                . "     */\n"
-                . "    public $"
-                . $result->fields['Field']
-                . ";\n";
-        }
-        if ($primaryKey != '') {
-            $fileContent .= "    /**\n"
-                . "     * Primary key in database\n"
-                . "     * @var string\n"
-                . "     */\n"
-                . '    protected $_primaryKey = "'
-                . $primaryKey
-                . "\";\n\n";
-        }
-        $fileContent .= "    /**\n"
-            . "     * Database table\n"
-            . "     * @var string\n"
-            . "     */\n"
-            . '    protected $_dbtable = "'
-            . $tableName
-            . "\";\n\n";
-
-        $primaryKeyVal = '$primaryKey';
-        if ($primaryKey != '') {
-            $primaryKeyVal = '$' . $primaryKey;
-        }
-
-        // Get the controller name here once, before generating the model
-        $controllerName = self::getProperClassName($name, false);
-
-        $theFieldsTxt = '';
-        $lastField = end($allFields);
-        foreach ($allFields as $field) {
-            $theFieldsTxt .= '            \'' . $field . '\'';
-            if ($field !== $lastField) {
-                $theFieldsTxt .= ',';
-            }
-            $theFieldsTxt .= "\n";
-        }
-
-
-        $fileContent .= <<<content
-    /**
-     * Load from database
-     * @param string {$primaryKeyVal} ID to load
-     * @param string \$key Primary key on database
-     * @param boolean   \$debug Show debug information
-     * @return \$this
-     */
-    public function load({$primaryKeyVal},
-        \$key = NULL, \$debug = false)
-    {
-        return parent::_load({$primaryKeyVal}, null, \$key, \$debug);
-    }
-
-    /**
-     * Save to database
-     * @param boolean   \$autoGetValues If true, get all values from \$_REQUEST
-     * @param boolean   \$debug Show debug information (and die)
-     * @return          \$this
-     */
-    public function save(\$autoGetValues = false, \$debug = false)
-    {
-$foreignFixes
-        return parent::_save(null, null, \$autoGetValues, \$debug);
-    }
-
-
-    /**
-     * Delete from database
-     * @param integer {$primaryKeyVal} ID to delete
-     * @return \$this
-     */
-    public function delete({$primaryKeyVal})
-    {
-        return parent::_delete({$primaryKeyVal}, null, null);
-    }
-
-    /**
-     * Return all data as array
-     * @return array
-     */
-    public function getData()
-    {
-        \$data = parent::getData();
-$arrayFix
-        return \$data;
-    }
-
-    /**
-     * List objects
-     * @param string \$filter Filter for where statement in database query
-     * @param string \$order Order for database query
-     * @return {$className}[]
-     */
-    public function getList(\$filter = NULL, \$order = NULL)
-    {
-        return parent::_getList(\$filter, \$order);
-    }
-
-    /**
-     * Get an API-formatted list with pagination, field selection, and search capabilities
-     * @param array \$fields Array of field names to include in response. If empty, includes all fields
-     * @param string|array \$search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
-     * @param string \$order Order by clause (e.g., "field ASC" or "field DESC")
-     * @param int \$page Current page number (1-based, 0 = no pagination)
-     * @param int \$itemsPerPage Number of items per page (ignored if \$page = 0)
-     * @param bool \$debug Show debug information
-     * @param bool \$returnAsModels If true, return objects as models, otherwise return as arrays
-     * @param bool \$useGetData If true, use getData() to return data instead of model properties (returning an array)
-     * @return array API response with pagination info and data
-     */
-    public function getApiList(\$fields = array(), \$search = '', 
-        \$order = '', \$page = 0, \$itemsPerPage = 10, 
-        \$debug = false, \$returnAsModels = false, \$useGetData = true)
-    {
-        return parent::_getApiList(
-            \$fields, \$search, \$order, '', '', '',
-            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
+        $fileContent = $this->buildModelFromWizardColumns(
+            $namespace, $className, $tableName, $columns, $foreignKeys
         );
-    }
-
-}
-content;
 
         file_put_contents($filename, $fileContent);
 
