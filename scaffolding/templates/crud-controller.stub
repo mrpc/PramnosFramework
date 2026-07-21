@@ -1,0 +1,131 @@
+<?php
+namespace {{ namespace }};
+
+/**
+ * {{ className }} Controller
+ * Auto generated at: {{ date }}
+ */
+class {{ className }} extends \Pramnos\Application\Controller
+{
+
+    /**
+     * {{ className }} controller constructor
+     */
+    public function __construct(?\Pramnos\Application\Application $application = null)
+    {
+        // Every action must be registered or Controller::exec() falls back to
+        // display(); the JSON getApiList endpoint in particular would otherwise
+        // return the HTML list page. Public reads (list/detail/JSON) vs.
+        // login-gated writes (the create/edit form and the save/delete actions).
+        $this->addaction(['show', 'getApiList']);
+        $this->addAuthAction(['edit', 'save', 'delete']);
+        parent::__construct($application);
+    }
+
+    /**
+     * Display a listing of the resource
+     */
+    public function display(): string
+    {
+        $view  = $this->getView('{{ viewName }}');
+        $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
+        $view->items = $model->getList();
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = '{{ className }}';
+{{ enqueueScripts }}        $this->application->addbreadcrumb('{{ className }}', sURL . '{{ className }}');
+        return $view->display();
+    }
+
+    /**
+     * Display the specified resource
+     */
+    public function show(): string
+    {
+        $view    = $this->getView('{{ viewName }}');
+        $model   = new \{{ modelNameSpace }}\{{ modelClass }}($this);
+        $request = new \Pramnos\Http\Request();
+        $model->load($request->getOption());
+        $view->addModel($model);
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = $model->{{ firstNonPkField }} . ' | {{ className }}';
+        $this->application->addbreadcrumb('{{ className }}', sURL . '{{ className }}');
+        $this->application->addbreadcrumb((string)$model->{{ firstNonPkField }}, sURL . '{{ className }}/show/' . $model->{{ primaryKey }});
+        return $view->display('show');
+    }
+
+    /**
+     * Show the form for creating or editing a resource
+     */
+    public function edit(): string
+    {
+        $view    = $this->getView('{{ viewName }}');
+        $model   = new \{{ modelNameSpace }}\{{ modelClass }}($this);
+        $request = new \Pramnos\Http\Request();
+        $model->load($request->getOption());
+        $view->addModel($model);
+{{ loadForeignContent }}
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = ($model->{{ primaryKey }} > 0 ? 'Edit' : 'Create') . ' | {{ className }}';
+        $this->application->addbreadcrumb('{{ className }}', sURL . '{{ className }}');
+        if ($model->{{ primaryKey }} > 0) {
+            $this->application->addbreadcrumb((string)$model->{{ firstNonPkField }}, sURL . '{{ className }}/show/' . $model->{{ primaryKey }});
+            $this->application->addbreadcrumb('Edit', sURL . '{{ className }}/edit/' . $model->{{ primaryKey }});
+        } else {
+            $this->application->addbreadcrumb('Create', sURL . '{{ className }}/edit/0');
+        }
+        return $view->display('edit');
+    }
+
+    /**
+     * Store a newly created or updated resource in storage
+     */
+    public function save(): void
+    {
+        $model   = new \{{ modelNameSpace }}\{{ modelClass }}($this);
+        $request = new \Pramnos\Http\Request();
+        $model->load($request->getOption());
+{{ saveContent }}
+        $model->save();
+        $this->redirect(sURL . '{{ className }}');
+    }
+
+    /**
+     * Remove the specified resource from storage
+     */
+    public function delete(): void
+    {
+        $model   = new \{{ modelNameSpace }}\{{ modelClass }}($this);
+        $request = new \Pramnos\Http\Request();
+        $model->delete($request->getOption());
+        $this->redirect(sURL . '{{ className }}');
+    }
+
+    /**
+     * AJAX endpoint for the DataTables list — returns JSON, never the theme.
+     *
+     * The PramnosDataTable adapter sends its parameters on the query string
+     * (page/perpage/search/order/fields, plus format=datatables from the table's
+     * data-dt-api URL); they arrive via the request, not as method arguments, so
+     * we read them from \Pramnos\Http\Request here. Returning a
+     * \Pramnos\Http\Response makes the front controller emit raw JSON instead of
+     * wrapping the payload in the site theme (which produced an HTML body and the
+     * DataTables "Invalid JSON response" warning).
+     */
+    public function getApiList()
+    {
+        $request = new \Pramnos\Http\Request();
+        $model   = new \{{ modelNameSpace }}\{{ modelClass }}($this);
+        $data = $model->_getApiList(
+            $request->get('fields', '', 'get'),
+            $request->get('search', '', 'get'),
+            $request->get('order', '', 'get'),
+            '', '', '', null, null,
+            (int) $request->get('page', 1, 'get'),
+            (int) $request->get('perpage', 10, 'get'),
+            false, false, true, false, false,
+            (string) $request->get('format', '', 'get')
+        );
+        return \Pramnos\Http\Response::json($data);
+    }
+
+}
