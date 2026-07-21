@@ -859,4 +859,86 @@ class DocumentTest extends TestCase
             "getInstance() with unknown type must return the default Html instance"
         );
     }
+
+    /**
+     * When the type is resolved from the `?format=` query parameter (the
+     * $type === '' path used by Application::render()) and that value is NOT a
+     * real document type, getInstance() must fall back to the current default
+     * type instead of building an HTML page.
+     *
+     * Why it matters: a controller that returns a \Pramnos\Http\Response sets the
+     * default type to 'raw' (Application::exec()). If a stray application param
+     * like ?format=datatables (sent by the PramnosDataTable adapter) then forced
+     * an HTML document at render() time, the JSON body would be replaced by an
+     * empty themed page — the "Invalid JSON response" regression.
+     */
+    public function testGetInstanceUnknownFormatFallsBackToDefaultType(): void
+    {
+        // Arrange — a Response has made 'raw' the default; the request carries an
+        // application-specific format that is not a document type.
+        $originalGet = $_GET;
+        Document::getInstance('raw'); // setDefault=true → self::$type = 'raw'
+        $_GET['format'] = 'datatables';
+
+        try {
+            // Act — no explicit type, as Application::render() calls it
+            $doc = Document::getInstance('');
+
+            // Assert — the raw document is reused, not an HTML page
+            $this->assertSame('raw', $doc->getType(),
+                'unknown ?format must fall back to the default type (raw), not HTML');
+        } finally {
+            // Cleanup — restore global state so other tests are unaffected
+            $_GET = $originalGet;
+            Document::setType('html');
+        }
+    }
+
+    /**
+     * BC guard: with the default type left at 'html', an unknown ?format value
+     * still yields an HTML document — the fallback must not change behaviour for
+     * ordinary pages.
+     */
+    public function testGetInstanceUnknownFormatKeepsHtmlWhenDefaultIsHtml(): void
+    {
+        // Arrange
+        $originalGet = $_GET;
+        Document::setType('html');
+        $_GET['format'] = 'datatables';
+
+        try {
+            // Act
+            $doc = Document::getInstance('');
+
+            // Assert — unchanged from the historical default: → Html behaviour
+            $this->assertSame('html', $doc->getType());
+        } finally {
+            $_GET = $originalGet;
+            Document::setType('html');
+        }
+    }
+
+    /**
+     * A known ?format value (e.g. json) must still select that document type —
+     * the fallback only intercepts values that are not real document types.
+     */
+    public function testGetInstanceKnownFormatStillSelectsThatType(): void
+    {
+        // Arrange
+        $originalGet = $_GET;
+        Document::setType('html');
+        $_GET['format'] = 'json';
+
+        try {
+            // Act
+            $doc = Document::getInstance('');
+
+            // Assert
+            $this->assertSame('json', $doc->getType(),
+                'a real ?format type must still be honoured');
+        } finally {
+            $_GET = $originalGet;
+            Document::setType('html');
+        }
+    }
 }

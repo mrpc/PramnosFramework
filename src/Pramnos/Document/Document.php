@@ -11,6 +11,14 @@ use \Pramnos\Document\DocumentTypes;
 class Document extends \Pramnos\Framework\Base
 {
 
+    /**
+     * Document types this factory can actually build (see getInstance()'s
+     * switch). Used to decide whether a `?format=` value names a real document
+     * type or is an application-specific value that should be ignored for
+     * type selection.
+     */
+    public const KNOWN_TYPES = ['html', 'amp', 'json', 'rss', 'pdf', 'raw', 'png'];
+
     public $content = '';
     public static $type = 'html';
     private static $buffer = '';
@@ -279,6 +287,17 @@ class Document extends \Pramnos\Framework\Base
         if ($type === '') {
             $request = \Pramnos\Framework\Factory::getRequest();
             $type = (string)($request->get('format', self::$type, 'GET') ?? self::$type);
+            // The `format` query parameter doubles as a document-type selector,
+            // but callers also use it for their own purposes (e.g. the
+            // PramnosDataTable adapter sends format=datatables). When it names a
+            // type we don't produce, fall back to the current default type rather
+            // than silently building an HTML page — otherwise a controller that
+            // already prepared a raw/json Response (which set the default to
+            // 'raw' via getInstance('raw')) would have its output replaced by an
+            // empty themed page at render() time.
+            if (!in_array($type, self::KNOWN_TYPES, true)) {
+                $type = self::$type;
+            }
         } elseif ($setDefault === true) {
             self::$type = $type;
         }

@@ -72,3 +72,14 @@ A genuine 404 (not a 301 to the home page) is the correct SEO signal: blanket
 redirecting unknown URLs to `/` reads as a soft-404 and hurts indexing. The
 method is public so app controllers can trigger it for their own missing
 resources.
+
+---
+
+## `Document::getInstance()` no longer lets a stray `?format=` hijack the response
+
+The `format` query parameter doubles as a document-type selector, but callers
+also use it for their own purposes (e.g. the DataTables adapter sends
+`format=datatables`). An unknown value fell through to a fresh HTML document at
+`render()` time — discarding a JSON/raw `Response` a controller had already
+prepared. Unknown `format` values now fall back to the current default document
+type; known types and the historical HTML default are unchanged.
