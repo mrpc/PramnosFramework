@@ -282,4 +282,49 @@ class ViewTemplateTest extends TestCase
         // setUp() already called View::setTemplateCacheDir('')
         $this->assertSame('', View::getTemplateCacheDir());
     }
+
+    /**
+     * insert() must record the rendered partial in the DebugBar's ViewsCollector.
+     *
+     * Why it matters: insert() does a plain include (it never goes through
+     * getTpl()), so before this a developer debugging a page saw only the
+     * top-level template in the "Views" panel — never the partial files the page
+     * actually rendered, which are often exactly what needs editing. The partial
+     * must now appear alongside the main template.
+     */
+    public function testInsertRecordsPartialInDebugBarViews(): void
+    {
+        // Arrange — a real partial on disk + a fresh ViewsCollector on the bar
+        $partial = sys_get_temp_dir() . '/pf_partial_' . uniqid() . '.html.php';
+        file_put_contents($partial, '<?php /* partial */ ?>PARTIAL-OUTPUT');
+
+        $collector = new \Pramnos\Debug\Collectors\ViewsCollector();
+        \Pramnos\Debug\DebugBar::getInstance()->addCollector($collector);
+
+        // A View that skips the framework-heavy constructor but has the fields
+        // insert() touches ($name is passed to record() as a string).
+        $view = new class extends View {
+            public function __construct()
+            {
+                $this->name  = 'testview';
+                $this->path  = '';
+                $this->model = null;
+            }
+        };
+
+        // Act — insert() by absolute path resolves directly and includes it
+        ob_start();
+        $view->insert($partial);
+        $out = (string) ob_get_clean();
+
+        // Assert — the partial rendered AND is recorded for the debug panel
+        $this->assertStringContainsString('PARTIAL-OUTPUT', $out,
+            'the partial must still be included/rendered');
+        $recorded = array_column($collector->collect()['views'], 'template');
+        $this->assertContains(basename($partial), $recorded,
+            'insert() must record the partial so the DebugBar Views panel lists it');
+
+        // Cleanup
+        @unlink($partial);
+    }
 }

@@ -380,7 +380,21 @@ class View extends \Pramnos\Framework\Base
         if (!empty($data)) {
             extract($data, EXTR_SKIP);
         }
+        $_pdb_partial_start = microtime(true);
         include $includeFile;
+
+        // Record the partial in the DebugBar's ViewsCollector. insert() does a
+        // plain include (it does not go through getTpl()), so without this the
+        // debug "Views" panel would list only the top-level template and a
+        // developer would not see which partial files a page actually rendered
+        // — exactly the files they may need to edit when debugging.
+        try {
+            $vc = \Pramnos\Debug\DebugBar::getInstance()->getCollector('views');
+            if ($vc instanceof \Pramnos\Debug\Collectors\ViewsCollector) {
+                $vc->record($this->name, $file, (microtime(true) - $_pdb_partial_start) * 1000);
+            }
+        } catch (\Throwable) {
+        }
     }
 
     // =========================================================================
