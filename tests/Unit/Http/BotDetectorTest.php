@@ -14,7 +14,7 @@ use Pramnos\Http\Middleware\BotDetector;
  * infrastructure is required. Tests verify that known bots are detected and
  * that ordinary browser user-agents are treated as human traffic.
  *
- * These tests directly validate the ROADMAP Phase 25.5 test requirements:
+ * These tests directly validate the BotDetector contract:
  *   - BotDetector::isBot('Googlebot/2.1') → true
  *   - BotDetector::isBot('Mozilla/5.0 (Windows NT 10.0)') → false
  */
@@ -35,7 +35,7 @@ class BotDetectorTest extends TestCase
     /**
      * Googlebot must be recognised as a bot.
      *
-     * This is the canonical ROADMAP requirement (Phase 25.5).
+     * This is a canonical BotDetector requirement.
      */
     public function testGooglebotIsDetectedAsBot(): void
     {
@@ -115,7 +115,7 @@ class BotDetectorTest extends TestCase
     /**
      * A standard Windows Chrome user-agent must NOT be treated as a bot.
      *
-     * This is the canonical ROADMAP requirement (Phase 25.5).
+     * This is a canonical BotDetector requirement.
      */
     public function testWindowsChromeIsNotABot(): void
     {

@@ -80,7 +80,6 @@ class McpServiceProvider extends ServiceProvider
             ['file://CLAUDE.md',     'Claude Code guide',       $root . '/CLAUDE.md'],
             ['file://README.md',     'Project README',          $root . '/README.md'],
             ['file://app/app.php',   'Application config',      $root . '/app/app.php'],
-            ['file://ROADMAP.md',    'Project roadmap',         $root . '/ROADMAP_1.2.md'],
         ];
     }
 }
