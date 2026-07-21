@@ -83,3 +83,12 @@ also use it for their own purposes (e.g. the DataTables adapter sends
 `render()` time — discarding a JSON/raw `Response` a controller had already
 prepared. Unknown `format` values now fall back to the current default document
 type; known types and the historical HTML default are unchanged.
+
+---
+
+## View no longer triggers a PHP 8.5 "null array offset" deprecation
+
+`View::addModel()` / `getModel()` keyed the models array on `$model->name`. On an
+unsaved record (e.g. an `edit/0` create form) that name is null, and PHP 8.5
+deprecates null array offsets — emitting warnings on every such page. The key is
+now coerced to a string (`''` for null); lookup semantics are unchanged.
