@@ -126,3 +126,14 @@ Fixed across the generators and the plain-css theme.
   `btn btn-primary/secondary`, `card`) instead of empty `class=""`; the plain-css
   `.btn` gained `line-height`/`vertical-align` so `<a>` and `<button>` buttons
   match in height.
+
+---
+
+## Controller scaffolding renders from a stub template
+
+The wizard-generated CRUD controller was built from a large PHP heredoc embedded
+in `MakeCommandBase`. It is now rendered from
+`scaffolding/templates/crud-controller.stub` via the existing `renderStub()`
+mechanism — matching how the middleware / event / migration generators already
+work — so the generated controller can be customised by editing the stub.
+Generated output is byte-for-byte unchanged.
