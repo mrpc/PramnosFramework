@@ -147,3 +147,16 @@ DebugBar Views panel listed only the top-level template — not the partials a p
 actually rendered (breadcrumb, sidebar, …), which are often exactly what a
 developer needs to edit. `insert()` now records each partial in the
 `ViewsCollector`, so every rendered template file shows up when debugging.
+
+---
+
+## Full controllers always generate from one CRUD path (buggy heredoc removed)
+
+`make:controller --full` had two divergent generators: the migration-wizard path
+(schema-first → `crud-controller.stub`) and a separate DB-introspection path that
+built the controller from an inline heredoc. The heredoc variant was broken — its
+generated `getApiList()` called `parent::_getApiList()`, which does not exist on a
+controller. Both full paths now converge on `createControllerAndViewsFromWizard()`:
+DB-introspected tables are normalised into the same column/foreign-key shape as the
+wizard (`introspectTableAsWizardColumns()`) and rendered from `crud-controller.stub`.
+`simple` vs `full` remains the only choice; `full` is a strict superset of `simple`.

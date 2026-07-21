@@ -1221,12 +1221,47 @@ abstract class MakeCommandBase extends Command
         }
         $content .= "Creating View: ";
         try {
-            $this->createView($name, true);
+            // A full controller now scaffolds its own CRUD views (list/edit/show)
+            // as part of createController(), which delegates to the shared wizard
+            // generator. Only fall back to the standalone view generator when the
+            // controller step did not already produce them — otherwise createView()
+            // would (correctly) refuse to overwrite the freshly generated views.
+            if (!$this->crudViewsExist($name)) {
+                $this->createView($name, true);
+            }
             $content .= "OK\n";
         } catch (\Exception $ex) {
             $content .= "FAIL - " . $ex->getMessage() . "\n";
         }
         return $content . "\n";
+    }
+
+    /**
+     * Determine whether the CRUD view directory for an entity already exists and
+     * contains generated files.
+     *
+     * Used by createCrud() to avoid double-generating views: a full controller
+     * now scaffolds its list/edit/show templates itself, so the standalone view
+     * generator must be skipped when those files are already present.
+     *
+     * @param string $name Entity name (the view dir is its lowercase form)
+     * @return bool True when the view directory holds at least one file
+     */
+    protected function crudViewsExist(string $name): bool
+    {
+        $application = $this->getApplication()->internalApplication;
+
+        $path = ROOT . DS . INCLUDES . DS;
+        if ($application->appName != '') {
+            $path .= $application->appName . DS;
+        }
+        $viewPath = $path . 'Views' . DS . strtolower($name);
+
+        if (!is_dir($viewPath)) {
+            return false;
+        }
+        $files = array_diff((array) scandir($viewPath), ['.', '..']);
+        return !empty($files);
     }
 
     /**
@@ -2343,32 +2378,6 @@ content;
         if (!file_exists($path)) {
             mkdir($path);
         }
-        $date = date('d/m/Y H:i');
-        $fileContent = <<<content
-<?php
-namespace {$namespace};
-
-/**
- * {$className} Controller
- * Auto generated at: {$date}
- */
-class {$className} extends \Pramnos\Application\Controller
-{
-
-    /**
-     * {$className} controller constructor
-     * @param Application \$application
-     */
-    public function __construct(?\Pramnos\Application\Application \$application = null)
-    {
-        \$this->addAuthAction(
-            array('save', 'delete')
-        );
-        parent::__construct(\$application);
-    }
-    
-
-content;
         if (!$full) {
             // Simple controller skeleton generated from stub — no DB introspection needed
             $viewName    = strtolower($name);
@@ -2435,305 +2444,238 @@ content;
                      . "\n" . $result;
             }
 
+            // ── DB-introspection path (table already exists) ─────────────────
+            // Convert the live table definition into the SAME wizard column /
+            // foreign-key array shape, then delegate to the shared CRUD
+            // generator so a full controller is always produced from
+            // crud-controller.stub — identical to the migration-wizard path.
             if (!$database->tableExists($tableName)) {
                 throw new \Exception(
                     'Table: ' . $tableName . ' does not exist.'
                 );
             }
-            $result = $database->getColumns($tableName, $this->schema);
 
+            [$columns, $foreignKeys] = $this->introspectTableAsWizardColumns($tableName);
 
-            $saveContent = '';
-            $foreignKeyModels = array();
-            $editContent = '';
-
-            $primaryKey = '';
-            $firstField = ''; // Initialize firstField variable
-            $count = 0;
-            while ($result->fetch()) {
-                $count++;
-                $primary = false;
-                if ($database->type == 'postgresql') {
-                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
-                        $primaryKey = $result->fields['Field'];
-                        $primary = true;
-                    }
-                } elseif (isset($result->fields['Key'])
-                    && $result->fields['Key'] == 'PRI') {
-                        $primaryKey = $result->fields['Field'];
-                        $primary = true;
-                }
-                
-                // Store the second field as the first non-primary field for display
-                if ($count == 2 && !$primary) {
-                    $firstField = $result->fields['Field'];
-                } else if ($count > 2 && empty($firstField) && !$primary) {
-                    // If the second field was the primary key, use the next non-primary field
-                    $firstField = $result->fields['Field'];
-                }
-                
-                // Check if this is a foreign key field
-                $isForeignKey = false;
-                if ($database->type == 'postgresql') {
-                    $isForeignKey = $result->fields['ForeignKey'] == 't' || $result->fields['ForeignKey'] === true;
-                } else {
-                    $isForeignKey = !empty($result->fields['ForeignKey']);
-                }
-                
-                // If this is a foreign key, store information to load related models
-                if ($isForeignKey && !empty($result->fields['ForeignTable'])) {
-                    $foreignTable = $result->fields['ForeignTable'];
-                    $foreignSchema = $result->fields['ForeignSchema'];
-                    $foreignColumn = $result->fields['ForeignColumn'];
-                    
-                    // Special handling for user foreign keys
-                    $isUserForeignKey = ($foreignColumn == 'userid' && ($foreignTable == 'users' || $foreignTable == '#PREFIX#users'));
-                    
-                    if (!$isUserForeignKey) {
-                        // Get potential model name from foreign table
-                        $foreignModelName = self::getProperClassName($foreignTable, true);
-                        
-                        // Check if foreign model exists
-                        $foreignModelClass = "\\{$modelNameSpace}\\{$foreignModelName}";
-                        $foreignModelFile = $path . "/../Models/{$foreignModelName}.php";
-                        
-                        // Store foreign key information
-                        $foreignKeyModels[$result->fields['Field']] = [
-                            'table' => $foreignTable,
-                            'schema' => $foreignSchema,
-                            'column' => $foreignColumn,
-                            'modelClass' => $foreignModelName,
-                            'modelNamespace' => $modelNameSpace,
-                            'field' => $result->fields['Field'],
-                            'exists' => file_exists($foreignModelFile),
-                            'isUserForeignKey' => false
-                        ];
-
-                        // Check the model registry for the foreign model
-                        $registryFile = ROOT . DS . 'app' . DS . 'model-registry.json';
-                        if (file_exists($registryFile)) {
-                            $registry = json_decode(file_get_contents($registryFile), true);
-                            if (json_last_error() === JSON_ERROR_NONE && is_array($registry)) {
-                                foreach ($registry as $model) {
-                                    if (isset($model['table']) && $model['table'] === $foreignTable) {
-                                        $foreignKeyModels[$result->fields['Field']]['modelClass'] = $model['className'];
-                                        $foreignKeyModels[$result->fields['Field']]['modelNamespace'] = $model['namespace'];
-                                        $foreignKeyModels[$result->fields['Field']]['exists'] = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // Special handling for user foreign keys
-                        $foreignKeyModels[$result->fields['Field']] = [
-                            'table' => $foreignTable,
-                            'schema' => $foreignSchema,
-                            'column' => $foreignColumn,
-                            'field' => $result->fields['Field'],
-                            'isUserForeignKey' => true
-                        ];
-                    }
-                }
-                
-                $basicType = explode('(', $result->fields['Type']);
-                if (!$primary) {
-                    switch ($basicType[0]) {
-                        case "tinyint":
-                        case "smallint":
-                        case "integer":
-                        case "int":
-                        case "mediumint":
-                        case "bigint":
-                            $saveContent .= '        $model->'
-                                . $result->fields['Field']
-                                . ' = $request->get(\''
-                                . $result->fields['Field']
-                                . '\', \'\', \'post\', \'int\');'
-                                . "\n";
-                            break;
-                        case "float":
-                        case "double":
-                            $saveContent .= '        $model->'
-                                . $result->fields['Field']
-                                . ' = (float) $request->get(\''
-                                . $result->fields['Field']
-                                . '\', \'\', \'post\');'
-                                . "\n";
-                            break;
-                        case "bool":
-                        case "boolean":
-                            $saveContent .= '        $model->'
-                                . $result->fields['Field']
-                                . ' = (bool) $request->get(\''
-                                . $result->fields['Field']
-                                . '\', \'\', \'post\');' . "\n";
-                            break;
-                        default:
-                            $saveContent .= '        $model->'
-                                . $result->fields['Field']
-                                . ' = trim('
-                                . "\n            strip_tags(\n"
-                                . '                $request->get(\''
-                                . $result->fields['Field']
-                                . '\', \'\', \'post\')'
-                                . "\n            )"
-                                . "\n        );\n";
-                            break;
-                    }
-                }
-
-            }
-
-            // Create code to load related models for foreign keys
-            $loadForeignModelsContent = '';
-            foreach ($foreignKeyModels as $field => $fkInfo) {
-                if (isset($fkInfo['exists']) && $fkInfo['exists']) {
-                    $varName = lcfirst($fkInfo['modelClass']) . 'List';
-                    $loadForeignModelsContent .= '        // Load ' . $fkInfo['modelClass'] . ' data for foreign key ' . $field . "\n";
-                    $loadForeignModelsContent .= '        $' . $varName . ' = new \\' . $fkInfo['modelNamespace'] . '\\' . $fkInfo['modelClass'] . '($this);' . "\n";
-                    $loadForeignModelsContent .= '        $view->' . $varName . ' = $' . $varName . '->getList();' . "\n\n";
-                } elseif (isset($fkInfo['isUserForeignKey']) && $fkInfo['isUserForeignKey']) {
-                    $loadForeignModelsContent .= '        // Load user data for foreign key ' . $field . "\n";
-                    $loadForeignModelsContent .= '        $view->userList = \Pramnos\User\User::getUsers();' . "\n\n";
-                }
-            }
-
-            $fileContent .= <<<content
-    /**
-     * Display a listing of the resource
-     * @return string
-     */
-    public function display()
-    {
-        \$view = \$this->getView('{$viewName}');
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-
-        \$view->items = \$model->getList();
-        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
-        \$doc = \Pramnos\Framework\Factory::getDocument();
-        \$doc->title = '{$className}';
-        return \$view->display();
-    }
-
-    /**
-     * Display the specified resource
-     * @return string
-     */
-    public function show()
-    {
-        \$view = \$this->getView('{$viewName}');
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-        \$request = new \Pramnos\Http\Request();
-        \$model->load(\$request->getOption());
-        \$view->addModel(\$model);
-        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
-        \$this->application->addbreadcrumb('View ' . \$model->{$primaryKey}, sURL . '{$className}/show/' . \$model->{$primaryKey});
-        \$doc = \Pramnos\Framework\Factory::getDocument();
-        \$doc->title = \$model->{$primaryKey} . ' | {$className}';
-        return \$view->display('show');
-    }
-
-    /**
-     * Show the form for creating a new resource or editing an existing one
-     * @return string
-     */
-    public function edit()
-    {
-        \$view = \$this->getView('{$viewName}');
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-        \$request = new \Pramnos\Http\Request();
-        \$model->load(\$request->getOption());
-        \$view->addModel(\$model);
-
-{$loadForeignModelsContent}
-        \$this->application->addbreadcrumb('{$className}', sURL . '{$className}');
-        if (\$model->{$primaryKey} > 0) {
-            \$this->application->addbreadcrumb('View ' . \$model->{$primaryKey}, sURL . '{$className}/show/' . \$model->{$primaryKey});
-            \$this->application->addbreadcrumb('Edit', sURL . '{$className}/edit/' . \$model->{$primaryKey});
-        } else {
-            \$this->application->addbreadcrumb('Create', sURL . '{$className}/edit/0');
+            $result = $this->createControllerAndViewsFromWizard(
+                $name, $namespace, $modelNameSpace, $modelClass,
+                $className, $tableName, $path,
+                $columns, $foreignKeys,
+                $filename
+            );
+            $testLine = $this->generateTestStub(
+                $className, $namespace,
+                defined('ROOT') ? ROOT : getcwd(),
+                'controller_test'
+            );
+            return "Namespace: {$namespace}\n"
+                 . "Class:     {$className}\n"
+                 . "File:      {$filename}\n"
+                 . $testLine
+                 . "\n" . $result;
         }
-        
-        \$doc = \Pramnos\Framework\Factory::getDocument();
-        \$doc->title = (\$model->{$primaryKey} > 0 ? 'Edit' : 'Create') . ' | {$className}';
-        
-        return \$view->display('edit');
     }
 
     /**
-     * Store a newly created or edited resource in storage.
+     * Introspect an existing database table and return its column and
+     * foreign-key definitions in the SAME array shape produced by the
+     * migration wizard (runMigrationWizard()).
+     *
+     * This lets the full-controller generator take a single code path: whether
+     * the column metadata originates from the wizard (schema-first) or from a
+     * live table (DB-first), it is normalised here and handed to
+     * createControllerAndViewsFromWizard(), which renders from
+     * scaffolding/templates/crud-controller.stub.
+     *
+     * Handles both MySQL and PostgreSQL result shapes returned by
+     * Database::getColumns() — primary key (Key='PRI' / PrimaryKey=true),
+     * nullability (Null='YES'/'NO'), and foreign keys (ForeignKey +
+     * ForeignTable/ForeignColumn). The convention-derived primary key is added
+     * by the CRUD generator itself, so the detected PK column is intentionally
+     * excluded from the returned columns — mirroring the wizard array, which
+     * never contains the primary key.
+     *
+     * @param string $tableName Table to introspect (may contain #PREFIX#)
+     * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>}
+     *               [$columns, $foreignKeys] in wizard shape
      */
-    public function save()
+    private function introspectTableAsWizardColumns(string $tableName): array
     {
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-        \$request = new \Pramnos\Http\Request();
-        \$model->load(\$request->getOption());
-{$saveContent}
-        \$model->save();
-        \$this->redirect(sURL . '{$className}');
+        $database = \Pramnos\Database\Database::getInstance();
+        $result   = $database->getColumns($tableName, $this->schema);
+
+        $columns     = [];
+        $foreignKeys = [];
+
+        while ($result->fetch()) {
+            $field = $result->fields['Field'];
+
+            // Primary key — driver-specific flag names.
+            $isPrimary = false;
+            if ($database->type == 'postgresql') {
+                $isPrimary = ($result->fields['PrimaryKey'] == 't'
+                    || $result->fields['PrimaryKey'] === true);
+            } elseif (isset($result->fields['Key'])
+                && $result->fields['Key'] == 'PRI') {
+                $isPrimary = true;
+            }
+
+            // Foreign key — driver-specific flag names.
+            $isForeignKey = false;
+            if ($database->type == 'postgresql') {
+                $isForeignKey = ($result->fields['ForeignKey'] == 't'
+                    || $result->fields['ForeignKey'] === true);
+            } else {
+                $isForeignKey = !empty($result->fields['ForeignKey']);
+            }
+
+            if ($isForeignKey && !empty($result->fields['ForeignTable'])) {
+                // FK array keys match the wizard shape consumed by
+                // createControllerAndViewsFromWizard()/createViewsFromWizard():
+                // 'column' (this table), 'references' (referenced column),
+                // 'on' (referenced table), 'onDelete'/'onUpdate'.
+                $foreignKeys[] = [
+                    'column'     => $field,
+                    'references' => $result->fields['ForeignColumn'] ?? 'id',
+                    'on'         => $result->fields['ForeignTable'],
+                    'onDelete'   => '',
+                    'onUpdate'   => '',
+                ];
+            }
+
+            // Skip the primary key column: the generator derives it by
+            // convention (getSingularPrimaryKey) and it must not be emitted as
+            // an editable form field.
+            if ($isPrimary) {
+                continue;
+            }
+
+            $logicalType = $this->mapSqlTypeToLogical(
+                (string) $result->fields['Type']
+            );
+
+            $nullable = isset($result->fields['Null'])
+                && strtoupper((string) $result->fields['Null']) === 'YES';
+
+            $columns[] = [
+                'name'     => $field,
+                'type'     => $logicalType,
+                'options'  => [],
+                'nullable' => $nullable,
+                'default'  => $result->fields['COLUMN_DEFAULT']
+                    ?? ($result->fields['column_default'] ?? null),
+                'comment'  => $result->fields['Comment'] ?? '',
+                'unique'   => false,
+                'unsigned' => $isForeignKey && in_array(
+                    $logicalType,
+                    ['integer', 'biginteger', 'tinyinteger', 'smallinteger'],
+                    true
+                ),
+            ];
+        }
+
+        return [$columns, $foreignKeys];
     }
 
     /**
-     * Remove the specified resource from storage
+     * Map a raw SQL column type (MySQL or PostgreSQL) to the logical type
+     * vocabulary used by the migration wizard and the CRUD/view generators.
+     *
+     * Logical types: string, char, integer, biginteger, tinyinteger,
+     * smallinteger, decimal, float, double, boolean, text, longtext, date,
+     * datetime, timestamp, json, uuid, binary. Unknown types fall back to
+     * 'string'. MySQL's conventional boolean tinyint(1) is detected before the
+     * length qualifier is stripped.
+     *
+     * @param string $rawType Raw type as reported by Database::getColumns()
+     * @return string Logical type
      */
-    public function delete()
+    private function mapSqlTypeToLogical(string $rawType): string
     {
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-        \$request = new \Pramnos\Http\Request();
-        \$model->delete(\$request->getOption());
-        \$this->redirect(sURL . '{$className}');
-    }
+        $raw = strtolower(trim($rawType));
 
-    /**
-     * Returns the resource in JSON format
-     * @return string
-     */
-    public function get{$className}()
-    {
-        \$model = new \\{$modelNameSpace}\\$modelClass(\$this);
-        \Pramnos\Framework\Factory::getDocument('json');
-        return \$model->getJsonList((bool)\Pramnos\Http\Request::staticGet('multiple', 0, 'int', 'get'));
-    }
+        // MySQL convention: tinyint(1) is a boolean.
+        if (preg_match('/^tinyint\s*\(\s*1\s*\)/', $raw)) {
+            return 'boolean';
+        }
 
-    /**
-     * Get an API-formatted list with pagination, field selection, and search capabilities
-     * @param array \$fields Array of field names to include in response. If empty, includes all fields
-     * @param string|array \$search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
-     * @param string \$order Order by clause (e.g., "field ASC" or "field DESC")
-     * @param int \$page Current page number (1-based, 0 = no pagination)
-     * @param int \$itemsPerPage Number of items per page (ignored if \$page = 0)
-     * @param bool \$debug Show debug information
-     * @param bool \$returnAsModels If true, return objects as models, otherwise return as arrays
-     * @param bool \$useGetData If true, use getData() to return data instead of model properties (returning an array)
-     * @return array API response with pagination info and data
-     */
-    public function getApiList(\$fields = array(), \$search = '', 
-        \$order = '', \$page = 0, \$itemsPerPage = 10, 
-        \$debug = false, \$returnAsModels = false, \$useGetData = true)
-    {
-        return parent::_getApiList(
-            \$fields, \$search, \$order, '', '', '',
-            null, null, \$page, \$itemsPerPage, \$debug, \$returnAsModels, \$useGetData
-        );
-    }
+        // Strip any length/precision qualifier and collapse whitespace so
+        // multi-word PostgreSQL types ("character varying", "timestamp without
+        // time zone") normalise cleanly.
+        $base = trim(explode('(', $raw)[0]);
+        $base = preg_replace('/\s+/', ' ', $base);
 
-}
-content;
-        }        file_put_contents($filename, $fileContent);
-
-        $testLine = $this->generateTestStub(
-            $className,
-            $namespace,
-            defined('ROOT') ? ROOT : getcwd(),
-            'controller_test'
-        );
-
-        return "Namespace: {$namespace}\n"
-            . "Class: {$className}\n"
-            . "File: {$filename}\n"
-            . $testLine
-            . "\nController created.";
+        switch ($base) {
+            case 'tinyint':
+                return 'tinyinteger';
+            case 'smallint':
+            case 'smallserial':
+            case 'int2':
+                return 'smallinteger';
+            case 'mediumint':
+            case 'int':
+            case 'integer':
+            case 'serial':
+            case 'int4':
+                return 'integer';
+            case 'bigint':
+            case 'bigserial':
+            case 'int8':
+                return 'biginteger';
+            case 'bool':
+            case 'boolean':
+                return 'boolean';
+            case 'decimal':
+            case 'numeric':
+            case 'money':
+                return 'decimal';
+            case 'float':
+            case 'real':
+            case 'float4':
+                return 'float';
+            case 'double':
+            case 'double precision':
+            case 'float8':
+                return 'double';
+            case 'char':
+            case 'character':
+            case 'bpchar':
+                return 'char';
+            case 'varchar':
+            case 'character varying':
+            case 'string':
+                return 'string';
+            case 'tinytext':
+            case 'mediumtext':
+            case 'text':
+                return 'text';
+            case 'longtext':
+                return 'longtext';
+            case 'date':
+                return 'date';
+            case 'datetime':
+                return 'datetime';
+            case 'timestamp':
+            case 'timestamp without time zone':
+            case 'timestamp with time zone':
+            case 'timestamptz':
+                return 'timestamp';
+            case 'json':
+            case 'jsonb':
+                return 'json';
+            case 'uuid':
+                return 'uuid';
+            case 'binary':
+            case 'varbinary':
+            case 'blob':
+            case 'tinyblob':
+            case 'mediumblob':
+            case 'longblob':
+            case 'bytea':
+                return 'binary';
+            default:
+                return 'string';
+        }
     }
 
 
