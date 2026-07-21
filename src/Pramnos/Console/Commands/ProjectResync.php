@@ -254,7 +254,19 @@ class ProjectResync extends Command
             }
         }
 
-        $framework = Init::buildApiOverrides($appName, $apiUrl, $hasAuth, $hasAuthServer);
+        // Reuse the author email from composer.json as the docs support contact,
+        // matching what `init` records — so a project scaffolded before this was
+        // supported gets a real email instead of the generic placeholder.
+        $supportEmail = '';
+        $composerPath = $base . '/composer.json';
+        if (is_file($composerPath)) {
+            $composer = json_decode((string) file_get_contents($composerPath), true);
+            if (is_array($composer) && !empty($composer['authors'][0]['email'])) {
+                $supportEmail = (string) $composer['authors'][0]['email'];
+            }
+        }
+
+        $framework = Init::buildApiOverrides($appName, $apiUrl, $hasAuth, $hasAuthServer, '', $supportEmail);
 
         // Merge over any existing overrides so user additions survive.
         $existing = [];
