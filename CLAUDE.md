@@ -2,24 +2,20 @@
 
 ## Project context
 
-- **Branch:** active development happens on **`main`**. `v1.2` is released/frozen — do **not** commit new work to `v1.2-dev` (kept only for reference). New fixes/features land on `main`.
+- **Branch:** active development happens on **`main`**; all new fixes/features land there.
 - **Stack:** PHP 8.5, MySQL 8.0, PostgreSQL 14, TimescaleDB (Docker)
-- **Test suites:** `vendor/bin/phpunit` (framework, 171 tests) and the reference application integration suite (`the application integration test suite`, 5 176 tests)
-- **Feature docs:** `docs/1.2-new-features.md` — must be updated in parallel with every implementation
+- **Test suites:** `vendor/bin/phpunit` (framework unit/characterization/integration) and the reference application integration suite (`the application integration test suite`)
+- **Docs:** ship a dated changelog post under `docs/version-history/posts/` with each change (see rule 10). `docs/1.2-new-features.md` is a frozen v1.2 reference — never edit it.
 
 ## Behaviour rules
 
 ### 1. Docs travel with code
 
-Every new public class or method that ships must have its entry in `docs/1.2-new-features.md` in the **same commit**. Do not defer documentation to a later step.
+Every user-visible change or new public class/method ships with its documentation in the **same commit** — a dated changelog post under `docs/version-history/posts/` (see rule 10). Do not defer documentation to a later step.
 
 ### 2. Tests before refactoring internal framework classes
 
 Before modifying any of `Auth`, `User`, `Logs`, `Adjacencylist`, `Migration`, ensure formal characterization tests exist in `tests/Characterization/` covering × 3 databases. The reference application integration suite counts as partial PostgreSQL coverage only — it does not satisfy this requirement.
-
-### 3. Phase order is mandatory
-
-Implementation order: **Phase 1 (Grammar → DDL) → Phase 4 (Infra) → Phase 2 (SchemaImports)**. Do not start the feature implementation work without Feature Registry, Service Providers, and Migration System in place.
 
 ### 4. Always run tests via `./dockertest`
 
