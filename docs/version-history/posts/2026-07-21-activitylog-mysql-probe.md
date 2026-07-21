@@ -137,3 +137,13 @@ in `MakeCommandBase`. It is now rendered from
 mechanism — matching how the middleware / event / migration generators already
 work — so the generated controller can be customised by editing the stub.
 Generated output is byte-for-byte unchanged.
+
+---
+
+## DebugBar "Views" panel now lists inserted partials
+
+`View::insert()` does a plain include and never went through `getTpl()`, so the
+DebugBar Views panel listed only the top-level template — not the partials a page
+actually rendered (breadcrumb, sidebar, …), which are often exactly what a
+developer needs to edit. `insert()` now records each partial in the
+`ViewsCollector`, so every rendered template file shows up when debugging.
