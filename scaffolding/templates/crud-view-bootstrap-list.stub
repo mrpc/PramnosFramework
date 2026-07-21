@@ -1,0 +1,29 @@
+<?php
+/**
+ * {{ objectNamePlural }} list (Bootstrap theme) — auto-generated CRUD view.
+ *
+ * The list is rendered by the framework's server-side DataTable: the controller
+ * builds a \Pramnos\Html\Datatable and streams rows over AJAX from the data()
+ * action, so this view only prints the widget shell.
+ *
+ * Variables:
+ *   $this->datatable — \Pramnos\Html\Datatable instance (server-side AJAX)
+ *   $this->success   — optional success flash message
+ *   $this->error     — optional error flash message
+ */
+defined('SP') or die('No startpoint defined...');
+?>
+<div class="container-fluid py-4">
+    <?php echo \Pramnos\Application\Application::getInstance()->renderBreadcrumbs(); ?>
+    <?php if (!empty($this->success)): ?>
+        <div class="alert alert-success"><?php echo htmlspecialchars($this->success); ?></div>
+    <?php endif; ?>
+    <?php if (!empty($this->error)): ?>
+        <div class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
+    <?php endif; ?>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">{{ objectNamePlural }}</h2>
+        <a href="<?php echo sURL; ?>{{ className }}/edit/0" class="btn btn-primary">+ New {{ objectName }}</a>
+    </div>
+    <?php echo $this->datatable->render(); ?>
+</div>

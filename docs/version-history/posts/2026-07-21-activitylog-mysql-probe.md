@@ -204,3 +204,28 @@ duality that caused template drift and bugs.
 - `create:init`'s schema-less welcome controller (`src/Controllers/Home.php`) no
   longer uses the removed stub — it is written from a small inline template.
 - `create:view` keeps its `--full` (`-f`) flag; only the controller flag was removed.
+
+---
+
+## Scaffolded CRUD now matches the admin look — server-side DataTable per theme
+
+The wizard-generated CRUD used a client-side `PramnosDataTable` list + a web
+`getApiList()` endpoint, which looked and behaved differently from the framework's
+own admin screens (users, applications). Scaffolded CRUD now follows the same
+established pattern, per theme (plain-css / bootstrap / tailwind):
+
+- **Controller** builds a server-side `\Pramnos\Html\Datatable` (`$view->datatable`)
+  and exposes a `data()` action that streams rows via
+  `\Pramnos\Html\Datatable\Datasource::getList()` — exactly like the admin
+  controllers. The web controller's `getApiList()` was removed (the REST API
+  controller under `src/Api` keeps its own).
+- **Views** are rendered from per-theme stubs
+  (`scaffolding/templates/crud-view-{plain,bootstrap,tailwind}-{list,edit,show}.stub`)
+  that mirror the admin views: the theme's wrapper, flash blocks, a header with a
+  themed "+ New" button, and `$this->datatable->render()` for the list. The
+  create/edit forms and detail pages use each theme's own markup.
+
+BC is preserved: `\Pramnos\Html\Datatable` and `Datasource::getList()` are
+unchanged. (A deeper data-layer unification — routing `Datasource` through the
+`getApiList`/`_getApiList` engine — is deferred to a separate, feature-parity-
+checked task.)

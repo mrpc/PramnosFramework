@@ -1,0 +1,29 @@
+<?php
+/**
+ * {{ objectNamePlural }} list (plain-CSS theme) — auto-generated CRUD view.
+ *
+ * The list is rendered by the framework's server-side DataTable: the controller
+ * builds a \Pramnos\Html\Datatable and streams rows over AJAX from the data()
+ * action, so this view only prints the widget shell.
+ *
+ * Variables:
+ *   $this->datatable — \Pramnos\Html\Datatable instance (server-side AJAX)
+ *   $this->success   — optional success flash message
+ *   $this->error     — optional error flash message
+ */
+defined('SP') or die('No startpoint defined...');
+?>
+<div class="page-section">
+    <?php echo \Pramnos\Application\Application::getInstance()->renderBreadcrumbs(); ?>
+    <?php if (!empty($this->success)): ?>
+        <div style="padding:10px 14px;background:#d4edda;border:1px solid #c3e6cb;border-radius:4px;margin-bottom:12px;color:#155724"><?php echo htmlspecialchars($this->success); ?></div>
+    <?php endif; ?>
+    <?php if (!empty($this->error)): ?>
+        <div style="padding:10px 14px;background:#f8d7da;border:1px solid #f5c6cb;border-radius:4px;margin-bottom:12px;color:#721c24"><?php echo htmlspecialchars($this->error); ?></div>
+    <?php endif; ?>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2>{{ objectNamePlural }}</h2>
+        <a href="<?php echo sURL; ?>{{ className }}/edit/0" class="btn btn-primary">+ New {{ objectName }}</a>
+    </div>
+    <?php echo $this->datatable->render(); ?>
+</div>

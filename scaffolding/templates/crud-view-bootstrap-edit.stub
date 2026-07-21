@@ -1,0 +1,30 @@
+<?php
+/**
+ * {{ objectName }} create/edit form (Bootstrap theme) — auto-generated CRUD view.
+ *
+ * Variables:
+ *   $this->model — the {{ objectName }} model instance (empty props when creating)
+ *   $this->error — optional error flash message
+ */
+defined('SP') or die('No startpoint defined...');
+$isNew = ($this->model->{{ primaryKey }} ?? 0) <= 0;
+?>
+<div class="container py-4" style="max-width:640px">
+    <?php echo \Pramnos\Application\Application::getInstance()->renderBreadcrumbs(); ?>
+    <h2 class="mb-4"><?php echo $isNew ? 'New {{ objectName }}' : 'Edit {{ objectName }}'; ?></h2>
+    <?php if (!empty($this->error)): ?>
+        <div class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
+    <?php endif; ?>
+    <div class="card">
+        <div class="card-body">
+            <form method="post" action="<?php echo sURL; ?>{{ className }}/save/<?php echo $this->model->{{ primaryKey }}; ?>">
+                <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
+{{ formFields }}
+                <div class="d-flex gap-2 mt-3">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <a href="<?php echo sURL; ?>{{ className }}" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

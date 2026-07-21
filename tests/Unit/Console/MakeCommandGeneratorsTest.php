@@ -516,27 +516,20 @@ class MakeCommandGeneratorsTest extends TestCase
     }
 
     /**
-     * When DataTables is installed, the generated CRUD controller must enqueue
-     * the Pramnos REST adapter under the `pramnos-datatable` handle — guarded by
-     * isScriptRegistered() — and must NOT enqueue the old bundle handle
-     * `pramnos-adapters`, which was never registered and fataled the page
-     * ("Cannot find script: pramnos-adapters").
+     * The generated CRUD web controller must use the framework's established
+     * server-side DataTable pattern (matching \Pramnos\Auth\Controllers\
+     * ApplicationsController): display() builds a \Pramnos\Html\Datatable whose
+     * rows are streamed over AJAX from a data() action via
+     * \Pramnos\Html\Datatable\Datasource::getList(). It must NOT emit the old
+     * client-side approach (PramnosDataTable adapter enqueues, guarded
+     * isScriptRegistered() blocks, enqueueStyle('datatables')) nor a web-side
+     * getApiList endpoint.
      */
-    public function testWizardControllerEnqueuesGuardedDatatableAdapter(): void
+    public function testWizardControllerUsesServerSideDatatable(): void
     {
-        // Arrange — output sink + a fake installed DataTables vendor dir so
-        // detectUiSetup() reports datatables=true (drives the enqueue block).
+        // Arrange — output sink for createController()'s writeln() calls.
         $refl = new \ReflectionProperty(\Pramnos\Console\Commands\MakeCommandBase::class, 'output');
         $refl->setValue($this->command, new BufferedOutput());
-
-        $vendorDt = ROOT . '/www/assets/vendor/datatables';
-        $createdDirs = [];
-        foreach ([ROOT . '/www', ROOT . '/www/assets', ROOT . '/www/assets/vendor', $vendorDt] as $dir) {
-            if (!is_dir($dir)) {
-                mkdir($dir);
-                $createdDirs[] = $dir; // remember only what we created, to clean up
-            }
-        }
 
         $columns = [
             ['name' => 'title', 'type' => 'string', 'options' => [], 'nullable' => false, 'default' => '', 'unique' => false, 'comment' => '', 'unsigned' => false]
@@ -549,48 +542,62 @@ class MakeCommandGeneratorsTest extends TestCase
             $this->assertFileExists($ctrlFile);
             $content = (string) file_get_contents($ctrlFile);
 
-            // Assert — guarded adapter enqueue, old bundle handle gone
-            $this->assertStringContainsString("enqueueScript('pramnos-datatable')", $content,
-                'controller must enqueue the pramnos-datatable adapter handle');
-            $this->assertStringContainsString("isScriptRegistered('pramnos-datatable')", $content,
-                'the adapter enqueue must be guarded so a missing handle never fatals');
-            $this->assertStringNotContainsString("enqueueScript('pramnos-adapters')", $content,
-                'the unregistered bundle handle must no longer be enqueued');
+            // Assert — display() builds a server-side DataTable and hands it to
+            // the view instead of loading a full list into the template.
+            $this->assertStringContainsString('new \Pramnos\Html\Datatable(', $content,
+                'display() must build a server-side DataTable');
+            $this->assertStringContainsString('$dt->source = sURL', $content,
+                'the DataTable must point at the data() AJAX endpoint');
+            $this->assertStringContainsString("Gridentities/data", $content,
+                'the DataTable source must be the controller data() action');
+            $this->assertStringContainsString('$view->datatable = $dt;', $content,
+                'the built DataTable must be passed to the view');
+            $this->assertStringContainsString("->addColumn('Title')", $content,
+                'each non-PK column must become a DataTable column labelled from the schema');
+            $this->assertStringContainsString("->addColumn('Actions', true, false, false, 'html')", $content,
+                'the chain must finish with a non-sortable HTML Actions column');
+            $this->assertStringContainsString('$dt->bootstrap = false;', $content,
+                'bootstrap flag must be false when scaffold_theme is not bootstrap');
 
-            // Assert — getApiList returns JSON (a Response), reads the adapter's
-            // query params from the request, and no longer wraps its payload in
-            // the HTML theme (the "Invalid JSON response" regression).
-            $this->assertStringContainsString('Pramnos\Http\Response::json(', $content,
-                'getApiList must return a JSON Response so the theme is not rendered');
-            $this->assertStringContainsString('new \Pramnos\Http\Request()', $content,
-                'getApiList must read DataTables params from the request, not method args');
-            $this->assertStringContainsString("\$request->get('page'", $content);
-            $this->assertStringNotContainsString("getDocument('json')", $content,
-                'the old getDocument(json)+return-array pattern must be gone');
+            // Assert — a JSON data() action mirrors ApplicationsController: it
+            // switches the document to json and streams rows via Datasource.
+            $this->assertStringContainsString('public function data(): void', $content,
+                'the controller must expose a data() AJAX action');
+            $this->assertStringContainsString("getDocument('json')", $content,
+                'data() must switch the document to JSON so the theme is not rendered');
+            $this->assertStringContainsString('\Pramnos\Html\Datatable\Datasource::getList(', $content,
+                'data() must stream rows through the DataTable Datasource');
+            $this->assertStringContainsString('echo json_encode($result);', $content,
+                'data() must echo the JSON payload');
+            $this->assertStringContainsString('$this->terminate();', $content,
+                'data() must terminate the request after emitting JSON');
 
-            // Assert — every action is registered so Controller::exec() dispatches
-            // getApiList/show instead of falling back to display(); writes
-            // (edit form + save/delete) are login-gated.
-            $this->assertStringContainsString("addaction(['show', 'getApiList'])", $content,
-                'public read/JSON actions must be registered or exec() falls back to display()');
+            // Assert — `data` is a registered public action so exec() dispatches
+            // it (auth does not block it); writes stay login-gated.
+            $this->assertStringContainsString("addaction(['show', 'data'])", $content,
+                'the data action must be public or exec() falls back to display()');
             $this->assertStringContainsString("addAuthAction(['edit', 'save', 'delete'])", $content,
                 'the create/edit form and mutations must require login');
 
-            // Assert — the DataTables stylesheet is enqueued (guarded) so the
-            // list controls are styled, not bare HTML.
-            $this->assertStringContainsString("isStyleRegistered('datatables')", $content);
-            $this->assertStringContainsString("enqueueStyle('datatables')", $content);
+            // Assert — the retired client-side approach is entirely gone.
+            $this->assertStringNotContainsString('getApiList', $content,
+                'the web controller must no longer expose getApiList');
+            $this->assertStringNotContainsString('pramnos-datatable', $content,
+                'the client-side PramnosDataTable adapter must be gone');
+            $this->assertStringNotContainsString("enqueueStyle('datatables')", $content,
+                'the client-side DataTables stylesheet enqueue must be gone');
+            $this->assertStringNotContainsString('isScriptRegistered', $content,
+                'the guarded client-side script enqueues must be gone');
 
             // Assert — the generated controller is valid PHP.
             $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($ctrlFile) . ' 2>&1');
             $this->assertMatchesRegularExpression('/No syntax errors/', (string) $lint,
                 'generated controller must be valid PHP');
         } finally {
-            // Cleanup — generated files + only the dirs we created (deepest first)
+            // Cleanup — generated files + the wizard-written views/<entity>/ dir
+            // so nothing lingers as untracked cruft in the framework repo.
             $this->addCleanup($ctrlFile);
             $this->addCleanup(ROOT . '/tests/Feature/GridentitiesTest.php');
-            // The wizard also writes a views/<entity>/ directory — remove it so it
-            // does not linger as untracked cruft in the framework repo.
             $viewDir = ROOT . '/src/Views/gridentity';
             if (is_dir($viewDir)) {
                 foreach ((array) glob($viewDir . '/*') as $vf) {
@@ -600,11 +607,111 @@ class MakeCommandGeneratorsTest extends TestCase
                 }
                 @rmdir($viewDir);
             }
-            foreach (array_reverse($createdDirs) as $dir) {
-                if (is_dir($dir)) {
-                    rmdir($dir);
-                }
+        }
+    }
+
+    /**
+     * The scaffolded CRUD *views* must match the framework's per-theme admin
+     * views and render the list through the controller's server-side DataTable
+     * (`$this->datatable->render()`), NOT the retired client-side markup.
+     *
+     * The TestApp\Application in this suite declares no `scaffold_theme`, so
+     * detectUiSetup() resolves to the default 'plain-css' theme — we therefore
+     * assert against the plain-css stub set (outer `.page-section` wrapper,
+     * inline-style flash blocks, a flex header with an `<h2>` + themed "+ New"
+     * button, the generic app-breadcrumb via renderBreadcrumbs()). The edit view
+     * must carry a real `<form>` posting to the controller's save() action with
+     * one field per non-PK column; the show view a field→value table driven by
+     * the model's getData(). None of the three may leak the old client-side
+     * DataTable shell (`data-dt-api`, `PramnosDataTable`).
+     */
+    public function testWizardViewsMatchAdminThemeAndUseServerSideDatatable(): void
+    {
+        // Arrange — output sink for createController()'s writeln() calls and a
+        // column set exercising text / boolean / plain string field variants.
+        $refl = new \ReflectionProperty(\Pramnos\Console\Commands\MakeCommandBase::class, 'output');
+        $refl->setValue($this->command, new BufferedOutput());
+
+        $columns = [
+            ['name' => 'title',  'type' => 'string',  'options' => [], 'nullable' => false, 'default' => '', 'unique' => false, 'comment' => '', 'unsigned' => false],
+            ['name' => 'active', 'type' => 'boolean', 'options' => [], 'nullable' => true,  'default' => '', 'unique' => false, 'comment' => '', 'unsigned' => false],
+            ['name' => 'notes',  'type' => 'text',    'options' => [], 'nullable' => true,  'default' => '', 'unique' => false, 'comment' => '', 'unsigned' => false],
+        ];
+
+        $ctrlFile = ROOT . '/src/Controllers/Viewentities.php';
+        $viewDir  = ROOT . '/src/Views/viewentity';
+        $listFile = $viewDir . '/viewentity.html.php';
+        $editFile = $viewDir . '/edit.html.php';
+        $showFile = $viewDir . '/show.html.php';
+
+        try {
+            // Act — generate the controller + the three per-theme view files.
+            $this->command->exposeCreateController('ViewEntity', true, $columns);
+
+            // Assert — all three view files were written to views/<entity>/.
+            $this->assertFileExists($listFile, 'list view must be generated');
+            $this->assertFileExists($editFile, 'edit view must be generated');
+            $this->assertFileExists($showFile, 'show view must be generated');
+
+            $list = (string) file_get_contents($listFile);
+            $edit = (string) file_get_contents($editFile);
+            $show = (string) file_get_contents($showFile);
+
+            // Assert — LIST: renders the server-side DataTable widget, wrapped in
+            // the plain-css theme shell, with the generic app breadcrumb.
+            $this->assertStringContainsString('$this->datatable->render()', $list,
+                'list view must render the controller-provided server-side DataTable');
+            $this->assertStringContainsString('class="page-section"', $list,
+                'list view must use the plain-css outer wrapper (matches admin users.html.php)');
+            $this->assertStringContainsString('renderBreadcrumbs()', $list,
+                'list view must render the controller-populated app breadcrumbs generically');
+            $this->assertStringContainsString('+ New', $list,
+                'list view must offer a themed "+ New" action');
+
+            // Assert — LIST: the retired client-side DataTable shell is gone.
+            $this->assertStringNotContainsString('data-dt-api', $list,
+                'the client-side data-dt-api table markup must be gone');
+            $this->assertStringNotContainsString('PramnosDataTable', $list,
+                'the client-side PramnosDataTable.init script must be gone');
+
+            // Assert — EDIT: a real form posting to save() with one field per
+            // non-PK column (theme-correct plain-css control markup).
+            $this->assertStringContainsString('<form method="post"', $edit,
+                'edit view must contain a real form');
+            $this->assertStringContainsString('Viewentities/save/', $edit,
+                'edit form must post to the controller save() action');
+            $this->assertStringContainsString('name="title"', $edit,
+                'edit form must render an input for each non-PK column');
+            $this->assertStringContainsString('name="notes"', $edit,
+                'text columns must render a textarea field');
+            $this->assertStringContainsString('<textarea', $edit,
+                'text columns must render as a textarea');
+            $this->assertStringContainsString('type="checkbox"', $edit,
+                'boolean columns must render as a checkbox');
+            $this->assertStringNotContainsString('data-dt-api', $edit);
+            $this->assertStringNotContainsString('PramnosDataTable', $edit);
+
+            // Assert — SHOW: a field→value table driven by the model getData().
+            $this->assertStringContainsString('$this->model->getData()', $show,
+                'show view must iterate the model getData() field map');
+            $this->assertStringContainsString('/delete/', $show,
+                'show view must expose a Delete action');
+            $this->assertStringContainsString('/edit/', $show,
+                'show view must expose an Edit action');
+            $this->assertStringNotContainsString('data-dt-api', $show);
+            $this->assertStringNotContainsString('PramnosDataTable', $show);
+
+            // Assert — every generated view file is valid PHP.
+            foreach ([$listFile, $editFile, $showFile] as $vf) {
+                $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($vf) . ' 2>&1');
+                $this->assertMatchesRegularExpression('/No syntax errors/', (string) $lint,
+                    "generated view must be valid PHP: {$vf}");
             }
+        } finally {
+            // Cleanup — never leave untracked scaffolding cruft in the repo.
+            $this->addCleanup($ctrlFile);
+            $this->addCleanup(ROOT . '/tests/Feature/ViewentitiesTest.php');
+            $this->removeDirRecursive($viewDir);
         }
     }
 
@@ -614,12 +721,10 @@ class MakeCommandGeneratorsTest extends TestCase
      * (crud-controller.stub) — the same path the migration wizard uses.
      *
      * Why this matters: the old DB-first path built the controller from a
-     * separate inline heredoc whose getApiList() called `parent::_getApiList()`
-     * — a method that does NOT exist on \Pramnos\Application\Controller, so the
-     * generated controller fataled at runtime. This test proves the introspected
-     * controller instead contains the WORKING getApiList (JSON Response +
-     * $model->_getApiList) that only crud-controller.stub emits, and never the
-     * broken `parent::_getApiList(` call.
+     * separate inline heredoc that fataled at runtime. This test proves the
+     * introspected controller instead comes from crud-controller.stub — i.e. it
+     * uses the server-side DataTable pattern (a data() action streaming rows via
+     * Datasource::getList()) and never the retired getApiList endpoint.
      */
     public function testFullControllerFromDbIntrospectionUsesCrudStub(): void
     {
@@ -641,14 +746,18 @@ class MakeCommandGeneratorsTest extends TestCase
             $this->assertFileExists($ctrlFile);
             $content = (string) file_get_contents($ctrlFile);
 
-            // Assert — it came from crud-controller.stub: JSON Response +
-            // the model's _getApiList (the working getApiList signature).
-            $this->assertStringContainsString('\Pramnos\Http\Response::json(', $content,
-                'introspected full controller must emit the JSON Response getApiList from crud-controller.stub');
-            $this->assertStringContainsString('$model->_getApiList(', $content,
-                'getApiList must delegate to the model, not to a non-existent Controller method');
+            // Assert — it came from crud-controller.stub: the server-side
+            // DataTable data() action streaming rows through the Datasource.
+            $this->assertStringContainsString('public function data(): void', $content,
+                'introspected full controller must expose the DataTable data() action from crud-controller.stub');
+            $this->assertStringContainsString('\Pramnos\Html\Datatable\Datasource::getList(', $content,
+                'data() must stream rows through the DataTable Datasource');
+            $this->assertStringContainsString('new \Pramnos\Html\Datatable(', $content,
+                'display() must build a server-side DataTable');
 
-            // Assert — the broken path-3 call is gone for good.
+            // Assert — the retired getApiList endpoint / broken heredoc call are gone.
+            $this->assertStringNotContainsString('getApiList', $content,
+                'the web controller must no longer expose getApiList');
             $this->assertStringNotContainsString('parent::_getApiList(', $content,
                 'the removed DB-first heredoc called parent::_getApiList() which does not exist on Controller');
 

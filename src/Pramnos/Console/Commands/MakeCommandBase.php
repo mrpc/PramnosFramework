@@ -2673,7 +2673,7 @@ content;
      *
      * This is the schema-first path called from createController() when wizard
      * columns are available. Generates:
-     *   - Controller file with display/show/edit/save/delete/getApiList methods
+     *   - Controller file with display/show/edit/save/delete/data methods
      *   - views/{entity}/ directory with list, edit, and show HTML templates
      *
      * The list view uses DataTables (serverSide) when available, Bootstrap table
@@ -2697,24 +2697,15 @@ content;
         $viewName   = strtolower($name);
         $primaryKey = $this->getSingularPrimaryKey($tableName);
         $ui         = $this->detectUiSetup();
-        // jquery + datatables are always registered by the framework Document;
-        // the pramnos-datatable REST adapter and the DataTables stylesheet are
-        // registered by the app only when DataTables was installed at init, so
-        // guard them to avoid a fatal ("Cannot find script/style") on projects
-        // that predate the wiring. The stylesheet is what makes the Show/Search/
-        // pagination controls look styled instead of bare HTML.
-        $enqueueScripts = $ui['datatables']
-            ? "        \$doc->enqueueScript('jquery');\n"
-            . "        \$doc->enqueueScript('datatables');\n"
-            . "        if (\$doc->isScriptRegistered('pramnos-datatable')) {\n"
-            . "            \$doc->enqueueScript('pramnos-datatable');\n"
-            . "        }\n"
-            . "        if (\$doc->isStyleRegistered('datatables')) {\n"
-            . "            \$doc->enqueueStyle('datatables');\n"
-            . "        }\n"
-            : '';
+        // The generated list view uses the framework's server-side DataTable
+        // (see display()/data() in the stub): the shell is rendered server-side
+        // and rows are streamed over AJAX from the data() action via
+        // \Pramnos\Html\Datatable\Datasource::getList(). Bootstrap markup is
+        // emitted by the Datatable only when the app scaffold_theme is
+        // 'bootstrap'.
+        $bootstrapFlag = ($ui['theme'] === 'bootstrap') ? 'true' : 'false';
 
-        // ── Build $saveContent from wizard columns ──────────────────────────
+        // ── Build $saveContent + DataTable columns/fields from wizard columns ──
         $saveContent        = '';
         $loadForeignContent = '';
         $fkByColumn         = [];
@@ -2723,11 +2714,26 @@ content;
         }
         $firstNonPkField = '';
 
+        // DataTable column chain + the aligned field list for data(). The
+        // primary key is fetched first (so data() can build the row links) and
+        // is NOT shown as its own column; then one visible column per non-PK
+        // column, and finally a non-sortable/non-searchable HTML "Actions"
+        // column. $dataFields order mirrors the addColumn() order (PK first).
+        $columnCalls = [];
+        $dataFields  = ["'" . $primaryKey . "'"];
+
         foreach ($columns as $col) {
             $colName = $col['name'];
             $colType = $col['type'];
             if (empty($firstNonPkField)) {
                 $firstNonPkField = $colName;
+            }
+            if ($colName !== $primaryKey) {
+                $label = (isset($col['comment']) && $col['comment'] !== '')
+                    ? $col['comment']
+                    : ucwords(str_replace('_', ' ', $colName));
+                $columnCalls[] = "addColumn('" . addslashes($label) . "')";
+                $dataFields[]  = "'" . $colName . "'";
             }
             if (in_array($colType, ['integer', 'biginteger', 'tinyinteger', 'smallinteger'], true)) {
                 $saveContent .= "        \$model->{$colName} = \$request->get('{$colName}', '', 'post', 'int');\n";
@@ -2758,12 +2764,18 @@ content;
             $firstNonPkField = $primaryKey;
         }
 
+        // Always finish the chain with the non-sortable/non-searchable HTML
+        // Actions column and assemble the chain body injected into the stub as
+        // `$dt->{{ datatableColumns }};`.
+        $columnCalls[]    = "addColumn('Actions', true, false, false, 'html')";
+        $datatableColumns = implode("\n           ->", $columnCalls);
+        $dataFieldsToken  = implode(', ', $dataFields);
+
         // ── Controller source ────────────────────────────────────────────────
         // Rendered from scaffolding/templates/crud-controller.stub. The dynamic
-        // sub-blocks computed above ($enqueueScripts, $loadForeignContent,
-        // $saveContent) are injected as tokens; keep them in sync with the
-        // matching {{ token }} placeholders in that stub. The rendered output
-        // must remain byte-for-byte identical to the former inline heredoc.
+        // sub-blocks computed above ($datatableColumns, $dataFieldsToken,
+        // $loadForeignContent, $saveContent) are injected as tokens; keep them
+        // in sync with the matching {{ token }} placeholders in that stub.
         $fileContent = $this->renderStub('crud-controller', [
             'namespace'          => $namespace,
             'className'          => $className,
@@ -2771,7 +2783,10 @@ content;
             'viewName'           => $viewName,
             'modelNameSpace'     => $modelNameSpace,
             'modelClass'         => $modelClass,
-            'enqueueScripts'     => $enqueueScripts,
+            'tableName'          => $tableName,
+            'bootstrapFlag'      => $bootstrapFlag,
+            'datatableColumns'   => $datatableColumns,
+            'dataFields'         => $dataFieldsToken,
             'firstNonPkField'    => $firstNonPkField,
             'primaryKey'         => $primaryKey,
             'loadForeignContent' => $loadForeignContent,
@@ -2835,279 +2850,199 @@ content;
             mkdir($viewDir, 0755, true);
         }
 
-        $useBootstrap  = $ui['bootstrap'];
-        $useDatatables = $ui['datatables'];
-        $useSelect2    = $ui['select2'];
-        // The plain-css scaffold theme deliberately ships Bootstrap-compatible
-        // class names (.card, .form-control, .btn, .btn-primary/secondary,
-        // .form-group), so it should get the same semantic classes as Bootstrap
-        // — otherwise forms render with empty class="" attributes and look
-        // unstyled. Tailwind uses utility classes and is handled separately.
-        $semanticUi = $useBootstrap || (($ui['theme'] ?? '') === 'plain-css');
+        // ── Resolve the per-theme stub set ─────────────────────────────────────
+        // detectUiSetup() reports the scaffold theme as 'plain-css' | 'bootstrap'
+        // | 'tailwind'. Map it to the crud-view stub suffix; anything unknown
+        // falls back to the plain-css set so generation never fails on a theme we
+        // don't recognise. The list view is now a thin shell around the
+        // controller's server-side \Pramnos\Html\Datatable (rows stream over AJAX
+        // from data()), so there is no per-column table markup here any more.
+        $themeName  = $ui['theme'] ?? 'plain-css';
+        $themeKey   = match ($themeName) {
+            'bootstrap' => 'bootstrap',
+            'tailwind'  => 'tailwind',
+            default     => 'plain',
+        };
+        $useSelect2 = !empty($ui['select2']);
 
         $fkByColumn = [];
         foreach ($foreignKeys as $fk) {
             $fkByColumn[$fk['column']] = $fk;
         }
 
-        // ── List view ─────────────────────────────────────────────────────────
-        if ($useDatatables) {
-            $tableHeaders = '';
-            $tableData    = '';
-            foreach ($columns as $col) {
-                if ($col['name'] === $primaryKey) continue;
-                $display = $col['comment'] ?: ucfirst(str_replace('_', ' ', $col['name']));
-                $tableHeaders .= "                        <th>{$display}</th>\n";
-            }
-            $listContent = <<<HTML
-<div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h1 class="h4 mb-0">{$objectNamePlural}</h1>
-        <a href="<?php echo sURL;?>{$className}/edit/0" class="btn btn-primary btn-sm">
-            <i class="fa fa-plus"></i> Create
-        </a>
-    </div>
-    <div class="card-body">
-        <table id="{$viewName}-table" class="table table-striped table-hover w-100"
-               data-dt-api="<?php echo sURL;?>{$className}/getApiList?format=datatables">
-            <thead>
-                <tr>
-{$tableHeaders}                        <th>Actions</th>
-                </tr>
-            </thead>
-        </table>
-    </div>
-</div>
-<script>
-(function poll() {
-    if (typeof PramnosDataTable !== 'undefined') {
-        PramnosDataTable.init('#{$viewName}-table', {
-            columns: [
-HTML;
-            foreach ($columns as $col) {
-                if ($col['name'] === $primaryKey) continue;
-                $listContent .= "            { data: '{$col['name']}' },\n";
-            }
-            $listContent .= <<<HTML
-            { data: null, orderable: false, render: function(data, type, row) {
-                return '<a href="<?php echo sURL;?>{$className}/show/' + row.{$primaryKey} + '" class="btn btn-sm btn-info"><i class="fa fa-eye"></i></a> '
-                     + '<a href="<?php echo sURL;?>{$className}/edit/' + row.{$primaryKey} + '" class="btn btn-sm btn-warning"><i class="fa fa-edit"></i></a> '
-                     + '<a href="<?php echo sURL;?>{$className}/delete/' + row.{$primaryKey} + '" class="btn btn-sm btn-danger" data-confirm="Delete?"><i class="fa fa-trash"></i></a>';
-            }}
-        ]
-        });
-    } else {
-        setTimeout(poll, 30);
-    }
-})();
-</script>
-HTML;
-        } elseif ($semanticUi) {
-            $tableHeaders = '';
-            foreach ($columns as $col) {
-                if ($col['name'] === $primaryKey) continue;
-                $display = $col['comment'] ?: ucfirst(str_replace('_', ' ', $col['name']));
-                $tableHeaders .= "                <th>{$display}</th>\n";
-            }
-            $listContent = <<<HTML
-<div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h1 class="h4 mb-0">{$objectNamePlural}</h1>
-        <a href="<?php echo sURL;?>{$className}/edit/0" class="btn btn-primary btn-sm">
-            <i class="fa fa-plus"></i> Create
-        </a>
-    </div>
-    <div class="card-body table-responsive">
-        <table class="table table-striped table-hover">
-            <thead>
-                <tr>
-{$tableHeaders}                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if (!empty(\$this->items)): foreach (\$this->items as \$item): ?>
-                <tr>
-HTML;
-            foreach ($columns as $col) {
-                if ($col['name'] === $primaryKey) continue;
-                $listContent .= "                    <td><?php echo htmlspecialchars((string)(\$item['{$col['name']}'] ?? '')); ?></td>\n";
-            }
-            $listContent .= <<<HTML
-                    <td>
-                        <a href="<?php echo sURL;?>{$className}/show/<?php echo \$item['{$primaryKey}']; ?>" class="btn btn-info btn-sm"><i class="fa fa-eye"></i></a>
-                        <a href="<?php echo sURL;?>{$className}/edit/<?php echo \$item['{$primaryKey}']; ?>" class="btn btn-warning btn-sm"><i class="fa fa-edit"></i></a>
-                        <a href="<?php echo sURL;?>{$className}/delete/<?php echo \$item['{$primaryKey}']; ?>" class="btn btn-danger btn-sm" data-confirm="Delete?"><i class="fa fa-trash"></i></a>
-                    </td>
-                </tr>
-                <?php endforeach; else: ?>
-                <tr><td colspan="<?php echo count([]) + 2; ?>" class="text-center text-muted">No records found.</td></tr>
-                <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
-</div>
-HTML;
-        } else {
-            $listContent = <<<HTML
-<h1>{$objectNamePlural}</h1>
-<p><a href="<?php echo sURL;?>{$className}/edit/0">Create New</a></p>
-<table border="1" cellpadding="5">
-    <thead><tr>
-HTML;
-            foreach ($columns as $col) {
-                if ($col['name'] === $primaryKey) continue;
-                $display = $col['comment'] ?: ucfirst(str_replace('_', ' ', $col['name']));
-                $listContent .= "        <th>{$display}</th>\n";
-            }
-            $listContent .= "        <th>Actions</th>\n    </tr></thead>\n    <tbody>\n";
-            $listContent .= "    <?php if (!empty(\$this->items)): foreach (\$this->items as \$item): ?>\n    <tr>\n";
-            foreach ($columns as $col) {
-                if ($col['name'] === $primaryKey) continue;
-                $listContent .= "        <td><?php echo htmlspecialchars((string)(\$item['{$col['name']}'] ?? '')); ?></td>\n";
-            }
-            $listContent .= <<<HTML
-        <td>
-            <a href="<?php echo sURL;?>{$className}/show/<?php echo \$item['{$primaryKey}']; ?>">View</a> |
-            <a href="<?php echo sURL;?>{$className}/edit/<?php echo \$item['{$primaryKey}']; ?>">Edit</a> |
-            <a href="<?php echo sURL;?>{$className}/delete/<?php echo \$item['{$primaryKey}']; ?>" data-confirm="Delete?">Delete</a>
-        </td>
-    </tr>
-    <?php endforeach; else: ?>
-    <tr><td colspan="2">No records found.</td></tr>
-    <?php endif; ?>
-    </tbody>
-</table>
-HTML;
-        }
+        // ── Edit/create form fields (theme-specific markup) ────────────────────
+        // The loop-built fragment mirrors the field wrappers/labels/controls of
+        // the framework's admin edit views for the detected theme; it is injected
+        // into the edit stub as the {{ formFields }} token.
+        $formFields = $this->buildWizardFormFields(
+            $columns, $fkByColumn, $primaryKey, $themeKey, $useSelect2
+        );
 
-        // ── Edit/create form view ──────────────────────────────────────────────
-        $formFields = '';
-        foreach ($columns as $col) {
-            $colName  = $col['name'];
-            $colType  = $col['type'];
-            $display  = $col['comment'] ?: ucfirst(str_replace('_', ' ', $colName));
-            $nullable = !empty($col['nullable']);
-            $required = $nullable ? '' : ' required';
-            $isFk     = isset($fkByColumn[$colName]);
+        // ── Render the three per-theme view stubs ──────────────────────────────
+        $listContent = $this->renderStub('crud-view-' . $themeKey . '-list', [
+            'objectName'       => $objectName,
+            'objectNamePlural' => $objectNamePlural,
+            'className'        => $className,
+        ]);
+        $editContent = $this->renderStub('crud-view-' . $themeKey . '-edit', [
+            'objectName' => $objectName,
+            'className'  => $className,
+            'primaryKey' => $primaryKey,
+            'formFields' => $formFields,
+        ]);
+        $showContent = $this->renderStub('crud-view-' . $themeKey . '-show', [
+            'objectName' => $objectName,
+            'className'  => $className,
+            'primaryKey' => $primaryKey,
+        ]);
 
-            if ($semanticUi) {
-                $formFields .= "<div class=\"form-group mb-3\">\n";
-                $formFields .= "    <label for=\"{$colName}\" class=\"form-label\">{$display}</label>\n";
-            } else {
-                $formFields .= "<div>\n    <label for=\"{$colName}\">{$display}</label>\n";
-            }
-
-            if ($isFk) {
-                $fk         = $fkByColumn[$colName];
-                $refTable   = $fk['on'];
-                $isUserFk   = ($refTable === 'users' || $refTable === '#PREFIX#users');
-                $listVar    = $isUserFk ? 'userList' : lcfirst(self::getProperClassName($refTable, true)) . 'List';
-                $select2Cls = $useSelect2 ? ' select2' : '';
-                $bsCls      = $useBootstrap ? ' form-select' : ($semanticUi ? ' form-control' : '');
-                $formFields .= "<select id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}{$select2Cls}\"{$required}>\n";
-                $formFields .= "    <option value=\"\">-- Select {$display} --</option>\n";
-                $formFields .= "    <?php if (is_array(\$this->{$listVar})): foreach (\$this->{$listVar} as \$opt): ?>\n";
-                $formFields .= "    <option value=\"<?php echo \$opt['id']; ?>\" <?php echo \$this->model->{$colName} == \$opt['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars((string)(\$opt['name'] ?? \$opt['id'])); ?></option>\n";
-                $formFields .= "    <?php endforeach; endif; ?>\n";
-                $formFields .= "</select>\n";
-                if ($useSelect2) {
-                    $formFields .= "<script>\$('#{$colName}').select2();</script>\n";
-                }
-            } elseif ($colType === 'boolean') {
-                $bsCls = $useBootstrap ? ' form-check-input' : '';
-                $formFields .= "<input type=\"checkbox\" id=\"{$colName}\" name=\"{$colName}\" value=\"1\" class=\"{$bsCls}\" <?php echo \$this->model->{$colName} ? 'checked' : ''; ?>>\n";
-            } elseif (in_array($colType, ['text', 'longtext'], true)) {
-                $bsCls = $semanticUi ? ' form-control' : '';
-                $formFields .= "<textarea id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}\" rows=\"4\"{$required}><?php echo htmlspecialchars((string)(\$this->model->{$colName} ?? '')); ?></textarea>\n";
-            } elseif (in_array($colType, ['date', 'datetime', 'timestamp'], true)) {
-                $inputType = $colType === 'date' ? 'date' : 'datetime-local';
-                $bsCls = $semanticUi ? ' form-control' : '';
-                $formFields .= "<input type=\"{$inputType}\" id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}\" value=\"<?php echo htmlspecialchars((string)(\$this->model->{$colName} ?? '')); ?>\"{$required}>\n";
-            } else {
-                $inputType = in_array($colType, ['integer', 'biginteger', 'tinyinteger', 'smallinteger', 'decimal', 'float', 'double'], true) ? 'number' : 'text';
-                $bsCls = $semanticUi ? ' form-control' : '';
-                $formFields .= "<input type=\"{$inputType}\" id=\"{$colName}\" name=\"{$colName}\" class=\"{$bsCls}\" value=\"<?php echo htmlspecialchars((string)(\$this->model->{$colName} ?? '')); ?>\"{$required}>\n";
-            }
-            $formFields .= "</div>\n";
-        }
-
-        $submitCls = $semanticUi ? ' btn btn-primary' : '';
-        $backCls   = $semanticUi ? ' btn btn-secondary' : '';
-        $cardStart = $semanticUi ? "<div class=\"card\">\n    <div class=\"card-header\"><h1 class=\"h4 mb-0\"><?php echo \$this->model->{$primaryKey} > 0 ? 'Edit' : 'Create'; ?> {$objectName}</h1></div>\n    <div class=\"card-body\">\n" : "<h1><?php echo \$this->model->{$primaryKey} > 0 ? 'Edit' : 'Create'; ?> {$objectName}</h1>\n";
-        $cardEnd   = $semanticUi ? "    </div>\n</div>\n" : '';
-
-        $editContent = <<<HTML
-{$cardStart}<form method="post" action="<?php echo sURL;?>{$className}/save/<?php echo \$this->model->{$primaryKey}; ?>">
-{$formFields}
-    <a href="<?php echo sURL;?>{$className}" class="{$backCls}">Back</a>
-    <button type="submit" class="{$submitCls}">Save</button>
-</form>
-{$cardEnd}
-HTML;
-
-        // ── Show (detail) view ────────────────────────────────────────────────
-        $editBtn  = $semanticUi ? "class=\"btn btn-primary\"" : '';
-        $delBtn   = $semanticUi ? "class=\"btn btn-danger\" data-confirm=\"Delete?\"" : "data-confirm=\"Delete?\"";
-        $backBtn  = $semanticUi ? "class=\"btn btn-secondary\"" : '';
-        $cardS    = $semanticUi ? "<div class=\"card\">\n    <div class=\"card-header\">" : '';
-        $cardH    = $semanticUi ? "</div>\n    <div class=\"card-body\">" : '';
-        $cardE    = $semanticUi ? "\n    </div>\n</div>" : '';
-
-        $showContent = <<<HTML
-{$cardS}<h1 class="h4 mb-0">View {$objectName}</h1>{$cardH}
-<div class="mb-3">
-    <a href="<?php echo sURL;?>{$className}" {$backBtn}>&laquo; Back</a>
-    <a href="<?php echo sURL;?>{$className}/edit/<?php echo \$this->model->{$primaryKey}; ?>" {$editBtn}>Edit</a>
-    <a href="<?php echo sURL;?>{$className}/delete/<?php echo \$this->model->{$primaryKey}; ?>" {$delBtn}>Delete</a>
-</div>
-<table class="<?php echo '{$useBootstrap}' ? 'table table-bordered' : ''; ?>">
-    <tbody>
-        <?php \$data = \$this->model->getData(); foreach (\$data as \$field => \$value): ?>
-        <tr>
-            <th><?php echo ucwords(str_replace('_', ' ', htmlspecialchars(\$field))); ?></th>
-            <td><?php
-                if (is_bool(\$value)) { echo \$value ? 'Yes' : 'No'; }
-                elseif (\$value === null) { echo '<em>—</em>'; }
-                elseif (is_array(\$value)) { echo '<pre>' . htmlspecialchars(json_encode(\$value, JSON_PRETTY_PRINT)) . '</pre>'; }
-                else { echo htmlspecialchars((string)\$value); }
-            ?></td>
-        </tr>
-        <?php endforeach; ?>
-    </tbody>
-</table>{$cardE}
-HTML;
-
-        // ── Write view files ──────────────────────────────────────────────────
-        $viewTemplate = <<<'VPHP'
-<?php
-/**
- * VIEW_REASON
- * Auto generated
- */
-defined('SP') or die('No startpoint defined...');
-?>
-<?php echo \Pramnos\Application\Application::getInstance()->renderBreadcrumbs(); ?>
-VIEW_CONTENT
-VPHP;
-
+        // ── Write view files ───────────────────────────────────────────────────
         $files = [
-            $viewDir . DS . strtolower($name) . '.html.php' => ['Index / List', $listContent],
-            $viewDir . DS . 'edit.html.php'                  => ['Edit / Create Form', $editContent],
-            $viewDir . DS . 'show.html.php'                  => ['Show / Detail', $showContent],
+            $viewDir . DS . strtolower($name) . '.html.php' => $listContent,
+            $viewDir . DS . 'edit.html.php'                  => $editContent,
+            $viewDir . DS . 'show.html.php'                  => $showContent,
         ];
 
         $summary = "Views:\n";
-        foreach ($files as $file => [$reason, $content]) {
-            $out = str_replace(
-                ['VIEW_REASON', 'VIEW_CONTENT'],
-                [$reason, $content],
-                $viewTemplate
-            );
-            file_put_contents($file, $out);
+        foreach ($files as $file => $content) {
+            file_put_contents($file, $content);
             $summary .= "  - {$file}\n";
         }
 
         return $summary;
+    }
+
+    /**
+     * Build the theme-specific form-field fragment for the generated edit view.
+     *
+     * Emits one field block per non-primary-key column, mirroring the field
+     * wrappers, labels and control classes of the framework's admin edit views
+     * for the selected theme (plain-css inline styles / Bootstrap form-control /
+     * Tailwind utilities). Foreign-key columns become a <select> populated from
+     * the controller-provided list variable; booleans a checkbox; text/longtext
+     * a textarea; date/datetime a date control; numerics a number input. The
+     * primary key is skipped — it travels in the save() URL, not the form body.
+     *
+     * @param array  $columns     Wizard/introspected column definitions
+     * @param array  $fkByColumn  FK definitions keyed by local column name
+     * @param string $primaryKey  Primary key column name (skipped)
+     * @param string $themeKey    'plain' | 'bootstrap' | 'tailwind'
+     * @param bool   $useSelect2  Whether Select2 is installed (adds .select2 + init)
+     * @return string HTML fragment injected as the {{ formFields }} token
+     */
+    protected function buildWizardFormFields(
+        array  $columns,
+        array  $fkByColumn,
+        string $primaryKey,
+        string $themeKey,
+        bool   $useSelect2
+    ): string {
+        $ind = str_repeat(' ', 16);
+
+        // Per-theme markup presets for the field wrapper, label and controls.
+        switch ($themeKey) {
+            case 'bootstrap':
+                $group      = ' class="mb-3"';
+                $labelAttr  = ' class="form-label"';
+                $inputAttr  = ' class="form-control"';
+                $selectAttr = ' class="form-select"';
+                $areaAttr   = ' class="form-control"';
+                break;
+            case 'tailwind':
+                $group      = ' class="mb-4"';
+                $labelAttr  = ' class="block text-sm font-medium text-gray-700 mb-1"';
+                $inputAttr  = ' class="w-full px-3 py-2 border border-gray-300 rounded-sm text-sm"';
+                $selectAttr = ' class="w-full px-3 py-2 border border-gray-300 rounded-sm text-sm"';
+                $areaAttr   = ' class="w-full px-3 py-2 border border-gray-300 rounded-sm text-sm"';
+                break;
+            default: // plain-css
+                $group      = ' style="margin-bottom:12px"';
+                $labelAttr  = ' style="display:block;font-weight:600;margin-bottom:4px"';
+                $inputAttr  = ' style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box"';
+                $selectAttr = ' style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px"';
+                $areaAttr   = ' style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box"';
+                break;
+        }
+
+        $out = '';
+        foreach ($columns as $col) {
+            $colName = $col['name'];
+            if ($colName === $primaryKey) {
+                continue;
+            }
+            $colType  = $col['type'];
+            $display  = (isset($col['comment']) && $col['comment'] !== '')
+                ? $col['comment']
+                : ucwords(str_replace('_', ' ', $colName));
+            $required = empty($col['nullable']) ? ' required' : '';
+            $modelVal = '<?php echo htmlspecialchars((string)($this->model->' . $colName . ' ?? \'\')); ?>';
+
+            $out .= $ind . '<div' . $group . '>' . "\n";
+
+            if (isset($fkByColumn[$colName])) {
+                // Foreign key → <select> populated from the controller list var.
+                $fk       = $fkByColumn[$colName];
+                $refTable = $fk['on'];
+                $isUserFk = ($refTable === 'users' || $refTable === '#PREFIX#users');
+                $listVar  = $isUserFk
+                    ? 'userList'
+                    : lcfirst(self::getProperClassName($refTable, true)) . 'List';
+                $selAttr = $selectAttr;
+                if ($useSelect2) {
+                    // plain-css controls carry a style attribute (no class), so add
+                    // a fresh class; class-based themes get select2 appended.
+                    $selAttr = ($themeKey === 'plain')
+                        ? ' class="select2"' . $selectAttr
+                        : (string) preg_replace('/class="([^"]*)"/', 'class="$1 select2"', $selectAttr);
+                }
+                $out .= $ind . '    <label for="' . $colName . '"' . $labelAttr . '>' . $display . '</label>' . "\n";
+                $out .= $ind . '    <select id="' . $colName . '" name="' . $colName . '"' . $selAttr . $required . '>' . "\n";
+                $out .= $ind . '        <option value="">-- Select ' . $display . ' --</option>' . "\n";
+                $out .= $ind . '        <?php if (is_array($this->' . $listVar . ')): foreach ($this->' . $listVar . ' as $opt): ?>' . "\n";
+                $out .= $ind . '        <option value="<?php echo $opt[\'id\']; ?>" <?php echo $this->model->' . $colName . ' == $opt[\'id\'] ? \'selected\' : \'\'; ?>><?php echo htmlspecialchars((string)($opt[\'name\'] ?? $opt[\'id\'])); ?></option>' . "\n";
+                $out .= $ind . '        <?php endforeach; endif; ?>' . "\n";
+                $out .= $ind . '    </select>' . "\n";
+                if ($useSelect2) {
+                    $out .= $ind . '    <script>$(\'#' . $colName . '\').select2();</script>' . "\n";
+                }
+            } elseif ($colType === 'boolean') {
+                // Checkbox — form-check group on Bootstrap, inline label elsewhere.
+                $checked = '<?php echo ($this->model->' . $colName . ' ?? 0) ? \'checked\' : \'\'; ?>';
+                if ($themeKey === 'bootstrap') {
+                    $out .= $ind . '    <div class="form-check">' . "\n";
+                    $out .= $ind . '        <input class="form-check-input" type="checkbox" id="' . $colName . '" name="' . $colName . '" value="1" ' . $checked . '>' . "\n";
+                    $out .= $ind . '        <label class="form-check-label" for="' . $colName . '">' . $display . '</label>' . "\n";
+                    $out .= $ind . '    </div>' . "\n";
+                } elseif ($themeKey === 'tailwind') {
+                    $out .= $ind . '    <label class="flex items-center gap-2 text-sm text-gray-700">' . "\n";
+                    $out .= $ind . '        <input type="checkbox" id="' . $colName . '" name="' . $colName . '" value="1" ' . $checked . '>' . "\n";
+                    $out .= $ind . '        ' . $display . "\n";
+                    $out .= $ind . '    </label>' . "\n";
+                } else {
+                    $out .= $ind . '    <label style="display:flex;align-items:center;gap:6px;font-weight:normal">' . "\n";
+                    $out .= $ind . '        <input type="checkbox" id="' . $colName . '" name="' . $colName . '" value="1" ' . $checked . '>' . "\n";
+                    $out .= $ind . '        ' . $display . "\n";
+                    $out .= $ind . '    </label>' . "\n";
+                }
+            } elseif (in_array($colType, ['text', 'longtext'], true)) {
+                $out .= $ind . '    <label for="' . $colName . '"' . $labelAttr . '>' . $display . '</label>' . "\n";
+                $out .= $ind . '    <textarea id="' . $colName . '" name="' . $colName . '"' . $areaAttr . ' rows="4"' . $required . '>' . $modelVal . '</textarea>' . "\n";
+            } elseif (in_array($colType, ['date', 'datetime', 'timestamp'], true)) {
+                $inputType = $colType === 'date' ? 'date' : 'datetime-local';
+                $out .= $ind . '    <label for="' . $colName . '"' . $labelAttr . '>' . $display . '</label>' . "\n";
+                $out .= $ind . '    <input type="' . $inputType . '" id="' . $colName . '" name="' . $colName . '"' . $inputAttr . ' value="' . $modelVal . '"' . $required . '>' . "\n";
+            } else {
+                $inputType = in_array($colType, ['integer', 'biginteger', 'tinyinteger', 'smallinteger', 'decimal', 'float', 'double'], true)
+                    ? 'number'
+                    : 'text';
+                $out .= $ind . '    <label for="' . $colName . '"' . $labelAttr . '>' . $display . '</label>' . "\n";
+                $out .= $ind . '    <input type="' . $inputType . '" id="' . $colName . '" name="' . $colName . '"' . $inputAttr . ' value="' . $modelVal . '"' . $required . '>' . "\n";
+            }
+
+            $out .= $ind . '</div>' . "\n";
+        }
+
+        return rtrim($out, "\n");
     }
 
     /**
