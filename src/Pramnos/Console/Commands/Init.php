@@ -74,7 +74,7 @@ class Init extends Command
         $this->addOption('no-download',   null, InputOption::VALUE_NONE,     'Skip asset download (record in assets.json only)');
         $this->addOption('no-migrations', null, InputOption::VALUE_NONE,     'Skip migrate --scope=framework after Docker startup');
         $this->addOption('rest-api',      null, InputOption::VALUE_OPTIONAL, 'Scaffold REST API layer (y/n)');
-        $this->addOption('api-docs',      null, InputOption::VALUE_OPTIONAL, 'Generate API documentation tooling (apidoc → OpenAPI) (y/n)');
+        $this->addOption('api-docs',      null, InputOption::VALUE_OPTIONAL, 'Generate API documentation tooling (OpenAPI + RapiDoc) (y/n)');
         $this->addOption('api-url',       null, InputOption::VALUE_OPTIONAL, 'Production API base URL for documentation');
         $this->addOption('api-color',     null, InputOption::VALUE_OPTIONAL, 'Primary color for API docs UI (hex, e.g. #4CAF50)');
         $this->addOption('webhook',       null, InputOption::VALUE_OPTIONAL, 'Generate www/webhook.php git webhook receiver (y/n)');
@@ -304,7 +304,7 @@ class Init extends Command
         }
 
         if ($useDocker) {
-            // $withApiDocs implies the app image needs Node/npm + apidoc so the
+            // $withApiDocs implies the app image needs Node/npm so the
             // OpenAPI/RapiDoc docs can be generated inside the container.
             $this->scaffoldDocker($namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem, $dbRootPass, $cliName, $withApiDocs);
         }
@@ -409,8 +409,7 @@ class Init extends Command
                 // Generate the API documentation now that Node is available in the
                 // container (installed only when API docs are enabled). Best-effort:
                 // a failure here must never fail init. doc.sh runs docs:build in the
-                // container and already skips the apiDoc HTML step when there are no
-                // annotated controllers yet.
+                // container; the generator handles an empty API gracefully.
                 if ($withApiDocs) {
                     $this->runProcessWithSpinner('bash scripts/doc.sh 2>&1', 'Generating API documentation', $output);
                 }
@@ -731,7 +730,7 @@ class Init extends Command
         }
         $output->writeln("\n<comment>Step 2d — API Documentation</comment>");
         $enabled = $helper->ask($input, $output, new ConfirmationQuestion(
-            'Generate API documentation tooling (apidoc → OpenAPI + RapiDoc)? [Y/n] ', true
+            'Generate API documentation tooling (OpenAPI + RapiDoc)? [Y/n] ', true
         ));
         if (!$enabled) {
             return [false, '', '']; // @codeCoverageIgnore — tests always answer 'y' (default) to api-docs prompt
@@ -749,7 +748,6 @@ class Init extends Command
     {
         $this->mkdir('scripts');
         $this->mkdir('www/api/docs');
-        $this->mkdir('www/api/docs/old');
 
         $appKey = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $namespace));
 
@@ -1203,16 +1201,14 @@ class Init extends Command
     public static function mergeApiDocsPackageJson(array $pkg): array
     {
         $pkg['scripts'] = array_merge($pkg['scripts'] ?? [], [
-            'apidoc:generate'  => 'apidoc -i src/Api/Controllers/ -o www/api/docs/old -c src/Api/apidoc.json',
             'openapi:generate' => 'node scripts/apidoc-to-openapi.js',
-            'docs:build'       => 'npm run apidoc:generate && npm run openapi:generate',
+            'docs:build'       => 'npm run openapi:generate',
             // Wrapper: runs docs:build inside the Docker container by default, or
             // on the host with `bash scripts/doc.sh --host`.
             'docs'             => 'bash scripts/doc.sh',
         ]);
         if (!isset($pkg['dependencies']['rapidoc'])) {
             $pkg['devDependencies'] = array_merge($pkg['devDependencies'] ?? [], [
-                'apidoc'  => '^1.2.0',
                 'rapidoc' => '^9.3.4',
             ]);
         }
@@ -2939,10 +2935,10 @@ PHP;
         $dockerfile .= "RUN docker-php-ext-install pdo $phpExts intl mbstring zip bcmath gd\n";
         $dockerfile .= "RUN pecl install xdebug && docker-php-ext-enable xdebug\n";
         $dockerfile .= "RUN echo \"xdebug.mode=coverage\" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini\n";
-        // Node/npm + apidoc, only when API docs are enabled, so the OpenAPI/RapiDoc
-        // docs can be generated inside the container (docker-compose exec app npm run docs:build).
+        // Node/npm, only when API docs are enabled, so the OpenAPI/RapiDoc docs can
+        // be generated inside the container (docker-compose exec app npm run docs:build).
         if ($withApiDocs) {
-            $dockerfile .= "RUN apt-get update && apt-get install -y nodejs npm && npm install -g apidoc && rm -rf /var/lib/apt/lists/*\n";
+            $dockerfile .= "RUN apt-get update && apt-get install -y nodejs npm && rm -rf /var/lib/apt/lists/*\n";
         }
         $dockerfile .= "RUN a2enmod rewrite\n";
         $dockerfile .= "ENV APACHE_DOCUMENT_ROOT $docRoot\n";

@@ -243,12 +243,16 @@ class ProjectResyncTest extends TestCase
         $tester = $this->tester();
         $tester->execute(['--scripts' => true]);
 
-        // Assert: existing script kept, API-docs scripts + apidoc devDep added.
+        // Assert: existing script kept, API-docs scripts + rapidoc devDep added.
         $pkg = json_decode($this->read('package.json'), true);
         $this->assertSame('phpunit', $pkg['scripts']['test'], 'existing scripts must be preserved');
-        $this->assertSame('npm run apidoc:generate && npm run openapi:generate', $pkg['scripts']['docs:build']);
+        // docs:build no longer runs the legacy apiDoc HTML step — OpenAPI/RapiDoc only.
+        $this->assertSame('npm run openapi:generate', $pkg['scripts']['docs:build']);
         $this->assertSame('node scripts/apidoc-to-openapi.js', $pkg['scripts']['openapi:generate']);
-        $this->assertArrayHasKey('apidoc', $pkg['devDependencies']);
+        // The two-version "Old apiDoc" pipeline is gone: no apidoc:generate, no apidoc devDep.
+        $this->assertArrayNotHasKey('apidoc:generate', $pkg['scripts']);
+        $this->assertArrayNotHasKey('apidoc', $pkg['devDependencies']);
+        $this->assertArrayHasKey('rapidoc', $pkg['devDependencies']);
     }
 
     /** With --all, a project lacking package.json gets one seeded + merged. */
@@ -264,7 +268,7 @@ class ProjectResyncTest extends TestCase
         $this->assertFileExists($this->projectDir . '/package.json');
         $pkg = json_decode($this->read('package.json'), true);
         $this->assertArrayHasKey('docs:build', $pkg['scripts']);
-        $this->assertArrayHasKey('apidoc', $pkg['devDependencies']);
+        $this->assertArrayHasKey('rapidoc', $pkg['devDependencies']);
     }
 
     /** The --js scope must not touch package.json (a docs-tooling concern). */
