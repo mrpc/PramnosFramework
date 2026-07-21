@@ -350,17 +350,17 @@ Generated models are automatically registered in `app/model-registry.json`:
 
 ## Controller Generation
 
-### Basic Controller Creation
+`create:controller` always generates a complete CRUD controller from the
+database table schema. (The former "simple skeleton" mode and the `--full`
+flag have been removed — the command has a single, predictable behaviour.)
 
 ```bash
-php bin/pramnos create:controller UserController
+php bin/pramnos create:controller User
 ```
 
-### CRUD Controller Generation
-
-```bash
-php bin/pramnos create:controller User --full
-```
+The table for the entity must already exist (create it first with
+`create:migration`); the generator introspects it. If the table is missing you
+get a clear error pointing you to `create:migration`.
 
 This generates a complete CRUD controller with:
 - Display action (list view)

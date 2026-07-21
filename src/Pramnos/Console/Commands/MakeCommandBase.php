@@ -2342,8 +2342,12 @@ content;
      * round-trip required. The generated views adapt to the app's scaffold_theme
      * and installed libraries (datatables, select2) from assets.json.
      *
+     * The controller is ALWAYS a full CRUD artifact rendered from
+     * crud-controller.stub. The former "simple skeleton" mode has been removed.
+     *
      * @param string $name           Entity name
-     * @param bool   $full           Generate full CRUD (vs. skeleton)
+     * @param bool   $full           Deprecated/ignored — generation is always
+     *                               full CRUD. Kept only for call-site BC.
      * @param array  $wizardColumns  Column definitions from runMigrationWizard()
      * @param array  $wizardForeignKeys FK definitions from runMigrationWizard()
      */
@@ -2378,102 +2382,65 @@ content;
         if (!file_exists($path)) {
             mkdir($path);
         }
-        if (!$full) {
-            // Simple controller skeleton generated from stub — no DB introspection needed
-            $viewName    = strtolower($name);
-            $fileContent = $this->renderStub('controller', [
-                'namespace' => $namespace,
-                'class'     => $className,
-                'view'      => $viewName,
-            ]);
+        // Generation is ALWAYS full CRUD (the $full parameter is ignored — the
+        // simple skeleton path was removed). Either wizard columns are supplied
+        // (migration wizard) or the live table is introspected. If neither is
+        // available the table must be created first, so we fail loudly rather
+        // than emitting a schema-less stub.
+        $database = \Pramnos\Database\Database::getInstance();
 
-            if (file_put_contents($filename, $fileContent) === false) {
-                throw new \Exception('Cannot write controller file.');
+        // Look up the model in the registry first
+        $modelInfo = $this->lookupModel($name, true);
+        $modelNameSpace = $modelInfo['namespace'];
+        $modelClass = $modelInfo['className'];
+
+        if ($modelInfo['foundBy'] === 'registry' || $modelInfo['foundBy'] === 'registry_name_match') {
+            if (isset($this->output)) {
+                $this->output->writeln("Using model " . $modelClass . " found in registry");
             }
+        }
 
-            $testLine = $this->generateTestStub(
-                $className,
-                $namespace,
-                defined('ROOT') ? ROOT : getcwd(),
-                'controller_test'
-            );
-
-            return "Namespace: {$namespace}\n"
-                 . "Class:     {$className}\n"
-                 . "File:      {$filename}\n"
-                 . $testLine
-                 . "\nController created.";
+        if ($this->dbtable != null) {
+            $tableName = $this->dbtable;
         } else {
-            $database = \Pramnos\Database\Database::getInstance();
-            $viewName = strtolower($name);
+            $tableName = self::getModelTableName($name);
+        }
 
-            // Look up the model in the registry first
-            $modelInfo = $this->lookupModel($name, true);
-            $modelNameSpace = $modelInfo['namespace'];
-            $modelClass = $modelInfo['className'];
-
-            if ($modelInfo['foundBy'] === 'registry' || $modelInfo['foundBy'] === 'registry_name_match') {
-                if (isset($this->output)) {
-                    $this->output->writeln("Using model " . $modelClass . " found in registry");
-                }
-            }
-
-            if ($this->dbtable != null) {
-                $tableName = $this->dbtable;
-            } else {
-                $tableName = self::getModelTableName($name);
-            }
-
-            // ── Wizard-columns path (schema-first, no DB round-trip) ──────────
-            if (!empty($wizardColumns)) {
-                $result = $this->createControllerAndViewsFromWizard(
-                    $name, $namespace, $modelNameSpace, $modelClass,
-                    $className, $tableName, $path,
-                    $wizardColumns, $wizardForeignKeys,
-                    $filename
-                );
-                $testLine = $this->generateTestStub(
-                    $className, $namespace,
-                    defined('ROOT') ? ROOT : getcwd(),
-                    'controller_test'
-                );
-                return "Namespace: {$namespace}\n"
-                     . "Class:     {$className}\n"
-                     . "File:      {$filename}\n"
-                     . $testLine
-                     . "\n" . $result;
-            }
-
-            // ── DB-introspection path (table already exists) ─────────────────
+        // ── Wizard-columns path (schema-first, no DB round-trip) ──────────
+        if (!empty($wizardColumns)) {
+            $columns     = $wizardColumns;
+            $foreignKeys = $wizardForeignKeys;
+        } else {
+            // ── DB-introspection path (table must already exist) ─────────
             // Convert the live table definition into the SAME wizard column /
             // foreign-key array shape, then delegate to the shared CRUD
             // generator so a full controller is always produced from
             // crud-controller.stub — identical to the migration-wizard path.
             if (!$database->tableExists($tableName)) {
                 throw new \Exception(
-                    'Table: ' . $tableName . ' does not exist.'
+                    "Table '{$tableName}' not found for {$className}. "
+                    . "Create it first with `create:migration`."
                 );
             }
-
             [$columns, $foreignKeys] = $this->introspectTableAsWizardColumns($tableName);
-
-            $result = $this->createControllerAndViewsFromWizard(
-                $name, $namespace, $modelNameSpace, $modelClass,
-                $className, $tableName, $path,
-                $columns, $foreignKeys,
-                $filename
-            );
-            $testLine = $this->generateTestStub(
-                $className, $namespace,
-                defined('ROOT') ? ROOT : getcwd(),
-                'controller_test'
-            );
-            return "Namespace: {$namespace}\n"
-                 . "Class:     {$className}\n"
-                 . "File:      {$filename}\n"
-                 . $testLine
-                 . "\n" . $result;
         }
+
+        $result = $this->createControllerAndViewsFromWizard(
+            $name, $namespace, $modelNameSpace, $modelClass,
+            $className, $tableName, $path,
+            $columns, $foreignKeys,
+            $filename
+        );
+        $testLine = $this->generateTestStub(
+            $className, $namespace,
+            defined('ROOT') ? ROOT : getcwd(),
+            'controller_test'
+        );
+        return "Namespace: {$namespace}\n"
+             . "Class:     {$className}\n"
+             . "File:      {$filename}\n"
+             . $testLine
+             . "\n" . $result;
     }
 
     /**
@@ -3291,6 +3258,18 @@ VPHP;
         $filename  = $path . DS . $className . '.php';
 
         if (!$database->tableExists($tableName)) {
+            // The model is ALWAYS a full CRUD artifact built from crud-model.stub.
+            // Without a live table we can only proceed when wizard columns were
+            // supplied (schema-first: migration created but not yet run). If
+            // neither is available the table must be created first — fail loudly
+            // rather than emitting a schema-less skeleton (the simple model
+            // template was removed).
+            if (empty($wizardColumns)) {
+                throw new \Exception(
+                    "Table '{$tableName}' not found for {$className}. "
+                    . "Create it first with `create:migration`."
+                );
+            }
             if (!is_dir($path)) {
                 mkdir($path, 0755, true);
             }
@@ -3298,21 +3277,10 @@ VPHP;
                 throw new \Exception('Model already exists: ' . $filename);
             }
 
-            // If wizard columns were provided, generate a full model from them
-            // (schema-first: migration created but not yet run).
-            if (!empty($wizardColumns)) {
-                $content = $this->buildModelFromWizardColumns(
-                    $namespace, $className, $tableName,
-                    $wizardColumns, $wizardForeignKeys
-                );
-            } else {
-                $content = $this->renderStub('model', [
-                    'namespace'  => $namespace,
-                    'class'      => $className,
-                    'table'      => $tableName,
-                    'primaryKey' => $this->getSingularPrimaryKey($tableName),
-                ]);
-            }
+            $content = $this->buildModelFromWizardColumns(
+                $namespace, $className, $tableName,
+                $wizardColumns, $wizardForeignKeys
+            );
             if (file_put_contents($filename, $content) === false) {
                 throw new \Exception('Cannot write model file.');
             }

@@ -259,11 +259,7 @@ class Init extends Command
         $this->writeFile("$cliName.php", $this->getCliEntryPointTemplate($namespace, $appName));
         $this->writeFile(
             'src/Controllers/Home.php',
-            $this->renderStub('controller', [
-                'namespace' => "$namespace\\Controllers",
-                'class'     => 'Home',
-                'view'      => 'home',
-            ])
+            $this->getHomeControllerTemplate($namespace)
         );
         $this->writeFile('src/Views/home/home.html.php', $this->getHomepageView(
             $appName, $namespace, $enabledFeatures, $selectedLibraries, $useDocker, $dockerPort, $dbType, $cliName,
@@ -2165,6 +2161,48 @@ PHP;
         }
     }
 
+    /**
+     * Build the source for the scaffolded Home controller.
+     *
+     * Home is a schema-less welcome-page controller — it is NOT a CRUD artifact,
+     * so it does not go through create:controller (which now always generates a
+     * full CRUD controller from a database table). It registers no special
+     * actions; a single display() action renders the 'home' view.
+     *
+     * @param string $namespace Application root namespace (e.g. "App")
+     * @return string PHP source for src/Controllers/Home.php
+     */
+    private function getHomeControllerTemplate(string $namespace): string
+    {
+        return <<<PHP
+<?php
+
+namespace {$namespace}\\Controllers;
+
+/**
+ * Home Controller
+ *
+ * Schema-less welcome page shown at the application root. Renders the 'home'
+ * view. Add your own actions and views as the application grows.
+ */
+class Home extends \\Pramnos\\Application\\Controller
+{
+    public function __construct(?\\Pramnos\\Application\\Application \$application = null)
+    {
+        parent::__construct(\$application);
+    }
+
+    public function display(): string
+    {
+        \$doc = \\Pramnos\\Framework\\Factory::getDocument();
+        \$doc->title = 'Home';
+        return \$this->getView('home')->display();
+    }
+}
+
+PHP;
+    }
+
     private function buildHomeControllerTest(string $namespace): string
     {
         return <<<PHP
@@ -2180,9 +2218,10 @@ use {$namespace}\\Controllers\\Home;
 /**
  * Unit tests for the Home controller.
  *
- * Tests cover the full surface of the scaffolded Home controller:
- * class structure, constructor contract, and every action method.
- * No database or web server is required — view rendering is mocked.
+ * Home is a schema-less welcome-page controller: it registers no special
+ * actions and exposes a single display() action that renders the 'home' view.
+ * Tests cover its class structure and the display() action. No database or web
+ * server is required — view rendering is mocked.
  */
 class HomeControllerTest extends TestCase
 {
@@ -2222,38 +2261,12 @@ class HomeControllerTest extends TestCase
         );
     }
 
-    /**
-     * The constructor must register edit, save, and delete as auth-required
-     * actions via addAuthAction().
-     *
-     * Without this registration, unauthenticated users could reach those
-     * routes — a silent access-control failure.
-     */
-    public function testHomeConstructorRegistersAuthActions(): void
-    {
-        // Arrange
-        \$home = new Home(null);
-        \$ref  = new \\ReflectionClass(\$home);
-
-        // Act — read the protected auth-actions list (property name: actions_auth)
-        \$prop       = \$ref->getProperty('actions_auth');
-        \$authActions = \$prop->getValue(\$home);
-
-        // Assert — all three write-actions require authentication
-        \$this->assertContains('edit',   \$authActions,
-            "'edit' must require auth — modifies content");
-        \$this->assertContains('save',   \$authActions,
-            "'save' must require auth — persists changes");
-        \$this->assertContains('delete', \$authActions,
-            "'delete' must require auth — destructive operation");
-    }
-
     // -------------------------------------------------------------------------
     // Actions — view-rendering methods
     // -------------------------------------------------------------------------
 
     /**
-     * display() must return the string produced by the view.
+     * display() must return the string produced by the 'home' view.
      *
      * The view layer is mocked so the test does not require template files on
      * disk.  This proves the method body executes without errors and correctly
@@ -2277,99 +2290,6 @@ class HomeControllerTest extends TestCase
         // Assert — action returns the view's rendered string
         \$this->assertSame('<h1>Home</h1>', \$result,
             'display() must return the string produced by the view');
-    }
-
-    /**
-     * show() must pass the 'show' template name to the view and return its output.
-     */
-    public function testShowReturnsViewContent(): void
-    {
-        // Arrange
-        \$home = \$this->getMockBuilder(Home::class)
-            ->setConstructorArgs([null])
-            ->onlyMethods(['getView'])
-            ->getMock();
-
-        \$mockView = \$this->createMock(\\Pramnos\\Application\\View::class);
-        \$mockView->method('display')->willReturn('<section>show</section>');
-        \$home->method('getView')->willReturn(\$mockView);
-
-        // Act
-        \$result = \$home->show();
-
-        // Assert
-        \$this->assertSame('<section>show</section>', \$result,
-            'show() must return the string produced by the view');
-    }
-
-    /**
-     * edit() requires auth (registered in constructor) and must return the
-     * rendered edit form from the view.
-     */
-    public function testEditReturnsViewContent(): void
-    {
-        // Arrange
-        \$home = \$this->getMockBuilder(Home::class)
-            ->setConstructorArgs([null])
-            ->onlyMethods(['getView'])
-            ->getMock();
-
-        \$mockView = \$this->createMock(\\Pramnos\\Application\\View::class);
-        \$mockView->method('display')->willReturn('<form>edit</form>');
-        \$home->method('getView')->willReturn(\$mockView);
-
-        // Act
-        \$result = \$home->edit();
-
-        // Assert
-        \$this->assertSame('<form>edit</form>', \$result,
-            'edit() must return the rendered form string');
-    }
-
-    // -------------------------------------------------------------------------
-    // Actions — redirect methods
-    // -------------------------------------------------------------------------
-
-    /**
-     * save() must redirect back to the home page after processing.
-     *
-     * redirect() is mocked to capture the call without triggering an HTTP
-     * header (which would crash in CLI) or requiring a live Application.
-     */
-    public function testSaveRedirectsToHomePage(): void
-    {
-        // Arrange
-        \$home = \$this->getMockBuilder(Home::class)
-            ->setConstructorArgs([null])
-            ->onlyMethods(['redirect'])
-            ->getMock();
-
-        // Assert — redirect is called exactly once with a URL ending in 'home'
-        \$home->expects(\$this->once())
-            ->method('redirect')
-            ->with(\$this->stringContains('home'));
-
-        // Act
-        \$home->save();
-    }
-
-    /**
-     * delete() must redirect back to the home page after processing.
-     */
-    public function testDeleteRedirectsToHomePage(): void
-    {
-        // Arrange
-        \$home = \$this->getMockBuilder(Home::class)
-            ->setConstructorArgs([null])
-            ->onlyMethods(['redirect'])
-            ->getMock();
-
-        \$home->expects(\$this->once())
-            ->method('redirect')
-            ->with(\$this->stringContains('home'));
-
-        // Act
-        \$home->delete();
     }
 }
 PHP;

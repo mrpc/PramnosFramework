@@ -173,3 +173,34 @@ normalises the live table into the wizard column shape
 (`introspectTableAsWizardColumns()`) and delegates to that one builder — so a full
 model is always produced from the same stub. The divergent introspection heredoc
 (~260 lines) is gone.
+
+---
+
+## `create:controller` / `create:model` always generate full CRUD
+
+The "simple skeleton" scaffold mode was removed from the code generators — a
+single, predictable behaviour per command, eliminating the simple-vs-full
+duality that caused template drift and bugs.
+
+### Changed
+
+- **`create:controller` always generates a full CRUD controller.** The `--full`
+  (`-f`) flag is gone — the command always builds the complete artifact
+  (display/show/edit/save/delete + JSON data) from `crud-controller.stub`,
+  driven by the live table schema.
+- **`create:model` always generates a full model** from the table schema (or
+  from wizard columns during `create:migration`); the bare `model.stub` skeleton
+  path was removed.
+- Deleted `scaffolding/templates/controller.stub` and `model.stub`.
+
+### Fixed
+
+- Both generators now **fail loudly** when the target table does not exist and no
+  wizard columns are supplied, instead of silently emitting a schema-less stub:
+  `Table '<table>' not found for <Name>. Create it first with create:migration.`
+
+### Notes
+
+- `create:init`'s schema-less welcome controller (`src/Controllers/Home.php`) no
+  longer uses the removed stub — it is written from a small inline template.
+- `create:view` keeps its `--full` (`-f`) flag; only the controller flag was removed.

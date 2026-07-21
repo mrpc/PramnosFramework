@@ -12,26 +12,25 @@ use Pramnos\Console\Commands\Make\MakeController;
 use Pramnos\Console\Commands\Make\MakeView;
 
 /**
- * Unit tests for the `--full` (`-f`) option wiring on create:controller and
- * create:view.
+ * Unit tests for the `--full` (`-f`) option wiring on create:view.
  *
  * WHY this matters:
- *   The generators' underlying methods — createController($name, $full) and
- *   createView($name, $full) — have always supported a "full CRUD" mode (it is
- *   what create:crud invokes with $full = true). The documentation (README,
- *   Console guide) advertised a `--full` flag on the standalone commands, but
- *   the flag was never registered nor read: any `create:controller X --full`
- *   invocation aborted with "The --full option does not exist". These tests
- *   pin the wiring so the documented flag keeps flowing from the CLI down to
- *   the generation method.
+ *   create:view's underlying method — createView($name, $full) — supports a
+ *   "full CRUD" mode (it is what create:crud invokes with $full = true). The
+ *   documentation advertised a `--full` flag on the standalone command; these
+ *   tests pin the wiring so the documented flag keeps flowing from the CLI down
+ *   to the generation method.
+ *
+ *   NOTE: create:controller no longer has a `--full` flag. It ALWAYS generates
+ *   a full CRUD controller from the table schema (the simple-skeleton mode was
+ *   removed), so there is nothing to wire.
  *
  * WHY the stub-subclass pattern:
- *   The real createController()/createView() perform database introspection and
- *   write files. We only need to assert that execute() forwards the parsed
- *   option value, so we override the generation method to capture the boolean
- *   it receives and return a fixed string — no database, no filesystem.
+ *   The real createView() performs database introspection and writes files. We
+ *   only need to assert that execute() forwards the parsed option value, so we
+ *   override the generation method to capture the boolean it receives and
+ *   return a fixed string — no database, no filesystem.
  */
-#[CoversClass(MakeController::class)]
 #[CoversClass(MakeView::class)]
 class MakeFullOptionWiringTest extends TestCase
 {
@@ -53,23 +52,6 @@ class MakeFullOptionWiringTest extends TestCase
     }
 
     /**
-     * Builds a MakeController whose createController() records the $full flag it
-     * is handed instead of touching the database/filesystem.
-     */
-    private function makeControllerCommand(): MakeController
-    {
-        return new class extends MakeController {
-            /** @var bool|null The $full value the command forwarded, null if never called. */
-            public ?bool $capturedFull = null;
-            protected function createController($name, $full = false, array $wizardColumns = [], array $wizardForeignKeys = [])
-            {
-                $this->capturedFull = $full;
-                return 'Controller created.';
-            }
-        };
-    }
-
-    /**
      * Builds a MakeView whose createView() records the $full flag it is handed.
      */
     private function makeViewCommand(): MakeView
@@ -86,60 +68,22 @@ class MakeFullOptionWiringTest extends TestCase
     }
 
     /**
-     * Without --full, create:controller must forward $full = false — i.e. the
-     * default "bare controller" behaviour is preserved (backward compatibility).
+     * create:controller no longer exposes a `--full` option — it always
+     * generates a full CRUD controller. Passing `--full` must therefore be
+     * rejected by the input definition (the option does not exist).
      */
-    public function testControllerDefaultsToNonFull(): void
+    public function testControllerHasNoFullOption(): void
     {
         // Arrange
-        $command = $this->makeControllerCommand();
+        $command = new MakeController();
         $this->consoleApp->add($command);
         $tester = new CommandTester($this->consoleApp->find('create:controller'));
 
-        // Act — no --full flag
-        $exit = $tester->execute(['name' => 'Widget']);
+        // Assert — the removed option is unknown to the command definition
+        $this->expectException(\Symfony\Component\Console\Exception\InvalidOptionException::class);
 
-        // Assert — command ran and passed the false default straight through
-        $this->assertSame(0, $exit);
-        $this->assertFalse($command->capturedFull, 'Absent --full must forward $full = false');
-    }
-
-    /**
-     * With --full, create:controller must forward $full = true so the full CRUD
-     * controller is generated — this is the wiring that was previously missing.
-     */
-    public function testControllerFullLongOption(): void
-    {
-        // Arrange
-        $command = $this->makeControllerCommand();
-        $this->consoleApp->add($command);
-        $tester = new CommandTester($this->consoleApp->find('create:controller'));
-
-        // Act — long form --full
-        $exit = $tester->execute(['name' => 'Widget', '--full' => true]);
-
-        // Assert
-        $this->assertSame(0, $exit);
-        $this->assertTrue($command->capturedFull, '--full must forward $full = true');
-    }
-
-    /**
-     * The short alias -f must behave identically to --full. Proving the alias
-     * guards against a future refactor that drops the shortcut.
-     */
-    public function testControllerFullShortAlias(): void
-    {
-        // Arrange
-        $command = $this->makeControllerCommand();
-        $this->consoleApp->add($command);
-        $tester = new CommandTester($this->consoleApp->find('create:controller'));
-
-        // Act — short form -f
-        $exit = $tester->execute(['name' => 'Widget', '-f' => true]);
-
-        // Assert
-        $this->assertSame(0, $exit);
-        $this->assertTrue($command->capturedFull, '-f must forward $full = true');
+        // Act — --full must no longer be accepted
+        $tester->execute(['name' => 'Widget', '--full' => true]);
     }
 
     /**

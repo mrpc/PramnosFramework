@@ -654,12 +654,12 @@ class MakeCommandBaseCoverageTest extends TestCase
     }
 
     /**
-     * createModel() with wizard columns and empty $wizardColumns falls back to
-     * the stub renderer (model.stub) when the table does not exist.
-     *
-     * The stub produces a skeleton model without DB-introspection.
+     * createModel() ALWAYS generates a full CRUD model — the "simple skeleton"
+     * model.stub path was removed. When the table does not exist AND no wizard
+     * columns are supplied, generation must fail loudly with a clear message
+     * pointing to create:migration, and must NOT write a schema-less file.
      */
-    public function testCreateModelStubFallbackWhenTableMissingAndNoWizardColumns(): void
+    public function testCreateModelThrowsWhenTableMissingAndNoWizardColumns(): void
     {
         // Arrange — DB says table does not exist, no wizard columns supplied
         $db = $this->createMock(\Pramnos\Database\Database::class);
@@ -671,25 +671,33 @@ class MakeCommandBaseCoverageTest extends TestCase
         $originalDb = $dbRef;
         $dbRef = $db;
 
+        $modelFile = ROOT . DS . INCLUDES . DS . 'Models' . DS . 'WcovSchemaModel.php';
+
         try {
-            // Act — no wizard columns
-            $result = $this->command->callCreateModel('WcovSchemaModel', []);
+            // Act — no wizard columns, table missing → must throw
+            $threw = false;
+            try {
+                $this->command->callCreateModel('WcovSchemaModel', []);
+            } catch (\Exception $e) {
+                $threw = true;
+                // Assert — the error points the user to create:migration
+                $this->assertStringContainsString(
+                    'Create it first with `create:migration`',
+                    $e->getMessage(),
+                    'createModel() must fail with a clear create:migration hint'
+                );
+            }
+
+            // Assert — an exception was thrown and no skeleton file was written
+            $this->assertTrue($threw, 'createModel() must throw when the table is missing');
+            $this->assertFileDoesNotExist($modelFile,
+                'createModel() must NOT emit a schema-less model file');
         } finally {
             $dbRef = $originalDb;
+            if (file_exists($modelFile)) {
+                @unlink($modelFile);
+            }
         }
-
-        // Assert — result mentions the class name
-        $this->assertStringContainsString('WcovSchemaModel', $result);
-
-        // Assert — file was written
-        $modelFile = ROOT . DS . INCLUDES . DS . 'Models' . DS . 'WcovSchemaModel.php';
-        $this->assertFileExists($modelFile,
-            'createModel() stub fallback must write the model file');
-
-        // Assert — file is non-empty PHP
-        $content = file_get_contents($modelFile);
-        $this->assertStringContainsString('<?php', $content);
-        $this->assertStringContainsString('WcovSchemaModel', $content);
     }
 
     // =========================================================================
@@ -1094,17 +1102,16 @@ class MakeCommandBaseCoverageTest extends TestCase
     }
 
     // =========================================================================
-    // 11. createController() — non-full (skeleton) path
+    // 11. createController() — full CRUD from wizard columns (no DB round-trip)
     // =========================================================================
 
     /**
-     * createController() with full=false generates a controller from the
-     * controller.stub template (no DB introspection needed).
-     *
-     * This is the fastest path for generating a skeleton controller: no table,
-     * no model lookup, just a stub with the correct namespace and class name.
+     * createController() ALWAYS generates a full CRUD controller (the "simple
+     * skeleton" path was removed). When wizard columns are supplied it renders
+     * from crud-controller.stub with no DB introspection, writing the controller
+     * file with the correct namespace and class name.
      */
-    public function testCreateControllerSkeletonPathWritesFile(): void
+    public function testCreateControllerFromWizardColumnsWritesFile(): void
     {
         // Arrange
         $ctrlPath = ROOT . DS . INCLUDES . DS . 'Controllers';
@@ -1124,32 +1131,43 @@ class MakeCommandBaseCoverageTest extends TestCase
         if (file_exists($featureTestFile)) {
             unlink($featureTestFile);
         }
+        $viewDir = ROOT . DS . INCLUDES . DS . 'Views' . DS . 'wcovthing';
 
         $this->command->setOutput(new BufferedOutput());
 
-        // Act — full=false triggers stub path
-        $result = $this->command->callCreateController('WcovThing', false);
+        $columns = [
+            ['name' => 'title', 'type' => 'string', 'options' => [], 'nullable' => false, 'default' => '', 'comment' => '', 'unique' => false, 'unsigned' => false],
+        ];
 
-        // Assert — summary confirms creation
-        $this->assertStringContainsString('Controller created', $result,
-            'createController(full=false) must confirm controller creation');
+        try {
+            // Act — wizard columns → full CRUD controller, no DB round-trip
+            $this->command->callCreateController('WcovThing', true, $columns);
 
-        // Assert — file exists with correct namespace
-        $this->assertFileExists($ctrlFile,
-            'Skeleton controller file must be written to src/Controllers/');
+            // Assert — file exists with correct class and namespace
+            $this->assertFileExists($ctrlFile,
+                'Full CRUD controller file must be written to src/Controllers/');
 
-        $content = file_get_contents($ctrlFile);
-        $this->assertStringContainsString("class {$expectedClass}", $content,
-            'Skeleton controller must use the plural class name derived by getProperClassName()');
-        $this->assertStringContainsString('App\\Controllers', $content,
-            'Skeleton controller must use the application namespace');
-
-        // Cleanup
-        if (file_exists($ctrlFile)) {
-            unlink($ctrlFile);
-        }
-        if (file_exists($featureTestFile)) {
-            unlink($featureTestFile);
+            $content = file_get_contents($ctrlFile);
+            $this->assertStringContainsString("class {$expectedClass}", $content,
+                'Controller must use the plural class name derived by getProperClassName()');
+            $this->assertStringContainsString('App\\Controllers', $content,
+                'Controller must use the application namespace');
+        } finally {
+            // Cleanup — controller, feature test, and generated view dir
+            if (file_exists($ctrlFile)) {
+                unlink($ctrlFile);
+            }
+            if (file_exists($featureTestFile)) {
+                unlink($featureTestFile);
+            }
+            if (is_dir($viewDir)) {
+                foreach ((array) glob($viewDir . '/*') as $vf) {
+                    if (is_file($vf)) {
+                        @unlink($vf);
+                    }
+                }
+                @rmdir($viewDir);
+            }
         }
     }
 

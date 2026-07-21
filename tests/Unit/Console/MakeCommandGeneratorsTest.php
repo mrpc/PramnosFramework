@@ -485,32 +485,34 @@ class MakeCommandGeneratorsTest extends TestCase
     }
 
     /**
-     * The simple (skeleton) controller — rendered from controller.stub — must
-     * register EVERY action it defines. `show` was previously missing from the
-     * constructor, so Controller::exec() silently fell back to display() for
-     * /entity/show/:id. It must be registered (public read) alongside the
-     * login-gated edit/save/delete.
+     * create:controller now ALWAYS generates a full CRUD controller from the
+     * live table schema — the "simple skeleton" path was removed. When the
+     * table does not exist (and no wizard columns are supplied) generation must
+     * fail loudly with a clear message pointing to create:migration, rather than
+     * silently emitting a schema-less stub.
      */
-    public function testSimpleControllerRegistersShowAction(): void
+    public function testControllerWithoutTableThrowsCreateMigrationError(): void
     {
-        // Arrange
+        // Arrange — output sink + a DB mock whose table does NOT exist. The
+        // shared setUp() mock returns tableExists()=true, so swap in a dedicated
+        // mock for this one assertion (tearDown restores the original instance).
         $refl = new \ReflectionProperty(\Pramnos\Console\Commands\MakeCommandBase::class, 'output');
         $refl->setValue($this->command, new BufferedOutput());
 
-        // Act — simple path ($full = false), no columns → controller.stub
-        $this->command->exposeCreateController('SkelEntity', false);
-        $srcFile = ROOT . '/src/Controllers/Skelentities.php';
-        $this->addCleanup($srcFile);
-        $this->addCleanup(ROOT . '/tests/Feature/SkelentitiesTest.php');
-        $this->assertFileExists($srcFile);
-        $content = (string) file_get_contents($srcFile);
+        $noTableDb = $this->createMock(\Pramnos\Database\Database::class);
+        $noTableDb->method('tableExists')->willReturn(false);
+        $noTableDb->connected = true;
+        $noTableDb->type = 'mysql';
+        $noTableDb->prefix = 'pr_';
+        $dbRef = &\Pramnos\Database\Database::getInstance();
+        $dbRef = $noTableDb;
 
-        // Assert — show registered (public), writes login-gated, valid PHP
-        $this->assertStringContainsString("addaction(['show'])", $content,
-            'show must be registered or exec() falls back to display()');
-        $this->assertStringContainsString("addAuthAction(['edit', 'save', 'delete'])", $content);
-        $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($srcFile) . ' 2>&1');
-        $this->assertMatchesRegularExpression('/No syntax errors/', (string) $lint);
+        // Assert — a clear error pointing to create:migration is thrown.
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Create it first with `create:migration`');
+
+        // Act — full controller, no wizard columns, table missing → must throw.
+        $this->command->exposeCreateController('NoTableEntity', true);
     }
 
     /**
