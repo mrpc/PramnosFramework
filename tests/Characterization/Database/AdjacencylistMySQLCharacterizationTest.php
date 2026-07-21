@@ -28,8 +28,7 @@ use Pramnos\Database\Database;
  * NOTE: Adjacencylist uses MySQL-specific backtick quoting (`table`, `column`)
  * throughout. It does NOT support PostgreSQL. See
  * AdjacencylistPostgreSQLCharacterizationTest for the formal record of this
- * limitation, and ROADMAP_1.2.md "Phase 1 — Internal QB Migration" for the
- * planned fix.
+ * limitation; the planned fix is an internal QueryBuilder migration.
  */
 #[CoversClass(Adjacencylist::class)]
 class AdjacencylistMySQLCharacterizationTest extends TestCase

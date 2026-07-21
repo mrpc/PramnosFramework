@@ -5,8 +5,6 @@
 - **Branch:** active development happens on **`main`**. `v1.2` is released/frozen — do **not** commit new work to `v1.2-dev` (kept only for reference). New fixes/features land on `main`.
 - **Stack:** PHP 8.5, MySQL 8.0, PostgreSQL 14, TimescaleDB (Docker)
 - **Test suites:** `vendor/bin/phpunit` (framework, 171 tests) and the reference application integration suite (`the application integration test suite`, 5 176 tests)
-- **Roadmap:** `ROADMAP_1.2.md` — always check before deciding what to work on next
-- **Progress log:** `PROGRESS.md` — update after completing any non-trivial task
 - **Feature docs:** `docs/1.2-new-features.md` — must be updated in parallel with every implementation
 
 ## Behaviour rules
@@ -43,11 +41,10 @@ The script ensures the Docker containers are up, dependencies are installed, and
 - Every logical unit of work (bug fix, feature, doc update) is a separate commit.
 - Commit message format: `type(scope): short description` — e.g. `feat(querybuilder): add whereNull/whereNotNull`, `fix(database): prepare() skips string literals for %X`.
 - Never commit debug `error_log()` calls.
-- `PROGRESS.md` is updated in the same commit that closes a task.
 
 ### 6. BC is a hard constraint
 
-No existing public method signature may change. New capabilities are additive. See `ROADMAP_1.2.md` → "Αρχή Σχεδιασμού: Backward Compatibility" for the full rule set.
+No existing public method signature may change. New capabilities are additive.
 
 ### 7. Tests have detailed explanatory comments
 
