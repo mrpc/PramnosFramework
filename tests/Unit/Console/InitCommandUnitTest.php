@@ -321,6 +321,12 @@ class InitCommandUnitTest extends TestCase
         $this->assertArrayHasKey('OAuth2', $overrides['components']['securitySchemes'],
             'authserver adds the oauth2 security scheme');
 
+        // The docs support contact must be the author email captured at init, not
+        // the generic support@example.com placeholder. Non-interactive mode falls
+        // back to the Author Email question's default (developer@pramnos.net).
+        $this->assertSame('developer@pramnos.net', $overrides['info']['contact']['email'],
+            'the support contact email is the author email, not a generic placeholder');
+
         // Endpoints use per-resource groups + operationIds (apidoc house style),
         // not descriptions.
         $this->assertSame(['Me'], $overrides['paths']['/me']['get']['tags']);
@@ -2623,6 +2629,33 @@ class InitCommandUnitTest extends TestCase
             $method->invoke($this->command, 'ικαρια1!'),
             'Valid multibyte input must be preserved byte-for-byte'
         );
+    }
+
+    /**
+     * The OpenAPI `info.contact.email` must reflect the developer email captured
+     * at init when one is supplied, and fall back to the generic placeholder only
+     * when it is empty. This guards the docs "Support" contact against shipping a
+     * meaningless address, while preserving backward-compatible behaviour for
+     * callers that pass no email.
+     */
+    public function testBuildApiOverridesUsesSupportEmailWithPlaceholderFallback(): void
+    {
+        // Arrange / Act — a real developer email is threaded through.
+        $withEmail = Init::buildApiOverrides(
+            'TestApp', 'https://api.example.com', true, true, '', 'dev@acme.test'
+        );
+
+        // Assert — the supplied email becomes the docs support contact.
+        $this->assertSame('dev@acme.test', $withEmail['info']['contact']['email'],
+            'a supplied support email must be used verbatim');
+        $this->assertSame('TestApp Support', $withEmail['info']['contact']['name']);
+
+        // Arrange / Act — no email supplied (the pre-existing signature / default).
+        $noEmail = Init::buildApiOverrides('TestApp', 'https://api.example.com', true, true);
+
+        // Assert — falls back to the generic placeholder (backward compatible).
+        $this->assertSame('support@example.com', $noEmail['info']['contact']['email'],
+            'an empty support email must fall back to the generic placeholder');
     }
 
     private function rmdir(string $dir): void

@@ -323,7 +323,7 @@ class Init extends Command
                 $this->scaffoldApiDocs(
                     $appName, $namespace, $apiUrl, $apiColor, $enabledFeatures,
                     $useDocker ? "http://localhost:{$dockerPort}/api" : '',
-                    $apiKey
+                    $apiKey, $userEmail
                 );
             }
         }
@@ -745,7 +745,7 @@ class Init extends Command
         return [$enabled, $apiUrl, $apiColor];
     }
 
-    private function scaffoldApiDocs(string $appName, string $namespace, string $apiUrl, string $apiColor, array $enabledFeatures = [], string $localServerUrl = '', string $defaultApiKey = ''): void
+    private function scaffoldApiDocs(string $appName, string $namespace, string $apiUrl, string $apiColor, array $enabledFeatures = [], string $localServerUrl = '', string $defaultApiKey = '', string $supportEmail = ''): void
     {
         $this->mkdir('scripts');
         $this->mkdir('www/api/docs');
@@ -778,7 +778,7 @@ class Init extends Command
             $this->writeFile(
                 'src/Api/openapi-overrides.json',
                 json_encode(
-                    self::buildApiOverrides($appName, $apiUrl, $hasAuth, $hasAuthServer, $localServerUrl),
+                    self::buildApiOverrides($appName, $apiUrl, $hasAuth, $hasAuthServer, $localServerUrl, $supportEmail),
                     JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
                 ) . "\n"
             );
@@ -830,9 +830,12 @@ class Init extends Command
      * controllers, so apidoc can't see them). Public + static so `project:resync`
      * can reuse it and keep old projects' docs in sync with `init`.
      *
+     * @param string $supportEmail Developer/author email captured at init; used
+     *                             as the docs support contact. Falls back to the
+     *                             generic support@example.com placeholder when empty.
      * @return array<string, mixed>
      */
-    public static function buildApiOverrides(string $appName, string $apiUrl, bool $hasAuth, bool $hasAuthServer, string $localServerUrl = ''): array
+    public static function buildApiOverrides(string $appName, string $apiUrl, bool $hasAuth, bool $hasAuthServer, string $localServerUrl = '', string $supportEmail = ''): array
     {
         // The OAuth server lives on the main web front controller at the site
         // ROOT (/oauth/*), NOT under the API base — so its URLs use the plain
@@ -1132,7 +1135,7 @@ class Init extends Command
             'info' => [
                 'contact' => [
                     'name'  => "$appName Support",
-                    'email' => 'support@example.com',
+                    'email' => $supportEmail !== '' ? $supportEmail : 'support@example.com',
                 ],
             ],
             'paths'      => $paths,
