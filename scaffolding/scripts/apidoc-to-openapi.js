@@ -20,7 +20,6 @@ const CONFIG = {
   sourceDir:      './src/Api/Controllers',
   outputFile:     './www/api/openapi.json',
   swaggerHtmlDir: './www/api/docs',
-  apidocOldDir:   './www/api/docs/old',
   apidocConfig:   './src/Api/apidoc.json',
   customOverrides: './src/Api/openapi-overrides.json',
 };
@@ -926,8 +925,8 @@ class ApiDocToOpenAPIConverter {
       outline: none;
       border-color: ${primaryColor};
     }
-    .old-docs-link, .download-link {
-      background: ${primaryColor};
+    .download-link {
+      background: #2196F3;
       color: white;
       padding: 8px 16px;
       border-radius: 4px;
@@ -935,12 +934,6 @@ class ApiDocToOpenAPIConverter {
       font-family: "Open Sans", sans-serif;
       font-size: 14px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    }
-    .old-docs-link:hover, .download-link:hover {
-      opacity: 0.85;
-    }
-    .download-link {
-      background: #2196F3;
     }
     .download-link:hover {
       background: #1976D2;
@@ -953,7 +946,6 @@ class ApiDocToOpenAPIConverter {
       ${versionOptions}
     </select>
     <a id="downloadLink" href="../${specFiles[defaultVersion]}" class="download-link" download>Download OpenAPI</a>
-    <a href="old/index.html" class="old-docs-link" target="_blank">Old apiDoc</a>
   </div>
 
   <rapi-doc

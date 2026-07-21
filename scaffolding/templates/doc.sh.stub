@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Generate API documentation (apiDoc HTML + OpenAPI JSON + RapiDoc viewer).
+# Generate API documentation (OpenAPI JSON + RapiDoc viewer).
 #
-# By default this runs inside the Docker "app" container, where Node/npm and
-# apidoc are installed — no local Node needed. Pass --host (or --local) to run
-# directly on the host machine instead (requires Node + npm installed locally).
+# By default this runs inside the Docker "app" container, where Node/npm are
+# installed — no local Node needed. Pass --host (or --local) to run directly on
+# the host machine instead (requires Node + npm installed locally).
 #
 #   bash scripts/doc.sh            # inside Docker (default)
 #   bash scripts/doc.sh --host     # on the host machine
@@ -29,13 +29,10 @@ for arg in "$@"; do
   esac
 done
 
-# The legacy apiDoc HTML step (apidoc:generate) hard-errors with "No files found"
-# when src/Api/Controllers has no annotated controllers yet — the normal state of
-# a fresh project. So run the full docs:build only when controllers exist;
-# otherwise generate the OpenAPI/RapiDoc output only (which handles an empty API
-# gracefully and still includes any OAuth overrides). Runs inside the container
-# by default, or on the host with --host.
-GEN_CMD='if ls src/Api/Controllers/*.php >/dev/null 2>&1; then npm run docs:build; else echo "No API controllers found — skipping apiDoc HTML; generating OpenAPI only."; npm run openapi:generate; fi'
+# Generate the OpenAPI/RapiDoc output. The generator handles an empty API
+# gracefully (no annotated controllers yet) and still includes any OAuth
+# overrides. Runs inside the container by default, or on the host with --host.
+GEN_CMD='npm run docs:build'
 
 if [ "$RUN_ON_HOST" -eq 1 ]; then
   echo "Generating API documentation on the host machine..."
