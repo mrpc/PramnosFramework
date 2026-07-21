@@ -479,9 +479,38 @@ class MakeCommandGeneratorsTest extends TestCase
         $testFile = ROOT . '/tests/Feature/TestentitiesTest.php';
         
         $this->assertFileExists($srcFile);
-        
+
         $this->addCleanup($srcFile);
         $this->addCleanup($testFile);
+    }
+
+    /**
+     * The simple (skeleton) controller — rendered from controller.stub — must
+     * register EVERY action it defines. `show` was previously missing from the
+     * constructor, so Controller::exec() silently fell back to display() for
+     * /entity/show/:id. It must be registered (public read) alongside the
+     * login-gated edit/save/delete.
+     */
+    public function testSimpleControllerRegistersShowAction(): void
+    {
+        // Arrange
+        $refl = new \ReflectionProperty(\Pramnos\Console\Commands\MakeCommandBase::class, 'output');
+        $refl->setValue($this->command, new BufferedOutput());
+
+        // Act — simple path ($full = false), no columns → controller.stub
+        $this->command->exposeCreateController('SkelEntity', false);
+        $srcFile = ROOT . '/src/Controllers/Skelentities.php';
+        $this->addCleanup($srcFile);
+        $this->addCleanup(ROOT . '/tests/Feature/SkelentitiesTest.php');
+        $this->assertFileExists($srcFile);
+        $content = (string) file_get_contents($srcFile);
+
+        // Assert — show registered (public), writes login-gated, valid PHP
+        $this->assertStringContainsString("addaction(['show'])", $content,
+            'show must be registered or exec() falls back to display()');
+        $this->assertStringContainsString("addAuthAction(['edit', 'save', 'delete'])", $content);
+        $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($srcFile) . ' 2>&1');
+        $this->assertMatchesRegularExpression('/No syntax errors/', (string) $lint);
     }
 
     /**

@@ -10,6 +10,9 @@ class {{ class }} extends Controller
 {
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
+        // Every action must be registered or Controller::exec() falls back to
+        // display(). Public read (show) vs. login-gated writes (edit/save/delete).
+        $this->addaction(['show']);
         $this->addAuthAction(['edit', 'save', 'delete']);
         parent::__construct($application);
     }
