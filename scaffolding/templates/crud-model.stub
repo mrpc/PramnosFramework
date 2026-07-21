@@ -1,0 +1,90 @@
+<?php
+namespace {{ namespace }};
+
+/**
+ * {{ className }} Model
+ * Auto generated at: {{ date }}
+ */
+class {{ className }} extends \Pramnos\Application\Model
+{
+
+{{ props }}
+{{ schemaBlock }}    /**
+     * Primary key in database
+     * @var string
+     */
+    protected $_primaryKey = "{{ primaryKey }}";
+
+    /**
+     * Database table
+     * @var string
+     */
+    protected $_dbtable = "{{ tableName }}";
+
+    /**
+     * Load from database
+     * @param string {{ primaryKeyVal }} ID to load
+     * @param string $key Primary key on database
+     * @param boolean $debug Show debug information
+     * @return $this
+     */
+    public function load({{ primaryKeyVal }}, $key = null, $debug = false)
+    {
+        return parent::_load({{ primaryKeyVal }}, null, $key, $debug);
+    }
+
+    /**
+     * Save to database
+     * @param boolean $autoGetValues If true, get all values from $_REQUEST
+     * @param boolean $debug Show debug information
+     * @return $this
+     */
+    public function save($autoGetValues = false, $debug = false)
+    {
+{{ foreignFixes }}
+        return parent::_save(null, null, $autoGetValues, $debug);
+    }
+
+    /**
+     * Delete from database
+     * @param integer {{ primaryKeyVal }} ID to delete
+     * @return $this
+     */
+    public function delete({{ primaryKeyVal }})
+    {
+        return parent::_delete({{ primaryKeyVal }}, null, null);
+    }
+
+    /**
+     * Return all data as array
+     * @return array
+     */
+    public function getData()
+    {
+        $data = parent::getData();
+{{ arrayFix }}
+        return $data;
+    }
+
+    /**
+     * Return an API-formatted list with pagination, field selection, and search
+     * @param array  $fields       Fields to include (empty = all)
+     * @param string $search       Global search term
+     * @param string $order        ORDER BY clause
+     * @param int    $page         Page number (0 = no pagination)
+     * @param int    $itemsPerPage Items per page
+     * @param bool   $debug        Show debug info
+     * @param bool   $returnAsModels Return model objects instead of arrays
+     * @param bool   $useGetData   Use getData() to extract data
+     * @return array
+     */
+    public function getApiList($fields = [], $search = '',
+        $order = '', $page = 0, $itemsPerPage = 10,
+        $debug = false, $returnAsModels = false, $useGetData = true)
+    {
+        return parent::_getApiList(
+            $fields, $search, $order, '', '', '',
+            null, null, $page, $itemsPerPage, $debug, $returnAsModels, $useGetData
+        );
+    }
+}

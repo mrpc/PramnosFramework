@@ -370,9 +370,97 @@ class MakeCommandGeneratorsTest extends TestCase
         $testFile = ROOT . '/tests/Unit/Models/TestEntityTest.php';
         
         $this->assertFileExists($srcFile);
-        
+
         $this->addCleanup($srcFile);
         $this->addCleanup($testFile);
+    }
+
+    /**
+     * The DB-introspection model path (no wizard columns) must converge on the
+     * SAME schema-first generator as the migration-wizard path: createModel()
+     * normalises the live table (the $dbMock getColumns() set: id PK, title
+     * varchar, amount float, status tinyint(1), description text, created_at
+     * datetime, start_date date, category_id FK, userid FK) into wizard-shaped
+     * column/FK arrays and delegates to buildModelFromWizardColumns(), which
+     * renders scaffolding/templates/crud-model.stub.
+     *
+     * This proves the two model generators are unified: there is no longer a
+     * divergent inline heredoc for introspected tables. We assert the file is
+     * valid PHP, declares typed properties for every non-PK column, and carries
+     * the crud-model.stub load/save/getData/getApiList shape — including the
+     * stub-only `$fields = []` getApiList signature, which the retired
+     * introspection heredoc emitted as `$fields = array()`.
+     */
+    public function testCreateModelFromDbIntrospectionUsesCrudModelStub(): void
+    {
+        // Arrange — no wizard columns, so createModel() introspects $dbMock.
+        $srcFile  = ROOT . '/src/Models/IntroModelEntity.php';
+        $testFile = ROOT . '/tests/Unit/IntroModelEntityTest.php';
+
+        try {
+            // Act — empty wizard columns forces the DB-introspection branch.
+            $output = $this->command->exposeCreateModel('IntroModelEntity');
+
+            // Assert — file was generated at the conventional location.
+            $this->assertStringContainsString('IntroModelEntity', $output);
+            $this->assertFileExists($srcFile);
+
+            $content = (string) file_get_contents($srcFile);
+
+            // Assert — output is syntactically valid PHP (php -l).
+            $lint = shell_exec(
+                'php -l ' . escapeshellarg($srcFile) . ' 2>&1'
+            );
+            $this->assertStringContainsString(
+                'No syntax errors detected',
+                (string) $lint,
+                'Generated introspection model must be valid PHP'
+            );
+
+            // Assert — extends the framework Model base, like the wizard path.
+            $this->assertStringContainsString(
+                'extends \Pramnos\Application\Model',
+                $content
+            );
+
+            // Assert — a typed property is declared for every non-PK column,
+            // with the PHP type derived from the SQL type (float/bool/int/…).
+            $this->assertStringContainsString('public $title;', $content);
+            $this->assertStringContainsString('public $amount;', $content);
+            $this->assertStringContainsString('public $status;', $content);
+            $this->assertStringContainsString('public $description;', $content);
+            $this->assertStringContainsString('public $created_at;', $content);
+            $this->assertStringContainsString('public $start_date;', $content);
+            $this->assertStringContainsString('public $category_id;', $content);
+            $this->assertStringContainsString('public $userid;', $content);
+            // Type mapping: float column → @var float, tinyint(1) → @var bool,
+            // FK int column → @var int. Proves mapSqlTypeToLogical drives types.
+            $this->assertStringContainsString("* @var float\n     */\n    public \$amount;", $content);
+            $this->assertStringContainsString("* @var bool\n     */\n    public \$status;", $content);
+            $this->assertStringContainsString("* @var int\n     */\n    public \$category_id;", $content);
+
+            // Assert — the crud-model.stub method surface is present, i.e. both
+            // paths converge on one template.
+            $this->assertStringContainsString('public function load(', $content);
+            $this->assertStringContainsString('public function save(', $content);
+            $this->assertStringContainsString('public function delete(', $content);
+            $this->assertStringContainsString('public function getData(', $content);
+            $this->assertStringContainsString('public function getApiList(', $content);
+            // The stub uses `$fields = []`; the retired heredoc used
+            // `$fields = array()`. This assertion is what proves the unified
+            // (stub) generator ran, not the old introspection heredoc.
+            $this->assertStringContainsString("public function getApiList(\$fields = [], \$search = ''", $content);
+            $this->assertStringNotContainsString('$fields = array()', $content);
+        } finally {
+            // Clean up every artifact this test may have created.
+            if (file_exists($srcFile)) {
+                unlink($srcFile);
+            }
+            if (file_exists($testFile)) {
+                unlink($testFile);
+            }
+            $this->removeDirRecursive(ROOT . '/src/Views/intromodelentity');
+        }
     }
 
     public function testCreateController(): void
