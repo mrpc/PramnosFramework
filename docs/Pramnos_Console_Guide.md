@@ -388,9 +388,9 @@ class User extends \Pramnos\Application\Controller
      */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(
-            array('edit', 'save', 'delete', 'show', 'getUser')
-        );
+        // Public reads (detail + the JSON data feed) vs. login-gated writes.
+        $this->addaction(['show', 'data']);
+        $this->addAuthAction(['edit', 'save', 'delete']);
         parent::__construct($application);
     }
     
@@ -400,10 +400,16 @@ class User extends \Pramnos\Application\Controller
      */
     public function display()
     {
-        $view = $this->getView('user');
-        $model = new \MyApp\Models\User($this);
+        // Server-side DataTable: the view renders the shell; rows load over
+        // AJAX from data(), so the list scales to large tables.
+        $dt = new \Pramnos\Html\Datatable('dt-user');
+        $dt->source = sURL . 'User/data';
+        $dt->addColumn('Username')
+           ->addColumn('Email')
+           ->addColumn('Actions', true, false, false, 'html');
 
-        $view->items = $model->getList();
+        $view = $this->getView('user');
+        $view->datatable = $dt;
         $this->application->addbreadcrumb('User', sURL . 'User');
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'User';
@@ -484,14 +490,17 @@ class User extends \Pramnos\Application\Controller
     }
 
     /**
-     * Returns the resource in JSON format
-     * @return string
+     * AJAX data endpoint for the server-side DataTable — returns JSON.
      */
-    public function getUser()
+    public function data()
     {
-        $model = new \MyApp\Models\User($this);
         \Pramnos\Framework\Factory::getDocument('json');
-        return $model->getJsonList();
+        $result = \Pramnos\Html\Datatable\Datasource::getList(
+            'users', ['userid', 'username', 'email'], false
+        );
+        // Each row gets View/Edit/Delete action links appended here.
+        echo json_encode($result);
+        $this->terminate();
     }
 }
 ```
@@ -510,45 +519,33 @@ php bin/pramnos create:view User
 php bin/pramnos create:view User --full
 ```
 
-This generates complete view templates:
-- `index.html.php` - List view with datatables
+`--full` introspects the entity's table and generates the complete admin-style,
+per-theme (plain-css / bootstrap / tailwind) CRUD view set — the same output as
+`create:crud`. The table must already exist (otherwise it errors, pointing you to
+`create:migration`). Without `--full`, `create:view` writes a single, table-free
+placeholder view instead.
+
+The full set:
+- `<view>.html.php` - List view (renders the controller's server-side DataTable)
 - `edit.html.php` - Create/edit form
 - `show.html.php` - Detail view
 
 ### Generated View Examples
 
-#### List View (index.html.php)
+#### List View (user.html.php)
+
+The DataTable is built and configured in the controller (`display()`); the view
+just renders the widget shell inside the theme wrapper. The columns and AJAX
+data source live in the controller, so the view stays thin (this is the
+plain-css theme; bootstrap/tailwind use their own wrappers):
 ```php
-<div class="card">
-    <div class="card-header">
-        <h1 class="page-head-line">User list</h1>
+<div class="page-section">
+    <?php echo \Pramnos\Application\Application::getInstance()->renderBreadcrumbs(); ?>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2>Users</h2>
+        <a href="<?php echo sURL; ?>User/edit/0" class="btn btn-primary">+ New User</a>
     </div>
-    <div class="card-body">
-        <div class="row">
-            <div class="col-md-12">
-                <a href="<?php echo sURL; ?>User/edit/0">
-                    <button type="button" class="btn btn-primary">
-                        <i class="fa fa-plus"></i> <?php l('New'); ?>
-                    </button>
-                </a>
-            </div>
-            <br /><br />
-        </div>
-        
-        <?php
-        $datatable = new \Pramnos\Html\Datatable('user', URL . 'User/getUser');
-        
-        // Auto-generated columns based on database schema
-        $datatable->addColumn('Username', true, true, true, '', '', true, 'left', true);
-        $datatable->addColumn('Email', true, true, true, '', '', true, 'left', true);
-        $datatable->addColumn('First Name', true, true, true, '', '', true, 'left', true);
-        $datatable->addColumn('Actions');
-        
-        $datatable->jui = false;
-        $datatable->bootstrap = true;
-        echo $datatable->render();
-        ?>
-    </div>
+    <?php echo $this->datatable->render(); ?>
 </div>
 ```
 
