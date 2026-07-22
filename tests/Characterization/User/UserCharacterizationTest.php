@@ -426,4 +426,108 @@ class UserCharacterizationTest extends TestCase
         // Cleanup
         $user->deleteuser();
     }
+
+    /**
+     * _getApiList() must behave as a drop-in for Model::_getApiList(): paginate,
+     * search, expose the DataTables envelope, and return every row when
+     * unpaginated. This is the method that lets a User foreign key flow through
+     * the generated-CRUD fkOptions() pipeline (no special-casing), so its
+     * contract is verified here against the real database.
+     */
+    public function testGetApiListPaginationSearchAndFormats(): void
+    {
+        // Arrange — create three users sharing a unique searchable token so the
+        // assertions are isolated from any pre-existing rows in the table.
+        $token = 'apilist' . bin2hex(random_bytes(4));
+        $created = [];
+        for ($i = 0; $i < 3; $i++) {
+            $u = new User();
+            $u->username = $token . '_' . $i;
+            $u->email    = $token . '_' . $i . '@example.com';
+            $u->setPassword('pass');
+            $u->save();
+            $created[] = $u;
+        }
+        $probe = new User();
+
+        try {
+            // Act — page 1 with 2 items per page, searching for our token.
+            $page1 = $probe->_getApiList(
+                ['userid', 'username', 'email'], $token, '', '', '', '',
+                null, null, 1, 2
+            );
+
+            // Assert — envelope shape and pagination maths.
+            $this->assertArrayHasKey('data', $page1);
+            $this->assertArrayHasKey('pagination', $page1);
+            $this->assertArrayHasKey('fields', $page1);
+            // At most itemsPerPage rows come back on a page.
+            $this->assertLessThanOrEqual(2, count($page1['data']));
+            // Exactly our three created users match the unique token.
+            $this->assertSame(3, (int) $page1['pagination']['totalitems']);
+            $this->assertSame(2, (int) $page1['pagination']['totalpages']);
+            // Three items across pages of two → a next page must exist.
+            $this->assertTrue($page1['pagination']['hasnext']);
+            $this->assertFalse($page1['pagination']['hasprevious']);
+            // userid is always present even though selected fields could omit it.
+            $this->assertArrayHasKey('userid', $page1['data'][0]);
+            $this->assertArrayHasKey('username', $page1['data'][0]);
+
+            // Act — page 2 must hold the remaining single row and flip the flags.
+            $page2 = $probe->_getApiList(
+                ['userid', 'username'], $token, '', '', '', '',
+                null, null, 2, 2
+            );
+
+            // Assert — proves offset/limit paging works end to end.
+            $this->assertCount(1, $page2['data']);
+            $this->assertFalse($page2['pagination']['hasnext']);
+            $this->assertTrue($page2['pagination']['hasprevious']);
+
+            // Act — search that narrows to exactly one of our users.
+            $narrow = $probe->_getApiList(
+                [], $token . '_1', '', '', '', '', null, null, 1, 10
+            );
+
+            // Assert — the search filter reached the database (single match).
+            $this->assertSame(1, (int) $narrow['pagination']['totalitems']);
+            $this->assertSame($token . '_1', $narrow['data'][0]['username']);
+
+            // Act — DataTables envelope (paginated).
+            $_REQUEST['draw'] = 7;
+            $dt = $probe->_getApiList(
+                ['userid', 'username'], $token, '', '', '', '',
+                null, null, 1, 2, false, false, false, false, false,
+                'datatables'
+            );
+
+            // Assert — the DataTables 2.x keys are present and correct.
+            $this->assertSame(7, $dt['draw']);
+            $this->assertArrayHasKey('data', $dt);
+            $this->assertSame(3, (int) $dt['recordsTotal']);
+            $this->assertSame(3, (int) $dt['recordsFiltered']);
+            $this->assertArrayNotHasKey('pagination', $dt);
+            unset($_REQUEST['draw']);
+
+            // Act — unpaginated ($page = 0): all matching rows, pagination null.
+            $all = $probe->_getApiList(
+                ['userid', 'username', 'email'], $token, 'username asc', '',
+                '', '', null, null, 0
+            );
+
+            // Assert — mirrors Model: pagination is null and every row returns.
+            $this->assertNull($all['pagination']);
+            $this->assertCount(3, $all['data']);
+            // The validated "username asc" order must have been applied.
+            $usernames = array_column($all['data'], 'username');
+            $sorted = $usernames;
+            sort($sorted);
+            $this->assertSame($sorted, $usernames);
+        } finally {
+            // Cleanup — remove every user created by this test.
+            foreach ($created as $u) {
+                $u->deleteuser();
+            }
+        }
+    }
 }

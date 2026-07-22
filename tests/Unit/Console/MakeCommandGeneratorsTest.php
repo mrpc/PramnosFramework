@@ -809,13 +809,14 @@ class MakeCommandGeneratorsTest extends TestCase
                 'fkOptions() must reuse the related model _getApiList() pipeline');
             $this->assertStringContainsString("addaction(['show', 'data', 'fkOptions'])", $content,
                 'fkOptions must be registered as a public action');
-            // The user FK special-case + a regular FK both land in $fkMap.
+            // Both the user FK and a regular FK land in $fkMap. User now has its
+            // own _getApiList() (added to \Pramnos\User\User), so the former
+            // direct-users-query special-case is gone: user FKs flow through the
+            // same generic $model->_getApiList() path asserted above.
             $this->assertStringContainsString("'\\\\Pramnos\\\\User\\\\User', 'userid'", $content,
                 'the user FK must map to \\Pramnos\\User\\User / userid');
-            // The framework User has no _getApiList(), so fkOptions() must query
-            // the users table directly (still searched + paged) for user FKs.
-            $this->assertStringContainsString("->table('users')->select(['userid', 'username'])", $content,
-                'user FKs must fall back to a direct paginated users query in fkOptions()');
+            $this->assertStringNotContainsString("->table('users')->select(['userid', 'username'])", $content,
+                'the user FK special-case direct query must be gone — User has its own _getApiList()');
 
             // Assert — the generated controller is valid PHP.
             $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($ctrlFile) . ' 2>&1');

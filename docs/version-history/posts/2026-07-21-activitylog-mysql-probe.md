@@ -337,3 +337,49 @@ the edit page. When Select2 is enabled, FK fields now load options on demand:
   Select2-backed FKs.
 - Without Select2, FK fields keep the native eager `<select>` (fine for small
   reference tables).
+
+---
+
+## `Pramnos\User\User` gains `_getApiList()` — FK special-case removed
+
+The generated CRUD `fkOptions()` endpoint reuses each related model's
+`_getApiList()` to serve Select2 remote options. `\Pramnos\User\User` extends
+`\Pramnos\Framework\Base` (not `\Pramnos\Application\Model`), so it lacked that
+method — forcing `fkOptions()` to carry a bespoke branch that queried the
+`users` table directly for User foreign keys. User now implements its own
+`_getApiList()`, so User FKs flow through the same generic pipeline as every
+other model and the special-case is gone.
+
+### Added
+
+- **`User::_getApiList()`** — a drop-in match for
+  `Model::_getApiList()`'s signature, implemented on the `users` table via the
+  QueryBuilder (mirroring `User::getUsers()`). It supports the parameters that
+  make sense for users:
+  - **`$fields`** (array / CSV / JSON) validated against the real `users`
+    columns; unknown fields are silently dropped. Defaults to
+    `userid, username, email`; the primary key `userid` is always included.
+  - **`$search`** — case-insensitive `LIKE` across `username` + `email`
+    (`ILIKE` on PostgreSQL, `LIKE` on MySQL).
+  - **`$order`** — a validated `"field dir"` clause (field must be a real
+    column; direction normalised to `asc`/`desc`).
+  - **pagination** via `$page` / `$itemsPerPage`. `$page <= 0` returns all
+    matching rows with `pagination => null`, exactly like Model.
+  - **`$format`** — `''` returns the standard
+    `{data, pagination, fields}` envelope; `'datatables'` returns the
+    DataTables 2.x `{draw, data, recordsTotal, recordsFiltered}` shape.
+
+  Parameters that don't apply to the flat users table
+  (`$filter`, `$join`, `$group`, `$table`, `$key`, `$debug`,
+  `$returnAsModels`, `$useGetData`, `$customGetListMethod`, `$addedfields`)
+  are accepted-and-ignored purely for signature compatibility — documented in
+  the method's docblock. The addition is purely additive and BC-safe; no
+  existing `User` method changed.
+
+### Changed
+
+- **Generated `fkOptions()` no longer special-cases the framework User.** The
+  `if (ltrim($modelClass) === \Pramnos\User\User::class) { …direct users
+  query… }` branch was removed from `MakeCommandBase::buildFkOptionsMethod()`;
+  User FKs now go through the generic `$model->_getApiList(...)` path (the label
+  fallback still prefers `username`).

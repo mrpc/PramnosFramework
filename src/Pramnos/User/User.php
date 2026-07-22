@@ -1303,6 +1303,284 @@ class User extends \Pramnos\Framework\Base
     }
 
     /**
+     * Resolve the real column names of the `users` table (schema-validated).
+     *
+     * Used by {@see _getApiList()} to reject unknown requested fields. The result
+     * is cached in a static for the lifetime of the process (a single test /
+     * request runs against a single database, so caching is safe). If schema
+     * introspection fails for any reason, a known-safe minimal set is returned
+     * so the API never hard-fails.
+     *
+     * @param \Pramnos\Database\Database $database Active database connection.
+     * @return string[] List of column names present in the users table.
+     */
+    private function _getUsersTableColumns($database): array
+    {
+        static $cache = null;
+        if ($cache !== null) {
+            return $cache;
+        }
+        $columns = array();
+        try {
+            $result = $database->getColumns('#PREFIX#users');
+            if ($result) {
+                while ($result->fetch()) {
+                    if (isset($result->fields['Field'])
+                        && $result->fields['Field'] !== '') {
+                        $columns[] = $result->fields['Field'];
+                    }
+                }
+            }
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::log($ex->getMessage());
+        }
+        if (empty($columns)) {
+            // Fallback: schema introspection failed — expose the always-present
+            // columns so a user picker still works.
+            $columns = array('userid', 'username', 'email');
+        }
+        return $cache = $columns;
+    }
+
+    /**
+     * Return an API-formatted, paginated list of users.
+     *
+     * Drop-in equivalent of {@see \Pramnos\Application\Model::_getApiList()} for
+     * the framework User class. User extends {@see \Pramnos\Framework\Base}, not
+     * \Pramnos\Application\Model, so it does not inherit that method — yet the
+     * generated-CRUD `fkOptions()` AJAX endpoint expects every related model to
+     * expose `_getApiList()` so foreign-key dropdowns share one search/paging
+     * pipeline. This method lets a User foreign key flow through that same
+     * generic path (no special-casing in the generated controller).
+     *
+     * Implemented directly on the `users` table via the QueryBuilder, mirroring
+     * {@see getUsers()}.
+     *
+     * SUPPORTED parameters:
+     *  - $fields       array | comma-string | JSON-string of column names.
+     *                  Validated against the real `users` schema; unknown columns
+     *                  are silently dropped. Defaults to userid, username, email.
+     *                  The primary key `userid` is always included.
+     *  - $search       string → case-insensitive LIKE across username + email
+     *                  (ILIKE on PostgreSQL, LIKE on MySQL). Empty string = no
+     *                  search.
+     *  - $order        "field dir" string; `field` must be a real column and
+     *                  `dir` is normalised to asc|desc. Invalid input is ignored.
+     *  - $page         1-based page number. `<= 0` means "no pagination": all
+     *                  matching rows are returned with `pagination => null`
+     *                  (mirrors Model).
+     *  - $itemsPerPage page size when paginating.
+     *  - $format       '' (default) → {data, pagination, fields} envelope.
+     *                  'datatables' → {draw, data, recordsTotal, recordsFiltered}
+     *                  exactly like Model.
+     *
+     * IGNORED parameters (accepted only so this is signature-compatible with
+     * Model::_getApiList() and therefore a true drop-in). They do not apply to
+     * the flat users table and have no effect: $filter, $join, $group, $table,
+     * $key, $debug, $returnAsModels, $useGetData, $customGetListMethod,
+     * $addedfields.
+     *
+     * @param array|string  $fields             Field selection (see above).
+     * @param string|array  $search             Case-insensitive search term.
+     * @param string        $order              "field dir" order clause.
+     * @param string|array  $filter             Ignored (BC signature only).
+     * @param string        $join               Ignored (BC signature only).
+     * @param string        $group              Ignored (BC signature only).
+     * @param string|null   $table              Ignored (BC signature only).
+     * @param string|null   $key                Ignored (BC signature only).
+     * @param int           $page               1-based page (0 = no pagination).
+     * @param int           $itemsPerPage       Page size when paginating.
+     * @param bool          $debug              Ignored (BC signature only).
+     * @param bool          $returnAsModels     Ignored (BC signature only).
+     * @param bool          $useGetData         Ignored (BC signature only).
+     * @param mixed         $customGetListMethod Ignored (BC signature only).
+     * @param array|bool    $addedfields        Ignored (BC signature only).
+     * @param string        $format             '' or 'datatables'.
+     * @return array API response envelope (shape depends on $format).
+     */
+    public function _getApiList($fields = array(), $search = '',
+        $order = '', $filter = '', $join = '', $group = '',
+        $table = null, $key = null,
+        $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false,
+        $useGetData = false, $customGetListMethod = false, $addedfields = false,
+        $format = '')
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+
+        // Resolve the real columns of the users table (schema-validated).
+        $availableFields = $this->_getUsersTableColumns($database);
+
+        // Normalise $fields: JSON string, CSV string, or array → array.
+        if (is_string($fields) && trim($fields) !== '') {
+            $decoded = json_decode(urldecode($fields), true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $fields = $decoded;
+            } else {
+                $fields = array_map('trim', explode(',', $fields));
+            }
+        }
+        if (!is_array($fields) || empty($fields)) {
+            // Sensible default set for a user picker.
+            $fields = array('userid', 'username', 'email');
+        }
+
+        // Validate requested fields against real columns; drop unknowns + dupes.
+        $validFields = array();
+        foreach ($fields as $field) {
+            $field = trim((string) $field);
+            if ($field !== ''
+                && in_array($field, $availableFields, true)
+                && !in_array($field, $validFields, true)) {
+                $validFields[] = $field;
+            }
+        }
+        if (empty($validFields)) {
+            // Nothing requested was valid — fall back to the default set,
+            // intersected with what actually exists.
+            $validFields = array_values(
+                array_intersect(
+                    array('userid', 'username', 'email'), $availableFields
+                )
+            );
+            if (empty($validFields)) {
+                $validFields = $availableFields;
+            }
+        }
+        // Always include the primary key (userid).
+        if (!in_array('userid', $validFields, true)) {
+            array_unshift($validFields, 'userid');
+        }
+        $returnedFields = array_values($validFields);
+
+        // Case-insensitive search across username + email (whichever exist).
+        $searchTerm = is_string($search) ? trim($search) : '';
+        $searchable = array_values(
+            array_intersect(array('username', 'email'), $availableFields)
+        );
+        $likeOp = ($database->type === 'postgresql') ? 'ILIKE' : 'LIKE';
+
+        // Validate the "field dir" order clause against the real columns.
+        $orderField = '';
+        $orderDir   = 'asc';
+        if (is_string($order) && trim($order) !== '') {
+            $parts = preg_split('/\s+/', trim($order));
+            $candidateField = $parts[0] ?? '';
+            $candidateDir   = strtolower($parts[1] ?? 'asc');
+            if (in_array($candidateField, $availableFields, true)) {
+                $orderField = $candidateField;
+                $orderDir   = ($candidateDir === 'desc') ? 'desc' : 'asc';
+            }
+        }
+
+        // Shared WHERE builder so COUNT and SELECT use identical conditions.
+        $applyWhere = function ($qb) use ($searchTerm, $searchable, $likeOp) {
+            if ($searchTerm !== '' && !empty($searchable)) {
+                $qb->where(
+                    function ($q) use ($searchTerm, $searchable, $likeOp) {
+                        $first = true;
+                        foreach ($searchable as $col) {
+                            if ($first) {
+                                $q->where(
+                                    $col, $likeOp, '%' . $searchTerm . '%'
+                                );
+                                $first = false;
+                            } else {
+                                $q->orWhere(
+                                    $col, $likeOp, '%' . $searchTerm . '%'
+                                );
+                            }
+                        }
+                    }
+                );
+            }
+            return $qb;
+        };
+
+        // Row fetcher: return each row as an assoc array of the selected fields.
+        $fetchRows = function ($qb) use ($validFields) {
+            $rows = array();
+            $result = $qb->get();
+            if ($result) {
+                while ($result->fetch()) {
+                    $row = array();
+                    foreach ($validFields as $f) {
+                        $row[$f] = $result->fields[$f] ?? null;
+                    }
+                    $rows[] = $row;
+                }
+            }
+            return $rows;
+        };
+
+        if ($page > 0) {
+            // Total (filtered) count for pagination metadata.
+            $countQb = $database->queryBuilder()->table('users');
+            $applyWhere($countQb);
+            $total = (int) $countQb->count();
+            $pages = $itemsPerPage > 0
+                ? (int) ceil($total / $itemsPerPage)
+                : 0;
+
+            $qb = $database->queryBuilder()
+                ->table('users')
+                ->select($validFields);
+            $applyWhere($qb);
+            if ($orderField !== '') {
+                $qb->orderBy($orderField, $orderDir);
+            }
+            $qb->limit($itemsPerPage)->offset(($page - 1) * $itemsPerPage);
+            $data = $fetchRows($qb);
+
+            $standardResponse = array(
+                'data' => $data,
+                'pagination' => array(
+                    'currentpage'  => $page,
+                    'itemsperpage' => $itemsPerPage,
+                    'totalitems'   => $total,
+                    'totalpages'   => $pages,
+                    'hasnext'      => $page < $pages,
+                    'hasprevious'  => $page > 1,
+                ),
+                'fields' => $returnedFields,
+            );
+
+            if ($format === 'datatables') {
+                return array(
+                    'draw'            => (int) ($_REQUEST['draw'] ?? 0),
+                    'data'            => $standardResponse['data'],
+                    'recordsTotal'    => $total,
+                    'recordsFiltered' => $total,
+                );
+            }
+            return $standardResponse;
+        }
+
+        // No pagination: return every matching row (pagination => null).
+        $qb = $database->queryBuilder()->table('users')->select($validFields);
+        $applyWhere($qb);
+        if ($orderField !== '') {
+            $qb->orderBy($orderField, $orderDir);
+        }
+        $data = $fetchRows($qb);
+
+        $standardResponse = array(
+            'data'       => $data,
+            'pagination' => null,
+            'fields'     => $returnedFields,
+        );
+
+        if ($format === 'datatables') {
+            return array(
+                'draw'            => (int) ($_REQUEST['draw'] ?? 0),
+                'data'            => $data,
+                'recordsTotal'    => count($data),
+                'recordsFiltered' => count($data),
+            );
+        }
+        return $standardResponse;
+    }
+
+    /**
      * Get data usage statistics
      *
      * @return array
