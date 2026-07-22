@@ -776,6 +776,174 @@ class MakeCommandGeneratorsTest extends TestCase
         }
     }
 
+    /**
+     * The model generator must now emit a SCHEMA-AWARE integration test (via
+     * buildModelTest → crud-model-test.stub), not the old trivial
+     * assertTrue(true) placeholder.
+     *
+     * We generate a model from a mixed column set and assert the generated test
+     * file: (1) lives under tests/Unit/Models and extends the project's
+     * Tests\BaseTestCase; (2) references the real entity columns by name in a
+     * save→load→getData→delete round-trip; (3) sets a typed sample per scalar
+     * column and asserts each persisted; (4) checks the getApiList envelope; and
+     * (5) is valid PHP (php -l). Foreign-key columns are asserted as properties
+     * but excluded from the round-trip (no parent-row dependency).
+     */
+    public function testModelTestIsSchemaAware(): void
+    {
+        // Arrange — a column set spanning string / int / float / bool + one FK.
+        $columns = [
+            ['name' => 'title',       'type' => 'string',     'options' => [], 'nullable' => false, 'default' => '', 'unique' => false, 'comment' => '', 'unsigned' => false],
+            ['name' => 'amount',      'type' => 'float',       'options' => [], 'nullable' => true,  'default' => '', 'unique' => false, 'comment' => '', 'unsigned' => false],
+            ['name' => 'active',      'type' => 'boolean',     'options' => [], 'nullable' => false, 'default' => '', 'unique' => false, 'comment' => '', 'unsigned' => false],
+            ['name' => 'qty',         'type' => 'integer',     'options' => [], 'nullable' => false, 'default' => '', 'unique' => false, 'comment' => '', 'unsigned' => false],
+        ];
+        $foreignKeys = [
+            ['column' => 'category_id', 'references' => 'id', 'on' => 'categories', 'onDelete' => 'SET NULL', 'onUpdate' => 'RESTRICT'],
+        ];
+        // Ensure category_id is a real column so property assertions include it.
+        $columns[] = ['name' => 'category_id', 'type' => 'biginteger', 'options' => [], 'nullable' => true, 'default' => null, 'unique' => false, 'comment' => '', 'unsigned' => true];
+
+        $srcFile  = ROOT . '/src/Models/SchemaModel.php';
+        $testFile = ROOT . '/tests/Unit/Models/SchemaModelTest.php';
+
+        try {
+            // Act
+            $this->command->exposeCreateModel('SchemaModel', $columns, $foreignKeys);
+
+            // Assert — the schema-aware test file was written to tests/Unit/Models.
+            $this->assertFileExists($testFile, 'model generator must emit a test under tests/Unit/Models');
+            $content = (string) file_get_contents($testFile);
+
+            // Assert — it extends the project's scaffolded base, not raw TestCase.
+            $this->assertStringContainsString('use Tests\BaseTestCase;', $content);
+            $this->assertStringContainsString('extends BaseTestCase', $content);
+
+            // Assert — extends-Model + typed-property assertions per column.
+            $this->assertStringContainsString('\Pramnos\Application\Model::class', $content);
+            $this->assertStringContainsString("property_exists(\$model, 'title')", $content);
+            $this->assertStringContainsString("property_exists(\$model, 'amount')", $content);
+            $this->assertStringContainsString("property_exists(\$model, 'active')", $content);
+            $this->assertStringContainsString("property_exists(\$model, 'qty')", $content);
+            $this->assertStringContainsString("property_exists(\$model, 'category_id')", $content);
+
+            // Assert — the round-trip sets a typed sample per scalar column and
+            // verifies persistence with the correct cast per type.
+            $this->assertStringContainsString('public function testSaveLoadGetDataDeleteRoundTrip', $content);
+            $this->assertStringContainsString("\$model->title = 'sample text';", $content);
+            $this->assertStringContainsString('$model->amount = 3.5;', $content);
+            $this->assertStringContainsString('$model->active = 1;', $content);
+            $this->assertStringContainsString('$model->qty = 42;', $content);
+            $this->assertStringContainsString("assertEquals('sample text', (string) \$reloaded->title)", $content);
+            $this->assertStringContainsString('assertEqualsWithDelta(3.5, (float) $reloaded->amount', $content);
+            $this->assertStringContainsString('$model->save();', $content);
+            $this->assertStringContainsString('$reloaded->load($id);', $content);
+            $this->assertStringContainsString('$cleanup->delete($id);', $content);
+
+            // Assert — FK column is a property but NOT set in the round-trip.
+            $this->assertStringNotContainsString('$model->category_id =', $content,
+                'FK columns must be left unset so the round-trip needs no parent row');
+
+            // Assert — getData keys + getApiList envelope.
+            $this->assertStringContainsString("assertArrayHasKey('title', \$data)", $content);
+            $this->assertStringContainsString('public function testGetApiListReturnsEnvelope', $content);
+            $this->assertStringContainsString("assertArrayHasKey('data', \$list)", $content);
+            $this->assertStringContainsString("assertArrayHasKey('pagination', \$list)", $content);
+
+            // Assert — no trivial placeholder survives.
+            $this->assertStringNotContainsString('assertTrue(true)', $content);
+
+            // Assert — the generated test is valid PHP.
+            $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($testFile) . ' 2>&1');
+            $this->assertMatchesRegularExpression('/No syntax errors/', (string) $lint,
+                'generated model test must be valid PHP');
+        } finally {
+            if (file_exists($srcFile))  { unlink($srcFile); }
+            if (file_exists($testFile)) { unlink($testFile); }
+            $this->removeDirRecursive(ROOT . '/src/Views/schemamodel');
+            if (is_dir(ROOT . '/tests/Unit/Models')
+                && count((array) glob(ROOT . '/tests/Unit/Models/*')) === 0) {
+                @rmdir(ROOT . '/tests/Unit/Models');
+            }
+        }
+    }
+
+    /**
+     * The controller generator must now emit a SCHEMA-AWARE Feature test (via
+     * buildControllerTest → crud-controller-test.stub) that reflects on the
+     * registered actions and dispatches through the framework TestClient — not
+     * the old trivial placeholder.
+     *
+     * We generate a controller and assert the generated test file: (1) lives
+     * under tests/Feature, extends Tests\BaseTestCase and uses TestClient;
+     * (2) asserts the controller extends \Pramnos\Application\Controller;
+     * (3) reflects on the public $actions (show, data) and $actions_auth (edit,
+     * save, delete) arrays; (4) dispatches the list route and the data() JSON
+     * endpoint (terminate() mocked, payload decoded); and (5) is valid PHP.
+     */
+    public function testControllerTestIsSchemaAware(): void
+    {
+        // Arrange — output sink for createController()'s writeln() calls.
+        $refl = new \ReflectionProperty(\Pramnos\Console\Commands\MakeCommandBase::class, 'output');
+        $refl->setValue($this->command, new BufferedOutput());
+
+        $columns = [
+            ['name' => 'title', 'type' => 'string', 'options' => [], 'nullable' => false, 'default' => '', 'unique' => false, 'comment' => '', 'unsigned' => false],
+        ];
+
+        $ctrlFile = ROOT . '/src/Controllers/Schemactrls.php';
+        $testFile = ROOT . '/tests/Feature/SchemactrlsTest.php';
+        $viewDir  = ROOT . '/src/Views/schemactrl';
+
+        try {
+            // Act
+            $output = $this->command->exposeCreateController('SchemaCtrl', true, $columns);
+            // The controller class is pluralised by the generator; confirm the
+            // test path we assert against matches the reported class name.
+            $this->assertStringContainsString('Schemactrls', $output);
+
+            // Assert — the Feature test file was written.
+            $this->assertFileExists($testFile, 'controller generator must emit a test under tests/Feature');
+            $content = (string) file_get_contents($testFile);
+
+            // Assert — project base + in-memory HTTP client.
+            $this->assertStringContainsString('use Tests\BaseTestCase;', $content);
+            $this->assertStringContainsString('extends BaseTestCase', $content);
+            $this->assertStringContainsString('use Pramnos\Testing\TestClient;', $content);
+
+            // Assert — extends framework Controller.
+            $this->assertStringContainsString('\Pramnos\Application\Controller::class', $content);
+
+            // Assert — action-registration reflection over the public arrays.
+            $this->assertStringContainsString('public function testRegistersPublicAndAuthActions', $content);
+            $this->assertStringContainsString("assertContains('show', \$controller->actions", $content);
+            $this->assertStringContainsString("assertContains('data', \$controller->actions", $content);
+            $this->assertStringContainsString("assertContains('edit', \$controller->actions_auth", $content);
+            $this->assertStringContainsString("assertContains('save', \$controller->actions_auth", $content);
+            $this->assertStringContainsString("assertContains('delete', \$controller->actions_auth", $content);
+
+            // Assert — dispatch checks: list route + JSON data endpoint.
+            $this->assertStringContainsString("\$client->get('/schemactrls')", $content);
+            $this->assertStringContainsString('$response->assertSuccessful();', $content);
+            $this->assertStringContainsString('public function testDataActionReturnsJson', $content);
+            $this->assertStringContainsString("onlyMethods(['terminate'])", $content);
+            $this->assertStringContainsString('$controller->data();', $content);
+            $this->assertStringContainsString("array_key_exists('data', \$decoded) || array_key_exists('aaData', \$decoded)", $content);
+
+            // Assert — no trivial placeholder survives.
+            $this->assertStringNotContainsString('assertTrue(true)', $content);
+
+            // Assert — the generated test is valid PHP.
+            $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($testFile) . ' 2>&1');
+            $this->assertMatchesRegularExpression('/No syntax errors/', (string) $lint,
+                'generated controller test must be valid PHP');
+        } finally {
+            $this->addCleanup($ctrlFile);
+            $this->addCleanup($testFile);
+            $this->removeDirRecursive($viewDir);
+        }
+    }
+
     public function testCreateApi(): void
     {
         file_put_contents(ROOT . '/src/Api/routes.php', '<?php');

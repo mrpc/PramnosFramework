@@ -1,0 +1,115 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Unit\Models;
+
+use Tests\BaseTestCase;
+
+/**
+ * Integration tests for the {{ class }} model (schema-aware, auto-generated).
+ *
+ * These run against the real test database configured in
+ * app/config/testsettings.php. Migrate it first:
+ *   php pramnos migrate:framework --env=test
+ *
+ * The round-trip test writes a row, reloads it by primary key, verifies every
+ * scalar column persisted, checks the getData() map, then deletes the row and
+ * confirms it is gone. Foreign-key columns are intentionally left unset so the
+ * test does not depend on parent rows existing; adjust them if your table has
+ * NOT NULL foreign keys.
+ */
+class {{ class }}Test extends BaseTestCase
+{
+    /**
+     * The generated model must extend the framework Model base so that the
+     * inherited load()/save()/delete()/getData()/getApiList() lifecycle works.
+     */
+    public function testExtendsFrameworkModel(): void
+    {
+        // Arrange / Act
+        $model = new \{{ namespace }}\{{ class }}();
+
+        // Assert — it is a framework Model
+        $this->assertInstanceOf(\Pramnos\Application\Model::class, $model);
+    }
+
+    /**
+     * Every database column (including the primary key) must be exposed as a
+     * public property, so the model faithfully mirrors the table schema.
+     */
+    public function testDeclaresPropertyForEachColumn(): void
+    {
+        // Arrange
+        $model = new \{{ namespace }}\{{ class }}();
+
+        // Assert — one property per column
+{{ propertyAssertions }}
+    }
+
+    /**
+     * Full persistence round-trip: save -> reload -> getData -> delete.
+     *
+     * Proves the model actually reads and writes the underlying table
+     * ({{ tableName }}) and that the values survive a database round-trip
+     * unchanged — the core invariant of an Active-Record model.
+     */
+    public function testSaveLoadGetDataDeleteRoundTrip(): void
+    {
+        // Arrange — populate every scalar (non-FK) column with a typed sample.
+        $model = new \{{ namespace }}\{{ class }}();
+{{ setColumns }}
+
+        // Act — persist and capture the assigned primary key.
+        $model->save();
+        $id = $model->{{ primaryKey }};
+
+        try {
+            // Assert — save() assigned an auto-increment primary key.
+            $this->assertNotEmpty($id, 'save() must assign a primary key');
+
+            // Act — reload a fresh instance from the database by primary key.
+            $reloaded = new \{{ namespace }}\{{ class }}();
+            $reloaded->load($id);
+
+            // Assert — the reloaded row carries the primary key we saved.
+            $this->assertEquals($id, $reloaded->{{ primaryKey }});
+
+            // Assert — every scalar column persisted unchanged.
+{{ assertPersisted }}
+
+            // Assert — getData() returns the row as an associative array keyed
+            // by column name.
+            $data = $reloaded->getData();
+            $this->assertIsArray($data);
+{{ assertGetData }}
+        } finally {
+            // Cleanup — always remove the row, even if an assertion failed.
+            $cleanup = new \{{ namespace }}\{{ class }}();
+            $cleanup->delete($id);
+        }
+
+        // Assert — after delete() the row can no longer be loaded.
+        $gone = new \{{ namespace }}\{{ class }}();
+        $gone->load($id);
+        $this->assertEmpty($gone->{{ primaryKey }}, 'row must be gone after delete()');
+    }
+
+    /**
+     * getApiList() must return the standard API envelope so REST controllers
+     * built on this model can page and serialise results. With no pagination
+     * requested the envelope is {data, pagination, fields, debug}.
+     */
+    public function testGetApiListReturnsEnvelope(): void
+    {
+        // Arrange / Act
+        $model = new \{{ namespace }}\{{ class }}();
+        $list  = $model->getApiList();
+
+        // Assert — the standard envelope keys exist.
+        $this->assertIsArray($list);
+        $this->assertArrayHasKey('data', $list);
+        $this->assertArrayHasKey('pagination', $list);
+        $this->assertArrayHasKey('fields', $list);
+    }
+}

@@ -256,3 +256,22 @@ its `src/Api/routes.php` snippet from PHP heredocs. These now render from
 `scaffolding/templates/api-controller.stub` and `api-routes.stub` via
 `renderStub()` (byte-for-byte identical output). Consistent with the
 controller/model/view generators, which are all stub-driven now.
+
+---
+
+## Generated model/controller tests are now schema-aware (real coverage)
+
+`create:model` / `create:controller` / `create:crud` previously emitted a
+placeholder test (`assertTrue(true)`). They now generate meaningful,
+schema-aware tests from new stubs (`crud-model-test.stub`,
+`crud-controller-test.stub`):
+
+- **Model test** (integration, extends the project's `BaseTestCase`): asserts the
+  model extends `\Pramnos\Application\Model`, has a typed property per column, and
+  runs a save → reload-by-PK → `getData()` → delete round-trip with a typed sample
+  per column (FK columns asserted as properties only, so no parent rows needed),
+  plus a `getApiList()` envelope check.
+- **Controller test** (feature, uses `TestClient`): reflects the registered public
+  (`show`/`data`) and auth (`edit`/`save`/`delete`) actions, GETs the list route
+  and checks it renders, and asserts the `data()` endpoint returns a JSON row
+  container.
