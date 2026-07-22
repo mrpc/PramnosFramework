@@ -474,7 +474,10 @@ class MakeCommandGeneratorsTest extends TestCase
         ];
         $output = $this->command->exposeCreateController('TestEntity', true, $columns);
         $this->assertStringContainsString('Testentities', $output);
-        
+        // The summary ends with a ready-to-use test URL for the new controller.
+        $this->assertStringContainsString('Test it now:', $output);
+        $this->assertStringContainsString('Testentities', $output);
+
         $srcFile = ROOT . '/src/Controllers/Testentities.php';
         $testFile = ROOT . '/tests/Feature/TestentitiesTest.php';
         
