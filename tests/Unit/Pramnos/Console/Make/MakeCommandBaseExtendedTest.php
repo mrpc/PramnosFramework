@@ -48,14 +48,6 @@ class ExtDummyMakeCommand extends MakeCommandBase
     {
         return $this->registerModelInRegistry($modelInfo);
     }
-
-    /**
-     * Expose addGetApiListMethod() publicly.
-     */
-    public function callAddGetApiListMethod(string $filename): bool
-    {
-        return $this->addGetApiListMethod($filename);
-    }
 }
 
 /**
@@ -66,9 +58,8 @@ class ExtDummyMakeCommand extends MakeCommandBase
  *  1. Static delegation helpers (getProperClassName, getModelTableName)
  *  2. generateTestStub() with the 'controller_test' stub → tests/Feature/ path
  *  3. registerModelInRegistry() — new entry, update existing, JSON creation
- *  4. addGetApiListMethod() — inserts method before closing brace
- *  5. detectUiSetup() — UI library detection from vendor directory
- *  6. createViewsFromWizard() — bootstrap, datatables, plain-CSS branches
+ *  4. detectUiSetup() — UI library detection from vendor directory
+ *  5. createViewsFromWizard() — bootstrap, datatables, plain-CSS branches
  *     including FK fields, boolean, text, date/datetime columns
  */
 #[CoversClass(MakeCommandBase::class)]
@@ -462,78 +453,6 @@ class MakeCommandBaseExtendedTest extends TestCase
     }
 
     // =========================================================================
-    // 4. addGetApiListMethod()
-    // =========================================================================
-
-    /**
-     * addGetApiListMethod() inserts a getApiList() method just before the last
-     * closing brace of a PHP class file.
-     *
-     * This is used by createModel() when an existing model file is missing the
-     * getApiList() method that was added in a later framework version.
-     */
-    public function testAddGetApiListMethodInsertsMethodBeforeClosingBrace(): void
-    {
-        // Arrange — minimal PHP class without getApiList
-        $classSource = <<<'PHP'
-<?php
-namespace App\Models;
-
-class Minimal extends \Pramnos\Application\Model
-{
-    public $minimalid;
-    protected $_primaryKey = "minimalid";
-    protected $_dbtable = "#PREFIX#minimals";
-
-    public function load($minimalid, $key = null, $debug = false)
-    {
-        return parent::_load($minimalid, null, $key, $debug);
-    }
-}
-PHP;
-        $filename = $this->tmpDir . '/Minimal.php';
-        file_put_contents($filename, $classSource);
-
-        // Act
-        $result = $this->command->callAddGetApiListMethod($filename);
-
-        // Assert — method reports success
-        $this->assertTrue($result, 'addGetApiListMethod() must return true on success');
-
-        // Assert — file now contains the getApiList method
-        $updated = file_get_contents($filename);
-        $this->assertStringContainsString('public function getApiList(', $updated,
-            'getApiList() method must be present after injection');
-
-        // Assert — parent::_getApiList() is called inside the injected method
-        $this->assertStringContainsString('parent::_getApiList(', $updated);
-
-        // Assert — the class still has its closing brace (file not truncated)
-        $this->assertStringEndsWith("}\n", rtrim($updated) . "\n",
-            'File must still end with a closing brace after injection');
-    }
-
-    /**
-     * addGetApiListMethod() returns false when the file does not contain a
-     * closing brace (i.e., strrpos returns false).
-     *
-     * This prevents silent data corruption when the file is empty or truncated.
-     */
-    public function testAddGetApiListMethodReturnsFalseForFileWithoutClosingBrace(): void
-    {
-        // Arrange — file with no closing brace
-        $filename = $this->tmpDir . '/NoBrace.php';
-        file_put_contents($filename, '<?php // no class here at all');
-
-        // Act
-        $result = $this->command->callAddGetApiListMethod($filename);
-
-        // Assert — no brace → returns false (no insertion possible)
-        $this->assertFalse($result,
-            'addGetApiListMethod() must return false when there is no closing brace');
-    }
-
-    // =========================================================================
     // 5. detectUiSetup()
     // =========================================================================
 
@@ -658,10 +577,10 @@ PHP;
         $this->assertStringContainsString('datetime-local', $editContent,
             'datetime column must produce a datetime-local input');
 
-        // Assert — list view contains a table structure
+        // Assert — list view renders via the server-side DataTable widget
         $listContent = file_get_contents($listFile);
-        $this->assertStringContainsString('<table', $listContent,
-            'List view must contain an HTML table');
+        $this->assertStringContainsString('$this->datatable->render()', $listContent,
+            'List view must render the server-side DataTable widget');
 
         // Assert — show view iterates over model data
         $showContent = file_get_contents($showFile);
@@ -694,12 +613,14 @@ PHP;
         $this->command->callCreateViewsFromWizard('customer', $columns, [], 'customerid', $ui);
 
         $customerDir = $viewsBase . DS . 'customer';
-        // Assert — Bootstrap card classes appear in list view
+        // Assert — Bootstrap wrapper + server-side DataTable in list view
         $listContent = file_get_contents($customerDir . DS . 'customer.html.php');
-        $this->assertStringContainsString('card', $listContent,
-            'Bootstrap mode must produce card wrapper in list view');
+        $this->assertStringContainsString('container-fluid', $listContent,
+            'Bootstrap mode must produce the container-fluid wrapper in list view');
         $this->assertStringContainsString('btn-primary', $listContent,
-            'Bootstrap mode must produce btn-primary in list view');
+            'Bootstrap mode must produce btn-primary (+ New button) in list view');
+        $this->assertStringContainsString('$this->datatable->render()', $listContent,
+            'List view must render the server-side DataTable widget');
 
         // Assert — form-control class appears in edit view
         $editContent = file_get_contents($customerDir . DS . 'edit.html.php');
@@ -733,10 +654,15 @@ PHP;
         // Assert — DataTables JS is present in list view
         $articleDir  = $viewsBase . DS . 'article';
         $listContent = file_get_contents($articleDir . DS . 'article.html.php');
-        $this->assertStringContainsString('PramnosDataTable', $listContent,
-            'DataTables mode must include PramnosDataTable.init() in list view');
-        $this->assertStringContainsString('data-dt-api', $listContent,
-            'DataTables mode must include the data-dt-api attribute on the table element');
+        // The list is now rendered by the server-side \Pramnos\Html\Datatable
+        // widget (from the controller), not the old client-side PramnosDataTable
+        // adapter — so the view is just the widget shell.
+        $this->assertStringContainsString('$this->datatable->render()', $listContent,
+            'List view must render the server-side DataTable widget');
+        $this->assertStringNotContainsString('PramnosDataTable', $listContent,
+            'the retired client-side adapter must no longer appear');
+        $this->assertStringNotContainsString('data-dt-api', $listContent,
+            'the retired client-side data-dt-api attribute must no longer appear');
     }
 
     /**
@@ -905,8 +831,8 @@ PHP;
         $this->assertStringContainsString('Human Friendly Label', $editContent,
             'Non-empty comment must be used as the field label');
 
-        // Assert — fallback label for column without comment uses ucfirst + spaces
-        $this->assertStringContainsString('No comment', $editContent,
-            'Empty comment must fall back to ucfirst(str_replace("_", " ")) of column name');
+        // Assert — fallback label for column without comment uses ucwords + spaces
+        $this->assertStringContainsString('No Comment', $editContent,
+            'Empty comment must fall back to ucwords(str_replace("_", " ")) of column name');
     }
 }

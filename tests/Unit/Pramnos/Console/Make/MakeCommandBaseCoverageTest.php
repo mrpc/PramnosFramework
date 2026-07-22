@@ -156,16 +156,29 @@ class MakeCommandBaseCoverageTest extends TestCase
     {
         $this->rmdirRecursive($this->tmpDir);
 
-        // Remove any view directories created under ROOT/src/Views/ by these tests.
-        $viewsBase = ROOT . DS . INCLUDES . DS . 'Views';
-        foreach ([
-            'wcov_item', 'wcov_product', 'wcov_doc', 'wcovdoc', 'wcov_art', 'wcov_thing',
-            'wcov_simple', 'wcov_nodbview',
-        ] as $name) {
-            $dir = $viewsBase . DS . $name;
-            if (is_dir($dir)) {
-                $this->rmdirRecursive($dir);
+        // create:model/create:controller now emit schema-aware tests into
+        // ROOT/tests/Unit/Models/<E>Test.php and ROOT/tests/Feature/<C>Test.php.
+        // Those extend the scaffolded project's Tests\BaseTestCase, so leaving
+        // them in the framework repo breaks its own PHPUnit run — remove them.
+        foreach ([ROOT . '/tests/Unit/Models', ROOT . '/tests/Feature'] as $genDir) {
+            foreach ((array) glob($genDir . '/*Test.php') as $genTest) {
+                if (is_file($genTest)) {
+                    @unlink($genTest);
+                }
             }
+        }
+        if (is_dir(ROOT . '/tests/Unit/Models')
+            && empty(glob(ROOT . '/tests/Unit/Models/*'))) {
+            @rmdir(ROOT . '/tests/Unit/Models');
+        }
+
+        // Remove any view directories created under ROOT/src/Views/ by these
+        // tests. All entities here are prefixed "wcov" — glob so we also catch
+        // dirs created indirectly (a full controller now scaffolds views too,
+        // e.g. wcovdbctrl), not just a hardcoded list.
+        $viewsBase = ROOT . DS . INCLUDES . DS . 'Views';
+        foreach ((array) glob($viewsBase . DS . 'wcov*', GLOB_ONLYDIR) as $dir) {
+            $this->rmdirRecursive($dir);
         }
 
         // Remove any model/controller files created under ROOT/src/ by these tests.
@@ -1067,14 +1080,15 @@ class MakeCommandBaseCoverageTest extends TestCase
         $this->assertStringContainsString('View created', $result,
             'createView() must return a summary confirming creation');
 
-        // Assert — all three view files exist
+        // Assert — the simple (non-full) view writes a single placeholder file;
+        // edit/show belong to the full CRUD path only.
         $viewDir = $viewsBase . DS . 'wcov_simple';
         $this->assertFileExists($viewDir . DS . 'wcov_simple.html.php',
             'Index/list view file must be created');
-        $this->assertFileExists($viewDir . DS . 'edit.html.php',
-            'Edit view file must be created');
-        $this->assertFileExists($viewDir . DS . 'show.html.php',
-            'Show view file must be created');
+        $this->assertFileDoesNotExist($viewDir . DS . 'edit.html.php',
+            'Simple view must not create an edit view');
+        $this->assertFileDoesNotExist($viewDir . DS . 'show.html.php',
+            'Simple view must not create a show view');
     }
 
     /**
@@ -1303,26 +1317,25 @@ class MakeCommandBaseCoverageTest extends TestCase
         // column types (see the switch case at line ~1546 in the source). The wizard-based
         // createViewsFromWizard() correctly distinguishes them with type="date" vs "datetime-local".
 
-        // Assert — boolean generates a select with Yes/No options
-        $this->assertStringContainsString("value=\"0\"", $editContent,
-            'Boolean column must generate a select with 0 option');
-        $this->assertStringContainsString("value=\"1\"", $editContent,
-            'Boolean column must generate a select with 1 option');
+        // Assert — boolean generates a checkbox input (value="1")
+        $this->assertStringContainsString('type="checkbox"', $editContent,
+            'Boolean column must generate a checkbox input');
 
         // Assert — user FK uses userList variable
         $this->assertStringContainsString('userList', $editContent,
             'User FK must bind to $this->userList variable');
 
-        // Assert — non-user FK generates dropdown
-        $this->assertStringContainsString('categoryid', $editContent,
-            'Non-user FK must generate a select referencing the foreign column');
+        // Assert — non-user FK generates a <select> bound to the related list var
+        $this->assertStringContainsString('categoryList', $editContent,
+            'Non-user FK must generate a select bound to the related list variable');
 
         // Assert — comment used as label
         $this->assertStringContainsString('The Label', $editContent,
             'Comment must be used as label when non-empty');
 
-        // Assert — result summary mentions created files
-        $this->assertStringContainsString('View created', $result);
+        // Assert — result summary lists the generated view files (the --full path
+        // now delegates to createViewsFromWizard, which returns a "Views:" list)
+        $this->assertStringContainsString('wcov_thing.html.php', $result);
     }
 
     // =========================================================================

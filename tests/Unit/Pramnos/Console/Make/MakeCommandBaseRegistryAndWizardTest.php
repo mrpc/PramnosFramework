@@ -112,6 +112,22 @@ class MakeCommandBaseRegistryAndWizardTest extends TestCase
 
     protected function tearDown(): void
     {
+        // create:model/create:controller now emit schema-aware tests into
+        // ROOT/tests/Unit/Models/<E>Test.php and ROOT/tests/Feature/<C>Test.php.
+        // Those extend the scaffolded project's Tests\BaseTestCase, so leaving
+        // them in the framework repo breaks its own PHPUnit run — remove them.
+        foreach ([ROOT . '/tests/Unit/Models', ROOT . '/tests/Feature'] as $genDir) {
+            foreach ((array) glob($genDir . '/*Test.php') as $genTest) {
+                if (is_file($genTest)) {
+                    @unlink($genTest);
+                }
+            }
+        }
+        if (is_dir(ROOT . '/tests/Unit/Models')
+            && empty(glob(ROOT . '/tests/Unit/Models/*'))) {
+            @rmdir(ROOT . '/tests/Unit/Models');
+        }
+
         // Clean up registry entries written by these tests
         $registryFile = ROOT . DS . 'app' . DS . 'model-registry.json';
         if (file_exists($registryFile)) {
