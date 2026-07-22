@@ -462,6 +462,207 @@ abstract class MakeCommandBase extends Command
         return '';
     }
 
+    /**
+     * Generate a schema-aware integration test for a generated CRUD model.
+     *
+     * Writes <baseDir>/tests/Unit/Models/<className>Test.php from the
+     * crud-model-test.stub template. Unlike the trivial generateTestStub(), this
+     * exercises the ACTUAL generated model shape: it asserts the model extends
+     * \Pramnos\Application\Model, declares a public property for every column
+     * (PK included), performs a save→load→getData→delete round-trip that sets a
+     * typed sample value per scalar column and verifies each persisted, and
+     * checks the getApiList() envelope. Foreign-key columns are excluded from the
+     * round-trip so the test does not require parent rows to exist.
+     *
+     * The generated test extends Tests\BaseTestCase — the same base class
+     * Init.php scaffolds into new projects — so it runs in the target project's
+     * Unit suite against the real test database.
+     *
+     * @param string $className   Model class name (e.g. Product)
+     * @param string $namespace   Model namespace (e.g. App\Models)
+     * @param array  $columns     Wizard-shaped column definitions (no PK)
+     * @param string $primaryKey  Primary key column name
+     * @param string $tableName   Database table (may contain #PREFIX#)
+     * @param array  $foreignKeys Wizard-shaped FK definitions (column keys)
+     * @param string $baseDir     Project root; defaults to ROOT or cwd
+     * @return string Human-readable summary line (empty if skipped)
+     */
+    public function buildModelTest(
+        string $className,
+        string $namespace,
+        array  $columns,
+        string $primaryKey,
+        string $tableName,
+        array  $foreignKeys = [],
+        string $baseDir = ''
+    ): string {
+        if ($baseDir === '') {
+            $baseDir = defined('ROOT') ? ROOT : getcwd();
+        }
+
+        $testsDir = $baseDir . '/tests/Unit/Models';
+        if (!is_dir($testsDir)) {
+            @mkdir($testsDir, 0777, true);
+        }
+
+        $testFile = $testsDir . '/' . $className . 'Test.php';
+        if (file_exists($testFile)) {
+            return '';
+        }
+
+        // FK columns are left unset in the round-trip so no parent row is needed.
+        $fkNames = array_column($foreignKeys, 'column');
+
+        // PK is asserted as a property and as a getData() key regardless of type.
+        $propertyAssertions = "        \$this->assertTrue(property_exists(\$model, '{$primaryKey}'), 'primary key property must exist');\n";
+        $assertGetData      = "            \$this->assertArrayHasKey('{$primaryKey}', \$data);\n";
+        $setColumns         = '';
+        $assertPersisted    = '';
+
+        foreach ($columns as $col) {
+            $name = $col['name'];
+            $type = $col['type'] ?? 'string';
+
+            $propertyAssertions .= "        \$this->assertTrue(property_exists(\$model, '{$name}'), 'column {$name} must map to a property');\n";
+            $assertGetData      .= "            \$this->assertArrayHasKey('{$name}', \$data);\n";
+
+            if (in_array($name, $fkNames, true)) {
+                continue;
+            }
+
+            [$literal, $assertLine] = $this->modelTestSample($type, $name);
+            $setColumns      .= "        \$model->{$name} = {$literal};\n";
+            $assertPersisted .= "            {$assertLine}\n";
+        }
+
+        if ($setColumns === '') {
+            $setColumns = "        // No scalar (non-FK) columns to populate.\n";
+        }
+        if ($assertPersisted === '') {
+            $assertPersisted = "            // No scalar (non-FK) columns to verify.\n";
+        }
+
+        $stub = $this->renderStub('crud-model-test', [
+            'class'              => $className,
+            'namespace'          => $namespace,
+            'primaryKey'         => $primaryKey,
+            'tableName'          => $tableName,
+            'propertyAssertions' => rtrim($propertyAssertions, "\n"),
+            'setColumns'         => rtrim($setColumns, "\n"),
+            'assertPersisted'    => rtrim($assertPersisted, "\n"),
+            'assertGetData'      => rtrim($assertGetData, "\n"),
+        ]);
+
+        if (file_put_contents($testFile, $stub) !== false) {
+            return "Test:      {$testFile}\n";
+        }
+        return '';
+    }
+
+    /**
+     * Return a typed sample-value literal and its reload assertion for a column,
+     * keyed by the wizard logical type.
+     *
+     * The literal is what the round-trip test assigns before save(); the
+     * assertion verifies the value survived the database round-trip. Scalar
+     * types (string/int/float/bool) are asserted exactly; formats the database
+     * may normalise (date/datetime/json/binary) are asserted non-empty so the
+     * test stays robust across MySQL / PostgreSQL.
+     *
+     * @param string $logicalType Wizard logical type (string, integer, float, …)
+     * @param string $colName     Column name (used inside the assertion)
+     * @return array{0:string,1:string} [phpLiteral, assertionStatement]
+     */
+    private function modelTestSample(string $logicalType, string $colName): array
+    {
+        switch ($logicalType) {
+            case 'integer':
+            case 'biginteger':
+            case 'tinyinteger':
+            case 'smallinteger':
+                return ['42', "\$this->assertEquals(42, (int) \$reloaded->{$colName});"];
+            case 'decimal':
+            case 'float':
+            case 'double':
+                return ['3.5', "\$this->assertEqualsWithDelta(3.5, (float) \$reloaded->{$colName}, 0.01);"];
+            case 'boolean':
+                return ['1', "\$this->assertEquals(1, (int) \$reloaded->{$colName});"];
+            case 'date':
+                return ["'2020-01-01'", "\$this->assertNotEmpty(\$reloaded->{$colName});"];
+            case 'datetime':
+            case 'timestamp':
+                return ["'2020-01-01 12:00:00'", "\$this->assertNotEmpty(\$reloaded->{$colName});"];
+            case 'json':
+                return ["'{\"sample\":\"value\"}'", "\$this->assertNotEmpty(\$reloaded->{$colName});"];
+            case 'binary':
+                return ["'binary-sample'", "\$this->assertNotEmpty(\$reloaded->{$colName});"];
+            case 'uuid':
+                return [
+                    "'11111111-1111-1111-1111-111111111111'",
+                    "\$this->assertEquals('11111111-1111-1111-1111-111111111111', (string) \$reloaded->{$colName});",
+                ];
+            case 'char':
+                return ["'x'", "\$this->assertEquals('x', (string) \$reloaded->{$colName});"];
+            default: // string, text, longtext, and any unknown type
+                return ["'sample text'", "\$this->assertEquals('sample text', (string) \$reloaded->{$colName});"];
+        }
+    }
+
+    /**
+     * Generate a schema-aware Feature test for a generated CRUD controller.
+     *
+     * Writes <baseDir>/tests/Feature/<className>Test.php from the
+     * crud-controller-test.stub template. It asserts the controller extends
+     * \Pramnos\Application\Controller, that the constructor registered the
+     * expected public actions (show, data) and login-gated actions (edit, save,
+     * delete) — read directly from the public $actions / $actions_auth arrays —
+     * and dispatches two requests through the framework's in-memory TestClient:
+     * the list route (expecting a 2xx HTML render) and the data() JSON endpoint
+     * (terminate() mocked so exit does not kill the runner; the echoed payload
+     * is decoded and checked for a DataTables row container).
+     *
+     * The generated test extends Tests\BaseTestCase and uses
+     * \Pramnos\Testing\TestClient — the same base/helper Init.php scaffolds — so
+     * it runs in the target project's suite.
+     *
+     * @param string $className Controller class name (e.g. Products)
+     * @param string $namespace Controller namespace (e.g. App\Controllers)
+     * @param string $tableName Database table (informational; may be empty)
+     * @param string $baseDir   Project root; defaults to ROOT or cwd
+     * @return string Human-readable summary line (empty if skipped)
+     */
+    public function buildControllerTest(
+        string $className,
+        string $namespace,
+        string $tableName = '',
+        string $baseDir = ''
+    ): string {
+        if ($baseDir === '') {
+            $baseDir = defined('ROOT') ? ROOT : getcwd();
+        }
+
+        $testsDir = $baseDir . '/tests/Feature';
+        if (!is_dir($testsDir)) {
+            @mkdir($testsDir, 0777, true);
+        }
+
+        $testFile = $testsDir . '/' . $className . 'Test.php';
+        if (file_exists($testFile)) {
+            return '';
+        }
+
+        $stub = $this->renderStub('crud-controller-test', [
+            'class'     => $className,
+            'namespace' => $namespace,
+            'route'     => strtolower($className),
+        ]);
+
+        if (file_put_contents($testFile, $stub) !== false) {
+            return "Test:      {$testFile}\n";
+        }
+        return '';
+    }
+
     // ── Migration body builders ───────────────────────────────────────────────
 
     /**
@@ -2150,10 +2351,9 @@ $routerContent = $this->renderStub('api-routes', [
             $columns, $foreignKeys,
             $filename
         );
-        $testLine = $this->generateTestStub(
-            $className, $namespace,
-            defined('ROOT') ? ROOT : getcwd(),
-            'controller_test'
+        $testLine = $this->buildControllerTest(
+            $className, $namespace, $tableName,
+            defined('ROOT') ? ROOT : getcwd()
         );
         return "Namespace: {$namespace}\n"
              . "Class:     {$className}\n"
@@ -2946,8 +3146,10 @@ $routerContent = $this->renderStub('api-routes', [
             if (file_put_contents($filename, $content) === false) {
                 throw new \Exception('Cannot write model file.');
             }
-            $testLine = $this->generateTestStub(
-                $className, $namespace, defined('ROOT') ? ROOT : getcwd()
+            $testLine = $this->buildModelTest(
+                $className, $namespace, $wizardColumns,
+                $this->getSingularPrimaryKey($tableName), $tableName,
+                $wizardForeignKeys, defined('ROOT') ? ROOT : getcwd()
             );
             return "Namespace: {$namespace}\n"
                  . "Class:     {$className}\n"
@@ -3044,8 +3246,10 @@ $routerContent = $this->renderStub('api-routes', [
 
         $testLine = '';
         if (!$isUpdate) {
-            $testLine = $this->generateTestStub(
-                $className, $namespace, defined('ROOT') ? ROOT : getcwd()
+            $testLine = $this->buildModelTest(
+                $className, $namespace, $columns,
+                $this->getSingularPrimaryKey($tableName), $tableName,
+                $foreignKeys, defined('ROOT') ? ROOT : getcwd()
             );
         }
 

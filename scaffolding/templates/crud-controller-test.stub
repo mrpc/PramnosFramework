@@ -1,0 +1,104 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature;
+
+use Tests\BaseTestCase;
+use Pramnos\Testing\TestClient;
+
+/**
+ * Feature tests for the {{ class }} CRUD controller (schema-aware, auto-generated).
+ *
+ * The dispatch tests run against the real test database + the framework's
+ * in-memory TestClient (no web server). Migrate the test database first:
+ *   php pramnos migrate:framework --env=test
+ */
+class {{ class }}Test extends BaseTestCase
+{
+    /**
+     * The generated controller must extend the framework Controller base so the
+     * dispatcher (exec()) and action registration are available.
+     */
+    public function testExtendsFrameworkController(): void
+    {
+        // Arrange / Act
+        $controller = new \{{ namespace }}\{{ class }}(null);
+
+        // Assert
+        $this->assertInstanceOf(\Pramnos\Application\Controller::class, $controller);
+    }
+
+    /**
+     * The constructor must register the public read actions (show, data) and the
+     * login-gated write actions (edit, save, delete). Public actions live in
+     * $actions; auth-gated ones in $actions_auth. If a write action were public
+     * anyone could mutate data; if a read action were missing exec() would fall
+     * back to display() instead of dispatching it.
+     */
+    public function testRegistersPublicAndAuthActions(): void
+    {
+        // Arrange
+        $controller = new \{{ namespace }}\{{ class }}(null);
+
+        // Assert — public read actions
+        $this->assertContains('show', $controller->actions,
+            'show must be a public action');
+        $this->assertContains('data', $controller->actions,
+            'the DataTable data() endpoint must be a public action');
+
+        // Assert — login-gated write actions
+        $this->assertContains('edit', $controller->actions_auth,
+            'the create/edit form must require login');
+        $this->assertContains('save', $controller->actions_auth,
+            'save must require login');
+        $this->assertContains('delete', $controller->actions_auth,
+            'delete must require login');
+    }
+
+    /**
+     * GET /{{ route }} must render the list page (the server-side DataTable
+     * shell) with a successful HTTP status.
+     */
+    public function testListRouteRenders(): void
+    {
+        // Arrange
+        $client = new TestClient();
+
+        // Act
+        $response = $client->get('/{{ route }}');
+
+        // Assert — the list view renders with a 2xx status.
+        $response->assertSuccessful();
+    }
+
+    /**
+     * The data() AJAX endpoint must emit a JSON payload with a row container
+     * (DataTables 'data' or legacy 'aaData'), not the themed HTML page.
+     *
+     * data() calls terminate() (exit) in production; we mock it so the test
+     * process survives, and capture the echoed JSON from the output buffer.
+     */
+    public function testDataActionReturnsJson(): void
+    {
+        // Arrange — mock terminate() so the action's exit does not kill the
+        // test runner; the rest of data() runs against the real database.
+        $controller = $this->getMockBuilder(\{{ namespace }}\{{ class }}::class)
+            ->setConstructorArgs([null])
+            ->onlyMethods(['terminate'])
+            ->getMock();
+
+        // Act — capture the JSON the action echoes.
+        ob_start();
+        $controller->data();
+        $json = (string) ob_get_clean();
+
+        // Assert — the payload decodes to a JSON object with a row container.
+        $decoded = json_decode($json, true);
+        $this->assertIsArray($decoded, 'data() must emit valid JSON');
+        $this->assertTrue(
+            array_key_exists('data', $decoded) || array_key_exists('aaData', $decoded),
+            'data() JSON must carry a DataTables row container'
+        );
+    }
+}
