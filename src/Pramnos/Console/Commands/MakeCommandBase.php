@@ -2902,54 +2902,6 @@ $routerContent = $this->renderStub('api-routes', [
     }
 
     /**
-     * Add getApiList method to an existing model file
-     * @param string $filename Path to the model file
-     * @return bool Success status
-     */
-    protected function addGetApiListMethod($filename)
-    {
-        $fileContents = file_get_contents($filename);
-        
-        // Find the position just before the last closing brace
-        $lastBracePosition = strrpos($fileContents, '}');
-        
-        if ($lastBracePosition === false) {
-            return false;
-        }
-        
-        $getApiListMethod = <<<'METHOD'
-
-    /**
-     * Get an API-formatted list with pagination, field selection, and search capabilities
-     * @param array $fields Array of field names to include in response. If empty, includes all fields
-     * @param string|array $search Search parameter: if string, performs global search across all fields; if array, performs field-specific searches ['fieldname' => 'search_term']
-     * @param string $order Order by clause (e.g., "field ASC" or "field DESC")
-     * @param int $page Current page number (1-based, 0 = no pagination)
-     * @param int $itemsPerPage Number of items per page (ignored if $page = 0)
-     * @param bool $debug Show debug information
-     * @param bool $returnAsModels If true, return objects as models, otherwise return as arrays
-     * @param bool $useGetData If true, use getData() to return data instead of model properties (returning an array)
-     * @return array API response with pagination info and data
-     */
-    public function getApiList($fields = array(), $search = '', 
-        $order = '', $page = 0, $itemsPerPage = 10, 
-        $debug = false, $returnAsModels = false, $useGetData = true)
-    {
-        return parent::_getApiList(
-            $fields, $search, $order, '', '', '',
-            null, null, $page, $itemsPerPage, $debug, $returnAsModels, $useGetData
-        );
-    }
-
-METHOD;
-        
-        // Insert the method just before the last closing brace
-        $newFileContents = substr_replace($fileContents, $getApiListMethod, $lastBracePosition, 0);
-        
-        return file_put_contents($filename, $newFileContents) !== false;
-    }
-
-    /**
      * Register or update model information in the registry JSON file
      * 
      * @param array $modelInfo Information about the model to register
