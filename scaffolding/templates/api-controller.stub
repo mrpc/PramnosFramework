@@ -1,0 +1,255 @@
+<?php
+namespace {{ namespace }};
+
+/**
+ * {{ className }} Controller
+ * Auto generated at: {{ date }}
+ */
+class {{ className }} extends \Pramnos\Application\Controller
+{
+
+    /**
+     * {{ className }} controller constructor
+     * @param Application $application
+     */
+    public function __construct(?\Pramnos\Application\Application $application = null)
+    {
+        parent::__construct($application);
+    }
+    
+    /**
+     * @api {get} 1.0/{{ modelClassLower }} List
+     * @apiVersion 1.0.0
+     * @apiGroup {{ modelClass }}
+     * @apiName list{{ modelClass }}
+     * @apiDescription List of {{ modelClass }} objects with pagination, search, sorting and field selection
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     *
+     * @apiParam  {Number} [page=0] Page number for pagination. Set to 0 to get all results
+     * @apiParam  {Number} [limit=20] Limit number of results per page
+     * @apiParam  {String} [sort] Sort by field. Syntax: [+-]fieldname,[+-]fieldname. You can use the following fields: {{ fieldList }}
+     * @apiParam  {String} [search] Global search term. You can use this to search across all fields.
+     *                              It also supports input for specific search fields using JSON format,
+     *                              like: {\"field1\": \"value1\", \"field2\": \"value2\"}
+     * @apiParam  {String} [fields] Specify which fields you want returned by using the fields parameter 
+     *                              and listing each field. This overrides the defaults and returns only 
+     *                              the fields you specify, and the ID of the object, which is always returned.
+     *                              Can be comma-separated string or JSON array: \"field1,field2\" or [\"field1\",\"field2\"]
+     *
+     * @apiSuccess {Array} data List of {{ modelClass }} objects
+     * @apiSuccess {Object} [pagination] Pagination information (only when page > 0)
+     * @apiSuccess {Number} pagination.currentpage Current page number
+     * @apiSuccess {Number} pagination.itemsperpage Items per page
+     * @apiSuccess {Number} pagination.totalitems Total number of items
+     * @apiSuccess {Number} pagination.totalpages Total number of pages
+     * @apiSuccess {Boolean} pagination.hasnext Whether there is a next page
+     * @apiSuccess {Boolean} pagination.hasprevious Whether there is a previous page
+     * @apiSuccess {Array} fields List of fields included in the response
+{{ returnContent }}
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     */
+    public function display()
+    {
+        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        $user = $_SESSION['user'];
+        if ($user->userid < 2) {
+            return array('status' => 401);
+        }
+        
+        $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
+        
+        // Get parameters from request
+        $fields = \Pramnos\Http\Request::staticGet('fields', array(), 'get');
+        $search = \Pramnos\Http\Request::staticGet('search', '', 'get');
+        $sort = \Pramnos\Http\Request::staticGet('sort', '', 'get');
+        $page = (int) \Pramnos\Http\Request::staticGet('page', 0, 'get', 'int');
+        $limit = (int) \Pramnos\Http\Request::staticGet('limit', 20, 'get', 'int');
+        
+        // Use the new getApiList method for enhanced pagination, search, and field selection
+        return $model->getApiList(
+            $fields, 
+            $search, 
+            $sort, 
+            $page, 
+            $limit,
+            false, // debug
+            false, // returnAsModels
+            false   // useGetData
+        );
+    }
+
+    /**
+     * @api {get} 1.0/{{ modelClassLower }}/:{{ primaryKey }} Read
+     * @apiVersion 1.0.0
+     * @apiGroup {{ modelClass }}
+     * @apiName read{{ modelClass }}
+     * @apiDescription Read a specific {{ modelClass }} object
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * @apiParam  {Number} {{ primaryKey }} Id to load
+     *
+     * @apiSuccess {{{ modelClass }}} data A {{ modelClass }} object
+{{ returnContent }}
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function read{{ modelClass }}(${{ primaryKey }})
+    {
+        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        $user = $_SESSION['user'];
+        if ($user->userid < 2) {
+            return array('status' => 401);
+        }
+        
+        
+        $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
+        $model->load(${{ primaryKey }});
+        if ($model->{{ primaryKey }} == 0) {
+            return array(
+                'status' => 404
+            );
+        }
+        $data = $model->getData();
+        return array('data' => $data);
+    }
+
+    /**
+     * @api {post} 1.0/{{ modelClassLower }} Create
+     * @apiVersion 1.0.0
+     * @apiGroup {{ modelClass }}
+     * @apiName create{{ modelClass }}
+     * @apiDescription Create a {{ modelClass }}
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * 
+{{ saveContent }}
+     *
+     * @apiSuccess {{{ modelClass }}} data A {{ modelClass }} object
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function create{{ modelClass }}()
+    {
+        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        $user = $_SESSION['user'];
+        
+        
+
+        $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
+
+ 
+{{ postContent }}
+        
+
+        $model->save();
+        
+        return array(
+            'status' => 201,
+            'data' => $model->getData()
+        );
+    }
+
+
+    /**
+     * @api {put} 1.0/{{ modelClassLower }}/:{{ primaryKey }} Update
+     * @apiVersion 1.0.0
+     * @apiGroup {{ modelClass }}
+     * @apiName update{{ modelClass }}
+     * @apiDescription Update a specific {{ modelClass }} object
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * @apiParam  {Number} {{ primaryKey }} Id to update
+     * 
+     * 
+{{ updateContent }}
+     * @apiSuccess {{{ modelClass }}} data A {{ modelClass }} object
+     * 
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function update{{ modelClass }}(${{ primaryKey }})
+    {
+        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
+            return array('status' => 401);
+        }
+        $user = $_SESSION['user'];
+        
+        $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
+        $model->load((int) ${{ primaryKey }});
+        if ($model->{{ primaryKey }} == 0) {
+            return array(
+                'status' => 404
+            );
+        }
+
+ 
+{{ putContent }}
+
+        
+        $model->save();
+        return array(
+            'status' => 202,
+            'data' => $model->getData()
+        );
+    }
+
+    /**
+     * @api {delete} 1.0/{{ modelClassLower }}/:{{ primaryKey }} Delete
+     * @apiVersion 1.0.0
+     * @apiGroup {{ modelClass }}
+     * @apiName delte{{ modelClass }}
+     * @apiDescription Delete a {{ modelClass }}
+     *
+     * @apiHeader {String} apiKey Application unique api key
+     * @apiHeader {String} accessToken Authenticated user access token
+     * @apiParam  {Number} {{ primaryKey }} Id to delete
+     *
+     *
+     * @apiUse InvalidAccessToken
+     * @apiUse APIKeyMissing
+     * @apiUse APIKeyInvalid
+     * @apiUse InternalServerError
+     *
+     */
+    public function delete{{ modelClass }}(${{ primaryKey }})
+    {
+        $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
+        $model->load((int) ${{ primaryKey }});
+        if ($model->{{ primaryKey }} == 0) {
+            return array(
+                'status' => 404
+            );
+        }
+        $model->delete(${{ primaryKey }});
+        return array(
+            'status' => 202
+        );
+
+    }
+
+
+
+}

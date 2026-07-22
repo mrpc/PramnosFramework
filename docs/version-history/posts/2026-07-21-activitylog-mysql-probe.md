@@ -246,3 +246,13 @@ After generating a CRUD controller, the command's summary now ends with
 `Test it now: <url>` — the actual app URL for the new controller (resolved from
 `sURL` when known) so you can open it immediately instead of assembling the path
 by hand.
+
+---
+
+## API controller generator rendered from stubs (de-heredoc)
+
+The REST API controller generator (`create:api`) built its controller class and
+its `src/Api/routes.php` snippet from PHP heredocs. These now render from
+`scaffolding/templates/api-controller.stub` and `api-routes.stub` via
+`renderStub()` (byte-for-byte identical output). Consistent with the
+controller/model/view generators, which are all stub-driven now.
