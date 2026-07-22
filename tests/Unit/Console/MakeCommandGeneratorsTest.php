@@ -185,6 +185,26 @@ class MakeCommandGeneratorsTest extends TestCase
             }
         }
         
+        // Wipe generated test files: create:model/controller now emit schema-aware
+        // tests into tests/Unit/Models/<E>Test.php and tests/Feature/<C>Test.php.
+        // These dirs hold no tracked framework tests (tests/Feature has only a
+        // .gitkeep), so any *Test.php here is generator cruft — remove it so it
+        // does not leak into the framework's own suite (breaking it with a
+        // "Class Tests\\BaseTestCase not found" on the generated integration base).
+        foreach ([ROOT . '/tests/Unit/Models', ROOT . '/tests/Feature'] as $genTestDir) {
+            foreach ((array) glob($genTestDir . '/*Test.php') as $genTest) {
+                if (is_file($genTest)) {
+                    @unlink($genTest);
+                }
+            }
+        }
+        if (is_dir(ROOT . '/tests/Unit/Models')) {
+            $rest = glob(ROOT . '/tests/Unit/Models/*');
+            if ($rest === false || empty($rest)) {
+                @rmdir(ROOT . '/tests/Unit/Models');
+            }
+        }
+
         // Also wipe any migrations created during this test by wildcard
         $migrationFiles = glob(APP_PATH . '/migrations/*_create_test_items_table.php');
         if ($migrationFiles !== false) {
