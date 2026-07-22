@@ -290,3 +290,18 @@ The tests `create:init` writes for a new project failed on a fresh scaffold:
   wrong-password → the form re-renders without establishing a session.
 - **`LoginControllerTest`** called `ReflectionProperty::setAccessible(true)`,
   deprecated in PHP 8.5 (a no-op since 8.1) — removed.
+
+---
+
+## `create:view --full` unified onto the admin CRUD views
+
+`create:view --full` had its own separate inline-heredoc view generator that
+produced old, non-theme-consistent markup. It now mirrors
+`create:controller`/`create:model`: it introspects the table
+(`introspectTableAsWizardColumns()`) and delegates to `createViewsFromWizard()`,
+so a full view set is the same admin-style, per-theme (plain/bootstrap/tailwind)
+output as every other CRUD path — with the same "table not found → run
+`create:migration`" error. The plain `create:view` (no `--full`) still writes a
+minimal, table-free placeholder view, now from `simple-view.stub`. With this,
+every `make`/`create` generator renders from `.stub` templates — the last
+generated-code heredoc is gone.
