@@ -2493,30 +2493,6 @@ $routerContent = $this->renderStub('api-routes', [
 
         [\$modelClass, \$pk] = \$fkMap[\$field];
 
-        // The framework User (\\Pramnos\\User\\User) is not a Model and has no
-        // _getApiList(); query the users table directly, still searched + paged.
-        if (ltrim(\$modelClass, '\\\\') === \\Pramnos\\User\\User::class) {
-            \$db = \\Pramnos\\Framework\\Factory::getDatabase();
-            \$qb = \$db->queryBuilder()->table('users')->select(['userid', 'username']);
-            if (\$q !== '') {
-                \$qb->where('username', 'LIKE', '%' . \$q . '%');
-            }
-            \$rows = \$qb->limit(20)->offset((\$page - 1) * 20)->get();
-            \$results = [];
-            while (\$rows->fetch()) {
-                \$results[] = [
-                    'id'   => \$rows->fields['userid'],
-                    'text' => (string) (\$rows->fields['username'] ?? \$rows->fields['userid']),
-                ];
-            }
-            echo json_encode([
-                'results'    => \$results,
-                'pagination' => ['more' => count(\$results) >= 20],
-            ]);
-            \$this->terminate();
-            return;
-        }
-
         \$model = new \$modelClass(\$this);
         \$res   = \$model->_getApiList([], \$q, '', '', '', '', null, null, \$page, 20, false, false, true);
 
