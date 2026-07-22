@@ -2808,9 +2808,17 @@ content;
             $name, $columns, $foreignKeys, $primaryKey, $ui
         );
 
+        // Resolve an actual, clickable test URL when the app URL is known (it is
+        // after $application->init() in createController), so the developer can
+        // hit the new controller immediately; fall back to the sURL expression.
+        $testUrl = defined('sURL') && sURL !== ''
+            ? rtrim((string) sURL, '/') . '/' . $className
+            : "sURL . '{$className}'";
+
         return "Controller created.\n"
             . "URL: sURL . '{$className}'\n"
-            . $viewSummary;
+            . $viewSummary
+            . "\nTest it now: {$testUrl}\n";
     }
 
     /**

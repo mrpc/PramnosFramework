@@ -237,3 +237,12 @@ checked task.)
 The admin account created during `create:init` now sets `firstname`/`lastname`
 from the "Author Name" captured earlier (first token → firstname, remainder →
 lastname), instead of leaving them blank.
+
+---
+
+## `create:controller` summary prints a ready-to-use test URL
+
+After generating a CRUD controller, the command's summary now ends with
+`Test it now: <url>` — the actual app URL for the new controller (resolved from
+`sURL` when known) so you can open it immediately instead of assembling the path
+by hand.
