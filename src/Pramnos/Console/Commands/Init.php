@@ -397,7 +397,7 @@ class Init extends Command
                     $this->migrationsSuccess = ($migStatus === 0);
 
                     if ($this->migrationsSuccess && in_array('auth', $enabledFeatures, true)) {
-                        $this->createAdminUser($input, $output, $helper, $userEmail, $cliName);
+                        $this->createAdminUser($input, $output, $helper, $userEmail, $cliName, $userName);
                     } elseif (!$this->migrationsSuccess) {
                         $output->writeln('  <comment>Admin user creation skipped — migrations did not complete successfully.</comment>');
                         $output->writeln("  Run manually after fixing migrations: docker-compose exec app php $cliName.php migrate --scope=framework");
@@ -3403,7 +3403,7 @@ PHP;
      * After a successful migration run, ask if an admin user should be created
      * and run a PHP snippet inside the app container to INSERT the user.
      */
-    private function createAdminUser(InputInterface $input, OutputInterface $output, mixed $helper, string $developerEmail = '', string $cliName = 'app'): void
+    private function createAdminUser(InputInterface $input, OutputInterface $output, mixed $helper, string $developerEmail = '', string $cliName = 'app', string $developerName = ''): void
     {
         // @codeCoverageIgnoreStart
         // createAdminUser is only called from the Docker+migrations success path; all
@@ -3454,10 +3454,19 @@ PHP;
         }
         $output->writeln("  <info>Using password:</info> <comment>$adminPassword</comment>");
 
+        // Seed the admin's name from the developer name captured at init (the
+        // "Author Name"): first token → firstname, the remainder → lastname.
+        $developerName = trim($developerName);
+        $nameParts     = $developerName !== '' ? preg_split('/\s+/', $developerName, 2) : [];
+        $firstName     = $nameParts[0] ?? '';
+        $lastName      = $nameParts[1] ?? '';
+
         // Escape values for safe injection into the single-quoted PHP string
-        $safeUsername = addslashes($adminUsername);
-        $safeEmail    = addslashes($adminEmail);
-        $safePassword = addslashes($adminPassword);
+        $safeUsername  = addslashes($adminUsername);
+        $safeEmail     = addslashes($adminEmail);
+        $safePassword  = addslashes($adminPassword);
+        $safeFirstName = addslashes($firstName);
+        $safeLastName  = addslashes($lastName);
 
         $phpSnippet = <<<PHP
 ob_start();
@@ -3471,6 +3480,8 @@ try {
     \$user = new \Pramnos\User\User(0);
     \$user->username  = '$safeUsername';
     \$user->email     = '$safeEmail';
+    \$user->firstname = '$safeFirstName';
+    \$user->lastname  = '$safeLastName';
     \$user->usertype  = 90;
     \$user->active    = 1;
     \$user->validated = 1;
