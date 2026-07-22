@@ -1,0 +1,39 @@
+$router->delete(
+    '/{{ modelClassLower }}/{{{ primaryKey }}}',
+    function (${{ primaryKey }}) {
+        $controller = $this->getController('{{ className }}');
+        return $controller->delete{{ modelClass }}(${{ primaryKey }});
+    }
+);
+
+$router->put(
+    '/{{ modelClassLower }}/{{{ primaryKey }}}',
+    function (${{ primaryKey }}) {
+        $controller = $this->getController('{{ className }}');
+        return $controller->update{{ modelClass }}(${{ primaryKey }});
+    }
+);
+
+$router->get(
+    '/{{ modelClassLower }}/{{{ primaryKey }}}',
+    function (${{ primaryKey }}) {
+        $controller = $this->getController('{{ className }}');
+        return $controller->read{{ modelClass }}(${{ primaryKey }});
+    }
+);
+
+$router->get(
+    '/{{ modelClassLower }}',
+    function () {
+        $controller = $this->getController('{{ className }}');
+        return $controller->display();
+    }
+);
+
+$router->post(
+    '/{{ modelClassLower }}',
+    function () {
+        $controller = $this->getController('{{ className }}');
+        return $controller->create{{ modelClass }}();
+    }
+);
