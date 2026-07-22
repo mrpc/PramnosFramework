@@ -2219,11 +2219,18 @@ $routerContent = $this->renderStub('api-routes', [
         $application = $this->getApplication()->internalApplication;
         $theme = $application->applicationInfo['scaffold_theme'] ?? 'plain-css';
 
+        // Library availability is driven by the PROJECT'S OWN configuration — the
+        // vendor libraries the app registers in App\Application::registerVendorLibraries()
+        // (which ran during $application->init() before we got here and is reflected
+        // on the Document) — not by probing www/assets/vendor on disk. select2 is not
+        // a framework default, so isScriptRegistered() is an accurate config signal
+        // for whether the project actually opted into Select2.
+        $doc = \Pramnos\Framework\Factory::getDocument();
         $vendorBase = (defined('ROOT') ? ROOT : getcwd()) . '/www/assets/vendor';
         return [
             'theme'      => $theme,
             'datatables' => is_dir($vendorBase . '/datatables'),
-            'select2'    => is_dir($vendorBase . '/select2'),
+            'select2'    => $doc->isScriptRegistered('select2'),
             'bootstrap'  => ($theme === 'bootstrap') || is_dir($vendorBase . '/bootstrap'),
         ];
     }

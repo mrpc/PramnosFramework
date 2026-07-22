@@ -305,3 +305,14 @@ output as every other CRUD path — with the same "table not found → run
 minimal, table-free placeholder view, now from `simple-view.stub`. With this,
 every `make`/`create` generator renders from `.stub` templates — the last
 generated-code heredoc is gone.
+
+---
+
+## Scaffolding detects Select2 from project config, not the filesystem
+
+`detectUiSetup()` decided whether generated CRUD forms use Select2 for foreign
+keys by probing `www/assets/vendor/select2` on disk. It now asks the project's
+own configuration — `Factory::getDocument()->isScriptRegistered('select2')`,
+i.e. whether `App\Application::registerVendorLibraries()` registered Select2 —
+which is the authoritative signal for whether the app actually opted into it
+(Select2 is not a framework default).
