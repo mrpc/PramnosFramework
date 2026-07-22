@@ -58,6 +58,13 @@ class DummyGeneratorCommand extends MakeCommandBase
     public function exposeCreateCrud($name) {
         return $this->createCrud($name);
     }
+
+    // Expose the FK form-field builder so both Select2-on (AJAX remote) and
+    // Select2-off (native eager) branches can be asserted deterministically,
+    // without depending on the shared Document singleton's script registry.
+    public function exposeBuildWizardFormFields($columns, $fkByColumn, $primaryKey, $themeKey, $useSelect2, $className = '') {
+        return $this->buildWizardFormFields($columns, $fkByColumn, $primaryKey, $themeKey, $useSelect2, $className);
+    }
 }
 
 class MakeCommandGeneratorsTest extends TestCase
@@ -782,11 +789,33 @@ class MakeCommandGeneratorsTest extends TestCase
             $this->assertStringContainsString('new \Pramnos\Html\Datatable(', $content,
                 'display() must build a server-side DataTable');
 
-            // Assert — the retired getApiList endpoint / broken heredoc call are gone.
-            $this->assertStringNotContainsString('getApiList', $content,
-                'the web controller must no longer expose getApiList');
+            // Assert — the removed DB-first heredoc endpoint (a public getApiList()
+            // action calling parent::_getApiList(), which does not exist on
+            // Controller) stays gone.
+            $this->assertStringNotContainsString('public function getApiList(', $content,
+                'the web controller must no longer expose a getApiList() action');
             $this->assertStringNotContainsString('parent::_getApiList(', $content,
                 'the removed DB-first heredoc called parent::_getApiList() which does not exist on Controller');
+
+            // Assert — the FK-aware fkOptions() AJAX action IS emitted (the mocked
+            // table has FK columns): it looks a field up in $fkMap and REUSES the
+            // related model's _getApiList() instead of a bespoke query, and it is
+            // registered as a public action so exec() dispatches it.
+            $this->assertStringContainsString('public function fkOptions(): void', $content,
+                'a controller with FK columns must expose the fkOptions() AJAX action');
+            $this->assertStringContainsString('$fkMap = [', $content,
+                'fkOptions() must carry the generated field => [class, pk] map');
+            $this->assertStringContainsString('$model->_getApiList(', $content,
+                'fkOptions() must reuse the related model _getApiList() pipeline');
+            $this->assertStringContainsString("addaction(['show', 'data', 'fkOptions'])", $content,
+                'fkOptions must be registered as a public action');
+            // The user FK special-case + a regular FK both land in $fkMap.
+            $this->assertStringContainsString("'\\\\Pramnos\\\\User\\\\User', 'userid'", $content,
+                'the user FK must map to \\Pramnos\\User\\User / userid');
+            // The framework User has no _getApiList(), so fkOptions() must query
+            // the users table directly (still searched + paged) for user FKs.
+            $this->assertStringContainsString("->table('users')->select(['userid', 'username'])", $content,
+                'user FKs must fall back to a direct paginated users query in fkOptions()');
 
             // Assert — the generated controller is valid PHP.
             $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($ctrlFile) . ' 2>&1');
@@ -798,6 +827,54 @@ class MakeCommandGeneratorsTest extends TestCase
             $this->addCleanup(ROOT . '/tests/Feature/IntroentitiesTest.php');
             $this->removeDirRecursive($viewDir);
         }
+    }
+
+    /**
+     * The FK form-field builder must switch between two rendering strategies:
+     *
+     *  - Select2 ON  → an AJAX-remote <select> that loads options lazily from the
+     *    controller's fkOptions() action (url contains "fkOptions?field="),
+     *    pre-rendering ONLY the currently-selected option (no eager foreach over a
+     *    full list variable) so a FK to a huge table cannot bloat/break the form.
+     *  - Select2 OFF → the native eager <select> populated by iterating the
+     *    controller-provided list variable (the small-table fallback), unchanged.
+     */
+    public function testFkFieldSelect2UsesAjaxRemoteAndEagerFallback(): void
+    {
+        // Arrange — one regular FK column (category_id → categories).
+        $columns = [
+            ['name' => 'category_id', 'type' => 'biginteger', 'options' => [], 'nullable' => false, 'default' => null, 'unique' => false, 'comment' => 'Category', 'unsigned' => true],
+        ];
+        $fkByColumn = [
+            'category_id' => ['column' => 'category_id', 'references' => 'id', 'on' => 'categories', 'onDelete' => 'RESTRICT', 'onUpdate' => 'RESTRICT'],
+        ];
+
+        // Act — render both variants of the same FK field.
+        $withSelect2 = $this->command->exposeBuildWizardFormFields(
+            $columns, $fkByColumn, 'id', 'bootstrap', true, 'Items'
+        );
+        $withoutSelect2 = $this->command->exposeBuildWizardFormFields(
+            $columns, $fkByColumn, 'id', 'bootstrap', false, 'Items'
+        );
+
+        // Assert — Select2 ON: AJAX remote wired to the fkOptions() action.
+        $this->assertStringContainsString('.select2({ ajax:', $withSelect2,
+            'Select2 FK must be initialised with an ajax remote source');
+        $this->assertStringContainsString('Items/fkOptions?field=category_id', $withSelect2,
+            'the ajax url must point at the controller fkOptions() action for this field');
+        $this->assertStringContainsString('processResults:', $withSelect2,
+            'the ajax config must map the {results, pagination} envelope');
+        // Only the selected option is pre-rendered — no eager foreach of a list.
+        $this->assertStringContainsString('category_idSelectedText', $withSelect2,
+            'the selected option text must come from the controller-resolved SelectedText');
+        $this->assertStringNotContainsString('foreach ($this->categoryList', $withSelect2,
+            'Select2 FK must NOT iterate the full option list');
+
+        // Assert — Select2 OFF: native eager <select> over the list variable.
+        $this->assertStringContainsString('foreach ($this->categoryList', $withoutSelect2,
+            'without Select2 the FK must eagerly iterate the controller list variable');
+        $this->assertStringNotContainsString('ajax:', $withoutSelect2,
+            'the native fallback must not emit an ajax remote config');
     }
 
     /**

@@ -696,9 +696,13 @@ class MakeCommandBaseExtendedTest extends TestCase
         $this->assertStringContainsString('<select', $editContent,
             'FK column must generate a <select> dropdown');
 
-        // Assert — Select2 initialisation script present
-        $this->assertStringContainsString('select2()', $editContent,
-            'select2=true must generate a $(...).select2() call for FK fields');
+        // Assert — Select2 initialisation present as an AJAX-remote source that
+        // lazy-loads options from the controller's fkOptions() action (instead of
+        // eagerly rendering every related row into the form).
+        $this->assertStringContainsString('.select2({ ajax:', $editContent,
+            'select2=true must initialise FK fields with an ajax remote source');
+        $this->assertStringContainsString('fkOptions?field=category_id', $editContent,
+            'the ajax url must target the controller fkOptions() action for this FK');
     }
 
     /**
