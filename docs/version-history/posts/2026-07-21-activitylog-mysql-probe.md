@@ -229,3 +229,11 @@ BC is preserved: `\Pramnos\Html\Datatable` and `Datasource::getList()` are
 unchanged. (A deeper data-layer unification — routing `Datasource` through the
 `getApiList`/`_getApiList` engine — is deferred to a separate, feature-parity-
 checked task.)
+
+---
+
+## `init` seeds the admin user's name from the developer name
+
+The admin account created during `create:init` now sets `firstname`/`lastname`
+from the "Author Name" captured earlier (first token → firstname, remainder →
+lastname), instead of leaving them blank.
