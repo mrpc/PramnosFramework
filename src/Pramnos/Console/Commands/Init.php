@@ -2501,7 +2501,8 @@ class LoginControllerTest extends TestCase
         \$ref   = new \\ReflectionClass(Login::class);
         \$login = \$ref->newInstanceWithoutConstructor();
         \$prop  = \$ref->getProperty('routeBase');
-        \$prop->setAccessible(true);
+        // Note: ReflectionProperty::setAccessible() is a no-op since PHP 8.1 and
+        // deprecated in 8.5 — reading the value needs no accessibility toggle.
         \$this->assertSame('login', \$prop->getValue(\$login),
             'Login form actions must post under /login');
     }
@@ -2555,7 +2556,8 @@ class AuthFlowTest extends BaseTestCase
     protected function tearDown(): void
     {
         \$_POST = [];
-        unset(\$_SESSION['login_error'], \$_SESSION['logged']);
+        \$_SERVER['REQUEST_METHOD'] = 'GET';
+        unset(\$_SESSION['user'], \$_SESSION['logged'], \$_SESSION['login_error']);
         parent::tearDown();
     }
 
@@ -2625,23 +2627,27 @@ class AuthFlowTest extends BaseTestCase
     }
 
     // -----------------------------------------------------------------------
-    // Login::dologin() — controller-level integration tests
+    // Login::login() — controller-level integration tests
+    //
+    // login() is CSRF-protected and reads the request method from
+    // \$_SERVER['REQUEST_METHOD']; we set POST and mock the checkCsrf() seam to
+    // true so the test drives the credential path directly. redirect() is mocked
+    // so no HTTP headers are sent in the runner.
     // -----------------------------------------------------------------------
 
     /**
-     * dologin() redirects to the application root on successful authentication.
+     * login() redirects to the application root on successful authentication.
      *
-     * Creates a real user in the test database, submits valid credentials via
-     * \$_POST, and confirms the controller calls redirect() with the site root URL.
-     * redirect() is mocked to avoid HTTP headers being sent in the test runner.
-     * This covers the true-branch of the auth check in dologin().
+     * Creates a real user, submits valid credentials via \$_POST, and confirms
+     * the controller calls redirect() with the site root URL (the true branch of
+     * presentResult()).
      */
-    public function testDologinRedirectsToHomeOnSuccessfulLogin(): void
+    public function testLoginRedirectsToHomeOnSuccessfulLogin(): void
     {
-        // Arrange — create a disposable test user with a known password
+        // Arrange — a disposable test user with a known password
         \$user            = new \\Pramnos\\User\\User();
-        \$user->username  = 'testuser_dologin_ok';
-        \$user->email     = 'dologin_ok@example.com';
+        \$user->username  = 'testuser_login_ok';
+        \$user->email     = 'login_ok@example.com';
         \$user->usertype  = 50;
         \$user->validated = 1;
         \$user->save();
@@ -2649,12 +2655,15 @@ class AuthFlowTest extends BaseTestCase
         \$user->setPassword('correctpass');
         \$user->save();
 
-        \$_POST = ['username' => 'testuser_dologin_ok', 'password' => 'correctpass'];
+        unset(\$_SESSION['user'], \$_SESSION['logged']);
+        \$_SERVER['REQUEST_METHOD'] = 'POST';
+        \$_POST = ['username' => 'testuser_login_ok', 'password' => 'correctpass'];
 
         \$login = \$this->getMockBuilder(Login::class)
             ->setConstructorArgs([null])
-            ->onlyMethods(['redirect'])
+            ->onlyMethods(['redirect', 'checkCsrf'])
             ->getMock();
+        \$login->method('checkCsrf')->willReturn(true);
 
         // Assert — on success the controller sends the user to the site root (sURL)
         \$login->expects(\$this->once())
@@ -2662,7 +2671,7 @@ class AuthFlowTest extends BaseTestCase
             ->with(\$this->stringContains(sURL));
 
         // Act
-        \$login->dologin();
+        \$login->login();
 
         // Cleanup
         \$db = \\Pramnos\\Database\\Database::getInstance();
@@ -2670,18 +2679,15 @@ class AuthFlowTest extends BaseTestCase
     }
 
     /**
-     * dologin() redirects back to /login and sets a session error when
-     * credentials are rejected by Auth::auth().
-     *
-     * This covers the else-branch in dologin() — wrong password, locked account,
-     * or any other failure the Auth layer reports via lastResponse.
+     * login() re-renders the sign-in form and does NOT authenticate when the
+     * password is wrong (the invalid-credentials branch of presentResult()).
      */
-    public function testDologinRedirectsOnInvalidCredentials(): void
+    public function testLoginRejectsInvalidCredentials(): void
     {
-        // Arrange — create a real user but submit the wrong password
+        // Arrange — a real user, but submit the wrong password
         \$user            = new \\Pramnos\\User\\User();
-        \$user->username  = 'testuser_dologin_fail';
-        \$user->email     = 'dologin_fail@example.com';
+        \$user->username  = 'testuser_login_fail';
+        \$user->email     = 'login_fail@example.com';
         \$user->usertype  = 50;
         \$user->validated = 1;
         \$user->save();
@@ -2689,24 +2695,26 @@ class AuthFlowTest extends BaseTestCase
         \$user->setPassword('rightpassword');
         \$user->save();
 
-        \$_POST = ['username' => 'testuser_dologin_fail', 'password' => 'wrongpassword'];
+        unset(\$_SESSION['user'], \$_SESSION['logged']);
+        \$_SERVER['REQUEST_METHOD'] = 'POST';
+        \$_POST = ['username' => 'testuser_login_fail', 'password' => 'wrongpassword'];
 
         \$login = \$this->getMockBuilder(Login::class)
             ->setConstructorArgs([null])
-            ->onlyMethods(['redirect'])
+            ->onlyMethods(['redirect', 'checkCsrf'])
             ->getMock();
+        \$login->method('checkCsrf')->willReturn(true);
 
-        // Assert — failure must redirect back to the login page
-        \$login->expects(\$this->once())
-            ->method('redirect')
-            ->with(\$this->stringContains('login'));
+        // Assert — a rejected login never redirects
+        \$login->expects(\$this->never())->method('redirect');
 
-        // Act
-        \$login->dologin();
+        // Act — login() returns the re-rendered form on failure
+        \$result = \$login->login();
 
-        // Assert — error message is stored in the session for the view to display
-        \$this->assertNotEmpty(\$_SESSION['login_error'] ?? null,
-            '\$_SESSION[login_error] must be set when credentials are rejected by Auth');
+        // Assert — the form is returned and no logged-in session was established
+        \$this->assertIsString(\$result, 'a rejected login must re-render the login form');
+        \$this->assertEmpty(\$_SESSION['logged'] ?? null,
+            'invalid credentials must not establish a logged-in session');
 
         // Cleanup
         \$db = \\Pramnos\\Database\\Database::getInstance();

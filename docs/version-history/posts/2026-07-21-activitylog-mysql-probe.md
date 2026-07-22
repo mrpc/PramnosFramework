@@ -275,3 +275,18 @@ schema-aware tests from new stubs (`crud-model-test.stub`,
   (`show`/`data`) and auth (`edit`/`save`/`delete`) actions, GETs the list route
   and checks it renders, and asserts the `data()` endpoint returns a JSON row
   container.
+
+---
+
+## Scaffolded auth tests fixed for the current login API + PHP 8.5
+
+The tests `create:init` writes for a new project failed on a fresh scaffold:
+
+- **`AuthFlowTest`** called `Login::dologin()`, a method that no longer exists —
+  the login submit is handled by `Account::login()` (CSRF-protected, POST-driven,
+  `presentResult()` on the flow result). The two controller-level tests are
+  rewritten against the current API: they set `$_SERVER['REQUEST_METHOD']='POST'`,
+  mock the `checkCsrf()` seam, and assert success → redirect to the site root and
+  wrong-password → the form re-renders without establishing a session.
+- **`LoginControllerTest`** called `ReflectionProperty::setAccessible(true)`,
+  deprecated in PHP 8.5 (a no-op since 8.1) — removed.
