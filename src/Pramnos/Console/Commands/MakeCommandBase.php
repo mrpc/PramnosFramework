@@ -2264,6 +2264,7 @@ $routerContent = $this->renderStub('api-routes', [
         $viewName   = strtolower($name);
         $primaryKey = $this->getSingularPrimaryKey($tableName);
         $ui         = $this->detectUiSetup();
+        $useSelect2 = !empty($ui['select2']);
         // The generated list view uses the framework's server-side DataTable
         // (see display()/data() in the stub): the shell is rendered server-side
         // and rows are streamed over AJAX from the data() action via
@@ -2275,6 +2276,7 @@ $routerContent = $this->renderStub('api-routes', [
         // ── Build $saveContent + DataTable columns/fields from wizard columns ──
         $saveContent        = '';
         $loadForeignContent = '';
+        $fkMapEntries       = [];
         $fkByColumn         = [];
         foreach ($foreignKeys as $fk) {
             $fkByColumn[$fk['column']] = $fk;
@@ -2316,15 +2318,67 @@ $routerContent = $this->renderStub('api-routes', [
                 $fk = $fkByColumn[$colName];
                 $refTable      = $fk['on'];
                 $isUserFk      = ($refTable === 'users' || $refTable === '#PREFIX#users');
+
+                // fkMap entry (column → [related model class, related pk]) feeds
+                // the controller's fkOptions() AJAX action, which reuses the
+                // related model's _getApiList() to serve Select2 remote options.
                 if ($isUserFk) {
-                    $loadForeignContent .= "        \$view->userList = \\Pramnos\\User\\User::getUsers();\n";
+                    $fkClass = '\\Pramnos\\User\\User';
+                    $fkPk    = 'userid';
                 } else {
                     $foreignModel = self::getProperClassName($refTable, true);
-                    $varName      = lcfirst($foreignModel) . 'List';
-                    $loadForeignContent .= "        \${$varName} = new \\{$modelNameSpace}\\{$foreignModel}(\$this);\n";
-                    $loadForeignContent .= "        \$view->{$varName} = \${$varName}->getList();\n";
+                    $fkClass      = '\\' . $modelNameSpace . '\\' . $foreignModel;
+                    $fkPk         = $fk['references'] ?? 'id';
+                }
+                $fkMapEntries[$colName] = [$fkClass, $fkPk];
+
+                if ($useSelect2) {
+                    // Select2 loads options over AJAX from fkOptions(); the edit
+                    // form only needs the currently-selected option's display text
+                    // (the full list is NOT loaded — it would bloat/break for a FK
+                    // to a table with thousands of rows).
+                    if ($isUserFk) {
+                        $loadForeignContent .= "        if (\$model->{$colName}) {\n";
+                        $loadForeignContent .= "            \${$colName}Selected = new \\Pramnos\\User\\User(\$model->{$colName});\n";
+                        $loadForeignContent .= "            \$view->{$colName}SelectedText = \${$colName}Selected->username ?? \$model->{$colName};\n";
+                        $loadForeignContent .= "        }\n";
+                    } else {
+                        $foreignModel = self::getProperClassName($refTable, true);
+                        $loadForeignContent .= "        if (\$model->{$colName}) {\n";
+                        $loadForeignContent .= "            \${$colName}Selected = new \\{$modelNameSpace}\\{$foreignModel}(\$this);\n";
+                        $loadForeignContent .= "            \${$colName}Selected->load(\$model->{$colName});\n";
+                        $loadForeignContent .= "            \$view->{$colName}SelectedText = \${$colName}Selected->name ?? \${$colName}Selected->title ?? \${$colName}Selected->label ?? \$model->{$colName};\n";
+                        $loadForeignContent .= "        }\n";
+                    }
+                } else {
+                    // Small-table fallback: eagerly load the full option list for
+                    // the native <select>.
+                    if ($isUserFk) {
+                        $loadForeignContent .= "        \$view->userList = \\Pramnos\\User\\User::getUsers();\n";
+                    } else {
+                        $foreignModel = self::getProperClassName($refTable, true);
+                        $varName      = lcfirst($foreignModel) . 'List';
+                        $loadForeignContent .= "        \${$varName} = new \\{$modelNameSpace}\\{$foreignModel}(\$this);\n";
+                        $loadForeignContent .= "        \$view->{$varName} = \${$varName}->getList();\n";
+                    }
                 }
             }
+        }
+
+        // ── Build the fkOptions() action + $fkMap literal ─────────────────────
+        // Only emitted when the entity actually has foreign keys, so the plain
+        // no-FK controller keeps its lean `['show', 'data']` action set.
+        $publicActions   = "['show', 'data']";
+        $fkOptionsMethod  = '';
+        if ($fkMapEntries !== []) {
+            $publicActions = "['show', 'data', 'fkOptions']";
+            $literalLines  = [];
+            foreach ($fkMapEntries as $col => [$fkClass, $fkPk]) {
+                $literalLines[] = "            '" . $col . "' => ['"
+                    . addslashes($fkClass) . "', '" . addslashes($fkPk) . "'],";
+            }
+            $fkMapLiteral    = "[\n" . implode("\n", $literalLines) . "\n        ]";
+            $fkOptionsMethod = $this->buildFkOptionsMethod($fkMapLiteral);
         }
 
         if (empty($firstNonPkField)) {
@@ -2358,6 +2412,8 @@ $routerContent = $this->renderStub('api-routes', [
             'primaryKey'         => $primaryKey,
             'loadForeignContent' => $loadForeignContent,
             'saveContent'        => $saveContent,
+            'publicActions'      => $publicActions,
+            'fkOptionsMethod'    => $fkOptionsMethod,
         ]);
 
         if (!is_dir($path)) {
@@ -2386,6 +2442,100 @@ $routerContent = $this->renderStub('api-routes', [
             . "URL: sURL . '{$className}'\n"
             . $viewSummary
             . "\nTest it now: {$testUrl}\n";
+    }
+
+    /**
+     * Build the controller fkOptions() action source injected as the
+     * {{ fkOptionsMethod }} token in crud-controller.stub.
+     *
+     * The action feeds foreign-key <select> fields (Select2 remote): rather than
+     * eagerly rendering every related row into the edit form (which bloats/breaks
+     * for a FK to a table with thousands of rows), the <select> loads its options
+     * over AJAX from here. It looks the requested field up in the generated
+     * $fkMap (field → [related model class, related pk]) and REUSES the related
+     * model's _getApiList() — the same search/paging pipeline the rest of the app
+     * uses — instead of a bespoke query. Rows are mapped to Select2's
+     * {id, text} shape and the envelope's hasnext flag drives infinite scroll.
+     *
+     * @param string $fkMapLiteral PHP array literal for $fkMap (already indented)
+     * @return string PHP source for the fkOptions() method (leading newline)
+     */
+    protected function buildFkOptionsMethod(string $fkMapLiteral): string
+    {
+        return <<<PHP
+
+    /**
+     * AJAX endpoint feeding foreign-key <select> fields (Select2 remote).
+     *
+     * Reuses the related model's _getApiList() so FK dropdowns share the app's
+     * search/paging pipeline instead of eagerly loading every related row.
+     */
+    public function fkOptions(): void
+    {
+        \Pramnos\Framework\Factory::getDocument('json');
+
+        // field => [related model class, related primary key].
+        \$fkMap = {$fkMapLiteral};
+
+        \$request = new \Pramnos\Http\Request();
+        \$field   = (string) \$request->get('field', '', 'get');
+        \$q       = (string) \$request->get('q', '', 'get');
+        \$page    = (int) \$request->get('page', 1, 'get', 'int');
+        if (\$page < 1) {
+            \$page = 1;
+        }
+
+        if (\$field === '' || !isset(\$fkMap[\$field])) {
+            echo json_encode(['results' => []]);
+            \$this->terminate();
+            return;
+        }
+
+        [\$modelClass, \$pk] = \$fkMap[\$field];
+
+        // The framework User (\\Pramnos\\User\\User) is not a Model and has no
+        // _getApiList(); query the users table directly, still searched + paged.
+        if (ltrim(\$modelClass, '\\\\') === \\Pramnos\\User\\User::class) {
+            \$db = \\Pramnos\\Framework\\Factory::getDatabase();
+            \$qb = \$db->queryBuilder()->table('users')->select(['userid', 'username']);
+            if (\$q !== '') {
+                \$qb->where('username', 'LIKE', '%' . \$q . '%');
+            }
+            \$rows = \$qb->limit(20)->offset((\$page - 1) * 20)->get();
+            \$results = [];
+            while (\$rows->fetch()) {
+                \$results[] = [
+                    'id'   => \$rows->fields['userid'],
+                    'text' => (string) (\$rows->fields['username'] ?? \$rows->fields['userid']),
+                ];
+            }
+            echo json_encode([
+                'results'    => \$results,
+                'pagination' => ['more' => count(\$results) >= 20],
+            ]);
+            \$this->terminate();
+            return;
+        }
+
+        \$model = new \$modelClass(\$this);
+        \$res   = \$model->_getApiList([], \$q, '', '', '', '', null, null, \$page, 20, false, false, true);
+
+        \$results = [];
+        foreach ((\$res['data'] ?? []) as \$row) {
+            \$results[] = [
+                'id'   => \$row[\$pk] ?? null,
+                'text' => (string) (\$row['name'] ?? \$row['title'] ?? \$row['label'] ?? \$row['username'] ?? (\$row[\$pk] ?? '')),
+            ];
+        }
+
+        echo json_encode([
+            'results'    => \$results,
+            'pagination' => ['more' => (bool) (\$res['pagination']['hasnext'] ?? false)],
+        ]);
+        \$this->terminate();
+    }
+
+PHP;
     }
 
     /**
@@ -2450,7 +2600,7 @@ $routerContent = $this->renderStub('api-routes', [
         // the framework's admin edit views for the detected theme; it is injected
         // into the edit stub as the {{ formFields }} token.
         $formFields = $this->buildWizardFormFields(
-            $columns, $fkByColumn, $primaryKey, $themeKey, $useSelect2
+            $columns, $fkByColumn, $primaryKey, $themeKey, $useSelect2, $className
         );
 
         // ── Render the three per-theme view stubs ──────────────────────────────
@@ -2503,6 +2653,8 @@ $routerContent = $this->renderStub('api-routes', [
      * @param string $primaryKey  Primary key column name (skipped)
      * @param string $themeKey    'plain' | 'bootstrap' | 'tailwind'
      * @param bool   $useSelect2  Whether Select2 is installed (adds .select2 + init)
+     * @param string $className   Web controller class name (for the Select2 AJAX
+     *                            fkOptions URL); defaults to '' for BC.
      * @return string HTML fragment injected as the {{ formFields }} token
      */
     protected function buildWizardFormFields(
@@ -2510,7 +2662,8 @@ $routerContent = $this->renderStub('api-routes', [
         array  $fkByColumn,
         string $primaryKey,
         string $themeKey,
-        bool   $useSelect2
+        bool   $useSelect2,
+        string $className = ''
     ): string {
         $ind = str_repeat(' ', 16);
 
@@ -2555,30 +2708,43 @@ $routerContent = $this->renderStub('api-routes', [
             $out .= $ind . '<div' . $group . '>' . "\n";
 
             if (isset($fkByColumn[$colName])) {
-                // Foreign key → <select> populated from the controller list var.
+                // Foreign key → <select>.
                 $fk       = $fkByColumn[$colName];
                 $refTable = $fk['on'];
                 $isUserFk = ($refTable === 'users' || $refTable === '#PREFIX#users');
-                $listVar  = $isUserFk
-                    ? 'userList'
-                    : lcfirst(self::getProperClassName($refTable, true)) . 'List';
-                $selAttr = $selectAttr;
                 if ($useSelect2) {
-                    // plain-css controls carry a style attribute (no class), so add
-                    // a fresh class; class-based themes get select2 appended.
+                    // Select2 remote: load options over AJAX from the controller's
+                    // fkOptions() action instead of eagerly rendering every related
+                    // row (which bloats/breaks for large tables). Only the
+                    // currently-selected option is pre-rendered so the existing
+                    // value shows in edit mode; a new/empty record renders just the
+                    // placeholder.
                     $selAttr = ($themeKey === 'plain')
                         ? ' class="select2"' . $selectAttr
                         : (string) preg_replace('/class="([^"]*)"/', 'class="$1 select2"', $selectAttr);
-                }
-                $out .= $ind . '    <label for="' . $colName . '"' . $labelAttr . '>' . $display . '</label>' . "\n";
-                $out .= $ind . '    <select id="' . $colName . '" name="' . $colName . '"' . $selAttr . $required . '>' . "\n";
-                $out .= $ind . '        <option value="">-- Select ' . $display . ' --</option>' . "\n";
-                $out .= $ind . '        <?php if (is_array($this->' . $listVar . ')): foreach ($this->' . $listVar . ' as $opt): ?>' . "\n";
-                $out .= $ind . '        <option value="<?php echo $opt[\'id\']; ?>" <?php echo $this->model->' . $colName . ' == $opt[\'id\'] ? \'selected\' : \'\'; ?>><?php echo htmlspecialchars((string)($opt[\'name\'] ?? $opt[\'id\'])); ?></option>' . "\n";
-                $out .= $ind . '        <?php endforeach; endif; ?>' . "\n";
-                $out .= $ind . '    </select>' . "\n";
-                if ($useSelect2) {
-                    $out .= $ind . '    <script>$(\'#' . $colName . '\').select2();</script>' . "\n";
+                    $out .= $ind . '    <label for="' . $colName . '"' . $labelAttr . '>' . $display . '</label>' . "\n";
+                    $out .= $ind . '    <select id="' . $colName . '" name="' . $colName . '"' . $selAttr . $required . '>' . "\n";
+                    $out .= $ind . '        <option value="">-- Select ' . $display . ' --</option>' . "\n";
+                    $out .= $ind . '        <?php if (!empty($this->model->' . $colName . ')): ?>' . "\n";
+                    $out .= $ind . '        <option value="<?php echo $this->model->' . $colName . '; ?>" selected><?php echo htmlspecialchars((string)($this->' . $colName . 'SelectedText ?? $this->model->' . $colName . ')); ?></option>' . "\n";
+                    $out .= $ind . '        <?php endif; ?>' . "\n";
+                    $out .= $ind . '    </select>' . "\n";
+                    $out .= $ind . '    <script>' . "\n";
+                    $out .= $ind . '    $(\'#' . $colName . '\').select2({ ajax: { url: \'<?php echo sURL; ?>' . $className . '/fkOptions?field=' . $colName . '\', dataType: \'json\', delay: 250, data: function(params){ return { q: params.term, page: params.page || 1 }; }, processResults: function(data){ return { results: data.results, pagination: data.pagination }; } }, minimumInputLength: 0, width: \'100%\' });' . "\n";
+                    $out .= $ind . '    </script>' . "\n";
+                } else {
+                    // Small-table fallback: native <select> eagerly populated from
+                    // the controller-provided list variable.
+                    $listVar = $isUserFk
+                        ? 'userList'
+                        : lcfirst(self::getProperClassName($refTable, true)) . 'List';
+                    $out .= $ind . '    <label for="' . $colName . '"' . $labelAttr . '>' . $display . '</label>' . "\n";
+                    $out .= $ind . '    <select id="' . $colName . '" name="' . $colName . '"' . $selectAttr . $required . '>' . "\n";
+                    $out .= $ind . '        <option value="">-- Select ' . $display . ' --</option>' . "\n";
+                    $out .= $ind . '        <?php if (is_array($this->' . $listVar . ')): foreach ($this->' . $listVar . ' as $opt): ?>' . "\n";
+                    $out .= $ind . '        <option value="<?php echo $opt[\'id\']; ?>" <?php echo $this->model->' . $colName . ' == $opt[\'id\'] ? \'selected\' : \'\'; ?>><?php echo htmlspecialchars((string)($opt[\'name\'] ?? $opt[\'id\'])); ?></option>' . "\n";
+                    $out .= $ind . '        <?php endforeach; endif; ?>' . "\n";
+                    $out .= $ind . '    </select>' . "\n";
                 }
             } elseif ($colType === 'boolean') {
                 // Checkbox — form-check group on Bootstrap, inline label elsewhere.

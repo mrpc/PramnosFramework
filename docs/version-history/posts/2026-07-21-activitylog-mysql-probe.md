@@ -316,3 +316,24 @@ own configuration — `Factory::getDocument()->isScriptRegistered('select2')`,
 i.e. whether `App\Application::registerVendorLibraries()` registered Select2 —
 which is the authoritative signal for whether the app actually opted into it
 (Select2 is not a framework default).
+
+---
+
+## Generated CRUD foreign keys load options via AJAX (Select2 remote)
+
+FK `<select>` fields in generated CRUD used to eagerly render an `<option>` for
+every related row — a FK to a table with thousands of rows bloated (or broke)
+the edit page. When Select2 is enabled, FK fields now load options on demand:
+
+- The generated controller exposes an `fkOptions(?field=&q=&page=)` action that
+  reuses the related model's `_getApiList()` (search + pagination) and returns the
+  Select2 JSON envelope `{results:[{id,text}], pagination:{more}}`. A generated
+  `$fkMap` maps each FK column to its related model + primary key. Framework-User
+  FKs (which have no `_getApiList()`) fall back to a direct, still-paged/searched
+  query on the users table.
+- The edit form configures Select2 with an `ajax:` remote pointing at that action
+  and pre-renders only the currently-selected option (so edit shows the existing
+  value without loading the whole table). The eager full-list load is dropped for
+  Select2-backed FKs.
+- Without Select2, FK fields keep the native eager `<select>` (fine for small
+  reference tables).

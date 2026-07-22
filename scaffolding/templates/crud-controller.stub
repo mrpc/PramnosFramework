@@ -18,7 +18,7 @@ class {{ className }} extends \Pramnos\Application\Controller
         // DataTable in particular would otherwise return the HTML list page.
         // Public reads (list/detail/JSON data) vs. login-gated writes (the
         // create/edit form and the save/delete actions).
-        $this->addaction(['show', 'data']);
+        $this->addaction({{ publicActions }});
         $this->addAuthAction(['edit', 'save', 'delete']);
         parent::__construct($application);
     }
@@ -148,7 +148,7 @@ class {{ className }} extends \Pramnos\Application\Controller
         echo json_encode($result);
         $this->terminate();
     }
-
+{{ fkOptionsMethod }}
     /**
      * Terminate the request. Isolated so it can be overridden/mocked in tests.
      */
