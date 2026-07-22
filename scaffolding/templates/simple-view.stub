@@ -1,0 +1,16 @@
+<?php
+/**
+ * {{ objectName }} View — auto-generated placeholder.
+ *
+ * This is a bare, non-CRUD view: a starting point you fill in with your own
+ * markup. For a full list/edit/show CRUD view set generated from a database
+ * table, use `create:view <name> --full` (or the CRUD/migration wizard).
+ *
+ * Auto generated at: {{ date }}
+ */
+defined('SP') or die('No startpoint defined...');
+?>
+<div class="page-section">
+    <h2>{{ objectName }}</h2>
+    <p>This is a placeholder view. Replace this markup with your own content.</p>
+</div>

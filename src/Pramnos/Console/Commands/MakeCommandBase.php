@@ -1590,421 +1590,62 @@ abstract class MakeCommandBase extends Command
             mkdir($viewPath, 0755, true);
         }
 
-        $files = array();
-
-        $indexContent = 'Hello World';
-        $editContent = '';
-        $className = self::getProperClassName($name, false);
-        $filename = $path . DS . $className . '.php';
-        $objectName = ucfirst($name);
-        $primaryKey = 'id';
-
         if ($full) {
-            $database = \Pramnos\Database\Database::getInstance();
-            $objectName = ucfirst($name);
+            // ── Full CRUD views: unified onto the SAME admin-style per-theme
+            // generator the wizard/CRUD path uses (mirrors how createController()
+            // and createModel() were unified). Resolve the backing table,
+            // introspect it into wizard-shaped column/FK arrays and DELEGATE to
+            // createViewsFromWizard(), which renders the list/edit/show views from
+            // scaffolding/templates/crud-view-*.stub for the detected theme. The
+            // old per-column inline heredoc view generator has been retired.
+            $database  = \Pramnos\Database\Database::getInstance();
+            $className = self::getProperClassName($name, false);
 
-            // Look up the model in the registry first
-            $modelInfo = $this->lookupModel($name, true);
-            
-            // Get the model class from the lookup
-            $modelClass = $modelInfo['className'];
-            
-            // Determine table name - either from specified option or from model name
+            // Determine table name — either from the specified option or by
+            // convention from the entity name.
             if ($this->dbtable != null) {
                 $tableName = $this->dbtable;
             } else {
                 $tableName = self::getModelTableName($name);
             }
 
+            // The table must already exist — a full CRUD view is generated from a
+            // real schema. Fail loudly (identical to the controller/model
+            // generators) rather than emitting a schema-less view.
             if (!$database->tableExists($tableName)) {
                 throw new \Exception(
-                    'Table: ' . $tableName . ' does not exist.'
+                    "Table '{$tableName}' not found for {$className}. "
+                    . "Create it first with `create:migration`."
                 );
             }
-            $result = $database->getColumns($tableName, $this->schema);
 
+            // Normalise the live table into the SAME wizard column/FK shape the
+            // migration-wizard path produces, then delegate to the shared view
+            // generator so there is a single admin-style view code path.
+            [$columns, $foreignKeys] = $this->introspectTableAsWizardColumns($tableName);
+            $ui         = $this->detectUiSetup();
+            $primaryKey = $this->getSingularPrimaryKey($tableName);
 
-            $formContent = '';
-
-            $allFields = array();
-            $primaryKey = '';
-            $count = 0;
-            
-            // First pass to collect field information
-            while ($result->fetch()) {
-                $count++;
-                $primary = false;
-
-                if ($database->type == 'postgresql') {
-                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
-                        $primaryKey = $result->fields['Field'];
-                        $primary = true;
-                    }
-                } elseif (isset($result->fields['Key'])
-                    && $result->fields['Key'] == 'PRI') {
-                        $primaryKey = $result->fields['Field'];
-                        $primary = true;
-                }
-                
-                // Store all field names and their display names
-                if ($result->fields['Comment'] != '') {
-                    $fieldDisplayName = $result->fields['Comment'];
-                } else {
-                    $fieldDisplayName = ucfirst(str_replace('_', ' ', $result->fields['Field']));
-                }
-                
-                $allFields[] = array(
-                    'name' => $result->fields['Field'],
-                    'display' => $fieldDisplayName,
-                    'isPrimary' => $primary
-                );
-            }
-            
-            // Reset result cursor for form generation
-            $result = $database->getColumns($tableName, $this->schema);
-            
-            while ($result->fetch()) {
-                $primary = false;
-
-                if ($database->type == 'postgresql') {
-                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
-                        $primaryKey = $result->fields['Field'];
-                        $primary = true;
-                    }
-                } elseif (isset($result->fields['Key'])
-                    && $result->fields['Key'] == 'PRI') {
-                        $primaryKey = $result->fields['Field'];
-                        $primary = true;
-                }
-                
-                if ($result->fields['Comment'] != '') {
-                        $fieldName = $result->fields['Comment'];
-                } else {
-                        $fieldName = ucfirst($result->fields['Field']);
-                }
-                $field = $result->fields['Field'];
-
-                $basicType = explode('(', $result->fields['Type']);
-                if (!$primary) {
-                    // Check if this field is a foreign key
-                    $isForeignKey = false;
-                    if ($database->type == 'postgresql') {
-                        $isForeignKey = $result->fields['ForeignKey'] == 't' || $result->fields['ForeignKey'] === true;
-                    } else {
-                        $isForeignKey = !empty($result->fields['ForeignKey']);
-                    }
-
-                    if ($isForeignKey && !empty($result->fields['ForeignTable'])) {
-                        // This is a foreign key field
-                        $foreignTable = $result->fields['ForeignTable'];
-                        $foreignSchema = $result->fields['ForeignSchema'];
-                        $foreignColumn = $result->fields['ForeignColumn'];
-                        
-                        // Special handling for user foreign keys
-                        $isUserForeignKey = ($foreignColumn == 'userid' && ($foreignTable == 'users' || $foreignTable == '#PREFIX#users'));
-                        
-                        if ($isUserForeignKey) {
-                            // Use userList variable for user foreign keys
-                            $foreignListVar = 'userList';
-                        } else {
-                            // Get potential model name from foreign table for variable access
-                            $foreignModelName = self::getProperClassName($foreignTable, true);
-                            $foreignListVar = lcfirst($foreignModelName) . 'List';
-                        }
-                        if ($isUserForeignKey) {
-                            $formContent .= <<<content
-            <div class="form-group">
-                <label for="{$field}">{$fieldName}:</label>
-                <?php if (is_array(\$this->{$foreignListVar}) && count(\$this->{$foreignListVar}) > 0): ?>
-                <!-- Foreign key field with available options from {$foreignTable} -->
-                <select id="{$field}" name="{$field}" class="form-control">
-                    <option value="">Select {$fieldName}</option>
-                    <?php foreach (\$this->{$foreignListVar} as \$item): ?>
-                        <?php 
-                        // Find suitable display field (first non-numeric field)
-                        \$selected = \$this->model->{$field} == \$item->{$foreignColumn} ? 'selected' : '';
-                        ?>
-                        <option value="<?php echo \$item->{$foreignColumn}; ?>" <?php echo \$selected; ?>>
-                            <?php echo htmlspecialchars(\$item->username); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-                <?php else: ?>
-                <!-- No foreign key data available, fallback to number input -->
-                <input type="number" value="<?php echo \$this->model->{$field}; ?>" step="1" id="{$field}" name="{$field}" class="form-control">
-                <small class="form-text text-muted">Foreign key to {$foreignTable} table</small>
-                <?php endif; ?>
-            </div>
-
-content;
-                        } else {
-                            $formContent .= <<<content
-            <div class="form-group">
-                <label for="{$field}">{$fieldName}:</label>
-                <?php if (is_array(\$this->{$foreignListVar}) && count(\$this->{$foreignListVar}) > 0): ?>
-                <!-- Foreign key field with available options from {$foreignTable} -->
-                <select id="{$field}" name="{$field}" class="form-control">
-                    <option value="">Select {$fieldName}</option>
-                    <?php foreach (\$this->{$foreignListVar} as \$item): ?>
-                        <?php 
-                        // Find suitable display field (first non-numeric field)
-                        \$displayField = null;
-                        \$itemData = \$item->getData();
-                        foreach (\$itemData as \$key => \$value) {
-                            // Skip the ID field for display purposes
-                            if (\$key != '{$foreignColumn}' && !is_numeric(\$value)) {
-                                \$displayField = \$key;
-                                break;
-                            }
-                        }
-                        // If no suitable display field found, use the foreign key
-                        \$displayField = \$displayField ?: '{$foreignColumn}';
-                        \$selected = \$this->model->{$field} == \$item->{$foreignColumn} ? 'selected' : '';
-                        ?>
-                        <option value="<?php echo \$item->{$foreignColumn}; ?>" <?php echo \$selected; ?>>
-                            <?php echo htmlspecialchars(\$item->{\$displayField}); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-                <?php else: ?>
-                <!-- No foreign key data available, fallback to number input -->
-                <input type="number" value="<?php echo \$this->model->{$field}; ?>" step="1" id="{$field}" name="{$field}" class="form-control">
-                <small class="form-text text-muted">Foreign key to {$foreignTable} table</small>
-                <?php endif; ?>
-            </div>
-
-content;
-                        }
-
-                    } else {
-                        switch ($basicType[0]) {
-                            case "tinyint":
-                            case "smallint":
-                            case "integer":
-                            case "int":
-                            case "mediumint":
-                            case "bigint":
-$formContent .= <<<content
-            <div class="form-group">
-                <label for="{$field}">{$fieldName}:</label>
-                <input type="number" value="<?php echo \$this->model->{$field}; ?>" step="1" id="{$field}" name="{$field}" class="form-control">
-            </div>
-
-content;
-                                break;
-
-                            case "float":
-                            case "double":
-$formContent .= <<<content
-            <div class="form-group">
-                <label for="{$field}">{$fieldName}:</label>
-                <input type="number" step="0.0001" value="<?php echo \$this->model->{$field}; ?>" id="{$field}" name="{$field}" class="form-control">
-            </div>
-
-content;
-                                break;
-
-                            case "bool":
-                            case "boolean":
-$formContent .= <<<content
-            <div class="form-group">
-            <label for="{$field}">{$fieldName}:</label>
-                <select id="{$field}" name="{$field}" class="form-control">
-                    <option <?php if (\$this->model->{$field} == 0): echo 'selected'; endif;?> value="0"><?php l('No');?></option>
-                    <option <?php if (\$this->model->{$field} == 1): echo 'selected'; endif;?> value="1"><?php l('Yes');?></option>
-                </select>
-            </div>
-
-content;
-                                break;
-
-                            case "timestamp":
-                            case "timestamptz":
-                            case "timestamp with time zone":
-                            case "timestamp without time zone":
-                            case "datetime":
-                            case "date":
-$formContent .= <<<content
-            <div class="form-group">
-                <label for="{$field}">{$fieldName}:</label>
-                <input type="datetime-local" value="<?php echo \$this->model->{$field} ? date('Y-m-d\\TH:i', strtotime(\$this->model->{$field})) : ''; ?>" id="{$field}" name="{$field}" class="form-control">
-            </div>
-
-content;
-                                break;
-
-                            case "text":
-$formContent .= <<<content
-            <div class="form-group">
-                <label for="{$field}">{$fieldName}:</label>
-                <textarea id="{$field}" name="{$field}" class="form-control"><?php echo \$this->model->{$field}; ?></textarea>
-            </div>
-
-content;
-                                break;
-
-                            default:
-$formContent .= <<<content
-            <div class="form-group">
-                <label for="{$field}">{$fieldName}:</label>
-                <input type="text" value="<?php echo \$this->model->{$field}; ?>" id="{$field}" name="{$field}" class="form-control">
-            </div>
-
-content;
-                                break;
-                        }
-                    }
-                }
-                $formContent .= "\n";
-            }
-
-            $editContent = <<<content
-<div class="card">
-    <div class="card-body">
-        <form action="[sURL]{$className}/save/<?php echo \$this->model->{$primaryKey}; ?>" method="post" role="form">
-
-{$formContent}
-
-            <div class="form-group">
-                <button type="submit" class="btn btn-primary"><?php l('Save'); ?></button>
-            </div>
-        </form>
-
-    </div>
-</div>
-content;
-
-            // Generate datatable columns for all fields
-            $datatableColumns = "";
-            foreach ($allFields as $field) {
-                $displayName = $field['display'];
-                $datatableColumns .= "\$datatable->addColumn('{$displayName}', true, true, true, '', '', true, 'left', true);\n";
-            }
-
-            $indexContent = <<<content
-<div class="card">
-    <div class="card-header">
-        <h1 class="page-head-line">
-            {$objectName} list
-        </h1>
-    </div>
-    <div class="card-body">
-        <div class="row">
-            <div class="col-md-12">
-                <a href="<?php echo sURL; ?>{$className}/edit/0"><button type="button" class="btn btn-primary"><i class="fa fa-plus"></i> <?php l('New'); ?></button></a>
-            </div>
-            <br /><br />
-        </div>
-<?php
-\$datatable = new \Pramnos\Html\Datatable('{$name}', URL . '{$className}/get{$className}');
-
-{$datatableColumns}
-\$datatable->addColumn('Ενέργeιες');
-
-\$datatable->jui = false;
-\$datatable->bootstrap = true;
-echo \$datatable->render();
-?>
-    </div>
-</div>
-content;
-        }
-
-
-        $files[] = array (
-            'reason' => 'Index File',
-            'file' => $viewPath . DS . strtolower($name) . '.html.php',
-            'content' => $indexContent
-        );
-        $files[] = array (
-            'reason' => 'Edit Resource',
-            'file' => $viewPath . DS . 'edit.html.php',
-            'content' => $editContent
-        );
-        $files[] = array (
-            'reason' => 'Show Resource',
-            'file' => $viewPath . DS . 'show.html.php',
-            'content' => <<<content
-<div class="card">
-    <div class="card-header">
-        <h1 class="page-head-line">
-            View {$objectName}
-        </h1>
-    </div>
-    <div class="card-body">
-        <div class="row mb-3">
-            <div class="col-md-12">
-                <div class="btn-group">
-                    <a href="[sURL]{$className}" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back to List</a>
-                    <a href="[sURL]{$className}/edit/<?php echo \$this->model->{$primaryKey}; ?>" class="btn btn-primary"><i class="fa fa-edit"></i> Edit</a>
-                    <a data-confirm="<?php l('Are you sure?');?>" href="[sURL]{$className}/delete/<?php echo \$this->model->{$primaryKey}; ?>" class="btn btn-danger"><i class="fa fa-trash"></i> Delete</a>
-                </div>
-            </div>
-        </div>
-
-        <div class="table-responsive">
-            <table class="table table-bordered table-striped">
-                <tbody>
-                    <?php
-                    \$data = \$this->model->getData();
-                    foreach (\$data as \$field => \$value):
-                        // Convert field name to readable format
-                        \$displayName = ucwords(str_replace('_', ' ', \$field));
-                    ?>
-                        <tr>
-                            <th style="width: 30%"><?php echo \$displayName; ?></th>
-                            <td>
-                                <?php 
-                                if (is_bool(\$value)) {
-                                    echo \$value ? 'Yes' : 'No';
-                                } elseif (\$value === null) {
-                                    echo '<span class="text-muted">N/A</span>';
-                                } elseif (is_array(\$value) || is_object(\$value)) {
-                                    echo '<pre>' . htmlspecialchars(json_encode(\$value, JSON_PRETTY_PRINT)) . '</pre>';
-                                } else {
-                                    echo htmlspecialchars(\$value);
-                                }
-                                ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-content
-        );
-        $actualName = ucfirst($name);
-        $date = date('d/m/Y H:i');
-        $fileContent = <<<content
-<?php
-
-/**
- * {$actualName} View
- * REASON
- * Auto generated at: {$date}
- */
-
-defined('SP') or die('No startpoint defined...');
-content;
-        $fileContent .= "\n?"
-            . ">\nCONTENT";
-        $return = "Files: \n";
-        foreach ($files as $file) {
-            $return .= ' - ' . $file['file'] . "\n";
-            file_put_contents(
-                $file['file'],
-                str_replace(
-                    array('REASON', 'CONTENT', '[sURL]'),
-                    array($file['reason'], $file['content'], '<?php echo sURL;?>'),
-                    $fileContent
-                )
+            return $this->createViewsFromWizard(
+                $name, $columns, $foreignKeys, $primaryKey, $ui
             );
         }
 
-        return $return . "\nView created.";
+        // ── Simple (non-CRUD) view: a single themed placeholder file ──────────
+        // De-heredoc'd into scaffolding/templates/simple-view.stub. It does NOT
+        // require a table and is not a CRUD view — just a bare starting point.
+        $actualName = ucfirst($name);
+        $date       = date('d/m/Y H:i');
+        $viewFile   = $viewPath . DS . strtolower($name) . '.html.php';
 
+        $content = $this->renderStub('simple-view', [
+            'objectName' => $actualName,
+            'date'       => $date,
+        ]);
+
+        file_put_contents($viewFile, $content);
+
+        return "Files: \n - {$viewFile}\n\nView created.";
     }
 
     /**

@@ -99,7 +99,9 @@ class MakeCommandGeneratorsTest extends TestCase
         $this->removeDirRecursive(ROOT . '/src/Views/testbasicview');
         $this->removeDirRecursive(ROOT . '/src/Views/testentity');
         $this->removeDirRecursive(ROOT . '/src/Views/testcrudentity');
-        
+        $this->removeDirRecursive(ROOT . '/src/Views/testfullview');
+        $this->removeDirRecursive(ROOT . '/src/Views/notableview');
+
         // Prevent mkdir warning
         if (!is_dir(ROOT . '/src/Api')) {
             mkdir(ROOT . '/src/Api');
@@ -166,6 +168,8 @@ class MakeCommandGeneratorsTest extends TestCase
         $this->removeDirRecursive(ROOT . '/src/Views/testbasicview');
         $this->removeDirRecursive(ROOT . '/src/Views/testentity');
         $this->removeDirRecursive(ROOT . '/src/Views/testcrudentity');
+        $this->removeDirRecursive(ROOT . '/src/Views/testfullview');
+        $this->removeDirRecursive(ROOT . '/src/Views/notableview');
 
         // Clean up empty generated parent directories
         $emptyDirs = [
@@ -1021,18 +1025,151 @@ class MakeCommandGeneratorsTest extends TestCase
         $this->assertEquals('\Pramnos\Models\User', $result['fullClassName']);
     }
 
+    /**
+     * The simple (non --full) view path now emits a SINGLE bare placeholder
+     * view file, rendered from scaffolding/templates/simple-view.stub rather
+     * than the retired inline heredoc. It must NOT require a table and must NOT
+     * be a CRUD view: no edit.html.php / show.html.php, no admin datatable
+     * markup — just a themed placeholder the developer fills in.
+     */
     public function testCreateViewBasic(): void
     {
+        // Act — simple view, no table involved.
         $this->command->exposeCreateView('TestBasicView', false);
         $viewDir = ROOT . '/src/Views/testbasicview';
         $indexFile = $viewDir . '/testbasicview.html.php';
-        
+
+        // Assert — exactly one placeholder file is generated (no CRUD siblings).
         $this->assertFileExists($indexFile);
-        
+        $this->assertFileDoesNotExist($viewDir . '/edit.html.php',
+            'the simple view path must not scaffold a CRUD edit view');
+        $this->assertFileDoesNotExist($viewDir . '/show.html.php',
+            'the simple view path must not scaffold a CRUD show view');
+
+        // Assert — it is the bare placeholder from simple-view.stub, not the
+        // old admin CRUD list (no server-side datatable render call).
+        $content = (string) file_get_contents($indexFile);
+        $this->assertStringContainsString('placeholder view', $content,
+            'simple view must be the bare placeholder rendered from simple-view.stub');
+        $this->assertStringNotContainsString('$this->datatable->render()', $content,
+            'the simple view must not carry the admin CRUD datatable markup');
+
+        // Assert — valid PHP.
+        $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($indexFile) . ' 2>&1');
+        $this->assertMatchesRegularExpression('/No syntax errors/', (string) $lint);
+
         unlink($indexFile);
-        unlink($viewDir . '/edit.html.php');
-        unlink($viewDir . '/show.html.php');
         rmdir($viewDir);
+    }
+
+    /**
+     * `create:view <name> --full` is now unified onto the SAME admin-style
+     * per-theme CRUD view generator used by the wizard/CRUD path (mirroring the
+     * already-unified createController()/createModel()). Given a live table
+     * (the setUp() $dbMock returns a column set + tableExists()=true), the full
+     * path introspects the table, builds wizard-shaped columns/FKs and delegates
+     * to createViewsFromWizard(), which renders crud-view-*.stub per theme.
+     *
+     * The TestApp\Application declares no scaffold_theme, so detectUiSetup()
+     * resolves to the default plain-css stub set. We assert the three admin-style
+     * files exist and carry the unified markup — the list view's server-side
+     * `$this->datatable->render()`, the plain-css `.page-section` theme wrapper
+     * and the generic renderBreadcrumbs() call, a real edit <form> posting to
+     * save(), and the show view's getData() field table — and that none of the
+     * retired inline-heredoc markup survives.
+     */
+    public function testCreateViewFullUsesAdminStyleWizardViews(): void
+    {
+        // Arrange — full view generation from the mocked live table.
+        $viewDir  = ROOT . '/src/Views/testfullview';
+        $listFile = $viewDir . '/testfullview.html.php';
+        $editFile = $viewDir . '/edit.html.php';
+        $showFile = $viewDir . '/show.html.php';
+
+        try {
+            // Act — --full path (no wizard columns) → DB introspection + delegate.
+            $output = $this->command->exposeCreateView('TestFullView', true);
+
+            // Assert — the admin-style list/edit/show trio was generated.
+            $this->assertStringContainsString('Views:', $output,
+                'full view must return the createViewsFromWizard() summary shape');
+            $this->assertFileExists($listFile, 'full path must generate the list view');
+            $this->assertFileExists($editFile, 'full path must generate the edit view');
+            $this->assertFileExists($showFile, 'full path must generate the show view');
+
+            $list = (string) file_get_contents($listFile);
+            $edit = (string) file_get_contents($editFile);
+            $show = (string) file_get_contents($showFile);
+
+            // Assert — LIST: server-side DataTable + plain-css theme wrapper +
+            // generic app breadcrumb (the admin-style markup), not the retired
+            // heredoc's inline `new \Pramnos\Html\Datatable(...)` in the view.
+            $this->assertStringContainsString('$this->datatable->render()', $list,
+                'list view must render the controller-provided server-side DataTable');
+            $this->assertStringContainsString('class="page-section"', $list,
+                'list view must use the admin plain-css theme wrapper');
+            $this->assertStringContainsString('renderBreadcrumbs()', $list,
+                'list view must render the app breadcrumbs generically');
+            $this->assertStringNotContainsString('new \Pramnos\Html\Datatable(', $list,
+                'the retired inline heredoc built the Datatable in the view itself');
+
+            // Assert — EDIT: a real form posting to save() with fields for the
+            // introspected columns (title → text input, description → textarea).
+            $this->assertStringContainsString('<form method="post"', $edit,
+                'edit view must contain a real form');
+            $this->assertStringContainsString('Testfullviews/save/', $edit,
+                'edit form must post to the controller save() action');
+            $this->assertStringContainsString('name="title"', $edit,
+                'edit form must render an input for each non-PK column');
+            $this->assertStringContainsString('<textarea', $edit,
+                'text columns must render as a textarea');
+
+            // Assert — SHOW: a getData()-driven field table with edit/delete.
+            $this->assertStringContainsString('$this->model->getData()', $show,
+                'show view must iterate the model getData() field map');
+            $this->assertStringContainsString('/edit/', $show);
+            $this->assertStringContainsString('/delete/', $show);
+
+            // Assert — every generated view is valid PHP.
+            foreach ([$listFile, $editFile, $showFile] as $vf) {
+                $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($vf) . ' 2>&1');
+                $this->assertMatchesRegularExpression('/No syntax errors/', (string) $lint,
+                    "generated view must be valid PHP: {$vf}");
+            }
+        } finally {
+            $this->removeDirRecursive($viewDir);
+        }
+    }
+
+    /**
+     * `create:view <name> --full` against a table that does not exist (and with
+     * no wizard columns) must fail loudly with the SAME clear message the
+     * controller/model generators throw — pointing the developer at
+     * create:migration — instead of silently emitting a schema-less view.
+     */
+    public function testCreateViewFullWithoutTableThrowsCreateMigrationError(): void
+    {
+        // Arrange — swap in a DB mock whose table does NOT exist (setUp()'s mock
+        // returns tableExists()=true). tearDown() restores the original instance.
+        $noTableDb = $this->createMock(\Pramnos\Database\Database::class);
+        $noTableDb->method('tableExists')->willReturn(false);
+        $noTableDb->connected = true;
+        $noTableDb->type = 'mysql';
+        $noTableDb->prefix = 'pr_';
+        $dbRef = &\Pramnos\Database\Database::getInstance();
+        $dbRef = $noTableDb;
+
+        // Assert — a clear error pointing to create:migration is thrown.
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Create it first with `create:migration`');
+
+        try {
+            // Act — full view, no wizard columns, table missing → must throw.
+            $this->command->exposeCreateView('NoTableView', true);
+        } finally {
+            // The (empty) view dir is created before the table check; clean it up.
+            $this->removeDirRecursive(ROOT . '/src/Views/notableview');
+        }
     }
 }
 
