@@ -142,8 +142,14 @@ class Datasource extends Base
         if ($isModernDT) {
             $_POST['sEcho']         = (int)($_POST['draw'] ?? 1);
             $_POST['iDisplayStart'] = (int)($_POST['start'] ?? 0);
-            $dtLength               = (int)($_POST['length'] ?? (int)$this->maxlimit);
-            $_POST['iDisplayLength']= $dtLength > 0 ? $dtLength : (int)$this->maxlimit;
+            // Page length: honor the modern `length`, else fall back to any
+            // pre-set legacy `iDisplayLength` (tolerates the DT1.9→1.10 transition
+            // where a caller mixes `draw` with the legacy param), else the default
+            // page size. A length of -1 is DataTables' "show all" — preserve it so
+            // the paging block below leaves the query unlimited, exactly as the
+            // legacy path does. Any other non-positive value falls back to maxlimit.
+            $dtLength               = (int)($_POST['length'] ?? $_POST['iDisplayLength'] ?? (int)$this->maxlimit);
+            $_POST['iDisplayLength']= ($dtLength === -1 || $dtLength > 0) ? $dtLength : (int)$this->maxlimit;
             $dtSearch               = is_array($_POST['search'] ?? null)
                                     ? ($_POST['search']['value'] ?? '')
                                     : (string)($_POST['search'] ?? '');
