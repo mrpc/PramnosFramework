@@ -41,7 +41,7 @@ class SeamProbeController extends InternalPermissions
 
 /**
  * Verifies the extension seams the framework promises so that an application
- * (e.g. a project/auth adding licensing) can extend authorization WITHOUT
+ * (e.g. an auth server adding licensing) can extend authorization WITHOUT
  * forking the framework:
  *
  *   1. Permission resolution is behind an interface and the internal endpoint
