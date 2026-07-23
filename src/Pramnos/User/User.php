@@ -1531,17 +1531,8 @@ class User extends \Pramnos\Framework\Base
             $qb->limit($itemsPerPage)->offset(($page - 1) * $itemsPerPage);
             $data = $fetchRows($qb);
 
-            $standardResponse = array(
-                'data' => $data,
-                'pagination' => array(
-                    'currentpage'  => $page,
-                    'itemsperpage' => $itemsPerPage,
-                    'totalitems'   => $total,
-                    'totalpages'   => $pages,
-                    'hasnext'      => $page < $pages,
-                    'hasprevious'  => $page > 1,
-                ),
-                'fields' => $returnedFields,
+            $standardResponse = \Pramnos\Application\ApiList\ApiListResponse::paginated(
+                $data, $page, $itemsPerPage, $total, $pages, $returnedFields
             );
 
             if ($format === 'datatables') {
@@ -1551,11 +1542,8 @@ class User extends \Pramnos\Framework\Base
                 $recordsTotal = ($searchTerm !== '' && !empty($searchable))
                     ? (int) $database->queryBuilder()->table('users')->count()
                     : $total;
-                return array(
-                    'draw'            => (int) ($_REQUEST['draw'] ?? 0),
-                    'data'            => $standardResponse['data'],
-                    'recordsTotal'    => $recordsTotal,
-                    'recordsFiltered' => $total,
+                return \Pramnos\Application\ApiList\ApiListResponse::datatables(
+                    $standardResponse['data'], $recordsTotal, $total
                 );
             }
             return $standardResponse;
@@ -1569,10 +1557,8 @@ class User extends \Pramnos\Framework\Base
         }
         $data = $fetchRows($qb);
 
-        $standardResponse = array(
-            'data'       => $data,
-            'pagination' => null,
-            'fields'     => $returnedFields,
+        $standardResponse = \Pramnos\Application\ApiList\ApiListResponse::unpaginated(
+            $data, $returnedFields
         );
 
         if ($format === 'datatables') {
@@ -1581,11 +1567,8 @@ class User extends \Pramnos\Framework\Base
             $recordsTotal = ($searchTerm !== '' && !empty($searchable))
                 ? (int) $database->queryBuilder()->table('users')->count()
                 : count($data);
-            return array(
-                'draw'            => (int) ($_REQUEST['draw'] ?? 0),
-                'data'            => $data,
-                'recordsTotal'    => $recordsTotal,
-                'recordsFiltered' => count($data),
+            return \Pramnos\Application\ApiList\ApiListResponse::datatables(
+                $data, $recordsTotal, count($data)
             );
         }
         return $standardResponse;
