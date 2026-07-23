@@ -520,6 +520,165 @@ class ModelListApiCharacterizationTest extends TestCase
         $this->assertCount(2, $result['data']);
     }
 
+    // ── Phase 1 lock-down (pre ApiListQuery extraction) ──────────────────────
+    //
+    // These snapshot the exact _getApiList() behaviours the standalone-engine
+    // refactor must preserve byte-for-byte: the useGetData hydration path the
+    // generated getApiList() wrapper uses, per-field search, order variants,
+    // unknown-field dropping, GROUP BY, and the error envelope.
+
+    /**
+     * useGetData=true (the path the GENERATED getApiList() wrapper takes) hydrates
+     * each row into a model instance, calls getData(), then prunes the payload
+     * against the built SELECT clause. On the generic base Model that pruning
+     * collapses every row to an EMPTY array (the built clause's aliased/quoted
+     * field names do not line up with getData()'s plain keys) — the same quirk
+     * already locked for _getList() in
+     * {@see self::testGetListUseGetDataWithQueryFieldsFiltersPayload()}. This is
+     * the exact contract the engine extraction must reproduce byte-for-byte; any
+     * change here would silently alter every generated model's list endpoint.
+     *
+     * Note the deliberate argument alignment: positions are
+     * (…, page, itemsPerPage, debug, returnAsModels, useGetData, …) — useGetData
+     * is the 13th argument, returnAsModels the 12th.
+     */
+    public function testGetApiListUseGetDataMirrorsGeneratedWrapper(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act — mirrors parent::_getApiList(fields, ..., returnAsModels=false, useGetData=true).
+        $result = $model->_getApiList(
+            ['id', 'name'], '', 'id ASC', '', '', '',
+            $this->table, 'id',
+            1, 10,
+            false,     // 11 debug
+            false,     // 12 returnAsModels
+            true,      // 13 useGetData  ← the generated-wrapper path
+            false,     // 14 customGetListMethod
+            false,     // 15 addedfields
+            ''         // 16 format → standard envelope
+        );
+
+        // Assert — envelope intact, 5 rows, first (id ASC) is alpha as a clean array.
+        $this->assertArrayHasKey('data', $result);
+        $this->assertArrayHasKey('pagination', $result);
+        $this->assertCount(5, $result['data']);
+        $this->assertSame(5, (int) $result['pagination']['totalitems']);
+
+        // Each row is collapsed to an empty array by the getData()+prune step.
+        $this->assertSame([], $result['data'][0],
+            'useGetData row collapses to [] on the generic model (getData/prune mismatch)');
+        $this->assertSame([], $result['data'][4]);
+    }
+
+    /**
+     * Per-field search passed as an associative array narrows on that column
+     * only. 'gamm' on `name` matches the single 'gamma' row, proving the
+     * $fieldSearches path (array → per-field LIKE) is distinct from global search.
+     */
+    public function testGetApiListPerFieldSearchArrayNarrowsRows(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act — array search = per-field.
+        $result = $model->_getApiList(
+            ['id', 'name'], ['name' => 'gamm'], 'id ASC', '', '', '',
+            $this->table, 'id',
+            0, 10, false, false, false
+        );
+
+        // Assert — exactly the gamma row.
+        $this->assertCount(1, $result['data']);
+        $this->assertSame('gamma', $result['data'][0]['name']);
+    }
+
+    /**
+     * Order handling: a '-name' token sorts descending, and an unknown order
+     * field falls back to the primary key DESC — the same default as an empty
+     * order (never an SQL error). Both are validated/sanitised by
+     * _validateAndBuildOrder and must survive the extraction unchanged.
+     */
+    public function testGetApiListOrderDescAndInvalidFieldFallsBackToPrimaryKey(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act — descending by name.
+        $desc = $model->_getApiList(
+            ['id', 'name'], '', '-name', '', '', '',
+            $this->table, 'id', 0, 10, false, false, false
+        );
+        // Act — bogus order field → PK DESC fallback (no error).
+        $fallback = $model->_getApiList(
+            ['id', 'name'], '', 'not_a_column', '', '', '',
+            $this->table, 'id', 0, 10, false, false, false
+        );
+
+        // Assert — desc: names in reverse-alphabetical order.
+        $names = array_column($desc['data'], 'name');
+        $sorted = $names;
+        rsort($sorted);
+        $this->assertSame($sorted, $names, "'-name' must sort descending");
+        // Assert — fallback: strictly DESCENDING ids (PK default order is DESC).
+        $ids = array_map('intval', array_column($fallback['data'], 'id'));
+        $sortedIds = $ids;
+        rsort($sortedIds);
+        $this->assertSame($sortedIds, $ids, 'unknown order field falls back to PK desc');
+    }
+
+    /**
+     * Requested fields that do not exist in the schema are silently dropped, but
+     * the primary key is always force-included even when not requested. Locks the
+     * field-validation contract the engine inherits.
+     */
+    public function testGetApiListUnknownRequestedFieldsDroppedPrimaryKeyKept(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act — request only 'name' + a bogus column; id (PK) not requested.
+        $result = $model->_getApiList(
+            ['name', 'does_not_exist'], '', 'id ASC', '', '', '',
+            $this->table, 'id', 1, 1, false, false, false
+        );
+
+        // Assert — row has name and the force-included id, but not the bogus key.
+        $row = $result['data'][0];
+        $this->assertArrayHasKey('id', $row, 'primary key is always included');
+        $this->assertArrayHasKey('name', $row);
+        $this->assertArrayNotHasKey('does_not_exist', $row, 'unknown fields are dropped');
+    }
+
+    /**
+     * A malformed raw filter must degrade to the error envelope (an 'error' key
+     * plus empty data), not a fatal — the paginated branch catches the DB
+     * exception. The engine extraction must keep this contract so callers still
+     * receive a structured error.
+     */
+    public function testGetApiListReturnsErrorEnvelopeOnInvalidRawFilter(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act — a syntactically broken WHERE fragment.
+        $result = $model->_getApiList(
+            ['id', 'name'], '', '', 'id === =', '', '',
+            $this->table, 'id', 1, 10, false, false, false
+        );
+
+        // Assert — structured error, empty data, null pagination.
+        $this->assertArrayHasKey('error', $result, 'a broken filter yields an error envelope');
+        $this->assertSame([], $result['data']);
+        $this->assertNull($result['pagination']);
+    }
+
     // ── Phase 17 — _getJsonList() introspection unification ───────────────────
 
     /**

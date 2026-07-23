@@ -461,6 +461,134 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
         unset($_REQUEST['draw']);
     }
 
+    // ── Phase 1 lock-down (pre ApiListQuery extraction) ──────────────────────
+    //
+    // PostgreSQL mirror of the MySQL Phase-1 snapshots: the exact _getApiList()
+    // behaviours the standalone-engine refactor must preserve, exercised through
+    // PG's ILIKE/unaccent + information_schema paths.
+
+    /**
+     * useGetData=true (generated getApiList() wrapper path) collapses each row to
+     * an empty array on the generic base Model — same getData()/prune-mismatch
+     * quirk as MySQL. Positions: 12=returnAsModels, 13=useGetData.
+     */
+    public function testGetApiListUseGetDataMirrorsGeneratedWrapperOnPostgresql(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act
+        $result = $model->_getApiList(
+            ['id', 'name'], '', 'id ASC', '', '', '',
+            $this->table, 'id',
+            1, 10,
+            false, false, true, false, false, ''
+        );
+
+        // Assert
+        $this->assertCount(5, $result['data']);
+        $this->assertSame(5, (int) $result['pagination']['totalitems']);
+        $this->assertSame([], $result['data'][0],
+            'useGetData row collapses to [] on the generic model (PG)');
+    }
+
+    /**
+     * Per-field search as an associative array narrows on that column only via
+     * PG's ILIKE. 'gamm' on `name` matches the single 'gamma' row.
+     */
+    public function testGetApiListPerFieldSearchArrayNarrowsRowsOnPostgresql(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act
+        $result = $model->_getApiList(
+            ['id', 'name'], ['name' => 'gamm'], 'id ASC', '', '', '',
+            $this->table, 'id', 0, 10, false, false, false
+        );
+
+        // Assert
+        $this->assertCount(1, $result['data']);
+        $this->assertSame('gamma', $result['data'][0]['name']);
+    }
+
+    /**
+     * '-name' sorts descending; an unknown order field falls back to PK DESC (the
+     * empty-order default) rather than erroring.
+     */
+    public function testGetApiListOrderDescAndInvalidFieldFallsBackOnPostgresql(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act
+        $desc = $model->_getApiList(
+            ['id', 'name'], '', '-name', '', '', '',
+            $this->table, 'id', 0, 10, false, false, false
+        );
+        $fallback = $model->_getApiList(
+            ['id', 'name'], '', 'not_a_column', '', '', '',
+            $this->table, 'id', 0, 10, false, false, false
+        );
+
+        // Assert
+        $names = array_column($desc['data'], 'name');
+        $sorted = $names;
+        rsort($sorted);
+        $this->assertSame($sorted, $names, "'-name' must sort descending on PG");
+        $ids = array_map('intval', array_column($fallback['data'], 'id'));
+        $sortedIds = $ids;
+        rsort($sortedIds);
+        $this->assertSame($sortedIds, $ids, 'unknown order field falls back to PK desc on PG');
+    }
+
+    /**
+     * Unknown requested fields are dropped; the primary key is force-included.
+     */
+    public function testGetApiListUnknownRequestedFieldsDroppedPrimaryKeyKeptOnPostgresql(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act
+        $result = $model->_getApiList(
+            ['name', 'does_not_exist'], '', 'id ASC', '', '', '',
+            $this->table, 'id', 1, 1, false, false, false
+        );
+
+        // Assert
+        $row = $result['data'][0];
+        $this->assertArrayHasKey('id', $row);
+        $this->assertArrayHasKey('name', $row);
+        $this->assertArrayNotHasKey('does_not_exist', $row);
+    }
+
+    /**
+     * A malformed raw filter degrades to the error envelope (error key + empty
+     * data + null pagination) rather than a fatal, on PostgreSQL too.
+     */
+    public function testGetApiListReturnsErrorEnvelopeOnInvalidRawFilterOnPostgresql(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+
+        // Act
+        $result = $model->_getApiList(
+            ['id', 'name'], '', '', 'id === =', '', '',
+            $this->table, 'id', 1, 10, false, false, false
+        );
+
+        // Assert
+        $this->assertArrayHasKey('error', $result);
+        $this->assertSame([], $result['data']);
+        $this->assertNull($result['pagination']);
+    }
+
     /**
      * _getJsonList() must work on PostgreSQL after introspection is unified to
      * _getAllTableFields() (which queries information_schema on PG instead of SHOW COLUMNS).
