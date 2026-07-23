@@ -502,10 +502,19 @@ class UserCharacterizationTest extends TestCase
             );
 
             // Assert — the DataTables 2.x keys are present and correct.
+            // recordsFiltered is the 3 rows matching our token; recordsTotal is
+            // the grand total of ALL users (before the search box), so with a
+            // search active the two must differ once other users exist. This is
+            // the User-side counterpart of the Model recordsTotal fix.
             $this->assertSame(7, $dt['draw']);
             $this->assertArrayHasKey('data', $dt);
-            $this->assertSame(3, (int) $dt['recordsTotal']);
-            $this->assertSame(3, (int) $dt['recordsFiltered']);
+            $this->assertSame(3, (int) $dt['recordsFiltered'],
+                'recordsFiltered must count only the token matches');
+            $allUsers = (int) \Pramnos\Database\Database::getInstance()
+                ->queryBuilder()->table('users')->count();
+            $this->assertSame($allUsers, (int) $dt['recordsTotal'],
+                'recordsTotal must be the search-less grand total of all users');
+            $this->assertGreaterThanOrEqual(3, (int) $dt['recordsTotal']);
             $this->assertArrayNotHasKey('pagination', $dt);
             unset($_REQUEST['draw']);
 

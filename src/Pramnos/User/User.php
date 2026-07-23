@@ -1545,10 +1545,16 @@ class User extends \Pramnos\Framework\Base
             );
 
             if ($format === 'datatables') {
+                // $total was counted WITH the search, so it is recordsFiltered.
+                // recordsTotal is the grand total BEFORE the search box — all
+                // users — recomputed only when a search actually narrowed it.
+                $recordsTotal = ($searchTerm !== '' && !empty($searchable))
+                    ? (int) $database->queryBuilder()->table('users')->count()
+                    : $total;
                 return array(
                     'draw'            => (int) ($_REQUEST['draw'] ?? 0),
                     'data'            => $standardResponse['data'],
-                    'recordsTotal'    => $total,
+                    'recordsTotal'    => $recordsTotal,
                     'recordsFiltered' => $total,
                 );
             }
@@ -1570,10 +1576,15 @@ class User extends \Pramnos\Framework\Base
         );
 
         if ($format === 'datatables') {
+            // Unpaginated: count($data) is the search-filtered total
+            // (recordsFiltered). recordsTotal is all users, before the search.
+            $recordsTotal = ($searchTerm !== '' && !empty($searchable))
+                ? (int) $database->queryBuilder()->table('users')->count()
+                : count($data);
             return array(
                 'draw'            => (int) ($_REQUEST['draw'] ?? 0),
                 'data'            => $data,
-                'recordsTotal'    => count($data),
+                'recordsTotal'    => $recordsTotal,
                 'recordsFiltered' => count($data),
             );
         }
