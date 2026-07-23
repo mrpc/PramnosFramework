@@ -639,8 +639,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'status', 'op' => '=', 'value' => null];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $db
         );
 
@@ -663,8 +662,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'status', 'op' => '!=', 'value' => null];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $db
         );
 
@@ -687,8 +685,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'quantity', 'op' => '>=', 'value' => 5];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $db
         );
 
@@ -709,8 +706,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'price', 'op' => '<', 'value' => 9.99];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $db
         );
 
@@ -733,8 +729,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'nonexistent', 'op' => '=', 'value' => 1];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $db
         );
 
@@ -758,8 +753,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'price', 'op' => 'DROP TABLE', 'value' => 0];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $db
         );
 
@@ -783,8 +777,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'name', 'op' => '='];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $db
         );
 
@@ -808,8 +801,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'id', 'op' => 'IN', 'value' => []];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $db
         );
 
@@ -831,8 +823,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'id', 'op' => 'NOT IN', 'value' => 'not-an-array'];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $db
         );
 
@@ -858,8 +849,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'name', 'op' => 'ILIKE', 'value' => '%foo%'];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $stubDb
         );
 
@@ -886,8 +876,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'name', 'op' => 'LIKE', 'value' => '%foo%'];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $stubDb
         );
 
@@ -913,8 +902,7 @@ class ModelUncoveredBranchesTest extends TestCase
         $condition       = ['field' => 'name', 'op' => '=', 'value' => 'Alice'];
 
         // Act
-        $result = $this->callPrivate(
-            '_buildSingleCondition',
+        $result = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildSingleCondition(
             $condition, $availableFields, $fieldMapping, false, $stubDb
         );
 
