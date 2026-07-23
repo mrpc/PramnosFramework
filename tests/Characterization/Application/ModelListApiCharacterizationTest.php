@@ -457,6 +457,69 @@ class ModelListApiCharacterizationTest extends TestCase
             'all 5 seeded rows must be returned without pagination');
     }
 
+    /**
+     * With a global search that matches a subset, the DataTables envelope must
+     * distinguish recordsTotal (the grand total, BEFORE the search box) from
+     * recordsFiltered (the count AFTER the search). Regression guard for the
+     * fix where both were previously set to the filtered total.
+     *
+     * Search 'alph' matches 'alpha' and 'alphabet' → 2 of 5 rows.
+     */
+    public function testGetApiListDataTablesRecordsTotalExcludesSearchOnMysql(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+        $_REQUEST['draw'] = '3';
+
+        // Act — paginated + datatables + a narrowing global search.
+        $result = $model->_getApiList(
+            [], 'alph', '', '', '', '',
+            $this->table, 'id',
+            1, 10,
+            false, false, false, false, false,
+            'datatables'
+        );
+
+        // Assert — recordsTotal is the full 5, recordsFiltered is the 2 matches.
+        $this->assertSame(5, $result['recordsTotal'],
+            'recordsTotal must be the grand total, unaffected by the search');
+        $this->assertSame(2, $result['recordsFiltered'],
+            'recordsFiltered must reflect only the rows matching the search');
+        $this->assertCount(2, $result['data'],
+            'data must contain only the 2 matching rows');
+
+        unset($_REQUEST['draw']);
+    }
+
+    /**
+     * Same distinction on the unpaginated (page = 0) datatables path: count(data)
+     * is the filtered total, and recordsTotal is still the grand total.
+     */
+    public function testGetApiListDataTablesRecordsTotalExcludesSearchNoPaginationOnMysql(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+        unset($_REQUEST['draw']);
+
+        // Act — no pagination, datatables, narrowing search.
+        $result = $model->_getApiList(
+            [], 'alph', '', '', '', '',
+            $this->table, 'id',
+            0, 10,
+            false, false, false, false, false,
+            'datatables'
+        );
+
+        // Assert
+        $this->assertSame(5, $result['recordsTotal'],
+            'recordsTotal must be the grand total even without pagination');
+        $this->assertSame(2, $result['recordsFiltered'],
+            'recordsFiltered must be the matched-row count');
+        $this->assertCount(2, $result['data']);
+    }
+
     // ── Phase 17 — _getJsonList() introspection unification ───────────────────
 
     /**

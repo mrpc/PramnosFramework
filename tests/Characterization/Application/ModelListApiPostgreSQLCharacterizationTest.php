@@ -430,6 +430,38 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
     }
 
     /**
+     * On PostgreSQL, a narrowing global search must produce distinct recordsTotal
+     * (grand total, before the search) and recordsFiltered (after the search) in
+     * the DataTables envelope — the same fix verified on MySQL, exercised through
+     * PG's ILIKE/unaccent search path. 'alph' matches 'alpha' + 'alphabet' → 2/5.
+     */
+    public function testGetApiListDataTablesRecordsTotalExcludesSearchOnPostgresql(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $this->forceModelTable($model);
+        $_REQUEST['draw'] = '4';
+
+        // Act — paginated + datatables + narrowing search.
+        $result = $model->_getApiList(
+            [], 'alph', '', '', '', '',
+            $this->table, 'id',
+            1, 10,
+            false, false, false, false, false,
+            'datatables'
+        );
+
+        // Assert
+        $this->assertSame(5, $result['recordsTotal'],
+            'PostgreSQL: recordsTotal must be the grand total, unaffected by search');
+        $this->assertSame(2, $result['recordsFiltered'],
+            'PostgreSQL: recordsFiltered must reflect only the search matches');
+        $this->assertCount(2, $result['data']);
+
+        unset($_REQUEST['draw']);
+    }
+
+    /**
      * _getJsonList() must work on PostgreSQL after introspection is unified to
      * _getAllTableFields() (which queries information_schema on PG instead of SHOW COLUMNS).
      *

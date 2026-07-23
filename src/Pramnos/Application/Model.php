@@ -1495,11 +1495,25 @@ class Model extends \Pramnos\Framework\Base
             );
 
             if ($format === 'datatables') {
+                // DataTables distinguishes the grand total (recordsTotal, the
+                // count BEFORE the search box) from the filtered total
+                // (recordsFiltered, AFTER it). $result['total'] was counted with
+                // filter + search, so it IS recordsFiltered. recordsTotal must
+                // exclude the search — recompute it from the base $filter only.
+                // When no search is active the two are identical, so skip the
+                // extra query.
+                $recordsFiltered = (int) $result['total'];
+                $recordsTotal    = $searchConditions !== ''
+                    ? $this->_datatablesRecordsTotal(
+                        $this->_combineFilters($filter, ''),
+                        $table, $key, $join, $selectFields, $group, $addedfields
+                    )
+                    : $recordsFiltered;
                 return array(
                     'draw'            => (int)($_REQUEST['draw'] ?? 0),
                     'data'            => $standardResponse['data'] ?? [],
-                    'recordsTotal'    => $result['total'],
-                    'recordsFiltered' => $result['total'],
+                    'recordsTotal'    => $recordsTotal,
+                    'recordsFiltered' => $recordsFiltered,
                 );
             }
 
@@ -1551,16 +1565,57 @@ class Model extends \Pramnos\Framework\Base
 
             if ($format === 'datatables') {
                 $data = $standardResponse['data'] ?? [];
+                // Unpaginated: $data holds every row matching filter + search, so
+                // its count is recordsFiltered. recordsTotal excludes the search
+                // (base $filter only); identical when no search is active.
+                $recordsFiltered = is_array($data) ? count($data) : 0;
+                $recordsTotal    = $searchConditions !== ''
+                    ? $this->_datatablesRecordsTotal(
+                        $this->_combineFilters($filter, ''),
+                        $table, $key, $join, $selectFields, $group, $addedfields
+                    )
+                    : $recordsFiltered;
                 return array(
                     'draw'            => (int)($_REQUEST['draw'] ?? 0),
                     'data'            => is_array($data) ? $data : [],
-                    'recordsTotal'    => is_array($data) ? count($data) : 0,
-                    'recordsFiltered' => is_array($data) ? count($data) : 0,
+                    'recordsTotal'    => $recordsTotal,
+                    'recordsFiltered' => $recordsFiltered,
                 );
             }
 
             return $standardResponse;
         }
+    }
+
+    /**
+     * Count the rows matching a base filter WITHOUT any search conditions — the
+     * value DataTables expects in `recordsTotal` (the grand total before the
+     * search box is applied, with any mandatory $filter/$join/$group still in
+     * effect).
+     *
+     * Reuses {@see self::_getPaginated()} with a single-row window so the count
+     * SQL is built identically to the list query (same table/join/group/driver
+     * quirks) rather than duplicating the counting logic. Only the returned
+     * 'total' — the count of all matching rows — is used; the one fetched row is
+     * discarded.
+     *
+     * @param string       $baseFilter   Filter WITHOUT search (may be '').
+     * @param string|null  $table        Table override, as passed to _getApiList.
+     * @param string|null  $key          Primary-key override.
+     * @param string       $join         Raw JOIN clause.
+     * @param string|null  $selectFields Select clause built for the list query.
+     * @param string       $group        GROUP BY clause.
+     * @param mixed        $addedfields  Extra fields (normalised by _getPaginated).
+     * @return int The unfiltered (search-less) row count.
+     */
+    protected function _datatablesRecordsTotal(
+        $baseFilter, $table, $key, $join, $selectFields, $group, $addedfields
+    ): int {
+        $counted = $this->_getPaginated(
+            1, 1, $baseFilter, '', $table, $key, false,
+            $join, $selectFields, $group, false, false, false, $addedfields
+        );
+        return (int)($counted['total'] ?? 0);
     }
     
     /**

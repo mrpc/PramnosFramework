@@ -10,6 +10,8 @@ tags:
   - twofactor
   - passkey
   - authserver
+  - model
+  - datatables
 ---
 
 # Login method recorded in the activity log
@@ -55,3 +57,21 @@ records. No public signature changed; the capability is purely additive.
 - **Integration** (`LoginFlowActivityTest`, real MySQL) — a password, a
   two-factor and a passkey login each write exactly one `login` row whose
   details record `password` / `twofactor` / `passkey` respectively.
+
+## Fixed — DataTables `recordsTotal` in `Model::_getApiList()`
+
+`Model::_getApiList(format: 'datatables')` set both `recordsTotal` and
+`recordsFiltered` to the **filtered** row count. DataTables treats `recordsTotal`
+as the grand total *before* the search box and `recordsFiltered` as the count
+*after* it — so once a server-side search was applied, the "showing X of Y
+(filtered from Z)" label and the pagination totals were wrong.
+
+`recordsFiltered` now stays the filter+search count, while `recordsTotal` is
+recomputed from the base `$filter` only (the extra count query is skipped when no
+search is active, so the common case pays nothing). The same fix is applied to
+the `User::_getApiList()` override, where `recordsTotal` is now the grand total
+of all users. Both the paginated and unpaginated datatables paths are covered.
+
+Verified with characterization tests across MySQL, PostgreSQL and TimescaleDB
+(`ModelListApi*CharacterizationTest`, `UserCharacterizationTest`): a search that
+matches a subset now yields `recordsTotal > recordsFiltered`.
