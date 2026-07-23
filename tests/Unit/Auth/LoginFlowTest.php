@@ -310,6 +310,74 @@ class LoginFlowTest extends TestCase
         $this->assertTrue($result->isFailed());
     }
 
+    // ── login-method tagging (activity-log distinguishability) ───────────────────
+
+    /**
+     * A straight password login (no step-up) tags the session as `password`
+     * BEFORE establishing it — so the activity log can distinguish it from a
+     * step-up. The tag must be set, and set exactly once.
+     */
+    public function testPasswordLoginTagsMethodPassword(): void
+    {
+        // Arrange — good credentials, no second factor.
+        $this->flow->fakeAuth->response     = $this->successResponse(7);
+        $this->flow->fakeTwoFactor->enabled = false;
+
+        // Act
+        $this->flow->attempt('alice', 'secret');
+
+        // Assert — the login was tagged 'password' once, before loginById ran.
+        $this->assertSame(['password'], $this->flow->fakeAuth->methodCalls);
+    }
+
+    /**
+     * Completing a pending login with a correct 2FA code tags the session as
+     * `twofactor`, so a TOTP/backup-code step-up is recorded distinctly from a
+     * plain password login.
+     */
+    public function testTwoFactorCompletionTagsMethodTwofactor(): void
+    {
+        // Arrange — a pending step-up, correct code.
+        $this->givenPending(7, true, 'alice');
+        $this->flow->fakeTwoFactor->verifies = true;
+
+        // Act
+        $this->flow->completeTwoFactor('123456');
+
+        // Assert
+        $this->assertSame(['twofactor'], $this->flow->fakeAuth->methodCalls);
+    }
+
+    /**
+     * Completing a pending login with a matching passkey tags the session as
+     * `passkey`, distinguishing a passkey step-up in the activity log.
+     */
+    public function testPasskeyCompletionTagsMethodPasskey(): void
+    {
+        // Arrange — a pending step-up for the same user the passkey verifies.
+        $this->givenPending(7, true, 'alice');
+
+        // Act
+        $this->flow->completePasskey(7);
+
+        // Assert
+        $this->assertSame(['passkey'], $this->flow->fakeAuth->methodCalls);
+    }
+
+    /**
+     * A failed completion (wrong 2FA code) never tags a login method, because no
+     * session is established — the tag is only set on the finish path.
+     */
+    public function testFailedStepUpNeverTagsMethod(): void
+    {
+        $this->givenPending(7, false, 'alice');
+        $this->flow->fakeTwoFactor->verifies = false;
+
+        $this->flow->completeTwoFactor('000000');
+
+        $this->assertSame([], $this->flow->fakeAuth->methodCalls, 'no tag without a session');
+    }
+
     // ── pending TTL, pendingUserId(), cancel() ───────────────────────────────────
 
     /**
@@ -415,6 +483,20 @@ class FakeAuth extends Auth
     public bool $loginReturn = true;
     public array $verifyArgs = [];
     public array $loginArgs = [];
+    /** Every login-method tag LoginFlow set before establishing the session. */
+    public array $methodCalls = [];
+
+    /**
+     * Capture the activity-log method tag LoginFlow sets just before the session
+     * bootstrap, so tests can assert each completion path (password / twofactor /
+     * passkey) labels the login correctly. Delegates to the real setter so the
+     * production semantics are still exercised.
+     */
+    public function setLoginMethod(?string $method): void
+    {
+        $this->methodCalls[] = $method;
+        parent::setLoginMethod($method);
+    }
 
     public function verifyCredentials(
         string $username,

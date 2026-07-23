@@ -149,7 +149,7 @@ class LoginFlow
         }
 
         $this->clearPending();
-        return $this->finishLogin($pending['userId'], $pending['remember'], $pending['identifier']);
+        return $this->finishLogin($pending['userId'], $pending['remember'], $pending['identifier'], 'twofactor');
     }
 
     /**
@@ -170,7 +170,7 @@ class LoginFlow
         }
 
         $this->clearPending();
-        return $this->finishLogin($pending['userId'], $pending['remember'], $pending['identifier']);
+        return $this->finishLogin($pending['userId'], $pending['remember'], $pending['identifier'], 'passkey');
     }
 
     /**
@@ -315,12 +315,23 @@ class LoginFlow
      * Finish a login: clear the failure counter, then bootstrap the session.
      * Returns SUCCESS, or FAILED if the session bootstrap is refused (e.g. the
      * account became inactive between the password leg and here).
+     *
+     * The $method tags the login in the activity log so a straight password
+     * login, a two-factor step-up and a passkey step-up are distinguishable. It
+     * is set on the Auth instance (via {@see Auth::setLoginMethod()}) just
+     * before {@see self::establishSession()} — a BC-safe seam that never changes
+     * loginById()'s public signature (CLAUDE.md §6). The trailing default keeps
+     * the signature compatible with any subclass overriding finishLogin().
+     *
+     * @param string $method 'password' | 'twofactor' | 'passkey'.
      */
-    protected function finishLogin(int $userId, bool $remember, string $identifier): LoginFlowResult
+    protected function finishLogin(int $userId, bool $remember, string $identifier, string $method = 'password'): LoginFlowResult
     {
         if ($identifier !== '') {
             $this->lockout()->clearSuccessfulLoginState('identifier', $identifier);
         }
+
+        $this->auth()->setLoginMethod($method);
 
         if (!$this->establishSession($userId, $remember)) {
             return LoginFlowResult::failed();

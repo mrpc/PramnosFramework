@@ -493,6 +493,88 @@ class AuthCharacterizationTest extends TestCase
         $this->assertFalse($userAddon->called, 'No login handler on an ineligible user');
     }
 
+    // ── setLoginMethod — activity-log method tagging (additive, BC-safe) ───────
+
+    /**
+     * setLoginMethod() stores a one-shot tag that flows into the login response
+     * the lifecycle forwards, then is reset once the login is established — so a
+     * password / two-factor / passkey login is distinguishable in the activity
+     * log WITHOUT changing loginById()'s public signature (CLAUDE.md §6).
+     *
+     * The real DB fetch is stubbed (this suite is DB-free), but the injection
+     * mirrors production by reading the SAME private tag the real
+     * buildLoginResponse() reads — so the setter and the triggerLogin() reset
+     * remain the real, exercised code. The end-to-end DB recording is covered by
+     * the LoginFlow activity integration test.
+     */
+    public function testSetLoginMethodTagsResponseAndResetsAfterLogin(): void
+    {
+        // Arrange — a user-addon spy captures the forwarded response.
+        $userAddon = new class {
+            public ?array $received = null;
+            public function onLogin($info = []): bool { $this->received = $info; return true; }
+        };
+        $this->setAddonRegistry(['user' => ['u' => $userAddon]]);
+
+        $auth = new class extends Auth {
+            protected function buildLoginResponse(int $userId, bool $remember): array|false
+            {
+                // Mirror the production line 'method' => $this->loginMethod ?? 'password'
+                // by reading the same private tag, so the setter/reset are real.
+                $tag = (new \ReflectionProperty(Auth::class, 'loginMethod'))->getValue($this);
+                return [
+                    'status' => true, 'uid' => $userId, 'username' => 'alice',
+                    'email' => 'a@example.com', 'auth' => 'hash', 'remember' => $remember,
+                    'method' => $tag ?? 'password',
+                ];
+            }
+        };
+
+        // Act — tag the next login as a passkey step-up, then establish it.
+        $auth->setLoginMethod('passkey');
+        $tagProp = new \ReflectionProperty(Auth::class, 'loginMethod');
+        $this->assertSame('passkey', $tagProp->getValue($auth), 'setter stores the one-shot tag');
+
+        $result = $auth->loginById(42);
+
+        // Assert — the tag reached the lifecycle and was reset afterwards.
+        $this->assertTrue($result);
+        $this->assertSame('passkey', $userAddon->received['method'], 'tagged method reaches the login lifecycle');
+        $this->assertNull($tagProp->getValue($auth), 'the one-shot tag is reset after the login is established');
+    }
+
+    /**
+     * With no tag set (the plain password path never calls setLoginMethod), the
+     * login method falls back to 'password' — the documented default.
+     */
+    public function testLoginMethodDefaultsToPasswordWhenUntagged(): void
+    {
+        // Arrange
+        $userAddon = new class {
+            public ?array $received = null;
+            public function onLogin($info = []): bool { $this->received = $info; return true; }
+        };
+        $this->setAddonRegistry(['user' => ['u' => $userAddon]]);
+
+        $auth = new class extends Auth {
+            protected function buildLoginResponse(int $userId, bool $remember): array|false
+            {
+                $tag = (new \ReflectionProperty(Auth::class, 'loginMethod'))->getValue($this);
+                return [
+                    'status' => true, 'uid' => $userId, 'username' => 'alice',
+                    'email' => 'a@example.com', 'auth' => 'hash', 'remember' => $remember,
+                    'method' => $tag ?? 'password',
+                ];
+            }
+        };
+
+        // Act — no setLoginMethod() call.
+        $auth->loginById(42);
+
+        // Assert
+        $this->assertSame('password', $userAddon->received['method'], 'untagged login defaults to password');
+    }
+
     /**
      * @return array<string, array<string, object>>
      */

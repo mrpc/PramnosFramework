@@ -35,6 +35,22 @@ class Auth extends \Pramnos\Framework\Base
     private ?array $drivers = null;
 
     /**
+     * The authentication method for the next login the built-in lifecycle
+     * establishes — recorded in the activity log so a password login, a
+     * two-factor step-up and a passkey step-up are distinguishable rather than
+     * all logged as a generic `login`.
+     *
+     * Set by {@see self::setLoginMethod()} (from {@see LoginFlow}) BEFORE the
+     * session is established, consumed by {@see self::buildLoginResponse()} and
+     * reset to null by {@see self::triggerLogin()} so it never leaks into a
+     * subsequent login on the same instance. A null value means "password" —
+     * the default for the plain {@see self::auth()} path, which never sets it.
+     *
+     * @var string|null
+     */
+    private ?string $loginMethod = null;
+
+    /**
      * Callbacks invoked after every successful login.
      * @var callable[]
      */
@@ -314,6 +330,26 @@ class Auth extends \Pramnos\Framework\Base
     }
 
     /**
+     * Tag the authentication method for the next login established through the
+     * built-in lifecycle, so the activity log can tell a password login from a
+     * two-factor or passkey step-up.
+     *
+     * This is the BC-safe mechanism required by CLAUDE.md §6: rather than adding
+     * a parameter to the public {@see self::loginById()} signature (which
+     * subclasses override), the caller — normally {@see LoginFlow} — sets the
+     * method on the Auth instance just before establishing the session. The
+     * value is consumed by the very next login and then reset, so a stale tag
+     * can never mislabel a later login.
+     *
+     * @param string|null $method 'password' | 'twofactor' | 'passkey' | custom,
+     *                             or null to fall back to the 'password' default.
+     */
+    public function setLoginMethod(?string $method): void
+    {
+        $this->loginMethod = $method;
+    }
+
+    /**
      * Establish a login session for an already-verified user, WITHOUT a password.
      *
      * This is the passwordless counterpart to {@see self::auth()}: the caller has
@@ -385,6 +421,10 @@ class Auth extends \Pramnos\Framework\Base
             'email'    => (string) ($row['email'] ?? ''),
             'auth'     => (string) ($row['password'] ?? ''),
             'remember' => $remember,
+            // Carry the caller-tagged method (set via setLoginMethod() just
+            // before establishSession) into the response so executeDefaultLogin
+            // records it; null falls back to 'password'.
+            'method'   => $this->loginMethod ?? 'password',
         ];
     }
 
@@ -408,6 +448,10 @@ class Auth extends \Pramnos\Framework\Base
         foreach ($this->afterLoginCallbacks as $fn) {
             $fn($response);
         }
+
+        // Consume the one-shot login-method tag: reset so it can never leak
+        // into a subsequent login established on the same Auth instance.
+        $this->loginMethod = null;
     }
 
     /**

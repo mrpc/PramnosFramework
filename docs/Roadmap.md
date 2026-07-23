@@ -28,20 +28,6 @@ addon's `onAuthCheck()`.
 *Done when:* remember-me login persistence is verified across new requests /
 browser restarts in a real application.
 
-### Record the login method in the activity log
-
-Two-factor and passkey logins are currently recorded as a generic `login` in the
-activity log. They should be distinguishable (`password` / `twofactor` /
-`passkey`).
-
-**Constraint:** the natural fix — threading the method through
-`Auth::loginById()` — would add a parameter to a public method that subclasses
-override, which PHP rejects as an incompatible signature (a backward-compat
-break). It needs a mechanism that does not change the public signature (for
-example a value set on the `Auth` instance by `LoginFlow` before the session is
-established), then `LoginFlow` sets it on the two-factor and passkey completion
-paths.
-
 ---
 
 _Have a request or found a gap? Open an issue on

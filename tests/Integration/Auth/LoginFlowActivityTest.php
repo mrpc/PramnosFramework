@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Integration\Auth;
 
+use Pramnos\Addon\Addon;
 use Pramnos\Application\Application;
 use Pramnos\Application\FeatureRegistry;
 use Pramnos\Application\Settings;
@@ -11,6 +12,12 @@ use Pramnos\Auth\ActivityLog;
 use Pramnos\Auth\LoginFlow;
 use Pramnos\Auth\LoginFlowResult;
 use Pramnos\Auth\Loginlockout;
+use Pramnos\Auth\TwoFactorAuthService;
+use Pramnos\Auth\Passkey\AuthenticationOptions;
+use Pramnos\Auth\Passkey\PasskeyCredential;
+use Pramnos\Auth\Passkey\PasskeyServiceInterface;
+use Pramnos\Auth\Passkey\RegistrationOptions;
+use Pramnos\Auth\Passkey\VerificationResult;
 use Pramnos\Framework\Factory;
 use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\User\User;
@@ -52,6 +59,113 @@ class FlippingLockout extends Loginlockout
 }
 
 /**
+ * A LoginFlow whose password check always succeeds for a fixed account — lets us
+ * drive the successful-login branches (and the step-up completions) against the
+ * real session/activity lifecycle without a real password backend.
+ */
+class SucceedingLoginFlow extends LoginFlow
+{
+    public int $uid = 0;
+    public string $username = '';
+
+    protected function verifyCredentials(string $username, string $password, bool $remember): array|false
+    {
+        return [
+            'status'   => true,
+            'uid'      => $this->uid,
+            'username' => $this->username,
+            'email'    => $this->username . '@example.com',
+            'auth'     => 'hash',
+            'remember' => $remember,
+        ];
+    }
+}
+
+/** A lockout double that is always unlocked and records nothing. */
+class OpenLockout extends Loginlockout
+{
+    public function getLockoutStatus(string $scope, string $identifier): array
+    {
+        return ['locked' => false, 'remaining' => 0];
+    }
+
+    public function recordFailedAttempt(string $scope, string $identifier): void
+    {
+    }
+
+    public function clearSuccessfulLoginState(string $scope, string $identifier): void
+    {
+    }
+}
+
+/** A 2FA double with settable enabled/verifies state and no database. */
+class StubTwoFactor extends TwoFactorAuthService
+{
+    public function __construct(public bool $enabled = false, public bool $verifies = true)
+    {
+        // Skip parent to avoid a DB connection.
+    }
+
+    public function isEnabled(int $userId): bool
+    {
+        return $this->enabled;
+    }
+
+    public function verifyCode(int $userId, string $code): bool
+    {
+        return $this->verifies;
+    }
+}
+
+/** A passkey double whose only meaningful behaviour is hasCredentials(). */
+class StubPasskeys implements PasskeyServiceInterface
+{
+    public function __construct(public bool $has = false)
+    {
+    }
+
+    public function beginRegistration(int $userId, ?string $label = null): RegistrationOptions
+    {
+        return new RegistrationOptions('c', '{}', $userId);
+    }
+
+    public function finishRegistration(int $userId, RegistrationOptions $options, string $clientResponse): PasskeyCredential
+    {
+        return new PasskeyCredential(1, $userId, 'cid', 'pk', 0);
+    }
+
+    public function beginAuthentication(?int $userId = null): AuthenticationOptions
+    {
+        return new AuthenticationOptions('c', '{}', $userId);
+    }
+
+    public function finishAuthentication(AuthenticationOptions $options, string $clientResponse): VerificationResult
+    {
+        return new VerificationResult(1, new PasskeyCredential(1, 1, 'cid', 'pk', 1), 1);
+    }
+
+    public function listCredentials(int $userId): array
+    {
+        return [];
+    }
+
+    public function renameCredential(int $userId, int $credentialId, string $name): bool
+    {
+        return false;
+    }
+
+    public function revokeCredential(int $userId, int $credentialId): bool
+    {
+        return false;
+    }
+
+    public function hasCredentials(int $userId): bool
+    {
+        return $this->has;
+    }
+}
+
+/**
  * Integration test for LoginFlow's failed-login activity attribution — the
  * branch that records `login_failed` (and `account_locked` when the failure
  * trips the lockout) against the real account behind a username, resolved via
@@ -65,6 +179,7 @@ class LoginFlowActivityTest extends BaseTestCase
     private \Pramnos\Database\Database $db;
     private string $table;
     private array $enabledSnapshot = [];
+    private array $addonSnapshot = [];
     private int $uid = 0;
     private string $username = '';
 
@@ -109,11 +224,20 @@ class LoginFlowActivityTest extends BaseTestCase
         $u->save();
         $this->uid = (int) $u->userid;
 
+        // Force the built-in login lifecycle (executeDefaultLogin, which writes
+        // the 'login' activity row) by clearing any registered user addon — an
+        // addon would take the triggerLogin() addon path instead.
+        $addonProp = new \ReflectionProperty(Addon::class, '_addons');
+        $this->addonSnapshot = $addonProp->getValue();
+        $addonProp->setValue(null, []);
+
         $_SESSION = [];
     }
 
     protected function tearDown(): void
     {
+        $addonProp = new \ReflectionProperty(Addon::class, '_addons');
+        $addonProp->setValue(null, $this->addonSnapshot);
         if ($this->uid > 0) {
             $this->db->queryBuilder()->table('authserver.user_activity_log')->where('userid', $this->uid)->delete();
             $this->db->queryBuilder()->table('users')->where('userid', $this->uid)->delete();
@@ -132,6 +256,94 @@ class LoginFlowActivityTest extends BaseTestCase
             ->where('userid', $this->uid)
             ->where('action', $action)
             ->count();
+    }
+
+    /**
+     * The `method` recorded in the details of the seeded user's `login` row, or
+     * null when there is no login row (or it carried no details).
+     */
+    private function loginMethodOf(): ?string
+    {
+        $row = $this->db->queryBuilder()
+            ->table('authserver.user_activity_log')
+            ->where('userid', $this->uid)
+            ->where('action', 'login')
+            ->first();
+        if (!$row || $row->numRows === 0) {
+            return null;
+        }
+        $details = $row->fields['details'] ?? null;
+        if ($details === null || $details === '') {
+            return null;
+        }
+        $decoded = json_decode((string) $details, true);
+        return is_array($decoded) ? ($decoded['method'] ?? null) : null;
+    }
+
+    /**
+     * A straight password login (no second factor) records a single `login`
+     * activity row whose details tag the method as `password` — the default the
+     * built-in lifecycle uses when nothing set a step-up method.
+     */
+    public function testPasswordLoginRecordsMethodPassword(): void
+    {
+        // Arrange — succeeding credentials, 2FA disabled → no step-up.
+        $flow = new SucceedingLoginFlow(null, new OpenLockout(), new StubTwoFactor(false), new StubPasskeys(false));
+        $flow->uid      = $this->uid;
+        $flow->username = $this->username;
+
+        // Act
+        $result = $flow->attempt($this->username, 'whatever', false);
+
+        // Assert — logged in, one login row, tagged 'password'.
+        $this->assertTrue($result->isSuccess(), 'password login must succeed');
+        $this->assertSame(1, $this->actionCount('login'), 'exactly one login row');
+        $this->assertSame('password', $this->loginMethodOf(), 'password login tagged as password');
+    }
+
+    /**
+     * A login completed through the 2FA step-up records the `login` row with
+     * method `twofactor`, distinguishing it from a plain password login.
+     */
+    public function testTwoFactorLoginRecordsMethodTwofactor(): void
+    {
+        // Arrange — 2FA enabled forces a step-up; the code verifies.
+        $flow = new SucceedingLoginFlow(null, new OpenLockout(), new StubTwoFactor(true, true), new StubPasskeys(false));
+        $flow->uid      = $this->uid;
+        $flow->username = $this->username;
+
+        // Act — password leg stops for step-up, then the TOTP code completes it.
+        $step = $flow->attempt($this->username, 'whatever', false);
+        $this->assertTrue($step->needsStepUp(), 'a 2FA account must stop for a step-up');
+        $result = $flow->completeTwoFactor('123456');
+
+        // Assert
+        $this->assertTrue($result->isSuccess());
+        $this->assertSame(1, $this->actionCount('login'));
+        $this->assertSame('twofactor', $this->loginMethodOf(), '2FA step-up tagged as twofactor');
+    }
+
+    /**
+     * A login completed through a passkey step-up records the `login` row with
+     * method `passkey`.
+     */
+    public function testPasskeyLoginRecordsMethodPasskey(): void
+    {
+        // Arrange — 2FA enabled + a registered passkey offers the passkey step-up.
+        $flow = new SucceedingLoginFlow(null, new OpenLockout(), new StubTwoFactor(true, true), new StubPasskeys(true));
+        $flow->uid      = $this->uid;
+        $flow->username = $this->username;
+
+        // Act — password leg stops for step-up, then the passkey completes it.
+        $step = $flow->attempt($this->username, 'whatever', false);
+        $this->assertTrue($step->needsStepUp());
+        $this->assertTrue($step->allowsStepUpMethod('passkey'), 'passkey must be offered');
+        $result = $flow->completePasskey($this->uid);
+
+        // Assert
+        $this->assertTrue($result->isSuccess());
+        $this->assertSame(1, $this->actionCount('login'));
+        $this->assertSame('passkey', $this->loginMethodOf(), 'passkey step-up tagged as passkey');
     }
 
     /**
