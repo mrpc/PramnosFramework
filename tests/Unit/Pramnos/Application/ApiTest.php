@@ -173,8 +173,18 @@ class ApiTest extends TestCase
         $this->assertTrue(true);
     }
 
-    public function testExecWithEmptyControllerThrowsClose()
+    /**
+     * WHAT: hitting the API with no controller to run emits a proper 404
+     *       NotFound JSON envelope (via Api::notFound()) rather than the old
+     *       plain-text "There is no controller to run..." message.
+     * WHY:  a missing/blank controller must be an SEO/consumer-friendly 404 with
+     *       a machine-readable error code, not an ad-hoc string — this is the
+     *       API counterpart of the HTML notFound() page. Regression guard for the
+     *       404 behaviour change.
+     */
+    public function testExecWithEmptyControllerReturns404NotFound()
     {
+        // Arrange — an Api with no default controller and a blank requested one.
         $api = new class extends Api {
             public $applicationInfo = ['name' => 'test'];
             public $defaultController = '';
@@ -182,8 +192,10 @@ class ApiTest extends TestCase
             public function checkversion($version = null) { return true; }
         };
 
+        // Act & Assert — close() (mocked to throw) carries the 404 NotFound JSON.
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Application::close() called with msg: There is no controller to run...');
+        // Key-order-independent: proves a 404 status and the NotFound error code.
+        $this->expectExceptionMessageMatches('/"status":404.*"error":"NotFound"/');
         $api->exec('');
     }
 
