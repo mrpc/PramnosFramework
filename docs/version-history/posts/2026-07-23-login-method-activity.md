@@ -75,3 +75,23 @@ of all users. Both the paginated and unpaginated datatables paths are covered.
 Verified with characterization tests across MySQL, PostgreSQL and TimescaleDB
 (`ModelListApi*CharacterizationTest`, `UserCharacterizationTest`): a search that
 matches a subset now yields `recordsTotal > recordsFiltered`.
+
+## Fixed — DataTables "Show all" capped at the default page size
+
+`Datatable\Datasource`'s modern DataTables 1.10+ parameter translation mapped a
+page length of `-1` (the "Show all" option) to `maxlimit` (default 50), so a
+client asking for every row silently received only the first 50 — unlike the
+legacy path, which honours `-1` as "no limit". The translation also ignored a
+pre-set legacy `iDisplayLength`, so a caller mixing the modern `draw` parameter
+with the legacy length param (a DT 1.9 → 1.10 transition pattern) was capped
+too.
+
+The translation now (1) preserves `length = -1` as unlimited, matching the
+legacy path, and (2) falls back to a pre-set legacy `iDisplayLength` when no
+modern `length` is supplied, before defaulting to `maxlimit`. Ordinary requests
+without any length parameter still fall back to `maxlimit`, so the safety bound
+is unchanged. Legacy (non-modern) callers are unaffected.
+
+Covered by three `DatasourceTest` regression cases (with `maxlimit` forced low so
+the cap is observable): modern `length=-1` → all rows, modern `draw` + legacy
+`iDisplayLength=-1` → all rows, and no length → `maxlimit`.

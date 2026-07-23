@@ -367,6 +367,84 @@ class DatasourceTest extends TestCase
     }
 
     /**
+     * render() under the modern DT format must treat length=-1 ("Show all") as
+     * unlimited — matching the legacy path — instead of silently capping at
+     * maxlimit. maxlimit is forced to 2 so the cap would be observable if the
+     * bug regressed; all 4 seeded rows must come back.
+     *
+     * Regression guard for the modern-DT translation that mapped -1 → maxlimit.
+     */
+    public function testRenderModernDtLengthMinusOneReturnsAllRows(): void
+    {
+        // Arrange — modern "show all" (length = -1) with a tiny maxlimit.
+        $this->setPost([
+            'draw'   => '1',
+            'start'  => '0',
+            'length' => '-1',
+            'search' => ['value' => ''],
+        ]);
+        $ds = new Datasource();
+        $ds->maxlimit = '2';
+
+        // Act
+        $result = $ds->render('ds_items', ['id', 'name'], false, '', '', false);
+
+        // Assert — all rows, not capped at maxlimit.
+        $this->assertCount(4, $result['data'],
+            'modern length=-1 must return all rows, not maxlimit');
+    }
+
+    /**
+     * render() under the modern DT format must fall back to a pre-set legacy
+     * iDisplayLength when no modern `length` is supplied — tolerating the
+     * DT1.9→1.10 transition where a caller mixes `draw` with the legacy param.
+     * Here legacy iDisplayLength=-1 ("all") must be honoured despite maxlimit=2.
+     */
+    public function testRenderModernDtFallsBackToLegacyDisplayLength(): void
+    {
+        // Arrange — modern `draw` but only the legacy length param is present.
+        $this->setPost([
+            'draw'           => '1',
+            'iDisplayStart'  => '0',
+            'iDisplayLength' => '-1',
+            'search'         => ['value' => ''],
+        ]);
+        $ds = new Datasource();
+        $ds->maxlimit = '2';
+
+        // Act
+        $result = $ds->render('ds_items', ['id', 'name'], false, '', '', false);
+
+        // Assert — legacy iDisplayLength=-1 honoured → all rows.
+        $this->assertCount(4, $result['data'],
+            'modern path must fall back to legacy iDisplayLength=-1 → all rows');
+    }
+
+    /**
+     * With no length param at all under the modern format, render() must still
+     * cap at maxlimit (the safety default) — proving the -1/fallback handling
+     * did not remove the bound for ordinary requests.
+     */
+    public function testRenderModernDtDefaultsToMaxlimitWhenNoLength(): void
+    {
+        // Arrange — modern request with no length/iDisplayLength, maxlimit=2.
+        $this->setPost([
+            'draw'   => '1',
+            'start'  => '0',
+            'search' => ['value' => ''],
+        ]);
+        $ds = new Datasource();
+        $ds->maxlimit = '2';
+
+        // Act
+        $result = $ds->render('ds_items', ['id', 'name'], false, '', '', false);
+
+        // Assert — capped at maxlimit.
+        $this->assertCount(2, $result['data'],
+            'modern request without a length must fall back to maxlimit');
+    }
+
+    /**
      * render() with modern DT params and encode=true must return a JSON string
      * containing the modern DataTables response shape.
      *
