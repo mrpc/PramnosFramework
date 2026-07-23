@@ -1409,16 +1409,10 @@ class Model extends \Pramnos\Framework\Base
                     $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
                 );
             } catch (\Exception $ex) {
-                return array(
-                    'error' => 'Database query failed: ' . $ex->getMessage(),
-                    'data' => array(),
-                    'pagination' => null,
-                    'fields' => $returnedFields,
-                    'debug' => array(
-                        'filter' => $finalFilter,
-                        'order' => $validatedOrder,
-                        'selectFields' => $selectFields
-                    )
+                return \Pramnos\Application\ApiList\ApiListResponse::error(
+                    'Database query failed: ' . $ex->getMessage(),
+                    $returnedFields,
+                    array('filter' => $finalFilter, 'order' => $validatedOrder, 'selectFields' => $selectFields)
                 );
             }
 
@@ -1441,22 +1435,10 @@ class Model extends \Pramnos\Framework\Base
             
 
 
-            $standardResponse = array(
-                'data' => $result['items'],
-                'pagination' => array(
-                    'currentpage' => $page,
-                    'itemsperpage' => $itemsPerPage,
-                    'totalitems' => $result['total'],
-                    'totalpages' => $result['pages'],
-                    'hasnext' => $page < $result['pages'],
-                    'hasprevious' => $page > 1
-                ),
-                'fields' => $returnedFields,
-                'debug' => array(
-                    'filter' => $finalFilter,
-                    'order' => $validatedOrder,
-                    'selectFields' => $selectFields
-                )
+            $standardResponse = \Pramnos\Application\ApiList\ApiListResponse::paginated(
+                $result['items'], $page, $itemsPerPage, $result['total'], $result['pages'],
+                $returnedFields,
+                array('filter' => $finalFilter, 'order' => $validatedOrder, 'selectFields' => $selectFields)
             );
 
             if ($format === 'datatables') {
@@ -1474,11 +1456,8 @@ class Model extends \Pramnos\Framework\Base
                         $table, $key, $join, $selectFields, $group, $addedfields
                     )
                     : $recordsFiltered;
-                return array(
-                    'draw'            => (int)($_REQUEST['draw'] ?? 0),
-                    'data'            => $standardResponse['data'] ?? [],
-                    'recordsTotal'    => $recordsTotal,
-                    'recordsFiltered' => $recordsFiltered,
+                return \Pramnos\Application\ApiList\ApiListResponse::datatables(
+                    $standardResponse['data'] ?? [], $recordsTotal, $recordsFiltered
                 );
             }
 
@@ -1492,16 +1471,10 @@ class Model extends \Pramnos\Framework\Base
                 $customGetListMethod, $addedfields
             );
             if (empty($result) && $this->sqlError) {
-                return array(
-                    'error' => $this->sqlError,
-                    'data' => array(),
-                    'pagination' => null,
-                    'fields' => $returnedFields,
-                    'debug' => array(
-                        'filter' => $finalFilter,
-                        'order' => $validatedOrder,
-                        'selectFields' => $selectFields
-                    )
+                return \Pramnos\Application\ApiList\ApiListResponse::error(
+                    $this->sqlError,
+                    $returnedFields,
+                    array('filter' => $finalFilter, 'order' => $validatedOrder, 'selectFields' => $selectFields)
                 );
             }
             
@@ -1517,15 +1490,9 @@ class Model extends \Pramnos\Framework\Base
             }
             
             // Format response for API without pagination
-            $standardResponse = array(
-                'data' => $result,
-                'pagination' => null,
-                'fields' => $returnedFields,
-                'debug' => array(
-                    'filter' => $finalFilter,
-                    'order' => $validatedOrder,
-                    'selectFields' => $selectFields
-                )
+            $standardResponse = \Pramnos\Application\ApiList\ApiListResponse::unpaginated(
+                $result, $returnedFields,
+                array('filter' => $finalFilter, 'order' => $validatedOrder, 'selectFields' => $selectFields)
             );
 
             if ($format === 'datatables') {
