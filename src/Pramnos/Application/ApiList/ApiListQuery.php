@@ -79,9 +79,10 @@ final class ApiListQuery
         }
 
         $availableFields = $source->apiListSchemaFields($join);
-        // Get all available fields if none specified
+        // Default to the source's default field set when none were specified
+        // (a source may curate this to a safe subset of its full schema).
         if (empty($fields)) {
-            $fields = $availableFields;
+            $fields = $source->apiListDefaultFields($join);
         }
 
         // Validate and sanitize fields
@@ -107,7 +108,7 @@ final class ApiListQuery
         }
 
         if (empty($validFields)) {
-            $validFields = $availableFields;
+            $validFields = $source->apiListDefaultFields($join);
         }
 
         $returnedFields = array();
