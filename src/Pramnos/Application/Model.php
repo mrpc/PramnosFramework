@@ -5,7 +5,7 @@ namespace Pramnos\Application;
  * @author       Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @license    MIT
  */
-class Model extends \Pramnos\Framework\Base
+class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiList\ApiListSource
 {
     /**
      * Model name
@@ -1288,235 +1288,102 @@ class Model extends \Pramnos\Framework\Base
         $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, $useGetData = false,
         $customGetListMethod = false, $addedfields = false, $format = '')
     {
-        // Handle unified search parameter
-        $globalSearch = '';
-        $fieldSearches = array();
-        
-        if (is_string($search)) {
-            // Check if the string is a JSON object with field-specific searches
-            $decodedSearch = json_decode(urldecode($search), true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decodedSearch)) {
-                $fieldSearches = $decodedSearch;
-            } else {
-                $globalSearch = $search;
-            }
-        } elseif (is_array($search)) {
-            $fieldSearches = $search;
-        }
+        // Delegates to the shared list-query engine; Model satisfies ApiListSource
+        // (see the apiList* methods below). Behaviour is unchanged — the former
+        // in-line orchestration now lives in ApiListQuery so User can share it.
+        return \Pramnos\Application\ApiList\ApiListQuery::run(
+            $this, $fields, $search, $order, $filter, $join, $group, $table, $key,
+            $page, $itemsPerPage, $debug, $returnAsModels, $useGetData,
+            $customGetListMethod, $addedfields, $format
+        );
+    }
 
-        if (is_string($fields) && trim($fields) != '') {
-            // check if it's a json array
-            $decodedFields = json_decode(urldecode($fields), true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decodedFields)) {
-                $fields = $decodedFields;
-            } else {
-                // If not JSON, assume it's a comma-separated string
-                $fields = array_map('trim', explode(',', $fields));
-            }
-        } 
-        
-        $availableFields = $this->_getAllTableFields($join);
-        // Get all available fields if none specified
-        if (empty($fields)) {
-            $fields = $availableFields;
-        }
-        
-        // Validate and sanitize fields
-        
-        $validFields = array();
-        foreach ($fields as $field) {
-            $field = trim($field);
-            if (!empty($field)) {
-                if (in_array($field, $availableFields)) {
-                    $validFields[] = $field;
-                } else {
-                    // Try to find the field matching ignoring table prefix (alias)
-                    foreach ($availableFields as $avail) {
-                        if (strpos($avail, '.') !== false) {
-                            $unprefixed = substr($avail, strpos($avail, '.') + 1);
-                            if ($unprefixed === $field) {
-                                $validFields[] = $avail;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        if (empty($validFields)) {
-            $validFields = $availableFields;
+    // ── ApiListSource — expose list internals to the shared ApiListQuery engine ──
 
-            
+    /**
+     * {@inheritDoc}
+     * @param string $join
+     * @return array
+     */
+    public function apiListSchemaFields($join = ''): array
+    {
+        return $this->_getAllTableFields($join);
+    }
 
+    /**
+     * {@inheritDoc}
+     * @return string
+     */
+    public function apiListPrimaryKey(): string
+    {
+        return $this->_primaryKey;
+    }
 
-        }
+    /**
+     * {@inheritDoc}
+     * @return string
+     */
+    public function apiListSearchConditions(array $validFields, $globalSearch, array $fieldSearches, $join): string
+    {
+        return $this->_buildSearchConditions($validFields, $globalSearch, $fieldSearches, $join);
+    }
 
-        $returnedFields = array();
+    /**
+     * {@inheritDoc}
+     * @return array
+     */
+    public function apiListPaginate(
+        $itemsPerPage, $page, $filter, $order, $table, $key, $debug,
+        $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
+    ): array {
+        return $this->_getPaginated(
+            $itemsPerPage, $page, $filter, $order, $table, $key, $debug,
+            $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
+        );
+    }
 
-        // remove table prefixes from validFields
-        foreach ($validFields as $field) {
-            if (strpos($field, '.') !== false) {
-                $returnedFields[substr($field, strpos($field, '.') + 1)] = substr($field, strpos($field, '.') + 1);
-            } else {
-                $returnedFields[$field] = $field;
-            }
-        }
-        $returnedFields = array_values($returnedFields);
-        
-        // Always ensure primary key is included
-        if ($key !== null && $key != "") {
-            $primaryKey = $key;
-        } else {
-            $primaryKey = $this->_primaryKey;
-        }
-        
-        if (!in_array($primaryKey, $validFields)) {
-            array_unshift($validFields, $primaryKey);
-        }
-        
-        // Build field selection for query
-        $selectFields = $this->_buildSelectFields($validFields, $join);
-        
-        // Build search conditions
-        $searchConditions = $this->_buildSearchConditions($validFields, $globalSearch, $fieldSearches, $join);
+    /**
+     * {@inheritDoc} Hardcodes the legacy $displayerroroutput flag to false so a
+     * fetch error surfaces through {@see self::apiListLastError()} (sqlError)
+     * rather than being echoed — matching the previous _getApiList() behaviour.
+     * @return mixed
+     */
+    public function apiListFetchAll(
+        $filter, $order, $table, $key, $debug,
+        $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
+    ) {
+        return $this->_getList(
+            $filter, $order, $table, $key, $debug,
+            $join, $selectFields, $group, $returnAsModels, $useGetData, false,
+            $customGetListMethod, $addedfields
+        );
+    }
 
-        // Validate and build order clause
-        $validatedOrder = $this->_validateAndBuildOrder($order, $validFields, $join);
+    /**
+     * {@inheritDoc}
+     * @return array
+     */
+    public function apiListProcessRow(array $row, $join): array
+    {
+        return $this->_processJsonFields($row, $join);
+    }
 
-        // If $filter is an array, build a safe SQL fragment from structured conditions.
-        // Each entry: ['field' => 'name', 'op' => '=', 'value' => 'x']
-        // Operators without a value: IS NULL, IS NOT NULL
-        // For IN / NOT IN, value must be an array.
-        // Unknown fields are silently skipped.
-        // If $filter is a string it is passed through as-is (backward compatible).
-        if (is_array($filter)) {
-            $filter = $this->_buildFilterFromConditions($filter, $availableFields, $join);
-        }
+    /**
+     * {@inheritDoc}
+     * @return mixed
+     */
+    public function apiListLastError()
+    {
+        return $this->sqlError;
+    }
 
-        // Combine filter and search conditions.
-        // _combineFilters returns '' when both inputs are empty, or 'where ...' otherwise.
-        // The leading space was historically added here but caused empty WHERE clauses
-        // ('WHERE ') when the filter was empty, which is a MySQL syntax error.
-        $finalFilter = $this->_combineFilters($filter, $searchConditions);
-        
-        // Check if pagination is requested
-        if ($page > 0) {
-
-            try {
-                $result = $this->_getPaginated(
-                    $itemsPerPage, $page, $finalFilter, $validatedOrder, $table, $key, $debug,
-                    $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
-                );
-            } catch (\Exception $ex) {
-                return \Pramnos\Application\ApiList\ApiListResponse::error(
-                    'Database query failed: ' . $ex->getMessage(),
-                    $returnedFields,
-                    array('filter' => $finalFilter, 'order' => $validatedOrder, 'selectFields' => $selectFields)
-                );
-            }
-
-            // Get paginated results
-            
-            
-            // Format response for API with pagination
-
-            
-            if (isset($result['items']) && is_array($result['items'])) {
-                $result['items'] = array_values($result['items']);
-                
-                // Process JSON fields for each item
-                foreach ($result['items'] as $index => $item) {
-                    if (is_array($item)) {
-                        $result['items'][$index] = $this->_processJsonFields($item, $join);
-                    }
-                }
-            }
-            
-
-
-            $standardResponse = \Pramnos\Application\ApiList\ApiListResponse::paginated(
-                $result['items'], $page, $itemsPerPage, $result['total'], $result['pages'],
-                $returnedFields,
-                array('filter' => $finalFilter, 'order' => $validatedOrder, 'selectFields' => $selectFields)
-            );
-
-            if ($format === 'datatables') {
-                // DataTables distinguishes the grand total (recordsTotal, the
-                // count BEFORE the search box) from the filtered total
-                // (recordsFiltered, AFTER it). $result['total'] was counted with
-                // filter + search, so it IS recordsFiltered. recordsTotal must
-                // exclude the search — recompute it from the base $filter only.
-                // When no search is active the two are identical, so skip the
-                // extra query.
-                $recordsFiltered = (int) $result['total'];
-                $recordsTotal    = $searchConditions !== ''
-                    ? $this->_datatablesRecordsTotal(
-                        $this->_combineFilters($filter, ''),
-                        $table, $key, $join, $selectFields, $group, $addedfields
-                    )
-                    : $recordsFiltered;
-                return \Pramnos\Application\ApiList\ApiListResponse::datatables(
-                    $standardResponse['data'] ?? [], $recordsTotal, $recordsFiltered
-                );
-            }
-
-            return $standardResponse;
-        } else {
-            // Get all results without pagination
-            
-            $result = $this->_getList(
-                $finalFilter, $validatedOrder, $table, $key, $debug,
-                $join, $selectFields, $group, $returnAsModels, $useGetData, false,
-                $customGetListMethod, $addedfields
-            );
-            if (empty($result) && $this->sqlError) {
-                return \Pramnos\Application\ApiList\ApiListResponse::error(
-                    $this->sqlError,
-                    $returnedFields,
-                    array('filter' => $finalFilter, 'order' => $validatedOrder, 'selectFields' => $selectFields)
-                );
-            }
-            
-            if (isset($result) && is_array($result)) {
-                $result = array_values($result);
-                
-                // Process JSON fields for each item
-                foreach ($result as $index => $item) {
-                    if (is_array($item)) {
-                        $result[$index] = $this->_processJsonFields($item, $join);
-                    }
-                }
-            }
-            
-            // Format response for API without pagination
-            $standardResponse = \Pramnos\Application\ApiList\ApiListResponse::unpaginated(
-                $result, $returnedFields,
-                array('filter' => $finalFilter, 'order' => $validatedOrder, 'selectFields' => $selectFields)
-            );
-
-            if ($format === 'datatables') {
-                $data = $standardResponse['data'] ?? [];
-                // Unpaginated: $data holds every row matching filter + search, so
-                // its count is recordsFiltered. recordsTotal excludes the search
-                // (base $filter only); identical when no search is active.
-                $recordsFiltered = is_array($data) ? count($data) : 0;
-                $recordsTotal    = $searchConditions !== ''
-                    ? $this->_datatablesRecordsTotal(
-                        $this->_combineFilters($filter, ''),
-                        $table, $key, $join, $selectFields, $group, $addedfields
-                    )
-                    : $recordsFiltered;
-                return array(
-                    'draw'            => (int)($_REQUEST['draw'] ?? 0),
-                    'data'            => is_array($data) ? $data : [],
-                    'recordsTotal'    => $recordsTotal,
-                    'recordsFiltered' => $recordsFiltered,
-                );
-            }
-
-            return $standardResponse;
-        }
+    /**
+     * {@inheritDoc}
+     * @return int
+     */
+    public function apiListRecordsTotal($baseFilter, $table, $key, $join, $selectFields, $group, $addedfields): int
+    {
+        return $this->_datatablesRecordsTotal($baseFilter, $table, $key, $join, $selectFields, $group, $addedfields);
     }
 
     /**
