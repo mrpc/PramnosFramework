@@ -1311,6 +1311,17 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     }
 
     /**
+     * {@inheritDoc} A generic model has no curated subset — its default is its
+     * full schema, exactly as the pre-extraction _getApiList() behaved.
+     * @param string $join
+     * @return array
+     */
+    public function apiListDefaultFields($join = ''): array
+    {
+        return $this->_getAllTableFields($join);
+    }
+
+    /**
      * {@inheritDoc}
      * @return string
      */

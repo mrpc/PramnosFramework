@@ -7,7 +7,7 @@ namespace Pramnos\User;
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @license    MIT
  */
-class User extends \Pramnos\Framework\Base
+class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiList\ApiListSource
 {
 
     private $_userstable = null;
@@ -1345,57 +1345,51 @@ class User extends \Pramnos\Framework\Base
     /**
      * Return an API-formatted, paginated list of users.
      *
-     * Drop-in equivalent of {@see \Pramnos\Application\Model::_getApiList()} for
-     * the framework User class. User extends {@see \Pramnos\Framework\Base}, not
-     * \Pramnos\Application\Model, so it does not inherit that method — yet the
-     * generated-CRUD `fkOptions()` AJAX endpoint expects every related model to
-     * expose `_getApiList()` so foreign-key dropdowns share one search/paging
-     * pipeline. This method lets a User foreign key flow through that same
-     * generic path (no special-casing in the generated controller).
+     * Signature-compatible with {@see \Pramnos\Application\Model::_getApiList()}
+     * so a User foreign key flows through the generated-CRUD `fkOptions()` AJAX
+     * endpoint with no special-casing. User extends {@see \Pramnos\Framework\Base},
+     * not \Pramnos\Application\Model, so it cannot inherit that method — instead it
+     * implements {@see \Pramnos\Application\ApiList\ApiListSource} and delegates to
+     * the shared {@see \Pramnos\Application\ApiList\ApiListQuery} engine (see the
+     * apiList* methods below), sharing one search/paging/format pipeline rather
+     * than a parallel copy.
      *
-     * Implemented directly on the `users` table via the QueryBuilder, mirroring
-     * {@see getUsers()}.
+     * Behaviour on the flat `users` table:
+     *  - $fields       array | comma-string | JSON-string; validated against the
+     *                  real users schema, unknowns dropped. When none are given it
+     *                  defaults to the curated userid/username/email set (never the
+     *                  whole schema — the password column is not exposed by
+     *                  default). The primary key `userid` is always included.
+     *  - $search       case-insensitive search across username + email (ILIKE on
+     *                  PostgreSQL, LIKE on MySQL).
+     *  - $order        the engine's order syntax (`field`, `+field`, `-field`,
+     *                  `field ASC|DESC`, comma-separated); defaults to userid DESC.
+     *  - $filter       a raw WHERE fragment (or structured array), now applied to
+     *                  the users query (previously ignored).
+     *  - $page/$itemsPerPage  pagination; $page <= 0 returns all rows.
+     *  - $format       '' → {data, pagination, fields}; 'datatables' →
+     *                  {draw, data, recordsTotal, recordsFiltered}.
      *
-     * SUPPORTED parameters:
-     *  - $fields       array | comma-string | JSON-string of column names.
-     *                  Validated against the real `users` schema; unknown columns
-     *                  are silently dropped. Defaults to userid, username, email.
-     *                  The primary key `userid` is always included.
-     *  - $search       string → case-insensitive LIKE across username + email
-     *                  (ILIKE on PostgreSQL, LIKE on MySQL). Empty string = no
-     *                  search.
-     *  - $order        "field dir" string; `field` must be a real column and
-     *                  `dir` is normalised to asc|desc. Invalid input is ignored.
-     *  - $page         1-based page number. `<= 0` means "no pagination": all
-     *                  matching rows are returned with `pagination => null`
-     *                  (mirrors Model).
-     *  - $itemsPerPage page size when paginating.
-     *  - $format       '' (default) → {data, pagination, fields} envelope.
-     *                  'datatables' → {draw, data, recordsTotal, recordsFiltered}
-     *                  exactly like Model.
+     * NOT USED by the flat users source (accepted for signature compatibility):
+     * $join, $group, $table, $key, $debug, $returnAsModels, $useGetData,
+     * $customGetListMethod, $addedfields.
      *
-     * IGNORED parameters (accepted only so this is signature-compatible with
-     * Model::_getApiList() and therefore a true drop-in). They do not apply to
-     * the flat users table and have no effect: $filter, $join, $group, $table,
-     * $key, $debug, $returnAsModels, $useGetData, $customGetListMethod,
-     * $addedfields.
-     *
-     * @param array|string  $fields             Field selection (see above).
-     * @param string|array  $search             Case-insensitive search term.
-     * @param string        $order              "field dir" order clause.
-     * @param string|array  $filter             Ignored (BC signature only).
-     * @param string        $join               Ignored (BC signature only).
-     * @param string        $group              Ignored (BC signature only).
-     * @param string|null   $table              Ignored (BC signature only).
-     * @param string|null   $key                Ignored (BC signature only).
-     * @param int           $page               1-based page (0 = no pagination).
-     * @param int           $itemsPerPage       Page size when paginating.
-     * @param bool          $debug              Ignored (BC signature only).
-     * @param bool          $returnAsModels     Ignored (BC signature only).
-     * @param bool          $useGetData         Ignored (BC signature only).
-     * @param mixed         $customGetListMethod Ignored (BC signature only).
-     * @param array|bool    $addedfields        Ignored (BC signature only).
-     * @param string        $format             '' or 'datatables'.
+     * @param array|string  $fields
+     * @param string|array  $search
+     * @param string        $order
+     * @param string|array  $filter
+     * @param string        $join
+     * @param string        $group
+     * @param string|null   $table
+     * @param string|null   $key
+     * @param int           $page
+     * @param int           $itemsPerPage
+     * @param bool          $debug
+     * @param bool          $returnAsModels
+     * @param bool          $useGetData
+     * @param mixed         $customGetListMethod
+     * @param array|bool    $addedfields
+     * @param string        $format
      * @return array API response envelope (shape depends on $format).
      */
     public function _getApiList($fields = array(), $search = '',
@@ -1405,173 +1399,219 @@ class User extends \Pramnos\Framework\Base
         $useGetData = false, $customGetListMethod = false, $addedfields = false,
         $format = '')
     {
+        // Drop-in equivalent of Model::_getApiList(): User is not a Model, so it
+        // cannot inherit it, but by implementing ApiListSource it shares the same
+        // ApiListQuery engine (search/paging/format/recordsTotal) instead of a
+        // parallel copy. Its flat users-table data access lives in the apiList*
+        // methods below. Note this now honours $filter (raw WHERE) — the generated
+        // FK picker passes none, so that path is unchanged.
+        return \Pramnos\Application\ApiList\ApiListQuery::run(
+            $this, $fields, $search, $order, $filter, $join, $group, $table, $key,
+            $page, $itemsPerPage, $debug, $returnAsModels, $useGetData,
+            $customGetListMethod, $addedfields, $format
+        );
+    }
+
+    // ── ApiListSource — flat users-table implementation ──────────────────────
+
+    /**
+     * {@inheritDoc} The full users schema (validation allowlist).
+     * @param string $join
+     * @return array
+     */
+    public function apiListSchemaFields($join = ''): array
+    {
+        return $this->_getUsersTableColumns(\Pramnos\Framework\Factory::getDatabase());
+    }
+
+    /**
+     * {@inheritDoc} A curated, safe subset for a user picker — never the whole
+     * schema (which includes the password hash). Intersected with the real
+     * columns so it works even on a reduced users table.
+     * @param string $join
+     * @return array
+     */
+    public function apiListDefaultFields($join = ''): array
+    {
+        $schema = $this->_getUsersTableColumns(\Pramnos\Framework\Factory::getDatabase());
+        $curated = array_values(array_intersect(array('userid', 'username', 'email'), $schema));
+        return empty($curated) ? $schema : $curated;
+    }
+
+    /**
+     * {@inheritDoc}
+     * @return string
+     */
+    public function apiListPrimaryKey(): string
+    {
+        return 'userid';
+    }
+
+    /**
+     * {@inheritDoc} Case-insensitive search across username + email only
+     * (ILIKE on PostgreSQL, LIKE on MySQL). Per-field searches and the field
+     * list are ignored — the users picker searches those two columns. Returns a
+     * raw WHERE body (no WHERE keyword), or '' when there is nothing to search.
+     * @return string
+     */
+    public function apiListSearchConditions(array $validFields, $globalSearch, array $fieldSearches, $join): string
+    {
+        $term = is_string($globalSearch) ? trim($globalSearch) : '';
+        if ($term === '') {
+            return '';
+        }
         $database = \Pramnos\Framework\Factory::getDatabase();
-
-        // Resolve the real columns of the users table (schema-validated).
-        $availableFields = $this->_getUsersTableColumns($database);
-
-        // Normalise $fields: JSON string, CSV string, or array → array.
-        if (is_string($fields) && trim($fields) !== '') {
-            $decoded = json_decode(urldecode($fields), true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $fields = $decoded;
-            } else {
-                $fields = array_map('trim', explode(',', $fields));
-            }
-        }
-        if (!is_array($fields) || empty($fields)) {
-            // Sensible default set for a user picker.
-            $fields = array('userid', 'username', 'email');
-        }
-
-        // Validate requested fields against real columns; drop unknowns + dupes.
-        $validFields = array();
-        foreach ($fields as $field) {
-            $field = trim((string) $field);
-            if ($field !== ''
-                && in_array($field, $availableFields, true)
-                && !in_array($field, $validFields, true)) {
-                $validFields[] = $field;
-            }
-        }
-        if (empty($validFields)) {
-            // Nothing requested was valid — fall back to the default set,
-            // intersected with what actually exists.
-            $validFields = array_values(
-                array_intersect(
-                    array('userid', 'username', 'email'), $availableFields
-                )
-            );
-            if (empty($validFields)) {
-                $validFields = $availableFields;
-            }
-        }
-        // Always include the primary key (userid).
-        if (!in_array('userid', $validFields, true)) {
-            array_unshift($validFields, 'userid');
-        }
-        $returnedFields = array_values($validFields);
-
-        // Case-insensitive search across username + email (whichever exist).
-        $searchTerm = is_string($search) ? trim($search) : '';
         $searchable = array_values(
-            array_intersect(array('username', 'email'), $availableFields)
+            array_intersect(array('username', 'email'), $this->_getUsersTableColumns($database))
         );
+        if (empty($searchable)) {
+            return '';
+        }
         $likeOp = ($database->type === 'postgresql') ? 'ILIKE' : 'LIKE';
+        $q      = ($database->type === 'postgresql') ? '"' : '`';
+        $escaped = $database->prepareInput($term);
+        $parts = array();
+        foreach ($searchable as $col) {
+            $parts[] = $q . $col . $q . ' ' . $likeOp . " '%" . $escaped . "%'";
+        }
+        return '(' . implode(' OR ', $parts) . ')';
+    }
 
-        // Validate the "field dir" order clause against the real columns.
-        $orderField = '';
-        $orderDir   = 'asc';
-        if (is_string($order) && trim($order) !== '') {
-            $parts = preg_split('/\s+/', trim($order));
-            $candidateField = $parts[0] ?? '';
-            $candidateDir   = strtolower($parts[1] ?? 'asc');
-            if (in_array($candidateField, $availableFields, true)) {
-                $orderField = $candidateField;
-                $orderDir   = ($candidateDir === 'desc') ? 'desc' : 'asc';
+    /**
+     * {@inheritDoc} One page of users plus total/pages, applying the engine's
+     * raw SELECT/WHERE/ORDER fragments to the flat users table.
+     * @return array
+     */
+    public function apiListPaginate(
+        $itemsPerPage, $page, $filter, $order, $table, $key, $debug,
+        $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
+    ): array {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $where = $this->apiListUsersWhere($filter);
+
+        $countQb = $database->queryBuilder()->table('users');
+        if ($where !== '') {
+            $countQb->whereRaw($where);
+        }
+        $total = (int) $countQb->count();
+        $pages = $itemsPerPage > 0 ? (int) ceil($total / $itemsPerPage) : 0;
+
+        $qb = $database->queryBuilder()->table('users')->select($selectFields);
+        if ($where !== '') {
+            $qb->whereRaw($where);
+        }
+        $orderBy = $this->apiListUsersOrder($order);
+        if ($orderBy !== '') {
+            $qb->orderByRaw($orderBy);
+        }
+        $qb->limit((int) $itemsPerPage)->offset(((int) $page - 1) * (int) $itemsPerPage);
+
+        return array('total' => $total, 'pages' => $pages, 'items' => $this->apiListFetchItems($qb));
+    }
+
+    /**
+     * {@inheritDoc} Every matching user (no pagination).
+     * @return array
+     */
+    public function apiListFetchAll(
+        $filter, $order, $table, $key, $debug,
+        $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
+    ) {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $qb = $database->queryBuilder()->table('users')->select($selectFields);
+        $where = $this->apiListUsersWhere($filter);
+        if ($where !== '') {
+            $qb->whereRaw($where);
+        }
+        $orderBy = $this->apiListUsersOrder($order);
+        if ($orderBy !== '') {
+            $qb->orderByRaw($orderBy);
+        }
+        return $this->apiListFetchItems($qb);
+    }
+
+    /**
+     * {@inheritDoc} The users table carries no JSON columns the picker needs
+     * decoded, so rows pass through unchanged.
+     * @return array
+     */
+    public function apiListProcessRow(array $row, $join): array
+    {
+        return $row;
+    }
+
+    /**
+     * {@inheritDoc} The flat fetch never records a query error separately.
+     * @return mixed
+     */
+    public function apiListLastError()
+    {
+        return null;
+    }
+
+    /**
+     * {@inheritDoc} Grand total (before the search box) — all users matching any
+     * base $filter. The users picker passes no base filter, so this counts every
+     * user.
+     * @return int
+     */
+    public function apiListRecordsTotal($baseFilter, $table, $key, $join, $selectFields, $group, $addedfields): int
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $qb = $database->queryBuilder()->table('users');
+        $where = $this->apiListUsersWhere($baseFilter);
+        if ($where !== '') {
+            $qb->whereRaw($where);
+        }
+        return (int) $qb->count();
+    }
+
+    /**
+     * Normalise the engine's combined filter ("where ...") into a raw WHERE body
+     * for whereRaw(), or '' when empty.
+     * @param mixed $filter
+     * @return string
+     */
+    private function apiListUsersWhere($filter): string
+    {
+        $filter = is_string($filter) ? trim($filter) : '';
+        if ($filter === '') {
+            return '';
+        }
+        return \Pramnos\Application\ApiList\ApiListSqlBuilder::stripSqlKeyword($filter, 'WHERE');
+    }
+
+    /**
+     * Normalise the engine's validated order ("ORDER BY ...") into a raw ORDER
+     * body for orderByRaw(), or '' when empty.
+     * @param mixed $order
+     * @return string
+     */
+    private function apiListUsersOrder($order): string
+    {
+        $order = is_string($order) ? trim($order) : '';
+        if ($order === '') {
+            return '';
+        }
+        return \Pramnos\Application\ApiList\ApiListSqlBuilder::stripSqlKeyword($order, 'ORDER BY');
+    }
+
+    /**
+     * Fetch every row of a prepared users query as an assoc array of its selected
+     * columns.
+     * @param mixed $qb A prepared QueryBuilder.
+     * @return array
+     */
+    private function apiListFetchItems($qb): array
+    {
+        $items = array();
+        $result = $qb->get();
+        if ($result) {
+            while ($result->fetch()) {
+                $items[] = $result->fields;
             }
         }
-
-        // Shared WHERE builder so COUNT and SELECT use identical conditions.
-        $applyWhere = function ($qb) use ($searchTerm, $searchable, $likeOp) {
-            if ($searchTerm !== '' && !empty($searchable)) {
-                $qb->where(
-                    function ($q) use ($searchTerm, $searchable, $likeOp) {
-                        $first = true;
-                        foreach ($searchable as $col) {
-                            if ($first) {
-                                $q->where(
-                                    $col, $likeOp, '%' . $searchTerm . '%'
-                                );
-                                $first = false;
-                            } else {
-                                $q->orWhere(
-                                    $col, $likeOp, '%' . $searchTerm . '%'
-                                );
-                            }
-                        }
-                    }
-                );
-            }
-            return $qb;
-        };
-
-        // Row fetcher: return each row as an assoc array of the selected fields.
-        $fetchRows = function ($qb) use ($validFields) {
-            $rows = array();
-            $result = $qb->get();
-            if ($result) {
-                while ($result->fetch()) {
-                    $row = array();
-                    foreach ($validFields as $f) {
-                        $row[$f] = $result->fields[$f] ?? null;
-                    }
-                    $rows[] = $row;
-                }
-            }
-            return $rows;
-        };
-
-        if ($page > 0) {
-            // Total (filtered) count for pagination metadata.
-            $countQb = $database->queryBuilder()->table('users');
-            $applyWhere($countQb);
-            $total = (int) $countQb->count();
-            $pages = $itemsPerPage > 0
-                ? (int) ceil($total / $itemsPerPage)
-                : 0;
-
-            $qb = $database->queryBuilder()
-                ->table('users')
-                ->select($validFields);
-            $applyWhere($qb);
-            if ($orderField !== '') {
-                $qb->orderBy($orderField, $orderDir);
-            }
-            $qb->limit($itemsPerPage)->offset(($page - 1) * $itemsPerPage);
-            $data = $fetchRows($qb);
-
-            $standardResponse = \Pramnos\Application\ApiList\ApiListResponse::paginated(
-                $data, $page, $itemsPerPage, $total, $pages, $returnedFields
-            );
-
-            if ($format === 'datatables') {
-                // $total was counted WITH the search, so it is recordsFiltered.
-                // recordsTotal is the grand total BEFORE the search box — all
-                // users — recomputed only when a search actually narrowed it.
-                $recordsTotal = ($searchTerm !== '' && !empty($searchable))
-                    ? (int) $database->queryBuilder()->table('users')->count()
-                    : $total;
-                return \Pramnos\Application\ApiList\ApiListResponse::datatables(
-                    $standardResponse['data'], $recordsTotal, $total
-                );
-            }
-            return $standardResponse;
-        }
-
-        // No pagination: return every matching row (pagination => null).
-        $qb = $database->queryBuilder()->table('users')->select($validFields);
-        $applyWhere($qb);
-        if ($orderField !== '') {
-            $qb->orderBy($orderField, $orderDir);
-        }
-        $data = $fetchRows($qb);
-
-        $standardResponse = \Pramnos\Application\ApiList\ApiListResponse::unpaginated(
-            $data, $returnedFields
-        );
-
-        if ($format === 'datatables') {
-            // Unpaginated: count($data) is the search-filtered total
-            // (recordsFiltered). recordsTotal is all users, before the search.
-            $recordsTotal = ($searchTerm !== '' && !empty($searchable))
-                ? (int) $database->queryBuilder()->table('users')->count()
-                : count($data);
-            return \Pramnos\Application\ApiList\ApiListResponse::datatables(
-                $data, $recordsTotal, count($data)
-            );
-        }
-        return $standardResponse;
+        return $items;
     }
 
     /**

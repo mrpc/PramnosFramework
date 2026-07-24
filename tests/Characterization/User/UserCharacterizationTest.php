@@ -539,4 +539,39 @@ class UserCharacterizationTest extends TestCase
             }
         }
     }
+
+    /**
+     * _getApiList() with NO fields requested must default to a curated, safe
+     * column set (userid, username, email) and must NEVER expose sensitive
+     * columns such as `password` just because the caller passed none. This is
+     * the security-relevant default the foreign-key picker relies on (it calls
+     * with an empty field list); locking it guards against a future change that
+     * would dump every users column by default.
+     */
+    public function testGetApiListDefaultFieldsAreCuratedAndExcludePassword(): void
+    {
+        // Arrange — a user with a known password so a leak would be visible.
+        $token = 'deffld' . bin2hex(random_bytes(4));
+        $u = new User();
+        $u->username = $token;
+        $u->email    = $token . '@example.com';
+        $u->setPassword('S3cr3t!pass');
+        $u->save();
+        $probe = new User();
+
+        try {
+            // Act — empty field list, narrowed to our user so a row is guaranteed.
+            $result = $probe->_getApiList([], $token, '', '', '', '', null, null, 1, 10);
+
+            // Assert — one row, keys are the curated set, password absent.
+            $this->assertNotEmpty($result['data'], 'the seeded user must be returned');
+            $row = $result['data'][0];
+            $this->assertArrayHasKey('userid', $row);
+            $this->assertArrayHasKey('username', $row);
+            $this->assertArrayHasKey('email', $row);
+            $this->assertArrayNotHasKey('password', $row, 'default fields must never expose the password column');
+        } finally {
+            $u->deleteuser();
+        }
+    }
 }

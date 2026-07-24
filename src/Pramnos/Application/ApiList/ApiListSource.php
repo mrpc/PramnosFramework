@@ -34,6 +34,19 @@ interface ApiListSource
     public function apiListSchemaFields($join = ''): array;
 
     /**
+     * The field list to use when the caller requested none (or only invalid
+     * ones). Separate from {@see self::apiListSchemaFields()} so a source can
+     * validate against its full schema yet default to a safe/curated subset —
+     * e.g. a user picker defaults to id/username/email and never dumps every
+     * column (including sensitive ones) just because no fields were requested.
+     * A source with no such distinction returns the same as its schema.
+     *
+     * @param string $join The JOIN clause.
+     * @return array
+     */
+    public function apiListDefaultFields($join = ''): array;
+
+    /**
      * The primary-key column name (used to force-include the PK and as the
      * default order key).
      *
