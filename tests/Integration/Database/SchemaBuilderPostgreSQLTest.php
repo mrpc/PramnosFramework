@@ -412,6 +412,38 @@ class SchemaBuilderPostgreSQLTest extends TestCase
             'apostrophe in table comment must be stored correctly');
     }
 
+    /**
+     * A column added to an EXISTING table via table()/alter must also receive its
+     * COMMENT ON COLUMN. The alter path previously dropped comments (they were
+     * emitted only by createTable), so a documented column added by a migration
+     * lost its comment. Regression for the fix in SchemaGrammar::compileAlter().
+     */
+    public function testAlterAddColumnAppliesComment(): void
+    {
+        // Arrange — an existing table without the column
+        $this->schema->createTable('sb_types', function ($t) {
+            $t->increments('id');
+        });
+
+        // Act — add a documented column via alter mode
+        $this->schema->table('sb_types', function ($t) {
+            $t->string('note', 200)->nullable()->comment('Free-text note.');
+        });
+
+        // Assert — the added column carries its comment
+        $colComment = $this->db->execute(
+            "SELECT pg_description.description
+             FROM pg_description
+             JOIN pg_attribute ON pg_attribute.attrelid = pg_description.objoid
+                               AND pg_attribute.attnum  = pg_description.objsubid
+             JOIN pg_class     ON pg_class.oid = pg_attribute.attrelid
+             WHERE pg_class.relname = 'sb_types' AND pg_attribute.attname = 'note'"
+        );
+        $this->assertNotNull($colComment, 'column comment query must succeed');
+        $this->assertSame('Free-text note.', $colComment->fields['description'],
+            'comment on a column added via alter must be applied');
+    }
+
     // -------------------------------------------------------------------------
     // Indexes
     // -------------------------------------------------------------------------
