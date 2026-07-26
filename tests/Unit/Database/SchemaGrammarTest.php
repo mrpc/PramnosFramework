@@ -2990,4 +2990,54 @@ class SchemaGrammarTest extends TestCase
         $this->assertCount(1, $statements);
         $this->assertStringContainsString('MODIFY COLUMN', $statements[0]);
     }
+
+    // =========================================================================
+    // compileAlter() — column comments (regression)
+    // =========================================================================
+
+    /**
+     * When a column is added to an existing table via alter mode, PostgreSQL must
+     * still emit a separate COMMENT ON COLUMN statement for its comment. This path
+     * previously dropped comments (compileCommentStatements ran only in
+     * compileCreate), so a documented column added by a migration lost its comment.
+     */
+    public function testPostgresCompileAlterEmitsColumnComment(): void
+    {
+        // Arrange
+        $bp = new Blueprint('messages', 'alter');
+        $bp->string('pinned_track', 500)->nullable()->comment('Now-playing snapshot.');
+        $grammar = $this->pgGrammar();
+
+        // Act
+        $statements = $grammar->compileAlter($bp, 'messages');
+
+        // Assert — the ADD COLUMN and a matching COMMENT ON COLUMN are both present
+        $joined = implode("\n", $statements);
+        $this->assertStringContainsString('ALTER TABLE "messages" ADD COLUMN "pinned_track"', $joined);
+        $this->assertStringContainsString(
+            'COMMENT ON COLUMN "messages"."pinned_track" IS \'Now-playing snapshot.\'',
+            $joined
+        );
+    }
+
+    /**
+     * MySQL inlines the comment in the column definition (COMMENT '...') and must
+     * NOT gain a separate COMMENT ON statement from the alter path — guarding the
+     * backward-compatible behaviour when the PostgreSQL fix was added.
+     */
+    public function testMysqlCompileAlterKeepsCommentInlineWithoutSeparateStatement(): void
+    {
+        // Arrange
+        $bp = new Blueprint('messages', 'alter');
+        $bp->string('pinned_track', 500)->nullable()->comment('Now-playing snapshot.');
+        $grammar = $this->mysqlGrammar();
+
+        // Act
+        $statements = $grammar->compileAlter($bp, 'messages');
+
+        // Assert — exactly one statement, comment carried inline, no COMMENT ON
+        $this->assertCount(1, $statements);
+        $this->assertStringContainsString("COMMENT 'Now-playing snapshot.'", $statements[0]);
+        $this->assertStringNotContainsString('COMMENT ON', $statements[0]);
+    }
 }
