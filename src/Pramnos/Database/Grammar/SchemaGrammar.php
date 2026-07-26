@@ -309,6 +309,16 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
             $statements[] = $this->compileForeignKeyAlter($fk, $table);
         }
 
+        // COLUMN / TABLE COMMENTS
+        // Dialects where comments are separate statements (PostgreSQL emits
+        // COMMENT ON COLUMN / COMMENT ON TABLE) must apply them when altering a
+        // table too — e.g. adding a documented column via table(). MySQL inlines
+        // comments in the column definition and returns [] here, so this is a
+        // no-op there.
+        foreach ($this->compileCommentStatements($blueprint, $table) as $stmt) {
+            $statements[] = $stmt;
+        }
+
         return array_values(array_filter($statements));
     }
 
