@@ -53,6 +53,11 @@ class Database extends \Pramnos\Framework\Base
      */
     public $connected = false;
     /**
+     * Whether a transaction started via startTransaction() is currently open.
+     * @var bool
+     */
+    protected $transactionActive = false;
+    /**
      * Database collation
      * @var string
      */
@@ -2824,10 +2829,14 @@ class Database extends \Pramnos\Framework\Base
         
         try {
             if ($this->type == 'postgresql') {
-                return $this->runQuery('BEGIN') !== false;
+                $ok = $this->runQuery('BEGIN') !== false;
             } else {
-                return $this->runQuery('START TRANSACTION') !== false;
+                $ok = $this->runQuery('START TRANSACTION') !== false;
             }
+            if ($ok) {
+                $this->transactionActive = true;
+            }
+            return $ok;
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::logError("Failed to start transaction: " . $ex->getMessage(), $ex);
             return false;
@@ -2846,7 +2855,9 @@ class Database extends \Pramnos\Framework\Base
         }
         
         try {
-            return $this->runQuery('COMMIT') !== false;
+            $ok = $this->runQuery('COMMIT') !== false;
+            $this->transactionActive = false;
+            return $ok;
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::logError("Failed to commit transaction: " . $ex->getMessage(), $ex);
             return false;
@@ -2865,11 +2876,28 @@ class Database extends \Pramnos\Framework\Base
         }
         
         try {
-            return $this->runQuery('ROLLBACK') !== false;
+            $ok = $this->runQuery('ROLLBACK') !== false;
+            $this->transactionActive = false;
+            return $ok;
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::logError("Failed to rollback transaction: " . $ex->getMessage(), $ex);
             return false;
         }
+    }
+
+    /**
+     * Whether a transaction opened via startTransaction() is currently active.
+     *
+     * PDO parity for application code that guards a rollback with
+     * `if ($db->inTransaction()) { ... }`. Tracks the state set by
+     * startTransaction()/commitTransaction()/rollbackTransaction(); it does not
+     * detect transactions begun by issuing a raw BEGIN through query().
+     *
+     * @return bool
+     */
+    public function inTransaction(): bool
+    {
+        return $this->transactionActive;
     }
 
     /**
