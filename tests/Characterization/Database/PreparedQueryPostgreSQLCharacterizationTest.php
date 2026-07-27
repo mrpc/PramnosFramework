@@ -337,4 +337,41 @@ class PreparedQueryPostgreSQLCharacterizationTest extends TestCase
 
         $this->assertFalse($result->fetchColumn());
     }
+
+    // ── inTransaction() ──────────────────────────────────────────────────────
+
+    /**
+     * inTransaction() tracks the state set by start/commit/rollback: false when
+     * idle, true between start and commit, false again after commit.
+     */
+    public function testInTransactionReflectsCommitLifecycle(): void
+    {
+        $this->assertFalse($this->db->inTransaction());
+
+        $this->db->startTransaction();
+        $this->assertTrue($this->db->inTransaction());
+
+        $this->db->commitTransaction();
+        $this->assertFalse($this->db->inTransaction());
+    }
+
+    /**
+     * A rollback clears the flag and actually reverts the write, and
+     * inTransaction() reads false afterwards.
+     */
+    public function testRollbackClearsFlagAndRevertsWrite(): void
+    {
+        $this->db->startTransaction();
+        $this->db->preparedQuery('INSERT INTO pq_items (name) VALUES (:n)', ['n' => 'rollme']);
+        $this->assertTrue($this->db->inTransaction());
+
+        $this->db->rollbackTransaction();
+        $this->assertFalse($this->db->inTransaction());
+
+        $count = $this->db->preparedQuery(
+            'SELECT COUNT(*) AS c FROM pq_items WHERE name = :n',
+            ['n' => 'rollme']
+        )->fetch();
+        $this->assertSame(0, $count['c'], 'the rolled-back insert must not persist');
+    }
 }
