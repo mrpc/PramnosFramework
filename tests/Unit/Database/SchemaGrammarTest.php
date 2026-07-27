@@ -3040,4 +3040,98 @@ class SchemaGrammarTest extends TestCase
         $this->assertStringContainsString("COMMENT 'Now-playing snapshot.'", $statements[0]);
         $this->assertStringNotContainsString('COMMENT ON', $statements[0]);
     }
+
+    // =========================================================================
+    // Partial / expression indexes (index()->where(), "col DESC")
+    // =========================================================================
+
+    /**
+     * index()->where(...) produces a PostgreSQL partial index, and a "col DESC"
+     * column keeps its sort direction with the identifier quoted.
+     */
+    public function testPostgresPartialIndexWithDescOrdering(): void
+    {
+        // Arrange
+        $bp = new Blueprint('messages', 'alter');
+        $bp->index(['is_deleted', 'created_at DESC'], 'idx_active')
+           ->where('is_deleted = false');
+
+        // Act
+        $statements = $this->pgGrammar()->compileAlter($bp, 'messages');
+
+        // Assert
+        $this->assertCount(1, $statements);
+        $this->assertSame(
+            'CREATE INDEX idx_active ON "messages" ("is_deleted", "created_at" DESC) WHERE (is_deleted = false)',
+            $statements[0]
+        );
+    }
+
+    /**
+     * A partial UNIQUE is emitted as CREATE UNIQUE INDEX ... WHERE (a partial
+     * unique cannot be a table constraint), not as ADD CONSTRAINT.
+     */
+    public function testPostgresPartialUniqueBecomesUniqueIndex(): void
+    {
+        // Arrange
+        $bp = new Blueprint('users', 'alter');
+        $bp->unique('email', 'uq_email')->where('email IS NOT NULL');
+
+        // Act
+        $statements = $this->pgGrammar()->compileAlter($bp, 'users');
+
+        // Assert
+        $this->assertCount(1, $statements);
+        $this->assertSame(
+            'CREATE UNIQUE INDEX uq_email ON "users" ("email") WHERE (email IS NOT NULL)',
+            $statements[0]
+        );
+    }
+
+    /**
+     * In a CREATE TABLE, a partial unique is moved out of the inline column list
+     * into a post-create CREATE UNIQUE INDEX ... WHERE (it can't be inlined), while
+     * the table itself is still created.
+     */
+    public function testPostgresPartialUniqueInCreateIsPostCreateIndex(): void
+    {
+        // Arrange
+        $bp = new Blueprint('users');
+        $bp->increments('id');
+        $bp->string('email', 255)->nullable();
+        $bp->unique('email', 'uq_email')->where('email IS NOT NULL');
+
+        // Act
+        $statements = $this->pgGrammar()->compileCreate($bp, 'users');
+
+        // Assert — CREATE TABLE has no inline UNIQUE; a separate partial unique index follows
+        $this->assertStringContainsString('CREATE TABLE "users"', $statements[0]);
+        $this->assertStringNotContainsString('UNIQUE', $statements[0]);
+        $joined = implode("\n", $statements);
+        $this->assertStringContainsString(
+            'CREATE UNIQUE INDEX uq_email ON "users" ("email") WHERE (email IS NOT NULL)',
+            $joined
+        );
+    }
+
+    /**
+     * BC: a plain index (no where) is unchanged on MySQL — still inlined into the
+     * CREATE TABLE as a KEY, with no WHERE clause.
+     */
+    public function testMysqlPlainIndexUnchanged(): void
+    {
+        // Arrange
+        $bp = new Blueprint('t');
+        $bp->increments('id');
+        $bp->integer('a');
+        $bp->index(['a'], 'idx_a');
+
+        // Act
+        $statements = $this->mysqlGrammar()->compileCreate($bp, 't');
+
+        // Assert — single CREATE TABLE, index inlined, no WHERE
+        $this->assertCount(1, $statements);
+        $this->assertStringNotContainsString('WHERE', $statements[0]);
+        $this->assertStringContainsString('idx_a', $statements[0]);
+    }
 }
