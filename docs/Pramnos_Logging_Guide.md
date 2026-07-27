@@ -182,6 +182,32 @@ if (ENVIRONMENT === 'development') {
 
 ## Log File Management
 
+### Output Mode (file / stream / both)
+
+By default the Logger writes to files under `LOG_PATH` — which the
+[Log Viewer](#log-viewer-and-analytics) reads. Dockerised / 12-factor apps often
+want logs on **STDERR** instead (so `docker logs` surfaces them). Rather than
+force one, the output mode is selectable:
+
+```php
+use Pramnos\Logs\Logger;
+
+Logger::setOutputMode(Logger::OUTPUT_FILE);   // default — files only (LogViewer works)
+Logger::setOutputMode(Logger::OUTPUT_STREAM); // STDERR only (12-factor containers)
+Logger::setOutputMode(Logger::OUTPUT_BOTH);   // files + STDERR (keep the viewer AND docker logs)
+```
+
+When not set explicitly, the mode is resolved from the `PRAMNOS_LOG_MODE`
+environment variable, then a `LOG_MODE` constant, then defaults to `file`:
+
+```bash
+PRAMNOS_LOG_MODE=both   # e.g. in a container env — files for the viewer, STDERR for docker logs
+```
+
+The stream target is STDERR by default; `Logger::setStreamTarget($resource)`
+overrides it (used in tests). All existing logging calls are unaffected — only
+where the entry is written changes.
+
 ### File Rotation
 
 ```php
