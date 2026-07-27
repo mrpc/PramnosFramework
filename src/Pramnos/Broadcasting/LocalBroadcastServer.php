@@ -180,6 +180,15 @@ class LocalBroadcastServer
         $this->redisIngest = $ingest;
     }
 
+    /**
+     * Replace the authorizer after construction (used by the console command,
+     * which wires a PusherAuthorizer from config). Call before run().
+     */
+    public function useAuthorizer(ConnectionAuthorizer $authorizer): void
+    {
+        $this->authorizer = $authorizer;
+    }
+
     private function loopIteration(): void
     {
         $read = [$this->serverSocket];

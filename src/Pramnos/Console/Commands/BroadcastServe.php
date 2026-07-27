@@ -8,7 +8,9 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Pramnos\Application\Application;
+use Pramnos\Broadcasting\Auth\PusherAuthorizer;
 use Pramnos\Broadcasting\LocalBroadcastServer;
+use Pramnos\Broadcasting\RedisSubscriberSocket;
 use Pramnos\Console\CommandBase;
 
 /**
@@ -81,6 +83,13 @@ class BroadcastServe extends CommandBase
                 InputOption::VALUE_REQUIRED,
                 'Pusher app key expected in the WebSocket URL',
                 'pramnos-local'
+            )
+            ->addOption(
+                'channels',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'Comma-separated Redis channels to ingest (enables the non-blocking Redis pub/sub source instead of, or in addition to, the log-file tail)',
+                ''
             );
     }
 
@@ -111,6 +120,29 @@ class BroadcastServe extends CommandBase
         $output->writeln('');
 
         $this->wsServer = $this->createServer($appKey, $logFile !== '' ? $logFile : null);
+
+        // Production wiring from app.php['broadcasting'] config: enforce app-key +
+        // private/presence signatures when a Pusher secret is configured, and feed
+        // the server straight from Redis pub/sub when channels are requested.
+        $config = $this->broadcastingConfig();
+
+        $secret = (string) ($config['pusher']['app_secret'] ?? '');
+        if ($secret !== '') {
+            $this->wsServer->useAuthorizer(new PusherAuthorizer($appKey, $secret));
+            $output->writeln('  Auth: <info>Pusher signatures enforced</info>');
+        }
+
+        $channels = array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) ($input->getOption('channels') ?? ''))
+        )));
+        if ($channels !== []) {
+            $redisConfig = is_array($config['redis'] ?? null) ? $config['redis'] : [];
+            $prefix      = (string) ($redisConfig['prefix'] ?? '');
+            $prefixed    = array_map(static fn (string $c): string => $prefix . $c, $channels);
+            $this->wsServer->useRedisIngest(new RedisSubscriberSocket($redisConfig, $prefixed));
+            $output->writeln('  Redis ingest: <info>' . implode(', ', $prefixed) . '</info>');
+        }
 
         // Register SIGTERM / SIGINT handlers so Ctrl-C or systemd stop cleanly
         if (function_exists('pcntl_signal')) {
@@ -160,6 +192,20 @@ class BroadcastServe extends CommandBase
     protected function createServer(string $appKey, ?string $logFile): LocalBroadcastServer
     {
         return new LocalBroadcastServer($appKey, $logFile);
+    }
+
+    /**
+     * The app.php['broadcasting'] config array (redis / pusher / etc.), or [].
+     *
+     * @return array<string,mixed>
+     */
+    protected function broadcastingConfig(): array
+    {
+        $app = Application::getInstance();
+        if ($app instanceof Application && is_array($app->applicationInfo['broadcasting'] ?? null)) {
+            return $app->applicationInfo['broadcasting'];
+        }
+        return [];
     }
 
     /**
