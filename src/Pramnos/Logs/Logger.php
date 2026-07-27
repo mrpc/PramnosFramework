@@ -30,6 +30,74 @@ class Logger
     public const LEVEL_INFO      = 'info';
     public const LEVEL_DEBUG     = 'debug';
 
+    /** Write log entries to files under LOG_PATH (the default; the LogViewer reads these). */
+    public const OUTPUT_FILE   = 'file';
+    /** Write log entries to a stream (STDERR by default) — 12-factor logging for containers. */
+    public const OUTPUT_STREAM = 'stream';
+    /** Write to both the file and the stream. */
+    public const OUTPUT_BOTH   = 'both';
+
+    /** Explicit output mode override; null = resolve from env / LOG_MODE constant / default. */
+    private static ?string $outputMode = null;
+
+    /** @var resource|null Target stream for stream/both modes; defaults to STDERR lazily. */
+    private static $streamTarget = null;
+
+    /**
+     * Set the log output mode: 'file' (default), 'stream' (STDERR), or 'both'.
+     * Dockerised apps typically use 'both' — files keep the LogViewer working
+     * while STDERR surfaces logs in `docker logs`.
+     */
+    public static function setOutputMode(string $mode): void
+    {
+        self::$outputMode = in_array($mode, [self::OUTPUT_FILE, self::OUTPUT_STREAM, self::OUTPUT_BOTH], true)
+            ? $mode
+            : self::OUTPUT_FILE;
+    }
+
+    /**
+     * Resolve the active output mode: explicit override, else the PRAMNOS_LOG_MODE
+     * env var, else a LOG_MODE constant, else 'file'.
+     */
+    public static function getOutputMode(): string
+    {
+        if (self::$outputMode !== null) {
+            return self::$outputMode;
+        }
+        $env = getenv('PRAMNOS_LOG_MODE');
+        if (is_string($env) && $env !== '') {
+            return $env;
+        }
+        if (defined('LOG_MODE') && is_string(\LOG_MODE) && \LOG_MODE !== '') {
+            return \LOG_MODE;
+        }
+        return self::OUTPUT_FILE;
+    }
+
+    /**
+     * Override the stream target (mainly a test seam). Pass null to reset to STDERR.
+     * @param resource|null $stream
+     */
+    public static function setStreamTarget($stream): void
+    {
+        self::$streamTarget = $stream;
+    }
+
+    /**
+     * @return resource The stream to write to in stream/both modes (STDERR by default).
+     */
+    private static function resolveStreamTarget()
+    {
+        if (is_resource(self::$streamTarget)) {
+            return self::$streamTarget;
+        }
+        // Prefer the STDERR constant (CLI); fall back to opening the wrapper.
+        if (defined('STDERR') && is_resource(\STDERR)) {
+            return \STDERR;
+        }
+        return fopen('php://stderr', 'w') ?: fopen('php://stdout', 'w');
+    }
+
     /**
      * Ensures log directories exist
      */
@@ -95,8 +163,10 @@ class Logger
         bool $startoffile = false,
         array $context = []
     ): void {
-        self::ensureLogDirectories();
-        
+        $mode        = self::getOutputMode();
+        $writeFile   = $mode === self::OUTPUT_FILE || $mode === self::OUTPUT_BOTH;
+        $writeStream = $mode === self::OUTPUT_STREAM || $mode === self::OUTPUT_BOTH;
+
         // Check if the message is a valid JSON string
         if (!isset($content['type'])) {
             @json_decode($message);
@@ -105,14 +175,22 @@ class Logger
             }
         }
 
-        $filepath = self::getDefaultLogPath() . \DS . $file . '.' . $ext;
         $formattedEntry = self::formatLogEntry($message, $context) . "\n";
 
-        if ($startoffile && file_exists($filepath)) {
-            $content = @file_get_contents($filepath);
-            @file_put_contents($filepath, $formattedEntry . $content);
-        } else {
-            @file_put_contents($filepath, $formattedEntry, FILE_APPEND | LOCK_EX);
+        if ($writeFile) {
+            self::ensureLogDirectories();
+            $filepath = self::getDefaultLogPath() . \DS . $file . '.' . $ext;
+
+            if ($startoffile && file_exists($filepath)) {
+                $content = @file_get_contents($filepath);
+                @file_put_contents($filepath, $formattedEntry . $content);
+            } else {
+                @file_put_contents($filepath, $formattedEntry, FILE_APPEND | LOCK_EX);
+            }
+        }
+
+        if ($writeStream) {
+            @fwrite(self::resolveStreamTarget(), $formattedEntry);
         }
 
         // Forward to DebugBar LogCollector when the debug toolbar is active.
