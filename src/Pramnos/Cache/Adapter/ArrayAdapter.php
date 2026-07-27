@@ -60,7 +60,7 @@ class ArrayAdapter extends AbstractAdapter
      */
     public function load($key, $timeout = 3600): mixed
     {
-        $fullKey = $this->prefix . $key;
+        $fullKey = $key; // key is already prefixed by the Cache layer (see docblock)
 
         if (!array_key_exists($fullKey, $this->store)) {
             return false;
@@ -85,7 +85,7 @@ class ArrayAdapter extends AbstractAdapter
      */
     public function save($key, $data, $timeout = 3600): bool
     {
-        $fullKey = $this->prefix . $key;
+        $fullKey = $key; // key is already prefixed by the Cache layer (see docblock)
         $this->store[$fullKey] = [
             'data'    => $data,
             'expires' => $timeout > 0 ? time() + $timeout : 0,
@@ -98,7 +98,7 @@ class ArrayAdapter extends AbstractAdapter
      */
     public function delete($key): bool
     {
-        $fullKey = $this->prefix . $key;
+        $fullKey = $key; // key is already prefixed by the Cache layer (see docblock)
         $existed = array_key_exists($fullKey, $this->store);
         unset($this->store[$fullKey]);
         return $existed;
