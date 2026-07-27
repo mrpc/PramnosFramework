@@ -581,6 +581,68 @@ class QueryBuilderPostgreSQLTest extends TestCase
         $this->db->execute("DROP TABLE IF EXISTS qb_inventory");
     }
 
+    /**
+     * An associative updateValues map whose value is a raw Expression compiles to
+     * a custom DO UPDATE SET expression — the counter-increment pattern
+     * (runs = table.runs + 1) that the plain "col = EXCLUDED.col" form cannot
+     * express. On conflict the counter must advance rather than be overwritten.
+     */
+    public function testUpsertWithExpressionUpdateValuesIncrementsCounter(): void
+    {
+        $this->db->execute("DROP TABLE IF EXISTS qb_counters");
+        $this->db->execute("CREATE TABLE qb_counters (
+            name  VARCHAR(50) PRIMARY KEY,
+            runs  INTEGER NOT NULL DEFAULT 0
+        )");
+
+        for ($i = 0; $i < 3; $i++) {
+            $qb = $this->db->queryBuilder()->table('qb_counters');
+            $qb->upsert(
+                ['name' => 'job', 'runs' => 1],
+                ['name'],
+                ['runs' => $qb->raw('qb_counters.runs + 1')]
+            );
+        }
+
+        $row = $this->db->execute("SELECT runs FROM qb_counters WHERE name = 'job'")->fields;
+        // First call inserts runs=1; the next two hit ON CONFLICT and increment.
+        $this->assertSame(3, (int) $row['runs']);
+
+        $this->db->execute("DROP TABLE IF EXISTS qb_counters");
+    }
+
+    /**
+     * An associative updateValues map may also carry a bound scalar, which is
+     * appended to the bindings after the INSERT values so the placeholder order
+     * matches the compiled SQL (VALUES(...) first, then DO UPDATE SET).
+     */
+    public function testUpsertWithScalarUpdateValueBindsInOrder(): void
+    {
+        $this->db->execute("DROP TABLE IF EXISTS qb_counters");
+        $this->db->execute("CREATE TABLE qb_counters (
+            name   VARCHAR(50) PRIMARY KEY,
+            runs   INTEGER NOT NULL DEFAULT 0,
+            status VARCHAR(20) NOT NULL DEFAULT ''
+        )");
+
+        $qb = $this->db->queryBuilder()->table('qb_counters');
+        $qb->upsert(['name' => 'job', 'runs' => 1, 'status' => 'new'], ['name'], ['status' => 'new']);
+
+        // Conflict: increment via Expression AND override status via a bound scalar.
+        $qb2 = $this->db->queryBuilder()->table('qb_counters');
+        $qb2->upsert(
+            ['name' => 'job', 'runs' => 1, 'status' => 'ignored'],
+            ['name'],
+            ['runs' => $qb2->raw('qb_counters.runs + 5'), 'status' => 'done']
+        );
+
+        $row = $this->db->execute("SELECT runs, status FROM qb_counters WHERE name = 'job'")->fields;
+        $this->assertSame(6, (int) $row['runs']);
+        $this->assertSame('done', $row['status']);
+
+        $this->db->execute("DROP TABLE IF EXISTS qb_counters");
+    }
+
     // -------------------------------------------------------------------------
     // fetchAll() and cursor iteration
     // -------------------------------------------------------------------------

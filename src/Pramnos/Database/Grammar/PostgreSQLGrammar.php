@@ -133,10 +133,22 @@ class PostgreSQLGrammar extends Grammar
         if (empty($updateValues)) {
             $sql .= ' DO NOTHING';
         } else {
-            $sets = array_map(
-                fn($col) => $this->quoteColumn($col) . ' = EXCLUDED.' . $this->quoteColumn($col),
-                $updateValues
-            );
+            if (array_is_list($updateValues)) {
+                // List of column names → col = EXCLUDED.col (take the value that
+                // would have been inserted).
+                $sets = array_map(
+                    fn($col) => $this->quoteColumn($col) . ' = EXCLUDED.' . $this->quoteColumn($col),
+                    $updateValues
+                );
+            } else {
+                // Associative column => value|Expression → custom SET expression,
+                // e.g. ['runs' => $qb->raw('table.runs + 1')] for counters, or a
+                // bound scalar for a fixed override.
+                $sets = [];
+                foreach ($updateValues as $col => $val) {
+                    $sets[] = $this->quoteColumn($col) . ' = ' . $this->getPlaceholder($val);
+                }
+            }
             $sql .= ' DO UPDATE SET ' . implode(', ', $sets);
         }
 

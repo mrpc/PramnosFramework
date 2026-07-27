@@ -53,10 +53,21 @@ class MySQLGrammar extends Grammar
                 . ' VALUES (' . implode(', ', $placeholders) . ')';
         }
 
-        $sets = array_map(
-            fn($col) => $this->quoteColumn($col) . ' = VALUES(' . $this->quoteColumn($col) . ')',
-            $updateValues
-        );
+        if (array_is_list($updateValues)) {
+            // List of column names → col = VALUES(col) (the value proposed for
+            // insertion), the MySQL equivalent of PostgreSQL's EXCLUDED.col.
+            $sets = array_map(
+                fn($col) => $this->quoteColumn($col) . ' = VALUES(' . $this->quoteColumn($col) . ')',
+                $updateValues
+            );
+        } else {
+            // Associative column => value|Expression → custom SET expression,
+            // e.g. ['runs' => $qb->raw('runs + 1')] for counters.
+            $sets = [];
+            foreach ($updateValues as $col => $val) {
+                $sets[] = $this->quoteColumn($col) . ' = ' . $this->getPlaceholder($val);
+            }
+        }
 
         return $sql . ' ON DUPLICATE KEY UPDATE ' . implode(', ', $sets);
     }
