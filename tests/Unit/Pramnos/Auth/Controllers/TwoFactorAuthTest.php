@@ -69,10 +69,8 @@ class TwoFactorAuthTest extends BaseTestCase
     protected function setUp(): void
     {
         // Intentionally NOT calling parent::setUp(): BaseTestCase::setUp() runs a
-        // full application init that (re)creates FK tables like userstogroups,
-        // which would block this test's TRUNCATE of #PREFIX#users. We extend
-        // BaseTestCase only for its runMigrations() helper and manage our own
-        // request/DB state below.
+        // full application init we do not need here. We extend BaseTestCase only
+        // for its runMigrations() helper and manage our own request/DB state below.
         \Pramnos\Application\Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         \Pramnos\Application\Settings::loadSettings($settingsFile);
@@ -92,13 +90,15 @@ class TwoFactorAuthTest extends BaseTestCase
         $db->query("SET FOREIGN_KEY_CHECKS=0");
         $db->query("CREATE SCHEMA IF NOT EXISTS `authserver`");
 
-        $db->query("DROP TABLE IF EXISTS `#PREFIX#users`");
-        $db->query("CREATE TABLE `#PREFIX#users` (
-            `userid` bigint NOT NULL AUTO_INCREMENT,
-            `username` varchar(255) NOT NULL,
-            `email` varchar(255) NOT NULL,
-            PRIMARY KEY (`userid`)
-        )");
+        // #PREFIX#users is SHARED state: userstogroups / usertokens carry foreign
+        // keys pointing at it. Dropping and re-creating a stripped-down stub here
+        // left the test database inconsistent for every test that ran afterwards
+        // (missing parent table behind live FKs → "referenced table users doesn't
+        // exist" / "already exists" failures whose location depended purely on
+        // execution order). Instead we build the real schema idempotently via
+        // User::setupDb() and only own our single fixture row (userid 2).
+        \Pramnos\User\User::setupDb();
+        $db->query("DELETE FROM `#PREFIX#users` WHERE `userid` = 2");
 
         // Build the 2FA schema from the real migrations (the single source of
         // truth) rather than hand-rolled DDL that can drift from production.
@@ -112,8 +112,7 @@ class TwoFactorAuthTest extends BaseTestCase
             \Pramnos\Framework\Migrations\Auth\CreateTwofactorAttemptsTable::class,
         ], $db);
 
-        // #PREFIX#users was just dropped and recreated empty above — no TRUNCATE
-        // needed (and TRUNCATE would be blocked by the userstogroups FK anyway).
+        // Row 2 was deleted above, so this insert always starts from a clean slate.
         $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`) VALUES (2, 'testuser', 'test@test.com')");
 
         $app = \Pramnos\Application\Application::getInstance();
@@ -147,9 +146,11 @@ class TwoFactorAuthTest extends BaseTestCase
         $_POST = [];
         $_SERVER = [];
 
+        // Remove only the fixture row — never the shared #PREFIX#users table
+        // itself, which other test classes (and the FKs of userstogroups /
+        // usertokens) depend on. Re-enable FK checks that setUp() switched off.
         $db = \Pramnos\Framework\Factory::getDatabase();
-        $db->query("SET FOREIGN_KEY_CHECKS=0");
-        $db->query("DROP TABLE IF EXISTS `#PREFIX#users`");
+        $db->query("DELETE FROM `#PREFIX#users` WHERE `userid` = 2");
         $db->query("SET FOREIGN_KEY_CHECKS=1");
     }
 

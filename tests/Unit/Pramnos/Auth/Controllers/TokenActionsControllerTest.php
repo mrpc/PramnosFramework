@@ -66,14 +66,12 @@ class TokenActionsControllerTest extends BaseTestCase
         // (e.g. OauthTest creates usertokens with applicationid NOT NULL, which
         // would break our minimal INSERT that omits applicationid).
         $db->query("SET FOREIGN_KEY_CHECKS=0");
-        $db->query("DROP TABLE IF EXISTS `#PREFIX#users`");
+        // #PREFIX#users is SHARED state (userstogroups / usertokens hold FKs to it),
+        // so it is built idempotently from the real schema and never dropped — a
+        // dropped parent table behind live FKs broke whatever ran next.
+        \Pramnos\User\User::setupDb();
+        $db->query("DELETE FROM `#PREFIX#users` WHERE `userid` = 1");
         $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
-        $db->query("CREATE TABLE `#PREFIX#users` (
-            `userid` bigint NOT NULL AUTO_INCREMENT,
-            `username` varchar(255) NOT NULL,
-            `email` varchar(255) NOT NULL,
-            PRIMARY KEY (`userid`)
-        )");
         // usertokens carries ipaddress — show() selects ut.ipaddress.
         $db->query("CREATE TABLE `#PREFIX#usertokens` (
             `tokenid` int(11) NOT NULL AUTO_INCREMENT,
@@ -149,7 +147,8 @@ class TokenActionsControllerTest extends BaseTestCase
         $db->query("DROP TABLE IF EXISTS `#PREFIX#tokenactions`");
         $db->query("DROP TABLE IF EXISTS `#PREFIX#urls`");
         $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
-        $db->query("DROP TABLE IF EXISTS `#PREFIX#users`");
+        // Fixture row only — the shared #PREFIX#users table stays in place.
+        $db->query("DELETE FROM `#PREFIX#users` WHERE `userid` = 1");
         $db->query("SET FOREIGN_KEY_CHECKS=1");
     }
 

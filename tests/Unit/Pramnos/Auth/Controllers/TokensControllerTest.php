@@ -64,15 +64,12 @@ class TokensControllerTest extends BaseTestCase
         }
 
         $db->query("SET FOREIGN_KEY_CHECKS=0");
-        $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
 
-        $db->query("DROP TABLE IF EXISTS `#PREFIX#users`");
-        $db->query("CREATE TABLE `#PREFIX#users` (
-            `userid` bigint NOT NULL AUTO_INCREMENT,
-            `username` varchar(255) NOT NULL,
-            `email` varchar(255) NOT NULL,
-            PRIMARY KEY (`userid`)
-        )");
+        // #PREFIX#users is SHARED state (userstogroups / usertokens hold FKs to it).
+        // Build it idempotently from the real schema instead of dropping it and
+        // substituting a stub, which left every later test running against a
+        // missing parent table behind live foreign keys.
+        \Pramnos\User\User::setupDb();
         $db->query("DROP TABLE IF EXISTS `applications`");
         $db->query("CREATE TABLE `applications` (
             `appid` int(11) NOT NULL AUTO_INCREMENT,
@@ -86,6 +83,9 @@ class TokensControllerTest extends BaseTestCase
             `systemuser` int(11) DEFAULT NULL,
             PRIMARY KEY (`appid`)
         )");
+        // Dropped *after* setupDb() (which creates the production usertokens table)
+        // so the minimal fixture schema below always wins.
+        $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
         $db->query("CREATE TABLE `#PREFIX#usertokens` (
             `tokenid` int(11) NOT NULL AUTO_INCREMENT,
             `userid` bigint NOT NULL,
@@ -108,7 +108,9 @@ class TokensControllerTest extends BaseTestCase
             PRIMARY KEY (`tokenid`)
         )");
 
-        $db->query("TRUNCATE TABLE `#PREFIX#users`");
+        // DELETE, not TRUNCATE: the real users table is referenced by the
+        // userstogroups FK, which makes TRUNCATE fail on MySQL.
+        $db->query("DELETE FROM `#PREFIX#users` WHERE `userid` = 1");
         $db->query("TRUNCATE TABLE `applications`");
 
         $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`) VALUES (1, 'testuser', 'test@test.com')");
@@ -149,7 +151,9 @@ class TokensControllerTest extends BaseTestCase
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->query("SET FOREIGN_KEY_CHECKS=0");
         $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
-        $db->query("DROP TABLE IF EXISTS `#PREFIX#users`");
+        // Only the fixture row goes away — #PREFIX#users itself is shared state
+        // and other test classes (plus live FKs) depend on it existing.
+        $db->query("DELETE FROM `#PREFIX#users` WHERE `userid` = 1");
         // Drop applications too — this test creates a minimal schema (no `created`
         // column) that breaks OauthTest when it relies on CREATE TABLE IF NOT EXISTS.
         $db->query("DROP TABLE IF EXISTS `applications`");
