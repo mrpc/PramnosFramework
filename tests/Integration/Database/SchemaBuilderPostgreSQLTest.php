@@ -444,6 +444,52 @@ class SchemaBuilderPostgreSQLTest extends TestCase
             'comment on a column added via alter must be applied');
     }
 
+    /**
+     * index()->where() creates a real PostgreSQL PARTIAL index, and a "col DESC"
+     * column keeps its sort direction — both confirmed via pg_indexes.indexdef.
+     */
+    public function testPartialIndexWithDescOrderingIsCreated(): void
+    {
+        // Arrange + Act
+        $this->schema->createTable('sb_types', function ($t) {
+            $t->increments('id');
+            $t->boolean('is_deleted')->default(false);
+            $t->timestampTz('created_at')->useCurrent();
+            $t->index(['is_deleted', 'created_at DESC'], 'sb_idx_active')
+              ->where('is_deleted = false');
+        });
+
+        // Assert — the index exists and is partial (indexdef carries WHERE and DESC)
+        $def = $this->db->execute(
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'sb_idx_active'"
+        );
+        $this->assertNotNull($def, 'partial index must exist');
+        $this->assertStringContainsStringIgnoringCase('WHERE', (string) $def->fields['indexdef']);
+        $this->assertStringContainsString('DESC', (string) $def->fields['indexdef']);
+    }
+
+    /**
+     * unique()->where() creates a real partial UNIQUE index (enforces uniqueness
+     * only over matching rows) rather than a table constraint.
+     */
+    public function testPartialUniqueIndexIsCreated(): void
+    {
+        // Arrange + Act
+        $this->schema->createTable('sb_types', function ($t) {
+            $t->increments('id');
+            $t->string('email', 255)->nullable();
+            $t->unique('email', 'sb_uq_email')->where('email IS NOT NULL');
+        });
+
+        // Assert — a UNIQUE, partial index exists
+        $def = $this->db->execute(
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'sb_uq_email'"
+        );
+        $this->assertNotNull($def, 'partial unique index must exist');
+        $this->assertStringContainsString('UNIQUE INDEX', (string) $def->fields['indexdef']);
+        $this->assertStringContainsStringIgnoringCase('WHERE', (string) $def->fields['indexdef']);
+    }
+
     // -------------------------------------------------------------------------
     // Indexes
     // -------------------------------------------------------------------------

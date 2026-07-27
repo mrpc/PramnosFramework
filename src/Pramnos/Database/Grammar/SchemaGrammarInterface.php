@@ -40,7 +40,7 @@ interface SchemaGrammarInterface
     // Index DDL
     // -------------------------------------------------------------------------
 
-    public function compileCreateIndex(string $table, string $name, array $columns, bool $unique): string;
+    public function compileCreateIndex(string $table, string $name, array $columns, bool $unique, ?string $where = null): string;
     public function compileDropIndex(string $table, string $name): string;
 
     // -------------------------------------------------------------------------
