@@ -126,6 +126,10 @@ class MakeCommandBaseExtendedTest extends TestCase
                 }));
                 if (empty($filtered)) {
                     unlink($registryFile);
+                    // registerModelInRegistry() mkdir'd ROOT/app for us; drop it
+                    // again so the framework checkout stays clean (fails
+                    // harmlessly when anything else lives there).
+                    @rmdir(ROOT . DS . 'app');
                 } else {
                     file_put_contents($registryFile, json_encode($filtered, JSON_PRETTY_PRINT));
                 }
@@ -416,8 +420,14 @@ class MakeCommandBaseExtendedTest extends TestCase
      */
     public function testRegisterModelInRegistryHandlesCorruptRegistryFile(): void
     {
-        // Arrange — write broken JSON to the registry file
-        $registryFile = ROOT . DS . 'app' . DS . 'model-registry.json';
+        // Arrange — write broken JSON to the registry file. ROOT/app may not
+        // exist: tearDown() removes it once the registry is empty again, so the
+        // directory has to be (re)created before seeding the corrupt file.
+        $registryDir  = ROOT . DS . 'app';
+        $registryFile = $registryDir . DS . 'model-registry.json';
+        if (!is_dir($registryDir)) {
+            mkdir($registryDir, 0755, true);
+        }
         $originalContent = file_exists($registryFile) ? file_get_contents($registryFile) : null;
         file_put_contents($registryFile, '{ this is not valid json }');
 

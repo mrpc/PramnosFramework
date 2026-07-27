@@ -20,11 +20,18 @@ if (!defined('PRAMNOS_TESTING')) {
 #[CoversClass(Oauth::class)]
 class OauthTest extends TestCase
 {
+    use \Pramnos\Tests\Support\PreservesAppKeys;
+
     private \Pramnos\Database\Database $db;
     private $controller;
 
     protected function setUp(): void
     {
+        // Constructing the real Oauth controller generates RSA keys under
+        // ROOT/app/keys — snapshot first so tearDown() can remove only what
+        // this test created.
+        $this->snapshotAppKeys();
+
         if (!defined('CONFIG')) {
             define('CONFIG', 'tests' . DIRECTORY_SEPARATOR . 'fixtures' . DIRECTORY_SEPARATOR . 'app');
         }
@@ -186,8 +193,12 @@ class OauthTest extends TestCase
         $_SERVER = [];
         $_POST = [];
         $_GET = [];
+
+        // Remove the RSA/encryption keys the controller generated under
+        // ROOT/app/keys; pre-existing keys are preserved.
+        $this->restoreAppKeys();
     }
-    
+
     private function cleanDb(): void
     {
         $this->db->queryBuilder()->table('applications')->whereIn('appid', [1, 2])->delete();

@@ -128,6 +128,63 @@ class ConsoleApplicationCoverageTest extends TestCase
     }
 
     /**
+     * The constructor must back-fill $_SERVER['PHP_SELF'] when it is missing.
+     *
+     * Symfony's DumpCompletionCommand::configure() — registered by
+     * parent::__construct() — reads $_SERVER['PHP_SELF'] unguarded and feeds it
+     * to basename(). PHP always sets it on a real CLI invocation, but an
+     * embedded console application (the test suite, a worker, a web request
+     * that builds one) can run with it absent, which raised an
+     * "Undefined array key PHP_SELF" warning plus a basename() deprecation.
+     * Several test classes reset $_SERVER wholesale, which is exactly how the
+     * suite hit it.
+     */
+    public function testConsoleApplicationConstructorFillsPhpSelfWhenMissing(): void
+    {
+        // Arrange — reproduce the polluted state: no PHP_SELF, no HTTP_HOST
+        $originalServer = $_SERVER;
+        $_SERVER = [];
+
+        try {
+            // Act — the real constructor, including registerCommands()
+            $app = new ConsoleApplication();
+
+            // Assert — PHP_SELF is present and non-empty, so basename() is safe
+            $this->assertArrayHasKey('PHP_SELF', $_SERVER);
+            $this->assertNotSame('', $_SERVER['PHP_SELF']);
+            // Proves the guard ran before the command was registered: configure()
+            // would have warned otherwise, and the command must exist.
+            $this->assertTrue($app->has('completion'));
+        } finally {
+            $_SERVER = $originalServer;
+        }
+    }
+
+    /**
+     * An existing $_SERVER['PHP_SELF'] must be left untouched.
+     *
+     * The back-fill is a fallback only — overwriting the real script path would
+     * corrupt the help text of the completion command (and anything else reading
+     * it) on a genuine CLI run.
+     */
+    public function testConsoleApplicationConstructorKeepsExistingPhpSelf(): void
+    {
+        // Arrange
+        $originalServer = $_SERVER;
+        $_SERVER = ['PHP_SELF' => '/usr/local/bin/pramnos-custom'];
+
+        try {
+            // Act
+            new ConsoleApplication();
+
+            // Assert
+            $this->assertSame('/usr/local/bin/pramnos-custom', $_SERVER['PHP_SELF']);
+        } finally {
+            $_SERVER = $originalServer;
+        }
+    }
+
+    /**
      * Calling registerCommands() on a fresh ConsoleApplication must register at
      * least the core built-in commands (migrate, health:check, schedule:run …).
      *
