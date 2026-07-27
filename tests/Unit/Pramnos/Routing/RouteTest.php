@@ -124,5 +124,55 @@ class RouteTest extends \PHPUnit\Framework\TestCase
         );
     }
 
+    /**
+     * A [class-string, method] action with a NON-STATIC method (the shape
+     * attribute routing produces) must instantiate the controller and invoke the
+     * method with matched URI parameters injected by name. This previously did
+     * nothing (is_callable() was false for an instance method), so it is the
+     * regression guard for the Route::execute() fix.
+     */
+    public function testExecutionWithNonStaticControllerAction()
+    {
+        $route = new Route('users/{name}', 'GET', [RouteTestController::class, 'show']);
+        $this->assertTrue(
+            $route->matches(\Pramnos\Http\Request::create('users/Yannis', 'GET'))
+        );
+        // name matched, age falls back to the method default.
+        $this->assertSame(
+            'show:Yannis:25',
+            $route->execute(new \Pramnos\Application\Application('myApp'))
+        );
+    }
 
+    /**
+     * A [class-string, method] action with a STATIC method also dispatches (it
+     * previously threw a TypeError from ReflectionFunction on the array).
+     */
+    public function testExecutionWithStaticControllerAction()
+    {
+        $route = new Route('s/{name}', 'GET', [RouteTestController::class, 'stat']);
+        $this->assertTrue(
+            $route->matches(\Pramnos\Http\Request::create('s/Bob', 'GET'))
+        );
+        $this->assertSame(
+            'stat:Bob',
+            $route->execute(new \Pramnos\Application\Application('myApp'))
+        );
+    }
+}
+
+/**
+ * Fixture controller for the [class, method] action tests above.
+ */
+class RouteTestController
+{
+    public function show($name, $age = 25)
+    {
+        return "show:{$name}:{$age}";
+    }
+
+    public static function stat($name)
+    {
+        return "stat:{$name}";
+    }
 }

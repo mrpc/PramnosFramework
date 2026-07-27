@@ -369,19 +369,85 @@ class Route
      */
     public function execute($container)
     {
-        if (is_callable($this->action)) {
-            $reflectFunction = new \ReflectionFunction($this->action);
-            $parameters = $reflectFunction->getParameters();
-            $runParams = array_merge($this->defaults, $this->parameters);
-            $finalArray = array();
-            foreach ($parameters as $param) {
-                if (isset($runParams[$param->name])
-                    && $runParams[$param->name] != null ) {
-                    $finalArray[$param->name] = $runParams[$param->name];
-                }
-            }
-            return call_user_func_array($this->action, $finalArray);
+        $action    = $this->action;
+        $runParams = array_merge($this->defaults, $this->parameters);
+
+        // Closures and plain function names: reflect the function directly.
+        if ($action instanceof \Closure || (is_string($action) && \function_exists($action))) {
+            $reflection = new \ReflectionFunction($action);
+            return \call_user_func_array($action, $this->resolveArguments($reflection->getParameters(), $runParams));
         }
+
+        // [class-or-object, method] — the shape attribute routing (RouteDiscovery)
+        // produces. Reflect the METHOD (ReflectionFunction cannot take an array),
+        // resolve the controller through the IoC container so its dependencies are
+        // autowired, and invoke it with the matched URI parameters injected by name.
+        if (is_array($action) && count($action) === 2 && is_string($action[1])) {
+            [$target, $method] = $action;
+            $reflection = new \ReflectionMethod(is_object($target) ? $target : (string) $target, $method);
+            $arguments  = $this->resolveArguments($reflection->getParameters(), $runParams);
+
+            if ($reflection->isStatic()) {
+                return \call_user_func_array([is_object($target) ? $target : (string) $target, $method], $arguments);
+            }
+
+            $instance = is_object($target)
+                ? $target
+                : $this->resolveController((string) $target, $container);
+            return \call_user_func_array([$instance, $method], $arguments);
+        }
+
+        // Fallback: anything else already callable (e.g. [$object, 'method'],
+        // invokable objects). Preserves prior behaviour for those cases.
+        if (is_callable($action)) {
+            $reflection = new \ReflectionFunction(\Closure::fromCallable($action));
+            return \call_user_func_array($action, $this->resolveArguments($reflection->getParameters(), $runParams));
+        }
+
+        return null;
+    }
+
+    /**
+     * Instantiate a controller class, preferring the IoC container (so its
+     * constructor dependencies are autowired) and falling back to a plain
+     * instance when no container / binding is available.
+     */
+    private function resolveController(string $class, $container)
+    {
+        if ($container !== null) {
+            try {
+                if (method_exists($container, 'make')) {
+                    return $container->make($class);
+                }
+                if (method_exists($container, 'get')) {
+                    return $container->get($class);
+                }
+            } catch (\Throwable) {
+                // fall through to a plain instantiation
+            }
+        }
+        return new $class();
+    }
+
+    /**
+     * Build the argument list for an action from the matched URI parameters,
+     * keyed by parameter name. Only parameters that were actually matched are
+     * passed (named arguments), so the method's own defaults apply to the rest —
+     * matching the router's long-standing behaviour.
+     *
+     * @param \ReflectionParameter[] $parameters
+     * @param array<string,mixed>    $runParams
+     * @return array<string,mixed>
+     */
+    private function resolveArguments(array $parameters, array $runParams): array
+    {
+        $arguments = array();
+        foreach ($parameters as $param) {
+            if (isset($runParams[$param->name]) && $runParams[$param->name] != null) {
+                $arguments[$param->name] = $runParams[$param->name];
+            }
+        }
+        return $arguments;
     }
 
     /**
