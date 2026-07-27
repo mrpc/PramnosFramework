@@ -69,6 +69,7 @@ class SchemaBuilderPostgreSQLTest extends TestCase
         $this->db->execute("DROP TABLE IF EXISTS sb_types");
         $this->db->execute("DROP TABLE IF EXISTS sb_renamed");
         $this->db->execute("DROP TABLE IF EXISTS sb_trunc");
+        $this->db->execute("DROP TYPE  IF EXISTS sb_user_role CASCADE");
     }
 
     // -------------------------------------------------------------------------
@@ -488,6 +489,37 @@ class SchemaBuilderPostgreSQLTest extends TestCase
         $this->assertNotNull($def, 'partial unique index must exist');
         $this->assertStringContainsString('UNIQUE INDEX', (string) $def->fields['indexdef']);
         $this->assertStringContainsStringIgnoringCase('WHERE', (string) $def->fields['indexdef']);
+    }
+
+    /**
+     * enumType() creates a real native PostgreSQL enum type (with the right labels
+     * in order) and types the column as it — not a VARCHAR + CHECK.
+     */
+    public function testNativeEnumTypeColumnIsCreated(): void
+    {
+        // Arrange + Act
+        $this->schema->createTable('sb_types', function ($t) {
+            $t->increments('id');
+            $t->enumType('role', 'sb_user_role', ['root', 'admin', 'guest'])->default('guest');
+        });
+
+        // Assert — the enum type exists with its labels in declared order
+        $labels = $this->db->execute(
+            "SELECT string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder) AS labels
+             FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid
+             WHERE t.typname = 'sb_user_role'"
+        );
+        $this->assertNotNull($labels, 'enum type must exist');
+        $this->assertSame('root,admin,guest', $labels->fields['labels']);
+
+        // Assert — the column is typed as the native enum, not varchar
+        $col = $this->db->execute(
+            "SELECT data_type, udt_name FROM information_schema.columns
+             WHERE table_name = 'sb_types' AND column_name = 'role'"
+        );
+        $this->assertNotNull($col);
+        $this->assertSame('USER-DEFINED', $col->fields['data_type']);
+        $this->assertSame('sb_user_role', $col->fields['udt_name']);
     }
 
     // -------------------------------------------------------------------------
