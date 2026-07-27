@@ -65,6 +65,9 @@ class LocalBroadcastServer
     /** Authorizes connections (app key) and private/presence channel subscriptions. */
     private ConnectionAuthorizer $authorizer;
 
+    /** Optional Redis pub/sub ingest, polled non-blocking inside the select loop. */
+    private ?RedisSubscriberSocket $redisIngest = null;
+
     public function __construct(
         string $appKey = 'pramnos-local',
         ?string $logFile = null,
@@ -111,6 +114,11 @@ class LocalBroadcastServer
 
         if ($this->logFile !== null && file_exists($this->logFile)) {
             $this->logOffset = (int) filesize($this->logFile);
+        }
+
+        // Connect the Redis ingest (if configured) so its socket is in the loop.
+        if ($this->redisIngest !== null && !is_resource($this->redisIngest->getStream())) {
+            $this->redisIngest->connect();
         }
 
         $this->running = true;
@@ -162,11 +170,26 @@ class LocalBroadcastServer
     // Event loop
     // =========================================================================
 
+    /**
+     * Feed this server from a Redis pub/sub subscriber. The subscriber's socket
+     * joins the select loop, so published events fan out to WS clients with no
+     * blocking, file hop or extra process. Call before run().
+     */
+    public function useRedisIngest(RedisSubscriberSocket $ingest): void
+    {
+        $this->redisIngest = $ingest;
+    }
+
     private function loopIteration(): void
     {
         $read = [$this->serverSocket];
         foreach ($this->clients as $client) {
             $read[] = $client['socket'];
+        }
+
+        $redisStream = $this->redisIngest?->getStream();
+        if (is_resource($redisStream)) {
+            $read[] = $redisStream;
         }
 
         $write  = null;
@@ -175,6 +198,7 @@ class LocalBroadcastServer
         $changed = @stream_select($read, $write, $except, 0, 100_000);
 
         if ($changed === false || $changed === 0) {
+            $this->drainRedisIngest();
             $this->pollLogFile();
             $this->sendKeepalives();
             return;
@@ -183,13 +207,36 @@ class LocalBroadcastServer
         foreach ($read as $socket) {
             if ($socket === $this->serverSocket) {
                 $this->acceptClient();
+            } elseif ($redisStream !== null && $socket === $redisStream) {
+                $this->drainRedisIngest();
             } else {
                 $this->readClient($socket);
             }
         }
 
+        $this->drainRedisIngest();
         $this->pollLogFile();
         $this->sendKeepalives();
+    }
+
+    /**
+     * Pull any complete pub/sub messages from the Redis ingest and fan them out
+     * to subscribed clients. An enveloped {event,payload} broadcasts as that
+     * event; a raw message broadcasts as a "message" event.
+     */
+    private function drainRedisIngest(): void
+    {
+        if ($this->redisIngest === null) {
+            return;
+        }
+        foreach ($this->redisIngest->drain() as $msg) {
+            $decoded = json_decode($msg['message'], true);
+            if (is_array($decoded) && array_key_exists('event', $decoded)) {
+                $this->broadcast($msg['channel'], (string) $decoded['event'], $decoded['payload'] ?? []);
+            } else {
+                $this->broadcast($msg['channel'], 'message', $decoded ?? $msg['message']);
+            }
+        }
     }
 
     private function acceptClient(): void
