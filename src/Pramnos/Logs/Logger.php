@@ -15,7 +15,7 @@ class Logger
     private static function getDefaultLogPath(): string
     {
         $base = defined('LOG_PATH') ? \LOG_PATH : sys_get_temp_dir();
-        return $base . \DS . 'logs';
+        return $base . DIRECTORY_SEPARATOR . 'logs';
     }
 
     /**
@@ -179,7 +179,7 @@ class Logger
 
         if ($writeFile) {
             self::ensureLogDirectories();
-            $filepath = self::getDefaultLogPath() . \DS . $file . '.' . $ext;
+            $filepath = self::getDefaultLogPath() . DIRECTORY_SEPARATOR . $file . '.' . $ext;
 
             if ($startoffile && file_exists($filepath)) {
                 $content = @file_get_contents($filepath);
@@ -434,7 +434,7 @@ class Logger
         bool $rotate = true,
         int $maxBackups = 5
     ): bool {
-        $filepath = self::getDefaultLogPath() . \DS . $file . '.' . $ext;
+        $filepath = self::getDefaultLogPath() . DIRECTORY_SEPARATOR . $file . '.' . $ext;
         
         if (!file_exists($filepath)) {
             return false;
@@ -511,7 +511,7 @@ class Logger
      */
     public static function clearLog(string $file, string $ext = 'log'): bool
     {
-        $filepath = self::getDefaultLogPath() . \DS . $file . '.' . $ext;
+        $filepath = self::getDefaultLogPath() . DIRECTORY_SEPARATOR . $file . '.' . $ext;
         
         if (!file_exists($filepath)) {
             return false;
@@ -528,7 +528,7 @@ class Logger
      */
     public static function getLogPath(string $file, string $ext = 'log'): string
     {
-        return self::getDefaultLogPath() . \DS . $file . '.' . $ext;
+        return self::getDefaultLogPath() . DIRECTORY_SEPARATOR . $file . '.' . $ext;
     }
 
     /**
