@@ -51,6 +51,39 @@ class ValidatorTest extends TestCase
     }
 
     /**
+     * A field declared numeric/integer compares min/max by numeric value, even
+     * when the input is a string — as it always is from form / $_POST data.
+     * Regression: previously "25" was measured by its 2-char length, so
+     * integer|min:18 failed valid ages.
+     */
+    public function testNumericFieldComparesMinMaxByValueNotLength()
+    {
+        $ok = Validator::validate(['age' => '25'], ['age' => 'integer|min:18|max:120']);
+        $this->assertSame('25', $ok['age']);
+
+        foreach (['200', '15'] as $bad) {
+            try {
+                Validator::validate(['age' => $bad], ['age' => 'numeric|min:18|max:120']);
+                $this->fail("Expected ValidationException for out-of-range age {$bad}");
+            } catch (ValidationException $e) {
+                $this->assertArrayHasKey('age', $e->errors());
+            }
+        }
+    }
+
+    /**
+     * Without a numeric/integer rule, min/max stay length-based (unchanged BC).
+     */
+    public function testStringMinStillComparesLengthWithoutNumericRule()
+    {
+        $ok = Validator::validate(['p' => 'abcdefgh'], ['p' => 'min:8']);
+        $this->assertSame('abcdefgh', $ok['p']);
+
+        $this->expectException(ValidationException::class);
+        Validator::validate(['p' => 'abc'], ['p' => 'min:8']); // length 3 < 8
+    }
+
+    /**
      * Test successful CSRF token validation
      */
     public function testCsrfRuleSuccess()

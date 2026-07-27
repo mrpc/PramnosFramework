@@ -131,6 +131,21 @@ class Validator
                 }
             }
 
+            // A field declared numeric/integer makes size rules (min/max/size/
+            // between) compare NUMERICALLY rather than by string length — so
+            // "25" from a form field validates against min:18 as the number 25,
+            // not its 2-character length.
+            $numericField = false;
+            foreach ($parsedRules as $rule) {
+                if (is_string($rule)) {
+                    [$rn] = self::parseRule($rule);
+                    if ($rn === 'numeric' || $rn === 'integer') {
+                        $numericField = true;
+                        break;
+                    }
+                }
+            }
+
             // --- Per-rule validation ---
             foreach ($parsedRules as $rule) {
                 // Inline RuleInterface object
@@ -154,7 +169,7 @@ class Validator
                     continue;
                 }
 
-                $passed = self::applyRule($ruleName, $value, $parameters, $field, $data);
+                $passed = self::applyRule($ruleName, $value, $parameters, $field, $data, $numericField);
 
                 if (!$passed) {
                     self::addError(
@@ -333,7 +348,8 @@ class Validator
         &$value,
         array $parameters,
         string $field = '',
-        array $data = []
+        array $data = [],
+        bool $numericField = false
     ): bool {
         switch ($ruleName) {
             // -----------------------------------------------------------------
@@ -407,18 +423,18 @@ class Validator
             // Size / range
             // -----------------------------------------------------------------
             case 'min':
-                return self::validateMin($value, $parameters);
+                return self::validateMin($value, $parameters, $numericField);
 
             case 'max':
-                return self::validateMax($value, $parameters);
+                return self::validateMax($value, $parameters, $numericField);
 
             case 'size':
-                return self::validateSize($value, $parameters);
+                return self::validateSize($value, $parameters, $numericField);
 
             case 'between':
                 return isset($parameters[0], $parameters[1])
-                    && self::validateMin($value, [$parameters[0]])
-                    && self::validateMax($value, [$parameters[1]]);
+                    && self::validateMin($value, [$parameters[0]], $numericField)
+                    && self::validateMax($value, [$parameters[1]], $numericField);
 
             // -----------------------------------------------------------------
             // Inclusion
@@ -492,13 +508,17 @@ class Validator
      * @param mixed             $value
      * @param array<int,string> $parameters
      */
-    protected static function validateMin($value, array $parameters): bool
+    protected static function validateMin($value, array $parameters, bool $numeric = false): bool
     {
         if (!isset($parameters[0]) || !is_numeric($parameters[0])) {
             return false;
         }
         $min = (float) $parameters[0];
 
+        // A numeric/integer field compares by value even for numeric strings.
+        if ($numeric && is_numeric($value)) {
+            return (float) $value >= $min;
+        }
         if (is_string($value)) {
             return mb_strlen($value) >= $min;
         }
@@ -517,13 +537,17 @@ class Validator
      * @param mixed             $value
      * @param array<int,string> $parameters
      */
-    protected static function validateMax($value, array $parameters): bool
+    protected static function validateMax($value, array $parameters, bool $numeric = false): bool
     {
         if (!isset($parameters[0]) || !is_numeric($parameters[0])) {
             return false;
         }
         $max = (float) $parameters[0];
 
+        // A numeric/integer field compares by value even for numeric strings.
+        if ($numeric && is_numeric($value)) {
+            return (float) $value <= $max;
+        }
         if (is_string($value)) {
             return mb_strlen($value) <= $max;
         }
@@ -542,13 +566,17 @@ class Validator
      * @param mixed             $value
      * @param array<int,string> $parameters
      */
-    protected static function validateSize($value, array $parameters): bool
+    protected static function validateSize($value, array $parameters, bool $numeric = false): bool
     {
         if (!isset($parameters[0]) || !is_numeric($parameters[0])) {
             return false;
         }
         $size = (float) $parameters[0];
 
+        // A numeric/integer field compares by value even for numeric strings.
+        if ($numeric && is_numeric($value)) {
+            return (float) $value === $size;
+        }
         if (is_string($value)) {
             return mb_strlen($value) === (int) $size;
         }
