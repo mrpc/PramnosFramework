@@ -295,6 +295,26 @@ class Blueprint
         return $this->addColumn($name, 'enum', ['values' => $values]);
     }
 
+    /**
+     * A column backed by a NATIVE enum type.
+     *
+     * PostgreSQL creates a named enum type (`CREATE TYPE <typeName> AS ENUM(...)`,
+     * emitted before the table) and types the column as it. MySQL has no named
+     * types, so the column becomes an inline `ENUM(...)` (the type name is unused).
+     * Contrast with enum(), which stores a VARCHAR + CHECK on PostgreSQL.
+     *
+     * @param string   $name     Column name.
+     * @param string   $typeName Name of the enum type (used on PostgreSQL).
+     * @param string[] $values   Allowed values.
+     */
+    public function enumType(string $name, string $typeName, array $values): ColumnDefinition
+    {
+        return $this->addColumn($name, 'enum_native', [
+            'typeName' => $typeName,
+            'values'   => $values,
+        ]);
+    }
+
     // -------------------------------------------------------------------------
     // Geometry / spatial
     // -------------------------------------------------------------------------
