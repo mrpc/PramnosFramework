@@ -105,6 +105,10 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
                 // Use VARCHAR with a CHECK constraint (no inline type creation here)
                 $max = max(array_map('strlen', $col->get('values', [''])));
                 return 'VARCHAR(' . max($max, 50) . ')';
+            case 'enum_native':
+                // A native enum type; the CREATE TYPE is emitted by
+                // compilePreCreateStatements(). The column is typed as it.
+                return $this->quoteTypeName((string) $col->get('typeName'));
             case 'geometry':
                 return 'GEOMETRY'; // requires PostGIS
             case 'point':
@@ -195,6 +199,46 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
         }
 
         return $stmts;
+    }
+
+    // =========================================================================
+    // Native enum types (PostgreSQL: CREATE TYPE ... AS ENUM before the table)
+    // =========================================================================
+
+    /**
+     * Emit a CREATE TYPE ... AS ENUM for every native-enum column, before the
+     * CREATE TABLE that references it. Deduplicated by type name so several
+     * columns can share one type.
+     *
+     * @return list<string>
+     */
+    protected function compilePreCreateStatements(Blueprint $blueprint, string $table): array
+    {
+        $stmts = [];
+        $seen  = [];
+        foreach ($blueprint->getColumns() as $col) {
+            if ($col->type !== 'enum_native') {
+                continue;
+            }
+            $typeName = (string) $col->get('typeName');
+            if ($typeName === '' || isset($seen[$typeName])) {
+                continue;
+            }
+            $seen[$typeName] = true;
+            $values = array_map(
+                fn($v) => "'" . str_replace("'", "''", (string) $v) . "'",
+                $col->get('values', [])
+            );
+            $stmts[] = 'CREATE TYPE ' . $this->quoteTypeName($typeName)
+                . ' AS ENUM (' . implode(', ', $values) . ')';
+        }
+        return $stmts;
+    }
+
+    /** Quote an enum type name as a PostgreSQL identifier. */
+    protected function quoteTypeName(string $name): string
+    {
+        return '"' . str_replace('"', '""', $name) . '"';
     }
 
     // =========================================================================
