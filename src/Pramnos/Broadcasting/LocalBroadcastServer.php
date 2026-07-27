@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Pramnos\Broadcasting;
 
+use Pramnos\Broadcasting\Auth\AllowAllAuthorizer;
+use Pramnos\Broadcasting\Auth\ConnectionAuthorizer;
+
 /**
  * Pure-PHP WebSocket server for local broadcasting (development only).
  *
@@ -22,8 +25,12 @@ namespace Pramnos\Broadcasting;
  * Limitations (intentional — this is a dev tool):
  *  - Single-threaded (stream_select event loop)
  *  - No TLS (plain TCP only)
- *  - No authentication / presence channel metadata
  *  - Up to ~100 concurrent connections without tuning
+ *
+ * Auth is pluggable via a {@see \Pramnos\Broadcasting\Auth\ConnectionAuthorizer}
+ * (default {@see \Pramnos\Broadcasting\Auth\AllowAllAuthorizer}; pass a
+ * {@see \Pramnos\Broadcasting\Auth\PusherAuthorizer} in production to enforce the
+ * app key and private/presence channel signatures).
  *
  */
 class LocalBroadcastServer
@@ -55,10 +62,19 @@ class LocalBroadcastServer
     /** @var callable|null  Callback invoked each tick (for progress output). */
     private $tickCallback = null;
 
-    public function __construct(string $appKey = 'pramnos-local', ?string $logFile = null)
-    {
-        $this->appKey  = $appKey;
-        $this->logFile = $logFile;
+    /** Authorizes connections (app key) and private/presence channel subscriptions. */
+    private ConnectionAuthorizer $authorizer;
+
+    public function __construct(
+        string $appKey = 'pramnos-local',
+        ?string $logFile = null,
+        ?ConnectionAuthorizer $authorizer = null,
+    ) {
+        $this->appKey     = $appKey;
+        $this->logFile    = $logFile;
+        // Default is permissive to preserve local-dev behaviour; production wiring
+        // passes a PusherAuthorizer built from the configured key + secret.
+        $this->authorizer = $authorizer ?? new AllowAllAuthorizer();
     }
 
     /**
@@ -244,6 +260,15 @@ class LocalBroadcastServer
             return;
         }
 
+        // Authorize the connection by the app key in the request target
+        // (Pusher clients connect to /app/<app_key>?protocol=7&...).
+        [$appKey, $params] = $this->parseRequestTarget($buf);
+        if (!$this->authorizer->authorizeConnection($appKey, $params)) {
+            $this->sendHttpError($client['socket'], 401, 'Unauthorized');
+            $this->disconnectClient($id);
+            return;
+        }
+
         // RFC 6455 §4.2.2 — compute accept key
         $acceptKey = base64_encode(sha1($wsKey . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true));
 
@@ -266,6 +291,36 @@ class LocalBroadcastServer
                 'activity_timeout' => 120,
             ]),
         ]));
+    }
+
+    /**
+     * Parse the HTTP request line for the Pusher-style app key and query params.
+     *
+     * Target looks like "/app/<app_key>?protocol=7&client=js&version=8.4.0".
+     * Returns [appKey, params]; appKey is '' when the path has no /app/ segment.
+     *
+     * @return array{0:string,1:array<string,string>}
+     */
+    private function parseRequestTarget(string $request): array
+    {
+        $firstLine = strtok($request, "\r\n") ?: '';
+        $parts     = explode(' ', $firstLine);
+        $target    = $parts[1] ?? '';
+
+        $path  = parse_url($target, PHP_URL_PATH) ?: '';
+        $query = parse_url($target, PHP_URL_QUERY) ?: '';
+
+        $appKey = '';
+        if (preg_match('#/app/([^/?]+)#', $path, $m)) {
+            $appKey = $m[1];
+        }
+
+        $params = [];
+        if ($query !== '') {
+            parse_str($query, $params);
+        }
+
+        return [$appKey, array_map('strval', $params)];
     }
 
     private function parseHttpHeaders(string $request): array
@@ -435,6 +490,19 @@ class LocalBroadcastServer
         }
 
         $client = &$this->clients[$id];
+
+        // Authorize private-/presence- channel subscriptions (public channels pass).
+        $auth        = (string) ($data['auth'] ?? '');
+        $channelData = isset($data['channel_data']) ? (string) $data['channel_data'] : null;
+        if (!$this->authorizer->authorizeChannel($channel, $client['socketId'], $auth, $channelData)) {
+            $this->wsSend($client['socket'], json_encode([
+                'event'   => 'pusher_internal:subscription_error',
+                'data'    => json_encode(['type' => 'AuthError', 'status' => 401]),
+                'channel' => $channel,
+            ]));
+            return;
+        }
+
         if (!in_array($channel, $client['channels'], true)) {
             $client['channels'][] = $channel;
         }
