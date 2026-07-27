@@ -95,6 +95,7 @@ nav:
     - Third-Party Integration: Pramnos_AuthServer_Integration_Guide.md
   - APIs & Integrations:
     - API Guide: Pramnos_API_Guide.md
+    - Realtime (SSE & WebSockets): Pramnos_Realtime_Guide.md
     - Email: Pramnos_Email_Guide.md
     - Media: Pramnos_Media_Guide.md
     - Logging: Pramnos_Logging_Guide.md
