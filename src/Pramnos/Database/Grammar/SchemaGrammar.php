@@ -122,6 +122,12 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
     {
         $statements = [];
 
+        // ---- statements that must precede CREATE TABLE (dialect-specific), e.g.
+        //      PostgreSQL CREATE TYPE for native enum columns ----
+        foreach ($this->compilePreCreateStatements($blueprint, $table) as $stmt) {
+            $statements[] = $stmt;
+        }
+
         // ---- inline column definitions ----
         $columnSqls = [];
         foreach ($blueprint->getColumns() as $col) {
@@ -221,6 +227,16 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
      * PostgreSQL overrides this to emit COMMENT ON TABLE / COMMENT ON COLUMN.
      */
     protected function compileCommentStatements(Blueprint $blueprint, string $table): array
+    {
+        return [];
+    }
+
+    /**
+     * Statements that must run BEFORE the CREATE TABLE (dialect-specific).
+     * Base: none. PostgreSQL overrides this to emit CREATE TYPE ... AS ENUM for
+     * native enum columns (MySQL has no named types, so it stays empty there).
+     */
+    protected function compilePreCreateStatements(Blueprint $blueprint, string $table): array
     {
         return [];
     }

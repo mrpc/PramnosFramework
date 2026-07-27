@@ -95,6 +95,8 @@ class MySQLSchemaGrammar extends SchemaGrammar
             case 'uuid':
                 return 'CHAR(36)';
             case 'enum':
+            case 'enum_native':
+                // MySQL has no named types: a native enum is just an inline ENUM.
                 $values = array_map(fn($v) => "'" . addslashes($v) . "'", $col->get('values', []));
                 return 'ENUM(' . implode(', ', $values) . ')';
             case 'geometry':

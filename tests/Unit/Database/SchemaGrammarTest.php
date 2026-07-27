@@ -3134,4 +3134,71 @@ class SchemaGrammarTest extends TestCase
         $this->assertStringNotContainsString('WHERE', $statements[0]);
         $this->assertStringContainsString('idx_a', $statements[0]);
     }
+
+    // =========================================================================
+    // Native enum types (enumType())
+    // =========================================================================
+
+    /**
+     * On PostgreSQL, enumType() creates a named type before the table and types
+     * the column as it (rather than VARCHAR + CHECK like enum()).
+     */
+    public function testPostgresEnumTypeCreatesNamedTypeBeforeTable(): void
+    {
+        // Arrange
+        $bp = new Blueprint('users');
+        $bp->increments('id');
+        $bp->enumType('role', 'user_role', ['root', 'admin'])->default('root');
+
+        // Act
+        $statements = $this->pgGrammar()->compileCreate($bp, 'users');
+
+        // Assert — CREATE TYPE precedes CREATE TABLE; column is typed as the enum
+        $this->assertSame(
+            'CREATE TYPE "user_role" AS ENUM (\'root\', \'admin\')',
+            $statements[0]
+        );
+        $this->assertStringContainsString('CREATE TABLE "users"', $statements[1]);
+        $this->assertStringContainsString('"role" "user_role"', $statements[1]);
+        $this->assertStringNotContainsString('CHECK', $statements[1]);
+    }
+
+    /**
+     * On MySQL a native enum has no separate type: it is an inline ENUM(...) and no
+     * CREATE TYPE is emitted.
+     */
+    public function testMysqlEnumTypeIsInlineWithNoCreateType(): void
+    {
+        // Arrange
+        $bp = new Blueprint('users');
+        $bp->increments('id');
+        $bp->enumType('role', 'user_role', ['root', 'admin'])->default('root');
+
+        // Act
+        $statements = $this->mysqlGrammar()->compileCreate($bp, 'users');
+
+        // Assert — single CREATE TABLE, inline ENUM, no CREATE TYPE
+        $this->assertCount(1, $statements);
+        $this->assertStringNotContainsString('CREATE TYPE', $statements[0]);
+        $this->assertStringContainsString("`role` ENUM('root', 'admin')", $statements[0]);
+    }
+
+    /**
+     * A type shared by several native-enum columns is created only once.
+     */
+    public function testPostgresEnumTypeDeduplicatesSharedType(): void
+    {
+        // Arrange
+        $bp = new Blueprint('t');
+        $bp->increments('id');
+        $bp->enumType('a', 'status', ['on', 'off']);
+        $bp->enumType('b', 'status', ['on', 'off']);
+
+        // Act
+        $statements = $this->pgGrammar()->compileCreate($bp, 't');
+
+        // Assert — exactly one CREATE TYPE
+        $createTypeCount = count(array_filter($statements, fn($s) => str_starts_with($s, 'CREATE TYPE')));
+        $this->assertSame(1, $createTypeCount);
+    }
 }
