@@ -1661,18 +1661,33 @@ class QueryBuilder
      *
      * @param array  $values           Column → value map for the INSERT
      * @param array  $conflictColumns  Columns that define the conflict target (PG) / trigger (MySQL)
-     * @param array  $updateValues     Columns to update on conflict (empty = INSERT IGNORE semantics)
+     * @param array  $updateValues     Columns to update on conflict. Two forms:
+     *                                  - List of column names (e.g. ['name', 'qty'])
+     *                                    → col = EXCLUDED.col / VALUES(col).
+     *                                  - Associative column => value|Expression
+     *                                    (e.g. ['runs' => $qb->raw('t.runs + 1')])
+     *                                    → custom SET expression. Expression values
+     *                                    are inlined; scalars bind as parameters.
+     *                                  Empty = DO NOTHING / INSERT IGNORE semantics.
      * @return Result
      */
     public function upsert(array $values, array $conflictColumns, array $updateValues = [])
     {
         $this->type = 'INSERT';
         $this->bindings['values'] = [];
-        // $updateValues is always a list of column names (e.g. ['name', 'qty']).
         $this->addBinding(
             array_values(array_filter($values, fn($v) => !($v instanceof Expression))),
             'values'
         );
+        // Associative updateValues may carry bound scalars in their SET clause;
+        // append them after the insert values so binding order matches the SQL
+        // (VALUES(...) placeholders first, then DO UPDATE SET placeholders).
+        if (!empty($updateValues) && !array_is_list($updateValues)) {
+            $this->addBinding(
+                array_values(array_filter($updateValues, fn($v) => !($v instanceof Expression))),
+                'values'
+            );
+        }
 
         $sql = $this->grammar->compileUpsert($this, $values, $conflictColumns, $updateValues);
         $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
