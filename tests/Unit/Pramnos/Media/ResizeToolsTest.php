@@ -414,6 +414,32 @@ class ResizeToolsTest extends TestCase
     }
 
     /**
+     * Regression: the multi-step (quality) path built an opaque intermediate
+     * image, flattening the alpha channel of transparent PNG/GIF sources. A
+     * fully-transparent source downscaled through that path must stay transparent.
+     */
+    public function testFastImageCopyResampledPreservesAlphaOnMultiStepPath(): void
+    {
+        // 200×200 source, 20×20 dest, quality 4 → 20*4=80 < 200 → multi-step path.
+        $src = imagecreatetruecolor(200, 200);
+        imagealphablending($src, false);
+        imagesavealpha($src, true);
+        imagefill($src, 0, 0, imagecolorallocatealpha($src, 0, 0, 0, 127)); // fully transparent
+
+        $dst = imagecreatetruecolor(20, 20);
+        imagealphablending($dst, false);
+        imagesavealpha($dst, true);
+
+        ResizeTools::fastimagecopyresampled($dst, $src, 0, 0, 0, 0, 20, 20, 200, 200, 4);
+
+        $alpha = (imagecolorat($dst, 10, 10) >> 24) & 0x7F;
+        $this->assertSame(127, $alpha, 'transparent source must remain fully transparent through the multi-step resize');
+
+        imagedestroy($src);
+        imagedestroy($dst);
+    }
+
+    /**
      * When maxsize is exceeded AND debug=true, resize() emits a debug echo
      * at line 136 explaining that dimensions were reset to defaultwidth.
      * testResizeMaxSizeLimit already verifies the reset; this test ensures

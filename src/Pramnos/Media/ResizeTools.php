@@ -589,10 +589,16 @@ class ResizeTools extends \Pramnos\Framework\Base
         if (
                 $quality < 5 && (($dst_w * $quality) < $src_w || ($dst_h * $quality) < $src_h)
         ) {
-            $temp = imagecreatetruecolor((int)($dst_w * $quality + 1),
-                    (int)($dst_h * $quality + 1));
+            $tempW = (int)($dst_w * $quality + 1);
+            $tempH = (int)($dst_h * $quality + 1);
+            $temp = imagecreatetruecolor($tempW, $tempH);
+            // Preserve transparency through the intermediate step — otherwise the
+            // opaque temp image flattens the alpha channel of PNG/GIF sources.
+            imagealphablending($temp, false);
+            imagesavealpha($temp, true);
+            imagefill($temp, 0, 0, imagecolorallocatealpha($temp, 0, 0, 0, 127));
             imagecopyresized($temp, $src_image, 0, 0, $src_x, $src_y,
-                    (int)($dst_w * $quality + 1), (int)($dst_h * $quality + 1), $src_w, $src_h);
+                    $tempW, $tempH, $src_w, $src_h);
             imagecopyresampled($dst_image, $temp, (int)$dst_x, (int)$dst_y, 0, 0, (int)$dst_w,
                     (int)$dst_h, (int)($dst_w * $quality), (int)($dst_h * $quality));
             unset($temp);
