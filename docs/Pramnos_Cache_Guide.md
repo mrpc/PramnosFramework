@@ -255,6 +255,48 @@ foreach ($users as $user) {
 $cache->clear('user_' . $userId); // Clear all user-related cache
 ```
 
+## Flat-Key Caching (FlatCache)
+
+`Cache` / `SimpleCache` are **category-based**: the key you pass is mangled by
+`_generateCacheName()` (sanitised, with the prefix, category and extension folded
+into the physical key), and PSR-16's `SimpleCache` additionally **rejects** keys
+containing the reserved characters `{}()/\@:`.
+
+When an application addresses the cache with its own **flat, explicit keys** —
+especially colon-namespaced ones like `chat:messages:hash` or `radio:now_playing`
+— use `Pramnos\Cache\FlatCache` instead. It is a PSR-16 cache that stores and
+reads the key **verbatim** under a fixed prefix, and is **backend-agnostic**: it
+works over any cache adapter, exactly like the category cache.
+
+```php
+use Pramnos\Cache\FlatCache;
+use Pramnos\Cache\Adapter\RedisAdapter;
+use Pramnos\Cache\Adapter\ArrayAdapter;
+
+// Production: Redis-backed, keyed under "app:", colon keys kept verbatim.
+$cache = new FlatCache(new RedisAdapter('127.0.0.1', 6379, 0, null, 'app:'), 'app:');
+
+$cache->set('chat:messages:hash', $hash, 300);   // stored at app:chat:messages:hash
+$hash = $cache->get('chat:messages:hash');        // arrays/objects round-trip
+$cache->has('radio:now_playing');
+$cache->delete('chat:messages:hash');
+
+// Tests: swap in the in-memory adapter — same class, no live server.
+$cache = new FlatCache(new ArrayAdapter('app:'), 'app:');
+```
+
+Choosing between them:
+
+| Need | Use |
+|------|-----|
+| Cache a computed value under a logical id, grouped in categories | `Cache` / `SimpleCache` |
+| Full control of the exact (possibly colon-namespaced) key | `FlatCache` |
+
+`FlatCache` implements `Psr\SimpleCache\CacheInterface`, so it drops into any
+PSR-16-aware library. Serialisation and TTL are delegated to the adapter. A
+stored boolean `false` is reported as a miss (adapters signal "not found" with
+`false`); wrap it in an array if you must distinguish it.
+
 ## Integration Examples
 
 ### Model-Level Caching
