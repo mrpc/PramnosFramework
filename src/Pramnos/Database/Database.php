@@ -3114,4 +3114,148 @@ class Database extends \Pramnos\Framework\Base
         };
     }
 
+    /**
+     * Execute a parameterised SQL statement as a real prepared statement and
+     * return a {@see Result}.
+     *
+     * This is the PDO-style bridge for application code migrating off a raw
+     * \PDO handle. It accepts the SQL **verbatim** — keeping PostgreSQL-specific
+     * RETURNING / ON CONFLICT / DISTINCT ON / stored-function calls untouched —
+     * together with either named (:name) or positional (?) placeholders, and
+     * runs it through the native prepared-statement engine ({@see execute()},
+     * i.e. pg_prepare/pg_execute or mysqli), NOT string interpolation.
+     *
+     * Placeholder styles (mutually exclusive, matching PDO):
+     *   - Named:      "... WHERE id = :id"      + ['id' => 5]   (or [':id' => 5])
+     *                 A name may repeat; its value is bound to each occurrence,
+     *                 so ON CONFLICT ... SET x = :v with :v used twice works.
+     *   - Positional: "... WHERE id IN (?, ?)"  + [5, 7]
+     * Placeholders inside single-quoted string literals are ignored, and ':' in
+     * a '::type' cast is never treated as a placeholder — exactly as PDO parses.
+     *
+     * Values bind as real parameters: null binds SQL NULL and booleans bind the
+     * driver-native boolean. The returned Result type-casts PostgreSQL
+     * numeric/boolean columns (see {@see execute()}), so callers receive
+     * ints/floats/bools rather than the all-strings PDO FETCH_ASSOC default.
+     *
+     * @param string $sql      SQL with :named or ? placeholders (verbatim otherwise).
+     * @param array  $bindings Named map (assoc) or positional list per the style.
+     * @return Result|false    Result on success, false on prepare/execute failure.
+     * @throws \InvalidArgumentException When a named placeholder has no binding,
+     *                                   or a positional binding count mismatch.
+     */
+    public function preparedQuery(string $sql, array $bindings = [])
+    {
+        if ($bindings === []) {
+            return $this->query($sql);
+        }
+
+        [$converted, $ordered] = $this->bindPlaceholders($sql, $bindings);
+
+        return $this->execute($converted, ...$ordered);
+    }
+
+    /**
+     * Rewrite :named / ? placeholders in $sql to the framework's %s placeholder
+     * and produce the matching ordered value list for {@see execute()}.
+     *
+     * A scanner walks the SQL so that placeholders inside single-quoted string
+     * literals are left alone and '::' casts are never mistaken for a :name.
+     * Named and positional styles cannot be mixed in one statement (as with PDO).
+     *
+     * @param string $sql
+     * @param array  $bindings
+     * @return array{0:string,1:array} [rewritten SQL, ordered values]
+     * @throws \InvalidArgumentException
+     */
+    private function bindPlaceholders(string $sql, array $bindings): array
+    {
+        // Normalise a named binding map so keys may be given with or without ':'.
+        $isList = array_keys($bindings) === range(0, count($bindings) - 1);
+        $named = [];
+        if (!$isList) {
+            foreach ($bindings as $key => $value) {
+                $named[ltrim((string) $key, ':')] = $value;
+            }
+        }
+
+        $out       = '';
+        $ordered   = [];
+        $posIndex  = 0;
+        $length    = strlen($sql);
+        $inString  = false; // inside a single-quoted literal
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $sql[$i];
+
+            if ($inString) {
+                $out .= $char;
+                if ($char === "'") {
+                    // '' is an escaped quote inside the literal, stay in-string.
+                    if ($i + 1 < $length && $sql[$i + 1] === "'") {
+                        $out .= $sql[++$i];
+                    } else {
+                        $inString = false;
+                    }
+                }
+                continue;
+            }
+
+            if ($char === "'") {
+                $inString = true;
+                $out .= $char;
+                continue;
+            }
+
+            // Positional placeholder.
+            if ($char === '?' && $isList) {
+                if (!array_key_exists($posIndex, $bindings)) {
+                    throw new \InvalidArgumentException(
+                        'Not enough positional bindings for the given SQL.'
+                    );
+                }
+                $ordered[] = $bindings[$posIndex++];
+                $out .= '%s';
+                continue;
+            }
+
+            // Named placeholder — but not the second ':' of a '::type' cast.
+            if ($char === ':' && !$isList) {
+                $next = $i + 1 < $length ? $sql[$i + 1] : '';
+                if ($next === ':') {
+                    // '::' cast — emit both colons untouched.
+                    $out .= '::';
+                    $i++;
+                    continue;
+                }
+                if (preg_match('/[A-Za-z_]/', $next)) {
+                    $j = $i + 1;
+                    while ($j < $length && preg_match('/[A-Za-z0-9_]/', $sql[$j])) {
+                        $j++;
+                    }
+                    $name = substr($sql, $i + 1, $j - $i - 1);
+                    if (!array_key_exists($name, $named)) {
+                        throw new \InvalidArgumentException(
+                            'Missing binding for placeholder ":' . $name . '".'
+                        );
+                    }
+                    $ordered[] = $named[$name];
+                    $out .= '%s';
+                    $i = $j - 1;
+                    continue;
+                }
+            }
+
+            $out .= $char;
+        }
+
+        if ($isList && $posIndex !== count($bindings)) {
+            throw new \InvalidArgumentException(
+                'Positional binding count does not match the number of ? placeholders.'
+            );
+        }
+
+        return [$out, $ordered];
+    }
+
 }

@@ -319,6 +319,28 @@ class Result implements \IteratorAggregate
     }
 
     /**
+     * Fetch the next row and return a single column from it — PDO fetchColumn()
+     * parity for code migrating off a raw \PDO handle.
+     *
+     * Advances the cursor exactly like {@see fetch()}, then returns the value at
+     * the given zero-based column position. Returns false when there are no more
+     * rows (matching PDOStatement::fetchColumn()), so callers can keep writing
+     * `if ($result->fetchColumn() !== false)`.
+     *
+     * @param int $column Zero-based column index (default first column).
+     * @return mixed The column value, or false when no row is available.
+     */
+    public function fetchColumn(int $column = 0)
+    {
+        $row = $this->fetch();
+        if (!\is_array($row) || $row === []) {
+            return false;
+        }
+        $values = \array_values($row);
+        return \array_key_exists($column, $values) ? $values[$column] : false;
+    }
+
+    /**
      * Returns the auto generated id used in the latest query
      * @return mixed The value of the AUTO_INCREMENT field that was updated by
      * the previous query. Returns zero if there was no previous query
