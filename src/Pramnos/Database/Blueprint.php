@@ -330,13 +330,15 @@ class Blueprint
      * @param string|string[] $columns
      * @param string|null     $name  Auto-generated when null.
      */
-    public function unique($columns, ?string $name = null): void
+    public function unique($columns, ?string $name = null): IndexDefinition
     {
         $columns = (array)$columns;
         $this->uniqueConstraints[] = [
             'name'    => $name ?? $this->generateIndexName('unique', $columns),
             'columns' => $columns,
+            'where'   => null,
         ];
+        return new IndexDefinition($this, 'unique', array_key_last($this->uniqueConstraints));
     }
 
     /**
@@ -345,13 +347,30 @@ class Blueprint
      * @param string|string[] $columns
      * @param string|null     $name  Auto-generated when null.
      */
-    public function index($columns, ?string $name = null): void
+    public function index($columns, ?string $name = null): IndexDefinition
     {
         $columns = (array)$columns;
         $this->indexes[] = [
             'name'    => $name ?? $this->generateIndexName('index', $columns),
             'columns' => $columns,
+            'where'   => null,
         ];
+        return new IndexDefinition($this, 'index', array_key_last($this->indexes));
+    }
+
+    /**
+     * Set the WHERE predicate of a previously declared index/unique (partial index).
+     * Called by IndexDefinition::where(); not part of the public fluent surface.
+     *
+     * @internal
+     */
+    public function setIndexWhere(string $kind, int $key, string $where): void
+    {
+        if ($kind === 'unique' && isset($this->uniqueConstraints[$key])) {
+            $this->uniqueConstraints[$key]['where'] = $where;
+        } elseif (isset($this->indexes[$key])) {
+            $this->indexes[$key]['where'] = $where;
+        }
     }
 
     /**

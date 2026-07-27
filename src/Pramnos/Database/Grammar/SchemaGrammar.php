@@ -137,6 +137,9 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
 
         // ---- UNIQUE constraints — from explicit blueprint->unique() calls ----
         foreach ($blueprint->getUniqueConstraints() as $u) {
+            if (!empty($u['where'])) {
+                continue; // partial unique -> emitted post-create as CREATE UNIQUE INDEX ... WHERE
+            }
             $quotedCols = array_map(fn($c) => $this->quoteColumn($c), $u['columns']);
             $columnSqls[] = $this->compileInlineUnique($u['name'], $quotedCols);
         }
@@ -164,7 +167,10 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
         // leave the table without its indexes.
         if ($this->inlineIndexes()) {
             foreach ($blueprint->getIndexes() as $idx) {
-                $quotedCols   = array_map(fn($c) => $this->quoteColumn($c), $idx['columns']);
+                if (!empty($idx['where'])) {
+                    continue; // partial index -> post-create (WHERE cannot be inlined)
+                }
+                $quotedCols   = array_map(fn($c) => $this->quoteIndexColumn($c), $idx['columns']);
                 $columnSqls[] = $this->compileInlineIndex($idx['name'], $quotedCols);
             }
         }
@@ -176,11 +182,22 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
 
         $statements[] = $sql;
 
-        // ---- post-CREATE: non-unique indexes (PostgreSQL and other dialects) ----
-        if (!$this->inlineIndexes()) {
-            foreach ($blueprint->getIndexes() as $idx) {
-                $statements[] = $this->compileCreateIndex($table, $idx['name'], $idx['columns'], false);
+        // ---- post-CREATE: non-unique indexes (PostgreSQL and other dialects), plus
+        //      any PARTIAL index on any dialect (a WHERE predicate can't be inlined) ----
+        foreach ($blueprint->getIndexes() as $idx) {
+            if ($this->inlineIndexes() && empty($idx['where'])) {
+                continue; // already inlined above
             }
+            $statements[] = $this->compileCreateIndex($table, $idx['name'], $idx['columns'], false, $idx['where'] ?? null);
+        }
+
+        // ---- post-CREATE: PARTIAL unique indexes (a partial unique cannot be a
+        //      table constraint, so it is created as a UNIQUE INDEX ... WHERE) ----
+        foreach ($blueprint->getUniqueConstraints() as $u) {
+            if (empty($u['where'])) {
+                continue;
+            }
+            $statements[] = $this->compileCreateIndex($table, $u['name'], $u['columns'], true, $u['where']);
         }
 
         // ---- post-CREATE: FOREIGN KEYS (PostgreSQL: ALTER TABLE ADD CONSTRAINT) ----
@@ -296,12 +313,12 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
 
         // ADD UNIQUE
         foreach ($blueprint->getUniqueConstraints() as $u) {
-            $statements[] = $this->compileCreateIndex($table, $u['name'], $u['columns'], true);
+            $statements[] = $this->compileCreateIndex($table, $u['name'], $u['columns'], true, $u['where'] ?? null);
         }
 
         // ADD INDEX
         foreach ($blueprint->getIndexes() as $idx) {
-            $statements[] = $this->compileCreateIndex($table, $idx['name'], $idx['columns'], false);
+            $statements[] = $this->compileCreateIndex($table, $idx['name'], $idx['columns'], false, $idx['where'] ?? null);
         }
 
         // ADD FOREIGN KEY
@@ -419,12 +436,30 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
     // Index DDL
     // =========================================================================
 
-    public function compileCreateIndex(string $table, string $name, array $columns, bool $unique): string
+    public function compileCreateIndex(string $table, string $name, array $columns, bool $unique, ?string $where = null): string
     {
         $type    = $unique ? 'UNIQUE INDEX' : 'INDEX';
-        $quotedCols = array_map(fn($c) => $this->quoteColumn($c), $columns);
-        return "CREATE {$type} {$name} ON " . $this->quoteTable($table)
+        $quotedCols = array_map(fn($c) => $this->quoteIndexColumn($c), $columns);
+        $sql = "CREATE {$type} {$name} ON " . $this->quoteTable($table)
             . ' (' . implode(', ', $quotedCols) . ')';
+        // Partial index: append the raw predicate verbatim.
+        if ($where !== null && $where !== '') {
+            $sql .= ' WHERE (' . $where . ')';
+        }
+        return $sql;
+    }
+
+    /**
+     * Quote an index column while preserving a trailing sort direction, so
+     * "created_at DESC" becomes `"created_at" DESC` (identifier quoted, ASC/DESC
+     * kept). A plain column name is quoted as-is.
+     */
+    protected function quoteIndexColumn(string $column): string
+    {
+        if (preg_match('/^(.+?)\s+(ASC|DESC)$/i', trim($column), $m)) {
+            return $this->quoteColumn($m[1]) . ' ' . strtoupper($m[2]);
+        }
+        return $this->quoteColumn($column);
     }
 
     public function compileDropIndex(string $table, string $name): string
