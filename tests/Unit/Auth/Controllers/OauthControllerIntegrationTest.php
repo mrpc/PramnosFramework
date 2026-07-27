@@ -54,6 +54,8 @@ class TestableOauth extends Oauth
 
 class OauthControllerIntegrationTest extends TestCase
 {
+    use \Pramnos\Tests\Support\PreservesAppKeys;
+
     private TestableOauth $controller;
     private $dbMock;
     private $queryBuilderMock;
@@ -61,6 +63,10 @@ class OauthControllerIntegrationTest extends TestCase
 
     protected function setUp(): void
     {
+        // Constructing the real Oauth controller generates RSA keys under
+        // ROOT/app/keys — snapshot first so tearDown() removes only ours.
+        $this->snapshotAppKeys();
+
         \Pramnos\Http\Session::getInstance();
 
         // Save original database reference
@@ -97,6 +103,10 @@ class OauthControllerIntegrationTest extends TestCase
         // Restore original database
         $dbRef = &\Pramnos\Database\Database::getInstance();
         $dbRef = $this->originalDb;
+
+        // Remove the keys the controller generated under ROOT/app/keys;
+        // pre-existing keys are preserved.
+        $this->restoreAppKeys();
     }
 
     public function testDisplay()

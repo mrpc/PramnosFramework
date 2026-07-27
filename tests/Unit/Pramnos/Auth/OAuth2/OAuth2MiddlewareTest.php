@@ -42,11 +42,18 @@ use Pramnos\Application\Controller;
 #[CoversClass(OAuth2Middleware::class)]
 class OAuth2MiddlewareTest extends TestCase
 {
+    use \Pramnos\Tests\Support\PreservesAppKeys;
+
     /** @var Controller&\PHPUnit\Framework\MockObject\MockObject */
     private Controller $controller;
 
     protected function setUp(): void
     {
+        // OAuth2Middleware::__construct() builds an OAuth2ServerFactory without
+        // explicit paths, whose constructor persists encryption.key under
+        // ROOT/app/keys — snapshot so tearDown() removes only what we created.
+        $this->snapshotAppKeys();
+
         // Controller is only stored; the actual DB calls bypass it via Factory::getDatabase().
         $this->controller = $this->createMock(Controller::class);
 
@@ -63,6 +70,10 @@ class OAuth2MiddlewareTest extends TestCase
         // fresh Database object from config.
         $singleton = &\Pramnos\Database\Database::getInstance();
         $singleton = null;
+
+        // Remove the encryption key the factory generated under ROOT/app/keys;
+        // pre-existing keys are preserved.
+        $this->restoreAppKeys();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

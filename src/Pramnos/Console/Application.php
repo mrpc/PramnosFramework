@@ -30,6 +30,18 @@ class Application extends \Symfony\Component\Console\Application
             $_SERVER['HTTP_USER_AGENT'] = 'CLI';
             $_SERVER['REQUEST_URI'] = '/';
         }
+        // Symfony's DumpCompletionCommand::configure() reads $_SERVER['PHP_SELF']
+        // unguarded and passes it to basename(). PHP always populates it on the
+        // CLI, but an embedded console application (tests, a queue worker, an
+        // HTTP request that shells out) can run with it unset or nulled — which
+        // raised an "Undefined array key" warning plus a basename() deprecation
+        // the moment registerCommands() ran. Fill it in the same spirit as the
+        // web-ish keys above, before parent::__construct() adds the command.
+        if (!isset($_SERVER['PHP_SELF'])) {
+            $_SERVER['PHP_SELF'] = $_SERVER['SCRIPT_NAME']
+                ?? $_SERVER['SCRIPT_FILENAME']
+                ?? 'pramnos';
+        }
         if (!defined('sURL')) {
             define('sURL', 'https://pramnosframework.test'); //MainURL
         }

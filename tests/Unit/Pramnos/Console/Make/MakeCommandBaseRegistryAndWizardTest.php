@@ -138,6 +138,10 @@ class MakeCommandBaseRegistryAndWizardTest extends TestCase
             }));
             if (empty($filtered)) {
                 @unlink($registryFile);
+                // registerModelInRegistry() mkdir'd ROOT/app for us; drop it again
+                // so the framework checkout stays clean (fails harmlessly when
+                // anything else lives there).
+                @rmdir(ROOT . DS . 'app');
             } else {
                 file_put_contents($registryFile, json_encode($filtered, JSON_PRETTY_PRINT));
             }

@@ -27,3 +27,8 @@ site/*
 # Brand assets synced into the docs site at build time (source of truth: brand/)
 /docs/assets/logo.png
 /docs/assets/favicon.png
+
+# Runtime app directory of a project built on the framework. In this repo it is
+# only ever created as a side effect of the test suite (OAuth2 key generation,
+# the model registry) — the tests clean up after themselves, this is the belt.
+/app

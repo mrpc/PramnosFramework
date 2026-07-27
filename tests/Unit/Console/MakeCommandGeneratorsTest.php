@@ -229,6 +229,57 @@ class MakeCommandGeneratorsTest extends TestCase
                 unlink($file);
             }
         }
+
+        $this->cleanModelRegistry();
+    }
+
+    /**
+     * Remove this class' entries from ROOT/app/model-registry.json.
+     *
+     * createModel() calls MakeCommandBase::registerModelInRegistry(), which
+     * writes (and mkdirs) ROOT/app/model-registry.json — inside the framework
+     * checkout when running under PHPUnit. Without this cleanup the generated
+     * models accumulated there permanently and the root-owned app/ directory
+     * showed up forever as untracked in git.
+     *
+     * Only the class names this test generates are filtered out, mirroring
+     * MakeCommandBaseExtendedTest, so a real project's registry survives. The
+     * file (and the app/ directory, when we created it) is removed once no
+     * entries are left.
+     *
+     * @return void
+     */
+    private function cleanModelRegistry(): void
+    {
+        $appDir       = ROOT . DIRECTORY_SEPARATOR . 'app';
+        $registryFile = $appDir . DIRECTORY_SEPARATOR . 'model-registry.json';
+        if (!file_exists($registryFile)) {
+            return;
+        }
+
+        $ours = ['TestEntity', 'IntroModelEntity', 'SchemaModel', 'TestCrudEntity'];
+        $data = json_decode((string) file_get_contents($registryFile), true);
+        if (!is_array($data)) {
+            // Corrupt or unexpected content: it can only have come from a
+            // generator run, so drop the file wholesale.
+            @unlink($registryFile);
+            @rmdir($appDir);
+            return;
+        }
+
+        $kept = array_values(array_filter(
+            $data,
+            fn($entry) => !in_array($entry['className'] ?? '', $ours, true)
+        ));
+
+        if (empty($kept)) {
+            @unlink($registryFile);
+            // Only succeeds while app/ holds nothing else (e.g. app/keys).
+            @rmdir($appDir);
+            return;
+        }
+
+        file_put_contents($registryFile, json_encode($kept, JSON_PRETTY_PRINT));
     }
 
     private function removeDirRecursive(string $dir): void

@@ -84,6 +84,8 @@ class CoverageTestableOauth extends Oauth
 #[CoversClass(Oauth::class)]
 class OauthCoverageTest extends TestCase
 {
+    use \Pramnos\Tests\Support\PreservesAppKeys;
+
     private \Pramnos\Database\Database $db;
     private CoverageTestableOauth $controller;
 
@@ -91,6 +93,10 @@ class OauthCoverageTest extends TestCase
 
     protected function setUp(): void
     {
+        // Constructing the real Oauth controller generates RSA keys under
+        // ROOT/app/keys — snapshot first so tearDown() removes only ours.
+        $this->snapshotAppKeys();
+
         if (!defined('CONFIG')) {
             define('CONFIG', 'tests' . DIRECTORY_SEPARATOR . 'fixtures' . DIRECTORY_SEPARATOR . 'app');
         }
@@ -135,6 +141,10 @@ class OauthCoverageTest extends TestCase
         $_SERVER  = [];
         $_POST    = [];
         $_GET     = [];
+
+        // Remove the keys the controller generated under ROOT/app/keys;
+        // pre-existing keys are preserved.
+        $this->restoreAppKeys();
     }
 
     // ── Schema helpers ────────────────────────────────────────────────────────
