@@ -6,8 +6,11 @@ namespace Pramnos\Broadcasting;
 
 use Pramnos\Application\ServiceProvider;
 use Pramnos\Application\Settings;
+use Pramnos\Broadcasting\Drivers\DatabaseDriver;
 use Pramnos\Broadcasting\Drivers\LogDriver;
 use Pramnos\Broadcasting\Drivers\NullDriver;
+use Pramnos\Broadcasting\Drivers\PusherDriver;
+use Pramnos\Broadcasting\Drivers\RedisDriver;
 
 /**
  * Bootstraps the broadcasting feature.
@@ -19,10 +22,25 @@ use Pramnos\Broadcasting\Drivers\NullDriver;
  * ```php
  * 'features' => ['broadcasting'],
  * 'broadcasting' => [
- *     'default' => 'log',   // 'null' (default) | 'log'
+ *     'default' => 'redis', // 'null' (default) | 'log' | 'redis' | 'database' | 'pusher'
  *     'log_path' => ROOT . '/logs/broadcasting.log',
+ *     'redis' => [          // redis pub/sub backplane (SSE + WebSocket)
+ *         'host' => '127.0.0.1', 'port' => 6379, 'database' => 0,
+ *         'password' => null, 'prefix' => '',
+ *     ],
+ *     'database' => [       // polling backplane for hosts without Redis
+ *         'table' => 'broadcast_events',
+ *     ],
+ *     'pusher' => [         // Pusher / self-hosted Reverb
+ *         'app_id' => '...', 'app_key' => '...', 'app_secret' => '...',
+ *         'cluster' => 'eu', // or 'host'/'port'/'scheme' for Reverb
+ *     ],
  * ],
  * ```
+ *
+ * Redis and database drivers additionally implement SubscribableDriverInterface,
+ * so the same backplane can be *consumed* by an SSE stream or the WebSocket
+ * server, not just published to.
  *
  * ## Container binding
  *
@@ -50,6 +68,30 @@ class BroadcastingServiceProvider extends ServiceProvider
             // Register LogDriver if configured
             $logPath = $config['log_path'] ?? null;
             $manager->addDriver(new LogDriver($logPath));
+
+            // Redis pub/sub backplane. Registered unconditionally (the connection
+            // is opened lazily on first use), so selecting 'redis' only fails at
+            // broadcast/subscribe time if the phpredis extension is missing.
+            $manager->addDriver(new RedisDriver($config['redis'] ?? []));
+
+            // Database polling backplane — only when a DB connection is available.
+            if (($config['database'] ?? null) !== null && isset($app->database) && $app->database) {
+                $table = is_array($config['database']) ? ($config['database']['table'] ?? 'broadcast_events') : 'broadcast_events';
+                $manager->addDriver(new DatabaseDriver(new DatabaseEventStore($app->database, $table)));
+            }
+
+            // Pusher / Reverb — only when configured and the SDK is installed.
+            $pusher = $config['pusher'] ?? null;
+            if (is_array($pusher) && class_exists('\\Pusher\\Pusher')) {
+                try {
+                    $manager->addDriver(new PusherDriver($pusher));
+                } catch (\Throwable $e) {
+                    \Pramnos\Logs\Logger::log(
+                        'Broadcasting: PusherDriver could not be registered: ' . $e->getMessage(),
+                        'broadcasting',
+                    );
+                }
+            }
 
             // Set the default driver
             try {
