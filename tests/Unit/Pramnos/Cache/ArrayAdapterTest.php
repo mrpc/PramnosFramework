@@ -161,6 +161,24 @@ class ArrayAdapterTest extends TestCase
         $this->assertSame('eternal', $this->adapter->load('forever'));
     }
 
+    /**
+     * Regression: the Cache layer passes keys that already include the prefix
+     * (see the load()/save() docblocks), so the adapter must store them verbatim.
+     * It used to re-prepend $this->prefix — double-prefixing — which diverged from
+     * RedisAdapter (whose load/save use the key as-is).
+     */
+    public function testKeyIsNotDoublePrefixed(): void
+    {
+        $adapter = new ArrayAdapter('pfx_');
+        $adapter->save('pfx_mykey', 'v', 3600);
+
+        $store = (new \ReflectionProperty(ArrayAdapter::class, 'store'))->getValue($adapter);
+
+        $this->assertArrayHasKey('pfx_mykey', $store, 'key must be stored verbatim');
+        $this->assertArrayNotHasKey('pfx_pfx_mykey', $store, 'adapter must not double-prefix');
+        $this->assertSame('v', $adapter->load('pfx_mykey'));
+    }
+
     // ── Delete ────────────────────────────────────────────────────────────────
 
     /**
