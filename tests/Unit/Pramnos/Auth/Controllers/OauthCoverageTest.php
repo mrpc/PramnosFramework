@@ -1261,15 +1261,17 @@ class OauthCoverageTest extends TestCase
         $user->username = 'rethrow';
         $user->language = Factory::getLanguage()->currentlang();
 
+        // The controller created in setUp is CoverageTestableOauth (terminate = no-op).
+        // We need the real Oauth (terminate = throw) to hit the re-throw path.
+        // Re-create with a standard Oauth instance. NOTE: `new Application()` becomes
+        // the Application singleton, so currentUser MUST be set AFTER this — otherwise
+        // it is wiped and getLoggedInUser() falls back to a DB load of the user.
+        $realController = new Oauth(new Application());
+
         $app = Application::getInstance();
         if ($app) {
             $app->currentUser = clone $user;
         }
-
-        // The controller created in setUp is CoverageTestableOauth (terminate = no-op).
-        // We need the real Oauth (terminate = throw) to hit the re-throw path.
-        // Re-create with a standard Oauth instance.
-        $realController = new Oauth(new Application());
 
         // Act — issueCodeAndRedirect → terminate() → throws "OAuth controller terminated"
         $this->expectException(\Exception::class);
