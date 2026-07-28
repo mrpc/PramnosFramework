@@ -146,4 +146,54 @@ class FlatCacheTest extends TestCase
         $this->assertSame('X', $c->swap('pointer', 'X'), 'unchanged value returns itself');
         $this->assertSame('X', $c->swap('pointer', 'Y'), 'changed value returns the old one');
     }
+
+    // ── Structured operations ───────────────────────────────────────────────────
+
+    public function testHashRoundTripAndDelete(): void
+    {
+        $c = $this->cache();
+        $this->assertNull($c->hashGet('h', 'missing'), 'absent field returns default (null)');
+
+        $c->hashSet('h', 'a', ['x' => 1]);
+        $c->hashSet('h', 'b', 'two');
+        $this->assertSame(['x' => 1], $c->hashGet('h', 'a'), 'array value round-trips');
+        $this->assertSame('two', $c->hashGet('h', 'b'));
+        $this->assertSame(['a' => ['x' => 1], 'b' => 'two'], $c->hashGetAll('h'));
+
+        $c->hashDelete('h', 'a');
+        $this->assertNull($c->hashGet('h', 'a'));
+        $this->assertSame(['b' => 'two'], $c->hashGetAll('h'));
+    }
+
+    public function testListPushRangeTrim(): void
+    {
+        $c = $this->cache();
+        $this->assertSame([], $c->listRange('l', 0, -1), 'absent list is empty');
+
+        // LPUSH prepends, so the newest is first.
+        $c->listPush('l', 'a');
+        $c->listPush('l', 'b');
+        $length = $c->listPush('l', 'c');
+        $this->assertSame(3, $length, 'listPush returns the new length');
+        $this->assertSame(['c', 'b', 'a'], $c->listRange('l', 0, -1), 'newest-first order');
+        $this->assertSame(['c', 'b'], $c->listRange('l', 0, 1), 'inclusive range');
+        $this->assertSame(['a'], $c->listRange('l', -1, -1), 'negative indices');
+
+        $c->listTrim('l', 0, 1);
+        $this->assertSame(['c', 'b'], $c->listRange('l', 0, -1), 'trim keeps the head');
+    }
+
+    public function testListPreservesStructuredValues(): void
+    {
+        $c = $this->cache();
+        $c->listPush('msgs', ['id' => 'm1', 'text' => 'γειά']);
+        $recent = $c->listRange('msgs', 0, -1);
+        $this->assertSame([['id' => 'm1', 'text' => 'γειά']], $recent);
+    }
+
+    public function testKeysReturnsArray(): void
+    {
+        // The in-memory adapter does not enumerate; the contract is still an array.
+        $this->assertIsArray($this->cache()->keys('anything:*'));
+    }
 }
