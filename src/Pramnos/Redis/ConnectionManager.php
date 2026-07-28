@@ -108,9 +108,13 @@ class ConnectionManager
             throw new \RuntimeException('The phpredis extension (\\Redis) is required for Redis connections.');
         }
         $redis = new \Redis();
-        $redis->connect($this->host, $this->port);
-        if ($this->password !== null) {
-            $redis->auth($this->password);
+        // Fail fast on connect/auth so callers get a clear error instead of a
+        // dead connection that only throws on the first command.
+        if (!$redis->connect($this->host, $this->port)) {
+            throw new \RuntimeException("Could not connect to Redis at {$this->host}:{$this->port}");
+        }
+        if ($this->password !== null && !$redis->auth($this->password)) {
+            throw new \RuntimeException('Redis AUTH failed');
         }
         if ($this->database > 0) {
             $redis->select($this->database);

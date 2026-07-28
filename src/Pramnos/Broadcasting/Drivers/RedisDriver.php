@@ -142,22 +142,16 @@ class RedisDriver implements SubscribableDriverInterface
         return $connection;
     }
 
-    private function defaultConnection(): \Redis
+    private function defaultConnection(): object
     {
-        if (!class_exists('\Redis')) {
-            throw new \RuntimeException(
-                'The phpredis extension (\\Redis) is required for the "redis" broadcasting driver.'
-            );
-        }
-        $redis = new \Redis();
-        $redis->connect($this->host, $this->port);
-        if ($this->password !== null) {
-            $redis->auth($this->password);
-        }
-        if ($this->database > 0) {
-            $redis->select($this->database);
-        }
-        return $redis;
+        // Route connection creation through the central manager so connect/auth/
+        // select lives in one place; honours this driver's own config.
+        return (new \Pramnos\Redis\ConnectionManager([
+            'host'     => $this->host,
+            'port'     => $this->port,
+            'database' => $this->database,
+            'password' => $this->password,
+        ]))->newConnection();
     }
 
     private function closeQuietly(object $connection): void
