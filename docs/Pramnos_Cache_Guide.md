@@ -297,6 +297,46 @@ PSR-16-aware library. Serialisation and TTL are delegated to the adapter. A
 stored boolean `false` is reported as a miss (adapters signal "not found" with
 `false`); wrap it in an array if you must distinguish it.
 
+### Atomic counters (increment / decrement / counter)
+
+Rate limits, failed-login trackers, spam-violation tallies and monotonic epoch
+markers are **counters**, not cached values: they need atomic updates under
+concurrency and a bare-integer representation. `FlatCache` exposes a dedicated
+counter capability for them, separate from the value round-trip above:
+
+```php
+// Sliding-window rate limiter: +1 and (re)set a 900s TTL in one atomic step.
+$attempts = $cache->increment("login_attempts:{$ip}", 1, 900); // returns the new total
+if ($attempts > 5) { /* locked out */ }
+
+$cache->counter("login_attempts:{$ip}"); // read current value (0 if absent, key NOT created)
+$cache->decrement('slots_free');          // negative deltas via decrement()
+$cache->delete("login_attempts:{$ip}");   // reset on success
+```
+
+Semantics:
+
+- `increment(string $key, int $by = 1, null|int|\DateInterval $ttl = null): int`
+  adds `$by` and returns the **new** total; when `$ttl` is given the expiry is
+  reset on every call (a sliding window).
+- `decrement(...)` is the mirror image.
+- `counter(string $key): int` reads the current value — `0` when absent, and it
+  does **not** create the key (unlike `increment($key, 0)` would).
+
+A counter key is stored as a **bare integer**, distinct from the serialised
+`{data,time}` envelope that `set()`/`get()` use — so **never** mix the two on the
+same key (read a counter with `counter()`, never `get()`).
+
+Backend support is layered so it is fully **backwards compatible**:
+
+- `AdapterInterface` is **unchanged** — existing third-party adapters keep working.
+- `AbstractAdapter` provides a concrete, non-atomic default (`counter()` +
+  `save()`), so every adapter that extends it gains the capability for free.
+- `RedisAdapter` overrides it with native `INCRBY` / `DECRBY` + `EXPIRE`, making
+  it genuinely atomic across processes.
+- If you inject a bare `AdapterInterface` without these methods, `FlatCache`
+  transparently falls back to a get+set emulation.
+
 ## Integration Examples
 
 ### Model-Level Caching
