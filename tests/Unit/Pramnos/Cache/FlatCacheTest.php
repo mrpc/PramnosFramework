@@ -127,4 +127,23 @@ class FlatCacheTest extends TestCase
         $c->increment('short', 1, 1);
         $this->assertSame(1, $c->counter('short'));
     }
+
+    public function testSwapReturnsNullWhenUnsetThenPreviousValue(): void
+    {
+        $c = $this->cache();
+        // First swap on an unset key returns null and stores the new value.
+        $this->assertNull($c->swap('radio:last_track', 'Song A'));
+        // Subsequent swaps return the previous value and set the new one.
+        $this->assertSame('Song A', $c->swap('radio:last_track', 'Song B'));
+        $this->assertSame('Song B', $c->swap('radio:last_track', 'Song C'));
+    }
+
+    public function testSwapEnablesChangeDetection(): void
+    {
+        $c = $this->cache();
+        // The de-dup pattern: a repeated value swaps to itself (prev === new).
+        $c->swap('pointer', 'X');
+        $this->assertSame('X', $c->swap('pointer', 'X'), 'unchanged value returns itself');
+        $this->assertSame('X', $c->swap('pointer', 'Y'), 'changed value returns the old one');
+    }
 }

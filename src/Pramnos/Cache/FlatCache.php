@@ -123,6 +123,30 @@ class FlatCache implements CacheInterface
         return $value === false || $value === null ? 0 : (int) $value;
     }
 
+    /**
+     * Atomically set a key to a new value and return the previous one.
+     *
+     * A raw-key atomic operation (like {@see increment()}): on a backend that
+     * supports it (e.g. Redis GETSET) the read-and-set is a single operation, so
+     * concurrent callers cannot both observe the same previous value — useful for
+     * de-duplication (record only when the value changed). The value is stored
+     * verbatim, so read it back with another swap() rather than get().
+     *
+     * @return string|null The previous value, or null when the key was unset.
+     */
+    public function swap(string $key, string $value): ?string
+    {
+        $full = $this->key($key);
+        if (method_exists($this->adapter, 'swap')) {
+            $prev = $this->adapter->swap($full, $value);
+            return $prev === null ? null : (string) $prev;
+        }
+        // Fallback for a bare AdapterInterface without the swap capability.
+        $prev = $this->adapter->load($full, null);
+        $this->adapter->save($full, $value, 0);
+        return ($prev === false || $prev === null) ? null : (string) $prev;
+    }
+
     public function getMultiple(iterable $keys, mixed $default = null): iterable
     {
         $out = [];

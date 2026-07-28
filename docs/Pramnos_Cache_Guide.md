@@ -337,6 +337,26 @@ Backend support is layered so it is fully **backwards compatible**:
 - If you inject a bare `AdapterInterface` without these methods, `FlatCache`
   transparently falls back to a get+set emulation.
 
+### Atomic swap (change detection / de-duplication)
+
+`swap()` sets a key to a new value and returns the **previous** one in a single
+atomic step — the classic "record only when it changed" primitive:
+
+```php
+// Record a play only when the now-playing track differs from the last one.
+$previous = $cache->swap('radio:last_track', $display); // returns old value, sets new
+if ($previous === $display) {
+    return; // unchanged — skip
+}
+```
+
+Like the counters, `swap()` is a **raw-key** operation: the value is stored
+verbatim (not through the `{data,time}` envelope), so read it back with another
+`swap()`, never `get()`. Backend support is layered identically —
+`AbstractAdapter` provides a non-atomic read-then-write default, `RedisAdapter`
+overrides it with native `GETSET` (genuinely atomic across processes), and
+`AdapterInterface` is unchanged (fully backwards compatible).
+
 ## Integration Examples
 
 ### Model-Level Caching

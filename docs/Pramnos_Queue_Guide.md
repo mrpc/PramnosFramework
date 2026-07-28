@@ -6,7 +6,7 @@ shape of background work. Both live under `Pramnos\Queue`.
 | Capability | Class | Semantics | Backend |
 |---|---|---|---|
 | **Durable work queue** | `QueueManager` + `Worker` + `QueueItem` | Auditable row per task with a `pending → processing → completed / failed / warning` lifecycle, priorities, retries, locking, admin datatable | Database (`queueitems`) |
-| **Delayed queue** | `DelayedQueue` + `QueueDriverInterface` | Low-latency "run this later, don't lose it" dispatcher; claim-and-remove; linear-backoff retry | Pluggable driver — **Redis** (shipped); further drivers implement `QueueDriverInterface` |
+| **Delayed queue** | `DelayedQueue` + `QueueDriverInterface` | Low-latency "run this later, don't lose it" dispatcher; claim-and-remove; linear-backoff retry | Pluggable driver — **Redis** (sorted set) or **Database** (`delayed_jobs`) |
 
 They answer different needs. Reach for the **durable work queue** when you want a
 persistent, inspectable record of every task and a rich status lifecycle (imports,
@@ -23,9 +23,9 @@ see `QueueManager` / `Worker` (feature entry #28 in
 ## The delayed-queue capability
 
 A delayed queue is a driver behind a capability — an application depends on
-`DelayedQueue`, never on Redis directly. Redis is the shipped driver; further
-drivers (e.g. a database-backed one) implement `QueueDriverInterface` and drop in
-without touching application code.
+`DelayedQueue`, never on Redis directly. Two drivers ship — `RedisQueueDriver`
+(the low-latency default) and `DatabaseQueueDriver` — and further drivers
+implement `QueueDriverInterface` and drop in without touching application code.
 
 ### Contract
 
@@ -139,21 +139,40 @@ id from the sorted set.
 
 ---
 
-## Adding a driver
+## Choosing a driver
 
-`RedisQueueDriver` is the shipped driver, chosen for the lowest dispatch latency
-(an in-memory sorted set). Because the capability is defined by
-`QueueDriverInterface`, an alternative backend — a database-backed driver where
-Redis is unavailable or jobs must survive a cache flush, or a future message-bus
-driver — is added by implementing that one interface and passing it to
-`DelayedQueue`. Switching driver is then a one-line change at construction, with
-no application code changes.
+| | `RedisQueueDriver` | `DatabaseQueueDriver` |
+|---|---|---|
+| Latency | Lowest (in-memory sorted set) | Bounded by the poll interval |
+| Durability across a Redis flush | No | Yes (rows survive) |
+| Extra infrastructure | Requires Redis | Reuses the app database |
+| Backing store | `<prefix><ns>:delayed` ZSET + `:data` hash | `delayed_jobs` table |
+
+Default to Redis for latency-sensitive dispatch; use the database driver where
+Redis is unavailable or the jobs must survive a cache flush. Switching driver is
+a one-line change at construction — no application code changes:
+
+```php
+use Pramnos\Queue\Drivers\DatabaseQueueDriver;
+
+$queue = new DelayedQueue(new DatabaseQueueDriver($app->database));
+```
+
+The database driver stores each job as a row in `delayed_jobs` (created by the
+shipped migration), scored by an integer `run_at` Unix timestamp. Claiming is the
+SQL analogue of Redis's claim-by-`ZREM`: for each due row it issues
+`DELETE ... WHERE id = ?` and owns the job only when exactly one row was removed,
+so competing pollers never double-process. Because the capability is defined by
+`QueueDriverInterface`, further backends (a future message bus, etc.) are added
+by implementing that one interface.
 
 ---
 
 ## BC / additive notes
 
 The delayed-queue capability is **purely additive**: `QueueDriverInterface`,
-`ReservedJob`, `DelayedQueue`, and the drivers are all new types. No existing
-class (including `QueueManager`, `Worker`, `QueueItem`) changed signature or
-behaviour, so existing applications are unaffected.
+`ReservedJob`, `DelayedQueue`, and the drivers are all new types, and the
+`delayed_jobs` table is a new migration (created only for apps that use the
+database driver). No existing class (including `QueueManager`, `Worker`,
+`QueueItem`) or table changed signature, schema, or behaviour, so existing
+applications are unaffected.
