@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Console\Commands;
 
+use Pramnos\Console\Make\StubRenderer;
 use Pramnos\Routing\OpenApiGenerator;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -56,7 +57,8 @@ class ApiDocs extends Command
             ->addOption('api-version', null, InputOption::VALUE_REQUIRED, 'API version', '1.0.0')
             ->addOption('description', null, InputOption::VALUE_REQUIRED, 'API description')
             ->addOption('server', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Server URL (repeatable)')
-            ->addOption('overrides', null, InputOption::VALUE_REQUIRED, 'Path to an openapi-overrides.json to deep-merge');
+            ->addOption('overrides', null, InputOption::VALUE_REQUIRED, 'Path to an openapi-overrides.json to deep-merge')
+            ->addOption('no-html', null, InputOption::VALUE_NONE, 'Do not also generate the RapiDoc HTML viewer');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -128,6 +130,21 @@ class ApiDocs extends Command
             $operationCount,
             $outputPath
         ));
+
+        // Also emit the RapiDoc HTML viewer next to the spec (docs/index.html),
+        // matching what scaffolded Pramnos apps serve at /api/docs/.
+        if (!$input->getOption('no-html')) {
+            $docsDir  = $dir . '/docs';
+            if (!is_dir($docsDir)) {
+                mkdir($docsDir, 0775, true);
+            }
+            $html = (new StubRenderer())->render('api-docs.html', [
+                'title' => (string) ($info['title'] ?? 'API') . ' — API documentation',
+                'spec'  => '../' . basename($outputPath),
+            ]);
+            file_put_contents($docsDir . '/index.html', $html);
+            $output->writeln('<info>Wrote docs viewer to ' . $docsDir . '/index.html</info>');
+        }
 
         return Command::SUCCESS;
     }

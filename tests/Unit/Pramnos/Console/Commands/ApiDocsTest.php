@@ -29,12 +29,22 @@ class ApiDocsTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (glob($this->tmp . '/**/*') ?: [] as $f) {
-            if (is_file($f)) {
-                @unlink($f);
-            }
+        $this->rrmdir($this->tmp);
+    }
+
+    private function rrmdir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
         }
-        @unlink($this->tmp . '/openapi.json');
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $path = $dir . '/' . $entry;
+            is_dir($path) ? $this->rrmdir($path) : @unlink($path);
+        }
+        @rmdir($dir);
     }
 
     private function tester(): CommandTester
@@ -77,6 +87,31 @@ class ApiDocsTest extends TestCase
         $this->assertSame('demo.ping', $doc['paths']['/api/ping']['get']['operationId']);
         // The admin route is documented as secured.
         $this->assertSame([['bearerAuth' => []]], $doc['paths']['/api/things']['post']['security']);
+
+        // The RapiDoc HTML viewer is generated next to the spec, pointing at it.
+        $html = $this->tmp . '/docs/index.html';
+        $this->assertFileExists($html);
+        $contents = (string) file_get_contents($html);
+        $this->assertStringContainsString('rapi-doc', $contents);
+        $this->assertStringContainsString('spec-url="../openapi.json"', $contents);
+    }
+
+    /**
+     * --no-html suppresses the HTML viewer (spec only).
+     */
+    public function testNoHtmlSkipsViewer(): void
+    {
+        $tester = $this->tester();
+        $exit = $tester->execute([
+            '--controllers' => $this->fixturesDir(),
+            '--namespace'   => 'Pramnos\\Tests\\Fixtures\\OpenApi',
+            '--output'      => 'openapi.json',
+            '--no-html'     => true,
+        ]);
+
+        $this->assertSame(0, $exit, $tester->getDisplay());
+        $this->assertFileExists($this->tmp . '/openapi.json');
+        $this->assertFileDoesNotExist($this->tmp . '/docs/index.html');
     }
 
     /**
