@@ -187,6 +187,53 @@ abstract class AbstractAdapter implements AdapterInterface
         // Default implementation - should be overridden by concrete adapters
         throw new \BadMethodCallException("The 'delete' method is not implemented in the adapter.");
     }
+
+    /**
+     * Increment an integer counter and return the new value.
+     *
+     * Non-atomic default (load + save via this adapter). Backends with a native
+     * atomic primitive (e.g. {@see RedisAdapter} via INCRBY) override this to be
+     * concurrency-safe; the semantics — "add $by, return the new total, and
+     * (re)set a sliding TTL when $ttl is given" — are identical either way.
+     *
+     * @param string   $key The counter key.
+     * @param int      $by  Amount to add (default 1).
+     * @param int|null $ttl Sliding TTL in seconds; null/<=0 leaves expiry untouched.
+     * @return int New value.
+     */
+    public function increment($key, $by = 1, $ttl = null)
+    {
+        $new = (int) $this->counter($key) + (int) $by;
+        $this->save($key, $new, ($ttl !== null && (int) $ttl > 0) ? (int) $ttl : 0);
+        return $new;
+    }
+
+    /**
+     * Decrement an integer counter and return the new value.
+     * Non-atomic default; see {@see increment()}.
+     *
+     * @param string   $key The counter key.
+     * @param int      $by  Amount to subtract (default 1).
+     * @param int|null $ttl Sliding TTL in seconds; null/<=0 leaves expiry untouched.
+     * @return int New value.
+     */
+    public function decrement($key, $by = 1, $ttl = null)
+    {
+        return $this->increment($key, -(int) $by, $ttl);
+    }
+
+    /**
+     * Read the current integer value of a counter (0 when absent).
+     * Non-atomic default (via {@see load()}); backends may override.
+     *
+     * @param string $key The counter key.
+     * @return int
+     */
+    public function counter($key)
+    {
+        $value = $this->load($key, 0);
+        return $value === false || $value === null ? 0 : (int) $value;
+    }
     
     /**
      * @inheritDoc

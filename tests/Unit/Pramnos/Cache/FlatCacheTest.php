@@ -88,4 +88,43 @@ class FlatCacheTest extends TestCase
         $this->expectException(SimpleCacheInvalidArgumentException::class);
         $this->cache()->get('');
     }
+
+    // ---------------------------------------------------------------------
+    // Atomic-counter capability (increment/decrement/counter). Exercised here
+    // over ArrayAdapter, which inherits the AbstractAdapter non-atomic default;
+    // RedisAdapter overrides it with native INCRBY/DECRBY but keeps identical
+    // semantics.
+    // ---------------------------------------------------------------------
+
+    public function testIncrementCreatesThenAccumulates(): void
+    {
+        $c = $this->cache();
+        $this->assertSame(1, $c->increment('violations:1.2.3.4'), 'first increment creates at +by');
+        $this->assertSame(2, $c->increment('violations:1.2.3.4'));
+        $this->assertSame(5, $c->increment('violations:1.2.3.4', 3), 'increment by N');
+    }
+
+    public function testCounterReadsCurrentValueAndDefaultsToZero(): void
+    {
+        $c = $this->cache();
+        $this->assertSame(0, $c->counter('missing'), 'absent counter reads 0');
+        $c->increment('hits', 4);
+        $this->assertSame(4, $c->counter('hits'));
+    }
+
+    public function testDecrement(): void
+    {
+        $c = $this->cache();
+        $c->increment('epoch', 5);
+        $this->assertSame(4, $c->decrement('epoch'));
+        $this->assertSame(1, $c->decrement('epoch', 3));
+    }
+
+    public function testIncrementRespectsTtlExpiry(): void
+    {
+        $c = $this->cache();
+        // A zero/expired TTL must not leave a live counter behind.
+        $c->increment('short', 1, 1);
+        $this->assertSame(1, $c->counter('short'));
+    }
 }
