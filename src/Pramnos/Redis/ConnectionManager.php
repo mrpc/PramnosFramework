@@ -30,6 +30,8 @@ class ConnectionManager
     private int $database;
     private ?string $password;
     private string $prefix;
+    private float $timeout;
+    private ?float $readTimeout;
 
     /** @var callable(): object Factory returning a connected \Redis (or compatible). */
     private $factory;
@@ -40,20 +42,24 @@ class ConnectionManager
     private static ?self $instance = null;
 
     /**
-     * @param array<string,mixed> $config  host, port, database, password, prefix
+     * @param array<string,mixed> $config  host, port, database, password, prefix,
+     *                                      timeout (connect seconds), read_timeout
+     *                                      (OPT_READ_TIMEOUT seconds)
      * @param callable|null       $factory Optional factory returning a connected \Redis;
      *                                      defaults to a real connection from $config.
      */
     public function __construct(array $config = [], ?callable $factory = null)
     {
-        $this->host     = (string) ($config['host'] ?? '127.0.0.1');
-        $this->port     = (int) ($config['port'] ?? 6379);
-        $this->database = (int) ($config['database'] ?? 0);
-        $this->password = isset($config['password']) && $config['password'] !== ''
+        $this->host        = (string) ($config['host'] ?? '127.0.0.1');
+        $this->port        = (int) ($config['port'] ?? 6379);
+        $this->database    = (int) ($config['database'] ?? 0);
+        $this->password    = isset($config['password']) && $config['password'] !== ''
             ? (string) $config['password']
             : null;
-        $this->prefix   = (string) ($config['prefix'] ?? '');
-        $this->factory  = $factory ?? fn (): object => $this->makeConnection();
+        $this->prefix      = (string) ($config['prefix'] ?? '');
+        $this->timeout     = (float) ($config['timeout'] ?? 0.0);
+        $this->readTimeout = isset($config['read_timeout']) ? (float) $config['read_timeout'] : null;
+        $this->factory     = $factory ?? fn (): object => $this->makeConnection();
     }
 
     /**
@@ -110,8 +116,14 @@ class ConnectionManager
         $redis = new \Redis();
         // Fail fast on connect/auth so callers get a clear error instead of a
         // dead connection that only throws on the first command.
-        if (!$redis->connect($this->host, $this->port)) {
+        $connected = $this->timeout > 0
+            ? $redis->connect($this->host, $this->port, $this->timeout)
+            : $redis->connect($this->host, $this->port);
+        if (!$connected) {
             throw new \RuntimeException("Could not connect to Redis at {$this->host}:{$this->port}");
+        }
+        if ($this->readTimeout !== null && defined('\Redis::OPT_READ_TIMEOUT')) {
+            $redis->setOption(\Redis::OPT_READ_TIMEOUT, $this->readTimeout);
         }
         if ($this->password !== null && !$redis->auth($this->password)) {
             throw new \RuntimeException('Redis AUTH failed');
