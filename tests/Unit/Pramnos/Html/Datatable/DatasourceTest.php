@@ -538,6 +538,143 @@ class DatasourceTest extends TestCase
             'render() modern DT global search must filter to matching rows only');
     }
 
+    /**
+     * render() must apply a per-column search sent in the modern DT format.
+     *
+     * DataTables 1.10+ sends a column filter as columns[N][search][value] — the
+     * legacy equivalent of sSearch_N. Column filter widgets and fnFilter(value, N)
+     * both go through this parameter, so if the translation layer drops it every
+     * per-column filter of a server-side table silently returns the unfiltered
+     * set. Regression guard: the translation used to handle only the global
+     * search and left columns[N][search][value] unread.
+     */
+    public function testRenderModernDtPerColumnSearchFiltersResults(): void
+    {
+        // Arrange — filter column 1 (name) on 'Wid', global search empty.
+        $this->setPost([
+            'draw'    => '1',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => '', 'regex' => 'false'],
+            'columns' => [
+                ['searchable' => 'true', 'search' => ['value' => '']],
+                ['searchable' => 'true', 'search' => ['value' => 'Wid']],
+                ['searchable' => 'true', 'search' => ['value' => '']],
+            ],
+        ]);
+        $ds = new Datasource();
+
+        // Act
+        $result = $ds->render('ds_items', ['id', 'name', 'price'], false, '', '', false);
+
+        // Assert — only 'Widget A' and 'Widget B' match '%Wid%'
+        $this->assertSame(2, $result['recordsFiltered'],
+            'render() modern DT per-column search must filter to matching rows');
+        $this->assertCount(2, $result['data'],
+            'render() modern DT per-column search must return only matching rows');
+    }
+
+    /**
+     * A per-column search in the modern DT format must be ignored when the
+     * column is declared non-searchable.
+     *
+     * Mirrors the legacy bSearchable_N behaviour: the client can send a value
+     * for any column, but only searchable columns may filter the query.
+     */
+    public function testRenderModernDtPerColumnSearchIgnoredForNonSearchableColumn(): void
+    {
+        // Arrange — same filter as above, but column 1 is not searchable.
+        $this->setPost([
+            'draw'    => '1',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => '', 'regex' => 'false'],
+            'columns' => [
+                ['searchable' => 'true',  'search' => ['value' => '']],
+                ['searchable' => 'false', 'search' => ['value' => 'Wid']],
+                ['searchable' => 'true',  'search' => ['value' => '']],
+            ],
+        ]);
+        $ds = new Datasource();
+
+        // Act
+        $result = $ds->render('ds_items', ['id', 'name', 'price'], false, '', '', false);
+
+        // Assert — the filter was not applied, all 4 seeded rows come back
+        $this->assertSame(4, $result['recordsFiltered'],
+            'a non-searchable column must not filter the query');
+    }
+
+    /**
+     * A per-column value the application pre-set in $_POST as sSearch_N must
+     * survive the modern-DT translation.
+     *
+     * Applications inject their own server-side column filters by writing
+     * sSearch_N before calling render() (mapping one visible filter onto a
+     * different database column, for example). The translation must not
+     * overwrite those values with what the client sent.
+     */
+    public function testRenderModernDtTranslationKeepsPreSetColumnSearch(): void
+    {
+        // Arrange — client sent nothing for column 1, the app pre-set 'Gadget'.
+        $this->setPost([
+            'draw'      => '1',
+            'start'     => '0',
+            'length'    => '10',
+            'search'    => ['value' => '', 'regex' => 'false'],
+            'sSearch_1' => 'Gadget',
+            'columns'   => [
+                ['searchable' => 'true', 'search' => ['value' => '']],
+                ['searchable' => 'true', 'search' => ['value' => '']],
+                ['searchable' => 'true', 'search' => ['value' => '']],
+            ],
+        ]);
+        $ds = new Datasource();
+
+        // Act
+        $result = $ds->render('ds_items', ['id', 'name', 'price'], false, '', '', false);
+
+        // Assert — the pre-set filter applied, not the client's empty value
+        $this->assertSame(1, $result['recordsFiltered'],
+            'a pre-set sSearch_N must survive the modern DT translation');
+    }
+
+    /**
+     * Two render() calls in the same request must both answer in the modern
+     * response format when the request used the modern parameters.
+     *
+     * The translation writes legacy keys (including sEcho) into $_POST, so it
+     * must not treat the presence of sEcho as proof of a legacy request — the
+     * second call would then return aaData/iTotalDisplayRecords to a client
+     * that only understands data/recordsFiltered.
+     */
+    public function testRenderModernDtFormatIsStableAcrossRepeatedCalls(): void
+    {
+        // Arrange
+        $this->setPost([
+            'draw'    => '3',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => '', 'regex' => 'false'],
+            'columns' => [
+                ['searchable' => 'true', 'search' => ['value' => '']],
+                ['searchable' => 'true', 'search' => ['value' => '']],
+            ],
+        ]);
+
+        // Act — two independent Datasource instances, one request
+        $first  = (new Datasource())->render('ds_items', ['id', 'name'], false, '', '', false);
+        $second = (new Datasource())->render('ds_items', ['id', 'name'], false, '', '', false);
+
+        // Assert — both responses use the modern shape
+        $this->assertArrayHasKey('data', $first,
+            'first render() must return the modern response shape');
+        $this->assertArrayHasKey('data', $second,
+            'second render() in the same request must also return the modern shape');
+        $this->assertSame(3, $second['draw'],
+            'the draw counter must still be echoed on the second call');
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // render() — WHERE clause and JOIN
     // ─────────────────────────────────────────────────────────────────────────

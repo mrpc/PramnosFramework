@@ -17,6 +17,13 @@ use Pramnos\Framework\Base;
 class Datasource extends Base
 {
 
+    /**
+     * Request key used to mark that the current $_POST has already been
+     * translated from the DataTables 1.10+ parameter format to the legacy one.
+     * @var string
+     */
+    const MODERN_REQUEST_FLAG = 'pramnosDatatableModernRequest';
+
     public $fields = array();
     public $fielddetails = array();
     public $maxlimit = '50';
@@ -32,6 +39,25 @@ class Datasource extends Base
             'startWildcard' => $startWildcard,
             'endWildcard' => $endWildcard
         );
+    }
+
+    /**
+     * Normalizes a DataTables 1.10+ boolean column flag (searchable/orderable)
+     * to the "true"/"false" strings the legacy parameter format uses.
+     *
+     * DataTables posts form-encoded, so flags normally arrive as the strings
+     * "true"/"false", but a JSON body or a hand-crafted request may send real
+     * booleans or 0/1 - all of them have to map to the same two strings.
+     * @param mixed $value Value as received in the request
+     * @return string Either "true" or "false"
+     */
+    protected static function dtFlagToString($value)
+    {
+        if ($value === false || $value === 0 || $value === '0'
+            || $value === 'false' || $value === '') {
+            return 'false';
+        }
+        return 'true';
     }
 
     /**
@@ -136,10 +162,20 @@ class Datasource extends Base
         }
 
         // Translate DataTables 1.10+ params (draw/start/length/search/order/columns)
-        // into the legacy format (sEcho/iDisplayStart/iDisplayLength/sSearch/iSortCol_N)
-        // that the rest of this method reads. BC-safe: legacy callers keep working.
-        $isModernDT = isset($_POST['draw']) && !isset($_POST['sEcho']);
-        if ($isModernDT) {
+        // into the legacy format (sEcho/iDisplayStart/iDisplayLength/sSearch/
+        // sSearch_N/iSortCol_N/bSearchable_N) that the rest of this method reads.
+        // BC-safe: legacy callers keep working.
+        //
+        // The translation writes legacy keys into $_POST, so it cannot use one of
+        // them (sEcho) as its own "already translated" marker: a second render()
+        // in the same request would then look like a legacy call and would answer
+        // a modern client in the legacy format. A dedicated marker keeps repeat
+        // calls idempotent.
+        $alreadyTranslated = isset($_POST[self::MODERN_REQUEST_FLAG]);
+        $isModernDT = isset($_POST['draw'])
+            && ($alreadyTranslated || !isset($_POST['sEcho']));
+        if ($isModernDT && !$alreadyTranslated) {
+            $_POST[self::MODERN_REQUEST_FLAG] = true;
             $_POST['sEcho']         = (int)($_POST['draw'] ?? 1);
             $_POST['iDisplayStart'] = (int)($_POST['start'] ?? 0);
             // Page length: honor the modern `length`, else fall back to any
@@ -164,7 +200,25 @@ class Datasource extends Base
             }
             if (isset($_POST['columns']) && is_array($_POST['columns'])) {
                 foreach ($_POST['columns'] as $i => $col) {
-                    $_POST['bSearchable_' . $i] = ($col['searchable'] ?? 'true') !== 'false' ? 'true' : 'false';
+                    if (!is_array($col)) {
+                        continue;
+                    }
+                    $_POST['bSearchable_' . $i] = self::dtFlagToString(
+                        $col['searchable'] ?? true
+                    );
+                    $_POST['bSortable_' . $i] = self::dtFlagToString(
+                        $col['orderable'] ?? true
+                    );
+                    // Per-column filtering: a column search box, or fnFilter()
+                    // with a column index, arrives as columns[N][search][value]
+                    // and feeds the "Individual column filtering" block below.
+                    // Never overwrite a value the caller pre-set in $_POST: that
+                    // is how applications inject their own server-side filters.
+                    if (!isset($_POST['sSearch_' . $i])) {
+                        $_POST['sSearch_' . $i] = is_array($col['search'] ?? null)
+                            ? (string)($col['search']['value'] ?? '')
+                            : (string)($col['search'] ?? '');
+                    }
                 }
             }
         }
