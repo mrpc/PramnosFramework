@@ -73,24 +73,19 @@ class RedisAdapter extends AbstractAdapter
         }
         
         if ($this->redis === null) {
-            $this->redis = new \Redis();
             try {
-                $this->connected = $this->redis->connect(
-                    $this->host, 
-                    $this->port
-                );
-                
-                if ($this->password) {
-                    if (!$this->redis->auth($this->password)) {
-                        $this->connected = false;
-                    }
-                }
-                
-                if ($this->connected && $this->database > 0) {
-                    $this->redis->select($this->database);
-                }
+                // Route connection creation through the central manager (one place
+                // for connect/auth/select); it throws on failure, which we map to
+                // the connected flag exactly as before.
+                $this->redis = (new \Pramnos\Redis\ConnectionManager([
+                    'host'     => $this->host,
+                    'port'     => $this->port,
+                    'database' => $this->database,
+                    'password' => $this->password,
+                ]))->newConnection();
+                $this->connected = true;
             }
-            catch (\Exception $exc) {
+            catch (\Throwable $exc) {
                 // Log error if logger is available, otherwise continue silently
                 if (class_exists('\Pramnos\Logs\Logger')) {
                     \Pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
