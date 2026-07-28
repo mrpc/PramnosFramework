@@ -74,6 +74,55 @@ class FlatCache implements CacheInterface
         return $this->get($key, $sentinel) !== $sentinel;
     }
 
+    /**
+     * Atomically increment an integer counter and return the new value.
+     *
+     * A counter is distinct from a cached value: it is stored as a bare integer
+     * so the backend can use a native atomic primitive (Redis INCRBY). Read it
+     * back with {@see counter()} — NOT {@see get()} — and never mix the two key
+     * spaces. When $ttl is given the expiry is (re)set on every call (sliding
+     * window), which is what rate-limit / attempt / epoch counters want.
+     *
+     * @param string                   $key The counter key (prefixed verbatim).
+     * @param int                      $by  Amount to add (default 1).
+     * @param null|int|\DateInterval   $ttl Sliding TTL; null leaves expiry untouched.
+     */
+    public function increment(string $key, int $by = 1, null|int|\DateInterval $ttl = null): int
+    {
+        $seconds = $this->ttlToSeconds($ttl);
+        $full    = $this->key($key);
+        if (method_exists($this->adapter, 'increment')) {
+            return (int) $this->adapter->increment($full, $by, $seconds);
+        }
+        // Fallback for a bare AdapterInterface without the counter capability.
+        $new = (int) $this->counter($key) + $by;
+        $this->adapter->save($full, $new, $seconds ?? 0);
+        return $new;
+    }
+
+    /**
+     * Atomically decrement an integer counter and return the new value.
+     * See {@see increment()}.
+     */
+    public function decrement(string $key, int $by = 1, null|int|\DateInterval $ttl = null): int
+    {
+        return $this->increment($key, -$by, $ttl);
+    }
+
+    /**
+     * Read the current value of a counter written by {@see increment()}
+     * (0 when absent, without creating the key).
+     */
+    public function counter(string $key): int
+    {
+        $full = $this->key($key);
+        if (method_exists($this->adapter, 'counter')) {
+            return (int) $this->adapter->counter($full);
+        }
+        $value = $this->adapter->load($full, 0);
+        return $value === false || $value === null ? 0 : (int) $value;
+    }
+
     public function getMultiple(iterable $keys, mixed $default = null): iterable
     {
         $out = [];

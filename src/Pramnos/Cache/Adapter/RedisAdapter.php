@@ -194,7 +194,88 @@ class RedisAdapter extends AbstractAdapter
             return false;
         }
     }
-    
+
+    /**
+     * Atomically increment a raw integer counter and return the new value.
+     *
+     * Uses Redis INCRBY, so the key is stored as a bare integer (NOT the
+     * serialized {data,time} envelope that {@see save()} writes) — this is a
+     * distinct atomic-counter operation, not a cache value. When $ttl is a
+     * positive number of seconds the key's expiry is (re)set on every call,
+     * giving a sliding window (matching typical rate-limit/attempt counters).
+     * Read the current value with {@see counter()}; never with {@see load()}.
+     *
+     * @param string   $key The raw (already-prefixed) counter key.
+     * @param int      $by  Amount to add (default 1).
+     * @param int|null $ttl Sliding TTL in seconds; null/<=0 leaves expiry untouched.
+     * @return int|false New value, or false when caching/connection is unavailable.
+     */
+    public function increment($key, $by = 1, $ttl = null)
+    {
+        if (!$this->caching || !$this->connected) {
+            return false;
+        }
+
+        try {
+            $new = $this->redis->incrBy($key, (int) $by);
+            if ($ttl !== null && (int) $ttl > 0) {
+                $this->redis->expire($key, (int) $ttl);
+            }
+            return (int) $new;
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+    }
+
+    /**
+     * Atomically decrement a raw integer counter and return the new value.
+     * Counterpart to {@see increment()}; uses Redis DECRBY.
+     *
+     * @param string   $key The raw (already-prefixed) counter key.
+     * @param int      $by  Amount to subtract (default 1).
+     * @param int|null $ttl Sliding TTL in seconds; null/<=0 leaves expiry untouched.
+     * @return int|false New value, or false when caching/connection is unavailable.
+     */
+    public function decrement($key, $by = 1, $ttl = null)
+    {
+        if (!$this->caching || !$this->connected) {
+            return false;
+        }
+
+        try {
+            $new = $this->redis->decrBy($key, (int) $by);
+            if ($ttl !== null && (int) $ttl > 0) {
+                $this->redis->expire($key, (int) $ttl);
+            }
+            return (int) $new;
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+    }
+
+    /**
+     * Read a raw integer counter written by {@see increment()}/{@see decrement()}.
+     * Returns 0 for a missing key WITHOUT creating it.
+     *
+     * @param string $key The raw (already-prefixed) counter key.
+     * @return int
+     */
+    public function counter($key)
+    {
+        if (!$this->caching || !$this->connected) {
+            return 0;
+        }
+
+        try {
+            return (int) $this->redis->get($key);
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return 0;
+        }
+    }
+
     /**
      * @inheritDoc
      */
