@@ -277,6 +277,33 @@ class RedisAdapter extends AbstractAdapter
     }
 
     /**
+     * Atomically set a key to a new value and return the previous one.
+     *
+     * Implemented with the native Redis GETSET, so concurrent callers cannot both
+     * observe the same previous value — the atomic-swap analogue of {@see increment()}.
+     * Like the other raw-key atomic operations, the value is stored verbatim (not
+     * through the serialized cache envelope), so it round-trips as a plain string.
+     *
+     * @param  string $key
+     * @param  string $value
+     * @return string|null The previous value, or null when the key was unset.
+     */
+    public function swap($key, $value)
+    {
+        if (!$this->caching || !$this->connected) {
+            return null;
+        }
+
+        try {
+            $prev = $this->redis->getSet($key, (string) $value);
+            return $prev === false ? null : (string) $prev;
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return null;
+        }
+    }
+
+    /**
      * @inheritDoc
      */
     public function clear($category = '')

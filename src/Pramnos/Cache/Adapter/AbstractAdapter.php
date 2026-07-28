@@ -234,7 +234,26 @@ abstract class AbstractAdapter implements AdapterInterface
         $value = $this->load($key, 0);
         return $value === false || $value === null ? 0 : (int) $value;
     }
-    
+
+    /**
+     * Atomically set a key to a new value and return the previous one.
+     *
+     * Part of the raw-key atomic family alongside {@see increment()}: like those,
+     * it operates on the raw key so a backend (e.g. Redis GETSET) can implement it
+     * as a single operation. This default fallback (read-then-write) is NOT atomic
+     * — concrete adapters that can do a real swap should override it.
+     *
+     * @param  string $key
+     * @param  string $value
+     * @return string|null The previous value, or null when the key was unset.
+     */
+    public function swap($key, $value)
+    {
+        $prev = $this->load($key, null);
+        $this->save($key, $value, 0);
+        return ($prev === false || $prev === null) ? null : (string) $prev;
+    }
+
     /**
      * @inheritDoc
      */
