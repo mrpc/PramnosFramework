@@ -298,6 +298,146 @@ class RedisAdapter extends AbstractAdapter
         }
     }
 
+    // ── Structured operations — native Redis (HASH / LIST / SCAN) ───────────────
+    //
+    // Values are serialize()d per field/element so any PHP value round-trips.
+
+    public function hashSet($key, $field, $value, $ttl = null)
+    {
+        if (!$this->caching || !$this->connected) {
+            return;
+        }
+        try {
+            $this->redis->hSet($key, (string) $field, serialize($value));
+            if ($ttl !== null && (int) $ttl > 0) {
+                $this->redis->expire($key, (int) $ttl);
+            }
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+        }
+    }
+
+    public function hashGet($key, $field, $default = null)
+    {
+        if (!$this->caching || !$this->connected) {
+            return $default;
+        }
+        try {
+            $value = $this->redis->hGet($key, (string) $field);
+            return $value === false ? $default : unserialize($value);
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return $default;
+        }
+    }
+
+    public function hashDelete($key, $field)
+    {
+        if (!$this->caching || !$this->connected) {
+            return;
+        }
+        try {
+            $this->redis->hDel($key, (string) $field);
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+        }
+    }
+
+    public function hashGetAll($key)
+    {
+        if (!$this->caching || !$this->connected) {
+            return [];
+        }
+        try {
+            $all = $this->redis->hGetAll($key);
+            if (!is_array($all)) {
+                return [];
+            }
+            return array_map(static fn ($v) => unserialize($v), $all);
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return [];
+        }
+    }
+
+    public function listPush($key, $value)
+    {
+        if (!$this->caching || !$this->connected) {
+            return 0;
+        }
+        try {
+            return (int) $this->redis->lPush($key, serialize($value));
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return 0;
+        }
+    }
+
+    public function listTrim($key, $start, $stop)
+    {
+        if (!$this->caching || !$this->connected) {
+            return;
+        }
+        try {
+            $this->redis->lTrim($key, (int) $start, (int) $stop);
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+        }
+    }
+
+    public function listRange($key, $start, $stop)
+    {
+        if (!$this->caching || !$this->connected) {
+            return [];
+        }
+        try {
+            $range = $this->redis->lRange($key, (int) $start, (int) $stop);
+            if (!is_array($range)) {
+                return [];
+            }
+            return array_map(static fn ($v) => unserialize($v), $range);
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return [];
+        }
+    }
+
+    public function expire($key, $ttl)
+    {
+        if (!$this->caching || !$this->connected) {
+            return;
+        }
+        try {
+            $this->redis->expire($key, (int) $ttl);
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+        }
+    }
+
+    public function keys($pattern)
+    {
+        if (!$this->caching || !$this->connected) {
+            return [];
+        }
+        try {
+            $found  = [];
+            $cursor = null;
+            do {
+                $batch = $this->redis->scan($cursor, $pattern, 200);
+                if ($batch === false) {
+                    break;
+                }
+                foreach ($batch as $key) {
+                    $found[] = (string) $key;
+                }
+            } while ($cursor !== 0 && $cursor !== null);
+            return $found;
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return [];
+        }
+    }
+
     /**
      * @inheritDoc
      */

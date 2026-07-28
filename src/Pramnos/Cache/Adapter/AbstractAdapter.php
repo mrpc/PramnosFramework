@@ -254,6 +254,138 @@ abstract class AbstractAdapter implements AdapterInterface
         return ($prev === false || $prev === null) ? null : (string) $prev;
     }
 
+    // ── Structured operations (hash / list / enumeration) ──────────────────────
+    //
+    // Non-atomic defaults that keep the whole structure under one key via
+    // load()/save(). Backends with native structures (e.g. RedisAdapter via
+    // HSET/LPUSH/SCAN) override these; a bare AdapterInterface without them is
+    // handled by FlatCache's own fallback.
+
+    /**
+     * Set a field on a hash. Optionally (re)sets the key TTL.
+     */
+    public function hashSet($key, $field, $value, $ttl = null)
+    {
+        $hash = $this->load($key);
+        if (!is_array($hash)) {
+            $hash = [];
+        }
+        $hash[$field] = $value;
+        $this->save($key, $hash, ($ttl !== null && (int) $ttl > 0) ? (int) $ttl : 0);
+    }
+
+    /**
+     * Get a field from a hash, or $default when absent.
+     */
+    public function hashGet($key, $field, $default = null)
+    {
+        $hash = $this->load($key);
+        return (is_array($hash) && array_key_exists($field, $hash)) ? $hash[$field] : $default;
+    }
+
+    /**
+     * Delete a field from a hash.
+     */
+    public function hashDelete($key, $field)
+    {
+        $hash = $this->load($key);
+        if (is_array($hash) && array_key_exists($field, $hash)) {
+            unset($hash[$field]);
+            $this->save($key, $hash, 0);
+        }
+    }
+
+    /**
+     * Return the whole hash as an associative array (empty when absent).
+     */
+    public function hashGetAll($key)
+    {
+        $hash = $this->load($key);
+        return is_array($hash) ? $hash : [];
+    }
+
+    /**
+     * Prepend a value to a list (like Redis LPUSH). Returns the new length.
+     */
+    public function listPush($key, $value)
+    {
+        $list = $this->load($key);
+        if (!is_array($list)) {
+            $list = [];
+        }
+        array_unshift($list, $value);
+        $this->save($key, $list, 0);
+        return count($list);
+    }
+
+    /**
+     * Trim a list to the inclusive [$start, $stop] range (Redis LTRIM semantics,
+     * negative indices allowed).
+     */
+    public function listTrim($key, $start, $stop)
+    {
+        $list = $this->load($key);
+        if (is_array($list)) {
+            $this->save($key, $this->rangeSlice($list, (int) $start, (int) $stop), 0);
+        }
+    }
+
+    /**
+     * Return the inclusive [$start, $stop] slice of a list (Redis LRANGE).
+     */
+    public function listRange($key, $start, $stop)
+    {
+        $list = $this->load($key);
+        return is_array($list) ? $this->rangeSlice($list, (int) $start, (int) $stop) : [];
+    }
+
+    /**
+     * (Re)set a key's TTL. Non-atomic default: re-save the current value.
+     */
+    public function expire($key, $ttl)
+    {
+        $value = $this->load($key);
+        if ($value !== null && $value !== false) {
+            $this->save($key, $value, (int) $ttl);
+        }
+    }
+
+    /**
+     * Return keys matching a glob-style pattern. Enumeration requires a capable
+     * adapter (e.g. RedisAdapter via SCAN); the default returns an empty list.
+     *
+     * @return string[]
+     */
+    public function keys($pattern)
+    {
+        return [];
+    }
+
+    /**
+     * Redis LRANGE/LTRIM-style inclusive slice with negative-index support.
+     *
+     * @param array<int,mixed> $list
+     * @return array<int,mixed>
+     */
+    protected function rangeSlice(array $list, int $start, int $stop): array
+    {
+        $len = count($list);
+        if ($len === 0) {
+            return [];
+        }
+        if ($start < 0) {
+            $start = max($len + $start, 0);
+        }
+        if ($stop < 0) {
+            $stop = $len + $stop;
+        }
+        if ($start > $stop || $start >= $len) {
+            return [];
+        }
+        $stop = min($stop, $len - 1);
+        return array_values(array_slice($list, $start, $stop - $start + 1));
+    }
+
     /**
      * @inheritDoc
      */

@@ -357,6 +357,42 @@ verbatim (not through the `{data,time}` envelope), so read it back with another
 overrides it with native `GETSET` (genuinely atomic across processes), and
 `AdapterInterface` is unchanged (fully backwards compatible).
 
+### Structured operations (hash / list / enumeration)
+
+Beyond opaque values, the flat cache exposes Redis-style structured operations —
+for data that is a cache but needs a shape (a bounded recent-items list, a
+field-addressed map) rather than one blob:
+
+```php
+// Hash (field-addressed map) — values may be any serialisable type.
+$cache->hashSet('msg:hash', $id, ['user' => 'a', 'text' => 'hi'], ttl: 86400);
+$cache->hashGet('msg:hash', $id);            // ['user' => 'a', 'text' => 'hi']
+$cache->hashDelete('msg:hash', $id);
+$cache->hashGetAll('msg:hash');              // [id => [...], ...]
+
+// List (Redis LPUSH/LTRIM/LRANGE semantics) — a bounded recent-items cache.
+$cache->listPush('recent', $item);           // prepend; returns new length
+$cache->listTrim('recent', 0, 99);           // keep newest 100
+$cache->listRange('recent', 0, -1);          // newest-first, decoded
+
+$cache->expire('recent', 86400);             // (re)set TTL
+$cache->keys('banned:*');                    // enumerate (logical keys)
+```
+
+Semantics:
+
+- Field/element values are **serialised**, so arrays/objects round-trip (unlike
+  the raw counters/swap). Read them back with the same structured methods.
+- `listPush`/`listTrim`/`listRange` follow Redis LPUSH/LTRIM/LRANGE (newest-first,
+  inclusive ranges, negative indices).
+- `keys($pattern)` returns matching keys in the **logical** key-space (the cache
+  prefix is stripped) and needs an enumeration-capable adapter; `RedisAdapter`
+  uses a non-blocking `SCAN`, other adapters return an empty list.
+
+Backend support is layered exactly like the counters: `AbstractAdapter` keeps the
+whole structure under one key via load/save (non-atomic default), `RedisAdapter`
+overrides with native `HSET`/`LPUSH`/`SCAN`, and `AdapterInterface` is unchanged.
+
 ## Integration Examples
 
 ### Model-Level Caching

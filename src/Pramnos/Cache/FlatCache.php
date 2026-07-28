@@ -147,6 +147,89 @@ class FlatCache implements CacheInterface
         return ($prev === false || $prev === null) ? null : (string) $prev;
     }
 
+    // ── Structured operations (hash / list / TTL / enumeration) ────────────────
+    //
+    // Field/element values are stored serialised, so any value round-trips.
+    // Backed natively by a capable adapter (RedisAdapter: HASH/LIST/SCAN) or by
+    // the AbstractAdapter load/save fallback.
+
+    /** Set a field on a hash, optionally (re)setting the key TTL. */
+    public function hashSet(string $key, string $field, mixed $value, null|int|\DateInterval $ttl = null): void
+    {
+        $this->adapter->hashSet($this->key($key), $field, $value, $this->ttlToSeconds($ttl));
+    }
+
+    /** Get a hash field, or $default when absent. */
+    public function hashGet(string $key, string $field, mixed $default = null): mixed
+    {
+        return $this->adapter->hashGet($this->key($key), $field, $default);
+    }
+
+    /** Delete a hash field. */
+    public function hashDelete(string $key, string $field): void
+    {
+        $this->adapter->hashDelete($this->key($key), $field);
+    }
+
+    /**
+     * The whole hash as an associative array (empty when absent).
+     *
+     * @return array<string,mixed>
+     */
+    public function hashGetAll(string $key): array
+    {
+        return $this->adapter->hashGetAll($this->key($key));
+    }
+
+    /** Prepend a value to a list (Redis LPUSH). Returns the new length. */
+    public function listPush(string $key, mixed $value): int
+    {
+        return (int) $this->adapter->listPush($this->key($key), $value);
+    }
+
+    /** Trim a list to the inclusive [$start, $stop] range (Redis LTRIM). */
+    public function listTrim(string $key, int $start, int $stop): void
+    {
+        $this->adapter->listTrim($this->key($key), $start, $stop);
+    }
+
+    /**
+     * The inclusive [$start, $stop] slice of a list (Redis LRANGE).
+     *
+     * @return array<int,mixed>
+     */
+    public function listRange(string $key, int $start, int $stop): array
+    {
+        return $this->adapter->listRange($this->key($key), $start, $stop);
+    }
+
+    /** (Re)set a key's TTL. */
+    public function expire(string $key, int|\DateInterval $ttl): void
+    {
+        $this->adapter->expire($this->key($key), (int) $this->ttlToSeconds($ttl));
+    }
+
+    /**
+     * Keys matching a glob-style pattern, returned in the caller's logical
+     * key-space (the cache prefix is stripped). Requires an enumeration-capable
+     * adapter (RedisAdapter via SCAN); others return an empty list.
+     *
+     * @return string[]
+     */
+    public function keys(string $pattern): array
+    {
+        $found  = $this->adapter->keys($this->key($pattern));
+        $prefix = $this->prefix;
+        if ($prefix === '') {
+            return $found;
+        }
+        $out = [];
+        foreach ($found as $k) {
+            $out[] = str_starts_with($k, $prefix) ? substr($k, strlen($prefix)) : $k;
+        }
+        return $out;
+    }
+
     public function getMultiple(iterable $keys, mixed $default = null): iterable
     {
         $out = [];
