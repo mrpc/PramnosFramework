@@ -405,6 +405,45 @@ class UserController
 | `permissions` | `array` | `[]` | Permission scopes |
 | `name` | `string` | `''` | Name prefix |
 
+## OpenAPI documentation from `#[Route]`
+
+Because `#[Route]` attributes are the single source of truth the router dispatches
+from, the framework can generate an OpenAPI 3.0 document from them directly — no
+separate `routes.php` + `@api` comment blocks to keep in sync. This is the
+attribute-native alternative to the older apidoc/JSDoc flow.
+
+```
+php pramnos api:docs \
+    --namespace='App\Controllers' \
+    --controllers=src/Controllers \
+    --output=www/api/openapi.json \
+    --title='My API' --api-version=1.0.0 \
+    --server=https://api.example.com \
+    --overrides=src/openapi-overrides.json
+```
+
+What is derived automatically: paths and methods (with `{param}` segments becoming
+path parameters), `operationId` (from the route name), `summary`/`description`
+(from the handler's docblock), a `bearerAuth` security requirement for routes that
+declare permissions or an auth middleware, and `tags` from the controller name.
+
+What cannot be inferred from routes alone — request/response schemas, examples — is
+supplied through the `--overrides` document, which is **deep-merged** over the
+generated one (scalars and objects are overridden per key; the generated paths are
+preserved). This mirrors the `openapi-overrides.json` convention used elsewhere.
+
+Programmatic use (e.g. to serve the spec live) goes through the same generator:
+
+```php
+use Pramnos\Routing\OpenApiGenerator;
+
+$doc = (new OpenApiGenerator(
+    ['title' => 'My API', 'version' => '1.0.0'],
+    [['url' => 'https://api.example.com']],
+    $overridesArray
+))->fromDirectory(ROOT . '/src/Controllers', 'App\\Controllers');
+```
+
 ## Reference
 
 For related guides:

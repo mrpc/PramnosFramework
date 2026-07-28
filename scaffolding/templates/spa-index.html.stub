@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ appName }}</title>
+    <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+    <!--
+        Single-page-application shell for a services-oriented Pramnos app.
+
+        This static document is served directly by the web server; it boots the
+        JS client, which talks to the JSON API (attribute-routed controllers in
+        src/Controllers) over fetch(). There is no server-rendered view layer —
+        the API is the contract, documented via `php pramnos api:docs`.
+    -->
+    <div id="app">Loading…</div>
+    <script src="/assets/js/app.js" type="module"></script>
+</body>
+</html>

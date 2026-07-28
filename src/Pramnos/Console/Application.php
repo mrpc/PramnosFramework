@@ -59,6 +59,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\Init());
         $this->add(new \Pramnos\Console\Commands\Make\MakeModel());
         $this->add(new \Pramnos\Console\Commands\Make\MakeController());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeService());
         $this->add(new \Pramnos\Console\Commands\Make\MakeView());
         $this->add(new \Pramnos\Console\Commands\Make\MakeCrud());
         $this->add(new \Pramnos\Console\Commands\Make\MakeApi());
@@ -86,6 +87,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\HealthCheck());
         // Routing introspection
         $this->add(new \Pramnos\Console\Commands\RouteList());
+        $this->add(new \Pramnos\Console\Commands\ApiDocs());
         // Scheduled tasks (Phase 4)
         $this->add(new \Pramnos\Console\Commands\ScheduleRun());
         $this->add(new \Pramnos\Console\Commands\ScheduleList());

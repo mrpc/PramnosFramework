@@ -309,15 +309,38 @@ class MakeCommandGeneratorsTest extends TestCase
     {
         $output = $this->command->createMiddleware('TestMiddleware');
         $this->assertStringContainsString('TestMiddleware', $output);
-        
+
         $srcFile = ROOT . '/src/Middleware/TestMiddleware.php';
         $testFile = ROOT . '/tests/Unit/TestMiddlewareMiddlewareTest.php';
-        
+
         $this->assertFileExists($srcFile);
         $this->assertFileExists($testFile);
-        
+
         $this->addCleanup($srcFile);
         $this->addCleanup($testFile);
+    }
+
+    public function testCreateService(): void
+    {
+        $srcFile  = ROOT . '/src/Services/TestThingService.php';
+        $testFile = ROOT . '/tests/Unit/TestThingServiceTest.php';
+        // Register cleanup up front so a failed assertion still removes the files.
+        $this->addCleanup($srcFile);
+        $this->addCleanup($testFile);
+
+        $output = $this->command->createService('TestThingService');
+        $this->assertStringContainsString('TestThingService', $output);
+
+        $this->assertFileExists($srcFile);
+        $this->assertFileExists($testFile);
+
+        $contents = (string) file_get_contents($srcFile);
+        // Namespace ends in \Services (the app prefix depends on the run context).
+        $this->assertMatchesRegularExpression('/namespace \S+\\\\Services;/', $contents);
+        $this->assertStringContainsString('class TestThingService', $contents);
+        $this->assertStringContainsString('Factory::getDatabase()', $contents);
+        // The best-effort table guess strips "Service" and snake_cases the rest.
+        $this->assertStringContainsString("'test_thing'", $contents);
     }
 
     public function testCreateEvent(): void
