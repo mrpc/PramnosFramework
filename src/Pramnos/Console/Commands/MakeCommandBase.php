@@ -238,6 +238,65 @@ abstract class MakeCommandBase extends Command
     }
 
     /**
+     * Create a service class from the service.stub template.
+     *
+     * Writes to src/Services/<Name>.php. A service encapsulates a slice of
+     * application logic + its data access (the services-oriented style), so the
+     * stub wires an injectable Database and shows a QueryBuilder example. Generates
+     * a matching test stub.
+     *
+     * @param string $serviceName PascalCase class name (e.g. BillingService)
+     * @return string Summary of created files
+     * @throws \Exception
+     */
+    public function createService(string $serviceName): string
+    {
+        $application = $this->getApplication()->internalApplication;
+        $application->init();
+
+        $namespace = isset($application->applicationInfo['namespace'])
+            ? $application->applicationInfo['namespace']
+            : 'App';
+
+        $className = ucfirst(preg_replace('/\W+/', '', $serviceName));
+        if ($className === '') {
+            throw new \InvalidArgumentException('Service name must be a valid PHP class name.');
+        }
+
+        $dir = defined('ROOT') ? ROOT . '/src/Services' : getcwd() . '/src/Services';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+
+        $filename = $dir . '/' . $className . '.php';
+        if (file_exists($filename)) {
+            throw new \Exception("Service $className already exists at $filename.");
+        }
+
+        // Best-effort table guess: strip a trailing "Service" and snake_case.
+        $base  = preg_replace('/Service$/', '', $className);
+        $table = strtolower(preg_replace('/(?<!^)[A-Z]/', '_$0', $base ?: $className));
+
+        $stub = $this->renderStub('service', [
+            'namespace' => $namespace . '\\Services',
+            'class'     => $className,
+            'table'     => $table,
+        ]);
+
+        if (!file_put_contents($filename, $stub)) {
+            throw new \Exception("Cannot write service file: $filename");
+        }
+
+        $testOutput = $this->generateTestStub($className, $namespace);
+
+        return "Namespace: {$namespace}\\Services\n"
+            . "Class:     {$className}\n"
+            . "File:      {$filename}\n"
+            . $testOutput
+            . "\nService created.";
+    }
+
+    /**
      * Create an event class from the event.stub template.
      *
      * Writes to src/Events/<Name>.php. An event is a plain value object that

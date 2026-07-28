@@ -1,0 +1,37 @@
+<?php
+
+namespace {{ namespace }};
+
+use Pramnos\Database\Database;
+use Pramnos\Framework\Factory;
+
+/**
+ * {{ class }} — application service.
+ *
+ * A service encapsulates one slice of application logic together with its data
+ * access. In the services-oriented application style (see the Application Styles
+ * guide), controllers stay thin and delegate to services like this instead of
+ * putting behaviour on ActiveRecord models — the queries live here, behind
+ * intention-revealing methods, and the framework QueryBuilder does the SQL.
+ *
+ * The database connection is injectable so the service is easy to unit-test.
+ */
+class {{ class }}
+{
+    protected Database $database;
+
+    public function __construct(?Database $database = null)
+    {
+        $this->database = $database ?? Factory::getDatabase();
+    }
+
+    // Add your service methods here, e.g.:
+    //
+    // public function findActive(): array
+    // {
+    //     return $this->database->queryBuilder()
+    //         ->from('{{ table }}')
+    //         ->where('active', '=', true)
+    //         ->getAll();
+    // }
+}
