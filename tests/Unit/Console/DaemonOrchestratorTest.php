@@ -3276,6 +3276,61 @@ class DaemonOrchestratorTest extends TestCase
         $handlerTerm();
         $this->assertFalse($refShould->getValue($this->orch));
     }
+
+    // ── status() read-only health snapshot ────────────────────────────────────
+
+    /**
+     * status() reports the orchestrator as running (its lock pid is alive), a
+     * fresh heartbeat (state-file mtime), and its managed daemons with live
+     * process status — without running a reconcile cycle.
+     */
+    public function testStatusReportsRunningPidHeartbeatAndDaemons(): void
+    {
+        // The lock file holds the orchestrator's pid; use this process's pid so
+        // isProcessRunning() is true.
+        file_put_contents($this->tmpDir . '/var/ORCH.lock', (string) getmypid());
+        // Persist a managed-daemon state; saveState() freshly writes the file, so
+        // its mtime is "now" → heartbeat age ~0.
+        $this->orch->publicSaveState([['id' => 'worker', 'pid' => getmypid()]]);
+
+        $status = $this->orch->status();
+
+        $this->assertTrue($status['running']);
+        $this->assertSame(getmypid(), $status['pid']);
+        $this->assertNotNull($status['heartbeat_age_seconds']);
+        $this->assertLessThan(10, $status['heartbeat_age_seconds']);
+        $this->assertCount(1, $status['daemons']);
+        $this->assertSame('worker', $status['daemons'][0]['id']);
+        $this->assertTrue($status['daemons'][0]['running']);
+        $this->assertSame(getmypid(), $status['daemons'][0]['pid']);
+    }
+
+    /**
+     * status() reports NOT running when the lock pid is dead (and null pid), so a
+     * dashboard shows "no supervisor" rather than a stale pid.
+     */
+    public function testStatusReportsNotRunningWhenLockPidIsDead(): void
+    {
+        file_put_contents($this->tmpDir . '/var/ORCH.lock', '2147483646'); // ~never a live pid
+
+        $status = $this->orch->status();
+
+        $this->assertFalse($status['running']);
+        $this->assertNull($status['pid']);
+    }
+
+    /**
+     * status() is safe with no lock and no state (nothing has run yet).
+     */
+    public function testStatusIsSafeWithNoLockOrState(): void
+    {
+        $status = $this->orch->status();
+
+        $this->assertFalse($status['running']);
+        $this->assertNull($status['pid']);
+        $this->assertNull($status['heartbeat_age_seconds']);
+        $this->assertSame([], $status['daemons']);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

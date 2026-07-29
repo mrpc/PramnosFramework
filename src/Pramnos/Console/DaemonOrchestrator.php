@@ -877,6 +877,57 @@ abstract class DaemonOrchestrator extends CommandBase
         file_put_contents($this->getStateFile(), json_encode($state, JSON_PRETTY_PRINT));
     }
 
+    /**
+     * Read-only health snapshot of this orchestrator, for status dashboards.
+     *
+     * Returns the orchestrator's own liveness plus its managed daemons WITHOUT
+     * running a reconcile cycle — so an admin/API endpoint can report "is the
+     * supervisor up" by constructing the orchestrator and calling status():
+     *
+     *   $status = (new MyDaemons())->status();
+     *   // ['running' => bool, 'pid' => ?int, 'heartbeat_age_seconds' => ?int,
+     *   //  'daemons' => [ ['id'=>.., 'pid'=>?int, 'running'=>bool, ...], ... ]]
+     *
+     * `running`/`pid` come from the singleton lock file; `heartbeat_age_seconds`
+     * is the age of the state file, which the reconcile loop rewrites every cycle
+     * (so a fresh mtime means the orchestrator is actively cycling); `daemons`
+     * is the last-persisted managed-process state, each enriched with live
+     * process status.
+     *
+     * @return array{running:bool,pid:?int,heartbeat_age_seconds:?int,daemons:array<int,array<string,mixed>>}
+     */
+    public function status(): array
+    {
+        $lockFile = $this->getOrchestratorLockFile();
+        $pid      = file_exists($lockFile) ? $this->readOrchestratorPidFromLock($lockFile) : 0;
+        $running  = $pid > 0 && $this->isProcessRunning($pid);
+
+        $stateFile    = $this->getStateFile();
+        $heartbeatAge = is_file($stateFile)
+            ? max(0, time() - (int) @filemtime($stateFile))
+            : null;
+
+        $daemons = [];
+        foreach ($this->loadState() as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $daemonPid = (int) ($entry['pid'] ?? 0);
+            $daemons[] = [
+                'id'      => $entry['id'] ?? ($entry['daemon'] ?? null),
+                'pid'     => $daemonPid > 0 ? $daemonPid : null,
+                'running' => $daemonPid > 0 && $this->isProcessRunning($daemonPid),
+            ] + $entry;
+        }
+
+        return [
+            'running'               => $running,
+            'pid'                   => $running ? $pid : null,
+            'heartbeat_age_seconds' => $heartbeatAge,
+            'daemons'               => $daemons,
+        ];
+    }
+
     // ── Singleton orchestrator lock ───────────────────────────────────────────
 
     protected function tryAcquireOrchestratorLock(OutputInterface $output): bool

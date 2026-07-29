@@ -1350,6 +1350,28 @@ php bin/myapp daemons:start --interval=5     # reconcile every 5 seconds
 | `requireLockFile` | no | Whether a healthy lock file is required (default `true`) |
 | `shellCommand` | no | Raw shell command — overrides `tokens` |
 
+### Reading orchestrator health — `status()`
+
+`status()` is a public, read-only health snapshot for status dashboards. It
+reports the orchestrator's own liveness plus its managed daemons **without**
+running a reconcile cycle, so an admin/API endpoint can answer "is the supervisor
+up?" by constructing the orchestrator and calling it:
+
+```php
+$status = (new MyOrchestrator())->status();
+// [
+//   'running'               => bool,   // singleton-lock pid is alive
+//   'pid'                   => ?int,
+//   'heartbeat_age_seconds' => ?int,   // age of the state file (rewritten each cycle)
+//   'daemons'               => [ ['id'=>.., 'pid'=>?int, 'running'=>bool, ...], ... ],
+// ]
+```
+
+`running`/`pid` come from the singleton lock file; `heartbeat_age_seconds` is the
+age of the state file (a fresh mtime means the loop is actively cycling); each
+managed daemon from the last-persisted state is enriched with live process
+status. Safe to call before the orchestrator has ever run (reports not-running).
+
 ---
 
 ## db:seed — Database Seeder Command
