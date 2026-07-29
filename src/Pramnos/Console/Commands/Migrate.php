@@ -137,6 +137,12 @@ class Migrate extends Command
         }
 
         $runner = new MigrationRunner($db);
+        // Allow a migration in the selected set to depend on a framework migration
+        // that isn't part of that set (e.g. `migrate --path=app/Migrations` where an
+        // app migration pulls in the framework table it needs). Loaded on demand.
+        if (method_exists($app, 'frameworkMigrationPool')) {
+            $runner->setDependencyPool(fn(): array => $app->frameworkMigrationPool());
+        }
         $result = $runner->run($migrations, $options, function (string $event, string $slug, string $error) use ($output): void {
             if ($event === 'ran') {
                 $output->writeln('<info>Migrated:</info>   ' . $slug);

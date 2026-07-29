@@ -161,6 +161,38 @@ session, booting addons or running session tracking), honours the same `app.php`
 **never throws** — auto-migration is best-effort infrastructure, so failures are
 logged rather than allowed to take down a request or a command.
 
+#### Depending on a framework migration you don't otherwise run
+
+An application that opts out of the framework directories (`'framework' =>
+false`) — or simply doesn't enable a feature — can still pull in *individual*
+framework migrations **on demand**, by declaring them as `$dependencies`:
+
+```php
+// app/Migrations/2026_03_01_000001_use_delayed_jobs.php
+class UseDelayedJobs extends \Pramnos\Database\Migration
+{
+    // Pull in the framework's delayed_jobs table before this migration runs,
+    // even though this app does not run the framework migrations wholesale.
+    public array $dependencies = ['create_delayed_jobs_table'];
+
+    public function up(): void { /* ... uses the delayed_jobs table ... */ }
+}
+```
+
+When a declared dependency is neither in the current batch nor already applied,
+the `MigrationRunner` resolves it from an **on-demand pool** of *all* framework
+migrations (`Application::frameworkMigrationPool()` — not feature-gated, keyed by
+slug), pulls it in transitively (its own dependencies too), and orders it before
+its dependent. Only the migrations actually depended upon are executed — so you
+adopt exactly the framework table/feature you need, and nothing else. A slug that
+resolves from neither the batch nor the pool still fails with "unknown
+dependency", so genuine misconfiguration is not masked. The pool is loaded
+lazily, only when a missing dependency is actually encountered, so apps with no
+cross dependencies pay nothing.
+
+This works on both paths: the standalone/auto-run (`Application::migrate()`) and
+the explicit `migrate` console command wire the same pool.
+
 ## Migration Features
 
 ### Conditional DDL (Capabilities Check)

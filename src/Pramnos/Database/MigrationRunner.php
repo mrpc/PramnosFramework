@@ -28,6 +28,12 @@ class MigrationRunner
     /** @var \Pramnos\Application\Application|null Optional application for maintenance-mode integration. */
     private ?\Pramnos\Application\Application $app;
 
+    /** @var (callable(): array<string,Migration>)|null Lazy provider of an extra pool of migrations, keyed by slug, from which declared dependencies can be pulled on demand. */
+    private $dependencyPoolProvider = null;
+
+    /** @var array<string,Migration>|null Cached pool from the provider (loaded lazily, only when a missing dependency is actually encountered). */
+    private ?array $dependencyPool = null;
+
     /**
      * @param Database|null                             $db           Live database connection. Pass null for unit tests that only use sort/filter methods.
      * @param string                                    $historyTable Name of the migrations history table.
@@ -41,6 +47,91 @@ class MigrationRunner
         $this->db           = $db;
         $this->historyTable = $historyTable;
         $this->app          = $app;
+    }
+
+    /**
+     * Provide an extra pool of migrations from which a declared dependency can be
+     * pulled on demand when it is not part of the batch being run.
+     *
+     * This is what lets an application migration depend on a framework migration
+     * that the app does NOT otherwise auto-run (e.g. `migrations.framework` is
+     * false, or a gated feature is off): when a dependency slug is neither in the
+     * current set nor already applied, {@see sort()} asks this pool for it (and,
+     * transitively, for that migration's own dependencies) instead of failing
+     * with "unknown dependency". So a single app migration can pull in exactly
+     * the framework migration/feature it needs, and nothing else.
+     *
+     * The provider is invoked at most once per run, and only if a missing
+     * dependency is actually encountered — so the common case (no cross
+     * dependencies) loads nothing. It must return a slug → Migration map.
+     *
+     * @param callable(): array<string,Migration> $provider
+     */
+    public function setDependencyPool(callable $provider): void
+    {
+        $this->dependencyPoolProvider = $provider;
+        $this->dependencyPool         = null;
+    }
+
+    /**
+     * Resolve one dependency slug from the on-demand pool (lazy-loaded, cached).
+     * Returns null when there is no pool or the slug is not in it.
+     */
+    private function resolveDependency(string $slug): ?Migration
+    {
+        if ($this->dependencyPoolProvider === null) {
+            return null;
+        }
+        if ($this->dependencyPool === null) {
+            $pool = ($this->dependencyPoolProvider)();
+            $this->dependencyPool = is_array($pool) ? $pool : [];
+        }
+        return $this->dependencyPool[$slug] ?? null;
+    }
+
+    /**
+     * Augment $migrations with any declared dependencies that are missing from
+     * the batch and not already applied, pulling them (transitively) from the
+     * on-demand pool set via {@see setDependencyPool()}.
+     *
+     * Dependencies that cannot be resolved from the pool are left untouched, so
+     * {@see sort()}'s validation still reports genuinely unknown dependencies.
+     * A no-op (returns the input unchanged) when no pool is configured.
+     *
+     * @param Migration[] $migrations
+     * @param string[]    $alreadyRan
+     * @return Migration[]
+     */
+    private function pullMissingDependencies(array $migrations, array $alreadyRan): array
+    {
+        if ($this->dependencyPoolProvider === null) {
+            return $migrations;
+        }
+
+        $alreadyRanSet = array_flip($alreadyRan);
+        $map           = [];
+        foreach ($migrations as $m) {
+            $map[$m->getSlug()] = $m;
+        }
+
+        // Breadth-first over the dependency graph, pulling in resolvable slugs.
+        $queue = $migrations;
+        while (!empty($queue)) {
+            $m = array_shift($queue);
+            foreach ($m->dependencies as $dep) {
+                if (isset($map[$dep]) || isset($alreadyRanSet[$dep])) {
+                    continue; // already in the batch or already applied
+                }
+                $pulled = $this->resolveDependency($dep);
+                if ($pulled !== null) {
+                    $map[$dep] = $pulled;
+                    $queue[]   = $pulled; // resolve its own dependencies too
+                }
+                // Unresolvable → leave it; sort() will raise "unknown dependency".
+            }
+        }
+
+        return array_values($map);
     }
 
     // =========================================================================
@@ -444,6 +535,12 @@ class MigrationRunner
         if (empty($migrations)) {
             return [];
         }
+
+        // Pull in any declared dependencies that are missing from this batch but
+        // resolvable from the on-demand pool (see setDependencyPool()) — this is
+        // how an app migration can depend on a framework migration it does not
+        // otherwise run. No-op when no pool is configured.
+        $migrations = $this->pullMissingDependencies($migrations, $alreadyRan);
 
         $alreadyRanSet = array_flip($alreadyRan);
 
