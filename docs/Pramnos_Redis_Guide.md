@@ -58,3 +58,18 @@ it with the `HealthRegistry` (or it is available to `health:check`).
 
 The manager does **not** apply `OPT_PREFIX`; it exposes `prefix()` so callers
 prefix keys explicitly and keys stay byte-predictable across installs.
+
+## Capabilities derive from the ConnectionManager
+
+The ConnectionManager is the single Redis connection source, and the Redis-backed
+capabilities can now be obtained pre-wired from it — configure the manager once in
+bootstrap and use the capabilities anywhere:
+
+- Cache: `FlatCache::default()` (see the Cache guide)
+- Broadcast: `BroadcastingManager::instance()` (see the Realtime guide)
+- Queue: `DelayedQueue::redis($namespace)` (see the Queue guide)
+
+Each resolves `ConnectionManager::getInstance()` lazily, so an app that binds the
+manager via `setInstance()` during bootstrap is always in effect. The cache adapter
+keeps its own dedicated connection; broadcast/queue publish over the shared
+`connection()`.

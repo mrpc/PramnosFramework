@@ -1093,3 +1093,21 @@ The Pramnos Cache system provides a robust, flexible foundation for application 
 ---
 
 For implementation examples and integration patterns, see the [Framework Guide](Pramnos_Framework_Guide.md) for guidance on using caching in controllers and models.
+
+## Default flat cache from the ConnectionManager
+
+`FlatCache::default()` returns a lazy, process-wide flat cache backed by a
+`RedisAdapter` bound to the shared `Pramnos\Redis\ConnectionManager`
+(host/port/database/password + per-install prefix). Configure the manager once in
+bootstrap (`ConnectionManager::setInstance(...)`) and read the cache anywhere,
+without wiring the adapter yourself:
+
+```php
+$cache = \Pramnos\Cache\FlatCache::default();
+$cache->set('radio:now_playing', $data, 300);
+```
+
+`FlatCache::setDefault(?FlatCache)` overrides it (bootstrap wiring) or resets it
+to rebuild (`setDefault(null)` — the test seam). Colon-namespaced keys are stored
+verbatim under the install prefix, and the atomic counter + structured (hash/list/
+expire/keys) operations are available on the returned instance.

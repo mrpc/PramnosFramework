@@ -1290,3 +1290,22 @@ class SecureDataHandler
 ```
 
 The Pramnos Database API provides a comprehensive, secure, and flexible foundation for all database operations, supporting both MySQL and PostgreSQL with advanced features for modern web applications.
+
+## Session time zone (`database.timezone`)
+
+Set `database.timezone` in the database settings to have the framework apply a
+session time zone on connect, so `NOW()` and timestamp rendering match the app's
+zone:
+
+```php
+// app settings
+'database' => [
+    // ... hostname, database, user, password ...
+    'timezone' => 'Europe/Athens', // or 'UTC'
+],
+```
+
+On connect the framework issues `SET TIME ZONE '<tz>'` (PostgreSQL) /
+`SET time_zone = '<tz>'` (MySQL) on **each** connection (write and read replica).
+The setting is **unset by default** — when absent, no SET is issued and the server
+default is left untouched, so existing applications are unaffected.

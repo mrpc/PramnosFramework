@@ -10,6 +10,7 @@ use Pramnos\Broadcasting\Drivers\DriverInterface;
 use Pramnos\Broadcasting\Drivers\LogDriver;
 use Pramnos\Broadcasting\Drivers\NullDriver;
 use Pramnos\Application\FeatureRegistry;
+use Pramnos\Redis\ConnectionManager;
 
 /**
  * Unit tests for BroadcastingManager and the built-in drivers.
@@ -28,6 +29,9 @@ class BroadcastingManagerTest extends TestCase
     protected function tearDown(): void
     {
         FeatureRegistry::reset();
+        // Reset process-global defaults so the instance() wiring test never leaks.
+        BroadcastingManager::setInstance(null);
+        ConnectionManager::setInstance(null);
     }
 
     // ── FeatureRegistry ───────────────────────────────────────────────────────
@@ -271,5 +275,54 @@ class BroadcastingManagerTest extends TestCase
     public function testNullDriverImplementsInterface(): void
     {
         $this->assertInstanceOf(DriverInterface::class, new NullDriver());
+    }
+
+    // ── default instance() wired on the ConnectionManager ──────────────────────
+
+    /**
+     * instance() is a lazy singleton pre-wired with a Redis driver on the shared
+     * ConnectionManager: 'redis' is registered and active, it publishes over the
+     * manager's connection, and it applies the manager's per-install prefix to
+     * the channel — so an app broadcasts through the capability without wiring the
+     * driver itself. setInstance() overrides/resets it.
+     */
+    public function testInstanceIsRedisWiredSingletonOnConnectionManager(): void
+    {
+        $fake = new FakePublishConnection();
+        ConnectionManager::setInstance(new ConnectionManager(
+            ['prefix' => 'bx:'],
+            static fn (): object => $fake
+        ));
+
+        $manager = BroadcastingManager::instance();
+        $this->assertSame('redis', $manager->driver()->name(), 'default driver must be redis');
+        $this->assertSame($manager, BroadcastingManager::instance(), 'instance() must memoise');
+
+        $manager->broadcast('chan', 'ev', ['a' => 1]);
+
+        $this->assertCount(1, $fake->published);
+        $this->assertSame('bx:chan', $fake->published[0][0], 'channel must carry the install prefix');
+        $this->assertStringContainsString('"event":"ev"', $fake->published[0][1]);
+
+        // setInstance() override wins; setInstance(null) rebuilds.
+        $other = new BroadcastingManager();
+        BroadcastingManager::setInstance($other);
+        $this->assertSame($other, BroadcastingManager::instance());
+    }
+}
+
+/**
+ * Minimal fake \Redis-like connection recording publish() calls, for the
+ * BroadcastingManager::instance() wiring test (no live Redis).
+ */
+class FakePublishConnection
+{
+    /** @var list<array{0:string,1:string}> */
+    public array $published = [];
+
+    public function publish(string $channel, string $message): int
+    {
+        $this->published[] = [$channel, $message];
+        return 1;
     }
 }

@@ -285,3 +285,20 @@ deployment across edges with **no code change**.
 
 Use **SSE** for one-way feeds on constrained/shared hosting; use **WebSocket**
 when you control the host and need bidirectional messaging.
+
+## Default broadcasting manager from the ConnectionManager
+
+`BroadcastingManager::instance()` returns a lazy, process-default manager pre-wired
+with a `RedisDriver` on the shared `Pramnos\Redis\ConnectionManager` (its
+per-install prefix + pooled connection), with `redis` as the active driver — so an
+app broadcasts through the capability without registering the driver itself:
+
+```php
+\Pramnos\Broadcasting\BroadcastingManager::instance()
+    ->broadcast('chat:updates', 'message', $payload); // channel prefixed by the driver
+```
+
+`BroadcastingManager::setInstance(?self)` overrides/resets it (bootstrap + test
+seam). It is named `instance()`/`setInstance()` (not `default()`) to avoid clashing
+with the existing `setDefault(string $driver)` instance method that selects the
+active driver.

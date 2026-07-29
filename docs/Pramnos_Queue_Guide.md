@@ -176,3 +176,19 @@ The delayed-queue capability is **purely additive**: `QueueDriverInterface`,
 database driver). No existing class (including `QueueManager`, `Worker`,
 `QueueItem`) or table changed signature, schema, or behaviour, so existing
 applications are unaffected.
+
+## Redis delayed queue from the ConnectionManager
+
+`DelayedQueue::redis(string $namespace)` builds a Redis-backed delayed queue for a
+namespace, bound to the shared `Pramnos\Redis\ConnectionManager` (its per-install
+prefix + pooled connection), so an app gets the queue capability without wiring
+the `RedisQueueDriver`:
+
+```php
+$queue = \Pramnos\Queue\DelayedQueue::redis('jobs'); // keyspace <prefix>jobs:delayed / :data
+$queue->push('send-email', ['to' => $addr], 30);
+```
+
+A delayed queue is namespaced per use (not a process singleton), so this is a
+factory — call it per namespace. Injecting a `DelayedQueue` into your own client
+(constructor param) remains the test seam.

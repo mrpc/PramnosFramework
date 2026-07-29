@@ -63,6 +63,12 @@ class Database extends \Pramnos\Framework\Base
      */
     public $collation = false;
     /**
+     * Session time zone to apply on connect (e.g. 'Europe/Athens', 'UTC').
+     * Null (the default) issues no SET, so existing apps are unaffected.
+     * @var string|null
+     */
+    public $timezone = null;
+    /**
      * Current query result
      * @var type
      */
@@ -369,6 +375,18 @@ class Database extends \Pramnos\Framework\Base
                     break;
             }
 
+            // Apply the configured session time zone per raw connection (each
+            // read/write link is its own DB session). No-op when unset, so
+            // existing apps are unaffected.
+            if ($connection && $this->timezone !== null) {
+                $tz = str_replace("'", "''", $this->timezone);
+                if ($this->type === 'postgresql') {
+                    @\pg_query($connection, "SET TIME ZONE '{$tz}'");
+                } else {
+                    @\mysqli_query($connection, "SET time_zone = '{$tz}'");
+                }
+            }
+
             if ($type === 'write') {
                 $this->_writeConnection = $connection;
             } else {
@@ -437,6 +455,9 @@ class Database extends \Pramnos\Framework\Base
             }
 
             $this->collation = isset($dbSettings->collation) ? $dbSettings->collation : false;
+            $this->timezone = isset($dbSettings->timezone) && $dbSettings->timezone !== ''
+                ? (string) $dbSettings->timezone
+                : null;
             $this->prefix = isset($dbSettings->prefix) ? $dbSettings->prefix : '';
             if ($this->prefix !== '' && \substr($this->prefix, -1) !== '_') {
                 $this->prefix .= '_';

@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Pramnos\Cache\Adapter\ArrayAdapter;
 use Pramnos\Cache\FlatCache;
 use Pramnos\Cache\SimpleCacheInvalidArgumentException;
+use Pramnos\Redis\ConnectionManager;
 
 /**
  * Unit tests for the backend-agnostic flat-key PSR-16 cache.
@@ -20,9 +21,50 @@ use Pramnos\Cache\SimpleCacheInvalidArgumentException;
 #[CoversClass(FlatCache::class)]
 class FlatCacheTest extends TestCase
 {
+    protected function tearDown(): void
+    {
+        // Reset the process-global default + connection manager so the wiring
+        // tests never leak a stale instance into the rest of the suite.
+        FlatCache::setDefault(null);
+        ConnectionManager::setInstance(null);
+    }
+
     private function cache(string $prefix = 'app:'): FlatCache
     {
         return new FlatCache(new ArrayAdapter($prefix), $prefix);
+    }
+
+    /**
+     * FlatCache::default() is a lazy singleton: it returns the same instance on
+     * repeated calls, setDefault() overrides it (bootstrap/test seam), and
+     * setDefault(null) makes the next default() rebuild.
+     */
+    public function testDefaultIsLazySingletonAndOverridable(): void
+    {
+        $override = $this->cache('override:');
+        FlatCache::setDefault($override);
+        $this->assertSame($override, FlatCache::default());
+
+        FlatCache::setDefault(null);
+        $rebuilt = FlatCache::default();
+        $this->assertInstanceOf(FlatCache::class, $rebuilt);
+        $this->assertNotSame($override, $rebuilt);
+        $this->assertSame($rebuilt, FlatCache::default(), 'default() must memoise');
+    }
+
+    /**
+     * default() builds its store from the shared ConnectionManager — so it
+     * carries the app's per-install prefix without the app wiring the adapter
+     * itself. (Asserted via the FlatCache prefix, sourced from the manager.)
+     */
+    public function testDefaultWiresConnectionManagerPrefix(): void
+    {
+        ConnectionManager::setInstance(new ConnectionManager(['prefix' => 'wiretest:']));
+
+        $prefix = (new \ReflectionProperty(FlatCache::class, 'prefix'))
+            ->getValue(FlatCache::default());
+
+        $this->assertSame('wiretest:', $prefix);
     }
 
     public function testRoundTripsArraysUnderVerbatimColonKey(): void

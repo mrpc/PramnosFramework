@@ -33,11 +33,54 @@ use Psr\SimpleCache\CacheInterface;
  */
 class FlatCache implements CacheInterface
 {
+    /** The default Redis-backed instance, built lazily from the ConnectionManager. */
+    private static ?self $default = null;
+
     public function __construct(
         private readonly AdapterInterface $adapter,
         private readonly string $prefix = '',
     ) {
         $this->adapter->connect();
+    }
+
+    /**
+     * The default flat cache: a Redis adapter bound to the shared
+     * {@see \Pramnos\Redis\ConnectionManager} (host/port/database/password and
+     * per-install prefix), built lazily on first use so an application that
+     * configures the manager during bootstrap (ConnectionManager::setInstance())
+     * is already in effect. This is what lets an app depend on the cache
+     * capability without re-wiring the adapter itself.
+     *
+     * The prefix is applied both to the adapter and to this FlatCache, so
+     * colon-namespaced keys are stored verbatim under the install prefix.
+     */
+    public static function default(): self
+    {
+        if (self::$default === null) {
+            $cm     = \Pramnos\Redis\ConnectionManager::getInstance();
+            $prefix = $cm->prefix();
+            self::$default = new self(
+                new \Pramnos\Cache\Adapter\RedisAdapter(
+                    $cm->host(),
+                    $cm->port(),
+                    $cm->database(),
+                    $cm->password(),
+                    $prefix
+                ),
+                $prefix
+            );
+        }
+        return self::$default;
+    }
+
+    /**
+     * Override the default instance (bootstrap wiring / test-reset seam). Pass
+     * null to clear it so the next {@see default()} rebuilds from the current
+     * ConnectionManager.
+     */
+    public static function setDefault(?self $cache): void
+    {
+        self::$default = $cache;
     }
 
     public function get(string $key, mixed $default = null): mixed
