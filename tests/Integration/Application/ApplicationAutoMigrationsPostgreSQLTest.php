@@ -241,6 +241,67 @@ class ApplicationAutoMigrationsPostgreSQLTest extends TestCase
     }
 
     // -----------------------------------------------------------------------
+    // 5b. Application-declared migration directories (app.php 'migrations')
+    // -----------------------------------------------------------------------
+
+    /**
+     * Migrations declared by the app (app.php 'migrations' => ['paths' => ...])
+     * must auto-run on the same fast-path as framework migrations, even with the
+     * framework directories switched off — this is how an app baseline auto-runs.
+     */
+    public function testAppDeclaredMigrationsRunWithFrameworkDisabled(): void
+    {
+        $app = $this->makeApp([
+            'migrations' => ['paths' => [$this->fixtureDir], 'framework' => false],
+        ]);
+
+        $app->triggerAutoMigrations();
+
+        $this->assertTrue(
+            $this->tableExists('am_autorun_test'),
+            'App-declared migration must auto-run even when framework dirs are disabled'
+        );
+    }
+
+    /**
+     * With 'framework' => false and no app paths, auto-run touches nothing — the
+     * escape hatch an app uses when its schema collides with a framework table
+     * (e.g. a bespoke sessions layout): the framework directories are skipped
+     * entirely even though getFrameworkMigrationDirs() would otherwise yield them.
+     */
+    public function testFrameworkDisabledSkipsFrameworkDirs(): void
+    {
+        $app = $this->makeApp(['migrations' => ['framework' => false]]);
+
+        $app->triggerAutoMigrations();
+
+        $this->assertFalse(
+            $this->tableExists('am_autorun_test'),
+            'Framework migration dirs must be skipped when framework => false'
+        );
+        $this->assertEmpty($this->ranSlugs());
+    }
+
+    /**
+     * The public migrate() entry point (used by apps outside the init()/exec()
+     * lifecycle) runs the app-declared migrations. Here the DB is already wired,
+     * so migrate() proceeds straight to the auto-run.
+     */
+    public function testPublicMigrateRunsAppDeclaredMigrations(): void
+    {
+        $app = $this->makeApp([
+            'migrations' => ['paths' => [$this->fixtureDir], 'framework' => false],
+        ]);
+
+        $app->migrate();
+
+        $this->assertTrue(
+            $this->tableExists('am_autorun_test'),
+            'Public migrate() must run app-declared migrations'
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // 6 & 7. hasPendingFromSlugs against real PostgreSQL DB
     // -----------------------------------------------------------------------
 

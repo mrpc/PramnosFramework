@@ -1301,6 +1301,95 @@ class Application extends Base
     }
 
     /**
+     * Whether auto-run should include the framework feature migration dirs.
+     *
+     * Reads app.php `'migrations' => ['framework' => bool]`; defaults to true so
+     * existing applications keep running the framework migrations exactly as
+     * before. An application whose own schema collides with a framework table
+     * (for instance a bespoke `sessions` layout) sets it to false and declares
+     * only its own directories via {@see getApplicationMigrationDirs()}.
+     */
+    protected function autoMigrationsIncludeFramework(): bool
+    {
+        $config = $this->applicationInfo['migrations'] ?? null;
+        if (is_array($config) && array_key_exists('framework', $config)) {
+            return (bool) $config['framework'];
+        }
+
+        return true;
+    }
+
+    /**
+     * Application-declared migration directories for auto-run.
+     *
+     * Read from app.php `'migrations' => ['paths' => [...]]` — absolute paths to
+     * the application's own migration directories (e.g. APP_PATH/Migrations).
+     * These are scanned in addition to (or, with 'framework' => false, instead
+     * of) the framework feature directories, so an app baseline auto-runs on the
+     * same fingerprint fast-path as framework migrations. Non-existent paths are
+     * skipped. Empty when the app declares none (unchanged behaviour).
+     *
+     * @return string[] Absolute directory paths.
+     */
+    protected function getApplicationMigrationDirs(): array
+    {
+        $config = $this->applicationInfo['migrations'] ?? null;
+        if (!is_array($config) || !isset($config['paths']) || !is_array($config['paths'])) {
+            return [];
+        }
+
+        $dirs = [];
+        foreach ($config['paths'] as $path) {
+            $path = (string) $path;
+            if ($path !== '' && is_dir($path)) {
+                $dirs[] = realpath($path) ?: $path;
+            }
+        }
+
+        return $dirs;
+    }
+
+    /**
+     * Run pending auto-migrations as standalone infrastructure.
+     *
+     * This is the entry point for applications that do NOT go through the full
+     * {@see init()}/{@see exec()} request lifecycle — e.g. a front controller
+     * using attribute routing, or a console bootstrap — but still want the
+     * fingerprint-fast-path auto-migration on every execution. It connects the
+     * database if needed (without starting a session, booting addons, or running
+     * session tracking) and then runs {@see runAutoMigrations()}.
+     *
+     * It never throws: auto-migration is best-effort infrastructure and must not
+     * take down a request or a command. Failures are logged on the framework
+     * logger instead.
+     */
+    public function migrate(): void
+    {
+        try {
+            if ($this->database === null) {
+                if ($this->settings === null) {
+                    $this->settings = Settings::getInstance();
+                }
+                $this->database = \Pramnos\Database\Database::getInstance($this->settings);
+                if (!$this->database->connected) {
+                    $this->database->connect();
+                }
+                Settings::setDatabase($this->database);
+            }
+
+            // Feature activation gates which framework dirs run; honour app.php
+            // without the rest of the init() lifecycle.
+            FeatureRegistry::loadFromConfig($this->applicationInfo['features'] ?? []);
+
+            $this->runAutoMigrations();
+        } catch (\Throwable $e) {
+            if (class_exists(\Pramnos\Logs\Logger::class)) {
+                \Pramnos\Logs\Logger::logError('Auto-migration skipped: ' . $e->getMessage(), $e);
+            }
+        }
+    }
+
+    /**
      * Runs pending framework-level migrations with autoExecute=true.
      *
      * Called once per Application instance from exec() (guarded by
@@ -1337,7 +1426,14 @@ class Application extends Base
         }
         $this->autoMigrationsChecked = true;
 
-        $dirs = $this->getFrameworkMigrationDirs();
+        // Framework feature migrations (unless the app opts out) plus any
+        // application-declared directories (app.php 'migrations' => ...). An app
+        // that manages a schema colliding with a framework table (e.g. its own
+        // sessions layout) sets 'framework' => false and lists only its own dirs.
+        $dirs = $this->autoMigrationsIncludeFramework()
+            ? $this->getFrameworkMigrationDirs()
+            : [];
+        $dirs = array_merge($dirs, $this->getApplicationMigrationDirs());
         if (empty($dirs)) {
             return;
         }
