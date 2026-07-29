@@ -10,7 +10,7 @@ are shared by both.
 | Front controller | `www/index.php` → `Application::init()/exec()/render()` | thin dispatcher → `Router` + middleware pipeline |
 | Routing | `src/Api/routes.php` and/or controller conventions | `#[Route]` attributes on `src/Controllers` |
 | Domain layer | `src/Models` (ActiveRecord) | `src/Services` (plain classes + QueryBuilder) |
-| View layer | `src/Views` (server-rendered templates/themes) | none — a static JS SPA consumes the JSON API |
+| View layer | `src/Views` (server-rendered templates/themes) | none — a JS SPA (served by a thin app-shell page) consumes the JSON API |
 | API docs | `apidoc.json` + `@api` comment blocks → OpenAPI | `php pramnos api:docs` (from `#[Route]`) |
 
 The reference application and apps like it use **MVC + Models**. An app that is a
@@ -93,15 +93,38 @@ Enrich request/response schemas via a deep-merged `--overrides` document.
 
 ## The SPA front end
 
-The front end is a static single-page app served by the web server; it talks to
-the JSON API over `fetch()`. Starting points ship as scaffolding stubs:
+The front end is a single-page app served from the web root; it talks to the JSON
+API over `fetch()`. Because the contract is the API, it can be anything (vanilla
+JS, React, Vue) without changing the backend. Starting points ship as scaffolding
+stubs — copy them to your document root and build out from there:
 
-- `scaffolding/templates/spa-index.html.stub` — the HTML shell.
+- `scaffolding/templates/spa-index.php.stub` — the app-shell page (**default**).
+- `scaffolding/templates/spa-index.html.stub` — a static shell, for build-tool setups.
 - `scaffolding/templates/spa-app.js.stub` — a tiny fetch wrapper + boot.
 
-Copy them to your document root (e.g. `www/index.html`, `www/assets/js/app.js`)
-and build out from there. Because the contract is the API, the front end can be
-anything (vanilla JS, React, Vue) without changing the backend.
+### The shell is a page, not a view
+
+The shell is deliberately **not** an MVC view: it is not rendered through a theme
+or `getView()`. It is a tiny page that emits the app-shell HTML and boots the JS
+client. That means the standard cache discipline applies — **the HTML shell is
+dynamic and must not be cached; the assets it references are cached hard and
+busted on change** (exactly what Laravel/Rails/Symfony do with fingerprinted
+assets).
+
+Two ways to get the busting, by whether you run a front-end build:
+
+- **No build tool → `spa-index.php.stub`.** A one-file PHP shell that stamps each
+  asset URL with the file's modification time (`app.css?v=…`). A deploy changes the
+  mtime → the browser refetches; unchanged assets stay cached far-future. Serve it
+  from the web root (e.g. `www/spa.php`); a thin front controller renders it for
+  page requests, and it is directly reachable too. This is the accessible default —
+  no toolchain, correct caching.
+- **A build tool (Vite/Rollup/…) → `spa-index.html.stub`.** The build emits
+  content-hashed filenames (`app.7f3a.js`) and a static `index.html` that references
+  them; the hash *is* the cache-buster, so a static shell is all you need.
+
+Set `Cache-Control: max-age=31536000, immutable` on the versioned assets and
+`no-cache` (revalidate) on the shell.
 
 ---
 
@@ -116,7 +139,7 @@ src/
 app/
   Migrations/      schema migrations
   config/          app configuration
-www/ (or public/)  static SPA + generated api/openapi.json
+www/ (or public/)  SPA shell (spa.php) + assets + generated api/openapi.json
 ```
 
 Both styles use the same `app/`, migrations, queue, cache and broadcasting — only
