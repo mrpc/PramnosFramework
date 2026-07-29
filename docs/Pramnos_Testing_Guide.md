@@ -310,3 +310,34 @@ class UserApiTest extends \Pramnos\Testing\HttpTest
 - Factory definition and customization
 - Seeder generation and execution
 - Database state management in integration tests
+
+## Init-less test database helper
+
+`Pramnos\Framework\Testing\TestDatabase` is a standalone, **init-less** test-DB
+helper for applications that deliberately do not run the MVC request lifecycle
+(`Application::init()`) in tests — e.g. "Services + API + SPA" apps, or any app
+whose own schema (a bespoke `sessions` table, say) would collide with the
+framework's session tracking. Unlike `BaseTestCase` (whose `setUp()` boots
+`init()`), this helper runs no lifecycle.
+
+```php
+use Pramnos\Framework\Testing\TestDatabase;
+
+// A raw PDO to the configured database (built from the `database` settings,
+// honouring `database.timezone`). Per-process singleton, persistent.
+$pdo = TestDatabase::connection();
+$pdo->prepare('INSERT INTO users (username) VALUES (?)')->execute(['alice']);
+
+// Row-existence assertions.
+TestDatabase::assertDatabaseHas('users', ['username' => 'alice']);
+TestDatabase::assertDatabaseMissing('users', ['username' => 'bob']);
+
+// Seams: inject a mock, or drop the cached connection for isolation.
+TestDatabase::setConnection($mockPdo);
+TestDatabase::reset();
+```
+
+It reads the `database` settings section (`hostname/port/database/user/password/
+type` + optional `timezone`), so it connects to exactly the database the app
+uses — seeded rows behave identically to rows written through the framework
+database layer.
