@@ -34,6 +34,28 @@ class DelayedQueue
     }
 
     /**
+     * A Redis-backed delayed queue for $namespace, bound to the shared
+     * {@see \Pramnos\Redis\ConnectionManager} (its per-install prefix and pooled
+     * connection). Lets an application obtain the queue capability for a namespace
+     * without wiring the {@see Drivers\RedisQueueDriver} itself. Resolved lazily so
+     * an app that configures the manager during bootstrap is already in effect.
+     *
+     * The keyspace is `<prefix><namespace>:delayed` / `:data`, identical to a
+     * hand-wired RedisQueueDriver — a queue is namespaced per use (not a process
+     * singleton), so this is a factory rather than a shared instance.
+     */
+    public static function redis(string $namespace): self
+    {
+        return new self(new Drivers\RedisQueueDriver(
+            [
+                'prefix'    => \Pramnos\Redis\ConnectionManager::getInstance()->prefix(),
+                'namespace' => $namespace,
+            ],
+            static fn (): object => \Pramnos\Redis\ConnectionManager::getInstance()->connection()
+        ));
+    }
+
+    /**
      * The backing driver (e.g. to read its name or namespace).
      */
     public function driver(): QueueDriverInterface

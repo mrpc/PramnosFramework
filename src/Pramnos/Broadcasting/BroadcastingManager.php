@@ -41,10 +41,47 @@ class BroadcastingManager
     /** Name of the currently active driver. */
     private string $defaultDriver = 'null';
 
+    /** The default manager, pre-wired with a Redis driver on the ConnectionManager. */
+    private static ?self $instance = null;
+
     public function __construct()
     {
         // Always register the null driver so setDefault('null') is always valid.
         $this->drivers['null'] = new NullDriver();
+    }
+
+    /**
+     * The default broadcasting manager: pre-wired with a {@see Drivers\RedisDriver}
+     * on the shared {@see \Pramnos\Redis\ConnectionManager} (its per-install prefix
+     * and pooled connection), with 'redis' as the active driver. Built lazily so an
+     * app that configures the manager during bootstrap is already in effect. This
+     * lets an app broadcast through the capability without wiring the driver itself.
+     *
+     * (Named instance()/setInstance() rather than default() to avoid colliding with
+     * the existing {@see setDefault()} instance method, which selects the driver.)
+     */
+    public static function instance(): self
+    {
+        if (self::$instance === null) {
+            $cm      = \Pramnos\Redis\ConnectionManager::getInstance();
+            $manager = new self();
+            $manager->addDriver(new Drivers\RedisDriver(
+                ['prefix' => $cm->prefix()],
+                static fn (): object => \Pramnos\Redis\ConnectionManager::getInstance()->connection()
+            ));
+            $manager->setDefault('redis');
+            self::$instance = $manager;
+        }
+        return self::$instance;
+    }
+
+    /**
+     * Override the default manager (bootstrap wiring / test-reset seam). Pass null
+     * to clear it so the next {@see instance()} rebuilds from the ConnectionManager.
+     */
+    public static function setInstance(?self $manager): void
+    {
+        self::$instance = $manager;
     }
 
     // =========================================================================
