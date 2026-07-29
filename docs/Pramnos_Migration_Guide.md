@@ -108,16 +108,58 @@ php vendor/bin/pramnos migrate --target=2026_05_29_000001_create_users_table
 
 ### Automatic Migration (Application Startup)
 
-Migrations can run automatically when the application starts if configured:
+Pending `autoExecute = true` migrations run automatically during the request
+lifecycle (`Application::exec()`), guarded by a fingerprint fast-path so an
+up-to-date schema costs a single indexed lookup. By default auto-run scans the
+framework's per-feature migration directories (gated by the enabled `features`),
+which is all a standard app needs.
+
+An application can extend or narrow this through its `app.php` descriptor:
 
 ```php
-// In app configuration
-'migrations' => [
-    'autoExecute' => true,
-    'directories' => ['database/migrations'],
-    'migration_cutoff' => '2020_01_02_000000',  // Skip baseline migrations
-],
+// app.php
+return [
+    'namespace' => 'MyApp',
+    'features'  => [],           // gates which framework feature dirs run
+
+    // Auto-run configuration (all keys optional):
+    'migrations' => [
+        // Application-owned migration directories, scanned IN ADDITION to the
+        // framework dirs (absolute paths). An app baseline placed here auto-runs
+        // on the same fingerprint fast-path as framework migrations.
+        'paths'     => [__DIR__ . '/Migrations'],
+
+        // Set false to skip the framework feature directories entirely. Use this
+        // when the app manages a schema that collides with a framework table
+        // (e.g. its own `sessions` layout) — only the app's own `paths` run.
+        // Defaults to true (unchanged behaviour for existing apps).
+        'framework' => false,
+    ],
+
+    // Skip every migration at or before this timestamp. Set it to the baseline
+    // timestamp so auto-run only applies genuinely new, post-baseline migrations
+    // (the baseline itself is applied once by the explicit `migrate` command).
+    'migration_cutoff' => '2025-01-01 00:00:01',
+];
 ```
+
+#### Standalone auto-migration (`Application::migrate()`)
+
+Applications that do **not** go through the full `init()`/`exec()` request
+lifecycle — for example a front controller using attribute routing, or a console
+bootstrap — can still get auto-migration on every execution by calling the
+public `migrate()` method:
+
+```php
+$app = \Pramnos\Application\Application::getInstance(); // resolves app.php
+$app->migrate(); // connects the DB if needed, then runs pending migrations
+```
+
+`migrate()` connects the database if it is not already wired (without starting a
+session, booting addons or running session tracking), honours the same `app.php`
+`migrations`/`migration_cutoff`/`features` config as the lifecycle path, and
+**never throws** — auto-migration is best-effort infrastructure, so failures are
+logged rather than allowed to take down a request or a command.
 
 ## Migration Features
 
