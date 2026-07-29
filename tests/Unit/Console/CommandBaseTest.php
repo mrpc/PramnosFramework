@@ -90,6 +90,21 @@ class CommandBaseTest extends TestCase
                 $this->endJob();
             }
 
+            public function publicHeartbeat(array $extra = []): bool
+            {
+                return $this->heartbeat($extra);
+            }
+
+            public function publicShouldStop(): bool
+            {
+                return $this->shouldStop();
+            }
+
+            public function publicRequestStop(): void
+            {
+                $this->signalStop()->stop();
+            }
+
             public function publicShouldInterceptExit(int $code): bool
             {
                 return true; // always intercept in tests
@@ -566,6 +581,50 @@ class CommandBaseTest extends TestCase
 
         // Assert — lock file gone
         $this->assertFileDoesNotExist($lockFile);
+    }
+
+    /**
+     * heartbeat() records the extra state fields in the lock and returns true
+     * while the lock is still held (the unified heartbeat, forwarded to WorkerLock
+     * and also pinging the systemd watchdog).
+     */
+    public function testHeartbeatRecordsExtraStateAndReturnsTrueWhileHeld(): void
+    {
+        $this->cmd->publicStartJob();
+
+        $this->assertTrue($this->cmd->publicHeartbeat(['jobs_processed' => 3, 'current_job' => 'x']));
+
+        $state = json_decode((string) file_get_contents($this->tmpDir . '/var/test_job'), true);
+        $this->assertSame(3, (int) $state['jobs_processed']);
+        $this->assertSame('x', $state['current_job']);
+    }
+
+    /**
+     * shouldStop() is the single loop guard: false until either a stop is
+     * requested (a trapped signal, via SignalStop) or the supervisor drops the
+     * `.stop` sentinel next to the lock.
+     */
+    public function testShouldStopReflectsSignalAndSentinel(): void
+    {
+        $this->assertFalse($this->cmd->publicShouldStop(), 'nothing has asked us to stop');
+
+        // A trapped signal (simulated) requests a stop.
+        $this->cmd->publicRequestStop();
+        $this->assertTrue($this->cmd->publicShouldStop());
+    }
+
+    /**
+     * The supervisor's `.stop` sentinel alone also trips shouldStop().
+     */
+    public function testShouldStopHonoursStopSentinel(): void
+    {
+        $sentinel = $this->tmpDir . '/var/test_job.stop';
+        @mkdir(dirname($sentinel), 0777, true);
+        file_put_contents($sentinel, '1');
+
+        $this->assertTrue($this->cmd->publicShouldStop());
+
+        @unlink($sentinel);
     }
 
     /**

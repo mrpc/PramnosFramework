@@ -144,18 +144,14 @@ class BroadcastServe extends CommandBase
             $output->writeln('  Redis ingest: <info>' . implode(', ', $prefixed) . '</info>');
         }
 
-        // Register SIGTERM / SIGINT handlers so Ctrl-C or systemd stop cleanly
-        if (function_exists('pcntl_signal')) {
-            pcntl_signal(SIGTERM, function () use ($output): void {
-                $output->writeln('<comment>Caught SIGTERM — shutting down.</comment>');
-                $this->wsServer?->stop();
-            });
-            pcntl_signal(SIGINT, function () use ($output): void {
-                $output->writeln('');
-                $output->writeln('<comment>Caught SIGINT — shutting down.</comment>');
-                $this->wsServer?->stop();
-            });
-        }
+        // Cooperative stop on SIGTERM (systemd stop / deploy) or SIGINT (Ctrl+C):
+        // break the blocking server loop by stopping the WebSocket server. One
+        // reusable primitive (SignalStop) instead of a hand-rolled pcntl pair.
+        $this->installStopSignals(function () use ($output): void {
+            $output->writeln('');
+            $output->writeln('<comment>Caught stop signal — shutting down.</comment>');
+            $this->wsServer?->stop();
+        });
 
         $verbose   = $output->isVerbose();
         $lastCount = -1;

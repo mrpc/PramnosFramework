@@ -701,14 +701,14 @@ class ProcessQueueCommandTest extends TestCase
     }
 
     /**
-     * recoverDatabaseConnection() must return false when $shouldContinue has
-     * been set to false (e.g. by a signal handler).
+     * recoverDatabaseConnection() must return false when a graceful stop has been
+     * requested (e.g. a trapped SIGTERM/SIGINT), so the reconnect wait is abandoned.
      */
-    public function testRecoverDatabaseConnectionReturnsFalseWhenShouldContinueFalse(): void
+    public function testRecoverDatabaseConnectionReturnsFalseWhenStopRequested(): void
     {
         // Arrange
         $command = $this->createPure();
-        $command->setShouldContinue(false);
+        $command->requestStop();
 
         $app = new class { public object $database; };
         $app->database = new TestPQRecoveringDatabase([]);
@@ -1176,53 +1176,25 @@ class ProcessQueueCommandTest extends TestCase
         $this->assertSame('Overflow message', $messages[4]['message'], 'Newest must be at the end');
     }
 
-    // ── handleSignal() ────────────────────────────────────────────────────────
+    // ── graceful stop (SignalStop-backed) ─────────────────────────────────────
 
     /**
-     * handleSignal() must set shouldContinue to false and call endJob().
-     *
-     * This covers lines 762-769: the SIGTERM/SIGINT handler that gracefully
-     * stops the daemon loop by flipping the sentinel flag and releasing the lock.
+     * A requested stop (trapped SIGTERM/SIGINT, via SignalStop) makes shouldStop()
+     * true, which is what the daemon loops check. The SignalStop primitive itself
+     * is covered in SignalStopTest; here we only confirm ProcessQueue is wired to it.
      */
-    public function testHandleSignalSetsShouldContinueToFalse(): void
+    public function testRequestStopMakesShouldStopTrue(): void
     {
         // Arrange
         $command = $this->createPure();
-        // Confirm shouldContinue starts as true
-        $ref  = new \ReflectionClass(ProcessQueue::class);
-        $prop = $ref->getProperty('shouldContinue');
-        $this->assertTrue($prop->getValue($command), 'shouldContinue must start as true');
+        $this->assertFalse($command->runShouldStop(), 'must not be stopping initially');
 
         // Act
-        $command->handleSignal(15); // SIGTERM
+        $command->requestStop();
 
-        // Assert — flag flipped to false
-        $this->assertFalse($prop->getValue($command),
-            'handleSignal() must set shouldContinue to false');
-    }
-
-    /**
-     * handleSignal() must write a message to signalOutput when it is set.
-     *
-     * This covers the `if ($this->signalOutput)` branch on line 764-766.
-     */
-    public function testHandleSignalWritesToSignalOutputWhenSet(): void
-    {
-        // Arrange
-        $command = $this->createPure();
-        $output  = new BufferedOutput();
-
-        // Inject signalOutput via reflection (it is protected in CommandBase).
-        $ref  = new \ReflectionProperty(\Pramnos\Console\CommandBase::class, 'signalOutput');
-        $ref->setValue($command, $output);
-
-        // Act
-        $command->handleSignal(2); // SIGINT
-
-        // Assert — message was written to signalOutput
-        $text = $output->fetch();
-        $this->assertStringContainsString('shutdown signal', $text,
-            'handleSignal() must write a shutdown message to signalOutput');
+        // Assert
+        $this->assertTrue($command->runShouldStop(),
+            'a requested stop must make the loop guard shouldStop() true');
     }
 
     // ── recoverDatabaseConnection() retry path ────────────────────────────────
@@ -1577,13 +1549,16 @@ class TestableProcessQueue extends ProcessQueue
         $prop->setValue($this, $name);
     }
 
-    /** Set the shouldContinue flag to simulate a signal-handler shutdown. */
-    public function setShouldContinue(bool $value): void
+    /** Request a graceful stop, simulating a trapped SIGTERM/SIGINT. */
+    public function requestStop(): void
     {
-        $ref = new \ReflectionClass(ProcessQueue::class);
-        // shouldContinue is private in ProcessQueue
-        $prop = $ref->getProperty('shouldContinue');
-        $prop->setValue($this, $value);
+        $this->signalStop()->stop();
+    }
+
+    /** Expose the protected loop guard for assertions. */
+    public function runShouldStop(): bool
+    {
+        return $this->shouldStop();
     }
 
     protected function now(): int
@@ -1807,10 +1782,10 @@ class TestableExecutableProcessQueue extends ProcessQueue
         $this->lastDashboardMode  = (string) ($data['mode'] ?? 'unknown');
     }
 
-    protected function heartbeat(): void
+    protected function heartbeat(array $extra = []): bool
     {
         $this->heartbeatCalled = true;
-        parent::heartbeat();
+        return parent::heartbeat($extra);
     }
 
     protected function attemptDatabaseReconnect(object $database): bool
