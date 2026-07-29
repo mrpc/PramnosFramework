@@ -55,6 +55,8 @@ class ApplicationAutoMigrationsPostgreSQLTest extends TestCase
 
         $this->db->query('DROP TABLE IF EXISTS "am_autorun_test"');
         $this->db->query('DROP TABLE IF EXISTS "am_manual_only_test"');
+        $this->db->query('DROP TABLE IF EXISTS "dep_pull_pooled"');
+        $this->db->query('DROP TABLE IF EXISTS "dep_pull_app"');
         $this->db->query("DROP TABLE IF EXISTS \"{$this->historyTable}\"");
 
         $this->fixtureDir = __DIR__ . '/Fixtures/AutoMigrations';
@@ -64,6 +66,8 @@ class ApplicationAutoMigrationsPostgreSQLTest extends TestCase
     {
         $this->db->query('DROP TABLE IF EXISTS "am_autorun_test"');
         $this->db->query('DROP TABLE IF EXISTS "am_manual_only_test"');
+        $this->db->query('DROP TABLE IF EXISTS "dep_pull_pooled"');
+        $this->db->query('DROP TABLE IF EXISTS "dep_pull_app"');
         $this->db->query("DROP TABLE IF EXISTS \"{$this->historyTable}\"");
     }
 
@@ -334,6 +338,81 @@ class ApplicationAutoMigrationsPostgreSQLTest extends TestCase
         $result = $runner->hasPendingFromSlugs($slugMap);
 
         $this->assertFalse($result, 'hasPendingFromSlugs must return false after migration ran on PG');
+    }
+
+    // -----------------------------------------------------------------------
+    // 8. On-demand dependency pull executes end-to-end against real PG
+    // -----------------------------------------------------------------------
+
+    /**
+     * A migration in the batch depends on another that is NOT in the batch, only
+     * in the on-demand pool (as a framework migration would be under
+     * framework => false). The runner pulls it in, runs it FIRST, then the
+     * dependent — both create their tables and both are recorded in history.
+     * This is the end-to-end proof of the app→framework dependency feature.
+     */
+    public function testPooledDependencyIsPulledAndExecutedEndToEnd(): void
+    {
+        $app    = $this->makeApp();
+        $pooled = new PgPooledDepMigration($app);   // slug 'pooled_dep'      → dep_pull_pooled
+        $appMig = new PgAppNeedsPooledMigration($app); // slug 'app_needs_pooled' → dep_pull_app
+
+        $runner = new MigrationRunner($this->db, $this->historyTable);
+        $runner->setDependencyPool(fn(): array => ['pooled_dep' => $pooled]);
+
+        // Only the dependent is in the batch; the dependency comes from the pool.
+        $runner->run([$appMig]);
+
+        $this->assertTrue($this->tableExists('dep_pull_pooled'), 'Pooled dependency must be pulled in and executed');
+        $this->assertTrue($this->tableExists('dep_pull_app'), 'Dependent migration must execute');
+
+        $ran = $this->ranSlugs();
+        $this->assertContains('pooled_dep', $ran, 'Pulled dependency must be recorded in history');
+        $this->assertContains('app_needs_pooled', $ran, 'Dependent must be recorded in history');
+    }
+}
+
+/**
+ * A stand-in "framework" migration that lives only in the dependency pool.
+ */
+class PgPooledDepMigration extends \Pramnos\Database\Migration
+{
+    public function getSlug(): string
+    {
+        return 'pooled_dep';
+    }
+
+    public function up(): void
+    {
+        $this->schema()->createTable('dep_pull_pooled', fn($t) => $t->increments('id'));
+    }
+
+    public function down(): void
+    {
+        $this->schema()->dropTableIfExists('dep_pull_pooled');
+    }
+}
+
+/**
+ * An "application" migration that depends on the pooled one above.
+ */
+class PgAppNeedsPooledMigration extends \Pramnos\Database\Migration
+{
+    public array $dependencies = ['pooled_dep'];
+
+    public function getSlug(): string
+    {
+        return 'app_needs_pooled';
+    }
+
+    public function up(): void
+    {
+        $this->schema()->createTable('dep_pull_app', fn($t) => $t->increments('id'));
+    }
+
+    public function down(): void
+    {
+        $this->schema()->dropTableIfExists('dep_pull_app');
     }
 }
 

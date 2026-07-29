@@ -1350,6 +1350,38 @@ class Application extends Base
     }
 
     /**
+     * On-demand pool of ALL framework migrations, keyed by slug.
+     *
+     * Unlike {@see getFrameworkMigrationDirs()} this is NOT feature-gated and is
+     * NOT affected by `migrations.framework` — it is the resolution pool a
+     * MigrationRunner draws from when an application migration declares a
+     * dependency on a framework migration it does not otherwise run. Declaring
+     * the dependency is the explicit opt-in, so any framework slug (including one
+     * belonging to a disabled feature) can be pulled in on demand — and only the
+     * ones actually depended upon, transitively, are ever executed.
+     *
+     * Loaded lazily by the runner (only when a missing dependency is hit), so it
+     * costs nothing on the common no-cross-dependency path.
+     *
+     * @return array<string,Migration> slug => Migration
+     */
+    public function frameworkMigrationPool(): array
+    {
+        $base = \Pramnos\Database\MigrationLoader::resolveFrameworkMigrationsBase();
+        if ($base === null || !is_dir($base)) {
+            return [];
+        }
+        $dirs = glob($base . '/*', GLOB_ONLYDIR) ?: [];
+
+        $pool = [];
+        foreach (\Pramnos\Database\MigrationLoader::loadFromDirectories($dirs, $this) as $migration) {
+            $pool[$migration->getSlug()] = $migration;
+        }
+
+        return $pool;
+    }
+
+    /**
      * Run pending auto-migrations as standalone infrastructure.
      *
      * This is the entry point for applications that do NOT go through the full
@@ -1485,6 +1517,10 @@ class Application extends Base
 
         // Phase 2: fingerprint absent → check which slugs are genuinely pending.
         $runner = new \Pramnos\Database\MigrationRunner($this->database, $histTable, $this);
+        // Let an app migration pull in a framework migration it depends on, even
+        // when the framework dirs are not otherwise scanned (loaded lazily, only
+        // if a missing dependency is actually hit).
+        $runner->setDependencyPool(fn(): array => $this->frameworkMigrationPool());
         if (!$runner->hasPendingFromSlugs($slugTimestamps, $cutoff)) {
             // No pending migrations — record fingerprint for future fast-path.
             $this->insertFingerprintRow($fingerprint, $histTable, $quote);

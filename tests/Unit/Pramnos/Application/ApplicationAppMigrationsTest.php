@@ -62,6 +62,27 @@ class ApplicationAppMigrationsTest extends TestCase
     }
 
     /**
+     * frameworkMigrationPool() is the on-demand resolution pool: it exposes ALL
+     * framework migrations keyed by slug, NOT feature-gated and independent of
+     * `migrations.framework`, so an app migration can declare a dependency on
+     * any framework slug (e.g. a queue table) and have it pulled in on demand.
+     */
+    public function testFrameworkMigrationPoolIsKeyedBySlugAndUngated(): void
+    {
+        $pool = $this->makeApp(['framework' => false])->frameworkMigrationPool();
+
+        // A known framework slug from a NON-core, NON-enabled feature (queue) is
+        // present, proving the pool is not feature-gated.
+        $this->assertArrayHasKey('create_delayed_jobs_table', $pool);
+        $this->assertInstanceOf(\Pramnos\Database\Migration::class, $pool['create_delayed_jobs_table']);
+
+        // Keys are slugs → the map the MigrationRunner looks dependencies up by.
+        foreach ($pool as $slug => $migration) {
+            $this->assertSame($slug, $migration->getSlug());
+        }
+    }
+
+    /**
      * With no 'migrations' key, behaviour is unchanged: no app directories and
      * framework migrations still included — the backward-compatible default that
      * keeps existing applications running exactly as before.

@@ -276,6 +276,93 @@ class MigrationRunnerUnitTest extends TestCase
         $runner->sort([$a]);
     }
 
+    // -----------------------------------------------------------------------
+    // On-demand dependency pull (setDependencyPool)
+    // -----------------------------------------------------------------------
+
+    /**
+     * A migration may depend on a slug that is NOT in the batch, as long as it
+     * is resolvable from the on-demand pool: the runner pulls it in and orders
+     * it before its dependent. This is what lets an app migration depend on a
+     * framework migration the app does not otherwise run.
+     */
+    public function testMissingDependencyIsPulledFromPool(): void
+    {
+        // The app batch contains only the dependent; the dependency lives in the
+        // pool (as a framework migration would).
+        $app  = $this->makeMigration('app_needs_delayed_jobs', deps: ['create_delayed_jobs_table']);
+        $pool = ['create_delayed_jobs_table' => $this->makeMigration('create_delayed_jobs_table')];
+
+        $runner = new MigrationRunner();
+        $runner->setDependencyPool(fn(): array => $pool);
+
+        $sorted = $runner->sort([$app]);
+
+        $this->assertSame(['create_delayed_jobs_table', 'app_needs_delayed_jobs'], array_map(
+            fn($m) => $m->getSlug(),
+            $sorted
+        ));
+    }
+
+    /**
+     * The pull is transitive: a pooled dependency's own dependencies are pulled
+     * in too, and the whole chain is ordered correctly.
+     */
+    public function testPooledDependencyChainIsPulledTransitively(): void
+    {
+        $app  = $this->makeMigration('app_feature', deps: ['fw_b']);
+        $pool = [
+            'fw_b' => $this->makeMigration('fw_b', deps: ['fw_a']),
+            'fw_a' => $this->makeMigration('fw_a'),
+        ];
+
+        $runner = new MigrationRunner();
+        $runner->setDependencyPool(fn(): array => $pool);
+
+        $sorted = array_map(fn($m) => $m->getSlug(), $runner->sort([$app]));
+
+        $this->assertSame(['fw_a', 'fw_b', 'app_feature'], $sorted);
+    }
+
+    /**
+     * A dependency that is neither in the batch nor in the pool still throws —
+     * the pool only rescues genuinely-resolvable slugs, it does not silence real
+     * misconfiguration.
+     */
+    public function testUnresolvableDependencyStillThrowsWithPool(): void
+    {
+        $app = $this->makeMigration('app_feature', deps: ['totally_unknown']);
+
+        $runner = new MigrationRunner();
+        $runner->setDependencyPool(fn(): array => []); // empty pool
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('totally_unknown');
+        $runner->sort([$app]);
+    }
+
+    /**
+     * A dependency already applied in a previous batch is NOT pulled from the
+     * pool — it is treated as satisfied, so the pool provider need not even be
+     * consulted for it.
+     */
+    public function testAlreadyRanDependencyIsNotPulled(): void
+    {
+        $app = $this->makeMigration('app_feature', deps: ['create_delayed_jobs_table']);
+
+        $runner = new MigrationRunner();
+        $poolConsulted = false;
+        $runner->setDependencyPool(function () use (&$poolConsulted): array {
+            $poolConsulted = true;
+            return ['create_delayed_jobs_table' => $this->makeMigration('create_delayed_jobs_table')];
+        });
+
+        $sorted = $runner->sort([$app], ['create_delayed_jobs_table']);
+
+        $this->assertSame(['app_feature'], array_map(fn($m) => $m->getSlug(), $sorted));
+        $this->assertFalse($poolConsulted, 'Pool must not be consulted for an already-applied dependency');
+    }
+
     /**
      * Regression: the authserver RBAC functions migration must run AFTER
      * the user_roles table migration, even though user_roles is not in the
