@@ -987,6 +987,29 @@ class Application extends Base
     }
 
     /**
+     * Resolve the kernel class for an application from its config.
+     *
+     * Uses `<namespace>\Application` when the app ships such a subclass, and
+     * otherwise falls back to this base kernel — so an app that needs no custom
+     * kernel behaviour does not have to provide an empty subclass just to be
+     * instantiable, and an app that declares no namespace still resolves.
+     *
+     * @param array<string,mixed> $config The app config (app.php contents)
+     * @return class-string<self>
+     */
+    public static function resolveApplicationClass(array $config): string
+    {
+        if (isset($config['namespace']) && $config['namespace'] !== '') {
+            $candidate = '\\' . $config['namespace'] . '\\Application';
+            if (class_exists($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return self::class;
+    }
+
+    /**
      * Factory method
      * @param string $app
      * @return \Pramnos\Application\Application
@@ -1017,11 +1040,7 @@ class Application extends Base
                     $tmpConfig = file_exists($configFile) ? require $configFile : ['namespace' => 'Pramnos'];
                 }
 
-                if (isset($tmpConfig['namespace'])) {
-                    $class = '\\' . $tmpConfig['namespace'] . '\\Application';
-                } else {
-                    $class = '\\Pramnos\\Application';
-                }
+                $class = self::resolveApplicationClass($tmpConfig);
                 if (class_exists($class)) {
                     if ($app == 'default') {
                         self::$appInstances['default'] = new $class();

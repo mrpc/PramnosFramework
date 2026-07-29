@@ -57,7 +57,11 @@ class PolicyEngine extends Command
     {
         $app = Application::getInstance();
 
-        if (!$app instanceof Application) {
+        // A bootstrapped application WITH a database is required. getInstance() now
+        // always returns at least the base kernel (an app needs no Application
+        // subclass), so a bare instance is no longer proof of a usable app — guard
+        // on the database too, or the engine below would fail assigning a null DB.
+        if (!$app instanceof Application || !$app->database instanceof \Pramnos\Database\Database) {
             $output->writeln('<error>No application instance available.</error>');
             return Command::FAILURE;
         }
