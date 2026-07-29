@@ -158,11 +158,13 @@ class PolicyEngineCommandTest extends TestCase
     // =========================================================================
 
     /**
-     * execute() must return FAILURE and print an error message when no
-     * Pramnos Application instance exists.
+     * execute() must return FAILURE and print an error message when there is no
+     * usable application (no database).
      *
-     * The Application singleton is cleared in setUp(), so this covers the
-     * guard at the top of execute().
+     * The Application singleton is cleared in setUp(); getInstance() then returns
+     * the base kernel with no database connected, so the guard at the top of
+     * execute() (which requires a usable database) fires and fails gracefully
+     * instead of crashing in the engine.
      */
     public function testExecuteReturnsFailureWhenNoApplication(): void
     {
@@ -175,7 +177,7 @@ class PolicyEngineCommandTest extends TestCase
 
         // Assert
         $this->assertSame(PolicyEngineCommand::FAILURE, $exitCode,
-            'Must return FAILURE when Application::getInstance() returns null');
+            'Must return FAILURE when there is no usable application (no database)');
         $this->assertStringContainsString('No application instance available', $tester->getDisplay(),
             'Output must include the "No application instance available" error');
     }
@@ -227,13 +229,13 @@ class PolicyEngineCommandTest extends TestCase
         $cmd    = new PolicyEngineCommand();
         $tester = $this->testerFor($cmd);
 
-        // Act — supply --list; engine will call getAllEnabled() which depends on DB,
-        // so let's make getAllEnabled() return [] via the Application guard path
-        // by clearing the singleton (same as "no application" test).
+        // Act — supply --list, then clear the singleton so no usable application
+        // (base kernel, no database) is resolved and the guard fires before the
+        // engine is built.
         $this->clearAppSingleton();
         $exitCode = $tester->execute(['--list' => true]);
 
-        // Assert — FAILURE because no Application (guard fires before engine)
+        // Assert — FAILURE because there is no usable application (guard before engine)
         $this->assertSame(PolicyEngineCommand::FAILURE, $exitCode);
         $this->assertStringContainsString('No application instance available', $tester->getDisplay());
     }

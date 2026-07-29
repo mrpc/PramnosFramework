@@ -1637,14 +1637,15 @@ class ConsoleApplicationCoverageTest extends TestCase
      * or crash the process.
      *
      * In this test class tearDown() clears the Application singleton, so
-     * Application::getInstance() returns null. The fixed execute() method detects
-     * this, emits an <error> message, and returns Command::FAILURE. This covers
-     * the null-application guard path added to PolicyEngine::execute().
+     * Application::getInstance() returns the base kernel with no database. The
+     * execute() guard requires a usable database, so it emits an <error> message
+     * and returns Command::FAILURE instead of crashing. This covers the
+     * no-usable-application guard path in PolicyEngine::execute().
      */
     public function testPolicyEngineListWithNoPolicies(): void
     {
         // Arrange — tearDown() has cleared the Application singleton, so
-        // getInstance() will return null for this test.
+        // getInstance() resolves the base kernel with no database for this test.
         $app = new \Symfony\Component\Console\Application();
         $cmd = new PolicyEngine();
         $app->add($cmd);
