@@ -158,6 +158,12 @@ class StreamedResponse
             }
         }
 
+        // A stream runs for the life of the connection, so lift the execution
+        // time limit — otherwise a web SAPI's default max_execution_time would
+        // cut a long-lived SSE/stream short. Done in PHP so no vhost/.htaccess
+        // php_value is required (shared-hosting-portable).
+        @set_time_limit(0);
+
         // Tear down any output buffering so writes reach the client immediately.
         while (ob_get_level() > 0) {
             @ob_end_flush();
