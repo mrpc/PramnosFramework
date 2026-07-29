@@ -147,6 +147,23 @@ abstract class CommandBase extends Command
         return 3600 * 2;
     }
 
+    /** Lazily-built single-instance lock+heartbeat, shared across the job lifecycle. */
+    private ?WorkerLock $workerLock = null;
+
+    /**
+     * The shared {@see WorkerLock} for this command's job (same path + staleness
+     * as getJobLockFilePath()/getLockStaleSeconds()). One instance per command so
+     * its held-state carries across startJob()/heartbeat()/endJob().
+     */
+    protected function workerLock(): WorkerLock
+    {
+        return $this->workerLock ??= new WorkerLock(
+            $this->getJobName(),
+            $this->getJobLockFilePath(),
+            $this->getLockStaleSeconds()
+        );
+    }
+
     protected function checkIfRunning(): bool
     {
         $file = $this->getJobLockFilePath();
@@ -180,21 +197,10 @@ abstract class CommandBase extends Command
 
     protected function readPidFromLockFile(string $file): int
     {
-        try {
-            $content = $this->readFileContents($file);
-            if (!$content) {
-                return 0;
-            }
-            foreach (explode("\n", $content) as $line) {
-                $line = trim($line);
-                if (is_numeric($line)) {
-                    return (int)$line;
-                }
-            }
-        } catch (\Exception $e) {
-            // ignore
-        }
-        return 0;
+        // The lock is JSON (written by WorkerLock via startJob()); read its `pid`
+        // field, falling back to a legacy plain-text "<pid>\n..." lock so a lock
+        // left behind by an older build is still understood across an upgrade.
+        return WorkerLock::pidFromFile($file);
     }
 
     /**
@@ -227,21 +233,18 @@ abstract class CommandBase extends Command
         if (!is_dir($dir)) {
             @mkdir($dir, 0777, true);
         }
-        $fh = fopen($file, 'w+');
-        fwrite($fh, getmypid() . "\n");
-        fwrite($fh, 'Command started at: ' . date('d/m/Y H:i') . '.');
-        fclose($fh);
+        // Atomic acquire (takes over a dead/wedged holder's lock); writes the JSON
+        // state whose first-read pid the orchestrator still understands.
+        $this->workerLock()->acquire();
     }
 
     /**
-     * Touch the lock file so the orchestrator knows this worker is alive.
+     * Refresh the heartbeat so the orchestrator knows this worker is alive. The
+     * rewrite also bumps the file mtime (the orchestrator's staleness signal).
      */
     protected function heartbeat(): void
     {
-        $file = $this->getJobLockFilePath();
-        if (file_exists($file)) {
-            touch($file);
-        }
+        $this->workerLock()->heartbeat();
     }
 
     /**
@@ -270,6 +273,9 @@ abstract class CommandBase extends Command
     public function endJob(): void
     {
         $file = $this->getJobLockFilePath();
+        // Mark the lock released, then remove the file — commands (and the
+        // orchestrator's restart paths) expect the lock gone after endJob().
+        $this->workerLock()->release();
         $this->removeLockFile($file);
 
         if ($this->shouldRetryEndJob($file)) {

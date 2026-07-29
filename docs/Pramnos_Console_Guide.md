@@ -1227,10 +1227,77 @@ class MyDaemon extends \Pramnos\Console\CommandBase
 
 | Method | Description |
 |---|---|
-| `beginJob(OutputInterface, bool $registerShutdown=true): bool` | Returns `false` if already running; creates lock file + SIGINT handler |
-| `endJob(): void` | Removes the lock file (also called by shutdown/signal handlers) |
-| `heartbeat(): void` | `touch()` the lock file to signal liveness |
+| `beginJob(OutputInterface, bool $registerShutdown=true): bool` | Returns `false` if already running; acquires the lock + SIGINT handler |
+| `endJob(): void` | Releases and removes the lock file (also called by shutdown/signal handlers) |
+| `heartbeat(): void` | Refreshes the lock's heartbeat to signal liveness |
 | `checkIfRunning(): bool` | Checks lock file + PID liveness; treats stale locks (>2 h) as gone |
+
+The lock lifecycle is delegated to `Pramnos\Console\WorkerLock` (see below): `startJob()`
+acquires it (writing a JSON lock), `heartbeat()` refreshes it, `endJob()` releases and
+removes it. `readPidFromLockFile()` uses `WorkerLock::pidFromFile()`, which reads the JSON
+`pid` and falls back to a legacy plain-text lock — so the single-instance guard behaves
+exactly as before across an upgrade.
+
+### Worker liveness — `WorkerLock` & `WorkerReloader`
+
+Two standalone primitives for long-running CLI workers, usable directly by a bespoke
+worker script (not only via `CommandBase`).
+
+**`Pramnos\Console\WorkerLock`** — a single-instance lock + heartbeat that works where
+advisory `flock()` silently doesn't (Docker bind mounts on macOS). The lock is a JSON
+file whose atomic *creation* (`fopen($path,'x')`) is the mutex, and which doubles as the
+heartbeat.
+
+```php
+use Pramnos\Console\WorkerLock;
+
+$lock = new WorkerLock('chat-worker', WorkerLock::defaultPath('chat-worker'));
+if (!$lock->acquire($takenOverFrom)) {
+    exit("another worker holds the lock\n");
+}
+while ($working) {
+    /* ... one job ... */
+    if (!$lock->heartbeat(['jobs_processed' => ++$n])) break; // taken over → stop
+    if ($lock->stopRequested()) break;                        // <path>.stop sentinel
+}
+$lock->release();
+```
+
+| Method | Description |
+|---|---|
+| `acquire(?string &$takenOverFrom=null): bool` | Win the lock; take over a dead/wedged holder (describing it in `$takenOverFrom`), refuse a live+progressing one |
+| `heartbeat(array $extra=[]): bool` | Refresh the heartbeat; `false` once another worker has taken over |
+| `release(string $status='stopped'): void` | Mark stopped and drop the held flag (keeps the file for status reads) |
+| `isHeldByAnother(): bool` / `holderIsWedged(): bool` | Foreign-holder liveness / alive-but-not-heartbeating |
+| `readState(): ?array` / `heartbeatAge(?array): ?int` / `stopRequested(): bool` | State inspection |
+| `static pidFromFile(string): int` | JSON `pid`, falling back to a legacy plain-text lock (0 if absent) |
+| `static defaultPath(string $name, ?string $dir=null): string` | `<dir>/<name>.lock` (`ROOT/var` or temp) |
+
+A holder is respected only when **both alive and progressing** (pid alive on the same host
+*and* a fresh heartbeat); a crashed or wedged one is taken over. Scope the path/name per
+install yourself when several installs share a host.
+
+**`Pramnos\Console\WorkerReloader`** — keeps a daemon from running forever on stale code
+and configuration. Both inputs are constructor parameters:
+
+```php
+use Pramnos\Console\WorkerReloader;
+
+$reloader = new WorkerReloader(ROOT, ['src', 'worker.php', 'composer.lock'],
+    fn () => MySettings::versionStamp());
+$reloader->baseline();
+// between jobs:
+if ($reloader->settingsChanged()) { /* rebuild snapshot objects in place */ }
+if ($reloader->codeChanged()) {
+    $lock->release();
+    WorkerReloader::isSupervised() ? exit(0) : /* respawn self */ ;
+}
+```
+
+`codeChanged()` fingerprints watched files' size+mtime; `settingsChanged()` fires once per
+stamp move (the resolver's return value); `isSupervised()` detects systemd/supervisord/
+`WORKER_SUPERVISED` so the worker knows whether exiting reloads or just stops. With no
+resolver, settings tracking is disabled.
 
 ### Terminal control
 
