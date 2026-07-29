@@ -41,8 +41,6 @@ class ProcessQueue extends CommandBase
     /** @var OutputInterface|null  Captured for signal handler access */
     protected ?OutputInterface $signalOutput = null;
 
-    /** @var bool  Main loop sentinel — set to false by signal handler */
-    private bool $shouldContinue = true;
 
     // ── Dashboard state ───────────────────────────────────────────────────────
 
@@ -232,7 +230,10 @@ class ProcessQueue extends CommandBase
         }
 
         $output->writeln('');
-        $this->configureInterruptHandling($output, 'handleSignal');
+        // Cooperative graceful stop: SIGTERM (systemctl stop / deploy) and SIGINT
+        // raise a flag that the loops below check via shouldStop(); the current
+        // batch finishes before the process exits.
+        $this->installStopSignals();
 
         $taskCount = 0;
         $startTime = $this->now();
@@ -251,9 +252,11 @@ class ProcessQueue extends CommandBase
                 $lastReconnect  = $this->now();
                 $hasTasks       = true;
 
-                while ($this->shouldContinue) {
-                    if (!file_exists((defined('ROOT') ? ROOT : sys_get_temp_dir()) . '/var/' . $this->jobname)
-                        || file_exists((defined('ROOT') ? ROOT : sys_get_temp_dir()) . '/var/' . $this->jobname . '.stop')) {
+                while (true) {
+                    // Stop on a trapped signal / the .stop sentinel (shouldStop),
+                    // or when the lock file is removed out from under us.
+                    if ($this->shouldStop()
+                        || !file_exists((defined('ROOT') ? ROOT : sys_get_temp_dir()) . '/var/' . $this->jobname)) {
                         $output->writeln('<comment>Stop signal detected, exiting.</comment>');
                         break;
                     }
@@ -531,7 +534,7 @@ class ProcessQueue extends CommandBase
     ): bool {
         $this->addStatusMessage('warning', 'Database unavailable. Waiting for reconnect');
 
-        while ($this->shouldContinue) {
+        while (!$this->shouldStop()) {
             $varBase = defined('ROOT') ? ROOT : sys_get_temp_dir();
             if (!file_exists($varBase . '/var/' . $this->jobname)
                 || file_exists($varBase . '/var/' . $this->jobname . '.stop')) {
@@ -753,18 +756,4 @@ class ProcessQueue extends CommandBase
         $this->terminalWidth   = $width;
     }
 
-    /**
-     * Signal handler — called on Ctrl+C or SIGTERM.
-     *
-     * @param  int $signal
-     * @return void
-     */
-    public function handleSignal(int $signal = 0): void
-    {
-        if ($this->signalOutput) {
-            $this->signalOutput->writeln("\n<info>Caught shutdown signal. Cleaning up…</info>");
-        }
-        $this->endJob();
-        $this->shouldContinue = false;
-    }
 }

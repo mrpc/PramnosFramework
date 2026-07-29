@@ -1227,10 +1227,12 @@ class MyDaemon extends \Pramnos\Console\CommandBase
 
 | Method | Description |
 |---|---|
-| `beginJob(OutputInterface, bool $registerShutdown=true): bool` | Returns `false` if already running; acquires the lock + SIGINT handler |
-| `endJob(): void` | Releases and removes the lock file (also called by shutdown/signal handlers) |
-| `heartbeat(): void` | Refreshes the lock's heartbeat to signal liveness |
+| `beginJob(OutputInterface, bool $registerShutdown=true): bool` | Returns `false` if already running; acquires the lock (+ SIGINT cleanup handler) |
+| `endJob(): void` | Releases and removes the lock (also called by shutdown/signal handlers); notifies systemd `STOPPING` |
+| `heartbeat(array $extra=[]): bool` | Refreshes the lock's heartbeat (+ records `$extra` state, pings the systemd watchdog); `false` once the lock was taken over |
 | `checkIfRunning(): bool` | Checks lock file + PID liveness; treats stale locks (>2 h) as gone |
+| `installStopSignals(?callable $onStop=null): void` | Trap SIGTERM/SIGINT for a **cooperative** stop (see below) |
+| `shouldStop(): bool` | The single loop guard: a trapped signal, or the supervisor's `.stop` sentinel |
 
 The lock lifecycle is delegated to `Pramnos\Console\WorkerLock` (see below): `startJob()`
 acquires it (writing a JSON lock), `heartbeat()` refreshes it, `endJob()` releases and
@@ -1238,10 +1240,39 @@ removes it. `readPidFromLockFile()` uses `WorkerLock::pidFromFile()`, which read
 `pid` and falls back to a legacy plain-text lock — so the single-instance guard behaves
 exactly as before across an upgrade.
 
-### Worker liveness — `WorkerLock` & `WorkerReloader`
+**Two stop models — pick one per command.** A simple lock-guarded command uses
+`beginJob()`, whose SIGINT handler cleans up and exits immediately (fine for one-shot
+work). A **long-running worker** instead calls `installStopSignals()` and loops on
+`while (!$this->shouldStop())`: SIGTERM (systemctl stop / deploy) and SIGINT then only
+raise a flag, so the current job finishes before the process exits. `shouldStop()` also
+honours the supervisor's `<lock>.stop` sentinel, and `heartbeat()` returns `false` when
+another worker took the lock over — three stop sources behind one guard:
 
-Two standalone primitives for long-running CLI workers, usable directly by a bespoke
-worker script (not only via `CommandBase`).
+```php
+$this->installStopSignals();
+$this->systemd()->ready();                 // no-op off systemd Type=notify
+while (!$this->shouldStop()) {
+    $processed = $this->processBatch(...);
+    if (!$this->heartbeat(['jobs_processed' => $processed])) {
+        break;                             // lease lost — a replacement took over
+    }
+    sleep($idle);
+}
+$this->endJob();                           // releases the lock, notifies STOPPING
+```
+
+### Worker liveness primitives
+
+> **See the [Workers & Daemons Guide](Pramnos_Workers_And_Daemons_Guide.md)** for the full
+> mental model (CommandBase / ProcessQueue / DaemonOrchestrator + these primitives), a
+> decision guide, and end-to-end examples including a standalone-script worker and systemd/
+> cron recipes. The summary below is the primitive reference.
+
+Four standalone `Pramnos\Console` primitives for long-running CLI workers, each usable
+directly by a bespoke worker script and all composed by `CommandBase` (so console workers
+get them for free): **`WorkerLock`** (single-instance lock + heartbeat), **`WorkerReloader`**
+(code/settings reload), **`SignalStop`** (cooperative graceful stop), **`SystemdNotifier`**
+(sd_notify watchdog).
 
 **`Pramnos\Console\WorkerLock`** — a single-instance lock + heartbeat that works where
 advisory `flock()` silently doesn't (Docker bind mounts on macOS). The lock is a JSON
@@ -1298,6 +1329,52 @@ if ($reloader->codeChanged()) {
 stamp move (the resolver's return value); `isSupervised()` detects systemd/supervisord/
 `WORKER_SUPERVISED` so the worker knows whether exiting reloads or just stops. With no
 resolver, settings tracking is disabled.
+
+**`Pramnos\Console\SignalStop`** — cooperative graceful stop: async SIGTERM/SIGINT handlers
+that only raise a flag (or run an `$onStop` callback), so a loop finishes the job in hand
+before exiting. No-op when `pcntl` is unavailable.
+
+```php
+use Pramnos\Console\SignalStop;
+
+$stop = new SignalStop();          // defaults to SIGTERM + SIGINT
+$stop->install();
+while (!$stop->requested()) {
+    /* ... one job ... */
+}
+// or, to break a blocking server loop, pass a callback:
+$stop = new SignalStop([], fn () => $server->stop());
+```
+
+| Method | Description |
+|---|---|
+| `install(): void` | Install the async signal handlers (no-op without pcntl) |
+| `requested(): bool` / `reset(): void` | Whether a stop was asked for / clear it |
+| `stop(?int $signal=null): void` | Request a stop directly (runs `$onStop` once) |
+
+**`Pramnos\Console\SystemdNotifier`** — the `sd_notify` protocol for units running as
+`Type=notify`. Every method is a no-op when there is no `NOTIFY_SOCKET`, so a worker behaves
+identically under cron, by hand, or supervised.
+
+```php
+use Pramnos\Console\SystemdNotifier;
+
+$sd = new SystemdNotifier();       // reads NOTIFY_SOCKET
+$sd->ready();                      // startup complete
+$sd->watchdog();                   // liveness ping (with WatchdogSec set)
+$sd->stopping();                   // deliberate shutdown
+```
+
+| Method | Description |
+|---|---|
+| `enabled(): bool` | Running under `Type=notify` (a reachable `NOTIFY_SOCKET`) |
+| `ready()` / `watchdog()` / `stopping()` / `status(string)` | Send the corresponding sd_notify datagram |
+| `notify(string): bool` | Send a raw state line (best-effort; `false` if disabled/failed) |
+
+Via `CommandBase`, `installStopSignals()` wires `SignalStop`, `shouldStop()` folds it in with
+the `.stop` sentinel, `heartbeat()` pings the `SystemdNotifier` watchdog, and `endJob()`
+sends `STOPPING` — so a command-based worker gets all four primitives without wiring them by
+hand. `ProcessQueue` and `broadcast:serve` use exactly this.
 
 ### Terminal control
 

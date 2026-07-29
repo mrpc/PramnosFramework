@@ -101,4 +101,5 @@ nav:
     - Logging: Pramnos_Logging_Guide.md
   - Operations:
     - Console Commands: Pramnos_Console_Guide.md
+    - Workers & Daemons: Pramnos_Workers_And_Daemons_Guide.md
     - Testing: Pramnos_Testing_Guide.md

@@ -150,6 +150,12 @@ abstract class CommandBase extends Command
     /** Lazily-built single-instance lock+heartbeat, shared across the job lifecycle. */
     private ?WorkerLock $workerLock = null;
 
+    /** Cooperative graceful-stop (SIGTERM/SIGINT), built on installStopSignals(). */
+    private ?SignalStop $signalStop = null;
+
+    /** systemd Type=notify watchdog; a no-op when not running under systemd. */
+    private ?SystemdNotifier $systemd = null;
+
     /**
      * The shared {@see WorkerLock} for this command's job (same path + staleness
      * as getJobLockFilePath()/getLockStaleSeconds()). One instance per command so
@@ -162,6 +168,43 @@ abstract class CommandBase extends Command
             $this->getJobLockFilePath(),
             $this->getLockStaleSeconds()
         );
+    }
+
+    /** The cooperative graceful-stop for this command (see installStopSignals()). */
+    protected function signalStop(): SignalStop
+    {
+        return $this->signalStop ??= new SignalStop();
+    }
+
+    /** The systemd notifier for this command (no-op unless under Type=notify). */
+    protected function systemd(): SystemdNotifier
+    {
+        return $this->systemd ??= new SystemdNotifier();
+    }
+
+    /**
+     * Install SIGTERM/SIGINT handlers for a COOPERATIVE stop: the handler only
+     * raises a flag (or runs $onStop), and the loop exits at a safe point when
+     * shouldStop() returns true. Prefer this over configureInterruptHandling() for
+     * long-running workers — it traps SIGTERM (systemctl stop / deploy) too, not
+     * just SIGINT, and never tears the process down mid-job.
+     *
+     * @param (callable(int|null): void)|null $onStop Optional action on first stop
+     *                                                (e.g. break a blocking server loop).
+     */
+    protected function installStopSignals(?callable $onStop = null): void
+    {
+        $this->signalStop = new SignalStop([], $onStop);
+        $this->signalStop->install();
+    }
+
+    /**
+     * Whether a long-running loop should stop now: an OS signal (SIGTERM/SIGINT)
+     * was received, or the supervisor dropped the `.stop` sentinel by the lock.
+     */
+    protected function shouldStop(): bool
+    {
+        return $this->signalStop()->requested() || $this->workerLock()->stopRequested();
     }
 
     protected function checkIfRunning(): bool
@@ -239,12 +282,22 @@ abstract class CommandBase extends Command
     }
 
     /**
-     * Refresh the heartbeat so the orchestrator knows this worker is alive. The
-     * rewrite also bumps the file mtime (the orchestrator's staleness signal).
+     * Refresh the heartbeat so the orchestrator knows this worker is alive, and
+     * ping the systemd watchdog (a no-op off systemd). The rewrite also bumps the
+     * file mtime (the orchestrator's staleness signal). Optional $extra fields
+     * (jobs_processed, current_job, ...) are recorded in the lock state.
+     *
+     * Returns false when the lock is no longer ours — another worker considered us
+     * dead and took over — so a loop can stop rather than run alongside it.
+     *
+     * @param array<string,mixed> $extra
      */
-    protected function heartbeat(): void
+    protected function heartbeat(array $extra = []): bool
     {
-        $this->workerLock()->heartbeat();
+        $alive = $this->workerLock()->heartbeat($extra);
+        $this->systemd()->watchdog();
+
+        return $alive;
     }
 
     /**
@@ -272,6 +325,9 @@ abstract class CommandBase extends Command
 
     public function endJob(): void
     {
+        // Tell systemd we are shutting down on purpose (no-op off Type=notify).
+        $this->systemd()->stopping();
+
         $file = $this->getJobLockFilePath();
         // Mark the lock released, then remove the file — commands (and the
         // orchestrator's restart paths) expect the lock gone after endJob().
