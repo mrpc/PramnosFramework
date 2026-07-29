@@ -435,8 +435,9 @@ class ResizeToolsTest extends TestCase
         $alpha = (imagecolorat($dst, 10, 10) >> 24) & 0x7F;
         $this->assertSame(127, $alpha, 'transparent source must remain fully transparent through the multi-step resize');
 
-        imagedestroy($src);
-        imagedestroy($dst);
+        // GdImage objects free themselves via GC; imagedestroy() is a no-op since
+        // PHP 8.0 and deprecated since 8.5, so it is intentionally not called.
+        unset($src, $dst);
     }
 
     /**
