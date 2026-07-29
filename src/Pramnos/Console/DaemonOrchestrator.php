@@ -988,24 +988,9 @@ abstract class DaemonOrchestrator extends CommandBase
 
     protected function readWorkerPidFromLockFile(string $lockFile): int
     {
-        try {
-            if (!file_exists($lockFile)) {
-                return 0;
-            }
-            $content = @file_get_contents($lockFile);
-            if ($content === false || $content === '') {
-                return 0;
-            }
-            foreach (explode("\n", $content) as $line) {
-                $line = trim((string)$line);
-                if ($line !== '' && ctype_digit($line)) {
-                    return (int)$line;
-                }
-            }
-        } catch (\Exception $e) {
-            // ignore
-        }
-        return 0;
+        // Workers using CommandBase now write a JSON lock (via WorkerLock); read
+        // the `pid` field, falling back to a legacy plain-text "<pid>\n..." lock.
+        return WorkerLock::pidFromFile($lockFile);
     }
 
     protected function releaseOrchestratorLock(): void
