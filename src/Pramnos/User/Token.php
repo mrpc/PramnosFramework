@@ -608,7 +608,9 @@ class Token extends \Pramnos\Framework\Base
                 'type' => 'integer'
             );
         }
-        #$database->sql_cache_flush_cache('usertokens');
+        // Evict cached usertokens reads (Token::load caches by id for 3600s) so
+        // status/expiry changes are visible immediately, not after the TTL.
+        $database->cacheflush('usertokens');
         if ($this->_isnew == true) {
             $this->_isnew = false;
 

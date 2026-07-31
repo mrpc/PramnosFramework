@@ -92,8 +92,43 @@ class ApiAccountControllerTest extends TestCase
         $this->assertCount(1, $user->addedTokens);
         $this->assertSame('auth', $user->addedTokens[0][0]);
         $this->assertSame($body['access_token'], $user->addedTokens[0][1]);
+        // Default TTL is 0 → token never expires (no expiry persisted).
+        $this->assertNull($user->addedTokens[0][3]);
         // Credentials were verified statelessly (no session establishment).
         $this->assertSame(['alice', 'pw'], $this->c->lastCreds);
+    }
+
+    /**
+     * With a positive token TTL, the issued token carries an expiry both in the
+     * JWT `exp` claim and in the persisted usertokens.expires column, so it stops
+     * authenticating once past. TTL of 0 (the default) keeps the never-expires
+     * behaviour — asserted in testLoginIssuesBearerToken.
+     */
+    public function testLoginWithTtlSetsTokenExpiry(): void
+    {
+        $user = $this->user(5, 'alice', 'alice@example.com');
+        $this->c->rawJson      = json_encode(['username' => 'alice', 'password' => 'pw']);
+        $this->c->verifyResult = $user;
+        $this->c->ttl          = 3600;
+
+        $before = time();
+        $res  = $this->c->login();
+        $after = time();
+        $body = json_decode($res->getBody(), true);
+
+        $this->assertSame(200, $res->getStatusCode());
+
+        // Persisted expiry ≈ now + ttl.
+        $expires = $user->addedTokens[0][3];
+        $this->assertNotNull($expires);
+        $this->assertGreaterThanOrEqual($before + 3600, $expires);
+        $this->assertLessThanOrEqual($after + 3600, $expires);
+
+        // The JWT itself carries a matching `exp` claim.
+        $parts   = explode('.', $body['access_token']);
+        $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+        $this->assertArrayHasKey('exp', $payload);
+        $this->assertSame($expires, $payload['exp']);
     }
 
     /** With no signing key configured, login fails cleanly with 500. */
@@ -168,8 +203,10 @@ class TestableApiAccount extends ApiAccount
     public array $revoked = [];
     /** @var array{0:string,1:string}|array{} */
     public array $lastCreds = [];
+    public int $ttl = 0;
 
     protected function requestMethod(): string { return $this->method; }
+    protected function tokenTtl(): int { return $this->ttl; }
     protected function rawBody(): string { return $this->rawJson; }
 
     protected function verifyCredentials(string $username, string $password): ?User
@@ -186,14 +223,14 @@ class TestableApiAccount extends ApiAccount
 /** User with a skipped constructor + a recording addToken (no DB). */
 class StubApiUser extends User
 {
-    /** @var list<array{0:string,1:string,2:string}> */
+    /** @var list<array{0:string,1:string,2:string,3:int|null}> */
     public array $addedTokens = [];
 
     public function __construct() {}
 
-    public function addToken($tokentype, $token, $notes = '', $parentToken = null)
+    public function addToken($tokentype, $token, $notes = '', $parentToken = null, $expires = null)
     {
-        $this->addedTokens[] = [$tokentype, $token, $notes];
+        $this->addedTokens[] = [$tokentype, $token, $notes, $expires];
         return $this;
     }
 }

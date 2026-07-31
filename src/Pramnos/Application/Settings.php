@@ -22,6 +22,12 @@ class Settings extends \Pramnos\Framework\Base
     static protected $loaded = false;
 
     /**
+     * Have all database settings been bulk-loaded this request?
+     * @var bool
+     */
+    static protected $bulkLoaded = false;
+
+    /**
      * Database to access dynamic settings
      * @var \Pramnos\Database\Database
      */
@@ -34,6 +40,7 @@ class Settings extends \Pramnos\Framework\Base
     {
         self::$settings = array();
         self::$loaded = false;
+        self::$bulkLoaded = false;
         self::$database = null;
     }
 
@@ -190,6 +197,18 @@ class Settings extends \Pramnos\Framework\Base
         }
 
         if (is_object(self::$database)) {
+            // Bulk-load every setting once per request (single cached query),
+            // then serve subsequent lookups from the in-memory store.
+            // A forced read bypasses the bulk store and hits the DB per-key.
+            if ($force == false && self::$bulkLoaded === false) {
+                self::loadAllSettings();
+                if (isset(self::$settings[$setting])) {
+                    if (is_array(self::$settings[$setting])) {
+                        return (object) self::$settings[$setting];
+                    }
+                    return self::$settings[$setting];
+                }
+            }
             try {
                 $sql = self::$database->prepareQuery(
                     "select `value` from `#PREFIX#settings` "
@@ -210,6 +229,48 @@ class Settings extends \Pramnos\Framework\Base
         }
 
         return $defaultValue;
+    }
+
+    /**
+     * Bulk-load every setting from the database in a single cached query and
+     * merge it into the in-memory store. Config-file values (already present in
+     * self::$settings) always take precedence over database values.
+     *
+     * Replaces N per-key round-trips with one read. The underlying query is
+     * cached under the "settings" SQL-cache category (300s) and evicted on
+     * write by setSetting()/deleteSetting() via Database::cacheflush('settings').
+     */
+    protected static function loadAllSettings()
+    {
+        // Mark as attempted up-front so a failure/miss doesn't retry every call.
+        self::$bulkLoaded = true;
+        if (!is_object(self::$database)) {
+            return;
+        }
+        // Respect the explicit "no database settings" opt-out.
+        if (isset(self::$settings['dbsettings'])
+            && self::$settings['dbsettings'] == false
+        ) {
+            return;
+        }
+        try {
+            $result = self::$database->query(
+                "select `setting`, `value` from `#PREFIX#settings`",
+                true, 300, 'settings'
+            );
+            foreach ($result->fetchAll() as $row) {
+                if (!isset($row['setting'])) {
+                    continue;
+                }
+                // Config-file / already-set values win over database values.
+                if (!isset(self::$settings[$row['setting']])) {
+                    self::$settings[$row['setting']] = $row['value'];
+                }
+            }
+        } catch (\Throwable $e) {
+            // The settings table may not exist yet (fresh install before
+            // migrations). Leave the store as-is so the app can still boot.
+        }
     }
 
     /**
@@ -243,6 +304,26 @@ class Settings extends \Pramnos\Framework\Base
                 );
                 $return = self::$database->query($sql);
             }
+            self::invalidateCache();
+        }
+    }
+
+    /**
+     * Evict the cached settings after a write so other requests never read a
+     * stale value. Clears the whole "settings" SQL-cache category (the bulk
+     * blob plus any per-key entries) and forces a fresh bulk-load next miss.
+     */
+    protected static function invalidateCache()
+    {
+        self::$bulkLoaded = false;
+        if (is_object(self::$database)
+            && method_exists(self::$database, 'cacheflush')
+        ) {
+            try {
+                self::$database->cacheflush('settings');
+            } catch (\Throwable $e) {
+                // Cache backend may be unavailable; in-memory store stays correct.
+            }
         }
     }
 
@@ -253,12 +334,18 @@ class Settings extends \Pramnos\Framework\Base
      */
     static function deleteSetting($setting)
     {
-        return self::$database->query(
-            self::$database->prepareQuery(
-                "delete from `#PREFIX#settings` where `setting` = %s limit 1",
-                $setting
-            )
-        );
+        unset(self::$settings[$setting]);
+        if (!is_object(self::$database)) {
+            return false;
+        }
+        // Use the query builder: a raw "DELETE ... LIMIT 1" is invalid on
+        // PostgreSQL. `setting` is unique, so no LIMIT is needed anyway.
+        $return = self::$database->queryBuilder()
+            ->table('#PREFIX#settings')
+            ->where('setting', $setting)
+            ->delete();
+        self::invalidateCache();
+        return $return;
     }
 
 }
