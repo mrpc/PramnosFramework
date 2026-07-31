@@ -992,10 +992,15 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
      * @param string $tokentype
      * @param string $token
      * @param string $notes
+     * @param int|null $parentToken
+     * @param int|null $expires Absolute expiry as a UNIX timestamp. null (the
+     *                          default) means the token never expires — preserves
+     *                          the historical behaviour. loadByToken() treats a
+     *                          NULL/0 expires as non-expiring.
      * @return $this
      */
     public function addToken($tokentype, $token, $notes='',
-        $parentToken = null)
+        $parentToken = null, $expires = null)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $now = time();
@@ -1003,44 +1008,31 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         // upsert used ON CONFLICT (userid, tokentype, token), but usertokens has
         // no unique constraint on those columns — which threw on PostgreSQL and
         // silently degraded to a plain insert on MySQL anyway.)
-        if ($database->type == 'postgresql') {
-            $database->queryBuilder()
-                ->table('usertokens')
-                ->insert(
-                    [
-                        'userid'      => $this->userid,
-                        'tokentype'   => $tokentype,
-                        'token'       => $token,
-                        'created'     => $now,
-                        'notes'       => $notes,
-                        'status'      => 1,
-                        'lastused'    => $now,
-                        'actions'     => 0,
-                        'removedate'  => 0,
-                        'deviceinfo'  => '',
-                        'scope'       => '',
-                    ]
-                );
-        } else {
-            $database->queryBuilder()
-                ->table('usertokens')
-                ->insert(
-                    [
-                        'userid'      => $this->userid,
-                        'tokentype'   => $tokentype,
-                        'token'       => $token,
-                        'created'     => $now,
-                        'notes'       => $notes,
-                        'status'      => 1,
-                        'lastused'    => $now,
-                        'actions'     => 0,
-                        'removedate'  => 0,
-                        'deviceinfo'  => '',
-                        'scope'       => '',
-                        'parentToken' => $parentToken,
-                    ]
-                );
+        $data = [
+            'userid'      => $this->userid,
+            'tokentype'   => $tokentype,
+            'token'       => $token,
+            'created'     => $now,
+            'notes'       => $notes,
+            'status'      => 1,
+            'lastused'    => $now,
+            'actions'     => 0,
+            'removedate'  => 0,
+            'deviceinfo'  => '',
+            'scope'       => '',
+        ];
+        // MySQL historically also wrote parentToken here; PostgreSQL omitted it.
+        if ($database->type != 'postgresql') {
+            $data['parentToken'] = $parentToken;
         }
+        // Only write `expires` when a TTL was requested. Omitting it lets the
+        // column default apply (it is NOT NULL on MySQL) — preserving the prior
+        // behaviour where addToken never touched this column. loadByToken()
+        // treats 0/NULL as "never expires".
+        if ($expires !== null) {
+            $data['expires'] = $expires;
+        }
+        $database->queryBuilder()->table('usertokens')->insert($data);
         return $this;
     }
 
@@ -1072,6 +1064,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
                 })
                 ->update(['status' => 2, 'removedate' => $now]);
         }
+        $database->cacheflush('usertokens');
         return $this;
     }
 
@@ -1086,6 +1079,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             ->table('usertokens')
             ->where('userid', $this->userid)
             ->update(['status' => 2, 'removedate' => time()]);
+        $database->cacheflush('usertokens');
         return $this;
     }
 
@@ -1151,6 +1145,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             ->where('tokenid', $tokenId)
             ->where('userid', $this->userid)
             ->update(['status' => 0]);
+        $database->cacheflush('usertokens');
         return true;
     }
 
@@ -1167,6 +1162,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             ->where('tokenid', $tokenId)
             ->where('userid', $this->userid)
             ->update(['expires' => time(), 'status' => 0]);
+        $database->cacheflush('usertokens');
         return true;
     }
     
@@ -1191,9 +1187,10 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             ->where('lastused', '<', $oneMonthAgo)
             ->whereIn('tokentype', ['auth', 'access_token'])
             ->update(['status' => 2]);
+        $database->cacheflush('usertokens');
         return true;
     }
-    
+
     /**
      * Static method to clean up all unused auth tokens older than a specified number of days
      * @param int $days Number of days to keep tokens (default: 30)
@@ -1231,6 +1228,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             ->where('lastused', '<', $oneMonthAgo)
             ->whereIn('tokentype', ['auth', 'access_token'])
             ->update(['status' => 2]);
+        $database->cacheflush('usertokens');
         return true;
     }
 

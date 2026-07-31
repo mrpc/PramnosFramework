@@ -120,16 +120,43 @@ class ApiAccount extends Controller
         }
 
         $now = time();
-        $jwt = JWT::encode([
+        $claims = [
             'iss' => defined('sURL') ? sURL : '',
             'aud' => $this->audience(),
             'iat' => $now,
             'nbf' => $now - (3600 * 12),
-        ], $key);
+        ];
 
-        $user->addToken('auth', $jwt, 'api_login');
+        // Optional expiry. TTL of 0 keeps the historical never-expires behaviour;
+        // a positive TTL stamps both the JWT `exp` claim (rejected by JWT::decode
+        // once past) and the usertokens.expires column (rejected by loadByToken).
+        $ttl = $this->tokenTtl();
+        $expires = null;
+        if ($ttl > 0) {
+            $expires = $now + $ttl;
+            $claims['exp'] = $expires;
+        }
+
+        $jwt = JWT::encode($claims, $key);
+
+        $user->addToken('auth', $jwt, 'api_login', null, $expires);
 
         return $jwt;
+    }
+
+    /**
+     * Access-token lifetime in seconds. 0 (the default) means the token never
+     * expires — preserving the historical behaviour. Apps enable expiry by
+     * overriding this or by setting the `auth.token_ttl` application config key.
+     */
+    protected function tokenTtl(): int
+    {
+        $app = $this->application;
+        if (is_object($app) && isset($app->applicationInfo['auth']['token_ttl'])) {
+            return max(0, (int) $app->applicationInfo['auth']['token_ttl']);
+        }
+
+        return 0;
     }
 
     /**

@@ -481,7 +481,15 @@ class Database extends \Pramnos\Framework\Base
                     }
                     if (!\extension_loaded('pgsql')
                         || !\function_exists('pg_connect')) {
-                        die('Postgresql extension is not installed'); // @codeCoverageIgnore — pgsql extension is always loaded in the test container
+                        // A missing extension is a fatal misconfiguration, but a
+                        // library must not die() — that silently kills the whole
+                        // process (e.g. a test run). Throw so callers/tests can
+                        // handle it, consistent with the connection-error paths
+                        // below (see connect()).
+                        throw new \RuntimeException(
+                            'PostgreSQL support requires the pgsql extension '
+                            . '(pg_connect), which is not installed or not loaded.'
+                        );
                     }
                     if (isset($dbSettings->schema) && $dbSettings->schema != '') {
                         $this->schema = $dbSettings->schema;

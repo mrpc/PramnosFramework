@@ -101,15 +101,46 @@ class SettingsTest extends TestCase
 
     public function testDeleteSetting()
     {
+        // deleteSetting() must go through the query builder (a raw
+        // "DELETE ... LIMIT 1" is invalid on PostgreSQL). Assert it targets
+        // the settings table, filters by the setting key, and issues a delete.
+        $captured = new \stdClass();
+        $captured->table = null;
+        $captured->where = null;
+        $captured->deleted = false;
+
+        $builder = new class ($captured) {
+            private $c;
+            public function __construct($c) { $this->c = $c; }
+            public function table($t) { $this->c->table = $t; return $this; }
+            public function from($t) { $this->c->table = $t; return $this; }
+            public function where($col, $op = null, $val = null)
+            {
+                $this->c->where = [$col, func_num_args() === 2 ? $op : $val];
+                return $this;
+            }
+            public function delete() { $this->c->deleted = true; return true; }
+        };
+
         $mockDb = $this->createMock(Database::class);
-        $mockDb->method('prepareQuery')->willReturn('MOCK DELETE');
         $mockDb->expects($this->once())
-               ->method('query')
-               ->with('MOCK DELETE')
-               ->willReturn(true);
-               
+               ->method('queryBuilder')
+               ->willReturn($builder);
+        $mockDb->expects($this->never())->method('query');
+
         Settings::setDatabase($mockDb);
         $this->assertTrue(Settings::deleteSetting('delete_key'));
+        $this->assertSame('#PREFIX#settings', $captured->table);
+        $this->assertSame(['setting', 'delete_key'], $captured->where);
+        $this->assertTrue($captured->deleted);
+    }
+
+    public function testDeleteSettingWithoutDatabaseReturnsFalse()
+    {
+        // Without a database configured, deleteSetting must not fatal on a
+        // null database and should report failure.
+        Settings::clearSettings();
+        $this->assertFalse(Settings::deleteSetting('whatever'));
     }
 
     public function testLoadSettingsNoFileCallsFallback()
