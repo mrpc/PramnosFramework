@@ -17,6 +17,14 @@ use Pramnos\Database\Migration;
 class AddMissingForeignKeysToExistingTables extends Migration
 {
     /**
+     * Run LAST, after every create_* migration, so all referenced tables exist
+     * before their FKs are added. This migration is the SOLE definer of several
+     * of those FKs (e.g. the tokenactions FKs), so it must not sort ahead of the
+     * tables it targets. A high priority number places it late in the batch.
+     */
+    public int $priority = 200;
+
+    /**
      * Run the migration.
      *
      * @return void
@@ -233,7 +241,15 @@ class AddMissingForeignKeysToExistingTables extends Migration
     protected function constraintDoesNotExist($table, $constraintName)
     {
         $db = $this->DB();
-        
+
+        // If the target table does not exist (its feature is disabled, or it has
+        // not been created yet), there is nothing to alter. Report the constraint
+        // as already present so the caller SKIPS the block instead of issuing an
+        // ALTER TABLE against a missing relation (which would abort the batch).
+        if (!$this->schema('public')->hasTable($table)) {
+            return false;
+        }
+
         if ($db->getDriverName() === 'pgsql') {
             // PostgreSQL: check information_schema.table_constraints
             $exists = $db->selectOne(
