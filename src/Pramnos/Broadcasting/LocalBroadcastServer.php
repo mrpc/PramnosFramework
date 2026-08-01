@@ -68,6 +68,9 @@ class LocalBroadcastServer
     /** Optional Redis pub/sub ingest, polled non-blocking inside the select loop. */
     private ?RedisSubscriberSocket $redisIngest = null;
 
+    /** @var callable|null Optional router mapping an ingested message to WS deliveries. */
+    private $ingestRouter = null;
+
     public function __construct(
         string $appKey = 'pramnos-local',
         ?string $logFile = null,
@@ -181,6 +184,22 @@ class LocalBroadcastServer
     }
 
     /**
+     * Install a router that maps each ingested Redis message to zero or more WS
+     * deliveries — e.g. strip the key prefix for public channels and fan a direct
+     * message out to per-recipient private channels so no client ever receives
+     * another user's payload. The router receives (channel, event, payload) and
+     * returns a list of [channel, event?, payload?] triples ([] or null drops the
+     * message). With no router the message is delivered verbatim on its own
+     * channel (unchanged default). Call before run().
+     *
+     * @param callable(string,string,mixed):(list<array{0:string,1?:string,2?:mixed}>|null) $router
+     */
+    public function useIngestRouter(callable $router): void
+    {
+        $this->ingestRouter = $router;
+    }
+
+    /**
      * Replace the authorizer after construction (used by the console command,
      * which wires a PusherAuthorizer from config). Call before run().
      */
@@ -241,9 +260,23 @@ class LocalBroadcastServer
         foreach ($this->redisIngest->drain() as $msg) {
             $decoded = json_decode($msg['message'], true);
             if (is_array($decoded) && array_key_exists('event', $decoded)) {
-                $this->broadcast($msg['channel'], (string) $decoded['event'], $decoded['payload'] ?? []);
+                $event   = (string) $decoded['event'];
+                $payload = $decoded['payload'] ?? [];
             } else {
-                $this->broadcast($msg['channel'], 'message', $decoded ?? $msg['message']);
+                $event   = 'message';
+                $payload = $decoded ?? $msg['message'];
+            }
+
+            if ($this->ingestRouter !== null) {
+                foreach ((($this->ingestRouter)($msg['channel'], $event, $payload) ?? []) as $route) {
+                    $this->broadcast(
+                        (string) $route[0],
+                        (string) ($route[1] ?? $event),
+                        $route[2] ?? $payload
+                    );
+                }
+            } else {
+                $this->broadcast($msg['channel'], $event, $payload);
             }
         }
     }

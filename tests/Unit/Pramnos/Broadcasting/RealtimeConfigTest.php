@@ -39,9 +39,44 @@ class RealtimeConfigTest extends TestCase
             'websocket' => ['scheme' => 'wss', 'host' => 'rt.example.com', 'port' => 443, 'app_key' => 'k1'],
         ]);
         $this->assertSame(
-            ['transport' => 'websocket', 'scheme' => 'wss', 'host' => 'rt.example.com', 'port' => 443, 'appKey' => 'k1'],
+            [
+                'transport' => 'websocket', 'scheme' => 'wss', 'host' => 'rt.example.com',
+                'port' => 443, 'appKey' => 'k1',
+                'fallback' => ['transport' => 'sse', 'url' => '/api/stream'],
+            ],
             $out
         );
+    }
+
+    /** A socket transport advertises the (optionally configured) SSE fallback. */
+    public function testWebsocketAdvertisesConfiguredSseFallback(): void
+    {
+        $out = RealtimeConfig::forClient([
+            'transport' => 'websocket',
+            'websocket' => ['host' => 'rt.example.com'],
+            'sse'       => ['url' => '/api/stream?mode=fallback'],
+        ]);
+        $this->assertSame(
+            ['transport' => 'sse', 'url' => '/api/stream?mode=fallback'],
+            $out['fallback']
+        );
+    }
+
+    /** Pusher carries the same SSE fallback, and still never leaks the secret. */
+    public function testPusherAdvertisesFallback(): void
+    {
+        $out = RealtimeConfig::forClient([
+            'transport' => 'pusher',
+            'pusher'    => ['app_key' => 'pub', 'app_secret' => 'SECRET'],
+        ]);
+        $this->assertSame(['transport' => 'sse', 'url' => '/api/stream'], $out['fallback']);
+        $this->assertNotContains('SECRET', $out);
+    }
+
+    /** SSE is the terminal transport — it carries no fallback key. */
+    public function testSseHasNoFallback(): void
+    {
+        $this->assertArrayNotHasKey('fallback', RealtimeConfig::forClient([]));
     }
 
     public function testPusherConfigExposesKeyButNeverSecret(): void

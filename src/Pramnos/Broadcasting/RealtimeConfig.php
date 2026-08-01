@@ -24,11 +24,21 @@ final class RealtimeConfig
     {
         $transport = (string) ($broadcasting['transport'] ?? 'sse');
 
-        return match ($transport) {
+        $primary = match ($transport) {
             'websocket' => self::websocket($broadcasting['websocket'] ?? []),
             'pusher'    => self::pusher($broadcasting['pusher'] ?? []),
             default     => self::sse($broadcasting['sse'] ?? []),
         };
+
+        // A socket transport advertises the SSE endpoint as a fallback the client
+        // can degrade to when the socket cannot connect (worker down, a proxy that
+        // refuses the Upgrade, a blocked port). SSE is the terminal transport, so
+        // it carries no fallback of its own. Additive: existing keys are unchanged.
+        if ($primary['transport'] !== 'sse') {
+            $primary['fallback'] = self::sse($broadcasting['sse'] ?? []);
+        }
+
+        return $primary;
     }
 
     /** @param array<string,mixed> $sse */
