@@ -287,6 +287,12 @@ abstract class DaemonOrchestrator extends CommandBase
                         . '). Requesting graceful restart of all daemons…'
                     );
                     $this->requestStopAll($output);
+                    // Also reload THIS process's code, so newly-declared workers in
+                    // buildDesiredProcesses() take effect on a redeploy without a
+                    // manual service restart. Returns only if it could not self-exec
+                    // (then we keep the old behaviour: workers restarted, orchestrator
+                    // code unchanged until the service is restarted).
+                    $this->reExecOrchestrator($output);
                 }
                 if ($currentHash !== '') {
                     $lastGitHash = $currentHash;
@@ -845,6 +851,49 @@ abstract class DaemonOrchestrator extends CommandBase
                 $output->writeln('<comment>[stop-all]</comment> stop requested for ' . ($item['id'] ?? '?'));
             }
         }
+    }
+
+    /**
+     * Replace this orchestrator process with a fresh one (same PID) so a git
+     * redeploy loads the new code — most importantly any newly-declared workers
+     * in buildDesiredProcesses(). Without this, a redeploy only bounces the
+     * workers, which respawn from the OLD desired-process list, so a brand-new
+     * worker never appears until the service is restarted by hand.
+     *
+     * requestStopAll() has already been issued, so the re-exec'd instance
+     * respawns the workers with the new code. The singleton lock fd is inherited
+     * across exec and would deadlock the new image, so it is released first.
+     *
+     * BC-safe: where pcntl_exec is unavailable (or exec fails) this returns and
+     * the caller keeps the previous behaviour (workers restarted; orchestrator
+     * code reloaded only on the next manual service restart).
+     */
+    protected function reExecOrchestrator(OutputInterface $output): void
+    {
+        $argv = $_SERVER['argv'] ?? [];
+        // Never replace the process while running under PHPUnit — a re-exec would
+        // hijack the test runner into an endless loop.
+        if (class_exists(\PHPUnit\Framework\TestCase::class, false)
+            || !function_exists('pcntl_exec')
+            || !is_array($argv)
+            || $argv === []
+        ) {
+            $output->writeln(
+                '<comment>[git]</comment> cannot self-exec (unavailable in this environment) — '
+                . 'restart the service to load new orchestrator code.'
+            );
+            return;
+        }
+
+        $output->writeln('<info>[git]</info> re-executing the orchestrator to load the new code…');
+        $this->releaseOrchestratorLock();
+
+        // Replaces the process image in place (same PID → systemd keeps tracking).
+        @pcntl_exec(PHP_BINARY, array_values($argv));
+
+        // Only reached if exec failed; report and continue (the manual restart
+        // fallback still applies).
+        $output->writeln('<error>[git]</error> re-exec failed — restart the service to load new code.');
     }
 
     /**

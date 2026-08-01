@@ -3331,6 +3331,32 @@ class DaemonOrchestratorTest extends TestCase
         $this->assertNull($status['heartbeat_age_seconds']);
         $this->assertSame([], $status['daemons']);
     }
+
+    /**
+     * The git-redeploy self-re-exec degrades gracefully: with no argv to exec
+     * (its guard), reExecOrchestrator() returns WITHOUT replacing/exiting the
+     * process, so a pcntl-less (or otherwise un-exec-able) environment keeps the
+     * previous behaviour instead of killing the daemon. Forcing the empty-argv
+     * guard also keeps this test from actually calling pcntl_exec.
+     */
+    public function testReExecOrchestratorReturnsWhenItCannotSelfExec(): void
+    {
+        $originalArgv = $_SERVER['argv'] ?? null;
+        $_SERVER['argv'] = [];
+        try {
+            $out = new \Symfony\Component\Console\Output\BufferedOutput();
+            $ref = new \ReflectionMethod($this->orch, 'reExecOrchestrator');
+            $ref->setAccessible(true);
+            $ref->invoke($this->orch, $out); // must return, not exit/throw
+            $this->assertStringContainsString('cannot self-exec', $out->fetch());
+        } finally {
+            if ($originalArgv === null) {
+                unset($_SERVER['argv']);
+            } else {
+                $_SERVER['argv'] = $originalArgv;
+            }
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
