@@ -197,6 +197,34 @@ class LoginlockoutPostgreSQLTest extends TestCase
     }
 
     /**
+     * Regression: on a NON-UTC server the lockout must still engage. Timestamps
+     * are written into a TIMESTAMPTZ column and read back with strtotime(); when
+     * formatTimestamp() wrote gmdate() (UTC) while the PHP + DB session timezone
+     * was, say, Europe/Athens, every lockoutuntil landed ~offset hours in the
+     * past and the lock never fired. This test forces a non-UTC timezone on both
+     * sides and asserts the lock engages.
+     */
+    public function testLockoutEngagesUnderNonUtcTimezone(): void
+    {
+        $originalTz = date_default_timezone_get();
+        date_default_timezone_set('Europe/Athens');
+        $this->db->execute("SET TIME ZONE 'Europe/Athens'");
+        try {
+            $lockout = new Loginlockout();
+            $id      = 'tz-regression@example.com';
+            for ($i = 0; $i < 3; $i++) {
+                $lockout->recordFailedAttempt('identifier', $id);
+            }
+            $status = $lockout->getLockoutStatus('identifier', $id);
+            $this->assertTrue($status['locked'], 'lockout must engage on a non-UTC server');
+            $this->assertGreaterThan(0, $status['remaining']);
+        } finally {
+            $this->db->execute("SET TIME ZONE 'UTC'");
+            date_default_timezone_set($originalTz);
+        }
+    }
+
+    /**
      * 5 failures must trigger a 300-second lockout.
      *
      * The progressive threshold escalates from 60 s to 300 s at 5 attempts.

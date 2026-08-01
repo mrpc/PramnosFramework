@@ -192,7 +192,14 @@ class Loginlockout
      */
     protected function formatTimestamp(int $ts): string
     {
-        return gmdate('Y-m-d H:i:s', $ts);
+        // Local wall-clock, NOT gmdate(): the values are written into a TIMESTAMPTZ
+        // column (interpreted in the DB session timezone) and later read back with
+        // strtotime() (the PHP-local timezone). Writing UTC via gmdate() while the
+        // server runs a non-UTC timezone shifted every timestamp by the offset, so
+        // lockoutuntil landed in the past and the lockout NEVER engaged. date()
+        // keeps write and read in the same timezone; on a UTC host it is identical
+        // to the previous gmdate().
+        return date('Y-m-d H:i:s', $ts);
     }
 
     /**
