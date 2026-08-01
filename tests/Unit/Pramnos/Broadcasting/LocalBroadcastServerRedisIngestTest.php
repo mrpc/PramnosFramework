@@ -68,4 +68,63 @@ class LocalBroadcastServerRedisIngestTest extends TestCase
             @fclose($s);
         }
     }
+
+    /**
+     * An ingest router re-routes one incoming message to per-recipient channels,
+     * so a direct message reaches only the intended recipient's channel and never
+     * a bystander's — the mechanism that keeps DMs private over a shared socket.
+     */
+    public function testIngestRouterFansOutOnlyToRoutedChannels(): void
+    {
+        $redisPair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $bobPair   = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $carolPair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        foreach ([$redisPair[0], $redisPair[1], $bobPair[0], $bobPair[1], $carolPair[0], $carolPair[1]] as $s) {
+            stream_set_blocking($s, false);
+        }
+
+        $ingest = new RedisSubscriberSocket(['host' => 'x'], ['chat:private_messages'], fn () => $redisPair[0]);
+        $ingest->connect();
+
+        $server = new LocalBroadcastServer();
+        $server->useRedisIngest($ingest);
+        // Route a DM only to its sender's + recipient's private channels.
+        $server->useIngestRouter(function (string $channel, string $event, $payload): array {
+            if ($channel !== 'chat:private_messages') {
+                return [[$channel, $event, $payload]];
+            }
+            return [
+                ['private-pm-' . $payload['to_username'],   'private', $payload],
+                ['private-pm-' . $payload['from_username'], 'private', $payload],
+            ];
+        });
+
+        // Bob is the recipient; Carol is an unrelated bystander.
+        $refClients = new \ReflectionProperty($server, 'clients');
+        $refClients->setValue($server, [
+            1 => ['socket' => $bobPair[1],   'state' => 'connected', 'buffer' => '', 'channels' => ['private-pm-bob'],   'socketId' => '1.2', 'pingAt' => time() + 30],
+            2 => ['socket' => $carolPair[1], 'state' => 'connected', 'buffer' => '', 'channels' => ['private-pm-carol'], 'socketId' => '2.3', 'pingAt' => time() + 30],
+        ]);
+        $refSubs = new \ReflectionProperty($server, 'subscriptions');
+        $refSubs->setValue($server, [
+            'private-pm-bob'   => [1 => 1],
+            'private-pm-carol' => [2 => 2],
+        ]);
+
+        $dm = json_encode(['from_username' => 'alice', 'to_username' => 'bob', 'body' => 'secret']);
+        fwrite($redisPair[1], $this->resp(['message', 'chat:private_messages', $dm]));
+
+        (new \ReflectionMethod($server, 'drainRedisIngest'))->invoke($server);
+
+        $bobFrame   = (string) fread($bobPair[0], 8192);
+        $carolFrame = (string) fread($carolPair[0], 8192);
+
+        $this->assertStringContainsString('secret', $bobFrame, 'recipient must receive the DM');
+        $this->assertStringContainsString('private-pm-bob', $bobFrame);
+        $this->assertSame('', $carolFrame, 'a bystander must receive nothing');
+
+        foreach ([$redisPair[0], $redisPair[1], $bobPair[0], $bobPair[1], $carolPair[0], $carolPair[1]] as $s) {
+            @fclose($s);
+        }
+    }
 }
