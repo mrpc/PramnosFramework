@@ -206,10 +206,18 @@ abstract class DaemonOrchestrator extends CommandBase
             $this->initializeInteractiveTerminal($output, false);
         }
 
+        // Runtime area for orchestrator/worker lock + heartbeat + log files.
+        // Auto-create it (and the logs subdir) so a fresh deployment/checkout
+        // does not need a manual mkdir — var/ is a runtime dir, typically
+        // gitignored, so it will not exist on first run. Only fail if it truly
+        // cannot be created or written (a real permissions problem).
         $varDir = (defined('ROOT') ? ROOT : sys_get_temp_dir()) . '/var';
         if (!is_dir($varDir)) {
-            $output->writeln('<error>ERROR: var/ directory not found: ' . $varDir . '</error>');
-            $output->writeln('<comment>Run the orchestrator from inside the application container.</comment>');
+            @mkdir($varDir . '/logs', 0775, true);
+        }
+        if (!is_dir($varDir) || !is_writable($varDir)) {
+            $output->writeln('<error>ERROR: var/ directory is missing and could not be created (or is not writable): ' . $varDir . '</error>');
+            $output->writeln('<comment>Create it writable by the service user, e.g. mkdir -p ' . $varDir . ' && chown &lt;user&gt; ' . $varDir . '</comment>');
             return 1;
         }
 
