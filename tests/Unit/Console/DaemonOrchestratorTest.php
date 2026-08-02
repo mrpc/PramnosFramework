@@ -3346,7 +3346,8 @@ class DaemonOrchestratorTest extends TestCase
         try {
             $out = new \Symfony\Component\Console\Output\BufferedOutput();
             $ref = new \ReflectionMethod($this->orch, 'reExecOrchestrator');
-            $ref->setAccessible(true);
+            // setAccessible() is a no-op since PHP 8.1 (deprecated in 8.5) — private
+            // methods are reflectively invokable without it.
             $ref->invoke($this->orch, $out); // must return, not exit/throw
             $this->assertStringContainsString('cannot self-exec', $out->fetch());
         } finally {
