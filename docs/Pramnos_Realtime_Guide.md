@@ -179,6 +179,31 @@ class StreamController
 `comment($text)`, `ping()`, `retry($ms)`. A non-string `$data` is JSON-encoded;
 multi-line payloads are split into multiple `data:` lines per the SSE spec.
 
+#### Periodic server-side work with `onTick`
+
+`stream()` accepts an optional `onTick` callback, invoked on every idle tick
+(roughly each `pingInterval` seconds) just before the keep-alive ping — for
+periodic side effects while the client stays connected. Return `false` to end the
+stream. The canonical use is **server-driven presence**: because the live SSE
+connection is itself proof the user is online, refresh their presence each tick
+instead of trusting only a client heartbeat.
+
+```php
+$sse->stream(
+    driver:       $driver,
+    channels:     ['chat.updates'],
+    onEvent:      $onEvent,
+    maxRuntime:   95,
+    pingInterval: 20,
+    onTick:       function (SseWriter $w) use ($presence, $userId) {
+        $presence->touch($userId);   // ~every 20s, for as long as the client is connected
+    },
+);
+```
+
+Omit `onTick` for the historical ping-only idle behaviour — it is a trailing
+optional parameter, so existing callers are unaffected.
+
 Return the `StreamedResponse` from your dispatcher exactly like a `Response`
 (both expose `send()`).
 
@@ -226,6 +251,32 @@ $server = new LocalBroadcastServer('my-key', logFile: null,
 ```
 
 Implement `ConnectionAuthorizer` yourself to plug in a custom policy.
+
+### Reacting to who is connected (`onTick` + `subscribedChannels()`)
+
+`LocalBroadcastServer::onTick(fn(int $clients, int $subs))` fires after each
+event-loop iteration. Paired with `subscribedChannels()` — a snapshot of the
+channel names that currently have at least one subscriber — it lets the app act
+on the live audience without patching the server. The typical use mirrors the SSE
+`onTick`: **server-driven presence for WS-transport clients**, who use WebSockets
+*instead of* SSE and so never trigger the SSE presence refresh.
+
+```php
+$lastAt = 0;
+$server->onTick(function (int $clients, int $subs) use (&$lastAt, $server, $presence) {
+    if (time() - $lastAt < 20) { return; }   // throttle: onTick fires every loop
+    $lastAt = time();
+    foreach ($server->subscribedChannels() as $channel) {
+        if (str_starts_with($channel, 'private-user-')) {
+            $presence->touch(substr($channel, strlen('private-user-')));
+        }
+    }
+});
+```
+
+Note the WS layer authenticates channels with an HMAC signature, not your app
+token, so it does not see a session id — derive whatever identity you need from
+the channel name (e.g. a per-user `private-user-<id>` convention).
 
 ### Supervising the daemon
 
