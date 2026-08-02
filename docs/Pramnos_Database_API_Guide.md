@@ -476,6 +476,50 @@ public function updateApplication($id, $name, $redirectUri)
 
 ## Error Handling and Best Practices
 
+### How database failures surface (and `throwOnError`)
+
+The two query paths signal failure differently, and the prepared path also differs
+by driver — know which one you are on:
+
+| Path | On a SQL/connection error | Notes |
+| --- | --- | --- |
+| `query($sql)` / `runQuery()` (raw execution) | **Throws** `\Exception` via `setError()` | The message is `"<errno>:<text> ::: SQL QUERY: <sql>"`. Wrap it in try/catch. |
+| `execute($sql, ...)` on **PostgreSQL** (prepared statements — the fluent **Query Builder** runs through here) | **Returns `false`** when the statement cannot be prepared (`pg_prepare` returns false) | Silent: a caller that ignores the return value swallows the error. |
+| `execute($sql, ...)` on **MySQL** | **Throws** `mysqli_sql_exception` | Since PHP 8.1 `mysqli` defaults to `MYSQLI_REPORT_STRICT`; existing callers catch `\Exception`. |
+
+So on PostgreSQL a failed `execute()` returns `false` and code that does not check the
+return value proceeds as if a write succeeded. To make those failures loud — and to get
+a single, driver-independent exception type on **both** drivers — opt into strict mode:
+
+```php
+$db = \Pramnos\Framework\Factory::getDatabase();
+$db->throwOnError = true; // process-wide, opt-in — default stays false (backward compatible)
+
+try {
+    $db->getQueryBuilder()->table('accounts')->insert(['balance' => 100]);
+} catch (\Pramnos\Database\QueryException $e) {
+    // $e->getMessage() carries the driver error; $e->getQuery() returns the failing SQL.
+    \Pramnos\Logs\Logger::log($e->getMessage(), 'billing');
+    throw $e; // don't pretend the write happened
+}
+```
+
+Key points:
+
+- **Default is unchanged (BC).** `throwOnError` is `false` out of the box and does NOT
+  alter the historical per-driver behaviour: PostgreSQL still returns `false` on a prepare
+  failure, MySQL still throws `mysqli_sql_exception` (which existing callers catch via
+  `catch (\Exception)`). Turn it on only where a silently dropped write would be a
+  correctness bug (billing, migrations, anything transactional).
+- **`QueryException extends \RuntimeException`** and adds `getQuery()` so you can log the
+  offending SQL. It is raised only in strict mode; `query()` continues to throw its
+  historical `\Exception`.
+- **Driver parity in strict mode.** With `throwOnError = true`, a prepare failure becomes a
+  `QueryException` on **both** drivers — the PostgreSQL `false` return and the MySQL
+  `mysqli_sql_exception` are each translated — so a single `catch (QueryException)` works
+  everywhere. With `throwOnError = false` the two drivers keep their (different) historical
+  signals; the framework does not force them to match, precisely to preserve BC.
+
 ### Proper Error Handling for Database Operations
 
 Always wrap database operations in try-catch blocks to handle potential errors gracefully:

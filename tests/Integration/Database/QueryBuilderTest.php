@@ -310,4 +310,44 @@ class QueryBuilderTest extends TestCase
 
         $this->db->query("DROP TABLE IF EXISTS `#PREFIX#qb_upsert_test`");
     }
+
+    /**
+     * throwOnError is opt-in and purely additive: enabling it makes a prepare
+     * failure (e.g. a missing table) surface as a QueryException carrying the SQL,
+     * on every driver. The DEFAULT behaviour is deliberately left untouched for BC —
+     * it is driver-specific (PostgreSQL's pg_prepare returns false; PHP 8.1+ mysqli
+     * throws mysqli_sql_exception, which existing callers already catch) — so this
+     * test only pins the new strict-mode contract, never the historical default.
+     */
+    public function testThrowOnErrorSurfacesSqlErrors()
+    {
+        $this->db->throwOnError = true;
+        try {
+            $this->db->execute("INSERT INTO `#PREFIX#no_such_table_zzz` (x) VALUES (1)");
+            $this->fail('expected a QueryException in strict mode');
+        } catch (\Pramnos\Database\QueryException $e) {
+            $this->assertNotSame('', $e->getMessage(), 'the SQL error message is carried');
+        } finally {
+            $this->db->throwOnError = false;
+        }
+    }
+
+    /**
+     * Turning throwOnError off restores the historical behaviour: a prepare failure
+     * is NOT a QueryException. (On mysqli that is the native mysqli_sql_exception the
+     * framework has thrown since PHP 8.1 — callers catch \Exception; we must not have
+     * downgraded it to a silent false, which would break Model::getCount et al.)
+     */
+    public function testDefaultModeDoesNotThrowQueryException()
+    {
+        $threwQueryException = false;
+        try {
+            $this->db->execute("INSERT INTO `#PREFIX#no_such_table_zzz` (x) VALUES (1)");
+        } catch (\Pramnos\Database\QueryException $e) {
+            $threwQueryException = true;
+        } catch (\Throwable $e) {
+            // A native driver error (mysqli_sql_exception) is the expected BC path.
+        }
+        $this->assertFalse($threwQueryException, 'default mode must not raise a QueryException');
+    }
 }

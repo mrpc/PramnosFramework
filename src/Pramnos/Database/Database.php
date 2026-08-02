@@ -58,6 +58,18 @@ class Database extends \Pramnos\Framework\Base
      */
     protected $transactionActive = false;
     /**
+     * When true, a prepare failure (e.g. a missing table) is raised as a
+     * QueryException on every driver — PostgreSQL's silent `false` return and
+     * MySQL's mysqli_sql_exception are both translated — so callers get one
+     * exception type to catch. When false (the default) the historical per-driver
+     * behaviour is preserved unchanged for backward compatibility: PostgreSQL
+     * returns false, MySQL throws mysqli_sql_exception (which existing callers
+     * already catch). See docs/Pramnos_Database_API_Guide.md
+     * ("How database failures surface").
+     * @var bool
+     */
+    public $throwOnError = false;
+    /**
      * Database collation
      * @var string
      */
@@ -1213,7 +1225,24 @@ class Database extends \Pramnos\Framework\Base
             return false;
         }
 
-        $statement = $connection->prepare($query);
+        // Since PHP 8.1 mysqli defaults to MYSQLI_REPORT_STRICT, so prepare() throws
+        // mysqli_sql_exception on error (e.g. a missing table). That historical throw
+        // is load-bearing: existing callers (Model::getCount, WebhookService, …) wrap
+        // prepared queries in catch (\Exception) and rely on it. So DO NOT silently
+        // convert it to false — that would be a BC break. Only when the caller has
+        // opted into strict mode do we translate it into a QueryException; otherwise
+        // the original exception propagates exactly as before.
+        try {
+            $statement = @$connection->prepare($query);
+        } catch (\mysqli_sql_exception $e) {
+            if (empty($this->error_text)) {
+                $this->error_text = $e->getMessage();
+            }
+            if ($this->throwOnError) {
+                throw new QueryException($e->getMessage(), is_string($query) ? $query : '');
+            }
+            throw $e;
+        }
         if ($statement) {
             $this->statements[$statement->id] = array(
                 'statement' => $statement,
@@ -1264,6 +1293,16 @@ class Database extends \Pramnos\Framework\Base
                 if (!empty($err)) {
                     $this->error_text = $err;
                 }
+            }
+            // This return-false is the one silent path (prepare failure — e.g. a
+            // missing table): the execution-failure paths below go through
+            // setError(), which already throws. In strict mode, surface it too so a
+            // caller (like the query builder) cannot swallow it.
+            if ($this->throwOnError) {
+                throw new QueryException(
+                    $this->error_text !== '' ? $this->error_text : 'statement could not be prepared',
+                    is_string($sql) ? $sql : ''
+                );
             }
             return false;
         }
