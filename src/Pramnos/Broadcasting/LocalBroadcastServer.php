@@ -94,6 +94,19 @@ class LocalBroadcastServer
     }
 
     /**
+     * The channel names that currently have at least one subscriber. Handy from an
+     * onTick callback that needs to act on who is connected (e.g. an app refreshing
+     * presence for the users behind its per-user private channels). Read-only
+     * snapshot; empty channels are pruned on unsubscribe/disconnect.
+     *
+     * @return string[]
+     */
+    public function subscribedChannels(): array
+    {
+        return array_keys($this->subscriptions);
+    }
+
+    /**
      * Start the server and block until stop() is called or a fatal error occurs.
      *
      * @param string $host  Bind address (default: 0.0.0.0)

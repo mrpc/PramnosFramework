@@ -82,6 +82,12 @@ class SseWriter
      *                                                   Emit via $sse; return false to stop.
      * @param int                         $maxRuntime    Seconds before asking the client to reconnect (0 = unlimited).
      * @param int                         $pingInterval  Idle seconds between keep-alive pings.
+     * @param callable|null               $onTick        fn(SseWriter $sse): bool|void — invoked on every idle
+     *                                                   tick (roughly each $pingInterval) before the keep-alive
+     *                                                   ping, for periodic server-side side effects (e.g.
+     *                                                   refreshing presence for the still-connected client).
+     *                                                   Return false to end the stream. Optional; omit for the
+     *                                                   historical ping-only idle behaviour.
      */
     public function stream(
         SubscribableDriverInterface $driver,
@@ -89,12 +95,16 @@ class SseWriter
         callable $onEvent,
         int $maxRuntime = 0,
         int $pingInterval = 20,
+        ?callable $onTick = null,
     ): void {
         $options = new SubscriptionOptions(
             readTimeout: max(1, $pingInterval),
             maxRuntime: $maxRuntime > 0 ? $maxRuntime : null,
-            onIdle: function (): bool {
+            onIdle: function () use ($onTick): bool {
                 if (connection_aborted()) {
+                    return false;
+                }
+                if ($onTick !== null && $onTick($this) === false) {
                     return false;
                 }
                 $this->ping();
