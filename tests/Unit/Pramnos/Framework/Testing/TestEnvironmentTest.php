@@ -213,10 +213,10 @@ class TestEnvironmentTest extends TestCase
         $method     = $reflection->getMethod('setupPostgres');
 
         try {
+            $this->requireClientBinary('psql');
+
             // Act — connect to timescaledb, create the DB, then import the schema
             $this->invokeSetup($method, ['timescaledb', 5432, $dbName, 'postgres', 'secret', $schemaFile]);
-
-            $this->requireClientBinary('psql');
 
             // Assert — the dump's table is there, so psql really imported it
             $this->assertTrue(
@@ -347,10 +347,10 @@ class TestEnvironmentTest extends TestCase
         $method     = $reflection->getMethod('setupMysql');
 
         try {
+            $this->requireClientBinary('mysql');
+
             // Act
             $this->invokeSetup($method, ['db', 3306, $dbName, 'root', 'secret', $schemaFile]);
-
-            $this->requireClientBinary('mysql');
 
             // Assert — the table from the dump is present in the new database
             $pdo   = $this->mysqlConnection();
@@ -363,6 +363,87 @@ class TestEnvironmentTest extends TestCase
         } finally {
             $this->dropMysqlDatabase($dbName);
         }
+    }
+
+    /**
+     * A dump that fails halfway must abort the import loudly.
+     *
+     * psql only exits non-zero when it is told to stop on the first error, so
+     * this also pins the `-v ON_ERROR_STOP=1` flag: without it psql reports
+     * success for a dump whose statements all failed, and the caller happily
+     * proceeds with an empty database.
+     */
+    public function test_setupPostgres_throws_when_the_dump_fails(): void
+    {
+        // Arrange — valid SQL first, then a statement that cannot succeed
+        $schemaFile = $this->tempDir . '/broken.sql';
+        file_put_contents(
+            $schemaFile,
+            'CREATE TABLE ' . self::IMPORT_PROBE_TABLE . " (id integer);\n"
+            . "SELECT * FROM a_table_that_does_not_exist;\n"
+        );
+
+        $dbName     = $this->uniqueDbName('bad');
+        $reflection = new \ReflectionClass(TestEnvironment::class);
+        $method     = $reflection->getMethod('setupPostgres');
+
+        try {
+            $this->requireClientBinary('psql');
+
+            // Act + Assert — the failure surfaces instead of being swallowed,
+            // and the message carries psql's own diagnostics.
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessageMatches('/Schema import failed.*a_table_that_does_not_exist/s');
+            $this->invokeSetup($method, ['timescaledb', 5432, $dbName, 'postgres', 'secret', $schemaFile]);
+        } finally {
+            $this->dropPgDatabase($dbName);
+        }
+    }
+
+    /**
+     * A missing client binary (exit status 127) gets its own message, because
+     * the shell's bare "not found" explains nothing about the consequence — an
+     * empty test database.
+     */
+    public function test_runImport_reports_a_missing_client_binary(): void
+    {
+        // Arrange — a command that cannot exist
+        $method = (new \ReflectionClass(TestEnvironment::class))->getMethod('runImport');
+
+        // Act + Assert
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches("/the 'psql' client is not installed/");
+        $method->invoke(null, 'pramnos-no-such-binary-xyz', 'psql');
+    }
+
+    /**
+     * Any other non-zero exit is reported with the status and the client's
+     * output, so the reason for a failed import is never lost.
+     */
+    public function test_runImport_reports_status_and_output_on_failure(): void
+    {
+        // Arrange — a command that writes to stderr and fails with status 3
+        $method = (new \ReflectionClass(TestEnvironment::class))->getMethod('runImport');
+
+        // Act + Assert — stderr is captured too (the command redirects 2>&1)
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/mysql exited with status 3.*boom/s');
+        $method->invoke(null, 'sh -c \'echo boom >&2; exit 3\'', 'mysql');
+    }
+
+    /**
+     * A successful import returns quietly — the happy path must not throw.
+     */
+    public function test_runImport_is_silent_on_success(): void
+    {
+        // Arrange
+        $method = (new \ReflectionClass(TestEnvironment::class))->getMethod('runImport');
+
+        // Act
+        $method->invoke(null, 'sh -c \'echo imported\'', 'psql');
+
+        // Assert — reaching this line without an exception is the assertion
+        $this->assertTrue(true, 'a zero exit status must not raise');
     }
 
     // ── Real-container helpers ────────────────────────────────────────────────

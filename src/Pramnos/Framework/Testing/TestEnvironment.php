@@ -150,10 +150,12 @@ class TestEnvironment
         $pdo->exec("DROP DATABASE IF EXISTS \"$dbName\"");
         $pdo->exec("CREATE DATABASE \"$dbName\" WITH TEMPLATE template1");
 
-        // Import dump via psql if provided
+        // Import dump via psql if provided. ON_ERROR_STOP makes psql exit non-zero
+        // on the first failing statement — without it a dump can fail statement by
+        // statement and still report success.
         if ($schemaPath && file_exists($schemaPath)) {
             $command = sprintf(
-                'PGPASSWORD=%s psql -h %s -p %s -U %s -d %s -f %s > /dev/null 2>&1',
+                'PGPASSWORD=%s psql -v ON_ERROR_STOP=1 -h %s -p %s -U %s -d %s -f %s',
                 escapeshellarg($pass),
                 escapeshellarg($host),
                 escapeshellarg($port ?? 5432),
@@ -161,7 +163,7 @@ class TestEnvironment
                 escapeshellarg($dbName),
                 escapeshellarg($schemaPath)
             );
-            self::runCommand($command);
+            self::runImport($command, 'psql');
         }
     }
 
@@ -179,7 +181,7 @@ class TestEnvironment
         // Import dump via mysql if provided
         if ($schemaPath && file_exists($schemaPath)) {
             $command = sprintf(
-                'MYSQL_PWD=%s mysql -h %s -P %s -u %s %s < %s > /dev/null 2>&1',
+                'MYSQL_PWD=%s mysql -h %s -P %s -u %s %s < %s',
                 escapeshellarg($pass),
                 escapeshellarg($host),
                 escapeshellarg($port ?? 3306),
@@ -187,13 +189,55 @@ class TestEnvironment
                 escapeshellarg($dbName),
                 escapeshellarg($schemaPath)
             );
-            self::runCommand($command);
+            self::runImport($command, 'mysql');
         }
     }
 
     /**
+     * Run a schema-import command and turn any failure into an exception.
+     *
+     * The import shells out to the database's command-line client, and a test
+     * database that was created but never populated is far worse than a loud
+     * failure: every later test fails somewhere else, for reasons that have
+     * nothing to do with the real cause. So the exit status is checked, and the
+     * client's own output (stderr included) is carried into the message.
+     *
+     * Exit status 127 is singled out because it has one meaning here — the
+     * client binary is not installed in this environment — and its bare shell
+     * message ("psql: not found") explains nothing on its own.
+     *
+     * @param  string $command The full shell command to run
+     * @param  string $client  Client binary name, for the error message
+     * @throws RuntimeException When the client exits with a non-zero status
+     */
+    protected static function runImport(string $command, string $client): void
+    {
+        $output = [];
+        $status = 0;
+        exec($command . ' 2>&1', $output, $status);
+
+        if ($status === 0) {
+            return;
+        }
+
+        if ($status === 127) {
+            throw new RuntimeException(
+                "Schema import failed: the '$client' client is not installed in this "
+                . 'environment, so the dump could not be imported and the test database '
+                . 'would have been left empty.'
+            );
+        }
+
+        $detail = trim(implode("\n", $output));
+        throw new RuntimeException(
+            "Schema import failed: $client exited with status $status"
+            . ($detail !== '' ? ": $detail" : '')
+        );
+    }
+
+    /**
      * Run a shell command.
-     * 
+     *
      * @param string $command
      * @return string
      */
