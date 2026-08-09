@@ -1,0 +1,75 @@
+/**
+ * Component tests for the {{ appName }} SPA root.
+ *
+ * Runs under Vitest with the jsdom environment and @testing-library/svelte, so
+ * the component is mounted for real (runes, effects and all) rather than having
+ * its output asserted as a string. `fetch` is stubbed per test: the component
+ * must render the success state when the API answers, and a visible error when
+ * it does not — silently swallowing a failed API call is the bug these guard.
+ */
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, waitFor, cleanup } from '@testing-library/svelte';
+import App from '../App.svelte';
+
+afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+});
+
+/**
+ * Stub global fetch with a single canned response.
+ *
+ * @param {object} body   Decoded JSON body to return
+ * @param {number} status HTTP status (default 200)
+ */
+function stubFetch(body, status = 200) {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => body,
+    })));
+}
+
+describe('App', () => {
+    it('shows the connected state once the API answers', async () => {
+        // Arrange
+        stubFetch({ status: 'ok' });
+
+        // Act
+        render(App);
+
+        // Assert — the success alert replaces the loading spinner
+        await waitFor(() => {
+            expect(screen.getByText(/Connected to the API/i)).toBeTruthy();
+        });
+    });
+
+    it('surfaces a failing API instead of staying blank', async () => {
+        // Arrange — the endpoint answers 500
+        stubFetch({ message: 'boom' }, 500);
+
+        // Act
+        render(App);
+
+        // Assert — the status code reaches the user
+        await waitFor(() => {
+            expect(screen.getByText(/API answered 500/i)).toBeTruthy();
+        });
+    });
+
+    it('calls the API through the configured prefix', async () => {
+        // Arrange
+        stubFetch({ status: 'ok' });
+
+        // Act
+        render(App);
+
+        // Assert — the request goes to the API prefix, with cookies attached
+        await waitFor(() => {
+            expect(fetch).toHaveBeenCalled();
+        });
+        const [url, options] = fetch.mock.calls[0];
+        expect(url).toContain('{{ apiPrefix }}');
+        expect(options.credentials).toBe('same-origin');
+    });
+});

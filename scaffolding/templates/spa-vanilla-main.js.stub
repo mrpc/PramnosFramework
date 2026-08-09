@@ -1,0 +1,50 @@
+/**
+ * Entry point of the {{ appName }} SPA (vanilla JavaScript).
+ *
+ * No framework, no component model — just the API client and DOM. It calls the
+ * health endpoint on load so a fresh project immediately shows whether the
+ * front end reaches the JSON API; replace `render()` with your own first screen.
+ */
+{{ cssImport }}import { api, ApiError } from './lib/api.js';
+
+/**
+ * Render the boot result into the shell's #app element.
+ *
+ * @param {HTMLElement} target
+ * @param {{ok: boolean, text: string}} result
+ */
+export function render(target, result) {
+    target.textContent = '';
+
+    const heading = document.createElement('h1');
+    heading.textContent = '{{ appName }}';
+
+    const message = document.createElement('p');
+    message.className   = result.ok ? 'status status-ok' : 'status status-error';
+    message.textContent = result.text;
+
+    target.append(heading, message);
+}
+
+/**
+ * Probe the API and describe the outcome.
+ *
+ * Exported separately from the DOM work so it can be unit-tested with a stubbed
+ * fetch, without a DOM.
+ *
+ * @returns {Promise<{ok: boolean, text: string}>}
+ */
+export async function boot() {
+    try {
+        const status = await api.get('{{ probeEndpoint }}');
+        return { ok: true, text: `Connected to the API: ${JSON.stringify(status)}` };
+    } catch (err) {
+        const detail = err instanceof ApiError ? ` (HTTP ${err.status})` : '';
+        return { ok: false, text: `Could not reach the API${detail}.` };
+    }
+}
+
+// Guarded so importing this module in a test does not touch the DOM.
+if (typeof document !== 'undefined' && document.getElementById('app')) {
+    boot().then((result) => render(document.getElementById('app'), result));
+}

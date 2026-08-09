@@ -1,0 +1,108 @@
+/**
+ * Tests for the {{ appName }} API client.
+ *
+ * The client is the single place where authentication, JSON encoding and error
+ * handling live, so these cover the contract every screen depends on: cookies
+ * are sent, a Bearer token is used when set, 204 decodes to null, and a failing
+ * status becomes an ApiError carrying the status — never a silent undefined.
+ *
+ * Written for Vitest, which is API-compatible with the describe/it/expect used
+ * here; the same file runs under `node --test` in build-less projects.
+ */
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { api, request, setToken, ApiError } from '../lib/api.js';
+
+afterEach(() => {
+    setToken(null);
+    vi.unstubAllGlobals();
+});
+
+/**
+ * Stub global fetch with one canned response and hand back the spy.
+ *
+ * @param {*}      body
+ * @param {number} status
+ */
+function stubFetch(body, status = 200) {
+    const spy = vi.fn(async () => ({
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => body,
+    }));
+    vi.stubGlobal('fetch', spy);
+    return spy;
+}
+
+describe('api client', () => {
+    it('prefixes the path and sends the session cookie', async () => {
+        // Arrange
+        const spy = stubFetch({ status: 'ok' });
+
+        // Act
+        await api.get('/status');
+
+        // Assert — same-origin credentials are what make cookie auth work
+        const [url, options] = spy.mock.calls[0];
+        expect(url).toBe('{{ apiPrefix }}/status');
+        expect(options.credentials).toBe('same-origin');
+        expect(options.headers.Authorization).toBeUndefined();
+    });
+
+    it('sends a Bearer token once one is set', async () => {
+        // Arrange
+        const spy = stubFetch({ status: 'ok' });
+        setToken('t0ken');
+
+        // Act
+        await api.get('/status');
+
+        // Assert
+        expect(spy.mock.calls[0][1].headers.Authorization).toBe('Bearer t0ken');
+    });
+
+    it('JSON-encodes a body and sets the content type', async () => {
+        // Arrange
+        const spy = stubFetch({ id: 1 });
+
+        // Act
+        await api.post('/things', { name: 'x' });
+
+        // Assert
+        const [, options] = spy.mock.calls[0];
+        expect(options.method).toBe('POST');
+        expect(options.headers['Content-Type']).toBe('application/json');
+        expect(JSON.parse(options.body)).toEqual({ name: 'x' });
+    });
+
+    it('decodes 204 as null instead of failing to parse an empty body', async () => {
+        // Arrange
+        stubFetch(null, 204);
+
+        // Act + Assert
+        await expect(api.delete('/things/1')).resolves.toBeNull();
+    });
+
+    it('throws an ApiError carrying the status for a failing request', async () => {
+        // Arrange
+        stubFetch({ message: 'nope' }, 422);
+
+        // Act + Assert — the status must survive, so callers can branch on it
+        await expect(request('/things')).rejects.toMatchObject({
+            name: 'ApiError',
+            status: 422,
+        });
+        await expect(request('/things')).rejects.toBeInstanceOf(ApiError);
+    });
+
+    it('still reports the status when the error body is not JSON', async () => {
+        // Arrange — a proxy error page: response.json() rejects
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: false,
+            status: 502,
+            json: async () => { throw new SyntaxError('not json'); },
+        })));
+
+        // Act + Assert — the decode failure must not mask the real status
+        await expect(request('/things')).rejects.toMatchObject({ status: 502 });
+    });
+});

@@ -1,0 +1,117 @@
+/**
+ * Tests for the {{ appName }} API client — build-less variant.
+ *
+ * Uses only Node built-ins (node:test + node:assert/strict), so the project
+ * stays free of npm dependencies: `./testjs` runs them with `node --test`.
+ * The client is the single place where authentication, JSON encoding and error
+ * handling live, so these cover the contract every screen depends on.
+ */
+import { test, describe, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { api, request, setToken, ApiError } from '../../www/assets/js/lib/api.js';
+
+const realFetch = globalThis.fetch;
+
+afterEach(() => {
+    setToken(null);
+    globalThis.fetch = realFetch;
+});
+
+/**
+ * Replace global fetch with a recording stub returning one canned response.
+ *
+ * @param {*}      body
+ * @param {number} status
+ * @returns {{calls: Array<[string, object]>}} Recorder for the assertions
+ */
+function stubFetch(body, status = 200) {
+    const recorder = { calls: [] };
+    globalThis.fetch = async (url, options) => {
+        recorder.calls.push([url, options]);
+        return {
+            ok: status >= 200 && status < 300,
+            status,
+            json: async () => body,
+        };
+    };
+    return recorder;
+}
+
+describe('api client', () => {
+    test('prefixes the path and sends the session cookie', async () => {
+        // Arrange
+        const recorder = stubFetch({ status: 'ok' });
+
+        // Act
+        await api.get('/status');
+
+        // Assert — same-origin credentials are what make cookie auth work
+        const [url, options] = recorder.calls[0];
+        assert.equal(url, '{{ apiPrefix }}/status');
+        assert.equal(options.credentials, 'same-origin');
+        assert.equal(options.headers.Authorization, undefined);
+    });
+
+    test('sends a Bearer token once one is set', async () => {
+        // Arrange
+        const recorder = stubFetch({ status: 'ok' });
+        setToken('t0ken');
+
+        // Act
+        await api.get('/status');
+
+        // Assert
+        assert.equal(recorder.calls[0][1].headers.Authorization, 'Bearer t0ken');
+    });
+
+    test('JSON-encodes a body and sets the content type', async () => {
+        // Arrange
+        const recorder = stubFetch({ id: 1 });
+
+        // Act
+        await api.post('/things', { name: 'x' });
+
+        // Assert
+        const [, options] = recorder.calls[0];
+        assert.equal(options.method, 'POST');
+        assert.equal(options.headers['Content-Type'], 'application/json');
+        assert.deepEqual(JSON.parse(options.body), { name: 'x' });
+    });
+
+    test('decodes 204 as null instead of failing to parse an empty body', async () => {
+        // Arrange
+        stubFetch(null, 204);
+
+        // Act
+        const result = await api.delete('/things/1');
+
+        // Assert
+        assert.equal(result, null);
+    });
+
+    test('throws an ApiError carrying the status for a failing request', async () => {
+        // Arrange
+        stubFetch({ message: 'nope' }, 422);
+
+        // Act + Assert — the status must survive, so callers can branch on it
+        await assert.rejects(
+            () => request('/things'),
+            (err) => err instanceof ApiError && err.status === 422
+        );
+    });
+
+    test('still reports the status when the error body is not JSON', async () => {
+        // Arrange — a proxy error page: response.json() rejects
+        globalThis.fetch = async () => ({
+            ok: false,
+            status: 502,
+            json: async () => { throw new SyntaxError('not json'); },
+        });
+
+        // Act + Assert — the decode failure must not mask the real status
+        await assert.rejects(
+            () => request('/things'),
+            (err) => err instanceof ApiError && err.status === 502
+        );
+    });
+});

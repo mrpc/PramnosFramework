@@ -1,0 +1,12 @@
+/**
+ * Svelte configuration for {{ appName }}.
+ *
+ * Minimal on purpose: the vite plugin warns when no config file exists, and
+ * this is the place to add preprocessors (TypeScript, SCSS) or compiler options
+ * later. `vitePreprocess` handles anything Vite already knows how to transform.
+ */
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+
+export default {
+    preprocess: vitePreprocess(),
+};
