@@ -171,11 +171,7 @@ class Init extends Command
             : ($useDocker ? 'redis' : 'none');
 
         if ($useDocker) {
-            while (!$this->isPortAvailable($dockerPort)) {
-                $dockerPort++; // @codeCoverageIgnore — port 8080 is always available in the test environment
-            }
-            $dockerPort = (int) ($input->getOption('docker-port')
-                ?: $helper->ask($input, $output, new Question("Local mapping port [$dockerPort]: ", (string) $dockerPort)));
+            $dockerPort = $this->resolveDockerPort($input, $output, $helper);
 
             if ($cacheSystemOption === null) {
                 $cacheSystem = $helper->ask($input, $output, new ChoiceQuestion('Cache System [redis]: ', ['redis', 'none', 'memcached'], 0));
@@ -3900,14 +3896,116 @@ PHP;
         file_put_contents($full, $content);
     }
 
-    private function isPortAvailable(int $port): bool
+    /**
+     * Can Docker bind this port on the host?
+     *
+     * Asks the question the same way `docker-compose up` will: by binding
+     * 0.0.0.0:$port. Connecting to it instead (the previous approach) answers a
+     * different question — it only finds a port that something is *listening on
+     * and accepting connections from us*, and it misses a port held on another
+     * interface, or one reachable over IPv4 while the name `localhost` resolves
+     * to ::1 first. Either miss ends the same way: "Bind for 0.0.0.0:8081
+     * failed: port is already allocated", several minutes into the init.
+     */
+    protected function isPortAvailable(int $port): bool
     {
-        $connection = @fsockopen('localhost', $port, $errno, $errstr, 0.1);
-        if (is_resource($connection)) {
-            fclose($connection);
+        $socket = @stream_socket_server(
+            "tcp://0.0.0.0:$port",
+            $errno,
+            $errstr,
+            STREAM_SERVER_BIND | STREAM_SERVER_LISTEN
+        );
+        if ($socket === false) {
             return false;
         }
+        fclose($socket);
         return true;
+    }
+
+    /**
+     * Which of the ports a Docker environment needs are already taken?
+     *
+     * A generated docker-compose.yml publishes two host ports: $port for the
+     * application and $port + 1 for the database tool (Adminer/PHPMyAdmin).
+     * Both have to be free — checking only the first is what let init run all
+     * the way to "docker-compose up" before failing on the tool container.
+     *
+     * @return list<int> The busy ports, empty when the pair is usable
+     */
+    protected function busyPorts(int $port): array
+    {
+        return array_values(array_filter(
+            [$port, $port + 1],
+            fn(int $candidate): bool => !$this->isPortAvailable($candidate)
+        ));
+    }
+
+    /**
+     * First port at or after $start whose whole pair ($port and $port + 1) is
+     * free, so the suggested default never collides with anything.
+     */
+    protected function findAvailablePortPair(int $start, int $limit = 200): int
+    {
+        for ($port = $start; $port < $start + $limit; $port++) {
+            if ($this->busyPorts($port) === []) {
+                return $port;
+            }
+        }
+        return $start; // @codeCoverageIgnore — 200 consecutive busy pairs is not a real scenario
+    }
+
+    /**
+     * Decide the host port the Docker environment maps to.
+     *
+     * Suggests a free pair, and checks whatever the user picks instead of
+     * trusting it: an interactive answer that is taken is rejected and asked
+     * again, while an explicit --docker-port is honoured (the caller may know
+     * the conflict is about to clear) but warned about, naming the exact ports.
+     */
+    private function resolveDockerPort(InputInterface $input, OutputInterface $output, mixed $helper): int
+    {
+        $suggested = $this->findAvailablePortPair(8080);
+
+        $option = $input->getOption('docker-port');
+        if ($option !== null && $option !== '') {
+            $port = (int) $option;
+            $busy = $this->busyPorts($port);
+            if ($busy !== []) {
+                $output->writeln(sprintf(
+                    '  <comment>Warning: port %s already in use; "docker-compose up" will fail'
+                    . ' unless it is freed first (%d = application, %d = database tool).</comment>',
+                    implode(' and ', $busy),
+                    $port,
+                    $port + 1
+                ));
+            }
+            return $port;
+        }
+
+        // Bounded: an interactive user who keeps choosing busy ports still gets
+        // out of the loop, with the last answer honoured and a warning.
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            $port = (int) $helper->ask(
+                $input,
+                $output,
+                new Question("Local mapping port [$suggested]: ", (string) $suggested)
+            );
+            $busy = $this->busyPorts($port);
+            if ($busy === []) {
+                return $port;
+            }
+            // @codeCoverageIgnoreStart — reached only when the answered port is taken
+            $output->writeln(sprintf(
+                '  <error>Port %s already in use.</error> The environment needs both %d'
+                . ' (application) and %d (database tool).',
+                implode(' and ', $busy),
+                $port,
+                $port + 1
+            ));
+            // @codeCoverageIgnoreEnd
+        }
+
+        return $port; // @codeCoverageIgnore — five busy answers in a row
     }
 
     /**
