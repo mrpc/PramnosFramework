@@ -1,0 +1,12 @@
+/**
+ * Styles for the {{ appName }} SPA.
+ *
+ * Tailwind v4 and daisyUI v5 are both configured from CSS — there is no
+ * tailwind.config.js and no PostCSS pipeline to keep in sync. `@import` pulls
+ * Tailwind in, `@plugin` registers daisyUI, and `@source` tells Tailwind which
+ * files to scan for class names (Svelte components included).
+ */
+@import "tailwindcss";
+@plugin "daisyui";
+
+@source "./**/*.{svelte,js}";

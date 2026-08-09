@@ -22,6 +22,15 @@ use Symfony\Component\Console\Input\InputOption;
  */
 class Init extends Command
 {
+    /** Application styles offered by --app-style. */
+    public const APP_STYLES = ['mvc', 'spa', 'hybrid'];
+
+    /** Front-end stacks offered by --spa-stack. */
+    public const SPA_STACKS = ['svelte', 'vanilla-vite', 'vanilla'];
+
+    /** Web-root-relative directory a Vite build writes into. */
+    private const SPA_BUILD_DIR = 'assets/spa';
+
     /** Target directory for scaffolding. */
     public string $targetBaseDir = '';
 
@@ -47,6 +56,8 @@ class Init extends Command
     /** Web-root-relative directory for the sized favicon/app-icon files. */
     private string $faviconSubdir = 'assets/favicons';
 
+    /** True once `npm run build` produced the SPA bundle during init. */
+    private bool    $spaBuilt          = false;
     private bool    $dockerSuccess     = false;
     private bool    $autoloadSuccess   = true;
     private bool    $migrationsSuccess = false;
@@ -78,6 +89,9 @@ class Init extends Command
         $this->addOption('api-url',       null, InputOption::VALUE_OPTIONAL, 'Production API base URL for documentation');
         $this->addOption('api-color',     null, InputOption::VALUE_OPTIONAL, 'Primary color for API docs UI (hex, e.g. #4CAF50)');
         $this->addOption('webhook',       null, InputOption::VALUE_OPTIONAL, 'Generate www/webhook.php git webhook receiver (y/n)');
+        $this->addOption('app-style',     null, InputOption::VALUE_OPTIONAL, 'Application style (mvc, spa, hybrid)');
+        $this->addOption('spa-stack',     null, InputOption::VALUE_OPTIONAL, 'SPA front-end stack (svelte, vanilla-vite, vanilla)');
+        $this->addOption('spa-dev-port',  null, InputOption::VALUE_OPTIONAL, 'Port for the Vite dev server');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -120,9 +134,22 @@ class Init extends Command
         $namespace = $input->getOption('namespace')
             ?: $helper->ask($input, $output, new Question("Namespace [$defaultNamespace]: ", $defaultNamespace));
 
+        // ── Step 1b: Application style ────────────────────────────────────────
+        // Asked before everything else it influences: an SPA needs the JSON API,
+        // and (unless the app also keeps server-rendered pages) it needs no theme
+        // or MVC views at all.
+        $appStyle = $this->askAppStyle($input, $output, $helper);
+        $spaStack = $appStyle === 'mvc'
+            ? ''
+            : $this->askSpaStack($input, $output, $helper);
+
         // ── Step 2: Framework features ────────────────────────────────────────
         $enabledFeatures = $this->askFeatures($input, $output, $helper);
-        $withRestApi     = $this->askRestApi($input, $output, $helper);
+        // A SPA talks to the JSON API and nothing else, so the API layer is not
+        // optional there — asking would only offer a broken combination.
+        $withRestApi     = $appStyle === 'mvc'
+            ? $this->askRestApi($input, $output, $helper)
+            : true;
         $withWebhook     = $this->askWebhook($input, $output, $helper);
         $withApiDocs     = false;
         $apiUrl          = 'https://api.example.com';
@@ -221,6 +248,19 @@ class Init extends Command
             $output->writeln('<error>Invalid email address. Please try again.</error>'); // @codeCoverageIgnore — tests always provide valid email addresses
         }
 
+        // API base path — the one place it is decided, so app.php, the routes
+        // group prefix and the SPA client all agree.
+        $apiPrefix = '/api/1.0';
+
+        // Vite's dev server needs its own host port. Default to two above the
+        // application (the port right above it belongs to the database tool),
+        // and step over anything already taken.
+        $spaDevPort = 0;
+        if ($appStyle !== 'mvc' && self::spaNeedsNode($spaStack)) {
+            $spaDevPort = (int) ($input->getOption('spa-dev-port')
+                ?: $this->findAvailablePortPair($dockerPort + 2));
+        }
+
         // ── Scaffold ──────────────────────────────────────────────────────────
         $output->writeln("\n<info>Scaffolding project structure...</info>");
 
@@ -304,10 +344,26 @@ class Init extends Command
             $this->scaffoldLibraries($selectedLibraries, $uiSystem, $skipDownload, $output);
         }
 
+        // ── SPA front end ─────────────────────────────────────────────────────
+        // Written after the MVC scaffold so its .htaccess and shell win: a pure
+        // SPA replaces the front-controller catch-all, a hybrid app keeps it and
+        // mounts the SPA under /app.
+        if ($appStyle !== 'mvc') {
+            $this->scaffoldSpa(
+                $appName, $spaStack, $appStyle, $apiPrefix, $cliName, $spaDevPort, $dockerPort,
+                $enabledFeatures
+            );
+        }
+
         if ($useDocker) {
-            // $withApiDocs implies the app image needs Node/npm so the
-            // OpenAPI/RapiDoc docs can be generated inside the container.
-            $this->scaffoldDocker($namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem, $dbRootPass, $cliName, $withApiDocs);
+            // Node/npm goes into the app image when anything needs it: the
+            // OpenAPI/RapiDoc generator, or a SPA stack with a Vite build.
+            $needsNode = $withApiDocs || ($appStyle !== 'mvc' && self::spaNeedsNode($spaStack));
+            $this->scaffoldDocker(
+                $namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem,
+                $dbRootPass, $cliName, $needsNode,
+                $appStyle !== 'mvc' && self::spaNeedsNode($spaStack) ? $spaDevPort : 0
+            );
         }
 
         $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker, $enabledFeatures);
@@ -414,6 +470,13 @@ class Init extends Command
                 if ($withApiDocs) {
                     $this->runProcessWithSpinner('bash scripts/doc.sh 2>&1', 'Generating API documentation', $output);
                 }
+
+                // Install the front-end toolchain and produce a first build, so
+                // the SPA is actually visible the moment init finishes rather
+                // than after a manual npm dance.
+                if ($appStyle !== 'mvc' && self::spaNeedsNode($spaStack)) {
+                    $this->buildSpa('docker-compose exec -T app sh -lc', $output);
+                }
             }
             // @codeCoverageIgnoreEnd
         } elseif (!$useDocker) {
@@ -432,9 +495,19 @@ class Init extends Command
                 $this->runProcessWithSpinner('bash scripts/doc.sh --host 2>&1', 'Generating API documentation', $output);
                 // @codeCoverageIgnoreEnd
             }
+
+            if ($appStyle !== 'mvc' && self::spaNeedsNode($spaStack) && !$this->skipDockerRun) {
+                // @codeCoverageIgnoreStart — never exercised: tests set skipDockerRun
+                $this->buildSpa('sh -lc', $output);
+                // @codeCoverageIgnoreEnd
+            }
         }
 
-        $this->printSummary($output, $useDocker, $dockerPort, $dbType, $dbUser, $dbPass, $dbRootPass, $cliName, (bool) $input->getOption('no-migrations'), $withRestApi, $withApiDocs, $apiKey);
+        $this->printSummary(
+            $output, $useDocker, $dockerPort, $dbType, $dbUser, $dbPass, $dbRootPass, $cliName,
+            (bool) $input->getOption('no-migrations'), $withRestApi, $withApiDocs, $apiKey,
+            $apiPrefix, $appStyle, $spaStack, $spaDevPort
+        );
 
         return 0;
     }
@@ -693,6 +766,456 @@ class Init extends Command
 
         $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}{$addonsSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
         $this->writeFile($path, $content);
+    }
+
+    /**
+     * Which application style is being scaffolded?
+     *
+     *  - `mvc`    — server-rendered controllers, views and themes (the default,
+     *               and exactly what init produced before this question existed).
+     *  - `spa`    — Services + JSON API + a JavaScript single-page app. No
+     *               server-rendered view layer: the API is the contract.
+     *  - `hybrid` — both: MVC pages (typically the admin area) plus a SPA mounted
+     *               under a sub-path for the public/app side.
+     *
+     * @return string One of mvc|spa|hybrid
+     */
+    private function askAppStyle(InputInterface $input, OutputInterface $output, mixed $helper): string
+    {
+        $option = $input->getOption('app-style');
+        if ($option !== null) {
+            return in_array($option, self::APP_STYLES, true) ? $option : 'mvc';
+        }
+
+        $output->writeln("\n<comment>Step 1b — Application style</comment>");
+        $question = new ChoiceQuestion(
+            'How is this application built? [mvc]: ',
+            [
+                'mvc'    => 'MVC + Models      — server-rendered controllers, views and themes',
+                'spa'    => 'Services + API + SPA — JSON API with a JavaScript front end',
+                'hybrid' => 'Hybrid            — MVC pages plus a SPA mounted under /app',
+            ],
+            'mvc'
+        );
+        // The choice keys are what the rest of init switches on.
+        return (string) $helper->ask($input, $output, $question);
+    }
+
+    /**
+     * Which front-end stack should the SPA be built with?
+     *
+     * @return string One of svelte|vanilla-vite|vanilla
+     */
+    private function askSpaStack(InputInterface $input, OutputInterface $output, mixed $helper): string
+    {
+        $option = $input->getOption('spa-stack');
+        if ($option !== null) {
+            return in_array($option, self::SPA_STACKS, true) ? $option : 'svelte';
+        }
+
+        $output->writeln("\n<comment>Step 1c — SPA front-end stack</comment>");
+        $question = new ChoiceQuestion(
+            'Front-end stack [svelte]: ',
+            [
+                'svelte'       => 'Svelte 5 + Vite + Tailwind/daisyUI — components, HMR, Vitest',
+                'vanilla-vite' => 'Vanilla JS + Vite                 — no framework, still bundled + Vitest',
+                'vanilla'      => 'Vanilla JS, no build              — zero dependencies, node --test',
+            ],
+            'svelte'
+        );
+        return (string) $helper->ask($input, $output, $question);
+    }
+
+    // ── SPA scaffolding ───────────────────────────────────────────────────────
+
+    /**
+     * Install the front-end dependencies and produce the first build.
+     *
+     * Best-effort, exactly like the API docs step: a project is still perfectly
+     * usable if npm is unavailable — the PHP shell falls back to the unbuilt
+     * asset paths and the summary says what to run. Failures are reported, not
+     * fatal.
+     *
+     * @param string $runner Shell prefix that runs a command where npm lives
+     *                       (inside the container, or on the host)
+     */
+    private function buildSpa(string $runner, OutputInterface $output): void
+    {
+        // @codeCoverageIgnoreStart — shells out to npm; never run in unit tests
+        $install = $this->runProcessWithSpinner(
+            $runner . ' "cd /var/www/html 2>/dev/null || cd .; npm install --no-audit --no-fund" 2>&1',
+            'Installing front-end dependencies',
+            $output
+        );
+        if ($install !== 0) {
+            $output->writeln('  <comment>npm install failed — run ./dockernpm install once the environment is up.</comment>');
+            return;
+        }
+
+        $build = $this->runProcessWithSpinner(
+            $runner . ' "cd /var/www/html 2>/dev/null || cd .; npm run build" 2>&1',
+            'Building the SPA',
+            $output
+        );
+        if ($build !== 0) {
+            $output->writeln('  <comment>The SPA build failed — run ./dockernpm run build to see the error.</comment>');
+        } else {
+            $this->spaBuilt = true;
+        }
+        // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Does this stack need a Node toolchain (npm install / vite build)?
+     *
+     * The build-less `vanilla` stack deliberately does not: its JavaScript is
+     * served exactly as written, which is the whole point of offering it.
+     */
+    public static function spaNeedsNode(string $spaStack): bool
+    {
+        return in_array($spaStack, ['svelte', 'vanilla-vite'], true);
+    }
+
+    /**
+     * Scaffold the single-page-application front end.
+     *
+     * Three stacks share one shape: an API client, an entry point, a PHP shell
+     * that serves them with correct cache-busting, and tests. What differs is
+     * whether a build step exists — which decides where the sources live
+     * (`frontend/` vs straight into the web root), how assets are cache-busted
+     * (Vite's content hashes vs file mtime) and which test runner is wired up.
+     *
+     * @param string $spaStack   svelte|vanilla-vite|vanilla
+     * @param string $appStyle   spa|hybrid — hybrid mounts the SPA under /app
+     * @param string $apiPrefix  API base path the client calls
+     * @param int    $devPort    Port for the Vite dev server
+     * @param int    $appPort    Host port Apache is published on (proxy target)
+     * @param list<string> $features Enabled framework features, so the routing
+     *                               rules keep every scaffolded MVC area reachable
+     */
+    private function scaffoldSpa(
+        string $appName,
+        string $spaStack,
+        string $appStyle,
+        string $apiPrefix,
+        string $cliName,
+        int    $devPort,
+        int    $appPort,
+        array  $features = []
+    ): void {
+        $needsBuild = self::spaNeedsNode($spaStack);
+        $shellFile  = $appStyle === 'hybrid' ? 'app.php' : 'spa.php';
+        // Where the JS sources live: a build stack keeps them out of the web
+        // root (only build output is published); the build-less stack serves
+        // its sources directly, so they belong under www/.
+        $sourceDir  = $needsBuild ? 'frontend' : 'www/assets/js';
+
+        $tokens = [
+            'appName'       => $appName,
+            'cliName'       => $cliName,
+            'apiPrefix'     => rtrim($apiPrefix, '/'),
+            'probeEndpoint' => '/health',
+            'shellFile'     => $shellFile,
+            'devPort'       => (string) $devPort,
+            'appPort'       => (string) $appPort,
+            'sourceDir'     => $sourceDir,
+            'assetBase'     => '/' . self::SPA_BUILD_DIR . '/',
+            'outDir'        => 'www/' . self::SPA_BUILD_DIR,
+            'manifestPath'  => self::SPA_BUILD_DIR . '/.vite/manifest.json',
+            'entryKey'      => $sourceDir . '/main.js',
+            'entry'         => $sourceDir . '/main.js',
+            // Root-relative on purpose: the shell also answers deep client
+            // routes (/things/42), where a relative URL would resolve against
+            // the wrong directory and 404.
+            'fallbackCss'   => '/assets/css/app.css',
+            'fallbackJs'    => '/assets/js/main.js',
+            'pluginImports' => '',
+            'pluginList'    => '',
+            // Only a bundler can consume a CSS import from JavaScript. In the
+            // build-less stack the shell links the stylesheet directly, and an
+            // import here would break both the browser and `node --test`.
+            'cssImport'     => $needsBuild ? "import './app.css';\n" : '',
+        ];
+
+        if ($spaStack === 'svelte') {
+            $tokens['pluginImports'] = "import { svelte } from '@sveltejs/vite-plugin-svelte';\n"
+                . "import tailwindcss from '@tailwindcss/vite';\n";
+            $tokens['pluginList'] = 'svelte(), tailwindcss()';
+        } elseif ($spaStack === 'vanilla-vite') {
+            $tokens['pluginImports'] = '';
+            $tokens['pluginList']    = '';
+        }
+
+        // ── Shared pieces ─────────────────────────────────────────────────────
+        $this->mkdir($sourceDir . '/lib');
+        $this->writeFile($sourceDir . '/lib/api.js', $this->renderStub('spa-api-client.js', $tokens));
+        $this->writeFile('www/' . $shellFile, $this->renderStub('spa-shell.php', $tokens));
+
+        if ($needsBuild) {
+            $this->scaffoldSpaBuildStack($spaStack, $sourceDir, $tokens);
+        } else {
+            $this->scaffoldSpaBuildlessStack($sourceDir, $tokens);
+        }
+
+        $this->scaffoldSpaRouting($appStyle, $shellFile, self::mvcRoutePrefixes($features));
+        $this->scaffoldSpaGitignore($needsBuild);
+    }
+
+    /**
+     * Sources, build config, dependencies and Vitest wiring for a Vite stack.
+     *
+     * @param array<string, string> $tokens
+     */
+    private function scaffoldSpaBuildStack(string $spaStack, string $sourceDir, array $tokens): void
+    {
+        $this->mkdir($sourceDir . '/__tests__');
+        $this->writeFile('vite.config.js',   $this->renderStub('spa-vite.config.js', $tokens));
+        $this->writeFile('vitest.config.js', $this->renderStub('spa-vitest.config.js', $tokens));
+        $this->writeFile(
+            $sourceDir . '/__tests__/api.test.js',
+            $this->renderStub('spa-api-client.test.js', $tokens)
+        );
+
+        if ($spaStack === 'svelte') {
+            $this->writeFile('svelte.config.js',         $this->renderStub('spa-svelte.config.js', $tokens));
+            $this->writeFile($sourceDir . '/main.js',    $this->renderStub('spa-svelte-main.js', $tokens));
+            $this->writeFile($sourceDir . '/App.svelte', $this->renderStub('spa-svelte-app.svelte', $tokens));
+            $this->writeFile($sourceDir . '/app.css',    $this->renderStub('spa-app.css', $tokens));
+            $this->writeFile(
+                $sourceDir . '/__tests__/App.test.js',
+                $this->renderStub('spa-svelte-app.test.js', $tokens)
+            );
+        } else {
+            $this->writeFile($sourceDir . '/main.js', $this->renderStub('spa-vanilla-main.js', $tokens));
+            $this->writeFile($sourceDir . '/app.css', $this->getSpaPlainCss());
+            $this->writeFile(
+                $sourceDir . '/__tests__/main.test.js',
+                $this->renderStub('spa-vanilla-main.test.js', $tokens)
+            );
+        }
+
+        $this->ensureSpaPackageJson($spaStack, $tokens);
+        $this->writeExecutable('testjs',    $this->renderStub('spa-testjs', $tokens + ['testCommand' => 'npm test --']));
+        $this->writeExecutable('dockernpm', $this->renderStub('dockernpm', $tokens));
+    }
+
+    /**
+     * Sources and zero-dependency tests for the build-less stack.
+     *
+     * @param array<string, string> $tokens
+     */
+    private function scaffoldSpaBuildlessStack(string $sourceDir, array $tokens): void
+    {
+        $this->mkdir('tests/js');
+        $this->writeFile($sourceDir . '/main.js', $this->renderStub('spa-vanilla-main.js', $tokens));
+        $this->writeFile('www/assets/css/app.css', $this->getSpaPlainCss());
+        $this->writeFile('tests/js/api.test.js', $this->renderStub('spa-api-client.node-test.js', $tokens));
+
+        // A package.json with no dependencies at all — it exists so Node treats
+        // the .js files as ES modules (the same modules the browser loads) and
+        // so `npm test` has something to run.
+        $this->ensureSpaPackageJson('vanilla', $tokens);
+        $this->writeExecutable('testjs', $this->renderStub('spa-testjs', $tokens + [
+            'testCommand' => 'node --test tests/js/*.test.js',
+        ]));
+    }
+
+    /**
+     * Serve the shell for SPA page requests.
+     *
+     * A pure SPA answers every non-file, non-API GET with the shell so client
+     * routing works on a refresh or a deep link. A hybrid app keeps the MVC
+     * front controller in charge and mounts the SPA under /app only.
+     */
+    private function scaffoldSpaRouting(string $appStyle, string $shellFile, array $mvcPrefixes = []): void
+    {
+        if ($appStyle === 'spa') {
+            // Even a SPA-first project keeps server-rendered areas: the login
+            // screens, the admin CRUD and the OAuth endpoints are all scaffolded
+            // as MVC controllers. Those paths stay with the front controller;
+            // everything else is a client-side route and gets the shell. The
+            // list is not guesswork — init generated exactly these wirings.
+            $rules = "RewriteEngine On\n"
+                . "# Server-rendered areas scaffolded by init stay with the front controller.\n"
+                . "RewriteCond %{REQUEST_FILENAME} !-f\n"
+                . "RewriteCond %{REQUEST_FILENAME} !-d\n"
+                . 'RewriteRule ^(' . implode('|', $mvcPrefixes) . ")(/.*)?$ index.php?r=\$1\$2 [QSA,L]\n"
+                . "# Every other page request renders the SPA shell, so client-side\n"
+                . "# routes survive a refresh or a deep link.\n"
+                . "RewriteCond %{REQUEST_FILENAME} !-f\n"
+                . "RewriteCond %{REQUEST_FILENAME} !-d\n"
+                . "RewriteRule ^(.*)$ $shellFile [L]\n";
+
+            $this->writeFile('www/.htaccess', $rules);
+            return;
+        }
+
+        if ($appStyle === 'hybrid') {
+            $rules = "RewriteEngine On\n"
+                . "# SPA mounted under /app — client-side routes fall through to the shell.\n"
+                . "RewriteCond %{REQUEST_FILENAME} !-f\n"
+                . "RewriteCond %{REQUEST_FILENAME} !-d\n"
+                . "RewriteRule ^app(/.*)?$ $shellFile [L]\n"
+                . "# Everything else stays with the MVC front controller.\n"
+                . "RewriteRule ^$ index.php [L]\n"
+                . "RewriteCond %{REQUEST_FILENAME} !-f\n"
+                . "RewriteCond %{REQUEST_FILENAME} !-d\n"
+                . "RewriteRule ^(.*)$ index.php?r=\$1 [QSA,L]\n";
+        }
+
+        $this->writeFile('www/.htaccess', $rules);
+    }
+
+    /**
+     * Paths that must keep reaching the MVC front controller in a SPA project.
+     *
+     * Everything init scaffolds as a server-rendered controller belongs here —
+     * the API, plus whichever feature wirings were generated. Anything missing
+     * from this list would be swallowed by the SPA shell.
+     *
+     * @param  list<string> $features Enabled framework features
+     * @return list<string>
+     */
+    public static function mvcRoutePrefixes(array $features): array
+    {
+        // Always scaffolded by init, regardless of feature selection.
+        $prefixes = [
+            'api', 'health', 'logs', 'users', 'settings', 'dashboard',
+            'services', 'organizations', 'emails',
+        ];
+
+        if (in_array('auth', $features, true)) {
+            array_push($prefixes, 'login', 'logout', 'register', 'account', 'token');
+        }
+        if (in_array('authserver', $features, true)) {
+            array_push($prefixes, 'oauth', 'permissions');
+        }
+        if (in_array('queue', $features, true)) {
+            $prefixes[] = 'queue';
+        }
+        if (in_array('devpanel', $features, true)) {
+            $prefixes[] = 'devpanel';
+        }
+
+        return array_values(array_unique($prefixes));
+    }
+
+    /** Keep build output and node_modules out of version control. */
+    private function scaffoldSpaGitignore(bool $needsBuild): void
+    {
+        $lines = "\n# Front end\nnode_modules/\n";
+        if ($needsBuild) {
+            $lines .= 'www/' . self::SPA_BUILD_DIR . "/\n";
+        }
+
+        $path = $this->targetBaseDir . '/.gitignore';
+        $existing = file_exists($path) ? (string) file_get_contents($path) : '';
+        if (!str_contains($existing, 'node_modules/')) {
+            file_put_contents($path, $lines, FILE_APPEND);
+        }
+    }
+
+    /** Minimal stylesheet for the stacks that do not pull in Tailwind. */
+    private function getSpaPlainCss(): string
+    {
+        return <<<CSS
+/* Baseline styles for the SPA shell. Replace with your own design system. */
+:root { color-scheme: light dark; }
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.5;
+}
+#app { max-width: 48rem; margin: 3rem auto; padding: 0 1rem; }
+.status { padding: 0.75rem 1rem; border-radius: 0.5rem; }
+.status-ok { background: #e6f6ec; color: #14532d; }
+.status-error { background: #fdeaea; color: #7f1d1d; }
+CSS;
+    }
+
+    /**
+     * Write a file and mark it executable (helper scripts).
+     */
+    private function writeExecutable(string $path, string $content): void
+    {
+        $this->writeFile($path, $content);
+        @chmod($this->targetBaseDir . '/' . $path, 0755);
+    }
+
+    /**
+     * Create or extend package.json with the front-end scripts and dependencies.
+     *
+     * @param array<string, string> $tokens
+     */
+    private function ensureSpaPackageJson(string $spaStack, array $tokens): void
+    {
+        $path = $this->targetBaseDir . '/package.json';
+        $pkg  = file_exists($path)
+            ? (json_decode((string) file_get_contents($path), true) ?: [])
+            : ['name' => strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $tokens['appName'])), 'version' => '1.0.0', 'private' => true];
+
+        $pkg = self::mergeSpaPackageJson($pkg, $spaStack);
+        file_put_contents($path, json_encode($pkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+    }
+
+    /**
+     * Merge the front-end scripts and dependencies for a stack into a
+     * package.json array.
+     *
+     * Public + static so `project:resync` can reuse it and keep existing
+     * projects aligned with what `init` writes. Existing keys are preserved:
+     * only the entries this stack needs are added.
+     *
+     * @param  array<string, mixed> $pkg Decoded package.json (may be empty)
+     * @param  string $spaStack svelte|vanilla-vite|vanilla
+     * @return array<string, mixed>
+     */
+    public static function mergeSpaPackageJson(array $pkg, string $spaStack): array
+    {
+        // The build-less stack stays dependency-free on purpose. "type": module
+        // is what lets Node run the very same ES modules the browser loads.
+        if (!self::spaNeedsNode($spaStack)) {
+            $pkg['type']    = 'module';
+            $pkg['scripts'] = array_merge($pkg['scripts'] ?? [], [
+                // Explicit glob rather than a directory argument: passing a
+            // directory makes Node 24 try to *load* it as a module and fail.
+            'test' => 'node --test tests/js/*.test.js',
+            ]);
+            return $pkg;
+        }
+
+        $pkg['type']    = 'module';
+        $pkg['scripts'] = array_merge($pkg['scripts'] ?? [], [
+            'dev'           => 'vite',
+            'build'         => 'vite build',
+            'preview'       => 'vite preview',
+            'test'          => 'vitest run',
+            'test:watch'    => 'vitest',
+            'test:coverage' => 'vitest run --coverage',
+        ]);
+
+        $dev = array_merge($pkg['devDependencies'] ?? [], [
+            'vite'   => '^7.0.0',
+            'vitest' => '^3.0.0',
+            'jsdom'  => '^26.0.0',
+            '@vitest/coverage-v8' => '^3.0.0',
+        ]);
+
+        if ($spaStack === 'svelte') {
+            $dev = array_merge($dev, [
+                'svelte'                      => '^5.0.0',
+                '@sveltejs/vite-plugin-svelte' => '^6.0.0',
+                '@testing-library/svelte'     => '^5.2.0',
+                'tailwindcss'                 => '^4.0.0',
+                '@tailwindcss/vite'           => '^4.0.0',
+                'daisyui'                     => '^5.0.0',
+            ]);
+        }
+
+        ksort($dev);
+        $pkg['devDependencies'] = $dev;
+
+        return $pkg;
     }
 
     private function askRestApi(InputInterface $input, OutputInterface $output, mixed $helper): bool
@@ -2811,7 +3334,13 @@ echo \$pipeline->run(
 PHP;
     }
 
-    private function scaffoldDocker(string $namespace, int $port, string $dbType, string $dbName, string $dbUser, string $dbPass, string $cacheSystem, string $dbRootPass, string $cliName = '', bool $withApiDocs = false): void
+    /**
+     * @param bool $withNode   Install Node/npm in the app image (API docs generator
+     *                         and/or a SPA stack with a Vite build need it)
+     * @param int  $spaDevPort When non-zero, publish this port too so Vite's dev
+     *                         server is reachable from the host
+     */
+    private function scaffoldDocker(string $namespace, int $port, string $dbType, string $dbName, string $dbUser, string $dbPass, string $cacheSystem, string $dbRootPass, string $cliName = '', bool $withNode = false, int $spaDevPort = 0): void
     {
         $isPostgres = ($dbType === 'postgresql' || $dbType === 'timescaledb');
         $slug       = strtolower(str_replace([' ', '_'], '-', $namespace));
@@ -2824,7 +3353,13 @@ PHP;
 
         $extraVolumes = $this->detectFrameworkDevVolume();
 
-        $compose  = "services:\n  app:\n    container_name: {$slug}_php\n    build: .\n    ports:\n      - \"$port:80\"\n    volumes:\n      - .:/var/www/html\n$extraVolumes    depends_on:\n      - db\n";
+        // Vite's dev server runs inside the same container (npm run dev), so its
+        // port is published alongside Apache's when a SPA build stack is in play.
+        $devPortMapping = $spaDevPort > 0
+            ? "      - \"$spaDevPort:$spaDevPort\"\n"
+            : '';
+
+        $compose  = "services:\n  app:\n    container_name: {$slug}_php\n    build: .\n    ports:\n      - \"$port:80\"\n$devPortMapping    volumes:\n      - .:/var/www/html\n$extraVolumes    depends_on:\n      - db\n";
 
         if ($cacheSystem !== 'none') {
             $compose .= "      - cache\n";
@@ -2876,9 +3411,12 @@ PHP;
         $dockerfile .= "RUN docker-php-ext-install pdo $phpExts intl mbstring zip bcmath gd\n";
         $dockerfile .= "RUN pecl install xdebug && docker-php-ext-enable xdebug\n";
         $dockerfile .= "RUN echo \"xdebug.mode=coverage\" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini\n";
-        // Node/npm, only when API docs are enabled, so the OpenAPI/RapiDoc docs can
-        // be generated inside the container (docker-compose exec app npm run docs:build).
-        if ($withApiDocs) {
+        // Node/npm, only when something in the project needs it: the OpenAPI /
+        // RapiDoc generator, or a SPA stack with a Vite build. Keeping it in the
+        // app image (rather than a second container) means one place to run
+        // everything — ./dockernpm, ./testjs and the docs generator all shell
+        // into the same service.
+        if ($withNode) {
             $dockerfile .= "RUN apt-get update && apt-get install -y nodejs npm && rm -rf /var/lib/apt/lists/*\n";
         }
         $dockerfile .= "RUN a2enmod rewrite\n";
@@ -3133,6 +3671,39 @@ BASH;
         file_put_contents($composerPath, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
+    /**
+     * The "here is your front end" block of the final summary.
+     *
+     * Says where the SPA lives, how to build/develop it and how to test it —
+     * and, when the first build did not happen, exactly which command produces
+     * it, because until then the shell serves the unbuilt fallback assets.
+     */
+    private function spaSummaryStep(string $appStyle, string $spaStack, int $spaDevPort): string
+    {
+        $where = $appStyle === 'hybrid' ? 'mounted at <comment>/app</comment>' : 'served at the site root';
+        $stack = match ($spaStack) {
+            'svelte'       => 'Svelte 5 + Vite + Tailwind/daisyUI',
+            'vanilla-vite' => 'vanilla JS + Vite',
+            default        => 'vanilla JS, no build step',
+        };
+
+        $lines = ["SPA front end ($stack), $where:"];
+
+        if (self::spaNeedsNode($spaStack)) {
+            $lines[] = '    Sources in <comment>frontend/</comment>, build output in <comment>www/' . self::SPA_BUILD_DIR . '/</comment>';
+            if (!$this->spaBuilt) {
+                $lines[] = '    Build it with <comment>./dockernpm install && ./dockernpm run build</comment>';
+            }
+            $lines[] = "    Dev server with HMR: <comment>./dockernpm run dev</comment> → <comment>http://localhost:$spaDevPort</comment>";
+            $lines[] = '    Front-end tests: <comment>./testjs</comment> (Vitest)';
+        } else {
+            $lines[] = '    Sources in <comment>www/assets/js/</comment> — served as written, no build step';
+            $lines[] = '    Front-end tests: <comment>./testjs</comment> (node --test, no dependencies)';
+        }
+
+        return implode("\n", $lines);
+    }
+
     private function printSummary(
         OutputInterface $output,
         bool            $useDocker,
@@ -3146,10 +3717,17 @@ BASH;
         bool            $withApi        = false,
         bool            $withApiDocs    = false,
         string          $apiKey         = '',
-        string          $apiPrefix      = '/api/1.0'
+        string          $apiPrefix      = '/api/1.0',
+        string          $appStyle       = 'mvc',
+        string          $spaStack       = '',
+        int             $spaDevPort     = 0
     ): void {
         $output->writeln("\nNext steps:");
         $steps = [];
+
+        if ($appStyle !== 'mvc') {
+            $steps[] = $this->spaSummaryStep($appStyle, $spaStack, $spaDevPort);
+        }
 
         if ($useDocker) {
             if (!$this->dockerSuccess && !$this->skipDockerRun) {

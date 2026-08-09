@@ -1,0 +1,82 @@
+/**
+ * Tests for the {{ appName }} SPA entry point.
+ *
+ * boot() is exported separately from render() precisely so the API outcome can
+ * be asserted without a DOM, and render() can be asserted without a network.
+ * Both paths matter: a failed API call must reach the user as visible text, not
+ * an empty page.
+ */
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { boot, render } from '../main.js';
+
+afterEach(() => {
+    vi.unstubAllGlobals();
+});
+
+/**
+ * Stub global fetch with a single canned response.
+ *
+ * @param {*}      body
+ * @param {number} status
+ */
+function stubFetch(body, status = 200) {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => body,
+    })));
+}
+
+describe('boot', () => {
+    it('reports success with the payload when the API answers', async () => {
+        // Arrange
+        stubFetch({ status: 'ok' });
+
+        // Act
+        const result = await boot();
+
+        // Assert
+        expect(result.ok).toBe(true);
+        expect(result.text).toContain('ok');
+    });
+
+    it('reports the HTTP status when the API fails', async () => {
+        // Arrange
+        stubFetch({ message: 'boom' }, 503);
+
+        // Act
+        const result = await boot();
+
+        // Assert — the status is what tells a developer where to look
+        expect(result.ok).toBe(false);
+        expect(result.text).toContain('503');
+    });
+});
+
+describe('render', () => {
+    it('replaces the placeholder with the boot result', () => {
+        // Arrange
+        const target = document.createElement('div');
+        target.textContent = 'Loading…';
+
+        // Act
+        render(target, { ok: true, text: 'Connected' });
+
+        // Assert
+        expect(target.textContent).not.toContain('Loading…');
+        expect(target.querySelector('.status-ok')).not.toBeNull();
+        expect(target.textContent).toContain('Connected');
+    });
+
+    it('marks a failure visibly instead of leaving the page blank', () => {
+        // Arrange
+        const target = document.createElement('div');
+
+        // Act
+        render(target, { ok: false, text: 'Could not reach the API.' });
+
+        // Assert
+        expect(target.querySelector('.status-error')).not.toBeNull();
+        expect(target.textContent).toContain('Could not reach the API.');
+    });
+});

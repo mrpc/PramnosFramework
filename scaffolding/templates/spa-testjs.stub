@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Run the {{ appName }} front-end tests.
+#
+# Prefers the app container (which is built with Node), so the toolchain does
+# not have to exist on the host; falls back to the host's node/npm when Docker
+# is not running — the same shape as ./dockertest for PHP.
+#
+# Usage:
+#   ./testjs              # run once
+#   ./testjs --watch      # watch mode (build stacks only)
+set -euo pipefail
+
+SERVICE="app"
+COMMAND="{{ testCommand }}"
+
+run_in_container() {
+    if ! command -v docker-compose &>/dev/null; then
+        return 1
+    fi
+    if ! docker-compose ps "$SERVICE" 2>/dev/null | grep -q "Up"; then
+        return 1
+    fi
+    if ! docker-compose exec -T "$SERVICE" sh -lc 'command -v node' &>/dev/null; then
+        echo "Warning: the $SERVICE container has no node binary." >&2
+        echo "  Rebuild it with:  docker-compose build $SERVICE" >&2
+        return 1
+    fi
+    echo "Running front-end tests in the $SERVICE container..."
+    docker-compose exec -T "$SERVICE" sh -lc "cd /var/www/html && $COMMAND $*"
+}
+
+if ! run_in_container "$@"; then
+    echo "Falling back to the host toolchain..."
+    if ! command -v node &>/dev/null; then
+        echo "Error: 'node' not found on the host either." >&2
+        exit 1
+    fi
+    cd "$(dirname "$0")"
+    sh -lc "$COMMAND $*"
+fi

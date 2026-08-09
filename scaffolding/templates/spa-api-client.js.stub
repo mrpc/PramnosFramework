@@ -1,0 +1,103 @@
+/**
+ * Tiny fetch wrapper for the {{ appName }} JSON API.
+ *
+ * Two authentication modes work out of the box, and both are covered here:
+ *
+ *   - **Session cookie** (the default for a same-origin SPA). The framework's
+ *     UnifiedAuthMiddleware accepts the web session cookie as an API credential
+ *     for same-origin requests, so `credentials: 'same-origin'` is all the JS
+ *     needs — no token handling at all.
+ *   - **Bearer token**, for a SPA served from a different origin or a native
+ *     client. Call `setToken()` once and every later request carries it.
+ *
+ * Errors are thrown as ApiError so callers can branch on `status` (401 → log in
+ * again, 422 → show field errors) instead of parsing message strings.
+ */
+
+/** An HTTP-level API failure, carrying the status and decoded payload. */
+export class ApiError extends Error {
+    /**
+     * @param {string} message Human-readable summary
+     * @param {number} status  HTTP status code
+     * @param {*}      payload Decoded response body, when there was one
+     */
+    constructor(message, status, payload) {
+        super(message);
+        this.name    = 'ApiError';
+        this.status  = status;
+        this.payload = payload;
+    }
+}
+
+const BASE = '{{ apiPrefix }}';
+
+let token = null;
+
+/**
+ * Use a Bearer token for subsequent requests. Pass null to go back to
+ * cookie-only authentication.
+ *
+ * @param {string|null} value
+ */
+export function setToken(value) {
+    token = value;
+}
+
+/**
+ * Perform an API request and decode the JSON response.
+ *
+ * @param {string} path             Path below the API prefix, e.g. '/status'
+ * @param {object} [options]
+ * @param {string} [options.method] HTTP method (default GET)
+ * @param {*}      [options.body]   Payload, JSON-encoded when present
+ * @param {object} [options.headers] Extra headers
+ * @returns {Promise<*>} Decoded body, or null for 204
+ * @throws {ApiError} When the response status is not 2xx
+ */
+export async function request(path, { method = 'GET', body = null, headers = {} } = {}) {
+    const requestHeaders = { Accept: 'application/json', ...headers };
+    if (body !== null) {
+        requestHeaders['Content-Type'] = 'application/json';
+    }
+    if (token) {
+        requestHeaders.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(BASE + path, {
+        method,
+        headers: requestHeaders,
+        // Sends the session cookie, which the API accepts as a credential.
+        credentials: 'same-origin',
+        body: body === null ? null : JSON.stringify(body),
+    });
+
+    if (response.status === 204) {
+        return null;
+    }
+
+    // A failing endpoint may answer with HTML (a proxy error page), so decoding
+    // is attempted but never allowed to mask the real status.
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        payload = null;
+    }
+
+    if (!response.ok) {
+        const detail = payload && payload.message ? `: ${payload.message}` : '';
+        throw new ApiError(`${method} ${path} failed (${response.status})${detail}`, response.status, payload);
+    }
+
+    return payload;
+}
+
+export const api = {
+    get:    (path, options)       => request(path, { ...options, method: 'GET' }),
+    post:   (path, body, options) => request(path, { ...options, method: 'POST', body }),
+    put:    (path, body, options) => request(path, { ...options, method: 'PUT', body }),
+    patch:  (path, body, options) => request(path, { ...options, method: 'PATCH', body }),
+    delete: (path, options)       => request(path, { ...options, method: 'DELETE' }),
+};
+
+export default api;

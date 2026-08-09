@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Run npm inside the {{ appName }} app container.
+#
+# The front-end toolchain lives in the image, so the host needs no Node at all:
+#
+#   ./dockernpm install
+#   ./dockernpm run build
+#   ./dockernpm run dev      # Vite dev server on port {{ devPort }}
+set -euo pipefail
+
+SERVICE="app"
+
+if ! docker-compose ps "$SERVICE" 2>/dev/null | grep -q "Up"; then
+    echo "The $SERVICE container is not running. Start it with: docker-compose up -d" >&2
+    exit 1
+fi
+
+exec docker-compose exec "$SERVICE" sh -lc "cd /var/www/html && npm $*"

@@ -1,0 +1,32 @@
+/**
+ * Vitest configuration for the {{ appName }} front end.
+ *
+ * Separate from vite.config.js on purpose: the build config carries a `base`
+ * and an `outDir` that mean nothing to the test run, and keeping the two apart
+ * means a change to the deploy layout can never break the tests.
+ *
+ * jsdom gives the components a DOM; `globals: true` exposes describe/it/expect
+ * without an import in every file.
+ */
+import { defineConfig } from 'vitest/config';
+{{ pluginImports }}
+export default defineConfig({
+    plugins: [{{ pluginList }}],
+    resolve: {
+        // Without this, Vitest resolves the *server* build of component
+        // libraries and mounting fails with "mount(...) is not available on the
+        // server" — jsdom is a browser environment, so ask for the browser
+        // export condition explicitly.
+        conditions: ['browser'],
+    },
+    test: {
+        environment: 'jsdom',
+        globals: true,
+        include: ['{{ sourceDir }}/**/*.{test,spec}.js'],
+        coverage: {
+            provider: 'v8',
+            include: ['{{ sourceDir }}/**/*.{js,svelte}'],
+            exclude: ['{{ sourceDir }}/**/*.{test,spec}.js'],
+        },
+    },
+});

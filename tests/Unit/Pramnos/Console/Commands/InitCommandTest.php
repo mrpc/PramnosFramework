@@ -67,6 +67,7 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Test App',        // App Name
             'TestNamespace',   // Namespace
+            '',             // Step 1b: application style (ENTER -> mvc)
             'n',               // Step 2: Enable auth?
             'n',               // Step 2: Enable authserver?
             'n',               // Step 2: Enable queue?
@@ -117,6 +118,7 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Docker App',
             'DockerApp',
+            '',             // Step 1b: application style (ENTER -> mvc)
             'n',                 // Step 2: auth
             'n',                 // Step 2: authserver
             'n',                 // Step 2: queue
@@ -166,6 +168,7 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Minimal App',
             'MinApp',
+            '',             // Step 1b: application style (ENTER -> mvc)
             'n',            // Step 2: auth
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
@@ -210,6 +213,7 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'PG Mem App',
             'PGMemApp',
+            '',             // Step 1b: application style (ENTER -> mvc)
             'n',            // Step 2: auth
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
@@ -300,6 +304,7 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'No Cache App',
             'NoCacheApp',
+            '',             // Step 1b: application style (ENTER -> mvc)
             'n',            // Step 2: auth
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
@@ -350,6 +355,7 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             '',             // App Name (ENTER -> my-auto-app)
             '',             // Namespace (ENTER -> MyAutoApp)
+            '',             // Step 1b: application style (ENTER -> mvc)
             'n',            // Step 2: auth
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
@@ -410,6 +416,7 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Timescale App',
             'TimescaleApp',
+            '',             // Step 1b: application style (ENTER -> mvc)
             'n',            // Step 2: auth
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
@@ -458,6 +465,7 @@ class InitCommandTest extends TestCase
         $commandTester->setInputs([
             'Theme App',
             'ThemeApp',
+            '',             // Step 1b: application style (ENTER -> mvc)
             'n',            // Step 2: auth
             'n',            // Step 2: authserver
             'n',            // Step 2: queue
@@ -526,6 +534,7 @@ class InitCommandTest extends TestCase
         // Arrange — namespace 'MyCLIApp' → cliName 'mycliapp'
         $commandTester->setInputs([
             'My CLI App', 'MyCLIApp',
+            '',             // Step 1b: application style (ENTER -> mvc)
             'n', 'n', 'n', 'n', 'n',   // features
             'n',                   // REST API?
             'n',                   // webhook?
@@ -683,6 +692,7 @@ class InitCommandTest extends TestCase
         // Arrange — Docker enabled so the migrate fallback line appears in summary
         $commandTester->setInputs([
             'Migrate App', 'MigrateApp',
+            '',             // Step 1b: application style (ENTER -> mvc)
             'n', 'n', 'n', 'n', 'n',
             'n',            // REST API?
             'n',            // webhook?
@@ -721,6 +731,7 @@ class InitCommandTest extends TestCase
         // Arrange
         $commandTester->setInputs([
             'CDN Test App', 'CDNTestApp',
+            '',             // Step 1b: application style (ENTER -> mvc)
             'n', 'n', 'n', 'n', 'n',
             'n',            // REST API?
             'n',            // webhook?

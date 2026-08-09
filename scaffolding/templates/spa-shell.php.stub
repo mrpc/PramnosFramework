@@ -1,0 +1,70 @@
+<?php
+/**
+ * Single-page-application shell for {{ appName }}.
+ *
+ * A tiny page — deliberately NOT an MVC view (no theme, no getView()). It emits
+ * the app-shell HTML and boots the JS client, which talks to the JSON API over
+ * fetch(). The API is the contract; document it with `php {{ cliName }}.php api:docs`.
+ *
+ * Cache discipline: this shell is dynamic and must not be cached, while the
+ * assets it references are cached hard and busted on change. Both build modes
+ * are handled here:
+ *
+ *   - A Vite build writes {{ manifestPath }}; each entry carries a
+ *     content-hashed filename, which IS the cache-buster. Read it and emit the
+ *     hashed URLs (plus any CSS the entry imports).
+ *   - With no build (or before the first one), fall back to stamping the plain
+ *     asset paths with their modification time (app.js?v=…), so a deploy still
+ *     busts the cache without a toolchain.
+ */
+
+$root = __DIR__;
+
+/** Stamp an asset URL with the file's mtime — the build-less cache-buster. */
+$stamp = static function (string $path) use ($root): string {
+    $mtime = @filemtime($root . '/' . ltrim($path, '/')) ?: 0;
+    return htmlspecialchars($path . '?v=' . $mtime, ENT_QUOTES);
+};
+
+$scripts = [];
+$styles  = [];
+
+$manifestFile = $root . '/{{ manifestPath }}';
+if (is_file($manifestFile)) {
+    $manifest = json_decode((string) file_get_contents($manifestFile), true);
+    $entry    = is_array($manifest) ? ($manifest['{{ entryKey }}'] ?? null) : null;
+    if (is_array($entry) && isset($entry['file'])) {
+        $scripts[] = '{{ assetBase }}' . $entry['file'];
+        foreach ($entry['css'] ?? [] as $css) {
+            $styles[] = '{{ assetBase }}' . $css;
+        }
+    }
+}
+
+if ($scripts === []) {
+    // No manifest yet: fall back to the unbuilt asset paths.
+    $styles  = [$stamp('{{ fallbackCss }}')];
+    $scripts = [$stamp('{{ fallbackJs }}')];
+}
+
+// The shell itself must always be revalidated, or a deploy ships new assets
+// behind an old HTML document that never references them.
+header('Cache-Control: no-cache, must-revalidate');
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ appName }}</title>
+<?php foreach ($styles as $style): ?>
+    <link rel="stylesheet" href="<?php echo $style; ?>">
+<?php endforeach; ?>
+</head>
+<body>
+    <div id="app">Loading…</div>
+<?php foreach ($scripts as $script): ?>
+    <script type="module" src="<?php echo $script; ?>"></script>
+<?php endforeach; ?>
+</body>
+</html>

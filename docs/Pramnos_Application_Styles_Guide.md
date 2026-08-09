@@ -94,13 +94,47 @@ Enrich request/response schemas via a deep-merged `--overrides` document.
 ## The SPA front end
 
 The front end is a single-page app served from the web root; it talks to the JSON
-API over `fetch()`. Because the contract is the API, it can be anything (vanilla
-JS, React, Vue) without changing the backend. Starting points ship as scaffolding
-stubs — copy them to your document root and build out from there:
+API over `fetch()`. Because the contract is the API, it can be anything (Svelte,
+React, Vue, plain JS) without changing the backend.
 
-- `scaffolding/templates/spa-index.php.stub` — the app-shell page (**default**).
-- `scaffolding/templates/spa-index.html.stub` — a static shell, for build-tool setups.
-- `scaffolding/templates/spa-app.js.stub` — a tiny fetch wrapper + boot.
+### Scaffold it with `init`
+
+`pramnos init` asks for the application style up front and generates the whole
+front end — sources, build, tests, Docker tooling — so nothing has to be copied
+by hand:
+
+```bash
+php vendor/bin/pramnos init --app-style=spa --spa-stack=svelte
+```
+
+| `--app-style` | What you get |
+|---|---|
+| `mvc` | The default. Server-rendered controllers, views and themes; no SPA. |
+| `spa` | SPA at the site root. Page requests render the shell; the API and the scaffolded server-rendered areas (login, admin CRUD, OAuth) keep reaching the front controller. |
+| `hybrid` | Both. MVC stays in charge, the SPA is mounted under `/app`. |
+
+| `--spa-stack` | Sources | Build | Tests |
+|---|---|---|---|
+| `svelte` (default) | `frontend/` — Svelte 5 runes, Tailwind v4 + daisyUI v5 | Vite → `www/assets/spa/` | Vitest + jsdom + `@testing-library/svelte` |
+| `vanilla-vite` | `frontend/` — plain ES modules | Vite → `www/assets/spa/` | Vitest + jsdom |
+| `vanilla` | `www/assets/js/` — served exactly as written | none | `node --test`, zero dependencies |
+
+Both build stacks put Node **inside the app image** and add two helper scripts,
+so the host needs no toolchain at all:
+
+```bash
+./dockernpm install        # npm inside the container
+./dockernpm run build      # production build
+./dockernpm run dev        # Vite dev server + HMR, port published by compose
+./testjs                   # front-end tests (Vitest, or node --test)
+```
+
+Tailwind and daisyUI are configured from CSS alone (`@import "tailwindcss";`
+`@plugin "daisyui";`) — there is no `tailwind.config.js` to keep in sync.
+
+Every stack ships with tests for the API client (cookie auth, Bearer auth, JSON
+encoding, `204`, error statuses) and, for Svelte, component tests for the root
+screen. They are meant to be extended, not deleted.
 
 ### The shell is a page, not a view
 
@@ -111,26 +145,29 @@ dynamic and must not be cached; the assets it references are cached hard and
 busted on change** (exactly what Laravel/Rails/Symfony do with fingerprinted
 assets).
 
-Two ways to get the busting, by whether you run a front-end build:
+The generated shell (`www/spa.php`, or `www/app.php` in a hybrid project) handles
+**both** busting modes and picks between them at runtime, so the same file is
+correct before and after the first build:
 
-- **No build tool → `spa-index.php.stub`.** A one-file PHP shell that stamps each
-  asset URL with the file's modification time (`app.css?v=…`). A deploy changes the
-  mtime → the browser refetches; unchanged assets stay cached far-future. Serve it
-  from the web root (e.g. `www/spa.php`); a thin front controller renders it for
-  page requests, and it is directly reachable too. This is the accessible default —
-  no toolchain, correct caching.
-- **A build tool (Vite/Rollup/…) → `spa-index.html.stub`.** The build emits
-  content-hashed filenames (`app.7f3a.js`) and a static `index.html` that references
-  them; the hash *is* the cache-buster, so a static shell is all you need.
+- **A Vite build wrote a manifest** → the shell reads
+  `www/assets/spa/.vite/manifest.json` and emits the content-hashed filenames
+  (`main-B7w2Jpx_.js`), plus whatever CSS the entry imports. The hash *is* the
+  cache-buster.
+- **No manifest yet, or no build at all** → it falls back to the plain asset
+  paths stamped with their modification time (`/assets/js/main.js?v=…`). A deploy
+  changes the mtime, the browser refetches, unchanged assets stay cached.
 
-Set `Cache-Control: max-age=31536000, immutable` on the versioned assets and
-`no-cache` (revalidate) on the shell.
+The shell itself sends `Cache-Control: no-cache, must-revalidate` — a cached
+shell would keep pointing at assets that no longer exist. Complete the discipline
+in the web server by setting `Cache-Control: max-age=31536000, immutable` on the
+versioned assets under `www/assets/spa/`.
 
 ---
 
 ## Directory layout (Services + API + SPA)
 
 ```
+frontend/          SPA sources (build stacks) — main.js, App.svelte, lib/api.js, __tests__/
 src/
   Controllers/     attribute-routed API controllers
   Services/        application logic + data access (create:service)

@@ -1,0 +1,57 @@
+<script>
+    /**
+     * Root component of the {{ appName }} SPA.
+     *
+     * Uses Svelte 5 runes ($state / $effect) and daisyUI classes. It calls the
+     * framework's health endpoint on mount so a fresh project shows, at a
+     * glance, that the front end reaches the JSON API — replace this with your
+     * own first screen.
+     */
+    import { api, ApiError } from './lib/api.js';
+
+    let status  = $state(null);
+    let error   = $state(null);
+    let loading = $state(true);
+
+    $effect(() => {
+        api.get('{{ probeEndpoint }}')
+            .then((payload) => { status = payload; })
+            .catch((err) => {
+                error = err instanceof ApiError
+                    ? `API answered ${err.status}`
+                    : 'Could not reach the API';
+            })
+            .finally(() => { loading = false; });
+    });
+</script>
+
+<div class="min-h-screen bg-base-200">
+    <div class="navbar bg-base-100 shadow-sm">
+        <a class="btn btn-ghost text-xl" href="/">{{ appName }}</a>
+    </div>
+
+    <main class="p-6">
+        <div class="card mx-auto w-full max-w-xl bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title">Front end is live</h2>
+
+                {#if loading}
+                    <span class="loading loading-spinner loading-md"></span>
+                {:else if error}
+                    <div role="alert" class="alert alert-error">
+                        <span>{error}</span>
+                    </div>
+                {:else}
+                    <div role="alert" class="alert alert-success">
+                        <span>Connected to the API.</span>
+                    </div>
+                    <pre class="mt-2 overflow-x-auto rounded bg-base-200 p-3 text-sm">{JSON.stringify(status, null, 2)}</pre>
+                {/if}
+
+                <div class="card-actions justify-end">
+                    <a class="btn btn-primary" href="{{ apiPrefix }}">Browse the API</a>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
