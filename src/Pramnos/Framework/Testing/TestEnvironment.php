@@ -151,11 +151,6 @@ class TestEnvironment
         $pdo->exec("CREATE DATABASE \"$dbName\" WITH TEMPLATE template1");
 
         // Import dump via psql if provided
-        // @codeCoverageIgnoreStart
-        // The psql import is only reachable after a successful PDO connection to
-        // the PostgreSQL container.  In the standard phpunit Docker environment the
-        // timescaledb container is not reachable from the PHP container, so the PDO
-        // constructor throws before this block is ever entered.
         if ($schemaPath && file_exists($schemaPath)) {
             $command = sprintf(
                 'PGPASSWORD=%s psql -h %s -p %s -U %s -d %s -f %s > /dev/null 2>&1',
@@ -168,7 +163,6 @@ class TestEnvironment
             );
             self::runCommand($command);
         }
-        // @codeCoverageIgnoreEnd
     }
 
     /**
