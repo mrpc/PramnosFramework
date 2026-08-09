@@ -145,11 +145,15 @@ class Application extends Base
         if ($appName == '') {
             self::$appInstances['default'] = $this;
             self::$lastUsedApplication = 'default';
-            $this->applicationInfo = require APP_PATH . DS . 'app.php';
+            $this->applicationInfo = self::loadApplicationInfo(
+                APP_PATH . DS . 'app.php'
+            );
         } else {
             self::$appInstances[$appName] = $this;
             self::$lastUsedApplication = $appName;
-            $this->applicationInfo = require APP_PATH . DS . $appName . '.php';
+            $this->applicationInfo = self::loadApplicationInfo(
+                APP_PATH . DS . $appName . '.php'
+            );
         }
         if (!defined('URL')) {
             define('URL', getUrl()); // @codeCoverageIgnore — URL is always defined before the first Application() in tests
@@ -167,6 +171,35 @@ class Application extends Base
         }
 
         parent::__construct();
+    }
+
+    /**
+     * Read an application configuration file (app/app.php or app/<name>.php).
+     *
+     * The file is optional: a project that has not been scaffolded yet (the
+     * `pramnos init` bootstrap case — the framework is installed via Composer
+     * but app/app.php does not exist) must still be able to construct an
+     * Application, otherwise the console front-controller fatals before `init`
+     * ever gets the chance to create that file. A missing or malformed config
+     * therefore yields an empty info array; every consumer already treats the
+     * individual keys as optional.
+     *
+     * An existing file is returned exactly as before — including a config that
+     * returns an object — so nothing changes for a scaffolded project. Only a
+     * scalar/null return (a half-written file, or one missing its `return`)
+     * degrades to [], instead of assigning a scalar that would break every
+     * later `$app->applicationInfo['…']` read.
+     *
+     * @param  string $file Absolute path of the configuration file
+     * @return array|object Application information, or [] when unavailable
+     */
+    protected static function loadApplicationInfo($file)
+    {
+        if (!file_exists($file)) {
+            return array();
+        }
+        $info = require $file;
+        return (is_array($info) || is_object($info)) ? $info : array();
     }
 
     /**
