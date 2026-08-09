@@ -181,8 +181,14 @@ class TestEnvironmentTest extends TestCase
      * $schemaPath is provided and the file exists (lines 148-157).
      *
      * Uses a unique database name to avoid conflicts with parallel tests.
-     * If the PostgreSQL container is unavailable the test is skipped
-     * gracefully; if it is available the schema-import branch is exercised.
+     *
+     * Failure handling is deliberately narrow. Only a genuine "cannot reach the
+     * container" error skips the test; everything else must fail, so a real
+     * regression in setupPostgres() cannot hide behind a green-looking skip.
+     * The one tolerated flake is SQLSTATE 55006: setupPostgres() creates the
+     * database `WITH TEMPLATE template1`, which PostgreSQL refuses while any
+     * other session holds template1 — a transient collision with the rest of
+     * the suite, so it is retried rather than reported either way.
      */
     public function test_setupPostgres_schema_import_branch(): void
     {
@@ -194,10 +200,27 @@ class TestEnvironmentTest extends TestCase
         $reflection = new \ReflectionClass(TestEnvironment::class);
         $method     = $reflection->getMethod('setupPostgres');
 
-        try {
-            // Act — connect to timescaledb, create the DB, then import the schema
-            $method->invoke(null, 'timescaledb', 5432, $uniqueDb, 'postgres', 'secret', $schemaFile);
-            // Assert — no exception means lines 148-157 were executed
+        $templateBusy = null;
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            try {
+                // Act — connect to timescaledb, create the DB, then import the schema
+                $method->invoke(null, 'timescaledb', 5432, $uniqueDb, 'postgres', 'secret', $schemaFile);
+            } catch (\PDOException $e) {
+                if ($this->isConnectionFailure($e)) {
+                    $this->markTestSkipped(
+                        'timescaledb container not reachable: ' . $e->getMessage()
+                    );
+                }
+                if ($e->getCode() === '55006') {
+                    // template1 in use by another session — back off and retry.
+                    $templateBusy = $e;
+                    usleep(300000);
+                    continue;
+                }
+                throw $e; // any other database error is a real failure
+            }
+
+            // Assert — no exception means the create + psql import branch ran
             $this->assertTrue(true, 'setupPostgres() ran the psql import branch without error');
 
             // Cleanup — drop the test database we just created
@@ -207,12 +230,34 @@ class TestEnvironmentTest extends TestCase
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
             $pdo->exec("DROP DATABASE IF EXISTS \"$uniqueDb\"");
-        } catch (\PDOException $e) {
-            $this->markTestSkipped('timescaledb container not reachable: ' . $e->getMessage());
-        } catch (\Exception $e) {
-            // Connection worked but something else failed — still proves the branch ran
-            $this->assertTrue(true, 'Branch exercised (failed downstream): ' . $e->getMessage());
+            return;
         }
+
+        // Every attempt lost the race for template1 — report it as a skip with the
+        // true reason, never as a pass.
+        $this->markTestSkipped(
+            'template1 was busy on all 5 attempts: ' . $templateBusy->getMessage()
+        );
+    }
+
+    /**
+     * Is this PDOException a "could not reach the server" error, as opposed to a
+     * server that answered and rejected the statement?
+     *
+     * Connection failures carry SQLSTATE class 08 (connection exception), but the
+     * pgsql driver reports a bare libpq error code (e.g. 7) when the connection
+     * never got far enough to have a SQLSTATE — hence the message fallback.
+     */
+    private function isConnectionFailure(\PDOException $e): bool
+    {
+        if (str_starts_with((string) $e->getCode(), '08')) {
+            return true;
+        }
+        return (bool) preg_match(
+            '/could not connect|connection refused|could not translate host name'
+            . '|no route to host|timeout expired|server closed the connection/i',
+            $e->getMessage()
+        );
     }
 
     private function removeDirectory($path)
