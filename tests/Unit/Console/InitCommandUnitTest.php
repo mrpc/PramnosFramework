@@ -917,6 +917,48 @@ class InitCommandUnitTest extends TestCase
         // Dockerfile targets PHP 8.5 (recommended development image; minimum requirement is 8.1)
         $dockerfile = file_get_contents($this->tmpDir . '/Dockerfile');
         $this->assertStringContainsString('php:8.5-apache', $dockerfile);
+
+        // The database CLI client matching the selected engine must be installed:
+        // TestEnvironment's schema import shells out to it with output redirected to
+        // /dev/null, so without it a dump import silently does nothing.
+        $this->assertStringContainsString('postgresql-client', $dockerfile);
+        $this->assertStringNotContainsString('default-mysql-client', $dockerfile);
+    }
+
+    /**
+     * A MySQL project gets the MySQL client instead of the PostgreSQL one — the
+     * two are mutually exclusive so the image stays as small as it can be.
+     */
+    public function testDockerfileInstallsMysqlClientForMysqlProjects(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'   => 'DockerMysqlApp',
+            '--namespace'  => 'DockerMysqlApp',
+            '--features'   => '',
+            '--ui-system'  => 'plain-css',
+            '--docker'     => 'y',
+            '--docker-port'=> '8080',
+            '--cache-system' => 'none',
+            '--libraries'  => '',
+            '--db-type'    => 'mysql',
+            '--db-host'    => 'db',
+            '--db-name'    => 'dockerapp_db',
+            '--db-user'    => 'dockerapp',
+            '--db-pass'    => 'secret',
+            '--db-prefix'  => '',
+        ], ['interactive' => false]);
+
+        // Assert
+        $dockerfile = file_get_contents($this->tmpDir . '/Dockerfile');
+        $this->assertStringContainsString('default-mysql-client', $dockerfile);
+        $this->assertStringNotContainsString('postgresql-client', $dockerfile);
     }
 
     /**
