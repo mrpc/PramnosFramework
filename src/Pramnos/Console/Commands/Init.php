@@ -2867,7 +2867,13 @@ PHP;
         $docRoot  = '/var/www/html/www';
 
         $dockerfile  = "FROM php:8.5-apache\n";
-        $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev libonig-dev libzip-dev libxml2-dev libpng-dev libjpeg-dev libwebp-dev libfreetype6-dev git unzip\n";
+        // The database command-line client matching $dbType is installed on purpose:
+        // TestEnvironment::setup() imports a schema dump by shelling out to psql /
+        // mysql, and it redirects all output to /dev/null — so without the client the
+        // import is a silent no-op and the test database just stays empty. It also
+        // makes `./dockerbash` a usable place to poke at the database by hand.
+        $dbClient = $isPostgres ? 'postgresql-client' : 'default-mysql-client';
+        $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev libonig-dev libzip-dev libxml2-dev libpng-dev libjpeg-dev libwebp-dev libfreetype6-dev git unzip $dbClient\n";
         $dockerfile .= "COPY --from=composer:latest /usr/bin/composer /usr/bin/composer\n";
         $dockerfile .= "RUN docker-php-ext-configure intl\n";
         $dockerfile .= "RUN docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype\n";
