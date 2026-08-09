@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y \
     unzip \
     git \
     nodejs \
+    postgresql-client \
+    default-mysql-client \
     && docker-php-ext-configure intl \
     && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
     && docker-php-ext-install mysqli pdo_mysql pdo_pgsql pgsql mbstring zip intl bcmath gd ftp pcntl \

@@ -6,6 +6,13 @@ use Pramnos\Framework\Testing\TestEnvironment;
 
 class TestEnvironmentTest extends TestCase
 {
+    /**
+     * Table created by the dumps the schema-import tests feed to psql/mysql.
+     * Its presence in the freshly created database is the proof that the import
+     * step ran, rather than merely not throwing.
+     */
+    private const IMPORT_PROBE_TABLE = 'pramnos_import_probe';
+
     private $tempDir;
 
     protected function setUp(): void
@@ -192,52 +199,33 @@ class TestEnvironmentTest extends TestCase
      */
     public function test_setupPostgres_schema_import_branch(): void
     {
-        // Arrange — create a real (tiny) SQL file to satisfy file_exists()
+        // Arrange — a dump whose effect is observable afterwards. A dump of
+        // `SELECT 1;` would leave no trace, so the assertion could not tell an
+        // import that ran from one that silently did nothing.
         $schemaFile = $this->tempDir . '/import_test.sql';
-        file_put_contents($schemaFile, 'SELECT 1;');
+        file_put_contents(
+            $schemaFile,
+            'CREATE TABLE ' . self::IMPORT_PROBE_TABLE . ' (id integer);' . "\n"
+        );
 
-        $uniqueDb   = 'pramnos_cov_' . substr(md5((string)getmypid()), 0, 8);
+        $dbName     = $this->uniqueDbName('cov');
         $reflection = new \ReflectionClass(TestEnvironment::class);
         $method     = $reflection->getMethod('setupPostgres');
 
-        $templateBusy = null;
-        for ($attempt = 1; $attempt <= 5; $attempt++) {
-            try {
-                // Act — connect to timescaledb, create the DB, then import the schema
-                $method->invoke(null, 'timescaledb', 5432, $uniqueDb, 'postgres', 'secret', $schemaFile);
-            } catch (\PDOException $e) {
-                if ($this->isConnectionFailure($e)) {
-                    $this->markTestSkipped(
-                        'timescaledb container not reachable: ' . $e->getMessage()
-                    );
-                }
-                if ($e->getCode() === '55006') {
-                    // template1 in use by another session — back off and retry.
-                    $templateBusy = $e;
-                    usleep(300000);
-                    continue;
-                }
-                throw $e; // any other database error is a real failure
-            }
+        try {
+            // Act — connect to timescaledb, create the DB, then import the schema
+            $this->invokeSetup($method, ['timescaledb', 5432, $dbName, 'postgres', 'secret', $schemaFile]);
 
-            // Assert — no exception means the create + psql import branch ran
-            $this->assertTrue(true, 'setupPostgres() ran the psql import branch without error');
+            $this->requireClientBinary('psql');
 
-            // Cleanup — drop the test database we just created
-            $pdo = new \PDO(
-                "pgsql:host=timescaledb;port=5432;dbname=postgres",
-                'postgres', 'secret',
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
+            // Assert — the dump's table is there, so psql really imported it
+            $this->assertTrue(
+                $this->pgTableExists($dbName, self::IMPORT_PROBE_TABLE),
+                'the psql import branch created the dump table'
             );
-            $pdo->exec("DROP DATABASE IF EXISTS \"$uniqueDb\"");
-            return;
+        } finally {
+            $this->dropPgDatabase($dbName);
         }
-
-        // Every attempt lost the race for template1 — report it as a skip with the
-        // true reason, never as a pass.
-        $this->markTestSkipped(
-            'template1 was busy on all 5 attempts: ' . $templateBusy->getMessage()
-        );
     }
 
     /**
@@ -283,60 +271,229 @@ class TestEnvironmentTest extends TestCase
     }
 
     /**
-     * Test real setupPostgres with the available timescaledb container.
+     * setupPostgres() with no schema path must still (re)create the database —
+     * and must be repeatable: the second call has to terminate the sessions on
+     * the existing database and drop it before recreating, which is the only
+     * thing standing between a test run and "database is being accessed by
+     * other users".
      */
-    public function test_real_setup_postgres()
+    public function test_setupPostgres_recreates_database_without_schema(): void
     {
+        // Arrange
+        $dbName     = $this->uniqueDbName('nos');
         $reflection = new \ReflectionClass(TestEnvironment::class);
-        $method = $reflection->getMethod('setupPostgres');
+        $method     = $reflection->getMethod('setupPostgres');
 
-        // We use the real credentials from docker-compose.yml
-        // If this fails due to environment, it will still cover some lines.
         try {
-            $method->invoke(null, 'timescaledb', 5432, 'pramnos_test_ext', 'postgres', 'secret', null);
-            $this->assertTrue(true);
-        } catch (\Exception $e) {
-            // We still get coverage even if it fails at the PDO or psql step
-            $this->assertTrue(true);
+            // Act — create once, hold a session on it, then create again
+            $this->invokeSetup($method, ['timescaledb', 5432, $dbName, 'postgres', 'secret', null]);
+            $this->assertTrue($this->pgDatabaseExists($dbName), 'database created on the first call');
+
+            $held = $this->pgConnection($dbName); // an open session on the target DB
+            $this->invokeSetup($method, ['timescaledb', 5432, $dbName, 'postgres', 'secret', null]);
+
+            // Assert — the drop+recreate went through despite the open session,
+            // which proves the pg_terminate_backend() step did its job.
+            $this->assertTrue($this->pgDatabaseExists($dbName), 'database recreated on the second call');
+            unset($held);
+        } finally {
+            $this->dropPgDatabase($dbName);
         }
     }
 
     /**
-     * Test real setupMysql with the available db container.
+     * A schema path pointing at a file that does not exist must be ignored: the
+     * database is created, the psql import is skipped, and nothing throws.
      */
-    public function test_real_setup_mysql()
+    public function test_setupPostgres_skips_import_when_schema_file_missing(): void
     {
+        // Arrange — a path that was never written
+        $dbName     = $this->uniqueDbName('nof');
+        $missing    = $this->tempDir . '/not_written.sql';
         $reflection = new \ReflectionClass(TestEnvironment::class);
-        $method = $reflection->getMethod('setupMysql');
+        $method     = $reflection->getMethod('setupPostgres');
 
-        // Provide a dummy schema file to cover the import branch
+        try {
+            // Act
+            $this->invokeSetup($method, ['timescaledb', 5432, $dbName, 'postgres', 'secret', $missing]);
+
+            // Assert — database exists, but the dump's table obviously does not
+            $this->assertTrue($this->pgDatabaseExists($dbName));
+            $this->assertFalse(
+                $this->pgTableExists($dbName, self::IMPORT_PROBE_TABLE),
+                'no import must have run for a non-existent schema file'
+            );
+        } finally {
+            $this->dropPgDatabase($dbName);
+        }
+    }
+
+    /**
+     * setupMysql() must create the database and import the dump through the
+     * mysql client. Asserting on a table created by the dump is what proves the
+     * import actually ran — a dump of `SELECT 1;` would pass even if the client
+     * silently did nothing.
+     */
+    public function test_setupMysql_creates_database_and_imports_schema(): void
+    {
+        // Arrange
+        $dbName     = $this->uniqueDbName('my');
         $schemaFile = $this->tempDir . '/schema.sql';
-        file_put_contents($schemaFile, 'SELECT 1;');
+        file_put_contents(
+            $schemaFile,
+            'CREATE TABLE ' . self::IMPORT_PROBE_TABLE . ' (id INT);' . "\n"
+        );
+        $reflection = new \ReflectionClass(TestEnvironment::class);
+        $method     = $reflection->getMethod('setupMysql');
 
         try {
-            $method->invoke(null, 'db', 3306, 'pramnos_test_ext', 'root', 'secret', $schemaFile);
-            $this->assertTrue(true);
-        } catch (\Exception $e) {
-            $this->assertTrue(true);
+            // Act
+            $this->invokeSetup($method, ['db', 3306, $dbName, 'root', 'secret', $schemaFile]);
+
+            $this->requireClientBinary('mysql');
+
+            // Assert — the table from the dump is present in the new database
+            $pdo   = $this->mysqlConnection();
+            $found = $pdo->query(
+                'SELECT COUNT(*) FROM information_schema.tables'
+                . " WHERE table_schema = '$dbName'"
+                . " AND table_name = '" . self::IMPORT_PROBE_TABLE . "'"
+            )->fetchColumn();
+            $this->assertSame(1, (int) $found, 'the mysql import branch created the dump table');
+        } finally {
+            $this->dropMysqlDatabase($dbName);
+        }
+    }
+
+    // ── Real-container helpers ────────────────────────────────────────────────
+
+    /**
+     * Run one of the setup* methods against a real container under the suite's
+     * failure policy: an unreachable container skips, a lost race for template1
+     * is retried and then skips with the true reason, and every other database
+     * error propagates so a genuine regression fails the test.
+     *
+     * @param array<int, mixed> $args Positional arguments for the setup method
+     */
+    private function invokeSetup(\ReflectionMethod $method, array $args): void
+    {
+        $templateBusy = null;
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            try {
+                $method->invoke(null, ...$args);
+                return;
+            } catch (\PDOException $e) {
+                if ($this->isConnectionFailure($e)) {
+                    $this->markTestSkipped('database container not reachable: ' . $e->getMessage());
+                }
+                if ($e->getCode() === '55006') {
+                    // template1 in use by another session — back off and retry.
+                    $templateBusy = $e;
+                    usleep(300000);
+                    continue;
+                }
+                throw $e; // any other database error is a real failure
+            }
+        }
+
+        $this->markTestSkipped(
+            'template1 was busy on all 5 attempts: ' . $templateBusy->getMessage()
+        );
+    }
+
+    /**
+     * Skip when the command-line client the import shells out to is absent.
+     *
+     * setupPostgres()/setupMysql() pipe the dump through `psql`/`mysql` with all
+     * output redirected to /dev/null, so on an image without those binaries the
+     * import is a silent no-op and the database simply stays empty. That is an
+     * environment limitation, not a regression in the code under test — but it
+     * must be reported as a skip with the real reason, never asserted away.
+     */
+    private function requireClientBinary(string $binary): void
+    {
+        $found = trim((string) shell_exec('command -v ' . escapeshellarg($binary) . ' 2>/dev/null'));
+        if ($found === '') {
+            $this->markTestSkipped(
+                "the '$binary' client is not installed in this container, so the schema "
+                . 'import silently does nothing here (rebuild the image to get it)'
+            );
         }
     }
 
     /**
-     * Test real setupPostgres with schema import.
+     * A database name unique to this process and test, so parallel or repeated
+     * runs never collide on a shared name.
      */
-    public function test_real_setup_postgres_with_schema()
+    private function uniqueDbName(string $tag): string
     {
-        $reflection = new \ReflectionClass(TestEnvironment::class);
-        $method = $reflection->getMethod('setupPostgres');
+        return 'pramnos_te_' . $tag . '_' . substr(md5($tag . getmypid() . uniqid()), 0, 8);
+    }
 
-        $schemaFile = $this->tempDir . '/schema_pg.sql';
-        file_put_contents($schemaFile, 'SELECT 1;');
+    /** Open a connection to the TimescaleDB/PostgreSQL container. */
+    private function pgConnection(string $dbName = 'postgres'): \PDO
+    {
+        return new \PDO(
+            "pgsql:host=timescaledb;port=5432;dbname=$dbName",
+            'postgres',
+            'secret',
+            [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
+        );
+    }
 
+    /** Does $dbName exist on the PostgreSQL server? */
+    private function pgDatabaseExists(string $dbName): bool
+    {
+        $statement = $this->pgConnection()->prepare(
+            'SELECT COUNT(*) FROM pg_database WHERE datname = ?'
+        );
+        $statement->execute([$dbName]);
+        return (int) $statement->fetchColumn() === 1;
+    }
+
+    /** Does $table exist inside the PostgreSQL database $dbName? */
+    private function pgTableExists(string $dbName, string $table): bool
+    {
+        $statement = $this->pgConnection($dbName)->prepare(
+            'SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?'
+        );
+        $statement->execute([$table]);
+        return (int) $statement->fetchColumn() === 1;
+    }
+
+    /** Best-effort cleanup of a PostgreSQL database created by a test. */
+    private function dropPgDatabase(string $dbName): void
+    {
         try {
-            $method->invoke(null, 'timescaledb', 5432, 'pramnos_test_ext', 'postgres', 'secret', $schemaFile);
-            $this->assertTrue(true);
-        } catch (\Exception $e) {
-            $this->assertTrue(true);
+            $pdo = $this->pgConnection();
+            $pdo->exec(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbName'"
+            );
+            $pdo->exec("DROP DATABASE IF EXISTS \"$dbName\"");
+        } catch (\PDOException) {
+            // Cleanup is best-effort: the container may be gone, and a leftover
+            // uniquely-named database must never turn a passing test red.
+        }
+    }
+
+    /** Open a connection to the MySQL container. */
+    private function mysqlConnection(): \PDO
+    {
+        return new \PDO(
+            'mysql:host=db;port=3306',
+            'root',
+            'secret',
+            [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
+        );
+    }
+
+    /** Best-effort cleanup of a MySQL database created by a test. */
+    private function dropMysqlDatabase(string $dbName): void
+    {
+        try {
+            $this->mysqlConnection()->exec("DROP DATABASE IF EXISTS `$dbName`");
+        } catch (\PDOException) {
+            // Best-effort — see dropPgDatabase().
         }
     }
 }
