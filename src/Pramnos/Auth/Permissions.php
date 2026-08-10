@@ -1,12 +1,35 @@
 <?php
 namespace Pramnos\Auth;
 /**
- * Store and manage permissions
+ * Store and manage permissions.
+ *
+ * Storage moved, the API did not. This class historically read
+ * `<prefix>permissions`, a table **no migration creates** and which nothing
+ * calls `setupDb()` for — so on a stock installation it did not exist, and every
+ * lookup failed. Rather than retire a working API, it now answers from whichever
+ * store the installation actually has:
+ *
+ *   1. `<prefix>permissions` when that table exists. An installation that has it
+ *      has been writing to it, so it stays authoritative — nothing changes.
+ *   2. Otherwise `authserver.permissions`, the RBAC system the framework
+ *      maintains, read through PermissionResolver.
+ *   3. Neither: the class says so instead of guessing. That distinction is the
+ *      one that used to be missing — a failed lookup was reported as `false`,
+ *      indistinguishable from a deny, so callers refused everything.
+ *
+ * The new store understands more than this API can express (roles, priorities,
+ * expiry, audience scoping, ABAC conditions). Reading it through these methods
+ * gives the subset they describe; use PermissionResolver directly for the rest.
+ *
+ * Moving old rows across: docs/Pramnos_Legacy_Permissions_Migration.md.
  */
 class Permissions extends \Pramnos\Framework\Base
 {
 
     protected $_storageMethod = 'database';
+
+    /** @var string|null Resolved store: legacy|authserver|none */
+    protected $_store = null;
     protected $_cache = array();
     protected $_defaut = array();
 
@@ -266,11 +289,140 @@ class Permissions extends \Pramnos\Framework\Base
      * @param bool $nonExistEqualsFalse If set to true,
      * if a permission doesn't exist, we return false.
      */
+
+    /**
+     * Which permission store this installation actually has.
+     *
+     * Cached per instance: schema does not change mid-request, and every
+     * permission question would otherwise repeat the same lookup.
+     *
+     * @return string legacy|authserver|none
+     */
+    protected function activeStore()
+    {
+        if ($this->_store !== null) {
+            return $this->_store;
+        }
+
+        $database = \Pramnos\Framework\Factory::getDatabase();
+
+        // The legacy table wins when present: an installation that has it has
+        // been writing to it, and silently reading somewhere else would make its
+        // existing grants disappear.
+        try {
+            $database->query(
+                'SELECT 1 FROM ' . DB_PERMISSIONSTABLE . ' LIMIT 1',
+                false
+            );
+            return $this->_store = 'legacy';
+        } catch (\Throwable) {
+            // Not there — fall through to the maintained system.
+        }
+
+        try {
+            $database->query('SELECT 1 FROM authserver.permissions LIMIT 1', false);
+            return $this->_store = 'authserver';
+        } catch (\Throwable) {
+            return $this->_store = 'none';
+        }
+    }
+
+    /**
+     * Answer from `authserver.permissions` in the terms this API speaks.
+     *
+     * The mapping is the same one the migration guide documents: resource is
+     * object_type, resourceElement is object_id (empty meaning "any"), privilege
+     * is action (with `admin` matching the `*` wildcard), and grant_type gives
+     * the boolean. Deny-over-allow is already applied by the resolver.
+     *
+     * Grants carrying ABAC conditions are skipped: the resolver hands conditions
+     * to the application to evaluate against its own request context, and this
+     * API has no way to express or receive one — treating a conditional grant as
+     * unconditional would hand out access the rule did not give.
+     *
+     * @return bool|null true allow, false deny, null no matching grant
+     */
+    protected function _isAllowedFromAuthserver($subject, $resource, $privilege,
+        $resourceElement = '', $subjectType = 'user')
+    {
+        try {
+            $resolver = new \Pramnos\Auth\PermissionResolver(
+                \Pramnos\Framework\Factory::getDatabase()
+            );
+            $result = $resolver->resolve((int) $subject, null);
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return null;
+        }
+
+        // The legacy API addresses users and groups; the new one calls the
+        // latter roles, and the resolver already folds a user's roles in.
+        if ($subjectType !== 'user' && $subjectType !== 'group') {
+            return null;
+        }
+
+        $verdict = null;
+        foreach ($result['permissions'] ?? [] as $grant) {
+            if (($grant['object_type'] ?? '') !== $resource) {
+                continue;
+            }
+
+            $objectId = $grant['object_id'] ?? null;
+            if ($resourceElement !== '' && $objectId !== null && $objectId !== $resourceElement) {
+                continue;
+            }
+            if ($resourceElement === '' && $objectId !== null) {
+                continue;
+            }
+
+            $action = (string) ($grant['action'] ?? '');
+            if ($action !== $privilege && $action !== '*'
+                && !($privilege === 'admin' && $action === '*')) {
+                continue;
+            }
+            if (($grant['conditions'] ?? null) !== null) {
+                continue;
+            }
+
+            if (($grant['grant'] ?? '') === 'deny') {
+                return false;
+            }
+            $verdict = true;
+        }
+
+        return $verdict;
+    }
+
     public function _isAllowed($subject, $resource, $privilege,
             $resourceElement = '', $resourceType = 'module',
             $subjectType = 'user', $nonExistEqualsFalse = true)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
+
+        $store = $this->activeStore();
+
+        if ($store === 'authserver') {
+            $verdict = $this->_isAllowedFromAuthserver(
+                $subject, $resource, $privilege, $resourceElement, $subjectType
+            );
+            if ($verdict !== null) {
+                return $verdict;
+            }
+            // No matching grant. With the tri-state flag that is "no opinion";
+            // otherwise the documented contract is still "unknown means no".
+            return $nonExistEqualsFalse == false
+                ? null
+                : ($this->_defaut[$privilege] ?? false);
+        }
+
+        if ($store === 'none') {
+            // Nothing to consult. Saying "denied" here is what made a stock
+            // installation refuse everything: the caller cannot tell a real deny
+            // from a store that was never provisioned.
+            return $nonExistEqualsFalse == false
+                ? null
+                : ($this->_defaut[$privilege] ?? false);
+        }
 
         //If we are dealing with a module and subject is admin of this module,
         // then we can grand access to everything

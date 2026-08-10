@@ -71,6 +71,7 @@ nav:
     - Changelog: version-history/index.md
     - Releases: releases.md
     - Upgrade Guide: Pramnos_Upgrade_Guide.md
+    - Legacy Permissions Migration: Pramnos_Legacy_Permissions_Migration.md
     - Roadmap & Open Items: Roadmap.md
   - Core Framework:
     - Framework Overview: Pramnos_Framework_Guide.md
