@@ -1,0 +1,144 @@
+<script>
+    /**
+     * Administration for {{ appName }} — the SPA counterpart of the generated
+     * server-rendered admin pages.
+     *
+     * Read-only on purpose: creating and deactivating users has consequences
+     * (sessions, tokens, GDPR records) the existing server-rendered flows
+     * already handle, and a thinner duplicate is how the two drift apart. What
+     * an admin screen needs most — see who is there, search, read the logs,
+     * glance at the numbers — is here.
+     */
+    import { api, ApiError } from '../lib/api.js';
+
+    const TABS = [
+        { id: 'summary', label: 'Overview' },
+        { id: 'users',   label: 'Users' },
+        { id: 'logs',    label: 'Logs' },
+    ];
+
+    let tab     = $state('summary');
+    let loading = $state(true);
+    let error   = $state(null);
+
+    let summary = $state(null);
+    let users   = $state([]);
+    let total   = $state(0);
+    let page    = $state(1);
+    let search  = $state('');
+    let logs    = $state([]);
+
+    /** Load whatever the current tab shows. */
+    async function load() {
+        loading = true;
+        error   = null;
+        try {
+            if (tab === 'summary') {
+                summary = await api.get('/admin/summary');
+            } else if (tab === 'users') {
+                const params = new URLSearchParams({ page: String(page), limit: '20' });
+                if (search) {
+                    params.set('search', search);
+                }
+                const result = await api.get(`/admin/users?${params}`);
+                users = result.data ?? [];
+                total = result.pagination?.totalitems ?? users.length;
+            } else {
+                const result = await api.get('/admin/logs?limit=50');
+                logs = result.lines ?? result.content ?? result.data ?? [];
+            }
+        } catch (err) {
+            // 403 is a different problem from a broken endpoint, and an admin
+            // screen is exactly where that distinction is worth showing.
+            error = err instanceof ApiError && err.status === 403
+                ? 'You do not have permission to see this.'
+                : `Could not load: ${err instanceof ApiError ? 'HTTP ' + err.status : 'no response'}`;
+        } finally {
+            loading = false;
+        }
+    }
+
+    $effect(() => { load(); });
+
+    /** Switch tab and reload. */
+    function show(id) {
+        tab  = id;
+        page = 1;
+        load();
+    }
+</script>
+
+<div class="card bg-base-100 shadow">
+    <div class="card-body">
+        <div role="tablist" class="tabs tabs-boxed w-fit">
+            {#each TABS as item}
+                <button
+                    role="tab"
+                    class="tab"
+                    class:tab-active={tab === item.id}
+                    onclick={() => show(item.id)}
+                >{item.label}</button>
+            {/each}
+        </div>
+
+        {#if error}
+            <div role="alert" class="alert alert-error mt-4"><span>{error}</span></div>
+        {:else if loading}
+            <span class="loading loading-spinner loading-md mt-4"></span>
+        {:else if tab === 'summary'}
+            <div class="stats mt-4 shadow">
+                <div class="stat">
+                    <div class="stat-title">Users</div>
+                    <div class="stat-value">{summary?.users ?? '—'}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-title">Sessions</div>
+                    <div class="stat-value">{summary?.sessions ?? '—'}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-title">PHP</div>
+                    <div class="stat-value text-lg">{summary?.php ?? '—'}</div>
+                </div>
+            </div>
+        {:else if tab === 'users'}
+            <form class="join mt-4" onsubmit={(e) => { e.preventDefault(); page = 1; load(); }}>
+                <input class="input input-bordered input-sm join-item" placeholder="Search users" bind:value={search} />
+                <button class="btn btn-sm join-item" type="submit">Search</button>
+            </form>
+
+            <div class="mt-3 overflow-x-auto">
+                <table class="table table-zebra">
+                    <thead>
+                        <tr><th>ID</th><th>Username</th><th>Email</th><th>Type</th><th>Active</th></tr>
+                    </thead>
+                    <tbody>
+                        {#each users as row}
+                            <tr>
+                                <td>{row.userid}</td>
+                                <td>{row.username}</td>
+                                <td>{row.email}</td>
+                                <td>{row.usertype}</td>
+                                <td>{row.active ? 'yes' : 'no'}</td>
+                            </tr>
+                        {:else}
+                            <tr><td colspan="5">No users matched.</td></tr>
+                        {/each}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mt-3 flex items-center gap-3">
+                <div class="join">
+                    <button class="btn btn-sm join-item" disabled={page <= 1} onclick={() => { page -= 1; load(); }}>«</button>
+                    <button class="btn btn-sm join-item">{page}</button>
+                    <button class="btn btn-sm join-item" disabled={users.length < 20} onclick={() => { page += 1; load(); }}>»</button>
+                </div>
+                <span class="text-sm opacity-70">{total} users</span>
+            </div>
+        {:else}
+            <pre class="mt-4 max-h-[60vh] overflow-auto rounded bg-base-200 p-3 text-xs">{
+                Array.isArray(logs) ? logs.join('\n') : JSON.stringify(logs, null, 2)
+            }</pre>
+        {/if}
+    </div>
+</div>

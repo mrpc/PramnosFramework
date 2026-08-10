@@ -1041,10 +1041,18 @@ class Init extends Command
         $this->mkdir($sourceDir . '/lib');
         $this->mkdir($sourceDir . '/screens');
         $this->writeFile($sourceDir . '/lib/api.js', $this->renderStub('spa-api-client.js', $tokens));
+        // The debug panel is inert unless a response carries debug data, so it
+        // ships in every project rather than being a development-only file the
+        // client would have to import conditionally.
+        $this->writeFile($sourceDir . '/lib/debug.js', $this->renderStub('spa-debug-panel.js', $tokens));
         // Empty registry: `create:crud` appends its screens here, and the app
         // imports it unconditionally so a generated screen becomes reachable
         // without touching App.svelte.
         $this->writeFile($sourceDir . '/screens/registry.js', $this->renderStub('spa-screens-registry.js', $tokens));
+        $this->scaffoldSpaTestingGuide($spaStack, $tokens);
+        if (in_array('auth', $features, true)) {
+            $this->scaffoldSpaAdmin($spaStack, $sourceDir, $tokens);
+        }
         $this->writeFile('www/' . $shellFile, $this->renderStub('spa-shell.php', $tokens));
 
         if ($needsBuild) {
@@ -1077,6 +1085,125 @@ class Init extends Command
 
         // Tells scaffoldRestApi() to register the route for it.
         $this->spaStatusEndpoint = true;
+    }
+
+
+
+    /**
+     * Scaffold the SPA administration screen and its endpoints.
+     *
+     * The MVC scaffold generates whole admin areas; a SPA project got none of
+     * them, so parity meant hand-writing each one. This gives a SPA the same
+     * starting point: who is signed up, what the logs say, and the numbers a
+     * dashboard opens with — served by a framework controller so the screen is
+     * the only generated part.
+     *
+     * Only with the auth feature: an administration screen in a project with no
+     * users is a screen that can only ever say 401.
+     *
+     * @param array<string, string> $tokens Shared SPA stub tokens
+     */
+    private function scaffoldSpaAdmin(string $spaStack, string $sourceDir, array $tokens): void
+    {
+        if ($spaStack !== 'svelte') {
+            // The vanilla stacks get the endpoints (they are framework-side) but
+            // no generated screen: hand-writing three tabs of DOM is not a
+            // starting point anybody wants, and `create:crud` covers the
+            // pattern for the screens people actually build.
+            return;
+        }
+
+        $this->mkdir($sourceDir . '/screens');
+        $this->writeFile(
+            $sourceDir . '/screens/Admin.svelte',
+            $this->renderStub('spa-admin.svelte', $tokens)
+        );
+
+        // Register it the same way create:crud does, so it appears in the
+        // navigation without anyone editing App.svelte.
+        $registry = $this->targetBaseDir . '/' . $sourceDir . '/screens/registry.js';
+        if (!file_exists($registry)) {
+            return;
+        }
+        $contents = (string) file_get_contents($registry);
+        if (str_contains($contents, "name: 'admin'")) {
+            return;
+        }
+        $contents = str_replace(
+            "\nexport const screens = [",
+            "\nimport Admin from './Admin.svelte';\n\nexport const screens = [",
+            $contents
+        );
+        $contents = str_replace(
+            "export const screens = [\n",
+            "export const screens = [\n    { name: 'admin', label: 'Admin', component: Admin },\n",
+            $contents
+        );
+        file_put_contents($registry, $contents);
+    }
+
+    /**
+     * Write the front-end testing guide into the project.
+     *
+     * The scaffold ships a working test setup and real tests; without a guide
+     * beside them the next person adds screens with no tests, because the
+     * examples are not obviously extensible. It lives in the project (not only
+     * in the framework docs) so it describes *this* project's runner, paths and
+     * commands.
+     *
+     * @param array<string, string> $tokens Shared SPA stub tokens
+     */
+    private function scaffoldSpaTestingGuide(string $spaStack, array $tokens): void
+    {
+        $needsBuild = self::spaNeedsNode($spaStack);
+
+        $tokens['runnerName'] = $needsBuild ? 'Vitest' : 'node --test';
+        $tokens['testDir']    = $needsBuild ? 'frontend/__tests__' : 'tests/js';
+        $tokens['coverageCommand'] = $needsBuild
+            ? './dockernpm run test:coverage  # coverage report'
+            : './testjs                 # there is no coverage tool without a toolchain';
+
+        // Only the Svelte stack has components to mount.
+        $tokens['componentRow'] = $spaStack === 'svelte'
+            ? "| The root component (`App.svelte`) | `frontend/__tests__/App.test.js` | Vitest + @testing-library/svelte |\n"
+            : '';
+
+        $tokens['stubExample'] = $needsBuild
+            ? "vi.stubGlobal('fetch', vi.fn(async () => ({\n"
+                . "    ok: true, status: 200, json: async () => ({ status: 'ok' }),\n"
+                . "})));\n\n"
+                . "await api.get('/status');\n\n"
+                . "const [url, options] = fetch.mock.calls[0];\n"
+                . "expect(url).toBe('" . $tokens['apiPrefix'] . "/status');\n"
+                . "expect(options.headers.apiKey).toBeDefined();"
+            : "globalThis.fetch = async (url, options) => {\n"
+                . "    calls.push([url, options]);\n"
+                . "    return { ok: true, status: 200, json: async () => ({ status: 'ok' }) };\n"
+                . "};\n\n"
+                . "await api.get('/status');\n\n"
+                . "assert.equal(calls[0][0], '" . $tokens['apiPrefix'] . "/status');\n"
+                . "assert.ok(calls[0][1].headers.apiKey);";
+
+        $tokens['screenExample'] = $spaStack === 'svelte'
+            ? "render(Thing);\n\n"
+                . "// the row the API returned is on screen…\n"
+                . "await waitFor(() => expect(screen.getByText('first')).toBeTruthy());\n\n"
+                . "// …and the request asked the server for one page\n"
+                . "const [url] = fetch.mock.calls[0];\n"
+                . "expect(url).toContain('page=1');\n"
+                . "expect(url).toContain('limit=20');"
+            : "const target = document.createElement('div');\n"
+                . "mount(target);\n\n"
+                . "// the row the API returned is on screen…\n"
+                . "await waitFor(() => expect(target.textContent).toContain('first'));\n\n"
+                . "// …and the request asked the server for one page\n"
+                . "expect(fetch.mock.calls[0][0]).toContain('limit=20');";
+
+        $tokens['cleanupNote'] = $needsBuild
+            ? 'The scaffolded tests do it in `afterEach` with `vi.unstubAllGlobals()`.'
+            : 'The scaffolded tests restore the original `fetch` in `afterEach`.';
+
+        $this->writeFile('docs/FRONTEND_TESTING.md', $this->renderStub('spa-testing-guide.md', $tokens));
     }
 
     /**
@@ -2048,10 +2175,17 @@ PHP;
                 '\\Pramnos\\Auth\\Controllers\\ApiAccount',
                 'Account API — token-based auth (login issues a bearer token; logout revokes it). JSON-only, distinct from the web Account controller.'
             );
+            $this->writeApiWrapper(
+                $namespace,
+                'Admin',
+                '\\Pramnos\\Auth\\Controllers\\ApiAdmin',
+                'Administration API — read-only user list, log viewer and dashboard summary for the admin screen. Each action is permission-checked separately.'
+            );
 
             $me      = $fqcn('Me');
             $session = $fqcn('Session');
             $account = $fqcn('Account');
+            $admin   = $fqcn('Admin');
 
             $lines[] = "        // Current authenticated user (profile + personal tokens)";
             $lines[] = "        \$r->get('/me', function () {";
@@ -2076,6 +2210,17 @@ PHP;
             $lines[] = "        });";
             $lines[] = "        \$r->post('/session/refresh', function () {";
             $lines[] = "            return (new {$session}(\$this))->refresh();";
+            $lines[] = "        });";
+            $lines[] = "";
+            $lines[] = "        // Administration — read-only lists for an admin screen";
+            $lines[] = "        \$r->get('/admin/summary', function () {";
+            $lines[] = "            return (new {$admin}(\$this))->summary();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->get('/admin/users', function () {";
+            $lines[] = "            return (new {$admin}(\$this))->users();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->get('/admin/logs', function () {";
+            $lines[] = "            return (new {$admin}(\$this))->logs();";
             $lines[] = "        });";
             $lines[] = "";
             $lines[] = "        // Account — token-based auth (login issues a bearer token)";
@@ -4599,9 +4744,18 @@ PHP;
         $lines[] = '  already authenticated in the SPA.';
         $lines[] = '- Failures throw `ApiError` with `.status` — branch on that, not on messages.';
         $lines[] = '';
+        $lines[] = 'In development every response also carries a `_debug` key (timings, queries,';
+        $lines[] = 'exceptions) and the panel in the corner shows it — the HTML toolbar cannot be';
+        $lines[] = 'injected into JSON. Nothing is attached in production.';
+        $lines[] = '';
         $lines[] = 'Add an endpoint the way `GET ' . $apiPrefix . '/status` is built: behaviour in a';
         $lines[] = '`src/Services/*Service.php`, a thin `src/Api/Controllers/*.php` over it, and a';
         $lines[] = 'route in `src/Api/routes.php`.';
+        $lines[] = '';
+        $lines[] = 'How to write front-end tests — what to assert, what to leave alone, and the';
+        $lines[] = 'traps that make them pass while the app is broken — is in';
+        $lines[] = '[docs/FRONTEND_TESTING.md](docs/FRONTEND_TESTING.md). Read it before adding a';
+        $lines[] = 'screen without tests.';
         $lines[] = '';
         $lines[] = '### Adding a CRUD feature';
         $lines[] = '';
@@ -4692,7 +4846,8 @@ PHP;
 
         if (!self::spaNeedsNode($spaStack)) {
             return "## Front end\n\n$where Sources live in `www/assets/js/` and are served as\n"
-                . "written — there is no build step. Run the tests with `./testjs`.\n";
+                . "written — there is no build step. Run the tests with `./testjs`, and see\n"
+                . "[docs/FRONTEND_TESTING.md](docs/FRONTEND_TESTING.md) for how to write them.\n";
         }
 
         return "## Front end\n\n$where Sources live in `frontend/`; the build output in\n"
@@ -4703,7 +4858,8 @@ PHP;
             . "./dockernpm run dev       # dev server with HMR — keep browsing the app URL,\n"
             . "                          # not the Vite port, which serves no HTML\n"
             . "./testjs                  # front-end tests\n"
-            . "```\n";
+            . "```\n\n"
+            . "How to write those tests: [docs/FRONTEND_TESTING.md](docs/FRONTEND_TESTING.md).\n";
     }
 
     /**
