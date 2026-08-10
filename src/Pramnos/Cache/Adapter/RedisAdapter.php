@@ -439,6 +439,87 @@ class RedisAdapter extends AbstractAdapter
     }
 
     /**
+     * Delete every key matching a pattern, without blocking the server.
+     *
+     * SCAN walks the keyspace in bounded steps, so a large database stays
+     * responsive while this runs; KEYS would hold the server for the whole
+     * sweep. Deletion happens in batches for the same reason — one DEL with a
+     * hundred thousand arguments is a single very long command.
+     *
+     * Slower than FLUSHDB, and that is the trade: clearing is not a hot path,
+     * and destroying another installation's data is not an acceptable
+     * optimisation.
+     *
+     * @param  string $pattern Redis glob pattern, already prefixed
+     * @return bool   True when the sweep completed
+     */
+    protected function deleteByPattern(string $pattern): bool
+    {
+        try {
+            $batch  = [];
+            $cursor = null;
+
+            do {
+                $found = $this->redis->scan($cursor, $pattern, self::SCAN_COUNT);
+                if ($found === false) {
+                    break;
+                }
+                foreach ($found as $key) {
+                    $batch[] = (string) $key;
+                    if (count($batch) >= self::DELETE_BATCH) {
+                        $this->redis->del($batch);
+                        $batch = [];
+                    }
+                }
+            } while ($cursor !== 0 && $cursor !== null);
+
+            if ($batch !== []) {
+                $this->redis->del($batch);
+            }
+
+            return true;
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+    }
+
+    /** Keys asked for per SCAN step — a hint, not a guarantee. */
+    private const SCAN_COUNT = 500;
+
+    /** Keys deleted per DEL command. */
+    private const DELETE_BATCH = 500;
+
+    /**
+     * Flush the whole Redis database, prefix and co-tenants included.
+     *
+     * This is what `clear()` used to do by accident. It stays available because
+     * a single-tenant installation may genuinely want it — but as something
+     * asked for by name, never as the default meaning of "clear the cache".
+     *
+     * @return bool
+     */
+    public function flushEverything()
+    {
+        if (!$this->caching || !$this->connected) {
+            return false;
+        }
+
+        try {
+            \Pramnos\Logs\Logger::log(
+                'Flushing the entire Redis database, ignoring the key prefix. '
+                . 'Any other installation sharing this database loses its cache too.',
+                'cache'
+            );
+            $this->redis->flushDb();
+            return true;
+        } catch (\Exception $ex) {
+            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+    }
+
+    /**
      * @inheritDoc
      */
     public function clear($category = '')
@@ -448,13 +529,32 @@ class RedisAdapter extends AbstractAdapter
         }
         
         if ($category == '') {
-            try {
-                $this->redis->flushDb();
-                return true;
-            } catch (\Exception $ex) {
-                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
-                return false;
+            // Every read and write in this adapter is prefixed; clearing must
+            // obey the same rule. flushDb() does not — it wipes the whole
+            // database, including every co-tenant installation sharing it and
+            // any keys written directly by something else. Since `cache:clear`
+            // is typically run on each deploy, that turned a routine step into
+            // "delete everyone's sessions, rate limiters and settings cache".
+            //
+            // With no prefix there is nothing to scope to, so flushing IS the
+            // correct meaning of "clear everything" — logged, because at that
+            // point it really is global.
+            if ($this->prefix === '') {
+                try {
+                    \Pramnos\Logs\Logger::log(
+                        'Cache clear with no key prefix: flushing the entire Redis database. '
+                        . 'Set a prefix to scope it to this installation.',
+                        'cache'
+                    );
+                    $this->redis->flushDb();
+                    return true;
+                } catch (\Exception $ex) {
+                    \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                    return false;
+                }
             }
+
+            return $this->deleteByPattern($this->prefix . '*');
         } else {
             // Clear cache entries for the specific category
             try {
@@ -465,16 +565,12 @@ class RedisAdapter extends AbstractAdapter
                     $category
                 );
                 
-                // Find all keys that match this category
-                $pattern = $this->prefix . $sanitizedCategory . '_*';
-                $keys = $this->redis->keys($pattern);
-                
-                // Delete all matching keys
-                if (!empty($keys)) {
-                    $this->redis->del($keys);
-                }
-                
-                return true;
+                // Find all keys that match this category. keys() below scans;
+                // the raw KEYS command walks the whole keyspace in one blocking
+                // pass, which stalls every other client on a large database.
+                return $this->deleteByPattern(
+                    $this->prefix . $sanitizedCategory . '_*'
+                );
             } catch (\Exception $ex) {
                 \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 return false;

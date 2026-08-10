@@ -419,7 +419,7 @@ class RedisAdapterTest extends TestCase
     }
 
     /**
-     * clear() with no category flushes all keys in the Redis database.
+     * clear() with no category removes this installation's own keys.
      */
     #[Group('redis')]
     public function testClearAllFlushesDatabase(): void
@@ -436,6 +436,156 @@ class RedisAdapterTest extends TestCase
         $this->assertTrue($result);
         // Key must be gone after flush
         $this->assertFalse($adapter->load($key, 60));
+    }
+
+
+    /**
+     * clear('') must not touch another installation's keys.
+     *
+     * The adapter prefixes every read and write, so the prefix IS the isolation
+     * boundary — and `clear()` used to be the one operation that ignored it,
+     * calling FLUSHDB. Since `cache:clear` runs on most deploys, that turned a
+     * routine step into "empty every co-tenant's sessions, rate limiters and
+     * settings cache".
+     */
+    #[Group('redis')]
+    public function testClearOnlyRemovesKeysOfItsOwnPrefix(): void
+    {
+        // Arrange — two installations sharing one database
+        $suffix = uniqid();
+        $appA = $this->makeConnectedAdapter('appA' . $suffix . ':');
+        $appB = $this->makeConnectedAdapter('appB' . $suffix . ':');
+
+        $keyA = 'appA' . $suffix . ':thing_' . $suffix;
+        $keyB = 'appB' . $suffix . ':thing_' . $suffix;
+        $appA->save($keyA, 'mine', 60);
+        $appB->save($keyB, 'theirs', 60);
+
+        // Act — appA clears its cache
+        $this->assertTrue($appA->clear());
+
+        // Assert — its own key is gone, the neighbour's is untouched
+        $this->assertFalse($appA->load($keyA, 60), "the installation's own key must be cleared");
+        $this->assertSame('theirs', $appB->load($keyB, 60), "a co-tenant's key must survive");
+
+        // Cleanup
+        $appB->delete($keyB);
+    }
+
+    /**
+     * Keys written directly by something else — a session store, another
+     * application's raw client — carry no prefix at all and must survive.
+     */
+    #[Group('redis')]
+    public function testClearLeavesUnprefixedKeysAlone(): void
+    {
+        // Arrange
+        $suffix  = uniqid();
+        $adapter = $this->makeConnectedAdapter('scoped' . $suffix . ':');
+        $redis   = $adapter->getConnection();
+
+        $foreign = 'raw_session_' . $suffix;
+        $redis->set($foreign, 'not-ours');
+        $adapter->save('scoped' . $suffix . ':thing', 'ours', 60);
+
+        // Act
+        $this->assertTrue($adapter->clear());
+
+        // Assert
+        $this->assertSame('not-ours', $redis->get($foreign));
+
+        // Cleanup
+        $redis->del($foreign);
+    }
+
+    /**
+     * With no prefix there is nothing to scope to, so clearing everything is
+     * still the correct meaning — the old behaviour is preserved exactly.
+     */
+    #[Group('redis')]
+    public function testEmptyPrefixStillFlushesTheDatabase(): void
+    {
+        // Arrange — an unprefixed adapter plus a key it does not own
+        $adapter = $this->makeConnectedAdapter('');
+        $redis   = $adapter->getConnection();
+        $redis->set('someone_elses_key', 'value');
+
+        // Act
+        $this->assertTrue($adapter->clear());
+
+        // Assert — a global flush, as before
+        $this->assertFalse($redis->get('someone_elses_key'));
+    }
+
+    /**
+     * A category clear removes that category and nothing else — including
+     * nothing belonging to another prefix.
+     */
+    #[Group('redis')]
+    public function testCategoryClearIsScopedToItsCategoryAndPrefix(): void
+    {
+        // Arrange
+        $suffix = uniqid();
+        $appA   = $this->makeConnectedAdapter('catA' . $suffix . ':');
+        $appB   = $this->makeConnectedAdapter('catB' . $suffix . ':');
+
+        $appA->save('catA' . $suffix . ':news_one', 'a-news', 60);
+        $appA->save('catA' . $suffix . ':users_one', 'a-users', 60);
+        $appB->save('catB' . $suffix . ':news_one', 'b-news', 60);
+
+        // Act
+        $this->assertTrue($appA->clear('news'));
+
+        // Assert — only that category, only that installation
+        $this->assertFalse($appA->load('catA' . $suffix . ':news_one', 60));
+        $this->assertSame('a-users', $appA->load('catA' . $suffix . ':users_one', 60));
+        $this->assertSame('b-news', $appB->load('catB' . $suffix . ':news_one', 60));
+
+        // Cleanup
+        $appA->clear();
+        $appB->clear();
+    }
+
+    /**
+     * The global flush is still available — by name, so it is a decision.
+     */
+    #[Group('redis')]
+    public function testFlushEverythingIsStillGlobal(): void
+    {
+        // Arrange
+        $suffix  = uniqid();
+        $adapter = $this->makeConnectedAdapter('flushme' . $suffix . ':');
+        $redis   = $adapter->getConnection();
+        $redis->set('unrelated_' . $suffix, 'value');
+
+        // Act
+        $this->assertTrue($adapter->flushEverything());
+
+        // Assert — everything, prefix or not
+        $this->assertFalse($redis->get('unrelated_' . $suffix));
+    }
+
+    /**
+     * Clearing a prefix with many keys must complete — the SCAN loop has to
+     * advance its cursor and delete in batches rather than looping forever or
+     * sending one enormous DEL.
+     */
+    #[Group('redis')]
+    public function testClearHandlesMoreKeysThanOneScanBatch(): void
+    {
+        // Arrange — comfortably more than the 500-key batch size
+        $suffix  = uniqid();
+        $prefix  = 'bulk' . $suffix . ':';
+        $adapter = $this->makeConnectedAdapter($prefix);
+        for ($i = 0; $i < 1200; $i++) {
+            $adapter->save($prefix . 'item_' . $i, $i, 60);
+        }
+
+        // Act
+        $this->assertTrue($adapter->clear());
+
+        // Assert — nothing of ours is left
+        $this->assertSame([], $adapter->keys($prefix . '*'));
     }
 
     /**
@@ -776,6 +926,9 @@ class RedisAdapterTest extends TestCase
             public function del(mixed ...$args): mixed    { throw $this->ex; }
             public function flushDB(mixed ...$args): mixed { throw $this->ex; }
             public function keys(mixed ...$args): mixed   { throw $this->ex; }
+            // Clearing scans rather than calling KEYS, which blocks the server
+            // for the whole sweep on a large keyspace.
+            public function scan(mixed &$cursor, mixed ...$args): mixed { throw $this->ex; }
             public function dbSize(mixed ...$args): mixed { throw $this->ex; }
         };
 
@@ -874,20 +1027,20 @@ class RedisAdapterTest extends TestCase
     }
 
     /**
-     * clear() with a category must catch \Exception from $this->redis->keys()
-     * and return false. This covers lines 235-237 of RedisAdapter::clear().
+     * clear() with a category must catch \Exception from the SCAN sweep and
+     * return false rather than letting it escape into the caller.
      */
     public function testClearCategoryReturnsFalseWhenRedisThrows(): void
     {
         // Arrange
         $adapter = $this->makeAdapterWithThrowingRedis(new \Exception('keys() error'));
 
-        // Act — redis->keys() throws → catch block → return false
+        // Act — redis->scan() throws → catch block → return false
         $result = $adapter->clear('products');
 
         // Assert
         $this->assertFalse($result,
-            'clear(category) must catch the Redis exception and return false (lines 235-237)');
+            'clear(category) must catch the Redis exception and return false');
     }
 
     /**

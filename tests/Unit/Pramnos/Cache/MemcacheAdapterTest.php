@@ -261,13 +261,51 @@ class MemcacheAdapterTest extends TestCase
         $this->assertFalse($adapter->clear());
     }
 
-    public function testClearWithoutCategoryFlushesAll(): void
+    /**
+     * A prefixed installation must not flush the whole server.
+     *
+     * flush() empties every co-tenant sharing it, and the legacy Memcache
+     * extension can neither enumerate nor delete by prefix — so the honest
+     * answer is to refuse and say so, rather than silently destroying data that
+     * belongs to somebody else. flushEverything() is the explicit way.
+     */
+    public function testClearRefusesToFlushWhenAPrefixIsSet(): void
+    {
+        $adapter = $this->makeConnectedAdapter();
+        $mock = \Memcache::$mockInstance;
+        $mock->expects($this->never())->method('flush');
+
+        $this->assertFalse($adapter->clear(''));
+    }
+
+    /**
+     * With no prefix there is nothing to scope to, so flushing is still the
+     * correct meaning of "clear everything".
+     */
+    public function testClearFlushesEverythingWhenThereIsNoPrefix(): void
+    {
+        $this->defineMemcacheClassIfNeeded();
+        $adapter = new MemcacheAdapter('localhost', 11211, '');
+        $mock = $this->createMock(\Memcache::class);
+        $mock->method('connect')->willReturn(true);
+        $mock->expects($this->once())->method('flush')->willReturn(true);
+        \Memcache::$mockInstance = $mock;
+        $adapter->connect();
+
+        $this->assertTrue($adapter->clear(''));
+    }
+
+    /**
+     * The global flush stays available by name, so it is a decision rather than
+     * the default meaning of clearing a cache.
+     */
+    public function testFlushEverythingStillFlushesTheServer(): void
     {
         $adapter = $this->makeConnectedAdapter();
         $mock = \Memcache::$mockInstance;
         $mock->expects($this->once())->method('flush')->willReturn(true);
 
-        $this->assertTrue($adapter->clear(''));
+        $this->assertTrue($adapter->flushEverything());
     }
 
     public function testClearWithCategoryReturnsTrue(): void
@@ -277,11 +315,19 @@ class MemcacheAdapterTest extends TestCase
         $this->assertTrue($adapter->clear('mycategory'));
     }
 
+    /**
+     * A failing flush is reported as a failed clear, not thrown at the caller.
+     * Exercised through the unprefixed path, which is the one that flushes.
+     */
     public function testClearReturnsFalseOnException(): void
     {
-        $adapter = $this->makeConnectedAdapter();
-        $mock = \Memcache::$mockInstance;
+        $this->defineMemcacheClassIfNeeded();
+        $adapter = new MemcacheAdapter('localhost', 11211, '');
+        $mock = $this->createMock(\Memcache::class);
+        $mock->method('connect')->willReturn(true);
         $mock->expects($this->once())->method('flush')->willThrowException(new \RuntimeException('Error'));
+        \Memcache::$mockInstance = $mock;
+        $adapter->connect();
 
         $this->assertFalse($adapter->clear(''));
     }

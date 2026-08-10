@@ -437,6 +437,21 @@ class Cache extends \Pramnos\Framework\Base
     }
 
     /**
+     * Wipe the entire cache backend, ignoring this installation's key prefix.
+     *
+     * `clear()` is scoped to the prefix — the same rule every read and write
+     * obeys — so it cannot destroy a co-tenant installation's data. This is the
+     * explicit way to ask for a global flush, for the cases where that is
+     * genuinely what is wanted.
+     *
+     * @return bool True when the backend was flushed
+     */
+    public function flushEverything()
+    {
+        return $this->adapter ? $this->adapter->flushEverything() : false;
+    }
+
+    /**
      * Get a cached value or compute and cache it.
      *
      * If the $key is present in the cache, its value is returned immediately.

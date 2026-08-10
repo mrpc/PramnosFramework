@@ -394,6 +394,25 @@ abstract class AbstractAdapter implements AdapterInterface
         // Default implementation - should be overridden by concrete adapters
         return false;
     }
+
+    /**
+     * Wipe the entire backend, ignoring this installation's prefix.
+     *
+     * `clear()` is scoped to the prefix, because that is the isolation rule the
+     * adapter enforces on every read and write — an installation must not be
+     * able to destroy a co-tenant's data by clearing its own cache. This is the
+     * explicit way to ask for the other thing.
+     *
+     * Adapters that can flush their whole backend override it. The default is
+     * to do nothing and say so, which is the right answer for a backend that
+     * has no such operation, and a much better default than guessing.
+     *
+     * @return bool True when the backend was flushed
+     */
+    public function flushEverything()
+    {
+        return false;
+    }
     
     /**
      * @inheritDoc
