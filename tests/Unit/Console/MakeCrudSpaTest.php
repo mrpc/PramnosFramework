@@ -58,6 +58,16 @@ class SpaCrudProbe extends MakeCommandBase
     {
         $this->registerApiRoutes($file, $tokens, $resource);
     }
+
+    /**
+     * The exclusion list a generated screen is filtered through.
+     *
+     * @return string[]
+     */
+    public function exposeNonEditable(): array
+    {
+        return self::NON_EDITABLE_COLUMNS;
+    }
 }
 
 /**
@@ -337,6 +347,47 @@ PHP);
         }
         rmdir($path);
     }
-}
 
+    /**
+     * A generated screen never offers a secret column.
+     *
+     * The screen renders every column it is given twice: as a table cell and as
+     * a text input. Handed the `users` table unfiltered, it would print the
+     * password hash in an admin list and invite an administrator to type over
+     * it — which stores a plain string where a hash belongs and locks the
+     * account out. For `applications` it would print the API secret.
+     */
+    public function testSecretColumnsAreNeverOfferedForEditing(): void
+    {
+        // Arrange
+        $probe    = new SpaCrudProbe('probe');
+        $excluded = $probe->exposeNonEditable();
+
+        // Act + Assert — the ones that actually exist in framework tables
+        foreach (['password', 'salt', 'apikey', 'apisecret', 'token'] as $secret) {
+            $this->assertContains(
+                $secret,
+                $excluded,
+                $secret . ' must never reach a generated screen'
+            );
+        }
+    }
+
+    /**
+     * Model-maintained timestamps stay excluded too.
+     *
+     * They were the original contents of this list, and adding the secrets must
+     * not have displaced them — typing over a creation date is meaningless.
+     */
+    public function testTimestampColumnsRemainExcluded(): void
+    {
+        // Arrange
+        $probe = new SpaCrudProbe('probe');
+
+        // Act + Assert
+        foreach (['created', 'updated', 'createdate', 'updatedate'] as $column) {
+            $this->assertContains($column, $probe->exposeNonEditable());
+        }
+    }
+}
 }
