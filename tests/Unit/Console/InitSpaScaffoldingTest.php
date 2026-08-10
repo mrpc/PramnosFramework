@@ -582,7 +582,11 @@ class InitSpaScaffoldingTest extends TestCase
         $this->assertStringContainsString('/admin/users?', $screen);
         $this->assertStringContainsString("api.get('/admin/logs", $screen);
         // A 403 must read differently from a broken endpoint on an admin screen
-        $this->assertStringContainsString('do not have permission', $screen);
+        // 401, 403 and a broken endpoint are three problems with three fixes;
+        // an admin screen is where conflating them wastes the most time.
+        $this->assertStringContainsString('session has ended', $screen);
+        $this->assertStringContainsString('does not have permission', $screen);
+        $this->assertStringContainsString('Could not load', $screen);
 
         // ...it is registered, so it appears in the navigation...
         $registry = $this->read('frontend/screens/registry.js');
