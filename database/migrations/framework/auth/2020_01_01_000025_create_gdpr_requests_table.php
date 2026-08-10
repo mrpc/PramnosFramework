@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\Auth;
 
+use Pramnos\Database\HypertableRegistry;
 use Pramnos\Database\Migration;
 use Pramnos\Database\DatabaseCapabilities;
 
@@ -52,7 +53,12 @@ class CreateGdprRequestsTable extends Migration
                 ->comment('Detailed description of the request (e.g. specific data categories for access requests, rectification details)');
             $table->text('response_data')->nullable()
                 ->comment('Data package returned for access or portability requests; may be a URL or JSON payload');
-            $table->text('notes')->nullable()
+            // `processing_notes`, not `notes`: the production schema this table
+            // was modelled on names it that way, and a fresh install that
+            // disagreed would have to be reconciled by hand the first time the
+            // two met. 2026_08_10_000001 renames the column on installations
+            // created before this was corrected.
+            $table->text('processing_notes')->nullable()
                 ->comment('Internal processing notes, rejection reason, or completion details');
             $table->bigInteger('processed_by')->nullable()
                 ->comment('userid of the admin or system that processed this request; NULL if not yet processed');
@@ -66,15 +72,13 @@ class CreateGdprRequestsTable extends Migration
             $table->index(['status', 'requested_at'], 'idx_gdpr_requests_status');
         });
 
+        // The parameters live in HypertableRegistry, which this and
+        // timescale:ensure both read — see that class for why they are not
+        // written out here.
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,
             function () use ($schema) {
-                $schema->createHypertable('authserver.gdpr_requests', 'requested_at', [
-                    'chunk_time_interval' => '1 month',
-                ]);
-                $schema->enableCompression('authserver.gdpr_requests');
-                $schema->addCompressionPolicy('authserver.gdpr_requests', '1 year');
-                $schema->addRetentionPolicy('authserver.gdpr_requests', '7 years');
+                HypertableRegistry::apply($schema, 'authserver.gdpr_requests');
             }
         );
     }

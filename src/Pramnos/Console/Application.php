@@ -93,6 +93,8 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\ScheduleList());
         // Policy Engine (Phase 4)
         $this->add(new \Pramnos\Console\Commands\PolicyEngine());
+        // Hypertable repair for databases that gained TimescaleDB later
+        $this->add(new \Pramnos\Console\Commands\TimescaleEnsure());
         // Queue System (Phase 2)
         $this->add(new \Pramnos\Console\Commands\ProcessQueue());
         $this->add(new \Pramnos\Console\Commands\CleanupQueue());

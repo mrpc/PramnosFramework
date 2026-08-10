@@ -707,7 +707,10 @@ class SchemaBuilder
         }
 
         if ($schema === '') {
-            $schema = $this->resolveSchema();
+            // Not resolveSchema(): that yields '' without a withSchema()
+            // override, and '' matches no row in the catalogue view, so the
+            // answer was always false for an unqualified table.
+            $schema = $this->defaultSchema();
         }
 
         $result = $this->db->query(
@@ -716,6 +719,212 @@ class SchemaBuilder
                  WHERE hypertable_schema = %s AND hypertable_name = %s',
                 $schema,
                 $table
+            )
+        );
+
+        return $result && (int) ($result->fields['cnt'] ?? 0) > 0;
+    }
+
+    /**
+     * The columns making up a table's primary key, in key order.
+     *
+     * TimescaleDB requires the partitioning column to be part of every unique
+     * constraint, so converting a table whose primary key omits the time column
+     * fails. Reading the key is how a repair can say *why* it is skipping a
+     * table instead of surfacing a driver error.
+     *
+     * @param  string $table Logical name
+     * @return array<int, string> Column names; empty when there is no primary key
+     */
+    public function primaryKeyColumns(string $table): array
+    {
+        [$schema, $name] = $this->splitTable($table);
+
+        if ($this->capabilities->isMySQL()) {
+            $result = $this->db->query(
+                $this->db->prepareQuery(
+                    'SELECT COLUMN_NAME AS col FROM information_schema.KEY_COLUMN_USAGE
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s
+                       AND CONSTRAINT_NAME = %s
+                     ORDER BY ORDINAL_POSITION',
+                    $name,
+                    'PRIMARY'
+                )
+            );
+        } else {
+            $result = $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT a.attname AS col
+                     FROM pg_index i
+                     JOIN pg_class c ON c.oid = i.indrelid
+                     JOIN pg_namespace n ON n.oid = c.relnamespace
+                     JOIN pg_attribute a
+                       ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+                     WHERE i.indisprimary AND n.nspname = %s AND c.relname = %s",
+                    $schema,
+                    $name
+                )
+            );
+        }
+
+        $columns = [];
+        foreach (($result ? $result->fetchAll() : []) as $row) {
+            $columns[] = (string) ($row['col'] ?? '');
+        }
+
+        return array_values(array_filter($columns));
+    }
+
+    /**
+     * Split a logical table name into the schema and name TimescaleDB reports.
+     *
+     * `isHypertable()` and the `timescaledb_information` views address a table
+     * as two separate identifiers, while everything else in the framework passes
+     * one logical name (`authserver.user_consents`). This is the translation
+     * between them.
+     *
+     * @param  string $table Logical name, with or without a schema
+     * @return array{0: string, 1: string} Schema, then table name
+     */
+    protected function splitTable(string $table): array
+    {
+        $resolved = $this->resolveTable($table);
+
+        if (strpos($resolved, '.') !== false) {
+            [$schema, $name] = explode('.', $resolved, 2);
+
+            return [$schema, $name];
+        }
+
+        return [$this->defaultSchema(), $resolved];
+    }
+
+    /**
+     * The schema an unqualified table actually lives in.
+     *
+     * `resolveSchema()` returns an empty string when no `withSchema()` override
+     * is in force, which is fine for building SQL — an unqualified name resolves
+     * through the search path — but useless for querying catalogue views, which
+     * report the real schema and match nothing against `''`. Every unqualified
+     * table the framework creates lands in `public`.
+     */
+    protected function defaultSchema(): string
+    {
+        $schema = $this->resolveSchema();
+
+        return $schema !== '' ? $schema : 'public';
+    }
+
+    /**
+     * Is this logical table a hypertable?
+     *
+     * The schema-aware counterpart of {@see isHypertable()}, which takes the
+     * schema separately. Returns false on non-TimescaleDB backends, and on a
+     * table that does not exist at all.
+     *
+     * @param  string $table Logical name, e.g. `authserver.user_consents`
+     * @return bool
+     */
+    public function hasHypertable(string $table): bool
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return false;
+        }
+
+        [$schema, $name] = $this->splitTable($table);
+
+        return $this->isHypertable($name, $schema);
+    }
+
+    /**
+     * Has compression been enabled on this hypertable?
+     *
+     * Distinct from *having a compression policy*: enabling compression sets
+     * the table option, the policy schedules it. `add_compression_policy()`
+     * raises if the option was never set, so this is what decides whether that
+     * step can run yet.
+     *
+     * @param  string $table Logical name
+     * @return bool
+     */
+    public function isCompressionEnabled(string $table): bool
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return false;
+        }
+
+        [$schema, $name] = $this->splitTable($table);
+
+        $result = $this->db->query(
+            $this->db->prepareQuery(
+                'SELECT compression_enabled FROM timescaledb_information.hypertables
+                 WHERE hypertable_schema = %s AND hypertable_name = %s',
+                $schema,
+                $name
+            )
+        );
+
+        if (!$result || $result->numRows == 0) {
+            return false;
+        }
+
+        $enabled = $result->fields['compression_enabled'] ?? false;
+
+        return $enabled === true || $enabled === 't' || $enabled === 1 || $enabled === '1';
+    }
+
+    /**
+     * Does a background job already compress this hypertable's chunks?
+     *
+     * `add_compression_policy()` raises when one exists rather than no-opping,
+     * so without this check a second run of any repair would fail.
+     *
+     * @param  string $table Logical name
+     * @return bool
+     */
+    public function hasCompressionPolicy(string $table): bool
+    {
+        return $this->hasPolicyJob($table, 'policy_compression');
+    }
+
+    /**
+     * Does a background job already drop this hypertable's old chunks?
+     *
+     * Same reason as {@see hasCompressionPolicy()}: `add_retention_policy()`
+     * raises on a duplicate.
+     *
+     * @param  string $table Logical name
+     * @return bool
+     */
+    public function hasRetentionPolicy(string $table): bool
+    {
+        return $this->hasPolicyJob($table, 'policy_retention');
+    }
+
+    /**
+     * Is a TimescaleDB background job of this kind registered for the table?
+     *
+     * @param  string $table    Logical name
+     * @param  string $procName TimescaleDB job procedure, e.g. `policy_retention`
+     * @return bool
+     */
+    protected function hasPolicyJob(string $table, string $procName): bool
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return false;
+        }
+
+        [$schema, $name] = $this->splitTable($table);
+
+        $result = $this->db->query(
+            $this->db->prepareQuery(
+                'SELECT COUNT(*) AS cnt FROM timescaledb_information.jobs
+                 WHERE proc_name = %s
+                   AND hypertable_schema = %s
+                   AND hypertable_name = %s',
+                $procName,
+                $schema,
+                $name
             )
         );
 

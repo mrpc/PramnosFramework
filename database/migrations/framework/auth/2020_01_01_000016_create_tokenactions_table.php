@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\Auth;
 
+use Pramnos\Database\HypertableRegistry;
 use Pramnos\Database\Migration;
 use Pramnos\Database\DatabaseCapabilities;
 
@@ -73,18 +74,11 @@ class CreateTokenactionsTable extends Migration
             $table->index(['action_time', 'return_status'], 'idx_tokenactions_time_status');
         });
 
-        // TimescaleDB: convert to hypertable with 14-day chunks and 60-day compression
+        // The parameters live in HypertableRegistry, which this and
+        // timescale:ensure both read — see that class for why they are not
+        // written out here.
         $schema->ifCapable(DatabaseCapabilities::TIMESCALEDB, function ($schema) {
-            $schema->createHypertable('tokenactions', 'action_time', [
-                'chunk_time_interval' => '14 days',
-                'migrate_data'        => true,
-            ]);
-            $schema->enableCompression('tokenactions', [
-                'segmentby' => 'tokenid, urlid, method',
-                'orderby'   => 'action_time DESC',
-            ]);
-            $schema->addCompressionPolicy('tokenactions', '60 days');
-            $schema->addRetentionPolicy('tokenactions', '3 years', 'action_time');
+            HypertableRegistry::apply($schema, 'tokenactions');
         });
 
         // PostgreSQL: sync trigger keeps servertime (legacy UNIX int) and
