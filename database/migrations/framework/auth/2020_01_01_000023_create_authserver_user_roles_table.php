@@ -11,10 +11,15 @@ use Pramnos\Database\Migration;
  * Assignments can be scoped to an organisation (deyaid) and may carry an
  * expiry timestamp for temporary role grants.
  *
+ * Lives under the `auth` feature, not `authserver`: an application with users
+ * needs somewhere to record who may do what, whether or not it ever runs an
+ * OAuth server. The `authserver.` schema name is kept as-is — renaming it
+ * would break every existing installation and buy nothing.
+ *
  */
 class CreateAuthserverUserRolesTable extends Migration
 {
-    public string  $feature      = 'authserver';
+    public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 40;
     public array   $dependencies = ['create_authserver_roles_table'];

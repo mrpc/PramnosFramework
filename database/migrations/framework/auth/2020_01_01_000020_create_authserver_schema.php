@@ -13,10 +13,15 @@ use Pramnos\Database\Migration;
  * is a no-op (tables are created in the default database with the authserver_
  * prefix instead).
  *
+ * Lives under the `auth` feature, not `authserver`, because the RBAC tables it
+ * holds are needed by any application that has users — authorisation is not an
+ * OAuth concern. The schema keeps its name: renaming it would break every
+ * existing installation for no gain.
+ *
  */
 class CreateAuthserverSchema extends Migration
 {
-    public string  $feature      = 'authserver';
+    public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 10;
     public $description  = 'Creates the authserver schema namespace (PostgreSQL only)';

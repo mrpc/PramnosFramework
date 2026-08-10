@@ -131,22 +131,40 @@ class AuthTest extends TestCase
         $this->assertTrue($callbackTriggered);
     }
 
-    public function testLegacyAccessMethods(): void
+    /**
+     * The legacy access methods reach the framework's permission system.
+     *
+     * They used to name `pramnos_factory::getPermissions()` — written without a
+     * leading backslash, so PHP resolved it inside `Pramnos\Auth`, a class the
+     * framework does not define. The test suite supplied a stub for exactly that
+     * name, which is why this test passed while the methods could not work
+     * anywhere else.
+     *
+     * Their behaviour is verified against a real store by
+     * {@see \Pramnos\Tests\Integration\Auth\AuthPermissionDelegationTest}.
+     * What is pinned here is what a unit test can honestly pin: the signatures
+     * callers depend on, and the absence of the name that broke them.
+     */
+    public function testLegacyAccessMethodsKeepTheirContract(): void
     {
-        $auth = Auth::getInstance();
-        $auth->authCheck();
-        
-        // Value = 1 (allow)
-        $auth->setaccess(1, 'module', 'test', 'read', 0, 'user', '', 1);
-        // Value = 2 (remove)
-        $auth->setaccess(1, 'module', 'test', 'read', 0, 'user', '', 2);
-        // Value = 0 (deny)
-        $auth->setaccess(1, 'module', 'test', 'read', 0, 'user', '', 0);
-        
-        // Read checks
-        $auth->useraccess(1, 'module', 'test');
-        $auth->groupaccess(1, 'module', 'test');
-        
-        $this->assertTrue(true);
+        // Arrange
+        $expected = ['setaccess' => 8, 'useraccess' => 6, 'groupaccess' => 5];
+
+        // Act + Assert — signatures are backwards-compatible
+        foreach ($expected as $method => $parameters) {
+            $reflection = new \ReflectionMethod(Auth::class, $method);
+            $this->assertTrue($reflection->isPublic(), $method . ' must stay public');
+            $this->assertSame(
+                $parameters,
+                $reflection->getNumberOfParameters(),
+                $method . '() must keep its parameter list'
+            );
+        }
+
+        // ...and none of them names the class that does not exist
+        $source = (string) file_get_contents(
+            (new \ReflectionClass(Auth::class))->getFileName()
+        );
+        $this->assertStringNotContainsString('pramnos_factory', $source);
     }
 }

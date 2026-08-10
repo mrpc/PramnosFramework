@@ -12,6 +12,7 @@ use Pramnos\User\User;
 
 class TestablePermissionsController extends PermissionsController
 {
+
     public array $redirectedTo = [];
 
     public function redirect($url = null, $quit = true, $code = '302')
@@ -41,6 +42,8 @@ class TestablePermissionsController extends PermissionsController
 
 class PermissionsControllerTest extends BaseTestCase
 {
+    use \Pramnos\Tests\Support\ForgetsPermissionStore;
+
     private TestablePermissionsController $controller;
 
     protected function setUp(): void
@@ -74,6 +77,11 @@ class PermissionsControllerTest extends BaseTestCase
             `priority` int(11) NOT NULL DEFAULT '100',
             `granted_by` int(11) DEFAULT NULL,
             `granted_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `expires_at` timestamp NULL DEFAULT NULL,
+            `is_active` tinyint(1) NOT NULL DEFAULT '1',
+            `app_id` bigint DEFAULT NULL,
+            `conditions` text,
+            `description` varchar(255) DEFAULT NULL,
             PRIMARY KEY (`permissionid`)
         )");
         $db->query("INSERT INTO `#PREFIX#authserver_permissions` (`permissionid`, `subject_type`, `subject_id`, `object_type`, `action`) VALUES (1, 'user', 2, 'reports', 'view')");
@@ -101,6 +109,19 @@ class PermissionsControllerTest extends BaseTestCase
             unset($doc->themeObject);
         }
         $_SESSION = [];
+
+        // Leave no hand-made permission store behind. `Pramnos\Auth\Permissions`
+        // picks its store by looking for this table and remembers what it finds,
+        // so a fixture that outlives its class hands every later test a store
+        // shaped differently from the one the migrations create.
+        try {
+            \Pramnos\Framework\Factory::getDatabase()
+                ->query('DROP TABLE IF EXISTS `#PREFIX#authserver_permissions`');
+        } catch (\Throwable) {
+            // Best-effort cleanup.
+        }
+        $this->forgetPermissionStore();
+
         $app = Application::getInstance();
         if ($app) {
             $app->currentUser = null;

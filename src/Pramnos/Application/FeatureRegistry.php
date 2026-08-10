@@ -255,7 +255,7 @@ class FeatureRegistry
             ],
         ]);
         static::register('auth', [
-            'description' => 'Basic Authentication and Authorization',
+            'description' => 'Users, sessions and the permission store (roles, permissions)',
             'migrations'  => [
                 dirname(__DIR__, 3) . '/database/migrations/framework/auth',
             ],

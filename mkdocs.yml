@@ -87,6 +87,7 @@ nav:
     - Schema Builder: Pramnos_Schema_Builder_Guide.md
     - ORM: Pramnos_ORM_Guide.md
     - Migrations: Pramnos_Migration_Guide.md
+    - Hypertables (TimescaleDB): Pramnos_Hypertable_Guide.md
     - Caching: Pramnos_Cache_Guide.md
   - Security & Identity:
     - Authentication: Pramnos_Authentication_Guide.md

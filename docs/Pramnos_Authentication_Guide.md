@@ -272,79 +272,103 @@ $existingToken->addAction(); // Logs the current request
 
 ## Permissions System
 
+There is **one** permission store: `authserver.permissions`. It is created by
+the `auth` feature's migrations, so every installation that has users has it —
+running an OAuth server is not a prerequisite. Two APIs read it, and which one
+you want depends on how much of the model you need:
+
+| | `Pramnos\Auth\Permissions` | `Pramnos\Auth\PermissionResolver` |
+|---|---|---|
+| Shape | one question, one answer | the user's whole effective grant list |
+| Reads | grants for a user or role | grants, roles, priorities, expiry, audience, conditions |
+| Writes | yes — `allow()` / `deny()` | no |
+| Use it for | a check in a controller | anything conditional, scoped or audited |
+
+`Permissions` is the simple face; it cannot express what it cannot ask about.
+Grants carrying ABAC conditions are **skipped** by it rather than treated as
+unconditional — the resolver hands conditions to the application to evaluate
+against its own request context, and this API has no way to receive one.
+
 ### Setting Permissions
 
+`allow()`, `deny()` and `removePermission()` are instance methods; get the
+shared instance from the factory.
+
 ```php
-// Grant permission to user
-\Pramnos\Auth\Permissions::allow(
-    $userId,           // Subject (user ID)
-    'articles',        // Resource
-    'create',          // Privilege
-    0,                 // Resource element (0 for all)
-    'module',          // Resource type
-    'user'             // Subject type
+$permissions = \Pramnos\Auth\Permissions::getInstance();
+
+// Grant a user the right to create articles
+$permissions->allow(
+    $userId,           // Subject — a user id
+    'articles',        // Resource      → object_type
+    'create',          // Privilege     → action
+    '',                // Element: '' means all articles → object_id NULL
+    'module',          // Resource type (not stored; see below)
+    'user'             // Subject type: user | group
 );
 
-// Grant permission to group
-\Pramnos\Auth\Permissions::allow(
-    'editors',         // Subject (group name)
-    'articles',        // Resource
-    'edit',            // Privilege
-    0,                 // Resource element
-    'module',          // Resource type
-    'group'            // Subject type
-);
+// Grant a group — stored as a role, which is what the new model calls it
+$permissions->allow($editorsRoleId, 'articles', 'edit', '', 'module', 'group');
 
-// Deny permission
-\Pramnos\Auth\Permissions::deny(
-    $userId,
-    'admin',
-    'access',
-    0,
-    'module',
-    'user'
-);
+// Deny — stored above allow so it wins a tie
+$permissions->deny($userId, 'admin', 'access');
+
+// Remove — absence is not the same answer as deny
+$permissions->removePermission($userId, 'admin', 'access');
 ```
+
+Two mappings worth knowing: the `admin` privilege is stored as the `*` action
+(everything on this object), and `resourceType` has no column in the new model —
+`object_type` already carries that distinction.
+
+A subject type other than `user` or `group` cannot be represented. Rather than
+store it under the wrong `subject_type`, the call is refused and logged.
 
 ### Checking Permissions
 
 ```php
-// Check if user has permission
-$hasPermission = \Pramnos\Auth\Permissions::check(
-    $userId,           // Subject
-    'articles',        // Resource
-    'create',          // Privilege
-    0,                 // Resource element
-    'module',          // Resource type
-    'user'             // Subject type
-);
+$permissions = \Pramnos\Auth\Permissions::getInstance();
 
-if ($hasPermission) {
-    // User can create articles
+// Default: an unknown permission is "no"
+if ($permissions->isAllowed($userId, 'articles', 'create')) {
     $this->showCreateForm();
 } else {
-    // Access denied
     throw new \Exception('Insufficient permissions', 403);
 }
 ```
 
-### Group-Based Permissions
+Pass `false` as the last argument when you need to tell "denied" apart from
+"nobody ever said":
 
 ```php
-// Users inherit permissions from their groups
-$user = new \Pramnos\User\User($userId);
-$userGroups = $user->getUserGroups(); // Get user's groups
+$verdict = $permissions->isAllowed(
+    $userId, 'articles', 'create', '', 'module', 'user', false
+);
 
-// Check permission considering group membership
-$hasPermission = \Pramnos\Auth\Permissions::check(
-    $userId,
-    'articles',
-    'publish',
-    0,
-    'module',
-    'user'
-); // Automatically checks group permissions too
+// true = allowed, false = explicitly denied, null = no rule at all
 ```
+
+That distinction matters. Collapsing `null` into `false` is how a screen ends up
+refusing a user for whom no rule was ever written — which is exactly what the
+class did before it knew which store it was reading.
+
+### Roles
+
+The new model expresses groups as roles, and `PermissionResolver` folds a user's
+active roles into their effective permissions automatically. Assign one by
+inserting into `authserver.user_roles`; role definitions live in
+`authserver.roles`.
+
+For the full picture — priorities, expiry, audience scoping and ABAC conditions
+— use the resolver directly:
+
+```php
+$resolver = new \Pramnos\Auth\PermissionResolver($database);
+$effective = $resolver->resolve($userId, null)['permissions'];
+```
+
+Each entry carries `object_type`, `object_id`, `action`, `grant` and
+`conditions`, with deny-over-allow already applied.
 
 ## Session Management
 
@@ -834,20 +858,15 @@ CREATE TABLE `usertokens` (
     FOREIGN KEY (`userid`) REFERENCES `users` (`userid`) ON DELETE CASCADE
 );
 
--- Permissions table
-CREATE TABLE `permissions` (
-    `id` int NOT NULL AUTO_INCREMENT,
-    `subject` varchar(255) NOT NULL,
-    `subjecttype` enum('user','group') NOT NULL,
-    `resource` varchar(255) NOT NULL,
-    `resourcetype` varchar(255) NOT NULL,
-    `privilege` varchar(255) NOT NULL,
-    `resourceelement` varchar(255) DEFAULT '0',
-    `value` tinyint NOT NULL DEFAULT 1,
-    PRIMARY KEY (`id`),
-    KEY `subject_resource` (`subject`, `resource`, `privilege`)
-);
 ```
+
+> **Permissions are not in this list on purpose.** They live in
+> `authserver.permissions`, created by the `auth` feature's migrations — there
+> is nothing to create by hand. An older revision of this guide printed a
+> `CREATE TABLE permissions` statement for a table no migration has ever
+> created; if you built one from it, see
+> [Legacy Permissions Migration](Pramnos_Legacy_Permissions_Migration.md) for
+> the SQL that moves its rows across.
 
 ## Best Practices
 
