@@ -1,0 +1,101 @@
+#!/usr/bin/env node
+/**
+ * Generate the daisyUI palette from this project's server-rendered theme.
+ *
+ * The two halves of the application must not look like two products. The theme
+ * under `app/themes/` declares its palette as CSS custom properties, and
+ * daisyUI 5 reads its own palette from custom properties too — so the colours
+ * are mapped across here rather than being chosen twice by hand.
+ *
+ * This runs from `prebuild` and `predev`, so changing a colour in the theme
+ * reaches the SPA on the next build — which is when the CSS is rebuilt anyway.
+ * Doing it here rather than in the PHP shell keeps it off the request path
+ * entirely: no per-request work, no inline <style> for a CSP to block.
+ *
+ * It is the single implementation of the mapping. Nothing else derives these
+ * values, so there is nothing for it to drift from.
+ */
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root  = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const THEME = resolve(root, '{{ themePath }}');
+const OUT   = resolve(root, '{{ themeOutput }}');
+
+/**
+ * The colour this project's UI framework actually paints with, used when the
+ * theme declares no custom properties of its own. daisyUI's default purple
+ * would match nothing on the server-rendered side.
+ */
+const FALLBACK_PRIMARY = '{{ fallbackPrimary }}';
+
+/**
+ * Read the `:root` custom properties of a stylesheet.
+ *
+ * @param {string} css
+ * @returns {Record<string, string>}
+ */
+function rootVariables(css) {
+    const block = css.match(/:root\s*\{([\s\S]*?)\}/);
+    if (!block) {
+        return {};
+    }
+
+    const vars = {};
+    for (const [, name, value] of block[1].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
+        const trimmed = value.trim();
+        // Only flat colours map onto daisyUI tokens; a gradient or a shadow is
+        // a different kind of value and would produce nonsense.
+        if (!trimmed.includes('gradient') && !trimmed.includes(' 0 ')) {
+            vars[name] = trimmed;
+        }
+    }
+
+    return vars;
+}
+
+const themeExists = existsSync(THEME);
+const vars = themeExists ? rootVariables(readFileSync(THEME, 'utf8')) : {};
+const source = themeExists
+    ? '{{ themePath }}' + (Object.keys(vars).length ? '' : ' — no custom properties, using the framework palette')
+    : '{{ themePath }} (not found — using the framework palette)';
+
+const palette = {
+    '--color-primary': vars['--primary-color'] ?? FALLBACK_PRIMARY,
+    '--color-primary-content': '#ffffff',
+    '--color-base-100': vars['--white'] ?? '#ffffff',
+    '--color-base-200': '#f8fafc',
+    '--color-base-300': '#e2e8f0',
+    '--color-base-content': vars['--text-main'] ?? '#1e293b',
+    '--color-neutral': vars['--text-muted'] ?? '#64748b',
+    '--color-neutral-content': '#ffffff',
+    '--radius-box': '0.75rem',
+    '--radius-field': '0.5rem',
+};
+
+const css = `/**
+ * GENERATED — do not edit.
+ *
+ * Written by scripts/build-theme.mjs from the project's server-rendered theme,
+ * on every build and every dev-server start. Change a colour in the theme, not
+ * here; anything written here is overwritten.
+ *
+ * Source: ${source}
+ *
+ * The selector is doubled on purpose. CSS requires \`@import\` before other
+ * rules, so this file is emitted before daisyUI's own theme, and equal
+ * specificity would let daisyUI's defaults win on order.
+ */
+:root:root {
+${Object.entries(palette).map(([name, value]) => `    ${name}: ${value};`).join('\n')}
+    --font-sans: {{ fontFamily }};
+}
+
+body {
+    font-family: var(--font-sans);
+}
+`;
+
+writeFileSync(OUT, css);
+console.log(`theme: palette written to {{ themeOutput }} from ${source}`);

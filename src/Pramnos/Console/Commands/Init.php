@@ -304,7 +304,7 @@ class Init extends Command
         );
         $this->writeFile('src/Views/home/home.html.php', $this->getHomepageView(
             $appName, $namespace, $enabledFeatures, $selectedLibraries, $useDocker, $dockerPort, $dbType, $cliName,
-            $withRestApi
+            $withRestApi, $apiPrefix, $appStyle
         ));
 
         $this->scaffoldTheme($uiSystem, $appName, $catalog, $enabledFeatures);
@@ -356,7 +356,7 @@ class Init extends Command
         if ($appStyle !== 'mvc') {
             $this->scaffoldSpa(
                 $appName, $spaStack, $appStyle, $apiPrefix, $cliName, $spaDevPort, $dockerPort,
-                $enabledFeatures, $namespace
+                $enabledFeatures, $namespace, $uiSystem
             );
         }
 
@@ -978,7 +978,8 @@ class Init extends Command
         int    $devPort,
         int    $appPort,
         array  $features = [],
-        string $namespace = 'App'
+        string $namespace = 'App',
+        string $uiSystem = 'plain-css'
     ): void {
         $needsBuild = self::spaNeedsNode($spaStack);
         $shellFile  = $appStyle === 'hybrid' ? 'app.php' : 'spa.php';
@@ -1019,6 +1020,9 @@ class Init extends Command
             // build-less stack the shell links the stylesheet directly, and an
             // import here would break both the browser and `node --test`.
             'cssImport'     => $needsBuild ? "import './app.css';\n" : '',
+            // Where the application is mounted, so client-side URLs match the
+            // paths the server actually routes to the shell.
+            'routerBase'    => $appStyle === 'hybrid' ? '/app' : '',
         ];
 
         if ($spaStack === 'svelte') {
@@ -1045,6 +1049,9 @@ class Init extends Command
         // ships in every project rather than being a development-only file the
         // client would have to import conditionally.
         $this->writeFile($sourceDir . '/lib/debug.js', $this->renderStub('spa-debug-panel.js', $tokens));
+        // Real URLs for every screen: without them the back button leaves the
+        // application and no page can be linked to or bookmarked.
+        $this->writeFile($sourceDir . '/lib/router.js', $this->renderStub('spa-router.js', $tokens));
         // Empty registry: `create:crud` appends its screens here, and the app
         // imports it unconditionally so a generated screen becomes reachable
         // without touching App.svelte.
@@ -1056,7 +1063,7 @@ class Init extends Command
         $this->writeFile('www/' . $shellFile, $this->renderStub('spa-shell.php', $tokens));
 
         if ($needsBuild) {
-            $this->scaffoldSpaBuildStack($spaStack, $sourceDir, $tokens);
+            $this->scaffoldSpaBuildStack($spaStack, $sourceDir, $tokens, $uiSystem);
         } else {
             $this->scaffoldSpaBuildlessStack($sourceDir, $tokens);
         }
@@ -1088,6 +1095,41 @@ class Init extends Command
     }
 
 
+
+
+    /**
+     * Build the daisyUI palette from the project's server-rendered theme.
+     *
+     * The theme declares its colours as CSS custom properties; daisyUI 5 reads
+     * its palette from custom properties too. Mapping one onto the other means
+     * the SPA and the server-rendered pages share a palette by construction,
+     * instead of being coloured twice by hand and drifting apart.
+     *
+     * A theme that declares nothing (bootstrap and tailwind bring their own
+     * systems) falls back to that framework's own brand colour, which is what
+     * its pages actually render — not to daisyUI's default purple, which would
+     * match nothing on screen.
+     *
+     * @param  string $uiSystem plain-css|bootstrap|tailwind
+     * @return array<string, string> Stub tokens for spa-theme.css
+     */
+    private function spaThemeTokens(string $uiSystem, string $sourceDir): array
+    {
+        return [
+            // The theme's stylesheet is published to the web root, not left in
+            // app/themes/ — that is where the browser loads it from, and where
+            // an author edits the palette.
+            'themePath'   => 'www/assets/css/style.css',
+            'themeOutput' => $sourceDir . '/theme.css',
+            // The colour this UI framework actually paints with, for a theme
+            // that declares no custom properties of its own.
+            'fallbackPrimary' => match ($uiSystem) {
+                'bootstrap' => '#0d6efd',
+                default     => '#2563eb',
+            },
+            'fontFamily'  => "'Inter', system-ui, -apple-system, sans-serif",
+        ];
+    }
 
     /**
      * Scaffold the SPA administration screen and its endpoints.
@@ -1136,7 +1178,7 @@ class Init extends Command
         );
         $contents = str_replace(
             "export const screens = [\n",
-            "export const screens = [\n    { name: 'admin', label: 'Admin', component: Admin },\n",
+            "export const screens = [\n    { name: 'admin', label: 'Admin', component: Admin, admin: true },\n",
             $contents
         );
         file_put_contents($registry, $contents);
@@ -1211,7 +1253,7 @@ class Init extends Command
      *
      * @param array<string, string> $tokens
      */
-    private function scaffoldSpaBuildStack(string $spaStack, string $sourceDir, array $tokens): void
+    private function scaffoldSpaBuildStack(string $spaStack, string $sourceDir, array $tokens, string $uiSystem = 'plain-css'): void
     {
         $this->mkdir($sourceDir . '/__tests__');
         $this->writeFile('vite.config.js',   $this->renderStub('spa-vite.config.js', $tokens));
@@ -1226,6 +1268,22 @@ class Init extends Command
             $this->writeFile($sourceDir . '/main.js',    $this->renderStub('spa-svelte-main.js', $tokens));
             $this->writeFile($sourceDir . '/App.svelte', $this->renderStub('spa-svelte-app.svelte', $tokens));
             $this->writeFile($sourceDir . '/app.css',    $this->renderStub('spa-app.css', $tokens));
+            // daisyUI's palette is derived from the server-rendered theme by
+            // scripts/build-theme.mjs, which runs from prebuild/predev — off the
+            // request path, and re-derived whenever the CSS is rebuilt anyway.
+            $this->mkdir('scripts');
+            $this->writeFile(
+                'scripts/build-theme.mjs',
+                $this->renderStub('spa-build-theme.mjs', $this->spaThemeTokens($uiSystem, $sourceDir))
+            );
+            // A placeholder so `@import "./theme.css"` resolves before the first
+            // build; the generator overwrites it with the real palette.
+            $this->writeFile(
+                $sourceDir . '/theme.css',
+                "/* Generated by scripts/build-theme.mjs on every build.\n"
+                . " * This placeholder exists so the stylesheet resolves before the\n"
+                . " * first build; run `npm run build` to derive the real palette. */\n"
+            );
             $this->writeFile(
                 $sourceDir . '/__tests__/App.test.js',
                 $this->renderStub('spa-svelte-app.test.js', $tokens)
@@ -1435,6 +1493,12 @@ CSS;
 
         $pkg['type']    = 'module';
         $pkg['scripts'] = array_merge($pkg['scripts'] ?? [], [
+            // npm runs pre<script> automatically, so the palette is re-derived
+            // from the theme before every build and every dev-server start —
+            // and never on a request.
+            'prebuild'      => 'node scripts/build-theme.mjs',
+            'predev'        => 'node scripts/build-theme.mjs',
+            'theme'         => 'node scripts/build-theme.mjs',
             'dev'           => 'vite',
             'build'         => 'vite build',
             'preview'       => 'vite preview',
@@ -4023,9 +4087,14 @@ BASH;
      * and, when the first build did not happen, exactly which command produces
      * it, because until then the shell serves the unbuilt fallback assets.
      */
-    private function spaSummaryStep(string $appStyle, string $spaStack, int $spaDevPort): string
+    private function spaSummaryStep(string $appStyle, string $spaStack, int $spaDevPort, string $appUrl = ''): string
     {
-        $where = $appStyle === 'hybrid' ? 'mounted at <comment>/app</comment>' : 'served at the site root';
+        // The URL is the first thing anyone wants after init; describing the
+        // mount point and leaving them to assemble it is a small cruelty.
+        $spaUrl = rtrim($appUrl, '/') . ($appStyle === 'hybrid' ? '/app' : '/');
+        $where  = $appUrl === ''
+            ? ($appStyle === 'hybrid' ? 'mounted at <comment>/app</comment>' : 'served at the site root')
+            : "open it at <comment>$spaUrl</comment>";
         $stack = match ($spaStack) {
             'svelte'       => 'Svelte 5 + Vite + Tailwind/daisyUI',
             'vanilla-vite' => 'vanilla JS + Vite',
@@ -4073,7 +4142,12 @@ BASH;
         $steps = [];
 
         if ($appStyle !== 'mvc') {
-            $steps[] = $this->spaSummaryStep($appStyle, $spaStack, $spaDevPort);
+            $steps[] = $this->spaSummaryStep(
+                $appStyle,
+                $spaStack,
+                $spaDevPort,
+                $useDocker ? "http://localhost:$dockerPort" : ''
+            );
         }
 
         if ($useDocker) {
@@ -4248,7 +4322,8 @@ PHP;
         string $dbType,
         string $cliName,
         bool   $withApi    = false,
-        string $apiPrefix  = '/api/1.0'
+        string $apiPrefix  = '/api/1.0',
+        string $appStyle   = 'mvc'
     ): string {
         $toolPort     = $dockerPort + 1;
         $toolName     = ($dbType === 'mysql') ? 'PHPMyAdmin' : 'Adminer';
@@ -4274,6 +4349,16 @@ PHP;
             }
             $sections .= "  <li><a href=\"$toolUrl\">$toolName: $toolUrl</a></li>\n";
             $sections .= "</ul>\n\n";
+        }
+
+        // In a hybrid project this page IS the front door, and the SPA is easy
+        // to forget behind it — say where it is, and link to it.
+        if ($appStyle === 'hybrid') {
+            $spaUrl = ($useDocker ? "http://localhost:$dockerPort" : '') . '/app';
+            $sections .= "<h2>Single-page application</h2>\n";
+            $sections .= "<p>This project is hybrid: these pages are server-rendered, and the SPA "
+                . "lives at <a href=\"$spaUrl\">$spaUrl</a>. Its sources are in "
+                . "<code>frontend/</code>.</p>\n\n";
         }
 
         $sections .= "<h2>CLI Commands</h2>\n<ul>\n";
@@ -5315,9 +5400,116 @@ PHP;
                 }
                 // @codeCoverageIgnoreEnd
             }
+
+            if ($exitCode !== 0) {
+                // @codeCoverageIgnoreStart — reached only when a subprocess fails
+                $this->explainDockerFailure($stdoutBuf . "\n" . $stderrBuf, $output);
+                // @codeCoverageIgnoreEnd
+            }
         }
 
         return $exitCode;
+    }
+
+    /**
+     * Turn a known Docker failure into something the reader can act on.
+     *
+     * A failed pull or build prints forty lines of daemon output whose actual
+     * cause is one line somewhere in the middle — and every one of these has a
+     * fix that has nothing to do with the project being scaffolded. Recognising
+     * them is the difference between "it broke" and "here is the command".
+     *
+     * Unknown failures are left alone: a guess dressed as advice is worse than
+     * the raw output.
+     *
+     * @param string $log Combined stdout and stderr of the failed step
+     */
+    protected function explainDockerFailure(string $log, OutputInterface $output): void
+    {
+        foreach (self::dockerFailureHints($log) as $line) {
+            $output->writeln($line);
+        }
+    }
+
+    /**
+     * The advice for a failed Docker step, as display lines.
+     *
+     * Separated from the printing so it can be asserted directly.
+     *
+     * @param  string $log Combined output of the failed command
+     * @return list<string> Lines to print; empty when nothing is recognised
+     */
+    public static function dockerFailureHints(string $log): array
+    {
+        // The credential helper cannot be reached. Very common under WSL, where
+        // docker-credential-desktop.exe lives on the Windows side and stops
+        // answering after a sleep/resume — every pull then fails, including
+        // public images that need no credentials at all.
+        if (str_contains($log, 'error getting credentials')
+            || str_contains($log, 'docker-credential')) {
+            $lines = [
+                '',
+                '  <comment>Docker could not read its stored credentials.</comment>',
+                '  This is a Docker configuration problem, not a problem with this project:',
+                '  every pull fails the same way, including public images.',
+                '',
+                '  Public images need no credentials, so the usual fix is to stop using the',
+                '  credential store:',
+                '',
+                '    <info>cp ~/.docker/config.json ~/.docker/config.json.bak</info>',
+                '    <info>echo \'{}\' > ~/.docker/config.json</info>',
+                '',
+            ];
+            if (str_contains($log, 'UtilAcceptVsock') || str_contains($log, 'WSL')) {
+                $lines[] = '  The <comment>UtilAcceptVsock</comment> errors above are WSL failing to reach the';
+                $lines[] = '  Windows-side helper; restarting Docker Desktop usually clears that too.';
+                $lines[] = '';
+            }
+            $lines[] = '  Then finish the setup with: <info>docker-compose up -d --build</info>';
+            $lines[] = '';
+
+            return $lines;
+        }
+
+        // The daemon is not there at all.
+        if (str_contains($log, 'Cannot connect to the Docker daemon')
+            || str_contains($log, 'Is the docker daemon running')) {
+            return [
+                '',
+                '  <comment>The Docker daemon is not reachable.</comment>',
+                '  Start Docker (or Docker Desktop, including its WSL integration), then run:',
+                '',
+                '    <info>docker-compose up -d --build</info>',
+                '',
+            ];
+        }
+
+        // A port was taken between the availability check and the container
+        // starting — a race init cannot prevent, only explain.
+        if (str_contains($log, 'port is already allocated')
+            || str_contains($log, 'address already in use')) {
+            return [
+                '',
+                '  <comment>A published port was taken before the containers started.</comment>',
+                '  Free it, or re-run init with a different <info>--docker-port</info>. The environment',
+                '  publishes two ports: the application and, one above it, the database tool.',
+                '',
+            ];
+        }
+
+        // No space is reported as a build failure with an unhelpful exit code.
+        if (str_contains($log, 'no space left on device')) {
+            return [
+                '',
+                '  <comment>The Docker host has run out of disk space.</comment>',
+                '  Reclaim some and try again:',
+                '',
+                '    <info>docker system prune -a --volumes</info>',
+                '',
+            ];
+        }
+
+        return [];
     }
 
     /**

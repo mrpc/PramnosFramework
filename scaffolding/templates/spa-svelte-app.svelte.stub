@@ -2,30 +2,41 @@
     /**
      * Root component of the {{ appName }} SPA.
      *
-     * Two things a scaffold should prove on first load: that the front end
-     * reaches the JSON API, and — when the auth feature is enabled — that
-     * signing in works end to end. Both are here, wired to real endpoints, so
-     * the first screen is a working example rather than a placeholder.
+     * It mirrors the structure of the server-rendered theme — header with the
+     * application name and navigation, content, footer — so the two halves of a
+     * hybrid project do not look like two different products.
      *
-     * Svelte 5 runes ($state / $derived / $effect) and daisyUI classes.
+     * Every screen has a real URL (see lib/router.js) and access is decided in
+     * one place: an anonymous visitor is sent to the sign-in screen, a signed-in
+     * visitor who is not allowed somewhere is sent home. Showing "you do not
+     * have permission" to someone who simply has not signed in yet is a dead end.
      */
     import { api, ApiError, login, logout, currentUser } from './lib/api.js';
+    import { createRouter, pathFor } from './lib/router.js';
     import { screens } from './screens/registry.js';
 
     const hasAuth = Boolean(window.__PRAMNOS__?.features?.auth);
+    const appName = window.__PRAMNOS__?.appName ?? '{{ appName }}';
 
+    let route   = $state('home');
     let status  = $state(null);
     let error   = $state(null);
     let loading = $state(true);
 
-    // Which generated screen is showing (null = the overview below).
-    let screen   = $state(null);
-
-    let user     = $state(null);
-    let username = $state('');
-    let password = $state('');
+    let user      = $state(null);
+    let userReady = $state(!hasAuth);
+    let username  = $state('');
+    let password  = $state('');
     let signingIn = $state(false);
     let authError = $state(null);
+
+    const router = createRouter((name) => { route = name; });
+
+    /** Screens that require a signed-in user. */
+    const PROTECTED = ['admin', ...screens.map((s) => s.name)];
+
+    /** The screen component for the current route, if it is one. */
+    const screen = $derived(screens.find((s) => s.name === route) ?? null);
 
     $effect(() => {
         api.get('{{ probeEndpoint }}')
@@ -38,9 +49,29 @@
             .finally(() => { loading = false; });
 
         if (hasAuth) {
-            // Anyone already signed in through the server-rendered pages is
-            // authenticated here too — the API accepts the session cookie.
-            currentUser().then((found) => { user = found; }).catch(() => {});
+            // Someone signed in through the server-rendered pages is already
+            // authenticated here — the API accepts the session cookie.
+            currentUser()
+                .then((found) => { user = found; })
+                .catch(() => {})
+                .finally(() => { userReady = true; });
+        }
+
+        router.start();
+    });
+
+    // Access control in one place, applied whenever the route or the user
+    // changes. Waiting for userReady matters: deciding before we know who the
+    // visitor is would bounce a signed-in user to the login screen on reload.
+    $effect(() => {
+        if (!hasAuth || !userReady) {
+            return;
+        }
+        if (!user && PROTECTED.includes(route)) {
+            router.go('signin', true);
+        }
+        if (user && route === 'signin') {
+            router.go('home', true);
         }
     });
 
@@ -52,6 +83,7 @@
         try {
             user     = await login(username, password);
             password = '';
+            router.go('home', true);
         } catch (err) {
             authError = err instanceof ApiError && err.status === 401
                 ? 'Wrong username or password.'
@@ -61,102 +93,125 @@
         }
     }
 
-    /** Revoke the token and go back to the signed-out state. */
+    /** Revoke the token and return to the front page. */
     async function submitLogout() {
         await logout();
         user = null;
+        router.go('home', true);
     }
 </script>
 
-<div class="min-h-screen bg-base-200">
-    <div class="navbar bg-base-100 shadow-sm">
-        <a class="btn btn-ghost text-xl" href="/">{{ appName }}</a>
-        {#each screens as item}
-            <button
-                class="btn btn-ghost btn-sm"
-                class:btn-active={screen?.name === item.name}
-                onclick={() => (screen = screen?.name === item.name ? null : item)}
-            >{item.label}</button>
-        {/each}
+<div class="flex min-h-screen flex-col bg-base-200">
+    <header class="navbar bg-base-100 shadow-sm">
+        <div class="container mx-auto flex items-center gap-2">
+            <a class="btn btn-ghost text-xl" href={pathFor('home')} onclick={(e) => router.link(e, 'home')}>
+                {appName}
+            </a>
 
-        {#if hasAuth && user}
+            <nav class="flex items-center gap-1">
+                <!-- The admin screen has its own entry below, shown only to a
+                     signed-in user, so it is filtered out of the general list. -->
+                {#each screens.filter((s) => !s.admin) as item}
+                    <a
+                        class="btn btn-ghost btn-sm"
+                        class:btn-active={route === item.name}
+                        href={pathFor(item.name)}
+                        onclick={(e) => router.link(e, item.name)}
+                    >{item.label}</a>
+                {/each}
+
+                {#if hasAuth && user && screens.some((s) => s.admin)}
+                    <a
+                        class="btn btn-ghost btn-sm"
+                        class:btn-active={route === 'admin'}
+                        href={pathFor('admin')}
+                        onclick={(e) => router.link(e, 'admin')}
+                    >Admin</a>
+                {/if}
+            </nav>
+
             <div class="ml-auto flex items-center gap-3">
-                <span class="text-sm opacity-70">{user.username ?? user.email}</span>
-                <button class="btn btn-sm" onclick={submitLogout}>Sign out</button>
-            </div>
-        {/if}
-    </div>
-
-    {#if screen}
-        <!-- A screen generated by `create:crud` — see frontend/screens/.
-             Bound to a local so it renders as a normal component: in runes mode
-             components are dynamic already and <svelte:component> is deprecated. -->
-        {@const Screen = screen.component}
-        <main class="p-6">
-            <Screen />
-        </main>
-    {:else}
-    <main class="grid gap-6 p-6 md:grid-cols-2">
-        <div class="card bg-base-100 shadow">
-            <div class="card-body">
-                <h2 class="card-title">Backend</h2>
-
-                {#if loading}
-                    <span class="loading loading-spinner loading-md"></span>
-                {:else if error}
-                    <div role="alert" class="alert alert-error">
-                        <span>{error}</span>
-                    </div>
-                {:else}
-                    <div role="alert" class="alert alert-success">
-                        <span>Connected to the API.</span>
-                    </div>
-                    <pre class="mt-2 overflow-x-auto rounded bg-base-200 p-3 text-sm">{JSON.stringify(status, null, 2)}</pre>
-                    <p class="mt-2 text-sm opacity-70">
-                        Served by <code>src/Services/StatusService.php</code> through
-                        <code>src/Api/Controllers/Status.php</code>.
-                    </p>
+                {#if hasAuth && user}
+                    <span class="text-sm opacity-70">{user.username ?? user.email}</span>
+                    <button class="btn btn-sm" onclick={submitLogout}>Sign out</button>
+                {:else if hasAuth}
+                    <a class="btn btn-primary btn-sm" href={pathFor('signin')} onclick={(e) => router.link(e, 'signin')}>
+                        Sign in
+                    </a>
                 {/if}
             </div>
         </div>
+    </header>
 
-        {#if hasAuth}
-            <div class="card bg-base-100 shadow">
+    <main class="container mx-auto flex-1 p-6">
+        {#if route === 'signin'}
+            <div class="card mx-auto w-full max-w-sm bg-base-100 shadow">
                 <div class="card-body">
-                    <h2 class="card-title">Account</h2>
+                    <h2 class="card-title">Sign in</h2>
+                    <form class="flex flex-col gap-3" onsubmit={submitLogin}>
+                        <label class="form-control">
+                            <span class="label-text">Username</span>
+                            <input class="input input-bordered" bind:value={username} autocomplete="username" required />
+                        </label>
+                        <label class="form-control">
+                            <span class="label-text">Password</span>
+                            <input class="input input-bordered" type="password" bind:value={password} autocomplete="current-password" required />
+                        </label>
 
-                    {#if user}
-                        <div role="alert" class="alert alert-success">
-                            <span>Signed in as {user.username ?? user.email}.</span>
-                        </div>
-                        <pre class="mt-2 overflow-x-auto rounded bg-base-200 p-3 text-sm">{JSON.stringify(user, null, 2)}</pre>
-                    {:else}
-                        <form class="flex flex-col gap-3" onsubmit={submitLogin}>
-                            <label class="form-control">
-                                <span class="label-text">Username</span>
-                                <input class="input input-bordered" bind:value={username} autocomplete="username" required />
-                            </label>
-                            <label class="form-control">
-                                <span class="label-text">Password</span>
-                                <input class="input input-bordered" type="password" bind:value={password} autocomplete="current-password" required />
-                            </label>
+                        {#if authError}
+                            <div role="alert" class="alert alert-error"><span>{authError}</span></div>
+                        {/if}
 
-                            {#if authError}
-                                <div role="alert" class="alert alert-error"><span>{authError}</span></div>
-                            {/if}
+                        <button class="btn btn-primary" type="submit" disabled={signingIn}>
+                            {signingIn ? 'Signing in…' : 'Sign in'}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        {:else if screen}
+            {@const Screen = screen.component}
+            <Screen />
+        {:else}
+            <div class="grid gap-6 md:grid-cols-2">
+                <div class="card bg-base-100 shadow">
+                    <div class="card-body">
+                        <h2 class="card-title">Backend</h2>
 
-                            <button class="btn btn-primary" type="submit" disabled={signingIn}>
-                                {signingIn ? 'Signing in…' : 'Sign in'}
-                            </button>
-                        </form>
-                        <p class="text-sm opacity-70">
-                            Posts to <code>{{ apiPrefix }}/account/login</code>; the issued token is
-                            reused by every later request.
-                        </p>
-                    {/if}
+                        {#if loading}
+                            <span class="loading loading-spinner loading-md"></span>
+                        {:else if error}
+                            <div role="alert" class="alert alert-error"><span>{error}</span></div>
+                        {:else}
+                            <div role="alert" class="alert alert-success">
+                                <span>Connected to the API.</span>
+                            </div>
+                            <pre class="mt-2 overflow-x-auto rounded bg-base-200 p-3 text-sm">{JSON.stringify(status, null, 2)}</pre>
+                            <p class="mt-2 text-sm opacity-70">
+                                Served by <code>src/Services/StatusService.php</code> through
+                                <code>src/Api/Controllers/Status.php</code>.
+                            </p>
+                        {/if}
+                    </div>
+                </div>
+
+                <div class="card bg-base-100 shadow">
+                    <div class="card-body">
+                        <h2 class="card-title">Getting started</h2>
+                        <ul class="list-inside list-disc text-sm opacity-80">
+                            <li>Edit this screen in <code>frontend/App.svelte</code>.</li>
+                            <li>Add a feature with <code>./{{ cliName }} create:crud &lt;name&gt;</code> — it
+                                generates the API endpoints and a screen, and the screen appears
+                                in the navigation by itself.</li>
+                            <li>Front-end tests: <code>./testjs</code>. How to write them:
+                                <code>docs/FRONTEND_TESTING.md</code>.</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
         {/if}
     </main>
-    {/if}
+
+    <footer class="footer footer-center bg-base-100 p-4 text-sm">
+        <p>© {new Date().getFullYear()} {appName}. All rights reserved.</p>
+    </footer>
 </div>
