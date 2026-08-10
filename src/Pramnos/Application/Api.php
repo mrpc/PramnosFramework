@@ -213,9 +213,10 @@ class Api extends Application
                             header($name . ': ' . $value, false);
                         }
                     }
+                    $this->_sendServerTiming();
                 }
                 $this->_recordTokenAction($startTime, ['status' => $response->getStatusCode()]);
-                $doc->addContent($response->getBody());
+                $doc->addContent($this->_attachDebugPayload($response->getBody()));
                 return null;
             }
 
@@ -411,7 +412,61 @@ class Api extends Application
             }
         }
 
+        // In development the toolbar's data rides along with the response it
+        // describes: a JSON body has no </body> for the HTML toolbar to be
+        // injected into, and a SPA's page never goes through that pipeline at
+        // all. Never attached in production — see ApiDebugPayload::isEnabled().
+        if (\Pramnos\Debug\ApiDebugPayload::isEnabled()) {
+            $return['_debug'] = \Pramnos\Debug\ApiDebugPayload::build();
+            $this->_sendServerTiming();
+        }
+
         return json_encode($return);
+    }
+
+    /**
+     * Merge the debug payload into an already-encoded JSON body.
+     *
+     * Anything that is not a JSON object is returned untouched: a plain string
+     * response, an array at the top level, or a body that failed to decode has
+     * nowhere to put a `_debug` key, and mangling it would be worse than having
+     * no debug data.
+     *
+     * @param  string $body The response body as the controller produced it
+     * @return string
+     */
+    protected function _attachDebugPayload($body)
+    {
+        if (!\Pramnos\Debug\ApiDebugPayload::isEnabled()) {
+            return $body;
+        }
+
+        $decoded = json_decode((string) $body, true);
+        if (!is_array($decoded) || array_is_list($decoded)) {
+            return $body;
+        }
+
+        $decoded['_debug'] = \Pramnos\Debug\ApiDebugPayload::build();
+
+        return json_encode($decoded);
+    }
+
+    /**
+     * Emit the Server-Timing header for this request.
+     *
+     * Browsers show it in the network panel with no front-end code at all, and
+     * it is the only channel that also works for responses with no body.
+     */
+    protected function _sendServerTiming()
+    {
+        if (!\Pramnos\Debug\ApiDebugPayload::isEnabled()) {
+            return;
+        }
+        if (PHP_SAPI === 'cli' || headers_sent()) {
+            return;
+        }
+
+        header('Server-Timing: ' . \Pramnos\Debug\ApiDebugPayload::serverTiming(), false);
     }
 
     /**

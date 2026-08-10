@@ -19,6 +19,8 @@
  * to 401 (sign in again) or 422 (field errors) instead of parsing messages.
  */
 
+import { record as recordDebug } from './debug.js';
+
 /** Fallback prefix, used when the shell injected no configuration. */
 const DEFAULT_PREFIX = '{{ apiPrefix }}';
 
@@ -139,6 +141,10 @@ export async function request(path, { method = 'GET', body = null, headers = {} 
     } catch {
         payload = null;
     }
+
+    // In development the API attaches its debug data to the response it
+    // describes; the panel shows it. In production there is nothing to record.
+    recordDebug(method, path, response.status, payload && payload._debug);
 
     if (!response.ok) {
         const detail = payload && payload.message ? `: ${payload.message}` : '';
