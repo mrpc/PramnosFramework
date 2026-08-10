@@ -432,8 +432,8 @@ class Init extends Command
             if ($this->dockerSuccess) {
                 $this->waitForDatabase($dbType, $output);
 
-                $syncStatus         = $this->runProcessWithSpinner('docker-compose exec -T app composer update --no-interaction 2>/dev/null',      'Syncing dependencies (in container)',     $output);
-                $syncAutoloadStatus = $this->runProcessWithSpinner('docker-compose exec -T app composer dump-autoload --no-interaction 2>/dev/null', 'Regenerating autoloader (in container)',  $output);
+                $syncStatus         = $this->runProcessWithSpinner('docker-compose exec -T -u www-data -e COMPOSER_HOME=/tmp/composer app composer update --no-interaction 2>/dev/null',      'Syncing dependencies (in container)',     $output);
+                $syncAutoloadStatus = $this->runProcessWithSpinner('docker-compose exec -T -u www-data -e COMPOSER_HOME=/tmp/composer app composer dump-autoload --no-interaction 2>/dev/null', 'Regenerating autoloader (in container)',  $output);
 
                 if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {
                     $this->autoloadSuccess = false;
@@ -441,7 +441,7 @@ class Init extends Command
 
                 if ($this->autoloadSuccess && !$input->getOption('no-migrations')) {
                     $migStatus = $this->runProcessWithSpinner(
-                        "docker-compose exec -T app php $cliName.php migrate --scope=framework 2>/dev/null",
+                        "docker-compose exec -T -u www-data app php $cliName.php migrate --scope=framework 2>/dev/null",
                         'Running framework migrations',
                         $output,
                         true // always show migration output — the per-migration list is always informative
@@ -452,7 +452,7 @@ class Init extends Command
                         $this->createAdminUser($input, $output, $helper, $userEmail, $cliName, $userName);
                     } elseif (!$this->migrationsSuccess) {
                         $output->writeln('  <comment>Admin user creation skipped — migrations did not complete successfully.</comment>');
-                        $output->writeln("  Run manually after fixing migrations: docker-compose exec app php $cliName.php migrate --scope=framework");
+                        $output->writeln("  Run manually after fixing migrations: docker-compose exec -u www-data app php $cliName.php migrate --scope=framework");
                     }
 
                     // Seed a "Development" OAuth application with the pre-generated
@@ -475,7 +475,7 @@ class Init extends Command
                 // the SPA is actually visible the moment init finishes rather
                 // than after a manual npm dance.
                 if ($appStyle !== 'mvc' && self::spaNeedsNode($spaStack)) {
-                    $this->buildSpa('docker-compose exec -T app sh -lc', $output);
+                    $this->buildSpa('docker-compose exec -T -u www-data -e HOME=/tmp app sh -lc', $output);
                 }
             }
             // @codeCoverageIgnoreEnd
@@ -922,6 +922,8 @@ class Init extends Command
             'assetBase'     => '/' . self::SPA_BUILD_DIR . '/',
             'outDir'        => 'www/' . self::SPA_BUILD_DIR,
             'manifestPath'  => self::SPA_BUILD_DIR . '/.vite/manifest.json',
+            // Written by the dev server while it runs (see vite.config.js).
+            'hotPath'       => self::SPA_BUILD_DIR . '/.vite/hot',
             'entryKey'      => $sourceDir . '/main.js',
             'entry'         => $sourceDir . '/main.js',
             // Root-relative on purpose: the shell also answers deep client
@@ -940,7 +942,8 @@ class Init extends Command
         if ($spaStack === 'svelte') {
             $tokens['pluginImports'] = "import { svelte } from '@sveltejs/vite-plugin-svelte';\n"
                 . "import tailwindcss from '@tailwindcss/vite';\n";
-            $tokens['pluginList'] = 'svelte(), tailwindcss()';
+            // Trailing comma: the stub appends pramnosHotFile() after this.
+            $tokens['pluginList'] = 'svelte(), tailwindcss(), ';
         } elseif ($spaStack === 'vanilla-vite') {
             $tokens['pluginImports'] = '';
             $tokens['pluginList']    = '';
@@ -1035,7 +1038,11 @@ class Init extends Command
             // as MVC controllers. Those paths stay with the front controller;
             // everything else is a client-side route and gets the shell. The
             // list is not guesswork — init generated exactly these wirings.
-            $rules = "RewriteEngine On\n"
+            // The document root itself is a directory, so the catch-all rule
+            // below (guarded by !-d) never fires for "/". Without this the site
+            // root would serve the MVC index.php instead of the SPA.
+            $rules = "DirectoryIndex $shellFile index.php\n"
+                . "RewriteEngine On\n"
                 . "# Server-rendered areas scaffolded by init stay with the front controller.\n"
                 . "RewriteCond %{REQUEST_FILENAME} !-f\n"
                 . "RewriteCond %{REQUEST_FILENAME} !-d\n"
@@ -1312,9 +1319,9 @@ CSS;
             ]));
         }
 
-        $scriptSrc = $this->scaffoldingDir . '/scripts/apidoc-to-openapi.js';
+        $scriptSrc = $this->scaffoldingDir . '/scripts/apidoc-to-openapi.cjs';
         if (file_exists($scriptSrc)) {
-            $this->writeFile('scripts/apidoc-to-openapi.js', (string) file_get_contents($scriptSrc));
+            $this->writeFile('scripts/apidoc-to-openapi.cjs', (string) file_get_contents($scriptSrc));
         }
 
         $this->writeFile('scripts/doc.sh', $this->renderStub('doc.sh', []));
@@ -1339,7 +1346,7 @@ CSS;
      * Build the openapi-overrides.json payload that documents the OAuth2 server.
      *
      * The overrides are deep-merged over the auto-generated OpenAPI spec by
-     * scripts/apidoc-to-openapi.js, so this only has to contribute the pieces
+     * scripts/apidoc-to-openapi.cjs, so this only has to contribute the pieces
      * apidoc cannot infer: an oauth2 security scheme (which drives RapiDoc's
      * "Authorize" button) and the machine OAuth endpoints. Scopes come from the
      * framework Scopes registry so the docs stay in sync with what the server
@@ -1727,7 +1734,7 @@ CSS;
     public static function mergeApiDocsPackageJson(array $pkg): array
     {
         $pkg['scripts'] = array_merge($pkg['scripts'] ?? [], [
-            'openapi:generate' => 'node scripts/apidoc-to-openapi.js',
+            'openapi:generate' => 'node scripts/apidoc-to-openapi.cjs',
             'docs:build'       => 'npm run openapi:generate',
             // Wrapper: runs docs:build inside the Docker container by default, or
             // on the host with `bash scripts/doc.sh --host`.
@@ -3359,7 +3366,12 @@ PHP;
             ? "      - \"$spaDevPort:$spaDevPort\"\n"
             : '';
 
-        $compose  = "services:\n  app:\n    container_name: {$slug}_php\n    build: .\n    ports:\n      - \"$port:80\"\n$devPortMapping    volumes:\n      - .:/var/www/html\n$extraVolumes    depends_on:\n      - db\n";
+        // UID/GID come from .env (written by init with the host user's ids), so
+        // the image's www-data matches the person who owns the checkout.
+        $compose  = "services:\n  app:\n    container_name: {$slug}_php\n"
+            . "    build:\n      context: .\n      args:\n"
+            . "        UID: \${UID:-1000}\n        GID: \${GID:-1000}\n"
+            . "    ports:\n      - \"$port:80\"\n$devPortMapping    volumes:\n      - .:/var/www/html\n$extraVolumes    depends_on:\n      - db\n";
 
         if ($cacheSystem !== 'none') {
             $compose .= "      - cache\n";
@@ -3393,6 +3405,7 @@ PHP;
         }
 
         $this->writeFile('docker-compose.yml', $compose);
+        $this->ensureHostUserEnv();
 
         $phpExts  = $isPostgres ? 'pdo_pgsql pgsql' : 'pdo_mysql mysqli';
         $docRoot  = '/var/www/html/www';
@@ -3405,6 +3418,15 @@ PHP;
         // makes `./dockerbash` a usable place to poke at the database by hand.
         $dbClient = $isPostgres ? 'postgresql-client' : 'default-mysql-client';
         $dockerfile .= "RUN apt-get update && apt-get install -y libpq-dev libicu-dev libonig-dev libzip-dev libxml2-dev libpng-dev libjpeg-dev libwebp-dev libfreetype6-dev git unzip $dbClient\n";
+        // Everything the tooling writes into the bind-mounted project (vendor/,
+        // node_modules/, var/logs, migrations output) is created by the
+        // container's web user. Remap www-data to the *host* user's ids at build
+        // time so those files land owned by whoever ran init — otherwise the
+        // project fills up with root-owned files and even deleting it needs
+        // sudo. -o allows a duplicate id, which some hosts already use.
+        $dockerfile .= "ARG UID=1000\n";
+        $dockerfile .= "ARG GID=1000\n";
+        $dockerfile .= "RUN groupmod -o -g \$GID www-data && usermod -o -u \$UID -g \$GID www-data\n";
         $dockerfile .= "COPY --from=composer:latest /usr/bin/composer /usr/bin/composer\n";
         $dockerfile .= "RUN docker-php-ext-configure intl\n";
         $dockerfile .= "RUN docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype\n";
@@ -3440,10 +3462,62 @@ PHP;
         @chmod($this->targetBaseDir . '/dockertest', 0755);
 
         if ($cliName !== '') {
-            $cliWrapper = "#!/usr/bin/env bash\ndocker-compose exec app php $cliName.php \"\$@\"\n";
+            $cliWrapper = "#!/usr/bin/env bash\n# -u www-data: the image maps that user to the host user (see .env),\n# so anything the command writes stays owned by you.\ndocker-compose exec -u www-data app php $cliName.php \"\$@\"\n";
             $this->writeFile($cliName, $cliWrapper);
             @chmod($this->targetBaseDir . '/' . $cliName, 0755);
         }
+    }
+
+    /**
+     * The id of the host user, so the container can write as them.
+     *
+     * posix_* is not compiled into every PHP build, hence the `id` fallback and
+     * the 1000 default (the first non-root user on a Debian/Ubuntu host, which
+     * is what the vast majority of development machines use).
+     */
+    public static function hostUserIds(): array
+    {
+        $uid = function_exists('posix_getuid') ? posix_getuid() : (int) trim((string) @shell_exec('id -u'));
+        $gid = function_exists('posix_getgid') ? posix_getgid() : (int) trim((string) @shell_exec('id -g'));
+
+        return [
+            'UID' => $uid > 0 ? $uid : 1000,
+            'GID' => $gid > 0 ? $gid : 1000,
+        ];
+    }
+
+    /**
+     * Record the host user's ids in .env, where docker-compose reads them.
+     *
+     * Compose interpolates ${UID}/${GID} from the environment or from .env —
+     * and a plain shell does NOT export UID, so relying on the environment
+     * silently falls back to the defaults. Writing them once, at init, makes
+     * every later `docker-compose build` reproducible for this checkout.
+     *
+     * An existing .env is preserved: only missing keys are appended.
+     */
+    private function ensureHostUserEnv(): void
+    {
+        $path     = $this->targetBaseDir . '/.env';
+        $existing = file_exists($path) ? (string) file_get_contents($path) : '';
+        $append   = '';
+
+        foreach (self::hostUserIds() as $key => $value) {
+            if (!preg_match('/^' . $key . '=/m', $existing)) {
+                $append .= "$key=$value\n";
+            }
+        }
+
+        if ($append === '') {
+            return;
+        }
+
+        $header = $existing === ''
+            ? "# Host user ids, so files the container writes into the bind mount\n"
+                . "# (vendor/, node_modules/, var/logs) belong to you and not to root.\n"
+            : "\n# Host user ids for docker-compose build args.\n";
+
+        file_put_contents($path, $existing . $header . $append);
     }
 
     private function detectFrameworkDevVolume(): string
@@ -3571,7 +3645,7 @@ fi
 
 if [ ! -f "vendor/bin/phpunit" ]; then
     echo "Dependencies missing. Running composer install..."
-    docker-compose exec app composer install
+    docker-compose exec -u www-data -e COMPOSER_HOME=/tmp/composer app composer install
 fi
 
 extra_flags="--display-deprecations --display-warnings --display-notices --display-phpunit-deprecations"
@@ -3579,13 +3653,13 @@ extra_flags="--display-deprecations --display-warnings --display-notices --displ
 
 if [[ "\$coverage" == true ]]; then
     mkdir -p coverage
-    docker-compose exec app vendor/bin/phpunit --coverage-html coverage \$extra_flags "\${passthrough[@]}"
+    docker-compose exec -u www-data app vendor/bin/phpunit --coverage-html coverage \$extra_flags "\${passthrough[@]}"
 elif [[ "\$nocoverage" == true ]]; then
     # --no-coverage overrides any <coverage> block in phpunit.xml; XDEBUG_MODE=off
     # removes the per-line instrumentation overhead completely.
-    docker-compose exec -e XDEBUG_MODE=off app vendor/bin/phpunit --no-coverage \$extra_flags "\${passthrough[@]}"
+    docker-compose exec -u www-data -e XDEBUG_MODE=off app vendor/bin/phpunit --no-coverage \$extra_flags "\${passthrough[@]}"
 else
-    docker-compose exec app vendor/bin/phpunit \$extra_flags "\${passthrough[@]}"
+    docker-compose exec -u www-data app vendor/bin/phpunit \$extra_flags "\${passthrough[@]}"
 fi
 
 if [[ "\$coverage" == true && "\$nobrowser" == false && -f ./coverage/index.html ]]; then
@@ -3627,7 +3701,7 @@ if ! grep -q "app.*Up" <<<"\$ps_out"; then
     sleep 5
 fi
 
-docker-compose exec app bash
+docker-compose exec -u www-data app bash
 BASH;
     }
 
@@ -3694,7 +3768,9 @@ BASH;
             if (!$this->spaBuilt) {
                 $lines[] = '    Build it with <comment>./dockernpm install && ./dockernpm run build</comment>';
             }
-            $lines[] = "    Dev server with HMR: <comment>./dockernpm run dev</comment> → <comment>http://localhost:$spaDevPort</comment>";
+            // Deliberately not the Vite port: the dev server has no HTML to
+            // serve. It only supplies modules to this app's own pages.
+            $lines[] = '    Dev server with HMR: <comment>./dockernpm run dev</comment>, then keep browsing the app URL';
             $lines[] = '    Front-end tests: <comment>./testjs</comment> (Vitest)';
         } else {
             $lines[] = '    Sources in <comment>www/assets/js/</comment> — served as written, no build step';
@@ -4113,7 +4189,7 @@ PHP;
         shell_exec("docker cp " . escapeshellarg($tmpFile) . " " . escapeshellarg($containerName . ":/tmp/pramnos_admin.php") . " 2>/dev/null");
         @unlink($tmpFile);
 
-        $result = trim((string) shell_exec("docker-compose exec -T app php /tmp/pramnos_admin.php 2>&1"));
+        $result = trim((string) shell_exec("docker-compose exec -T -u www-data app php /tmp/pramnos_admin.php 2>&1"));
         shell_exec("docker-compose exec -T app rm -f /tmp/pramnos_admin.php 2>/dev/null");
 
         if (str_starts_with($result, 'OK:')) {
@@ -4127,7 +4203,7 @@ PHP;
         } else {
             $msg = str_starts_with($result, 'FAIL:') ? substr($result, 5) : $result;
             $output->writeln("  <error>Admin user creation failed: $msg</error>");
-            $output->writeln("  Run manually: docker-compose exec app php $cliName.php user:create --admin");
+            $output->writeln("  Run manually: docker-compose exec -u www-data app php $cliName.php user:create --admin");
         }
         // @codeCoverageIgnoreEnd
     }
@@ -4188,7 +4264,7 @@ PHP;
         shell_exec('docker cp ' . escapeshellarg($tmpFile) . ' ' . escapeshellarg($containerName . ':/tmp/pramnos_app.php') . ' 2>/dev/null');
         @unlink($tmpFile);
 
-        $result = trim((string) shell_exec('docker-compose exec -T app php /tmp/pramnos_app.php 2>&1'));
+        $result = trim((string) shell_exec('docker-compose exec -T -u www-data app php /tmp/pramnos_app.php 2>&1'));
         shell_exec('docker-compose exec -T app rm -f /tmp/pramnos_app.php 2>/dev/null');
 
         if (str_starts_with($result, 'OK') || str_starts_with($result, 'EXISTS')) {
@@ -4214,6 +4290,8 @@ PHP;
         $lines[] = '/vendor/';
         $lines[] = '/var/cache/';
         $lines[] = '/var/logs/';
+        // Machine-specific: it carries this host's user ids for the Docker build.
+        $lines[] = '/.env';
 
         if (in_array('authserver', $features, true)) {
             $lines[] = '/app/keys/private.key';

@@ -6,16 +6,52 @@
  * right <script>/<link> tags. Nothing is served by Vite in production — Apache
  * serves the built files, so the app has no Node runtime dependency.
  *
- * `npm run dev` starts Vite's dev server with HMR on port {{ devPort }}; point
- * your browser at it while the PHP API keeps running in the container. Requests
- * to /api are proxied to Apache so the SPA talks to the real backend.
+ * `npm run dev` starts Vite's dev server with HMR. Do NOT open the Vite port —
+ * there is no index.html to serve there. Keep browsing the application URL
+ * (Apache): while the dev server runs, the shell loads the entry module from it
+ * instead of the built bundle, so you get HMR with the real backend, real
+ * session cookies and no proxy.
  */
 import { defineConfig } from 'vite';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { dirname } from 'node:path';
 {{ pluginImports }}
+const HOT_FILE = '{{ outDir }}/.vite/hot';
+
+/**
+ * Tell the PHP shell that a dev server is running.
+ *
+ * There is no index.html to open — the page is served by Apache, and only the
+ * assets come from Vite. So the dev server writes its origin into a "hot" file
+ * that www/{{ shellFile }} looks for: while it exists the shell loads the Vite
+ * client and the entry module from the dev server (HMR included), and once it
+ * is gone the shell falls back to the built files. Open the *application* URL,
+ * not the Vite port.
+ */
+function pramnosHotFile() {
+    return {
+        name: 'pramnos-hot-file',
+        apply: 'serve',
+        configureServer(server) {
+            const write = () => {
+                mkdirSync(dirname(HOT_FILE), { recursive: true });
+                writeFileSync(HOT_FILE, 'http://localhost:{{ devPort }}');
+            };
+            const clean = () => rmSync(HOT_FILE, { force: true });
+
+            server.httpServer?.once('listening', write);
+            for (const signal of ['SIGINT', 'SIGTERM', 'exit']) {
+                process.once(signal, clean);
+            }
+            return () => clean();
+        },
+    };
+}
+
 export default defineConfig({
     // Assets are requested from the web root, not from /
     base: '{{ assetBase }}',
-    plugins: [{{ pluginList }}],
+    plugins: [{{ pluginList }}pramnosHotFile()],
     build: {
         outDir: '{{ outDir }}',
         emptyOutDir: true,
@@ -26,14 +62,14 @@ export default defineConfig({
         },
     },
     server: {
+        // 0.0.0.0, so the port published by docker-compose is reachable.
         host: true,
         port: {{ devPort }},
         strictPort: true,
-        proxy: {
-            '/api': {
-                target: 'http://localhost:{{ appPort }}',
-                changeOrigin: true,
-            },
-        },
+        // The page is served by Apache on another port, so every module request
+        // is cross-origin: without CORS the browser refuses them.
+        cors: true,
+        // Makes Vite emit absolute URLs for assets it rewrites.
+        origin: 'http://localhost:{{ devPort }}',
     },
 });

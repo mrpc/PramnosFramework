@@ -561,7 +561,9 @@ class InitCommandTest extends TestCase
         // Assert — bash wrapper delegates to docker-compose exec
         $this->assertFileExists($this->tempDir . '/mycliapp');
         $wrapper = file_get_contents($this->tempDir . '/mycliapp');
-        $this->assertStringContainsString('docker-compose exec app php mycliapp.php', $wrapper);
+        // -u www-data: the image maps that user to the host user, so files the
+        // command writes (migration logs, caches) stay owned by the developer.
+        $this->assertStringContainsString('docker-compose exec -u www-data app php mycliapp.php', $wrapper);
 
         // Assert — app Console class extending the framework
         $this->assertFileExists($this->tempDir . '/src/Console.php');

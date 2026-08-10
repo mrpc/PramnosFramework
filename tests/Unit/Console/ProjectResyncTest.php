@@ -41,6 +41,9 @@ class ProjectResyncTest extends TestCase
         file_put_contents($this->scaffoldDir . '/assets/js/pf-utils.js', 'UTILS_V2');
         file_put_contents($this->scaffoldDir . '/assets/js/pf-auth.js', 'AUTH_V2');
         file_put_contents($this->scaffoldDir . '/scripts/apidoc-to-openapi.js', 'GEN_V2');
+        // The real generator ships as .cjs (a SPA project's package.json sets
+        // "type": "module"); both extensions must be picked up by the sync.
+        file_put_contents($this->scaffoldDir . '/scripts/apidoc-to-openapi.cjs', 'CJS_V2');
         file_put_contents($this->scaffoldDir . '/templates/doc.sh.stub', "#!/usr/bin/env bash\nDOC_V2\n");
 
         // Project root — a valid project (has app/app.php) with a stale subset.
@@ -148,6 +151,8 @@ class ProjectResyncTest extends TestCase
         $this->assertSame('UTILS_V2', $this->read('www/assets/js/pf-utils.js'));
         $this->assertSame('AUTH_V2', $this->read('www/assets/js/pf-auth.js'));
         $this->assertSame('GEN_V2', $this->read('scripts/apidoc-to-openapi.js'));
+        // .cjs too — that is the extension the real generator ships with.
+        $this->assertSame('CJS_V2', $this->read('scripts/apidoc-to-openapi.cjs'));
         $this->assertStringContainsString('DOC_V2', $this->read('scripts/doc.sh'));
         $this->assertStringContainsString('created', $tester->getDisplay());
 
@@ -248,7 +253,9 @@ class ProjectResyncTest extends TestCase
         $this->assertSame('phpunit', $pkg['scripts']['test'], 'existing scripts must be preserved');
         // docs:build no longer runs the legacy apiDoc HTML step — OpenAPI/RapiDoc only.
         $this->assertSame('npm run openapi:generate', $pkg['scripts']['docs:build']);
-        $this->assertSame('node scripts/apidoc-to-openapi.js', $pkg['scripts']['openapi:generate']);
+        // Renamed to .cjs: a SPA project's package.json declares "type": "module",
+        // which would otherwise turn this CommonJS generator into an ES module.
+        $this->assertSame('node scripts/apidoc-to-openapi.cjs', $pkg['scripts']['openapi:generate']);
         // The two-version "Old apiDoc" pipeline is gone: no apidoc:generate, no apidoc devDep.
         $this->assertArrayNotHasKey('apidoc:generate', $pkg['scripts']);
         $this->assertArrayNotHasKey('apidoc', $pkg['devDependencies']);
@@ -364,6 +371,7 @@ class ProjectResyncTest extends TestCase
         unlink($this->scaffoldDir . '/assets/js/pf-utils.js');
         unlink($this->scaffoldDir . '/assets/js/pf-auth.js');
         unlink($this->scaffoldDir . '/scripts/apidoc-to-openapi.js');
+        unlink($this->scaffoldDir . '/scripts/apidoc-to-openapi.cjs');
         unlink($this->scaffoldDir . '/templates/doc.sh.stub');
 
         // Act

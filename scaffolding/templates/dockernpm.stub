@@ -15,4 +15,7 @@ if ! docker-compose ps "$SERVICE" 2>/dev/null | grep -q "Up"; then
     exit 1
 fi
 
-exec docker-compose exec "$SERVICE" sh -lc "cd /var/www/html && npm $*"
+# -u www-data: the image remaps that user to the host user's ids (see .env), so
+# node_modules/ and the build output belong to you rather than to root.
+# HOME must be writable for npm's cache; www-data's home is not.
+exec docker-compose exec -u www-data -e HOME=/tmp "$SERVICE" sh -lc "cd /var/www/html && npm $*"

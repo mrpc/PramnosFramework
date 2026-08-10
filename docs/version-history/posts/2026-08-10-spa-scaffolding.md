@@ -85,6 +85,15 @@ tests over generated strings would have missed:
 - The `vanilla-vite` stack never imported its stylesheet from the entry point, so
   Vite emitted no CSS and the built page rendered unstyled.
 
+## Developing: keep the app URL open
+
+`./dockernpm run dev` starts Vite, but the Vite port serves **no HTML** — there is
+no `index.html`, the page comes from the application. While the dev server runs it
+writes `www/assets/spa/.vite/hot`, and the shell loads the Vite client and entry
+module from it; stop it and the shell falls back to the built bundle. So HMR
+happens on the normal application URL, against the real backend and real session
+cookies — no proxy, no second origin to log into.
+
 ## Tests
 
 `tests/Unit/Console/InitSpaScaffoldingTest.php` — the MVC default stays SPA-free;

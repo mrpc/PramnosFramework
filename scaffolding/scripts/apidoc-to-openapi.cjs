@@ -6,7 +6,7 @@
  * Converts PHP files with apiDoc (@api*) annotations to OpenAPI 3.0 JSON spec
  * and an interactive RapiDoc HTML viewer.
  *
- * Usage: node scripts/apidoc-to-openapi.js
+ * Usage: node scripts/apidoc-to-openapi.cjs
  *
  * Config: src/Api/apidoc.json — all application-specific settings live there.
  * See scaffolding/templates/api-doc.json.stub for the full schema.
