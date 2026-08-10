@@ -5,7 +5,7 @@ namespace {{ namespace }};
  * {{ className }} Controller
  * Auto generated at: {{ date }}
  */
-class {{ className }} extends \Pramnos\Application\Controller
+class {{ className }} extends \Pramnos\Application\ApiCrudController
 {
 
     /**
@@ -55,12 +55,11 @@ class {{ className }} extends \Pramnos\Application\Controller
      */
     public function display()
     {
-        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
-            return array('status' => 401);
-        }
-        $user = $_SESSION['user'];
-        if ($user->userid < 2) {
-            return array('status' => 401);
+        // Authorisation lives in ApiCrudController::authorize(), so it is one
+        // decision per action rather than the same two lines five times.
+        // Override authorize() below to tighten it for this resource.
+        if (($denied = $this->guard('list')) !== null) {
+            return $denied;
         }
         
         $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
@@ -106,12 +105,11 @@ class {{ className }} extends \Pramnos\Application\Controller
      */
     public function read{{ modelClass }}(${{ primaryKey }})
     {
-        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
-            return array('status' => 401);
-        }
-        $user = $_SESSION['user'];
-        if ($user->userid < 2) {
-            return array('status' => 401);
+        // Authorisation lives in ApiCrudController::authorize(), so it is one
+        // decision per action rather than the same two lines five times.
+        // Override authorize() below to tighten it for this resource.
+        if (($denied = $this->guard('read')) !== null) {
+            return $denied;
         }
         
         
@@ -147,8 +145,11 @@ class {{ className }} extends \Pramnos\Application\Controller
      */
     public function create{{ modelClass }}()
     {
-        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
-            return array('status' => 401);
+        // Authorisation lives in ApiCrudController::authorize(), so it is one
+        // decision per action rather than the same two lines five times.
+        // Override authorize() below to tighten it for this resource.
+        if (($denied = $this->guard('create')) !== null) {
+            return $denied;
         }
         $user = $_SESSION['user'];
         
@@ -192,8 +193,11 @@ class {{ className }} extends \Pramnos\Application\Controller
      */
     public function update{{ modelClass }}(${{ primaryKey }})
     {
-        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
-            return array('status' => 401);
+        // Authorisation lives in ApiCrudController::authorize(), so it is one
+        // decision per action rather than the same two lines five times.
+        // Override authorize() below to tighten it for this resource.
+        if (($denied = $this->guard('update')) !== null) {
+            return $denied;
         }
         $user = $_SESSION['user'];
         
@@ -236,6 +240,12 @@ class {{ className }} extends \Pramnos\Application\Controller
      */
     public function delete{{ modelClass }}(${{ primaryKey }})
     {
+        // This action had NO check at all: anyone holding an API key could
+        // delete any record of this resource.
+        if (($denied = $this->guard('delete')) !== null) {
+            return $denied;
+        }
+
         $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
         $model->load((int) ${{ primaryKey }});
         if ($model->{{ primaryKey }} == 0) {
