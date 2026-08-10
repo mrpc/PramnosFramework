@@ -14,9 +14,24 @@ class TestableGdprController extends Gdpr
 {
     public $mockJsonBody = [];
 
+    /** @var User|null The user a bearer token resolves to in this test. */
+    public ?User $tokenUser = null;
+
     protected function readJsonBody(): array
     {
         return $this->mockJsonBody;
+    }
+
+    /**
+     * Resolve the token to whatever the test decided.
+     *
+     * The controller delegates token identity to `User::loadByToken()`, which
+     * is the framework's own loader and knows this schema. Standing that up
+     * behind a mocked database would test the loader, not this controller.
+     */
+    protected function userFromToken(string $token): ?User
+    {
+        return $this->tokenUser;
     }
 }
 
@@ -28,6 +43,31 @@ class TestDatabase extends Database {
 class GdprControllerIntegrationTest extends TestCase
 {
     private ?TestableGdprController $controller = null;
+    /** @var User&\PHPUnit\Framework\MockObject\MockObject The signed-in user */
+    private $userMock;
+
+    /**
+     * What the builder's get()/first() return for the next call.
+     *
+     * The controller reads through the query builder, so the mock has to be
+     * shaped like one. These are properties rather than per-test stubs because
+     * PHPUnit will not re-stub a method already configured in setUp.
+     *
+     * @var object
+     */
+    private $queryResult;
+
+    /** @var int What count() returns. */
+    private int $countResult = 0;
+
+    /** @var object|bool What update() returns. */
+    private $updateResult = true;
+
+    /** @var bool Whether update() should fail, standing in for a database error. */
+    private bool $updateFails = false;
+
+    /** @var bool Whether insert() should fail, standing in for a database error. */
+    private bool $insertFails = false;
     private $dbMock;
     private $queryBuilderMock;
     private $originalDb;
@@ -41,9 +81,12 @@ class GdprControllerIntegrationTest extends TestCase
         $dbRef = &\Pramnos\Database\Database::getInstance();
         $this->originalDb = clone $dbRef;
 
-        // Mock User
+        // Mock User. usertype is what decides admin — the controller used to
+        // read a boolean `is_admin` column that exists in no schema.
         $userMock = $this->createMock(User::class);
-        $userMock->userid = 100;
+        $userMock->userid   = 100;
+        $userMock->usertype = 0;
+        $this->userMock     = $userMock;
         
         $appRef = \Pramnos\Application\Application::getInstance();
         if ($appRef) {
@@ -56,10 +99,9 @@ class GdprControllerIntegrationTest extends TestCase
         $session->regenerateToken();
 
         // Simulate login
-        $_SESSION['logged'] = true;
-        $_SESSION['uid'] = 100;
+        $_SESSION['logged']  = true;
+        $_SESSION['uid']     = 100;
         $_SESSION['user_id'] = 100;
-        $_SESSION['is_admin'] = false;
 
         $property = new \ReflectionProperty(\Pramnos\User\User::class, '_usercache');
         $property->setValue(null, [100 => $userMock]);
@@ -75,12 +117,33 @@ class GdprControllerIntegrationTest extends TestCase
         $this->queryBuilderMock->method('limit')->willReturnSelf();
         $this->queryBuilderMock->method('distinct')->willReturnSelf();
         $this->queryBuilderMock->method('groupBy')->willReturnSelf();
+        $this->queryBuilderMock->method('offset')->willReturnSelf();
+        $this->queryBuilderMock->method('whereIn')->willReturnSelf();
+        $this->queryBuilderMock->method('whereNull')->willReturnSelf();
+        $this->queryBuilderMock->method('raw')->willReturn('NOW()');
         
-        $webhookResult = new class {
+        $this->queryResult = new class {
             public int $numRows = 0;
+            public array $fields = [];
             public function fetch(): bool { return false; }
+            public function fetchAll(): array { return []; }
+            public function getIterator(): \ArrayIterator { return new \ArrayIterator([]); }
         };
-        $this->queryBuilderMock->method('get')->willReturn($webhookResult);
+        $this->queryBuilderMock->method('get')->willReturnCallback(fn() => $this->queryResult);
+        $this->queryBuilderMock->method('first')->willReturnCallback(fn() => $this->queryResult);
+        $this->queryBuilderMock->method('count')->willReturnCallback(fn(): int => $this->countResult);
+        $this->queryBuilderMock->method('update')->willReturnCallback(function () {
+            if ($this->updateFails) {
+                throw new \Exception('database is down');
+            }
+            return $this->updateResult;
+        });
+        $this->queryBuilderMock->method('insert')->willReturnCallback(function () {
+            if ($this->insertFails) {
+                throw new \Exception('database is down');
+            }
+            return true;
+        });
 
         // Mock Database
         $this->dbMock = $this->createMock(TestDatabase::class);
@@ -163,10 +226,10 @@ class GdprControllerIntegrationTest extends TestCase
         $_SERVER['REQUEST_METHOD'] = 'GET';
         $_GET['request_id'] = 42;
 
-        $mockResult = new \stdClass();
-        $mockResult->numRows = 1;
-        $mockResult->fields = ['request_id' => 42, 'status' => 'pending'];
-        $this->dbMock->method('query')->willReturn($mockResult);
+        $row = new \stdClass();
+        $row->numRows = 1;
+        $row->fields  = ['request_id' => 42, 'status' => 'pending'];
+        $this->queryResult = $row;
 
         ob_start();
         $this->controller->status();
@@ -182,9 +245,9 @@ class GdprControllerIntegrationTest extends TestCase
         $_SERVER['REQUEST_METHOD'] = 'GET';
         $_GET['request_id'] = 42;
 
-        $mockResult = new \stdClass();
-        $mockResult->numRows = 0;
-        $this->dbMock->method('query')->willReturn($mockResult);
+        $empty = new \stdClass();
+        $empty->numRows = 0;
+        $this->queryResult = $empty;
 
         ob_start();
         $this->controller->status();
@@ -201,16 +264,17 @@ class GdprControllerIntegrationTest extends TestCase
         $_GET['page'] = 1;
         $_GET['limit'] = 10;
 
-        $mockResult1 = new class {
+        // The listing iterates the result, the way the query builder returns it.
+        $mockResult1 = new class implements \IteratorAggregate {
             public array $fields = ['request_id' => 42, 'status' => 'pending'];
-            private int $callCount = 0;
-            public function fetch(): bool { return $this->callCount++ === 0; }
+            public function getIterator(): \ArrayIterator
+            {
+                return new \ArrayIterator([['request_id' => 42, 'status' => 'pending']]);
+            }
         };
 
-        $mockResult2 = new \stdClass();
-        $mockResult2->fields = ['total' => 1];
-
-        $this->dbMock->method('query')->willReturnOnConsecutiveCalls($mockResult1, $mockResult2);
+        $this->queryResult = $mockResult1;
+        $this->countResult = 1;
 
         ob_start();
         $this->controller->listRequests();
@@ -229,11 +293,9 @@ class GdprControllerIntegrationTest extends TestCase
         $this->controller->mockJsonBody = ['reason' => 'user_revoked'];
 
 
-        $mockResult = new class {
+        $this->updateResult = new class {
             public function getAffectedRows(): int { return 5; }
         };
-
-        $this->dbMock->method('query')->willReturn($mockResult);
 
         ob_start();
         $this->controller->deauthorizeAll();
@@ -281,8 +343,14 @@ class GdprControllerIntegrationTest extends TestCase
      */
     private function clearActorSession(): void
     {
-        unset($_SESSION['user_id'], $_SESSION['user'], $_SESSION['is_admin']);
-        unset($_SERVER['HTTP_AUTHORIZATION']);
+        unset($_SESSION['user_id'], $_SESSION['user'], $_SESSION['logged']);
+        unset($_SERVER['HTTP_AUTHORIZATION'], $_SERVER['HTTP_ACCESSTOKEN']);
+
+        $app = \Pramnos\Application\Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+        $this->controller->tokenUser = null;
     }
 
     /**
@@ -413,7 +481,7 @@ class GdprControllerIntegrationTest extends TestCase
     public function testRequestAdminOverridesTargetUser(): void
     {
         // Arrange — promote the session actor to admin
-        $_SESSION['is_admin'] = true;
+        $this->userMock->usertype = 90;
         $this->controller->mockJsonBody = ['request_type' => 'delete', 'user_id' => 555];
         $this->dbMock->method('query')->willReturn(true);
         $this->dbMock->method('getInsertId')->willReturn(77);
@@ -438,17 +506,18 @@ class GdprControllerIntegrationTest extends TestCase
     public function testListRequestsAdminPaths(): void
     {
         // Arrange — admin actor, explicit user filter
-        $_SESSION['is_admin'] = true;
+        $this->userMock->usertype = 90;
         $_GET['user_id'] = 42;
 
-        $listResult = new class {
+        $listResult = new class implements \IteratorAggregate {
             public array $fields = ['request_id' => 1, 'status' => 'pending'];
-            private int $calls = 0;
-            public function fetch(): bool { return $this->calls++ === 0; }
+            public function getIterator(): \ArrayIterator
+            {
+                return new \ArrayIterator([['request_id' => 1, 'status' => 'pending']]);
+            }
         };
-        $countResult = new \stdClass();
-        $countResult->fields = ['total' => 1];
-        $this->dbMock->method('query')->willReturnOnConsecutiveCalls($listResult, $countResult);
+        $this->queryResult = $listResult;
+        $this->countResult = 1;
 
         // Act
         ob_start();
@@ -468,12 +537,11 @@ class GdprControllerIntegrationTest extends TestCase
     public function testDeauthorizeAllAdminOverridesTarget(): void
     {
         // Arrange
-        $_SESSION['is_admin'] = true;
+        $this->userMock->usertype = 90;
         $this->controller->mockJsonBody = ['reason' => 'admin_revoked', 'user_id' => 321];
-        $mockResult = new class {
+        $this->updateResult = new class {
             public function getAffectedRows(): int { return 3; }
         };
-        $this->dbMock->method('query')->willReturn($mockResult);
 
         // Act
         ob_start();
@@ -491,20 +559,26 @@ class GdprControllerIntegrationTest extends TestCase
     // ── Bearer-token actor resolution ─────────────────────────────────────────
 
     /**
-     * resolveActor() must accept a Bearer access token: the usertokens lookup
-     * row supplies the userid and is_admin flag, and the endpoint proceeds.
+     * resolveActor() must accept a bearer token: the user it identifies becomes
+     * the actor, and the endpoint proceeds.
+     *
+     * The token is resolved through `User::loadByToken()` — the framework's own
+     * loader, which knows what a valid token is on this schema. The controller
+     * used to hand-write that lookup and got it wrong three ways: it joined on
+     * an `is_admin` column that exists in no migration, rejected non-expiring
+     * tokens (`expires = 0`), and only accepted `access_token`, never `auth`.
      */
     public function testBearerTokenActorIsResolved(): void
     {
-        // Arrange — no session identity, only a Bearer header
+        // Arrange — no session identity, only a bearer token
         $this->clearActorSession();
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer some-access-token';
         $this->controller->mockJsonBody = ['changes' => ['email']];
 
-        $tokenRow = new \stdClass();
-        $tokenRow->numRows = 1;
-        $tokenRow->fields  = ['userid' => 88, 'is_admin' => 0];
-        $this->dbMock->method('query')->willReturn($tokenRow);
+        $tokenUser = $this->createMock(User::class);
+        $tokenUser->userid   = 88;
+        $tokenUser->usertype = 0;
+        $this->controller->tokenUser = $tokenUser;
 
         // Act — notifyChange is the cheapest endpoint after auth
         ob_start();
@@ -529,10 +603,8 @@ class GdprControllerIntegrationTest extends TestCase
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer expired-or-unknown';
         $this->controller->mockJsonBody = ['changes' => ['email']];
 
-        $emptyRow = new \stdClass();
-        $emptyRow->numRows = 0;
-        $emptyRow->fields  = [];
-        $this->dbMock->method('query')->willReturn($emptyRow);
+        // The loader finds nobody: an expired, revoked or unknown token.
+        $this->controller->tokenUser = null;
 
         // Act
         ob_start();
@@ -552,10 +624,9 @@ class GdprControllerIntegrationTest extends TestCase
      */
     public function testRequestDbFailureReturns500(): void
     {
-        // Arrange — query() blows up on the INSERT
+        // Arrange — the INSERT blows up
         $this->controller->mockJsonBody = ['request_type' => 'export'];
-        $this->dbMock->method('query')
-            ->willThrowException(new \Exception('insert blew up'));
+        $this->insertFails = true;
 
         // Act
         ob_start();
@@ -572,10 +643,9 @@ class GdprControllerIntegrationTest extends TestCase
      */
     public function testDeauthorizeAllDbFailureReturns500(): void
     {
-        // Arrange
+        // Arrange — the UPDATE that revokes the tokens blows up
         $this->controller->mockJsonBody = ['reason' => 'user_revoked'];
-        $this->dbMock->method('query')
-            ->willThrowException(new \Exception('update blew up'));
+        $this->updateFails = true;
 
         // Act
         ob_start();

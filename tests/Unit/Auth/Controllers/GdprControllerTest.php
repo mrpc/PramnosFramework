@@ -72,34 +72,39 @@ class GdprControllerTest extends TestCase
     }
 
     /**
-     * When $_SESSION['user_id'] is set, resolveActor() returns the cast integer
-     * user ID and false for is_admin.
+     * A session identity is read through the framework's own current-user
+     * lookup, not from loose session keys.
      *
-     * This covers the `$_SESSION['user_id'] ??` path in resolveActor() (line ~362).
+     * The three keys this used to read — `$_SESSION['user_id']`, a nested
+     * `$_SESSION['user']` **array**, and `$_SESSION['is_admin']` — describe a
+     * session shape the framework does not produce. `$_SESSION['user']` holds a
+     * User *object*, and nothing anywhere sets `is_admin`. So every
+     * session-authenticated request resolved to null and was refused, and the
+     * admin branch was unreachable. These tests pinned that behaviour in place;
+     * they now pin the working contract instead.
      */
-    public function testResolveActorReturnsUserIdFromSessionUserId(): void
+    public function testResolveActorIgnoresSessionKeysTheFrameworkNeverSets(): void
     {
-        // Arrange
-        $_SESSION['user_id'] = '42';
+        // Arrange — exactly the shape the old implementation believed in
+        $_SESSION['user_id']  = '42';
+        $_SESSION['is_admin'] = 1;
 
         // Act
         [$userId, $isAdmin] = $this->callPrivate('resolveActor');
 
-        // Assert
-        $this->assertSame(42, $userId,
-            'Session user_id must be cast to int and returned');
-        $this->assertFalse($isAdmin,
-            'is_admin must default to false when not set in session');
+        // Assert — no signed-in user means no actor, whatever these keys say
+        $this->assertNull($userId, 'a loose session key is not an identity');
+        $this->assertFalse($isAdmin, 'and it certainly is not an admin');
     }
 
     /**
-     * When $_SESSION has a nested 'user' array with a 'userid' key,
-     * resolveActor() resolves the ID from the nested array.
+     * A nested `user` array is not an identity either.
      *
-     * This covers the nested `$_SESSION['user']['userid']` fallback path
-     * in resolveActor() (line ~362).
+     * The framework stores a User object under that key. An array shaped like
+     * one comes from somewhere else, and treating it as a signed-in user would
+     * let anything that can write to the session name its own user id.
      */
-    public function testResolveActorResolvesNestedUserArray(): void
+    public function testResolveActorRejectsANestedUserArray(): void
     {
         // Arrange
         $_SESSION['user'] = ['userid' => 7, 'username' => 'alice'];
@@ -108,29 +113,33 @@ class GdprControllerTest extends TestCase
         [$userId, $isAdmin] = $this->callPrivate('resolveActor');
 
         // Assert
-        $this->assertSame(7, $userId,
-            'Nested $_SESSION["user"]["userid"] must be resolved');
+        $this->assertNull($userId);
         $this->assertFalse($isAdmin);
     }
 
     /**
-     * When $_SESSION['is_admin'] is truthy, resolveActor() must return true
-     * for the isAdmin flag.
+     * Admin is decided by `usertype >= 90`, the framework's admin tier.
      *
-     * This covers the `(bool)($_SESSION['is_admin'] ?? false)` cast on line ~363.
+     * That is what the Users, Applications and Permissions admin controllers
+     * all require. The previous implementation read a boolean `is_admin`
+     * column that exists in no migration and no schema.
      */
-    public function testResolveActorReturnsIsAdminTrueFromSession(): void
+    public function testAdminIsDecidedByUserType(): void
     {
         // Arrange
-        $_SESSION['user_id']  = 1;
-        $_SESSION['is_admin'] = 1;
+        $admin = new \stdClass();
+        $admin->userid   = 5;
+        $admin->usertype = 90;
 
-        // Act
-        [$userId, $isAdmin] = $this->callPrivate('resolveActor');
+        $plain = new \stdClass();
+        $plain->userid   = 5;
+        $plain->usertype = 10;
 
-        // Assert
-        $this->assertTrue($isAdmin,
-            'is_admin=1 in session must be cast to true');
+        $method = new \ReflectionMethod(Gdpr::class, 'isAdmin');
+
+        // Act + Assert
+        $this->assertTrue($method->invoke($this->gdpr, $admin));
+        $this->assertFalse($method->invoke($this->gdpr, $plain), 'below the admin tier');
     }
 
     /**

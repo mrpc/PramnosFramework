@@ -26,7 +26,28 @@ use Pramnos\Application\Controller;
  */
 class Gdpr extends Controller
 {
-    private const VALID_REQUEST_TYPES = ['export', 'delete', 'portability'];
+    /**
+     * Request types this endpoint accepts.
+     *
+     * The stored vocabulary is the GDPR one the table documents — `access`,
+     * `erasure`, `portability`, `rectification`, `restriction`. `export` and
+     * `delete` are kept as accepted spellings because they are what this
+     * endpoint has always documented, and are normalised on write by
+     * {@see storedRequestType()} so the column holds one vocabulary rather than
+     * two names for the same right.
+     */
+    private const VALID_REQUEST_TYPES = [
+        'export', 'delete', 'portability', 'access', 'erasure',
+        'rectification', 'restriction',
+    ];
+
+    /**
+     * Accepted spelling → the vocabulary the column stores.
+     */
+    private const REQUEST_TYPE_ALIASES = [
+        'export' => 'access',
+        'delete' => 'erasure',
+    ];
     private const VALID_REVOKE_REASONS = [
         'user_revoked', 'admin_revoked', 'gdpr_deletion', 'security_violation',
     ];
@@ -122,21 +143,26 @@ class Gdpr extends Controller
             return;
         }
 
-        $db          = \Pramnos\Framework\Factory::getDatabase();
-        $userFilter  = $isAdmin ? '' : $db->prepareQuery(
-            ' AND (user_id = %d OR requested_by = %d)', $userId, $userId
-        );
+        // The response keys are kept as they were documented; only the columns
+        // they are read from are corrected.
+        $query = $this->requests()
+            ->select([
+                'id AS request_id',
+                'userid AS user_id',
+                'request_type',
+                'status',
+                'response_data AS data_export_url',
+                'requested_at AS created_at',
+                'completed_at',
+                'processed_by',
+            ])
+            ->where('id', $requestId);
 
-        $sql = $db->prepareQuery(
-            'SELECT request_id, user_id, request_type, status,
-                    apps_notified, apps_confirmed, data_export_url,
-                    expires_at, created_at, completed_at, requested_by
-               FROM oauth2_gdpr_requests
-              WHERE request_id = %d' . $userFilter,
-            $requestId
-        );
+        if (!$isAdmin) {
+            $query->where('userid', $userId);
+        }
 
-        $result = $db->query($sql);
+        $result = $query->get();
 
         if (!$result || $result->numRows == 0) {
             http_response_code(404);
@@ -166,39 +192,42 @@ class Gdpr extends Controller
         $limit  = min(100, max(10, (int) ($_GET['limit'] ?? 20)));
         $offset = ($page - 1) * $limit;
 
-        $db          = \Pramnos\Framework\Factory::getDatabase();
-        $whereClause = '1=1';
-
+        // One filter, applied to both the page and the count — built once so the
+        // two can never disagree about what is being listed.
+        $scope = null;
         if (!$isAdmin) {
-            $whereClause = $db->prepareQuery('user_id = %d', $userId);
+            $scope = (int) $userId;
         } elseif (isset($_GET['user_id'])) {
-            $whereClause = $db->prepareQuery('user_id = %d', (int) $_GET['user_id']);
+            $scope = (int) $_GET['user_id'];
         }
 
-        $sql = $db->prepareQuery(
-            'SELECT request_id, user_id, request_type, status, created_at, completed_at, requested_by
-               FROM oauth2_gdpr_requests
-              WHERE ' . $whereClause . '
-              ORDER BY created_at DESC
-              LIMIT %d OFFSET %d',
-            $limit,
-            $offset
-        );
+        $pageQuery = $this->requests()
+            ->select([
+                'id AS request_id',
+                'userid AS user_id',
+                'request_type',
+                'status',
+                'requested_at AS created_at',
+                'completed_at',
+                'processed_by',
+            ])
+            ->orderBy('requested_at', 'desc')
+            ->limit($limit)
+            ->offset($offset);
 
-        $result   = $db->query($sql);
+        $counter = $this->requests();
+
+        if ($scope !== null) {
+            $pageQuery->where('userid', $scope);
+            $counter->where('userid', $scope);
+        }
+
         $requests = [];
-
-        if ($result) {
-            while ($result->fetch()) {
-                $requests[] = (array) $result->fields;
-            }
+        foreach ($pageQuery->get() as $row) {
+            $requests[] = (array) $row;
         }
 
-        $countSql    = $db->prepareQuery(
-            'SELECT COUNT(*) AS total FROM oauth2_gdpr_requests WHERE ' . $whereClause
-        );
-        $countResult = $db->query($countSql);
-        $total       = $countResult ? (int) ($countResult->fields['total'] ?? 0) : 0;
+        $total = $counter->count();
 
         echo json_encode([
             'requests'   => $requests,
@@ -329,38 +358,68 @@ class Gdpr extends Controller
      *
      * @return array{0: int|null, 1: bool}  [userId, isAdmin]
      */
-    private function resolveActor(): array
+    protected function resolveActor(): array
     {
-        // Bearer token auth
-        $authHeader = $_SERVER['HTTP_AUTHORIZATION']
-            ?? (function_exists('getallheaders') ? (getallheaders()['Authorization'] ?? null) : null);
+        // Token auth, through the framework's own token loader. It knows what a
+        // valid token is on this schema — status, both `auth` and `access_token`
+        // types, and `expires = 0` meaning "never", which a hand-written
+        // `expires > now` comparison rejects.
+        $token = \Pramnos\Http\Request::accessToken();
+        if ($token !== null && $token !== '') {
+            $user = $this->userFromToken($token);
 
-        if ($authHeader && preg_match('/^Bearer\s+(.+)$/i', $authHeader, $m)) {
-            $db  = \Pramnos\Framework\Factory::getDatabase();
-            $sql = $db->prepareQuery(
-                "SELECT ut.userid, u.is_admin
-                   FROM usertokens ut
-                   JOIN users u ON ut.userid = u.userid
-                  WHERE ut.token = %s AND ut.tokentype = 'access_token'
-                    AND ut.status = 1 AND ut.expires > %d",
-                $m[1],
-                time()
-            );
-            $result = $db->query($sql);
-            if ($result && $result->numRows > 0) {
-                return [
-                    (int) $result->fields['userid'],
-                    (bool) ($result->fields['is_admin'] ?? false),
-                ];
+            if ($user !== null && (int) $user->userid >= 2) {
+                return [(int) $user->userid, $this->isAdmin($user)];
             }
+
             return [null, false];
         }
 
-        // Session auth
-        $userId  = $_SESSION['user_id']  ?? (isset($_SESSION['user']) ? ($_SESSION['user']['userid'] ?? null) : null);
-        $isAdmin = (bool) ($_SESSION['is_admin'] ?? false);
+        // Session auth. `$_SESSION['user']` holds a User object everywhere in
+        // the framework, so reading it as an array — as this did — always
+        // yielded null, and every session-authenticated request was refused.
+        $user = \Pramnos\User\User::getCurrentUser();
+        if (is_object($user) && (int) ($user->userid ?? 0) >= 2) {
+            return [(int) $user->userid, $this->isAdmin($user)];
+        }
 
-        return [$userId !== null ? (int) $userId : null, $isAdmin];
+        return [null, false];
+    }
+
+    /**
+     * The user a bearer token identifies, or null.
+     *
+     * A seam of its own so the token path can be exercised without standing up
+     * the whole token schema: what belongs to this controller is *what it does*
+     * with the resolved user, not how `loadByToken()` finds them.
+     *
+     * @param  string $token
+     * @return \Pramnos\User\User|null
+     */
+    protected function userFromToken(string $token): ?\Pramnos\User\User
+    {
+        $user = new \Pramnos\User\User();
+        $user->loadByToken($token, 'auth', false);
+
+        return (int) $user->userid >= 2 ? $user : null;
+    }
+
+    /**
+     * Is this an administrator?
+     *
+     * The framework's admin tier is `usertype >= 90`, which is what the Users,
+     * Applications and Permissions admin controllers all require. This
+     * controller previously read a boolean `is_admin` column that exists in no
+     * migration and no schema, so its admin branch could never be reached: on a
+     * real database the query failed outright, and via the session it read a key
+     * nothing ever sets.
+     *
+     * @param  object $user
+     * @return bool
+     */
+    protected function isAdmin(object $user): bool
+    {
+        return (int) ($user->usertype ?? 0) >= 90;
     }
 
     // ── DB helpers ────────────────────────────────────────────────────────────
@@ -374,15 +433,57 @@ class Gdpr extends Controller
         string $requestType,
         int $requestedBy
     ): int {
-        $sql = $db->prepareQuery(
-            "INSERT INTO oauth2_gdpr_requests (user_id, request_type, status, requested_by, created_at)
-             VALUES (%d, %s, 'pending', %d, NOW())",
-            $userId,
-            $requestType,
-            $requestedBy
-        );
-        $db->query($sql);
+        // The table records the data subject, not the actor. When an admin files
+        // a request on somebody else's behalf, that fact belongs in the audit
+        // trail, and request_details is where the schema keeps it — there is no
+        // column for a second user, and adding one to record it would be a
+        // schema change this controller has no business making.
+        $details = $requestedBy !== $userId
+            ? 'Submitted on behalf of the user by userid ' . $requestedBy
+            : null;
+
+        $this->requests()->insert([
+            'userid'          => $userId,
+            'request_type'    => $this->storedRequestType($requestType),
+            'status'          => 'pending',
+            'requested_at'    => $db->queryBuilder()->raw('NOW()'),
+            'request_details' => $details,
+            'ip_address'      => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+
         return (int) $db->getInsertId();
+    }
+
+    /**
+     * The vocabulary the column stores for an accepted request type.
+     *
+     * @param  string $requestType As submitted
+     * @return string As stored
+     */
+    private function storedRequestType(string $requestType): string
+    {
+        return self::REQUEST_TYPE_ALIASES[$requestType] ?? $requestType;
+    }
+
+    /**
+     * A query builder scoped to the GDPR requests table.
+     *
+     * The table lives in the `authserver` schema — `authserver.gdpr_requests` on
+     * PostgreSQL, `authserver_gdpr_requests` on MySQL — and the builder is what
+     * knows the difference.
+     *
+     * This controller previously queried `oauth2_gdpr_requests`, a table no
+     * migration has ever created: it was brought in from an OAuth server whose
+     * schema was never adopted here, so every one of these endpoints failed at
+     * runtime.
+     *
+     * @return \Pramnos\Database\QueryBuilder
+     */
+    private function requests()
+    {
+        return \Pramnos\Framework\Factory::getDatabase()
+            ->queryBuilder()
+            ->table('authserver.gdpr_requests');
     }
 
     /**
@@ -391,12 +492,13 @@ class Gdpr extends Controller
      */
     private function revokeUserTokens(\Pramnos\Database\Database $db, int $userId): int
     {
-        $sql    = $db->prepareQuery(
-            'UPDATE usertokens SET status = 0 WHERE userid = %d AND status = 1',
-            $userId
-        );
-        $result = $db->query($sql);
-        return $result ? $result->getAffectedRows() : 0;
+        $result = $db->queryBuilder()
+            ->table('usertokens')
+            ->where('userid', $userId)
+            ->where('status', 1)
+            ->update(['status' => 0]);
+
+        return is_object($result) ? (int) $result->getAffectedRows() : 0;
     }
 
     // ── Utility ───────────────────────────────────────────────────────────────
