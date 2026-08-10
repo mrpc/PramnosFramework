@@ -562,6 +562,136 @@ class InitSpaScaffoldingTest extends TestCase
     }
 
     /**
+     * A SPA project with the auth feature gets an administration screen.
+     *
+     * The MVC scaffold generates whole admin areas; a SPA got none of them, so
+     * parity meant hand-writing each. The screen is generated and registered,
+     * and its endpoints are framework-side so only the screen is generated code.
+     */
+    public function testAdminScreenAndEndpointsAreScaffolded(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert — the screen exists and shows the three things an admin opens
+        $screen = $this->read('frontend/screens/Admin.svelte');
+        $this->assertStringContainsString("api.get('/admin/summary')", $screen);
+        $this->assertStringContainsString('/admin/users?', $screen);
+        $this->assertStringContainsString("api.get('/admin/logs", $screen);
+        // A 403 must read differently from a broken endpoint on an admin screen
+        $this->assertStringContainsString('do not have permission', $screen);
+
+        // ...it is registered, so it appears in the navigation...
+        $registry = $this->read('frontend/screens/registry.js');
+        $this->assertStringContainsString("import Admin from './Admin.svelte';", $registry);
+        $this->assertStringContainsString("name: 'admin'", $registry);
+
+        // ...and the routes and controller behind it exist
+        $routes = $this->read('src/Api/routes.php');
+        $this->assertStringContainsString("\$r->get('/admin/summary'", $routes);
+        $this->assertStringContainsString("\$r->get('/admin/users'", $routes);
+        $this->assertStringContainsString("\$r->get('/admin/logs'", $routes);
+        $this->assertStringContainsString('ApiAdmin', $this->read('src/Api/Controllers/Admin.php'));
+    }
+
+    /**
+     * Without the auth feature there is nobody to administer, so no admin
+     * screen is generated — it could only ever answer 401.
+     */
+    public function testNoAdminScreenWithoutTheAuthFeature(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--features' => '']);
+
+        // Assert
+        $this->assertFileDoesNotExist($this->tmpDir . '/frontend/screens/Admin.svelte');
+        $this->assertStringNotContainsString("name: 'admin'", $this->read('frontend/screens/registry.js'));
+    }
+
+    /**
+     * A SPA gets the debug panel the HTML toolbar cannot give it.
+     *
+     * `DebugBarMiddleware` injects before `</body>`, which a JSON response does
+     * not have, and the shell never goes through that pipeline — so the
+     * requests that do the work had no debug information at all. The panel is
+     * shipped in every project because it is inert without debug data: it only
+     * draws when a response carries `_debug`, which only happens in development.
+     */
+    public function testDebugPanelIsScaffoldedAndFedByTheClient(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert — the panel exists...
+        $panel = $this->read('frontend/lib/debug.js');
+        $this->assertStringContainsString('export function record(', $panel);
+        $this->assertStringContainsString('if (!debug) {', $panel, 'no debug data means no panel at all');
+
+        // ...and the client feeds it every response
+        $client = $this->read('frontend/lib/api.js');
+        $this->assertStringContainsString("import { record as recordDebug } from './debug.js';", $client);
+        $this->assertStringContainsString('recordDebug(method, path, response.status', $client);
+    }
+
+    /**
+     * A SPA project ships a front-end testing guide.
+     *
+     * The scaffold provides a working test setup and real tests; without a guide
+     * beside them the next screen arrives untested, because the examples are not
+     * obviously extensible. It is generated per project, so it names this
+     * project's runner, directories and commands rather than describing a setup
+     * the reader does not have.
+     */
+    public function testFrontEndTestingGuideIsScaffolded(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert — the guide exists and is about *this* stack
+        $guide = $this->read('docs/FRONTEND_TESTING.md');
+        $this->assertStringContainsString('Testing the SpaApp front end', $guide);
+        $this->assertStringContainsString('Vitest', $guide);
+        $this->assertStringContainsString('frontend/__tests__', $guide);
+        $this->assertStringContainsString('@testing-library/svelte', $guide);
+        $this->assertStringContainsString('/api/1.0/status', $guide, 'the example uses the real prefix');
+        $this->assertStringNotContainsString('{{', $guide, 'every token must be resolved');
+
+        // ...and both documents point at it, or nobody finds it
+        $this->assertStringContainsString('docs/FRONTEND_TESTING.md', $this->read('CLAUDE.md'));
+        $this->assertStringContainsString('docs/FRONTEND_TESTING.md', $this->read('README.md'));
+    }
+
+    /**
+     * The build-less stack gets the same guide, describing its own runner —
+     * Vitest instructions would be useless in a project with no npm packages.
+     */
+    public function testTestingGuideMatchesTheBuildlessStack(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'vanilla']);
+
+        // Assert
+        $guide = $this->read('docs/FRONTEND_TESTING.md');
+        $this->assertStringContainsString('node --test', $guide);
+        $this->assertStringContainsString('tests/js', $guide);
+        $this->assertStringNotContainsString('vi.stubGlobal', $guide, 'no Vitest API in a project without it');
+        $this->assertStringNotContainsString('@testing-library/svelte', $guide);
+    }
+
+    /**
+     * An MVC project has no front end to test, so no guide is written — a
+     * document describing files that do not exist is worse than none.
+     */
+    public function testNoTestingGuideForAnMvcProject(): void
+    {
+        // Act
+        $this->runInit();
+
+        // Assert
+        $this->assertFileDoesNotExist($this->tmpDir . '/docs/FRONTEND_TESTING.md');
+    }
+
+    /**
      * A project also has to explain itself to the person who clones it, not
      * only to an AI assistant — so a README is written, matching the choices
      * made during init.
