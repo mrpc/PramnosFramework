@@ -119,18 +119,16 @@ class ApiCrudController extends Controller
     /**
      * Ask the permission system about one action for the current user.
      *
-     * The framework has two, and they are not equivalent:
+     * The framework has one store: **authserver.permissions**, created by the
+     * `auth` feature's migrations and read through PermissionResolver. Grants
+     * are (object_type, object_id, action) with deny-over-allow already
+     * resolved.
      *
-     *  - **authserver.permissions** — the current RBAC/ABAC system, created by
-     *    the authserver migrations and read through PermissionResolver. Grants
-     *    are (object_type, object_id, action) with deny-over-allow already
-     *    resolved.
-     *  - **`<prefix>permissions`** — the legacy ACL behind
-     *    `Pramnos\Auth\Permissions`. No migration creates it and nothing calls
-     *    its setupDb(), so it exists only where an application made it by hand.
+     * The legacy `<prefix>permissions` table is consulted afterwards, and only
+     * where a project actually has one — no migration creates it, so that means
+     * an installation that hand-built it before the store existed.
      *
-     * The modern one is asked first, the legacy one only if a project actually
-     * has it. Neither present means no opinion, not denial.
+     * Neither present means no opinion, not denial.
      *
      * @return bool|null true allow, false deny, null no opinion
      */

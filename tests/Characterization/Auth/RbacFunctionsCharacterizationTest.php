@@ -542,7 +542,21 @@ class RbacFunctionsCharacterizationTest extends TestCase
             }
         }
 
-        $this->fail("Migration '{$class}' not found in feature '{$feature}'");
+
+        // The feature directory is a hint, not the contract: the permission-store
+        // migrations moved from authserver/ to auth/ when they stopped being an
+        // OAuth concern, and a test that names a migration wants *that migration*,
+        // wherever it lives. Where it must live is pinned by
+        // PermissionStoreMigrationLocationTest instead.
+        foreach (glob($this->migrationsBase . '/*', GLOB_ONLYDIR) ?: [] as $other) {
+            foreach (MigrationLoader::loadFromDirectory($other, $app) as $m) {
+                if ((new \ReflectionClass($m))->getShortName() === $class) {
+                    return $m;
+                }
+            }
+        }
+
+        $this->fail("Migration '{$class}' not found in feature '{$feature}' nor anywhere else under the framework migrations");
     }
 
     private function dropAuthserverSchema(): void

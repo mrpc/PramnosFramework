@@ -99,6 +99,16 @@ class PermissionResolver implements PermissionResolverInterface
      */
     private function activeRoleIds(int $userId): array
     {
+        // A missing role-assignment table is not a failure to resolve: it means
+        // this installation grants nothing through roles, which is the same
+        // answer as a user who holds none. Letting the driver error escape here
+        // took down the whole resolution — and callers that turn "cannot
+        // answer" into "denied" then refused every direct user grant as well,
+        // which is the opposite of what the rows said.
+        if (!$this->database->schema()->hasTable(self::T_ROLES)) {
+            return [];
+        }
+
         $rows = $this->collect(
             $this->database->queryBuilder()
                 ->table(self::T_ROLES)

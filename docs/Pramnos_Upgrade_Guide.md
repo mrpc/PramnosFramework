@@ -274,8 +274,8 @@ Available feature keys:
 | Key | Enables |
 |---|---|
 | `core` | Core framework — always active (implicit) |
-| `auth` | Basic authentication and authorization |
-| `authserver` | OAuth 2.0 authorization server |
+| `auth` | Users, sessions, 2FA, GDPR — **and the permission store** (roles, user_roles, permissions) |
+| `authserver` | OAuth 2.0 authorization server; builds on the `auth` permission store |
 | `messaging` | Messaging system (threads and recipients) |
 | `queue` | Background job queue |
 | `cache` | Cache system (PSR-16; array/file/redis/memcached adapters) |

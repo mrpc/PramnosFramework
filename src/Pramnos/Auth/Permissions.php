@@ -6,16 +6,20 @@ namespace Pramnos\Auth;
  * Storage moved, the API did not. This class historically read
  * `<prefix>permissions`, a table **no migration creates** and which nothing
  * calls `setupDb()` for — so on a stock installation it did not exist, and every
- * lookup failed. Rather than retire a working API, it now answers from whichever
- * store the installation actually has:
+ * lookup failed. Rather than retire a working API, it became the simple face of
+ * the one permission store the framework has:
  *
- *   1. `<prefix>permissions` when that table exists. An installation that has it
- *      has been writing to it, so it stays authoritative — nothing changes.
- *   2. Otherwise `authserver.permissions`, the RBAC system the framework
- *      maintains, read through PermissionResolver.
+ *   1. `authserver.permissions`, created by the `auth` feature's migrations, so
+ *      every installation with users has it. Read through PermissionResolver and
+ *      written through this class's allow()/deny().
+ *   2. `<prefix>permissions` only where an installation hand-built it and the
+ *      new store is absent — an installation predating the move.
  *   3. Neither: the class says so instead of guessing. That distinction is the
  *      one that used to be missing — a failed lookup was reported as `false`,
  *      indistinguishable from a deny, so callers refused everything.
+ *
+ * When both exist, the new store wins and the fact is logged: rows left in the
+ * old table would otherwise stop counting without anybody being told.
  *
  * The new store understands more than this API can express (roles, priorities,
  * expiry, audience scoping, ABAC conditions). Reading it through these methods
@@ -58,6 +62,21 @@ class Permissions extends \Pramnos\Framework\Base
     }
 
     /**
+     * The database connection this instance works through.
+     *
+     * A single seam, so that store selection and the read/write paths can be
+     * exercised without a live connection — and so that a test never has to
+     * reach into the Factory singleton, which is shared with every other test
+     * in the process.
+     *
+     * @return \Pramnos\Database\Database
+     */
+    protected function db()
+    {
+        return \Pramnos\Framework\Factory::getDatabase();
+    }
+
+    /**
      * Set a default privilege. For example, view can be always true.
      * @param string $privilege
      * @param boolean $value
@@ -82,7 +101,14 @@ class Permissions extends \Pramnos\Framework\Base
     public function removePermission($subject, $resource, $privilege,
         $resourceElement = '', $resourceType = 'module', $subjectType = 'user')
     {
-        $database = \Pramnos\Framework\Factory::getDatabase();
+        if ($this->activeStore() === 'authserver') {
+            return $this->_writeToAuthserver(
+                $subject, $resource, $privilege,
+                $resourceElement, $subjectType, null
+            );
+        }
+
+        $database = $this->db();
         if ($subjectType == 'user') {
             $sql = $database->prepareQuery(
                 "DELETE FROM `" . DB_PERMISSIONSTABLE . "` "
@@ -109,6 +135,11 @@ class Permissions extends \Pramnos\Framework\Base
 
         $database->query($sql);
         $database->cacheflush('permissions');
+        // The instance cache has to go too. setPermission() clears it and this
+        // did not, so within one request a revoked permission kept answering
+        // "allowed" from memory — the query cache was flushed, but nothing ever
+        // asked the database again.
+        $this->_cache = array();
         return $this;
     }
 
@@ -137,8 +168,15 @@ class Permissions extends \Pramnos\Framework\Base
                 $resourceElement, $resourceType, $subjectType
             );
         }
-        
-        $database = \Pramnos\Framework\Factory::getDatabase();
+
+        if ($this->activeStore() === 'authserver') {
+            return $this->_writeToAuthserver(
+                $subject, $resource, $privilege,
+                $resourceElement, $subjectType, (bool) $value
+            );
+        }
+
+        $database = $this->db();
         $database->cacheflush('permissions');
         $this->_cache = array(); // Invalidate local instance cache
 
@@ -293,8 +331,17 @@ class Permissions extends \Pramnos\Framework\Base
     /**
      * Which permission store this installation actually has.
      *
-     * Cached per instance: schema does not change mid-request, and every
-     * permission question would otherwise repeat the same lookup.
+     * A found store is cached: it will not disappear underneath a running
+     * process, and every permission question would otherwise repeat the same
+     * two catalogue lookups.
+     *
+     * **"none" is deliberately not cached.** This class is reached through a
+     * process-wide singleton, and "no store" is the one answer that stops being
+     * true: migrations create the tables, and anything holding an instance from
+     * before — a queue worker, a daemon, the auto-migration path itself — would
+     * go on refusing every permission for the life of the process. Re-asking
+     * costs two catalogue lookups on an installation that has no permissions to
+     * answer with anyway.
      *
      * @return string legacy|authserver|none
      */
@@ -304,26 +351,68 @@ class Permissions extends \Pramnos\Framework\Base
             return $this->_store;
         }
 
-        $database = \Pramnos\Framework\Factory::getDatabase();
+        $database = $this->db();
 
-        // The legacy table wins when present: an installation that has it has
-        // been writing to it, and silently reading somewhere else would make its
-        // existing grants disappear.
-        try {
-            $database->query(
-                'SELECT 1 FROM ' . DB_PERMISSIONSTABLE . ' LIMIT 1',
-                false
-            );
-            return $this->_store = 'legacy';
-        } catch (\Throwable) {
-            // Not there — fall through to the maintained system.
+        // `authserver.permissions` is the framework's permission store. It ships
+        // with the `auth` feature, so any installation that has users has it,
+        // and it is what the rest of the framework reads and writes.
+        // Asked through the schema builder rather than by running a SELECT: a
+        // failed SELECT does not reliably raise here (it can simply return
+        // false), and the builder also resolves `authserver.permissions` to
+        // whatever the driver actually calls it — a schema on PostgreSQL, a
+        // prefixed table name on MySQL.
+        $hasNew    = $this->tableExists($database, 'authserver.permissions');
+        $hasLegacy = $this->tableExists(
+            $database,
+            str_replace('#PREFIX#', $database->prefix, DB_PERMISSIONSTABLE)
+        );
+
+        if ($hasNew) {
+            // Both present means an installation hand-built the old table before
+            // the new one existed. Reading the new one is correct — it is what
+            // everything else uses — but rows left behind in the old one would
+            // silently stop counting, so say so rather than let it be discovered
+            // as a permission that "stopped working".
+            if ($hasLegacy) {
+                \Pramnos\Logs\Logger::log(
+                    'A legacy ' . DB_PERMISSIONSTABLE . ' table exists alongside '
+                    . 'authserver.permissions. Permissions are read from and '
+                    . 'written to authserver.permissions; any rows still in the '
+                    . 'legacy table are ignored. See the Legacy Permissions '
+                    . 'Migration guide for the SQL that moves them.',
+                    'permissions'
+                );
+            }
+
+            return $this->_store = 'authserver';
         }
 
+        if ($hasLegacy) {
+            return $this->_store = 'legacy';
+        }
+
+        // Not cached — see the note above.
+        return 'none';
+    }
+
+    /**
+     * Does a table exist, without letting the question itself become an error?
+     *
+     * Store selection runs before every permission question, including on
+     * installations where neither table is there. A driver-level failure while
+     * *looking* is not an answer about permissions, so it resolves to "absent"
+     * rather than propagating out of an isAllowed() call.
+     *
+     * @param  \Pramnos\Database\Database $database
+     * @param  string                     $table Resolved or schema-qualified name
+     * @return bool
+     */
+    protected function tableExists($database, $table)
+    {
         try {
-            $database->query('SELECT 1 FROM authserver.permissions LIMIT 1', false);
-            return $this->_store = 'authserver';
+            return $database->schema()->hasTable($table);
         } catch (\Throwable) {
-            return $this->_store = 'none';
+            return false;
         }
     }
 
@@ -347,7 +436,7 @@ class Permissions extends \Pramnos\Framework\Base
     {
         try {
             $resolver = new \Pramnos\Auth\PermissionResolver(
-                \Pramnos\Framework\Factory::getDatabase()
+                $this->db()
             );
             $result = $resolver->resolve((int) $subject, null);
         } catch (\Throwable $ex) {
@@ -393,12 +482,112 @@ class Permissions extends \Pramnos\Framework\Base
         return $verdict;
     }
 
+    /**
+     * Write one grant to `authserver.permissions`, or remove it.
+     *
+     * The read path moved to the new store first; leaving the write path behind
+     * meant `allow()` and `deny()` still targeted a table that does not exist,
+     * so a grant could be neither made nor revoked on any installation that had
+     * not hand-built the legacy table. Both sides now use the same store.
+     *
+     * The mapping is the one the migration guide documents: resource becomes
+     * object_type, resourceElement becomes object_id (empty meaning "all objects
+     * of this type"), `admin` becomes the `*` action, and a deny is stored above
+     * allow so it dominates — the same tie-break the resolver applies.
+     *
+     * `resourceType` has no equivalent in the new model and is not stored. The
+     * legacy table used it to separate modules from other kinds of resource;
+     * object_type already carries that distinction.
+     *
+     * Existing matching rows are deleted first, so a second call with a
+     * different verdict replaces rather than accumulates — which is what the
+     * legacy implementation did, and what a caller flipping allow to deny
+     * expects.
+     *
+     * @param  string    $subject         User id, or role id for a group
+     * @param  string    $resource        Becomes object_type
+     * @param  string    $privilege       Becomes action
+     * @param  string    $resourceElement Becomes object_id; empty means all
+     * @param  string    $subjectType     user|group — anything else cannot be
+     *                                    represented and is refused loudly
+     * @param  bool|null $value           true allow, false deny, null remove
+     * @return $this
+     */
+    protected function _writeToAuthserver($subject, $resource, $privilege,
+        $resourceElement = '', $subjectType = 'user', $value = null)
+    {
+        // The new model names subjects: a user, or a role (what this API calls a
+        // group). Anything else was free-form in the legacy table and has no
+        // home here — writing it under a wrong subject_type would create a grant
+        // nothing can ever match.
+        $mapped = match ($subjectType) {
+            'user'  => 'user',
+            'group' => 'role',
+            default => null,
+        };
+
+        if ($mapped === null) {
+            \Pramnos\Logs\Logger::logError(
+                'Cannot store a permission for subject type "' . $subjectType
+                . '" in authserver.permissions: the model knows users and roles '
+                . 'only. The grant was not written.'
+            );
+
+            return $this;
+        }
+
+        $database = $this->db();
+        $action   = $privilege === 'admin' ? '*' : $privilege;
+        $objectId = $resourceElement === '' ? null : (string) $resourceElement;
+
+        $match = static function ($builder) use (
+            $mapped, $subject, $resource, $action, $objectId
+        ) {
+            $builder->table('authserver.permissions')
+                ->where('subject_type', $mapped)
+                ->where('subject_id', (int) $subject)
+                ->where('object_type', $resource)
+                ->where('action', $action);
+
+            // NULL is not comparable with `=`, and object_id NULL is a
+            // meaningful value here: "all objects of this type".
+            return $objectId === null
+                ? $builder->whereNull('object_id')
+                : $builder->where('object_id', $objectId);
+        };
+
+        $match($database->queryBuilder())->delete();
+
+        if ($value !== null) {
+            $database->queryBuilder()
+                ->table('authserver.permissions')
+                ->insert([
+                    'subject_type' => $mapped,
+                    'subject_id'   => (int) $subject,
+                    'object_type'  => $resource,
+                    'object_id'    => $objectId,
+                    'action'       => $action,
+                    'grant_type'   => $value ? 'allow' : 'deny',
+                    // Deny rules are stored above allow so they win a tie, which
+                    // is how the rest of the system reads this table.
+                    'priority'     => $value ? 100 : 1100,
+                    'is_active'    => true,
+                ]);
+        }
+
+        $this->_cache = array();
+        $database->cacheflush('permissions');
+
+        return $this;
+    }
+
     public function _isAllowed($subject, $resource, $privilege,
             $resourceElement = '', $resourceType = 'module',
             $subjectType = 'user', $nonExistEqualsFalse = true)
     {
-        $database = \Pramnos\Framework\Factory::getDatabase();
-
+        // The connection is fetched where it is needed — below, on the legacy
+        // path. Asking for it up front made every permission question open a
+        // database handle even when the answer never required one.
         $store = $this->activeStore();
 
         if ($store === 'authserver') {
@@ -423,6 +612,8 @@ class Permissions extends \Pramnos\Framework\Base
                 ? null
                 : ($this->_defaut[$privilege] ?? false);
         }
+
+        $database = $this->db();
 
         //If we are dealing with a module and subject is admin of this module,
         // then we can grand access to everything
@@ -537,6 +728,7 @@ class Permissions extends \Pramnos\Framework\Base
      */
     public static function setupDb($foreignKeys = true)
     {
+        // Static: no instance, so no db() seam here.
         $database = \Pramnos\Framework\Factory::getDatabase();
         if ($database->type == 'postgresql') {
             $statements = [

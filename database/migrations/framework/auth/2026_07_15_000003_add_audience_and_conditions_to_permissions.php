@@ -27,10 +27,15 @@ use Pramnos\Database\Migration;
  *
  * Current-date timestamp (§9) so it auto-runs on installations whose
  * migration_cutoff skips the 2020_01_01 baseline.
+ * Lives under the `auth` feature, not `authserver`: an application with users
+ * needs somewhere to record who may do what, whether or not it ever runs an
+ * OAuth server. The `authserver.` schema name is kept as-is — renaming it
+ * would break every existing installation and buy nothing.
+ *
  */
 class AddAudienceAndConditionsToPermissions extends Migration
 {
-    public string $feature      = 'authserver';
+    public string $feature      = 'auth';
     public string $scope        = 'framework';
     public int    $priority     = 62;
     public array  $dependencies = ['create_authserver_permissions_table'];

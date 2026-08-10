@@ -22,6 +22,8 @@ use Pramnos\Database\Database;
  */
 class PermissionResolverTest extends TestCase
 {
+    use \Pramnos\Tests\Support\ForgetsPermissionStore;
+
     private Database $db;
     private bool $isPg;
     private PermissionResolver $resolver;
@@ -89,6 +91,7 @@ class PermissionResolverTest extends TestCase
         } catch (\Throwable) {
             // Non-fatal cleanup.
         }
+        $this->forgetPermissionStore();
     }
 
     // ── Fixtures ─────────────────────────────────────────────────────────────

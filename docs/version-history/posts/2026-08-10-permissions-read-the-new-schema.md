@@ -11,6 +11,14 @@ tags:
 
 # `Permissions` answers from whichever store the installation has
 
+!!! note "Superseded the same day"
+
+    This post describes the legacy table as the preferred store. That ordering
+    was inverted a few hours later, once the permission tables moved into the
+    `auth` feature and every installation with users started having the new
+    store. See [One permission system, available to every project with
+    users](2026-08-10-one-permission-system.md).
+
 A brand-new project's own administrator was told "You do not have permission to
 see this". Nothing had been denied — the permission lookup had failed, and a
 failed lookup was indistinguishable from a refusal.

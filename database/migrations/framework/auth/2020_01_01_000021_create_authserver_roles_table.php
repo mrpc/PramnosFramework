@@ -12,16 +12,21 @@ use Pramnos\Database\Migration;
  * A role with organization_id=NULL is a system-wide role applicable to all
  * organisations. The organisation column name is configurable via Settings
  * (key: authserver_organization_column, default: organization_id) so that
- * applications can use their own naming convention (e.g. deyaid for the reference application).
+ * applications can use their own naming convention (e.g. a tenant column of its own).
  *
  * PostgreSQL: created in the `authserver` schema.
  * MySQL: the schema is translated to a prefix automatically by SchemaBuilder
  * (authserver.roles → authserver_roles, plus any configured table prefix).
  *
+ * Lives under the `auth` feature, not `authserver`: an application with users
+ * needs somewhere to record who may do what, whether or not it ever runs an
+ * OAuth server. The `authserver.` schema name is kept as-is — renaming it
+ * would break every existing installation and buy nothing.
+ *
  */
 class CreateAuthserverRolesTable extends Migration
 {
-    public string  $feature      = 'authserver';
+    public string  $feature      = 'auth';
     public string  $scope        = 'framework';
     public int     $priority     = 20;
     public array   $dependencies = ['create_authserver_schema'];

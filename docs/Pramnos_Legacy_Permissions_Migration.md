@@ -1,12 +1,10 @@
 # Moving the legacy permissions table into the new schema
 
-`Pramnos\Auth\Permissions` keeps its API. What changed is **where it reads
-from**: the legacy `<prefix>permissions` table when an installation has one, and
-otherwise `authserver.permissions`, the system the framework actually maintains.
+`Pramnos\Auth\Permissions` keeps its API. What changed is **where it reads and
+writes**: `authserver.permissions`, the framework's one permission store.
 
-This page is for installations that still have the legacy table and want their
-rows in one place. Nothing here is required — an installation that keeps the old
-table keeps working exactly as before.
+This page is for installations that hand-built the legacy `<prefix>permissions`
+table years ago and still have rows in it.
 
 ## Why move
 
@@ -17,11 +15,22 @@ a failed lookup as `false`, indistinguishable from a deny: code that trusted the
 answer refused everything. (`isAllowed(..., false)` now returns `null` when there
 is no store, which is what "cannot answer" should always have looked like.)
 
-`authserver.permissions` is created by the authserver migrations, read by
-`Pramnos\Auth\PermissionResolver`, and understands roles, priorities,
-deny-over-allow, expiry, audience scoping and ABAC conditions — none of which the
-legacy table can express. Moving the rows there means one store, and the old API
-still answers from it.
+`authserver.permissions` is created by the **`auth`** feature's migrations — so
+every installation with users has it, whether or not it runs an OAuth server. It
+is read by `Pramnos\Auth\PermissionResolver`, written by `Permissions::allow()`
+and `deny()`, and understands roles, priorities, deny-over-allow, expiry,
+audience scoping and ABAC conditions, none of which the legacy table can express.
+
+## Which store answers
+
+The new store wins whenever it exists, which after running migrations is always.
+The legacy table is read only where the new store is absent — an installation
+whose migrations have not been run.
+
+If **both** exist, the new store is used and a line is written to the
+`permissions` log saying so. That is deliberate: rows left in the old table stop
+counting from that moment, and finding out through a permission that
+"stopped working" is worse than being told.
 
 ## What the old API can and cannot see in the new store
 
@@ -148,8 +157,8 @@ or place it in a separate database; use whichever your migrations created.
 
 ## Verifying
 
-Compare what the two systems say for a user who has rules, before changing any
-code that depends on them:
+Read back what the new store now says for a user whose rows you moved, before
+changing any code that depends on them:
 
 ```php
 $resolver = new \Pramnos\Auth\PermissionResolver($database);
@@ -162,10 +171,8 @@ not the raw rows.
 
 ## Afterwards
 
-The legacy table stays authoritative while it exists — that is deliberate, so
-that moving is a decision rather than something that happens to you. Once the
-rows are across and you are satisfied, drop it, and the same calls start
-answering from the new store:
+Once the rows are across and you are satisfied, drop the old table — that also
+stops the "both stores present" warning:
 
 ```sql
 DROP TABLE permissions;   -- add your prefix
@@ -175,4 +182,4 @@ DROP TABLE permissions;   -- add your prefix
 `PermissionResolver::resolve()` directly when you need what the old API cannot
 express — conditions, expiry, audience scoping, or the full grant list. Inside a
 generated API controller you need neither: `ApiCrudController` already asks the
-application's own scheme, then the resolver, then the legacy table.
+application's own permission scheme first, then the store.
