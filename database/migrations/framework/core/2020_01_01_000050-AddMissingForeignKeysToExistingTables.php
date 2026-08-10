@@ -126,9 +126,9 @@ class AddMissingForeignKeysToExistingTables extends Migration
         // ===== GDPR tables (add explicit FKs to users table) =====
 
         // user_privacy_settings.userid → users.userid (CASCADE)
-        if ($this->canAddForeignKey('user_privacy_settings', 'userid', 'users', 'userid', 'fk_user_privacy_settings_userid')) {
+        if ($this->canAddForeignKey('authserver.user_privacy_settings', 'userid', 'users', 'userid', 'fk_user_privacy_settings_userid')) {
             $this->schema('public')
-                ->table('user_privacy_settings', function ($table) {
+                ->table('authserver.user_privacy_settings', function ($table) {
                     $table->foreign('userid')
                         ->references('userid')
                         ->on('users')
@@ -139,9 +139,9 @@ class AddMissingForeignKeysToExistingTables extends Migration
         }
 
         // user_consents.userid → users.userid (CASCADE)
-        if ($this->canAddForeignKey('user_consents', 'userid', 'users', 'userid', 'fk_user_consents_userid')) {
+        if ($this->canAddForeignKey('authserver.user_consents', 'userid', 'users', 'userid', 'fk_user_consents_userid')) {
             $this->schema('public')
-                ->table('user_consents', function ($table) {
+                ->table('authserver.user_consents', function ($table) {
                     $table->foreign('userid')
                         ->references('userid')
                         ->on('users')
@@ -152,9 +152,9 @@ class AddMissingForeignKeysToExistingTables extends Migration
         }
 
         // data_processing_records.userid → users.userid (CASCADE)
-        if ($this->canAddForeignKey('data_processing_records', 'userid', 'users', 'userid', 'fk_data_processing_records_userid')) {
+        if ($this->canAddForeignKey('authserver.data_processing_records', 'userid', 'users', 'userid', 'fk_data_processing_records_userid')) {
             $this->schema('public')
-                ->table('data_processing_records', function ($table) {
+                ->table('authserver.data_processing_records', function ($table) {
                     $table->foreign('userid')
                         ->references('userid')
                         ->on('users')
@@ -165,9 +165,9 @@ class AddMissingForeignKeysToExistingTables extends Migration
         }
 
         // gdpr_requests.userid → users.userid (CASCADE)
-        if ($this->canAddForeignKey('gdpr_requests', 'userid', 'users', 'userid', 'fk_gdpr_requests_userid')) {
+        if ($this->canAddForeignKey('authserver.gdpr_requests', 'userid', 'users', 'userid', 'fk_gdpr_requests_userid')) {
             $this->schema('public')
-                ->table('gdpr_requests', function ($table) {
+                ->table('authserver.gdpr_requests', function ($table) {
                     $table->foreign('userid')
                         ->references('userid')
                         ->on('users')
@@ -179,9 +179,9 @@ class AddMissingForeignKeysToExistingTables extends Migration
 
         // user_activity_log.userid → users.userid (CASCADE)
         // Note: user_activity_log is a hypertable, may need different approach
-        if ($this->canAddForeignKey('user_activity_log', 'userid', 'users', 'userid', 'fk_user_activity_log_userid')) {
+        if ($this->canAddForeignKey('authserver.user_activity_log', 'userid', 'users', 'userid', 'fk_user_activity_log_userid')) {
             $this->schema('public')
-                ->table('user_activity_log', function ($table) {
+                ->table('authserver.user_activity_log', function ($table) {
                     $table->foreign('userid')
                         ->references('userid')
                         ->on('users')
@@ -207,14 +207,23 @@ class AddMissingForeignKeysToExistingTables extends Migration
             'tokenactions' => ['fk_tokenactions_tokenid', 'fk_tokenactions_urlid'],
             'applications' => ['fk_applications_owner'],
             'users' => ['fk_users_locationid'],
-            'user_privacy_settings' => ['fk_user_privacy_settings_userid'],
-            'user_consents' => ['fk_user_consents_userid'],
-            'data_processing_records' => ['fk_data_processing_records_userid'],
-            'gdpr_requests' => ['fk_gdpr_requests_userid'],
-            'user_activity_log' => ['fk_user_activity_log_userid'],
+            'authserver.user_privacy_settings' => ['fk_user_privacy_settings_userid'],
+            'authserver.user_consents' => ['fk_user_consents_userid'],
+            'authserver.data_processing_records' => ['fk_data_processing_records_userid'],
+            'authserver.gdpr_requests' => ['fk_gdpr_requests_userid'],
+            'authserver.user_activity_log' => ['fk_user_activity_log_userid'],
         ];
 
         foreach ($constraints as $table => $fks) {
+            // `constraintDoesNotExist()` answers false for two different
+            // situations — the constraint is there, and the table is not — which
+            // is exactly what up() wants (skip either way) and exactly what
+            // down() must not conflate: dropping from a missing table raises and
+            // aborts the rollback. Ask about the table separately.
+            if (!$this->schema('public')->hasTable($table)) {
+                continue;
+            }
+
             foreach ($fks as $fk) {
                 if (!$this->constraintDoesNotExist($table, $fk)) {
                     $this->schema('public')
@@ -309,6 +318,29 @@ class AddMissingForeignKeysToExistingTables extends Migration
     }
 
     /**
+     * Split a possibly schema-qualified table name.
+     *
+     * The framework's GDPR and consent tables live in the `authserver` schema,
+     * not in `public`. Addressing them without their schema is why five of this
+     * migration's foreign keys were never created on any installation: the
+     * lookup found no such table in `public`, the guard skipped the block, and
+     * the skip was indistinguishable from success.
+     *
+     * @param  string $table Logical name, qualified or not
+     * @return array{0: string, 1: string} Schema, then bare table name
+     */
+    protected function splitQualified($table)
+    {
+        if (strpos($table, '.') !== false) {
+            [$schema, $bare] = explode('.', $table, 2);
+
+            return [$schema, $bare];
+        }
+
+        return ['public', $table];
+    }
+
+    /**
      * Check if a constraint exists in the database.
      *
      * This is a safe helper to avoid "constraint already exists" errors
@@ -331,19 +363,28 @@ class AddMissingForeignKeysToExistingTables extends Migration
         }
 
         if ($db->getDriverName() === 'pgsql') {
-            // PostgreSQL: check information_schema.table_constraints
+            // information_schema addresses a table by schema and bare name, so a
+            // qualified name has to be split — asking for
+            // table_name = 'authserver.gdpr_requests' matches nothing, and
+            // "nothing" reads as "the constraint is missing", which would make
+            // this migration try to create it on every run.
+            [$schema, $bare] = $this->splitQualified($table);
+
             $exists = $db->selectOne(
-                "SELECT 1 FROM information_schema.table_constraints 
-                 WHERE table_name = ? AND constraint_name = ?",
-                [$table, $constraintName]
+                "SELECT 1 FROM information_schema.table_constraints
+                 WHERE table_schema = ? AND table_name = ? AND constraint_name = ?",
+                [$schema, $bare, $constraintName]
             );
             return is_null($exists);
         } else {
-            // MySQL: check INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+            // MySQL has no schemas in this sense: the builder flattens
+            // `authserver.x` to `authserver_x` inside the current database.
+            $resolved = $this->schema('public')->resolveTableName($table);
+
             $exists = $db->selectOne(
-                "SELECT 1 FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+                "SELECT 1 FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
                  WHERE TABLE_NAME = ? AND CONSTRAINT_NAME = ?",
-                [$table, $constraintName]
+                [$resolved, $constraintName]
             );
             return is_null($exists);
         }

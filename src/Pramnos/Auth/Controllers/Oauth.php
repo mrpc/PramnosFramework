@@ -82,8 +82,11 @@ class Oauth extends Controller
 
         $result = $db->queryBuilder()
             ->table('applications')
-            ->select(['appid', 'name', 'description', 'apikey', 'status', 'created'])
-            ->orderBy('created', 'desc')
+            // `added`, not `created`: that is what the applications table calls
+            // its creation timestamp. Selecting and ordering by a column that
+            // does not exist made this listing fail outright.
+            ->select(['appid', 'name', 'description', 'apikey', 'status', 'added AS created'])
+            ->orderBy('added', 'desc')
             ->get();
 
         $apps = [];

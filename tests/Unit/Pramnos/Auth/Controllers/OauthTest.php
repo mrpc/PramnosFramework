@@ -50,8 +50,15 @@ class OauthTest extends TestCase
             $this->db->connect();
         }
 
-        // DROP + CREATE (not IF NOT EXISTS) so the test-specific schema (with `created`)
-        // always wins over the framework migration schema (which uses `added` instead).
+        // DROP + CREATE (not IF NOT EXISTS) so this fixture is always the schema
+        // under test rather than whatever a previous test left behind.
+        //
+        // The column is `added`, which is what the migration creates. This
+        // fixture used to declare `created` and was documented as deliberately
+        // overriding the framework schema — so the listing query, which selected
+        // and ordered by `created`, passed here and failed against every real
+        // database. A fixture that disagrees with the migration does not test the
+        // code; it certifies the disagreement.
         $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         $this->db->query('DROP TABLE IF EXISTS `applications`');
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
@@ -63,7 +70,7 @@ class OauthTest extends TestCase
                 `apikey` varchar(255) DEFAULT NULL,
                 `apisecret` varchar(255) DEFAULT NULL,
                 `status` tinyint(1) NOT NULL DEFAULT 1,
-                `created` bigint(20) NOT NULL DEFAULT 0,
+                `added` int(11) NOT NULL DEFAULT 0,
                 `redirect_uri` varchar(255) DEFAULT NULL,
                 `public_key` text DEFAULT NULL,
                 `systemuser` int(11) DEFAULT NULL,
