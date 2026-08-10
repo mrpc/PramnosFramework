@@ -48,11 +48,17 @@
                 logs = result.lines ?? result.content ?? result.data ?? [];
             }
         } catch (err) {
-            // 403 is a different problem from a broken endpoint, and an admin
-            // screen is exactly where that distinction is worth showing.
-            error = err instanceof ApiError && err.status === 403
-                ? 'You do not have permission to see this.'
-                : `Could not load: ${err instanceof ApiError ? 'HTTP ' + err.status : 'no response'}`;
+            // Three different problems with three different fixes, and an admin
+            // screen is exactly where conflating them wastes the most time:
+            // 401 means the session ended, 403 means this account lacks a
+            // permission, anything else is the endpoint itself.
+            if (err instanceof ApiError && err.status === 401) {
+                error = 'Your session has ended. Sign in again.';
+            } else if (err instanceof ApiError && err.status === 403) {
+                error = 'This account does not have permission for this section.';
+            } else {
+                error = `Could not load: ${err instanceof ApiError ? 'HTTP ' + err.status : 'no response'}`;
+            }
         } finally {
             loading = false;
         }
