@@ -1,39 +1,34 @@
-$router->delete(
+{{ router }}->delete(
     '/{{ modelClassLower }}/{{{ primaryKey }}}',
     function (${{ primaryKey }}) {
-        $controller = $this->getController('{{ className }}');
-        return $controller->delete{{ modelClass }}(${{ primaryKey }});
+        return (new \{{ apiNamespace }}\{{ className }}($this))->delete{{ modelClass }}(${{ primaryKey }});
     }
 );
 
-$router->put(
+{{ router }}->put(
     '/{{ modelClassLower }}/{{{ primaryKey }}}',
     function (${{ primaryKey }}) {
-        $controller = $this->getController('{{ className }}');
-        return $controller->update{{ modelClass }}(${{ primaryKey }});
+        return (new \{{ apiNamespace }}\{{ className }}($this))->update{{ modelClass }}(${{ primaryKey }});
     }
 );
 
-$router->get(
+{{ router }}->get(
     '/{{ modelClassLower }}/{{{ primaryKey }}}',
     function (${{ primaryKey }}) {
-        $controller = $this->getController('{{ className }}');
-        return $controller->read{{ modelClass }}(${{ primaryKey }});
+        return (new \{{ apiNamespace }}\{{ className }}($this))->read{{ modelClass }}(${{ primaryKey }});
     }
 );
 
-$router->get(
+{{ router }}->get(
     '/{{ modelClassLower }}',
     function () {
-        $controller = $this->getController('{{ className }}');
-        return $controller->display();
+        return (new \{{ apiNamespace }}\{{ className }}($this))->display();
     }
 );
 
-$router->post(
+{{ router }}->post(
     '/{{ modelClassLower }}',
     function () {
-        $controller = $this->getController('{{ className }}');
-        return $controller->create{{ modelClass }}();
+        return (new \{{ apiNamespace }}\{{ className }}($this))->create{{ modelClass }}();
     }
 );

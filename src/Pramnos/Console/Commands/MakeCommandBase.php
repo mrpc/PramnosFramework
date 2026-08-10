@@ -1463,8 +1463,265 @@ abstract class MakeCommandBase extends Command
      * @param string $name
      * @return string
      */
+    /**
+     * Add an entity's routes to src/Api/routes.php.
+     *
+     * They must go **inside** the version group, whose prefix comes from
+     * APIVERSION. Appended after it — as this used to do — they register at
+     * `/thing` while every request arrives as `/1.0/thing`, so nothing matches
+     * and the API falls back to legacy controller resolution, which fails with
+     * "Cannot find controller: 1.0". Every generated endpoint was unreachable.
+     *
+     * Falls back to the old placement only when the file has no group at all
+     * (a hand-written routes.php), where appending is still correct.
+     *
+     * @param array<string, string> $tokens Stub tokens for the route block
+     */
+    protected function registerApiRoutes(string $routerFile, array $tokens, string $resource): void
+    {
+        if (!file_exists($routerFile)) {
+            return;
+        }
+
+        $contents = (string) file_get_contents($routerFile);
+
+        // Already registered? Match on the resource path, not the whole block,
+        // so a hand-edited route is not duplicated either.
+        if (str_contains($contents, "'/$resource'")) {
+            return;
+        }
+
+        $groupMarker = 'function (\Pramnos\Routing\Router $r): void {';
+        $groupStart  = strpos($contents, $groupMarker);
+
+        if ($groupStart !== false) {
+            $groupEnd = strpos($contents, "\n    }\n);", $groupStart);
+            if ($groupEnd !== false) {
+                $block = $this->renderStub('api-routes', $tokens + ['router' => '$r']);
+                // Indent to the group's body level so the file stays readable.
+                $block = "\n        " . str_replace("\n", "\n        ", trim($block)) . "\n";
+                $block = preg_replace('/\n\s+\n/', "\n\n", $block);
+
+                file_put_contents(
+                    $routerFile,
+                    substr($contents, 0, $groupEnd) . "\n" . $block . substr($contents, $groupEnd)
+                );
+                return;
+            }
+        }
+
+        // @codeCoverageIgnoreStart — only for a routes.php without the group
+        $block = $this->renderStub('api-routes', $tokens + ['router' => '$router']);
+        file_put_contents($routerFile, str_replace(
+            'return $router->dispatch($newRequest);',
+            $block . "\n\n" . 'return $router->dispatch($newRequest);',
+            $contents
+        ));
+        // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Generate the front-end screen for an entity.
+     *
+     * The screen is a peer of the generated API controller: list with paging and
+     * server-side search, plus create/edit/delete. Columns come from the table
+     * itself, so it matches the migration that created it.
+     *
+     * @param  string $name Entity name
+     * @return string A human-readable result line
+     */
+    protected function createSpaScreen(string $name): string
+    {
+        $stack = $this->spaStack();
+        if ($stack === '') {
+            return 'SKIPPED (no SPA stack configured in app.php)';
+        }
+
+        $entity   = self::getProperClassName($name, true);
+        $resource = strtolower($entity);
+        $table    = $this->tableFor($name);
+        $columns  = $this->editableColumns($table);
+        $key      = $this->primaryKeyFor($table);
+
+        $tokens = [
+            'entityLabel' => ucfirst($resource),
+            'resource'    => $resource,
+            'primaryKey'  => $key,
+            // Editable columns only: the primary key is shown but never typed in.
+            'columnsJson' => json_encode(array_values(array_diff($columns, [$key]))),
+        ];
+
+        $needsBuild = in_array($stack, ['svelte', 'vanilla-vite'], true);
+        $baseDir    = ROOT . ($needsBuild ? '/frontend' : '/www/assets/js');
+        $dir        = $baseDir . '/screens';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0777, true);
+        }
+
+        $file = $dir . '/' . $entity . ($stack === 'svelte' ? '.svelte' : '.js');
+        if (file_exists($file)) {
+            return 'SKIPPED (screen already exists: ' . $file . ')';
+        }
+
+        $stub = $stack === 'svelte' ? 'spa-screen.svelte' : 'spa-screen.js';
+        file_put_contents($file, $this->renderStub($stub, $tokens));
+
+        $this->registerSpaScreen($dir, $entity, ucfirst($resource), $stack);
+
+        return 'OK (' . str_replace(ROOT . '/', '', $file) . ')';
+    }
+
+    /**
+     * Add a screen to the front end's screen registry.
+     *
+     * Without this the generated component would sit on disk unreachable — the
+     * bundler would not even include it. The registry is what the application
+     * reads to build its navigation, so a new CRUD shows up by itself, the way
+     * a generated MVC controller does.
+     *
+     * Only the entry is inserted; the rest of the file (labels, order, anything
+     * hand-edited) is preserved.
+     */
+    protected function registerSpaScreen(string $dir, string $entity, string $label, string $stack): void
+    {
+        $registry = $dir . '/registry.js';
+        if (!file_exists($registry)) {
+            file_put_contents($registry, $this->renderStub('spa-screens-registry.js', []));
+        }
+
+        $contents = (string) file_get_contents($registry);
+        $name     = strtolower($entity);
+        if (str_contains($contents, "name: '$name'")) {
+            return; // already registered
+        }
+
+        if ($stack === 'svelte') {
+            $import = "import $entity from './$entity.svelte';\n";
+            $entry  = "    { name: '$name', label: '$label', component: $entity },\n";
+        } else {
+            $import = "import * as $entity from './$entity.js';\n";
+            $entry  = "    { name: '$name', label: '$label', mount: $entity.mount },\n";
+        }
+
+        // Imports go above the export, entries inside the array.
+        $contents = str_replace("\nexport const screens = [", "\n$import\nexport const screens = [", $contents);
+        $contents = str_replace("export const screens = [\n", "export const screens = [\n$entry", $contents);
+
+        file_put_contents($registry, $contents);
+    }
+
+    /**
+     * The database table backing an entity.
+     */
+    protected function tableFor(string $name): string
+    {
+        // --table wins when given; otherwise the conventional lowercase name,
+        // which is what createModel() uses for the same entity.
+        return $this->dbtable ?: strtolower(self::getProperClassName($name, false));
+    }
+
+    /**
+     * Column names of a table, minus the ones a form should never expose.
+     *
+     * @return list<string>
+     */
+    protected function editableColumns(string $table): array
+    {
+        $columns = [];
+        try {
+            $database = \Pramnos\Database\Database::getInstance();
+            $result   = $database->getColumns($table, $this->schema);
+            while ($result->fetch()) {
+                $columns[] = $result->fields['Field'];
+            }
+        } catch (\Throwable) {
+            // No database (or no such table yet): the screen still generates,
+            // with no columns, rather than failing the whole crud run.
+            return [];
+        }
+
+        return array_values(array_diff($columns, ['created', 'updated', 'createdate', 'updatedate']));
+    }
+
+    /**
+     * Primary key column of a table, defaulting to the conventional `<table>id`.
+     */
+    protected function primaryKeyFor(string $table): string
+    {
+        try {
+            $database = \Pramnos\Database\Database::getInstance();
+            $result   = $database->getColumns($table, $this->schema);
+            while ($result->fetch()) {
+                if (($result->fields['Key'] ?? '') === 'PRI'
+                    || ($result->fields['Column_key'] ?? '') === 'PRI') {
+                    return $result->fields['Field'];
+                }
+            }
+        } catch (\Throwable) {
+            // fall through to the convention
+        }
+
+        return rtrim($table, 's') . 'id';
+    }
+
+    /**
+     * How this application is built, from app.php.
+     *
+     * `init` records it so the make commands can adapt; anything older (or an
+     * app.php written by hand) is treated as MVC, which is what it was.
+     */
+    protected function appStyle(): string
+    {
+        $application = $this->getApplication()->internalApplication;
+        $style = $application->applicationInfo['app_style'] ?? 'mvc';
+
+        return in_array($style, ['mvc', 'spa', 'hybrid'], true) ? $style : 'mvc';
+    }
+
+    /**
+     * The project's front-end stack (empty for an MVC project).
+     */
+    protected function spaStack(): string
+    {
+        $application = $this->getApplication()->internalApplication;
+
+        return (string) ($application->applicationInfo['spa_stack'] ?? '');
+    }
+
+    /**
+     * What `create:crud` should generate when --target is not given.
+     */
+    protected function defaultCrudTarget(): string
+    {
+        return match ($this->appStyle()) {
+            'spa'    => 'spa',
+            'hybrid' => 'both',
+            default  => 'mvc',
+        };
+    }
+
+    /**
+     * Which halves the next createCrud() call should produce.
+     *
+     * A property rather than an argument: createCrud() is public and apps (and
+     * tests) override it, so adding a parameter to it would be a signature
+     * change — PHP rejects an override that lacks the new parameter, and the
+     * framework does not break public signatures. Empty means "decide from
+     * app.php".
+     */
+    public string $crudTarget = '';
+
+    /**
+     * Generate a CRUD for an entity.
+     *
+     * What that includes depends on $crudTarget (mvc|spa|both), which the
+     * command sets from --target or from the application style.
+     *
+     * @param string $name Entity name
+     */
     public function createCrud($name)
     {
+        $target  = $this->crudTarget !== '' ? $this->crudTarget : $this->defaultCrudTarget();
         $content = "Creating Model: ";
         try {
             $this->createModel($name);
@@ -1472,6 +1729,31 @@ abstract class MakeCommandBase extends Command
         } catch (\Exception $ex) {
             $content .= "FAIL - " . $ex->getMessage() . "\n";
         }
+
+        // The API half: a controller over the same model, its routes, and the
+        // screen that consumes them. One model, two controllers.
+        if ($target === 'spa' || $target === 'both') {
+            $content .= "Creating API controller + routes: ";
+            try {
+                $this->createApi($name);
+                $content .= "OK\n";
+            } catch (\Exception $ex) {
+                $content .= "FAIL - " . $ex->getMessage() . "\n";
+            }
+
+            $content .= "Creating SPA screen: ";
+            try {
+                $content .= $this->createSpaScreen($name) . "\n";
+            } catch (\Exception $ex) {
+                $content .= "FAIL - " . $ex->getMessage() . "\n";
+            }
+        }
+
+        if ($target === 'spa') {
+            // A SPA project has no server-rendered view layer to generate into.
+            return $content . "\n";
+        }
+
         $content .= "Creating Controller: ";
         try {
             $this->createController($name, true);
@@ -1922,12 +2204,16 @@ abstract class MakeCommandBase extends Command
             ]);
 
 
-$routerContent = $this->renderStub('api-routes', [
+$routeTokens = [
     'modelClassLower' => $modelClassLower,
     'primaryKey'      => $primaryKey,
     'className'       => $className,
     'modelClass'      => $modelClass,
-]);
+    // The routes instantiate the API controller directly, the way the
+    // feature-scaffolded routes do: $this->getController() resolves against
+    // src/Controllers (the MVC side) and cannot see src/Api/Controllers.
+    'apiNamespace'    => $namespace,
+];
 
 
       
@@ -1936,15 +2222,7 @@ $routerContent = $this->renderStub('api-routes', [
 
 
         $routerFile = ROOT . '/src/Api/routes.php';
-        $routerContentOriginal = file_get_contents($routerFile);
-        if (strpos($routerContentOriginal, $routerContent) === false) {
-            $routerContentOriginal = str_replace(
-                'return $router->dispatch($newRequest);',
-                $routerContent . "\n\n" . 'return $router->dispatch($newRequest);',
-                $routerContentOriginal
-            );
-            file_put_contents($routerFile, $routerContentOriginal);
-        }
+        $this->registerApiRoutes($routerFile, $routeTokens, $modelClassLower);
 
 
         return "Namespace: {$namespace}\n"
@@ -3010,10 +3288,15 @@ PHP;
         
         $isUpdate = false;
         if (class_exists('\\' . $namespace . '\\'. $className)
-            && file_exists($filename)) {  
+            && file_exists($filename)) {
             $isUpdate = true;
-            $updateResult = $this->updateModel('\\' . $namespace . '\\'. $className, $result, $filename);
-            
+            // A model that already exists is left alone: regenerating it would
+            // discard hand-written methods. (This used to call updateModel(),
+            // which does not exist anywhere in the framework — so re-running
+            // create:model or create:crud on an existing entity, exactly what
+            // one does after adding a column, died with a fatal error.)
+            $updateResult = "Model already exists — left untouched.\n";
+
             // Check if getApiList method exists, if not, add it
             $fileContents = file_get_contents($filename);
             if (strpos($fileContents, 'function getApiList(') === false) {
