@@ -555,7 +555,7 @@ class Auth extends \Pramnos\Framework\Base
     function setaccess($id, $moduletype, $moduleid, $what,
         $elementid, $onwhat, $extraflag, $value)
     {
-        $permissions = pramnos_factory::getPermissions();
+        $permissions = Permissions::getInstance();
         if ($value == 1) {
             $permissions->allow(
                 $id, $moduleid, $what, $elementid, $moduletype, $onwhat
@@ -589,7 +589,7 @@ class Auth extends \Pramnos\Framework\Base
     function useraccess($userid, $moduletype, $moduleid,
         $what = 'read', $elementid = '', $check = 'user')
     {
-        $permissions = & pramnos_factory::getPermissions();
+        $permissions = Permissions::getInstance();
         return $permissions->isAllowed(
             $userid, $moduleid, $what, $elementid, $moduletype, $check
         );
@@ -608,7 +608,7 @@ class Auth extends \Pramnos\Framework\Base
     function groupaccess($groupid, $moduletype, $moduleid,
         $what = 'read', $elementid = '')
     {
-        $permissions = & pramnos_factory::getPermissions();
+        $permissions = Permissions::getInstance();
         return $permissions->isAllowed(
             $groupid, $moduleid, $what, $elementid, $moduletype, 'group'
         );
