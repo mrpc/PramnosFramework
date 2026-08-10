@@ -1,18 +1,51 @@
 /**
- * Tiny fetch wrapper for the {{ appName }} JSON API.
+ * Client for the {{ appName }} JSON API.
  *
- * Two authentication modes work out of the box, and both are covered here:
+ * It speaks the framework's actual API contract, so screens never have to think
+ * about it:
  *
- *   - **Session cookie** (the default for a same-origin SPA). The framework's
- *     UnifiedAuthMiddleware accepts the web session cookie as an API credential
- *     for same-origin requests, so `credentials: 'same-origin'` is all the JS
- *     needs — no token handling at all.
- *   - **Bearer token**, for a SPA served from a different origin or a native
- *     client. Call `setToken()` once and every later request carries it.
+ *   - **`apiKey` header on every request.** The API layer rejects anything
+ *     without one ("API key is missing", HTTP 403). The shell derives this
+ *     application's own key and hands it over in `window.__PRAMNOS__`, so
+ *     nothing is hard-coded and it stays correct in every environment.
+ *   - **`accessToken` header** for a bearer session — the framework's own header
+ *     name, not `Authorization`. `login()` stores the token it receives and
+ *     every later call carries it.
+ *   - **Cookies** are sent as well (`credentials: 'same-origin'`), so a user who
+ *     signed in through the server-rendered pages is already authenticated here:
+ *     UnifiedAuthMiddleware accepts the web session for same-origin requests.
  *
- * Errors are thrown as ApiError so callers can branch on `status` (401 → log in
- * again, 422 → show field errors) instead of parsing message strings.
+ * Errors arrive as ApiError with the HTTP status attached, so a screen can react
+ * to 401 (sign in again) or 422 (field errors) instead of parsing messages.
  */
+
+/** Fallback prefix, used when the shell injected no configuration. */
+const DEFAULT_PREFIX = '{{ apiPrefix }}';
+
+/**
+ * Runtime configuration injected by the PHP shell (`window.__PRAMNOS__`).
+ *
+ * Read per call rather than captured at import time: a module may be evaluated
+ * before the shell's inline script in some bundling setups, and tests set it up
+ * after importing. Reading late costs nothing and cannot go stale.
+ *
+ * @returns {{apiPrefix?: string, apiKey?: string, features?: object}}
+ */
+function config() {
+    return (typeof window !== 'undefined' && window.__PRAMNOS__) || {};
+}
+
+/** Where the bearer token is kept between page loads. */
+const TOKEN_KEY = '{{ tokenStorageKey }}';
+
+/**
+ * In-memory copy of the token.
+ *
+ * localStorage is unavailable in private mode, when storage is blocked, and
+ * outside a browser (tests, SSR). Keeping the token here as well means those
+ * environments still authenticate — they just do not survive a reload.
+ */
+let memoryToken = null;
 
 /** An HTTP-level API failure, carrying the status and decoded payload. */
 export class ApiError extends Error {
@@ -29,41 +62,64 @@ export class ApiError extends Error {
     }
 }
 
-const BASE = '{{ apiPrefix }}';
-
-let token = null;
+/**
+ * The stored bearer token, if any.
+ *
+ * @returns {string|null}
+ */
+export function getToken() {
+    try {
+        return localStorage.getItem(TOKEN_KEY) ?? memoryToken;
+    } catch {
+        return memoryToken;
+    }
+}
 
 /**
- * Use a Bearer token for subsequent requests. Pass null to go back to
- * cookie-only authentication.
+ * Store (or clear, with null) the bearer token used by later requests.
  *
  * @param {string|null} value
  */
 export function setToken(value) {
-    token = value;
+    memoryToken = value;
+    try {
+        if (value === null) {
+            localStorage.removeItem(TOKEN_KEY);
+        } else {
+            localStorage.setItem(TOKEN_KEY, value);
+        }
+    } catch {
+        // Ignore: the token simply does not survive a reload.
+    }
 }
 
 /**
  * Perform an API request and decode the JSON response.
  *
- * @param {string} path             Path below the API prefix, e.g. '/status'
+ * @param {string} path              Path below the API prefix, e.g. '/status'
  * @param {object} [options]
- * @param {string} [options.method] HTTP method (default GET)
- * @param {*}      [options.body]   Payload, JSON-encoded when present
+ * @param {string} [options.method]  HTTP method (default GET)
+ * @param {*}      [options.body]    Payload, JSON-encoded when present
  * @param {object} [options.headers] Extra headers
  * @returns {Promise<*>} Decoded body, or null for 204
  * @throws {ApiError} When the response status is not 2xx
  */
 export async function request(path, { method = 'GET', body = null, headers = {} } = {}) {
+    const { apiPrefix = DEFAULT_PREFIX, apiKey = '' } = config();
     const requestHeaders = { Accept: 'application/json', ...headers };
+
+    if (apiKey) {
+        requestHeaders.apiKey = apiKey;
+    }
+    const token = getToken();
+    if (token) {
+        requestHeaders.accessToken = token;
+    }
     if (body !== null) {
         requestHeaders['Content-Type'] = 'application/json';
     }
-    if (token) {
-        requestHeaders.Authorization = `Bearer ${token}`;
-    }
 
-    const response = await fetch(BASE + path, {
+    const response = await fetch(apiPrefix + path, {
         method,
         headers: requestHeaders,
         // Sends the session cookie, which the API accepts as a credential.
@@ -99,5 +155,54 @@ export const api = {
     patch:  (path, body, options) => request(path, { ...options, method: 'PATCH', body }),
     delete: (path, options)       => request(path, { ...options, method: 'DELETE' }),
 };
+
+/**
+ * Sign in and remember the issued bearer token.
+ *
+ * @param {string} username
+ * @param {string} password
+ * @returns {Promise<object>} The authenticated user
+ */
+export async function login(username, password) {
+    const result = await api.post('/account/login', { username, password });
+    if (result && result.access_token) {
+        setToken(result.access_token);
+    }
+    return result ? result.user : null;
+}
+
+/**
+ * Revoke the current token server-side and forget it locally.
+ */
+export async function logout() {
+    try {
+        await api.post('/account/logout', {});
+    } catch {
+        // An expired or already-revoked token still means "signed out" here:
+        // failing to log out is not a state a user can act on.
+    } finally {
+        setToken(null);
+    }
+}
+
+/**
+ * The current user, or null when nobody is signed in.
+ *
+ * A 401 here is the normal "not signed in" answer, not an error worth throwing
+ * at a screen that is only asking who the visitor is.
+ *
+ * @returns {Promise<object|null>}
+ */
+export async function currentUser() {
+    try {
+        const result = await api.get('/me');
+        return result && result.data ? result.data : result;
+    } catch (err) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+            return null;
+        }
+        throw err;
+    }
+}
 
 export default api;

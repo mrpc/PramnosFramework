@@ -409,6 +409,101 @@ class InitSpaScaffoldingTest extends TestCase
     }
 
     /**
+     * The SPA's first screen must call an endpoint that exists.
+     *
+     * It used to probe `/health`, which was never scaffolded — so a brand-new
+     * project greeted its author with "API answered 403". init now generates the
+     * whole vertical slice the front end talks to: a service, a thin controller
+     * over it, and the route. That is also the layering this application style
+     * is named after, demonstrated once.
+     */
+    public function testSpaGetsAWorkingStatusEndpointAcrossAllLayers(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'vanilla']);
+
+        // Assert — service holds the behaviour...
+        $service = $this->read('src/Services/StatusService.php');
+        $this->assertStringContainsString('namespace SpaApp\Services;', $service);
+        $this->assertStringContainsString('function snapshot(', $service);
+
+        // ...the controller is thin and asks the service...
+        $controller = $this->read('src/Api/Controllers/Status.php');
+        $this->assertStringContainsString('use SpaApp\Services\StatusService;', $controller);
+        $this->assertStringContainsString('StatusService())->snapshot()', $controller);
+
+        // ...and the route is registered, publicly.
+        $routes = $this->read('src/Api/routes.php');
+        $this->assertStringContainsString("\$r->get('/status'", $routes);
+        $this->assertStringContainsString('Api\Controllers\Status', $routes);
+
+        // The front end probes exactly that path.
+        $this->assertStringContainsString("api.get('/status')", $this->read('www/assets/js/main.js'));
+    }
+
+    /**
+     * The framework's API layer rejects any request without an `apiKey` header
+     * ("API key is missing", 403). The shell therefore derives this
+     * application's own key — the md5 of the site URL that Api::checkApiKey
+     * accepts — and hands it to the client, so the SPA authenticates as the app
+     * without anything being hard-coded per environment.
+     */
+    public function testShellInjectsTheRuntimeConfigTheClientNeeds(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert — the shell computes the key and publishes the config
+        $shell = $this->read('www/spa.php');
+        $this->assertStringContainsString("md5(str_replace('/api/', '/', \$siteUrl))", $shell);
+        $this->assertStringContainsString('window.__PRAMNOS__', $shell);
+        $this->assertStringContainsString("'auth' => true", $shell, 'the auth feature is on in this project');
+
+        // ...and the client sends it, plus the framework's token header
+        $client = $this->read('frontend/lib/api.js');
+        $this->assertStringContainsString('requestHeaders.apiKey', $client);
+        $this->assertStringContainsString('requestHeaders.accessToken', $client);
+        // No Authorization header is set: the framework's native header is
+        // accessToken (it now also accepts Bearer, but the client speaks the
+        // framework's own contract).
+        $this->assertStringNotContainsString('requestHeaders.Authorization', $client);
+    }
+
+    /**
+     * With the auth feature the SPA ships a working sign-in flow — the same
+     * thing the MVC scaffold provides as server-rendered pages.
+     */
+    public function testAuthFeatureAddsASignInFlow(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert — client verbs...
+        $client = $this->read('frontend/lib/api.js');
+        $this->assertStringContainsString("api.post('/account/login'", $client);
+        $this->assertStringContainsString("api.post('/account/logout'", $client);
+        $this->assertStringContainsString("api.get('/me')", $client);
+
+        // ...and a screen that uses them
+        $app = $this->read('frontend/App.svelte');
+        $this->assertStringContainsString('submitLogin', $app);
+        $this->assertStringContainsString('Sign out', $app);
+    }
+
+    /**
+     * Without the auth feature there is no sign-in UI to show — a login form
+     * posting to endpoints that were never scaffolded would be worse than none.
+     */
+    public function testNoAuthFeatureMeansNoSignInUi(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--features' => '']);
+
+        // Assert
+        $this->assertStringContainsString("'auth' => false", $this->read('www/spa.php'));
+    }
+
+    /**
      * A SPA has no other way to reach its data, so the API layer is scaffolded
      * regardless of what --rest-api says.
      */
@@ -420,6 +515,87 @@ class InitSpaScaffoldingTest extends TestCase
         // Assert
         $this->assertDirectoryExists($this->tmpDir . '/src/Api');
         $this->assertStringContainsString('/api/1.0', $this->read('www/assets/js/lib/api.js'));
+    }
+
+    /**
+     * CLAUDE.md must describe the front end, or an assistant working in the
+     * project will add server-rendered views to a SPA, edit generated build
+     * output, or call the API without the header it requires.
+     */
+    public function testAiGuidelinesDescribeTheFrontEnd(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert
+        $claude = $this->read('CLAUDE.md');
+        $this->assertStringContainsString('Services + API + SPA', $claude, 'the style is stated up front');
+        $this->assertStringContainsString('## Front end (SPA)', $claude);
+        $this->assertStringContainsString('frontend/', $claude, 'where the sources are');
+        $this->assertStringContainsString('BUILD OUTPUT', $claude, 'what must never be edited');
+        $this->assertStringContainsString('./dockernpm run dev', $claude);
+        $this->assertStringContainsString('Do not open the Vite port', $claude);
+        $this->assertStringContainsString('apiKey', $claude, 'the header every request needs');
+        $this->assertStringContainsString('src/Services/', $claude, 'how to add an endpoint');
+
+        // ...and that a CRUD is generated, not hand-written. The command line
+        // must carry the real CLI name: a {{ CLI_NAME }} token inside this
+        // section is substituted before the section itself and would survive.
+        $this->assertStringContainsString('create:crud thing --table=things', $claude);
+        $this->assertStringNotContainsString('{{ CLI_NAME }}', $claude);
+        $this->assertStringContainsString('./spaapp create:crud', $claude);
+    }
+
+    /**
+     * An MVC project gets none of that — a front-end chapter describing files
+     * that do not exist is worse than no chapter.
+     */
+    public function testAiGuidelinesStayMvcOnlyWithoutASpa(): void
+    {
+        // Act
+        $this->runInit();
+
+        // Assert
+        $claude = $this->read('CLAUDE.md');
+        $this->assertStringContainsString('MVC + Models', $claude);
+        $this->assertStringNotContainsString('## Front end (SPA)', $claude);
+    }
+
+    /**
+     * A project also has to explain itself to the person who clones it, not
+     * only to an AI assistant — so a README is written, matching the choices
+     * made during init.
+     */
+    public function testReadmeIsGeneratedAndMatchesTheProject(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert
+        $readme = $this->read('README.md');
+        $this->assertStringContainsString('# SpaApp', $readme);
+        $this->assertStringContainsString('Svelte 5 + Vite + Tailwind/daisyUI', $readme);
+        $this->assertStringContainsString('docker-compose up -d', $readme, 'this project chose Docker');
+        $this->assertStringContainsString('http://localhost:8080', $readme, 'the port it will answer on');
+        $this->assertStringContainsString('./dockernpm run dev', $readme);
+        $this->assertStringContainsString('apiKey', $readme, 'the API contract is not a surprise');
+        $this->assertStringContainsString('CLAUDE.md', $readme, 'points at the deeper conventions');
+    }
+
+    /**
+     * The README follows the build-less stack too: no npm instructions for a
+     * project that has no toolchain.
+     */
+    public function testReadmeMatchesTheBuildlessStack(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'vanilla']);
+
+        // Assert
+        $readme = $this->read('README.md');
+        $this->assertStringContainsString('www/assets/js/', $readme);
+        $this->assertStringContainsString('no build step', $readme);
+        $this->assertStringNotContainsString('./dockernpm', $readme);
     }
 
     /**
@@ -455,6 +631,9 @@ class InitSpaScaffoldingTest extends TestCase
      * The interactive path works too, not just the CLI options: answering the
      * style and stack questions by hand must produce the same scaffold. This is
      * how a developer actually meets the feature.
+     *
+     * Both questions are answered with a **number** — typing "spa" or "vanilla"
+     * is not something anyone should have to spell at a prompt.
      */
     public function testInteractiveAnswersSelectTheStackAsWell(): void
     {
@@ -466,8 +645,8 @@ class InitSpaScaffoldingTest extends TestCase
         $tester->setInputs([
             'Interactive SPA',   // App name
             'InteractiveSpa',    // Namespace
-            'spa',               // Step 1b: application style
-            'vanilla',           // Step 1c: front-end stack
+            '2',                 // Step 1b: application style → spa
+            '3',                 // Step 1c: front-end stack → vanilla (no build)
             'n', 'n', 'n', 'n', 'n', // features
             'n',                 // webhook
             '',                  // UI system (plain-css)
@@ -599,6 +778,38 @@ class InitSpaScaffoldingTest extends TestCase
         $env = $this->read('.env');
         $this->assertStringContainsString('APP_SECRET=keepme', $env);
         $this->assertStringContainsString('UID=', $env);
+    }
+
+    /**
+     * npm must not be run as root anywhere, and existing root-owned artefacts
+     * must be repaired rather than hit.
+     *
+     * The API-docs generator installs node modules too. When it ran as root it
+     * created a root-owned `node_modules`, and every later npm command — the SPA
+     * build, `./dockernpm` — died with `EACCES: permission denied, mkdir
+     * '/var/www/html/node_modules/@esbuild/…'`. So doc.sh runs as the mapped
+     * user, `./dockernpm` hands back anything still owned by root, and init
+     * repairs the tree once after the containers come up.
+     */
+    public function testNpmNeverRunsAsRootAndOwnershipIsRepaired(): void
+    {
+        // Act — API docs and a SPA build stack together: the failing combination
+        $this->runInit([
+            '--app-style' => 'spa',
+            '--spa-stack' => 'svelte',
+            '--api-docs'  => 'y',
+        ]);
+
+        // Assert — the docs generator installs and runs as the mapped user
+        $docSh = $this->read('scripts/doc.sh');
+        $this->assertStringContainsString('-u www-data', $docSh);
+        $this->assertStringContainsString('HOME=/tmp', $docSh, 'npm needs a writable cache home');
+
+        // ...and dockernpm repairs a root-owned tree before touching it
+        $dockernpm = $this->read('dockernpm');
+        $this->assertStringContainsString('-u root', $dockernpm);
+        $this->assertStringContainsString('chown -R www-data:www-data', $dockernpm);
+        $this->assertStringContainsString('node_modules', $dockernpm);
     }
 
     /**

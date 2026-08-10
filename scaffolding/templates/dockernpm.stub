@@ -15,6 +15,16 @@ if ! docker-compose ps "$SERVICE" 2>/dev/null | grep -q "Up"; then
     exit 1
 fi
 
+# Self-heal: anything created before the image mapped www-data to the host user
+# (or by a command that ran as root) is owned by root, and npm then fails with
+# EACCES on its own node_modules. Hand it back before running, as root.
+docker-compose exec -T -u root "$SERVICE" sh -lc \
+    'for d in /var/www/html/node_modules /var/www/html/www/assets/spa; do
+         if [ -e "$d" ] && [ "$(stat -c %U "$d")" != "www-data" ]; then
+             chown -R www-data:www-data "$d"
+         fi
+     done' 2>/dev/null || true
+
 # -u www-data: the image remaps that user to the host user's ids (see .env), so
 # node_modules/ and the build output belong to you rather than to root.
 # HOME must be writable for npm's cache; www-data's home is not.

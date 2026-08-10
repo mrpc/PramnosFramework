@@ -1,10 +1,9 @@
 /**
  * Tests for the {{ appName }} SPA entry point.
  *
- * boot() is exported separately from render() precisely so the API outcome can
- * be asserted without a DOM, and render() can be asserted without a network.
- * Both paths matter: a failed API call must reach the user as visible text, not
- * an empty page.
+ * boot() and render() are exported separately precisely so the API outcome can
+ * be asserted without a DOM and the DOM work without a network. Both matter: a
+ * failed API call must reach the user as visible text, never an empty page.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { boot, render } from '../main.js';
@@ -28,16 +27,16 @@ function stubFetch(body, status = 200) {
 }
 
 describe('boot', () => {
-    it('reports success with the payload when the API answers', async () => {
+    it('returns the payload when the API answers', async () => {
         // Arrange
-        stubFetch({ status: 'ok' });
+        stubFetch({ application: '{{ appName }}', status: 'ok' });
 
         // Act
         const result = await boot();
 
         // Assert
         expect(result.ok).toBe(true);
-        expect(result.text).toContain('ok');
+        expect(result.data.status).toBe('ok');
     });
 
     it('reports the HTTP status when the API fails', async () => {
@@ -50,22 +49,23 @@ describe('boot', () => {
         // Assert — the status is what tells a developer where to look
         expect(result.ok).toBe(false);
         expect(result.text).toContain('503');
+        expect(result.data).toBeNull();
     });
 });
 
 describe('render', () => {
-    it('replaces the placeholder with the boot result', () => {
+    it('replaces the placeholder with the boot result and its payload', () => {
         // Arrange
         const target = document.createElement('div');
         target.textContent = 'Loading…';
 
         // Act
-        render(target, { ok: true, text: 'Connected' });
+        render(target, { ok: true, text: 'Connected', data: { status: 'ok' } });
 
         // Assert
         expect(target.textContent).not.toContain('Loading…');
         expect(target.querySelector('.status-ok')).not.toBeNull();
-        expect(target.textContent).toContain('Connected');
+        expect(target.querySelector('pre').textContent).toContain('"status": "ok"');
     });
 
     it('marks a failure visibly instead of leaving the page blank', () => {
@@ -73,10 +73,11 @@ describe('render', () => {
         const target = document.createElement('div');
 
         // Act
-        render(target, { ok: false, text: 'Could not reach the API.' });
+        render(target, { ok: false, text: 'Could not reach the API.', data: null });
 
         // Assert
         expect(target.querySelector('.status-error')).not.toBeNull();
+        expect(target.querySelector('pre')).toBeNull();
         expect(target.textContent).toContain('Could not reach the API.');
     });
 });

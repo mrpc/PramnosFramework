@@ -1,0 +1,47 @@
+# {{ APP_NAME }}
+
+Built with [PramnosFramework](https://github.com/mrpc/PramnosFramework).
+
+- **Style:** {{ APP_STYLE }}
+- **Namespace:** `{{ NAMESPACE }}`
+- **Database:** {{ DB_TYPE }}
+- **Features:** {{ FEATURES }}
+
+## Getting started
+
+```bash
+{{ START }}
+```
+
+The application then answers at {{ APP_URL }}.
+
+Everything the container writes into the project belongs to your host user — the
+image maps its web user to the ids recorded in `.env`, so nothing here ever needs
+`sudo`.
+
+## Everyday commands
+
+```bash
+./{{ CLI_NAME }} migrate    # run pending migrations
+./{{ CLI_NAME }} db:seed    # run seeders
+./{{ CLI_NAME }} list       # every available command
+./dockerbash                # a shell inside the container
+{{ TEST_COMMAND }}          # the PHP test suite
+```
+
+{{ FRONTEND_SECTION }}
+{{ API_SECTION }}
+## Layout
+
+```
+app/            configuration (app.php, settings.php) and migrations
+src/            application code — Controllers, Services, Models, Views
+tests/          Unit/ and Integration/ suites
+www/            web root
+```
+
+## Working with an AI assistant
+
+`CLAUDE.md` carries the project's conventions — structure, testing rules, the API
+contract and the front-end workflow — so an assistant does not have to guess them.
+Keep it current when those change.

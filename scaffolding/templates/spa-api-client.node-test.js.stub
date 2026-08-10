@@ -1,106 +1,119 @@
 /**
- * Tests for the {{ appName }} API client — build-less variant.
+ * Tests for the {{ appName }} API client.
  *
- * Uses only Node built-ins (node:test + node:assert/strict), so the project
- * stays free of npm dependencies: `./testjs` runs them with `node --test`.
- * The client is the single place where authentication, JSON encoding and error
- * handling live, so these cover the contract every screen depends on.
+ * The client is the single place where the framework's API contract lives, so
+ * these cover exactly that contract: the mandatory `apiKey` header (without it
+ * the API answers 403 "API key is missing"), the framework's `accessToken`
+ * header for a bearer session, cookies for a server-rendered login, JSON
+ * encoding, 204, and errors that keep their HTTP status.
  */
-import { test, describe, afterEach } from 'node:test';
+import { describe, test as it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { api, request, setToken, ApiError } from '../../www/assets/js/lib/api.js';
+import { api, request, setToken, getToken, login, logout, currentUser, ApiError } from '../../www/assets/js/lib/api.js';
 
 const realFetch = globalThis.fetch;
+
+beforeEach(() => {
+    setToken(null);
+});
 
 afterEach(() => {
     setToken(null);
     globalThis.fetch = realFetch;
+    delete globalThis.window;
 });
 
 /**
- * Replace global fetch with a recording stub returning one canned response.
+ * Stub global fetch with one canned response and hand back the spy.
  *
  * @param {*}      body
  * @param {number} status
- * @returns {{calls: Array<[string, object]>}} Recorder for the assertions
  */
 function stubFetch(body, status = 200) {
-    const recorder = { calls: [] };
+    const spy = { mock: { calls: [] } };
     globalThis.fetch = async (url, options) => {
-        recorder.calls.push([url, options]);
+        spy.mock.calls.push([url, options]);
         return {
             ok: status >= 200 && status < 300,
             status,
             json: async () => body,
         };
     };
-    return recorder;
+    return spy;
 }
 
 describe('api client', () => {
-    test('prefixes the path and sends the session cookie', async () => {
+    it('sends the apiKey header the API requires', async () => {
+        // Arrange — the shell injects the application's own key
+        globalThis.window = { __PRAMNOS__: { apiPrefix: '{{ apiPrefix }}', apiKey: 'k3y' } };
+        const spy = stubFetch({ status: 'ok' });
+
+        // Act
+        await api.get('/status');
+
+        // Assert — without this header every call is a 403
+        const [, options] = spy.mock.calls[0];
+        assert.ok(options.headers.apiKey);
+    });
+
+    it('prefixes the path and sends the session cookie', async () => {
         // Arrange
-        const recorder = stubFetch({ status: 'ok' });
+        const spy = stubFetch({ status: 'ok' });
 
         // Act
         await api.get('/status');
 
         // Assert — same-origin credentials are what make cookie auth work
-        const [url, options] = recorder.calls[0];
+        const [url, options] = spy.mock.calls[0];
         assert.equal(url, '{{ apiPrefix }}/status');
         assert.equal(options.credentials, 'same-origin');
-        assert.equal(options.headers.Authorization, undefined);
+        assert.equal(options.headers.accessToken, undefined);
     });
 
-    test('sends a Bearer token once one is set', async () => {
+    it('sends the framework accessToken header, not Authorization', async () => {
         // Arrange
-        const recorder = stubFetch({ status: 'ok' });
+        const spy = stubFetch({ status: 'ok' });
         setToken('t0ken');
 
         // Act
         await api.get('/status');
 
         // Assert
-        assert.equal(recorder.calls[0][1].headers.Authorization, 'Bearer t0ken');
+        const [, options] = spy.mock.calls[0];
+        assert.equal(options.headers.accessToken, 't0ken');
     });
 
-    test('JSON-encodes a body and sets the content type', async () => {
+    it('JSON-encodes a body and sets the content type', async () => {
         // Arrange
-        const recorder = stubFetch({ id: 1 });
+        const spy = stubFetch({ id: 1 });
 
         // Act
         await api.post('/things', { name: 'x' });
 
         // Assert
-        const [, options] = recorder.calls[0];
+        const [, options] = spy.mock.calls[0];
         assert.equal(options.method, 'POST');
         assert.equal(options.headers['Content-Type'], 'application/json');
         assert.deepEqual(JSON.parse(options.body), { name: 'x' });
     });
 
-    test('decodes 204 as null instead of failing to parse an empty body', async () => {
+    it('decodes 204 as null instead of failing to parse an empty body', async () => {
         // Arrange
         stubFetch(null, 204);
 
-        // Act
-        const result = await api.delete('/things/1');
-
-        // Assert
-        assert.equal(result, null);
+        // Act + Assert
+        assert.equal(await api.delete('/things/1'), null);
     });
 
-    test('throws an ApiError carrying the status for a failing request', async () => {
+    it('throws an ApiError carrying the status for a failing request', async () => {
         // Arrange
         stubFetch({ message: 'nope' }, 422);
 
         // Act + Assert — the status must survive, so callers can branch on it
-        await assert.rejects(
-            () => request('/things'),
-            (err) => err instanceof ApiError && err.status === 422
-        );
+        await assert.rejects(() => request('/things'), (err) => err instanceof ApiError && err.status === 422);
     });
 
-    test('still reports the status when the error body is not JSON', async () => {
+    it('still reports the status when the error body is not JSON', async () => {
         // Arrange — a proxy error page: response.json() rejects
         globalThis.fetch = async () => ({
             ok: false,
@@ -109,9 +122,40 @@ describe('api client', () => {
         });
 
         // Act + Assert — the decode failure must not mask the real status
-        await assert.rejects(
-            () => request('/things'),
-            (err) => err instanceof ApiError && err.status === 502
-        );
+        await assert.rejects(() => request('/things'), (err) => err instanceof ApiError && err.status === 502);
+    });
+});
+
+describe('authentication', () => {
+    it('stores the issued token so later calls are authenticated', async () => {
+        // Arrange
+        stubFetch({ status: 'success', access_token: 'issued', user: { username: 'jo' } });
+
+        // Act
+        const user = await login('jo', 'secret');
+
+        // Assert
+        assert.deepEqual(user, { username: 'jo' });
+        assert.equal(getToken(), 'issued');
+    });
+
+    it('forgets the token on logout even if the call fails', async () => {
+        // Arrange — an expired token: the server rejects the logout
+        setToken('stale');
+        stubFetch({ message: 'invalid' }, 401);
+
+        // Act
+        await logout();
+
+        // Assert — the client must stop presenting a token the server refused
+        assert.equal(getToken(), null);
+    });
+
+    it('reports an anonymous visitor as null rather than throwing', async () => {
+        // Arrange
+        stubFetch({ error: 'not_authenticated' }, 401);
+
+        // Act + Assert — "nobody is signed in" is an answer, not an error
+        assert.equal(await currentUser(), null);
     });
 });

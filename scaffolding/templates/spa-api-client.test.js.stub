@@ -1,16 +1,18 @@
 /**
  * Tests for the {{ appName }} API client.
  *
- * The client is the single place where authentication, JSON encoding and error
- * handling live, so these cover the contract every screen depends on: cookies
- * are sent, a Bearer token is used when set, 204 decodes to null, and a failing
- * status becomes an ApiError carrying the status — never a silent undefined.
- *
- * Written for Vitest, which is API-compatible with the describe/it/expect used
- * here; the same file runs under `node --test` in build-less projects.
+ * The client is the single place where the framework's API contract lives, so
+ * these cover exactly that contract: the mandatory `apiKey` header (without it
+ * the API answers 403 "API key is missing"), the framework's `accessToken`
+ * header for a bearer session, cookies for a server-rendered login, JSON
+ * encoding, 204, and errors that keep their HTTP status.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { api, request, setToken, ApiError } from '../lib/api.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { api, request, setToken, getToken, login, logout, currentUser, ApiError } from '../lib/api.js';
+
+beforeEach(() => {
+    setToken(null);
+});
 
 afterEach(() => {
     setToken(null);
@@ -34,6 +36,19 @@ function stubFetch(body, status = 200) {
 }
 
 describe('api client', () => {
+    it('sends the apiKey header the API requires', async () => {
+        // Arrange — the shell injects the application's own key
+        vi.stubGlobal('window', { __PRAMNOS__: { apiPrefix: '{{ apiPrefix }}', apiKey: 'k3y' } });
+        const spy = stubFetch({ status: 'ok' });
+
+        // Act
+        await api.get('/status');
+
+        // Assert — without this header every call is a 403
+        const [, options] = spy.mock.calls[0];
+        expect(options.headers.apiKey).toBeDefined();
+    });
+
     it('prefixes the path and sends the session cookie', async () => {
         // Arrange
         const spy = stubFetch({ status: 'ok' });
@@ -45,10 +60,10 @@ describe('api client', () => {
         const [url, options] = spy.mock.calls[0];
         expect(url).toBe('{{ apiPrefix }}/status');
         expect(options.credentials).toBe('same-origin');
-        expect(options.headers.Authorization).toBeUndefined();
+        expect(options.headers.accessToken).toBeUndefined();
     });
 
-    it('sends a Bearer token once one is set', async () => {
+    it('sends the framework accessToken header, not Authorization', async () => {
         // Arrange
         const spy = stubFetch({ status: 'ok' });
         setToken('t0ken');
@@ -57,7 +72,8 @@ describe('api client', () => {
         await api.get('/status');
 
         // Assert
-        expect(spy.mock.calls[0][1].headers.Authorization).toBe('Bearer t0ken');
+        const [, options] = spy.mock.calls[0];
+        expect(options.headers.accessToken).toBe('t0ken');
     });
 
     it('JSON-encodes a body and sets the content type', async () => {
@@ -87,11 +103,7 @@ describe('api client', () => {
         stubFetch({ message: 'nope' }, 422);
 
         // Act + Assert — the status must survive, so callers can branch on it
-        await expect(request('/things')).rejects.toMatchObject({
-            name: 'ApiError',
-            status: 422,
-        });
-        await expect(request('/things')).rejects.toBeInstanceOf(ApiError);
+        await expect(request('/things')).rejects.toMatchObject({ name: 'ApiError', status: 422 });
     });
 
     it('still reports the status when the error body is not JSON', async () => {
@@ -104,5 +116,39 @@ describe('api client', () => {
 
         // Act + Assert — the decode failure must not mask the real status
         await expect(request('/things')).rejects.toMatchObject({ status: 502 });
+    });
+});
+
+describe('authentication', () => {
+    it('stores the issued token so later calls are authenticated', async () => {
+        // Arrange
+        stubFetch({ status: 'success', access_token: 'issued', user: { username: 'jo' } });
+
+        // Act
+        const user = await login('jo', 'secret');
+
+        // Assert
+        expect(user).toEqual({ username: 'jo' });
+        expect(getToken()).toBe('issued');
+    });
+
+    it('forgets the token on logout even if the call fails', async () => {
+        // Arrange — an expired token: the server rejects the logout
+        setToken('stale');
+        stubFetch({ message: 'invalid' }, 401);
+
+        // Act
+        await logout();
+
+        // Assert — the client must stop presenting a token the server refused
+        expect(getToken()).toBeNull();
+    });
+
+    it('reports an anonymous visitor as null rather than throwing', async () => {
+        // Arrange
+        stubFetch({ error: 'not_authenticated' }, 401);
+
+        // Act + Assert — "nobody is signed in" is an answer, not an error
+        await expect(currentUser()).resolves.toBeNull();
     });
 });

@@ -58,6 +58,8 @@ class Init extends Command
 
     /** True once `npm run build` produced the SPA bundle during init. */
     private bool    $spaBuilt          = false;
+    /** True when the SPA's status service/controller were scaffolded. */
+    private bool    $spaStatusEndpoint = false;
     private bool    $dockerSuccess     = false;
     private bool    $autoloadSuccess   = true;
     private bool    $migrationsSuccess = false;
@@ -284,7 +286,10 @@ class Init extends Command
         $cliName = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $namespace));
 
         $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true, $cacheSystem);
-        $this->scaffoldAppConfig('app/app.php', $appName, $namespace, $enabledFeatures, $uiSystem, $withRestApi);
+        $this->scaffoldAppConfig(
+            'app/app.php', $appName, $namespace, $enabledFeatures, $uiSystem, $withRestApi,
+            $apiPrefix, $appStyle, $spaStack
+        );
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
         $this->writeFile('app/schedule.php', $this->getScheduleTemplate());
         $this->writeFile('www/index.php', $this->getIndexTemplate($namespace));
@@ -351,7 +356,7 @@ class Init extends Command
         if ($appStyle !== 'mvc') {
             $this->scaffoldSpa(
                 $appName, $spaStack, $appStyle, $apiPrefix, $cliName, $spaDevPort, $dockerPort,
-                $enabledFeatures
+                $enabledFeatures, $namespace
             );
         }
 
@@ -385,7 +390,14 @@ class Init extends Command
             }
         }
 
-        $this->scaffoldAiGuidelines($appName, $namespace, $dbType, $dbName, $dbUser, $dbPass, $dockerPort, $cliName, $enabledFeatures);
+        $this->scaffoldAiGuidelines(
+            $appName, $namespace, $dbType, $dbName, $dbUser, $dbPass, $dockerPort, $cliName,
+            $enabledFeatures, $appStyle, $spaStack, $apiPrefix
+        );
+        $this->scaffoldReadme(
+            $appName, $namespace, $cliName, $dbType, $enabledFeatures, $useDocker, $dockerPort,
+            $appStyle, $spaStack, $apiPrefix, $withRestApi
+        );
 
         if (in_array('authserver', $enabledFeatures, true)) {
             $this->generateOAuth2KeyPair($output);
@@ -431,6 +443,17 @@ class Init extends Command
 
             if ($this->dockerSuccess) {
                 $this->waitForDatabase($dbType, $output);
+
+                // Everything below runs as www-data (mapped to the host user).
+                // Anything left over from an earlier run — or from a project
+                // scaffolded before that mapping existed — is still root-owned
+                // and would make composer/npm fail with EACCES on their own
+                // directories. Hand the tree back once, as root.
+                $this->runProcessWithSpinner(
+                    'docker-compose exec -T -u root app chown -R www-data:www-data /var/www/html 2>/dev/null',
+                    'Fixing file ownership',
+                    $output
+                );
 
                 $syncStatus         = $this->runProcessWithSpinner('docker-compose exec -T -u www-data -e COMPOSER_HOME=/tmp/composer app composer update --no-interaction 2>/dev/null',      'Syncing dependencies (in container)',     $output);
                 $syncAutoloadStatus = $this->runProcessWithSpinner('docker-compose exec -T -u www-data -e COMPOSER_HOME=/tmp/composer app composer dump-autoload --no-interaction 2>/dev/null', 'Regenerating autoloader (in container)',  $output);
@@ -706,7 +729,9 @@ class Init extends Command
         array  $features,
         string $scaffoldTheme = '',
         bool   $withApi = false,
-        string $apiPrefix = '/api/1.0'
+        string $apiPrefix = '/api/1.0',
+        string $appStyle = 'mvc',
+        string $spaStack = ''
     ): void {
         $featuresPhp = empty($features)
             ? "    'features' => [],\n"
@@ -715,6 +740,14 @@ class Init extends Command
         $scaffoldLine = $scaffoldTheme !== ''
             ? "    'scaffold_theme' => '$scaffoldTheme',\n"
             : '';
+
+        // How this application is built. The make:* commands read it so a
+        // `create:crud` in a SPA project also produces the API endpoints and the
+        // front-end screen, instead of only server-rendered views.
+        $styleLines = "    'app_style' => '$appStyle',\n";
+        if ($spaStack !== '') {
+            $styleLines .= "    'spa_stack' => '$spaStack',\n";
+        }
 
         // 'api_version' (top-level) is what Api::__construct reads to define the
         // APIVERSION constant — used for version checks and the routes.php group
@@ -764,7 +797,7 @@ class Init extends Command
             ? "        'style-src'  => [\"'unsafe-inline'\"]\n"
             : "        'style-src'  => []\n";
 
-        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$featuresPhp}{$addonsSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
+        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$styleLines}{$featuresPhp}{$addonsSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
         $this->writeFile($path, $content);
     }
 
@@ -788,17 +821,58 @@ class Init extends Command
         }
 
         $output->writeln("\n<comment>Step 1b — Application style</comment>");
-        $question = new ChoiceQuestion(
-            'How is this application built? [mvc]: ',
+
+        // Numbered choices: answering is typing "1", not spelling "hybrid".
+        // Keys are strings so Symfony prints [1]/[2]/[3] rather than starting
+        // at zero, and the answer is mapped back to the internal style name.
+        return $this->askNumberedChoice(
+            $input,
+            $output,
+            $helper,
+            'How is this application built?',
             [
-                'mvc'    => 'MVC + Models      — server-rendered controllers, views and themes',
+                'mvc'    => 'MVC + Models        — server-rendered controllers, views and themes',
                 'spa'    => 'Services + API + SPA — JSON API with a JavaScript front end',
-                'hybrid' => 'Hybrid            — MVC pages plus a SPA mounted under /app',
-            ],
-            'mvc'
+                'hybrid' => 'Hybrid              — MVC pages plus a SPA mounted under /app',
+            ]
         );
-        // The choice keys are what the rest of init switches on.
-        return (string) $helper->ask($input, $output, $question);
+    }
+
+    /**
+     * Ask a choice question the user answers with a number.
+     *
+     * Symfony numbers a plain list from 0 and expects the *value* back, so an
+     * associative array with '1', '2', '3' keys is what produces a familiar
+     * "[1] …" menu. The label the helper returns is mapped back to the caller's
+     * own key, so the rest of init keeps switching on names like `spa`.
+     *
+     * @param  array<string, string> $options Internal key => human label, in order
+     * @return string The internal key of the chosen option
+     */
+    private function askNumberedChoice(
+        InputInterface  $input,
+        OutputInterface $output,
+        mixed           $helper,
+        string          $prompt,
+        array           $options
+    ): string {
+        $keys      = array_keys($options);
+        $numbered  = [];
+        foreach (array_values($options) as $index => $label) {
+            $numbered[(string) ($index + 1)] = $label;
+        }
+
+        $answer = $helper->ask($input, $output, new ChoiceQuestion(
+            "$prompt [1]: ",
+            $numbered,
+            '1'
+        ));
+
+        // The helper returns the label; find which option it belongs to. An
+        // unrecognisable answer falls back to the first (documented default).
+        $number = array_search($answer, $numbered, true);
+
+        return $number === false ? $keys[0] : $keys[(int) $number - 1];
     }
 
     /**
@@ -814,16 +888,18 @@ class Init extends Command
         }
 
         $output->writeln("\n<comment>Step 1c — SPA front-end stack</comment>");
-        $question = new ChoiceQuestion(
-            'Front-end stack [svelte]: ',
+
+        return $this->askNumberedChoice(
+            $input,
+            $output,
+            $helper,
+            'Front-end stack',
             [
                 'svelte'       => 'Svelte 5 + Vite + Tailwind/daisyUI — components, HMR, Vitest',
-                'vanilla-vite' => 'Vanilla JS + Vite                 — no framework, still bundled + Vitest',
-                'vanilla'      => 'Vanilla JS, no build              — zero dependencies, node --test',
-            ],
-            'svelte'
+                'vanilla-vite' => 'Vanilla JS + Vite                  — no framework, still bundled + Vitest',
+                'vanilla'      => 'Vanilla JS, no build               — zero dependencies, node --test',
+            ]
         );
-        return (string) $helper->ask($input, $output, $question);
     }
 
     // ── SPA scaffolding ───────────────────────────────────────────────────────
@@ -901,7 +977,8 @@ class Init extends Command
         string $cliName,
         int    $devPort,
         int    $appPort,
-        array  $features = []
+        array  $features = [],
+        string $namespace = 'App'
     ): void {
         $needsBuild = self::spaNeedsNode($spaStack);
         $shellFile  = $appStyle === 'hybrid' ? 'app.php' : 'spa.php';
@@ -914,16 +991,21 @@ class Init extends Command
             'appName'       => $appName,
             'cliName'       => $cliName,
             'apiPrefix'     => rtrim($apiPrefix, '/'),
-            'probeEndpoint' => '/health',
+            'probeEndpoint' => '/status',
             'shellFile'     => $shellFile,
             'devPort'       => (string) $devPort,
             'appPort'       => (string) $appPort,
+            // Where the pages actually live — printed by the dev server, since
+            // Vite's own banner advertises a URL that has no page behind it.
+            'appUrl'        => 'http://localhost:' . $appPort . ($appStyle === 'hybrid' ? '/app' : '/'),
             'sourceDir'     => $sourceDir,
             'assetBase'     => '/' . self::SPA_BUILD_DIR . '/',
             'outDir'        => 'www/' . self::SPA_BUILD_DIR,
             'manifestPath'  => self::SPA_BUILD_DIR . '/.vite/manifest.json',
             // Written by the dev server while it runs (see vite.config.js).
             'hotPath'       => self::SPA_BUILD_DIR . '/.vite/hot',
+            'hasAuth'       => in_array('auth', $features, true) ? 'true' : 'false',
+            'tokenStorageKey' => strtolower(preg_replace('/[^a-z0-9]+/i', '-', $appName)) . '-token',
             'entryKey'      => $sourceDir . '/main.js',
             'entry'         => $sourceDir . '/main.js',
             // Root-relative on purpose: the shell also answers deep client
@@ -949,9 +1031,20 @@ class Init extends Command
             $tokens['pluginList']    = '';
         }
 
+        // ── The backend half ──────────────────────────────────────────────────
+        // A SPA whose first screen calls an endpoint that does not exist is not
+        // a scaffold, it is a demo of a 403. Generate the service + controller +
+        // route the front end talks to, in the shape the style prescribes.
+        $this->scaffoldSpaStatusEndpoint($namespace, $appName);
+
         // ── Shared pieces ─────────────────────────────────────────────────────
         $this->mkdir($sourceDir . '/lib');
+        $this->mkdir($sourceDir . '/screens');
         $this->writeFile($sourceDir . '/lib/api.js', $this->renderStub('spa-api-client.js', $tokens));
+        // Empty registry: `create:crud` appends its screens here, and the app
+        // imports it unconditionally so a generated screen becomes reachable
+        // without touching App.svelte.
+        $this->writeFile($sourceDir . '/screens/registry.js', $this->renderStub('spa-screens-registry.js', $tokens));
         $this->writeFile('www/' . $shellFile, $this->renderStub('spa-shell.php', $tokens));
 
         if ($needsBuild) {
@@ -962,6 +1055,28 @@ class Init extends Command
 
         $this->scaffoldSpaRouting($appStyle, $shellFile, self::mvcRoutePrefixes($features));
         $this->scaffoldSpaGitignore($needsBuild);
+    }
+
+    /**
+     * Generate the endpoint the SPA's first screen calls.
+     *
+     * A service plus a thin controller — the layering this application style is
+     * named after — so a new project starts with a working example of it rather
+     * than a front end pointing at a route that does not exist. The route
+     * itself is registered by scaffoldRestApi(), which writes routes.php later.
+     */
+    private function scaffoldSpaStatusEndpoint(string $namespace, string $appName): void
+    {
+        $this->mkdir('src/Services');
+        $this->mkdir('src/Api/Controllers');
+
+        $tokens = ['namespace' => $namespace, 'appName' => $appName];
+
+        $this->writeFile('src/Services/StatusService.php', $this->renderStub('spa-status-service.php', $tokens));
+        $this->writeFile('src/Api/Controllers/Status.php', $this->renderStub('spa-status-controller.php', $tokens));
+
+        // Tells scaffoldRestApi() to register the route for it.
+        $this->spaStatusEndpoint = true;
     }
 
     /**
@@ -1902,6 +2017,17 @@ PHP;
     {
         $fqcn = static fn(string $class): string => '\\' . $namespace . '\\Api\\Controllers\\' . $class;
         $lines = [];
+
+        // The SPA's first screen calls this; it is public on purpose, so the
+        // front end can show that the backend is reachable before anyone signs in.
+        if ($this->spaStatusEndpoint) {
+            $status = $fqcn('Status');
+            $lines[] = "        // Public status snapshot — used by the SPA's first screen";
+            $lines[] = "        \$r->get('/status', function () {";
+            $lines[] = "            return (new {$status}(\$this))->display();";
+            $lines[] = "        });";
+            $lines[] = "";
+        }
 
         if (in_array('auth', $features, true)) {
             $this->writeApiWrapper(
@@ -4334,7 +4460,10 @@ PHP;
         string $dbPass,
         int    $dockerPort,
         string $cliName,
-        array  $features
+        array  $features,
+        string $appStyle  = 'mvc',
+        string $spaStack  = '',
+        string $apiPrefix = '/api/1.0'
     ): void {
         // ── CLAUDE.md ─────────────────────────────────────────────────────────
         $featuresText = empty($features)
@@ -4354,6 +4483,11 @@ PHP;
             'DB_TYPE'      => $dbType,
             'DB_TYPE_LABEL'=> $dbTypeLabel,
             'FEATURES_LIST'=> $featuresText,
+            'APP_STYLE_LABEL'   => $this->appStyleLabel($appStyle, $spaStack),
+            // An assistant that does not know the project has a front end will
+            // happily add a server-rendered view to a SPA, or edit built output
+            // under www/assets/spa/. Spell the whole loop out.
+            'FRONTEND_SECTION'  => $this->aiFrontendSection($appStyle, $spaStack, $apiPrefix, $cliName),
         ]));
 
         // ── .mcp.json ─────────────────────────────────────────────────────────
@@ -4363,6 +4497,213 @@ PHP;
         $this->writeFile('.mcp.json', $this->renderStub('mcp.json', [
             'APP_SLUG' => $appSlug,
         ]));
+    }
+
+    /**
+     * One-line description of how this application is built.
+     */
+    private function appStyleLabel(string $appStyle, string $spaStack): string
+    {
+        if ($appStyle === 'mvc') {
+            return 'MVC + Models — server-rendered controllers, views and themes';
+        }
+
+        $stack = match ($spaStack) {
+            'svelte'       => 'Svelte 5 + Vite + Tailwind/daisyUI',
+            'vanilla-vite' => 'vanilla JS + Vite',
+            default        => 'vanilla JS, no build step',
+        };
+
+        return $appStyle === 'hybrid'
+            ? "Hybrid — MVC pages plus a SPA ($stack) mounted under `/app`"
+            : "Services + API + SPA ($stack)";
+    }
+
+    /**
+     * The front-end chapter of CLAUDE.md.
+     *
+     * Empty for an MVC project. For a SPA it has to answer the questions an
+     * assistant would otherwise get wrong: where the sources are, what must
+     * never be edited (build output), how to run the toolchain, which endpoints
+     * exist, and — the non-obvious one — that the API rejects every request
+     * without an `apiKey` header.
+     */
+    private function aiFrontendSection(string $appStyle, string $spaStack, string $apiPrefix, string $cliName): string
+    {
+        if ($appStyle === 'mvc') {
+            return '';
+        }
+
+        $needsBuild = self::spaNeedsNode($spaStack);
+        $shell      = $appStyle === 'hybrid' ? 'www/app.php' : 'www/spa.php';
+        $sourceDir  = $needsBuild ? 'frontend/' : 'www/assets/js/';
+
+        $lines   = [];
+        $lines[] = '## Front end (SPA)';
+        $lines[] = '';
+        $lines[] = 'This project has **no server-rendered views for the SPA part**: the pages are';
+        $lines[] = "rendered by `$shell`, a plain PHP shell (not an MVC view — no theme, no";
+        $lines[] = '`getView()`), which boots a JavaScript client that talks to the JSON API.';
+        $lines[] = '';
+        $lines[] = '```';
+        $lines[] = "$sourceDir" . str_repeat(' ', max(1, 20 - strlen($sourceDir))) . 'front-end sources — edit these';
+        $lines[] = "  lib/api.js         API client: apiKey, tokens, errors";
+        if ($spaStack === 'svelte') {
+            $lines[] = '  App.svelte         root component';
+            $lines[] = '  main.js            entry point (mounts App)';
+        } else {
+            $lines[] = '  main.js            entry point';
+        }
+        $lines[] = "$shell" . str_repeat(' ', max(1, 20 - strlen($shell))) . 'the shell — asset tags + runtime config';
+        if ($needsBuild) {
+            $lines[] = 'www/assets/spa/      BUILD OUTPUT — generated, never edit, never commit';
+        }
+        $lines[] = '```';
+        $lines[] = '';
+
+        if ($needsBuild) {
+            $lines[] = '### Working on it';
+            $lines[] = '';
+            $lines[] = '```bash';
+            $lines[] = './dockernpm install       # dependencies, inside the container';
+            $lines[] = './dockernpm run build     # production build → www/assets/spa/';
+            $lines[] = './dockernpm run dev       # dev server + HMR';
+            $lines[] = './testjs                  # front-end tests (Vitest)';
+            $lines[] = '```';
+            $lines[] = '';
+            $lines[] = '**Do not open the Vite port.** It serves no HTML. Keep browsing the';
+            $lines[] = 'application URL: while the dev server runs it writes';
+            $lines[] = '`www/assets/spa/.vite/hot` and the shell loads modules from it, so HMR';
+            $lines[] = 'happens against the real backend. Stop it and the shell falls back to the';
+            $lines[] = 'built bundle.';
+        } else {
+            $lines[] = '### Working on it';
+            $lines[] = '';
+            $lines[] = 'There is no build step: the modules under `www/assets/js/` are served';
+            $lines[] = 'exactly as written, and the shell stamps their URLs with the file mtime for';
+            $lines[] = 'cache-busting. Run the tests with `./testjs` (`node --test`, no npm';
+            $lines[] = 'dependencies).';
+        }
+
+        $lines[] = '';
+        $lines[] = '### Talking to the API';
+        $lines[] = '';
+        $lines[] = "All calls go through `lib/api.js`, which already handles the contract:";
+        $lines[] = '';
+        $lines[] = '- The API layer **rejects any request without an `apiKey` header** (403,';
+        $lines[] = '  "API key is missing"). The shell derives this application\'s key and passes';
+        $lines[] = '  it in `window.__PRAMNOS__`; the client attaches it. Never hard-code a key.';
+        $lines[] = '- A bearer session uses the framework\'s **`accessToken`** header (a standard';
+        $lines[] = '  `Authorization: Bearer` is also accepted server-side).';
+        $lines[] = '- Cookies are sent, so a user signed in through the server-rendered pages is';
+        $lines[] = '  already authenticated in the SPA.';
+        $lines[] = '- Failures throw `ApiError` with `.status` — branch on that, not on messages.';
+        $lines[] = '';
+        $lines[] = 'Add an endpoint the way `GET ' . $apiPrefix . '/status` is built: behaviour in a';
+        $lines[] = '`src/Services/*Service.php`, a thin `src/Api/Controllers/*.php` over it, and a';
+        $lines[] = 'route in `src/Api/routes.php`.';
+        $lines[] = '';
+        $lines[] = '### Adding a CRUD feature';
+        $lines[] = '';
+        $lines[] = 'Do not hand-write the four files. After the migration:';
+        $lines[] = '';
+        $lines[] = '```bash';
+        $lines[] = "./$cliName create:crud thing --table=things";
+        $lines[] = '```';
+        $lines[] = '';
+        $lines[] = 'It reads `app_style` from app.php and generates what this project needs: the';
+        $lines[] = 'model, the API controller, its routes, and a screen under `screens/` that';
+        $lines[] = 'registers itself in `screens/registry.js` and so appears in the navigation.';
+        $lines[] = 'In a hybrid project it also generates the MVC controller and views — over the';
+        $lines[] = '**same model**: one domain object, two controllers, never two copies of the';
+        $lines[] = 'logic. `--target=mvc|spa|both` overrides the choice.';
+        $lines[] = '';
+
+        return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * Write the project README, unless the project already has one.
+     *
+     * A scaffold that explains itself only to an AI assistant and not to the
+     * person cloning the repository is half a scaffold: this is what tells them
+     * how to start the thing, where it listens and what to run.
+     *
+     * @param list<string> $features
+     */
+    private function scaffoldReadme(
+        string $appName,
+        string $namespace,
+        string $cliName,
+        string $dbType,
+        array  $features,
+        bool   $useDocker,
+        int    $dockerPort,
+        string $appStyle,
+        string $spaStack,
+        string $apiPrefix,
+        bool   $withRestApi
+    ): void {
+        if (file_exists($this->targetBaseDir . '/README.md')) {
+            return; // @codeCoverageIgnore — a fresh project never has one
+        }
+
+        $featureList = $features === []
+            ? '_none selected_'
+            : implode(', ', array_map(static fn(string $f): string => "`$f`", $features));
+
+        $tokens = [
+            'APP_NAME'    => $appName,
+            'NAMESPACE'   => $namespace,
+            'CLI_NAME'    => $cliName,
+            'DB_TYPE'     => $dbType,
+            'FEATURES'    => $featureList,
+            'APP_STYLE'   => $this->appStyleLabel($appStyle, $spaStack),
+            'START'       => $useDocker
+                ? "docker-compose up -d\n./$cliName migrate --scope=framework"
+                : "php -S localhost:8000 -t www\nphp $cliName.php migrate --scope=framework",
+            'APP_URL'     => $useDocker ? "http://localhost:$dockerPort" : 'http://localhost:8000',
+            'API_SECTION' => $withRestApi
+                ? "## API\n\nJSON API under `$apiPrefix`. Every request needs an `apiKey` header — the SPA\n"
+                    . "shell supplies the application's own key automatically. `GET $apiPrefix/status`\n"
+                    . "is public and shows the shape a new endpoint should follow: a service in\n"
+                    . "`src/Services/`, a thin controller in `src/Api/Controllers/`, a route in\n"
+                    . "`src/Api/routes.php`.\n"
+                : '',
+            'FRONTEND_SECTION' => $this->readmeFrontendSection($appStyle, $spaStack),
+            'TEST_COMMAND'     => $useDocker ? './dockertest' : 'vendor/bin/phpunit',
+        ];
+
+        $this->writeFile('README.md', $this->renderStub('README.md', $tokens));
+    }
+
+    /**
+     * The front-end chapter of the README (empty for an MVC project).
+     */
+    private function readmeFrontendSection(string $appStyle, string $spaStack): string
+    {
+        if ($appStyle === 'mvc') {
+            return '';
+        }
+
+        $where = $appStyle === 'hybrid'
+            ? 'The SPA is mounted under `/app`; the rest of the site is server-rendered.'
+            : 'The SPA is served at the site root; the scaffolded server-rendered areas (login, admin) keep their own paths.';
+
+        if (!self::spaNeedsNode($spaStack)) {
+            return "## Front end\n\n$where Sources live in `www/assets/js/` and are served as\n"
+                . "written — there is no build step. Run the tests with `./testjs`.\n";
+        }
+
+        return "## Front end\n\n$where Sources live in `frontend/`; the build output in\n"
+            . "`www/assets/spa/` is generated and should not be edited or committed.\n\n"
+            . "```bash\n"
+            . "./dockernpm install       # dependencies (inside the container)\n"
+            . "./dockernpm run build     # production build\n"
+            . "./dockernpm run dev       # dev server with HMR — keep browsing the app URL,\n"
+            . "                          # not the Vite port, which serves no HTML\n"
+            . "./testjs                  # front-end tests\n"
+            . "```\n";
     }
 
     /**

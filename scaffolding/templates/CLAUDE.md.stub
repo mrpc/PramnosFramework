@@ -6,7 +6,8 @@ to work effectively in this project without asking repetitive orientation questi
 ## Project overview
 
 - **Framework:** [PramnosFramework](https://github.com/mrpc/PramnosFramework) v1.2
-- **Stack:** PHP 8.4, {{ DB_TYPE }}, Docker
+- **Stack:** PHP 8.5, {{ DB_TYPE }}, Docker
+- **Application style:** {{ APP_STYLE_LABEL }}
 - **Namespace:** `{{ NAMESPACE }}`
 - **CLI entry point:** `./{{ CLI_NAME }}` (wraps `bin/{{ CLI_NAME }}.php`)
 
@@ -22,7 +23,7 @@ to work effectively in this project without asking repetitive orientation questi
 ```
 
 The script ensures Docker is running, dependencies are installed, and the correct
-PHP 8.4 environment is used. Two concurrent `./dockertest` runs will corrupt the
+PHP 8.5 environment is used. Two concurrent `./dockertest` runs will corrupt the
 shared test databases — the script enforces a lock and will tell you the PID to
 kill if it gets stuck.
 
@@ -45,7 +46,7 @@ www/            Public webroot
 bin/            CLI entry point
 ```
 
-## Key conventions
+{{ FRONTEND_SECTION }}## Key conventions
 
 ### Controllers
 

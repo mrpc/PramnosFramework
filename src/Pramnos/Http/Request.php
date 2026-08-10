@@ -283,6 +283,44 @@ class Request extends Base
     }
 
     /**
+     * The access token presented with the current request, if any.
+     *
+     * The framework's own header is `accessToken`, but every generic HTTP
+     * client, API console and OpenAPI "Authorize" button sends
+     * `Authorization: Bearer …` instead — and a request carrying only that was
+     * treated as anonymous, which looks like a broken token rather than a
+     * header-name mismatch. The standard header is now honoured as a fallback:
+     *
+     *   1. `accessToken` — unchanged, still wins when present.
+     *   2. `Authorization: Bearer <token>`
+     *   3. `REDIRECT_HTTP_AUTHORIZATION` — the same header, under the name
+     *      Apache gives it when a rewrite swallowed the original.
+     *
+     * @return string|null The token, or null when the request carries none
+     */
+    public static function accessToken(): ?string
+    {
+        $direct = trim((string) ($_SERVER['HTTP_ACCESSTOKEN'] ?? ''));
+        if ($direct !== '') {
+            return $direct;
+        }
+
+        foreach (['HTTP_AUTHORIZATION', 'REDIRECT_HTTP_AUTHORIZATION'] as $header) {
+            $value = trim((string) ($_SERVER[$header] ?? ''));
+            // The scheme is case-insensitive per RFC 7235, and clients do send
+            // a lowercase "bearer".
+            if (stripos($value, 'bearer ') === 0) {
+                $token = trim(substr($value, 7));
+                if ($token !== '') {
+                    return $token;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Get a user request
      * @param  string $varname name of the request
      * @param  mixed  $default Default value, if variable is not set
