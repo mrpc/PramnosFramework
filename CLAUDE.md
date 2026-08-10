@@ -85,6 +85,33 @@ Coverage must be **meaningful**: it has to exercise error and edge paths (invali
 dependency failures, replay/conflict cases, condition mismatches), not only the happy path.
 Do not pad coverage with assertion-free tests. This supersedes the earlier >=90% baseline.
 
+### 12. Raw SQL you touch becomes query-builder code
+
+When you modify a piece of framework code that contains raw SQL, **convert those statements to
+the query builder** as part of the same change — do not leave hand-built SQL behind in code you
+were editing anyway.
+
+```php
+// before
+$sql = $db->prepareQuery('SELECT * FROM usertokens WHERE userid = %d AND status = 1', $userId);
+$result = $db->query($sql);
+
+// after
+$result = $db->queryBuilder()->table('usertokens')
+    ->where('userid', $userId)->where('status', 1)->get();
+```
+
+**Why:** the builder is the only layer that knows the dialect. It resolves `authserver.x` to a
+schema on PostgreSQL and a prefixed table on MySQL, quotes identifiers per driver, and binds
+parameters instead of interpolating them. Hand-written SQL has already produced exactly these
+bugs — a controller querying a table no migration creates, and unqualified names that silently
+match nothing.
+
+Limits, stated honestly: DDL, driver-specific features (TimescaleDB functions, `information_schema`
+introspection, window functions the builder cannot express) and migrations that must emit exact SQL
+stay raw. When a statement cannot be converted, leave a one-line comment saying why, so the next
+reader knows it was considered rather than missed.
+
 ### 10. Keep the documentation site (MkDocs / GitHub Pages) current
 
 The published docs site lives under `docs/` and is built with **MkDocs Material**
