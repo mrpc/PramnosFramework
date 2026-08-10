@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\Auth;
 
+use Pramnos\Database\HypertableRegistry;
 use Pramnos\Database\Migration;
 use Pramnos\Database\DatabaseCapabilities;
 
@@ -60,15 +61,13 @@ class CreateUserActivityLogTable extends Migration
             $table->index(['created_at'], 'idx_user_activity_log_time');
         });
 
+        // The parameters live in HypertableRegistry, which this and
+        // timescale:ensure both read — see that class for why they are not
+        // written out here.
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,
             function () use ($schema) {
-                $schema->createHypertable('authserver.user_activity_log', 'created_at', [
-                    'chunk_time_interval' => '1 day',
-                ]);
-                $schema->enableCompression('authserver.user_activity_log');
-                $schema->addCompressionPolicy('authserver.user_activity_log', '30 days');
-                $schema->addRetentionPolicy('authserver.user_activity_log', '24 months');
+                HypertableRegistry::apply($schema, 'authserver.user_activity_log');
             }
         );
     }

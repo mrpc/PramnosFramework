@@ -100,38 +100,13 @@ class CreateApplicationStatsTable extends Migration
              ON applications.application_stats (country_code, time DESC)"
         );
 
-        // Convert to hypertable on TimescaleDB
+        // Convert to hypertable on TimescaleDB. The parameters live in
+        // HypertableRegistry, which this and timescale:ensure both read — see
+        // that class for why they are not written out here.
         if ($caps->supports(DatabaseCapabilities::TIMESCALEDB)) {
-            $this->DB()->query(
-                "SELECT create_hypertable(
-                    'applications.application_stats', 'time',
-                    chunk_time_interval => INTERVAL '14 days',
-                    if_not_exists => TRUE
-                )"
-            );
-
-            $this->DB()->query("
-                ALTER TABLE applications.application_stats
-                SET (
-                    timescaledb.compress,
-                    timescaledb.compress_orderby = 'time DESC',
-                    timescaledb.compress_segmentby = 'appid'
-                )
-            ");
-
-            $this->DB()->query(
-                "SELECT add_compression_policy(
-                    'applications.application_stats',
-                    INTERVAL '60 days',
-                    if_not_exists => TRUE
-                )"
-            );
-            $this->DB()->query(
-                "SELECT add_retention_policy(
-                    'applications.application_stats',
-                    INTERVAL '3 years',
-                    if_not_exists => TRUE
-                )"
+            \Pramnos\Database\HypertableRegistry::apply(
+                $this->DB()->schema(),
+                'applications.application_stats'
             );
         }
     }

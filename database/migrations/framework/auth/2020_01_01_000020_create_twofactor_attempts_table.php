@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\Auth;
 
+use Pramnos\Database\HypertableRegistry;
 use Pramnos\Database\Migration;
 use Pramnos\Database\DatabaseCapabilities;
 
@@ -66,16 +67,13 @@ class CreateTwofactorAttemptsTable extends Migration
             $table->index(['attempt_time'], 'idx_twofactor_attempts_time');
         });
 
-        // TimescaleDB: convert to hypertable with compression and retention
+        // The parameters live in HypertableRegistry, which this and
+        // timescale:ensure both read — see that class for why they are not
+        // written out here.
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,
             function () use ($schema) {
-                $schema->createHypertable('authserver.twofactor_attempts', 'attempt_time', [
-                    'chunk_time_interval' => '7 days',
-                ]);
-                $schema->enableCompression('authserver.twofactor_attempts');
-                $schema->addCompressionPolicy('authserver.twofactor_attempts', '7 days');
-                $schema->addRetentionPolicy('authserver.twofactor_attempts', '2 years');
+                HypertableRegistry::apply($schema, 'authserver.twofactor_attempts');
             }
         );
 

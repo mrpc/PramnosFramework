@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\Auth;
 
+use Pramnos\Database\HypertableRegistry;
 use Pramnos\Database\Migration;
 use Pramnos\Database\DatabaseCapabilities;
 
@@ -72,15 +73,13 @@ class CreateUserConsentsTable extends Migration
             $table->index(['client_id', 'granted_at'], 'idx_user_consents_client_id');
         });
 
+        // The parameters live in HypertableRegistry, which this and
+        // timescale:ensure both read — see that class for why they are not
+        // written out here.
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,
             function () use ($schema) {
-                $schema->createHypertable('authserver.user_consents', 'granted_at', [
-                    'chunk_time_interval' => '1 month',
-                ]);
-                $schema->enableCompression('authserver.user_consents');
-                $schema->addCompressionPolicy('authserver.user_consents', '6 months');
-                $schema->addRetentionPolicy('authserver.user_consents', '7 years');
+                HypertableRegistry::apply($schema, 'authserver.user_consents');
             }
         );
     }

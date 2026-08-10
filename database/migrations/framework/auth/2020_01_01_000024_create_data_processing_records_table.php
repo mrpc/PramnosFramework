@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\Auth;
 
+use Pramnos\Database\HypertableRegistry;
 use Pramnos\Database\Migration;
 use Pramnos\Database\DatabaseCapabilities;
 
@@ -66,15 +67,13 @@ class CreateDataProcessingRecordsTable extends Migration
             $table->index(['operation', 'processed_at'], 'idx_data_processing_operation');
         });
 
+        // The parameters live in HypertableRegistry, which this and
+        // timescale:ensure both read — see that class for why they are not
+        // written out here.
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,
             function () use ($schema) {
-                $schema->createHypertable('authserver.data_processing_records', 'processed_at', [
-                    'chunk_time_interval' => '1 week',
-                ]);
-                $schema->enableCompression('authserver.data_processing_records');
-                $schema->addCompressionPolicy('authserver.data_processing_records', '90 days');
-                $schema->addRetentionPolicy('authserver.data_processing_records', '36 months');
+                HypertableRegistry::apply($schema, 'authserver.data_processing_records');
             }
         );
     }
