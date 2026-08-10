@@ -365,22 +365,46 @@ class MemcachedAdapterTest extends TestCase
         $this->assertFalse($adapter->clear());
     }
 
-    public function testClearWithoutCategoryFlushesAll(): void
+    /**
+     * A prefixed installation clears what it owns, not the whole server.
+     *
+     * flush() empties every co-tenant sharing the server. Memcached cannot
+     * enumerate keys, so the adapter clears the category indexes it maintains
+     * itself; what that misses expires on its own rather than being taken from
+     * somebody else.
+     */
+    public function testClearWithAPrefixDoesNotFlushTheServer(): void
+    {
+        $adapter = $this->makeConnectedAdapter();
+        $mock = \Memcached::$mockInstance;
+        $mock->expects($this->never())->method('flush');
+
+        $this->assertTrue($adapter->clear(''));
+    }
+
+    /**
+     * The global flush stays available by name.
+     */
+    public function testFlushEverythingStillFlushesTheServer(): void
     {
         $adapter = $this->makeConnectedAdapter();
         $mock = \Memcached::$mockInstance;
         $mock->expects($this->once())->method('flush')->willReturn(true);
 
-        $this->assertTrue($adapter->clear(''));
+        $this->assertTrue($adapter->flushEverything());
     }
 
-    public function testClearWithoutCategoryReturnsFalseOnException(): void
+    /**
+     * A failing flush is reported as a failed flush, not thrown — exercised
+     * through flushEverything(), which is now the operation that flushes.
+     */
+    public function testFlushEverythingReturnsFalseOnException(): void
     {
         $adapter = $this->makeConnectedAdapter();
         $mock = \Memcached::$mockInstance;
         $mock->expects($this->once())->method('flush')->willThrowException(new \RuntimeException('Error'));
 
-        $this->assertFalse($adapter->clear(''));
+        $this->assertFalse($adapter->flushEverything());
     }
 
     public function testClearWithCategoryRemovesKeysInIndex(): void

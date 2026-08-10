@@ -195,6 +195,65 @@ class MemcachedAdapter extends AbstractAdapter
     /**
      * @inheritDoc
      */
+
+    /**
+     * Clear every category this adapter has an index for.
+     *
+     * Memcached has no key enumeration, so "clear everything belonging to this
+     * prefix" can only be answered from the indexes the adapter maintains as it
+     * writes. That is not provably complete — a key whose name did not match the
+     * category pattern is not in any index — so what it misses is left to expire
+     * rather than being taken from another installation by a global flush.
+     *
+     * @return bool
+     */
+    protected function clearTrackedCategories()
+    {
+        try {
+            $categories = $this->getCategories();
+            foreach ($categories as $category) {
+                $this->clear($category);
+            }
+
+            \Pramnos\Logs\Logger::log(
+                'Cleared ' . count($categories) . ' cache categories for prefix "'
+                . $this->prefix . '". Memcached cannot enumerate keys, so anything '
+                . 'outside a tracked category expires on its own; use '
+                . 'flushEverything() to empty the server.',
+                'cache'
+            );
+
+            return true;
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+    }
+
+    /**
+     * Flush the whole Memcached server, prefix and co-tenants included.
+     *
+     * @return bool
+     */
+    public function flushEverything()
+    {
+        if (!$this->caching || !$this->connected) {
+            return false;
+        }
+
+        try {
+            \Pramnos\Logs\Logger::log(
+                'Flushing the entire Memcached server, ignoring the key prefix.',
+                'cache'
+            );
+            $this->memcached->flush();
+            return true;
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+    }
+
     public function clear($category = '')
     {
         if (!$this->caching || !$this->connected) {
@@ -202,7 +261,20 @@ class MemcachedAdapter extends AbstractAdapter
         }
         
         if ($category == '') {
+            // flush() empties the whole server, prefix and co-tenants included —
+            // the same isolation break Redis had. Memcached cannot enumerate
+            // keys, so a prefixed installation clears what it knows about: the
+            // category indexes it maintains itself.
+            if ($this->prefix !== '') {
+                return $this->clearTrackedCategories();
+            }
+
             try {
+                \Pramnos\Logs\Logger::log(
+                    'Cache clear with no key prefix: flushing the entire Memcached server. '
+                    . 'Set a prefix to scope it to this installation.',
+                    'cache'
+                );
                 $this->memcached->flush();
                 return true;
             } catch (\Exception $ex) {

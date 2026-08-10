@@ -40,6 +40,9 @@ class CacheClearTest extends TestCase
     /** @var string|null Original $_SERVER['PHP_SELF'] value */
     private ?string $originalPhpSelf = null;
 
+    /** @var CacheClear|null The command built by the last makeTester() call. */
+    private ?CacheClear $lastCommand = null;
+
     protected function setUp(): void
     {
         // Symfony's DumpCompletionCommand reads $_SERVER['PHP_SELF'] in configure();
@@ -57,6 +60,55 @@ class CacheClearTest extends TestCase
         } else {
             $_SERVER['PHP_SELF'] = $this->originalPhpSelf;
         }
+    }
+
+
+    /**
+     * `cache:clear` is scoped to this installation, so a global flush has to be
+     * asked for by name.
+     *
+     * The default used to flush the whole backend — which, since `cache:clear`
+     * runs on most deploys, quietly emptied every co-tenant installation's
+     * sessions and caches on every release.
+     */
+    public function testAllOptionFlushesTheEntireBackend(): void
+    {
+        // Arrange
+        $seen = null;
+        $tester = $this->makeTester(function (string $category) use (&$seen): bool {
+            $seen = $category;
+            return true;
+        });
+
+        // Act
+        $exit = $tester->execute(['--all' => true]);
+
+        // Assert — the global seam was used, and the message says so
+        $this->assertSame(0, $exit);
+        $this->assertSame('__ALL__', $seen, 'the global flush seam must be the one called');
+        $this->assertStringContainsString('Entire cache backend flushed', $tester->getDisplay());
+    }
+
+    /**
+     * --all and --category ask for opposite things; accepting both would make
+     * the outcome depend on argument order.
+     */
+    public function testAllAndCategoryAreMutuallyExclusive(): void
+    {
+        // Arrange
+        $called = false;
+        $tester = $this->makeTester(function () use (&$called): bool {
+            $called = true;
+            return true;
+        });
+
+        // Act
+        $exit = $tester->execute(['--all' => true, '--category' => 'news']);
+
+        // Assert — refused before anything was cleared
+        $this->assertSame(1, $exit);
+        $this->assertFalse($called, 'nothing may be cleared when the request is contradictory');
+        $this->assertStringContainsString('mutually exclusive', $tester->getDisplay());
     }
 
     /**
@@ -80,11 +132,21 @@ class CacheClearTest extends TestCase
                 parent::__construct();
             }
 
+            /** @var bool Whether the global flush seam was used. */
+            public bool $flushedEverything = false;
+
             protected function clearCache(string $category): bool
             {
                 return ($this->clearImpl)($category);
             }
+
+            protected function flushEverything(): bool
+            {
+                $this->flushedEverything = true;
+                return ($this->clearImpl)('__ALL__');
+            }
         };
+        $this->lastCommand = $command;
 
         $app = new Application('test', '1.0');
         $app->add($command);
@@ -118,7 +180,7 @@ class CacheClearTest extends TestCase
 
         // Assert — clean exit and the "everything" message
         $this->assertSame(Command::SUCCESS, $exitCode, $output);
-        $this->assertStringContainsString('Cache cleared.', $output);
+        $this->assertStringContainsString('Cache cleared for this installation.', $output);
 
         // Assert — an empty category ('') was passed, i.e. "clear everything"
         $this->assertSame('', $seen, 'Default invocation must request clearing all categories');

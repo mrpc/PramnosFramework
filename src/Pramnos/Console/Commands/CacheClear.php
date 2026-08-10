@@ -27,15 +27,25 @@ class CacheClear extends Command
         $this
             ->setName('cache:clear')
             ->setDescription('Flush the application cache (all categories, or one with --category)')
-            ->addOption('category', null, InputOption::VALUE_OPTIONAL, 'Only clear this cache category (default: everything)', '');
+            ->addOption('category', null, InputOption::VALUE_OPTIONAL, 'Only clear this cache category (default: everything)', '')
+            // Clearing is scoped to this installation's key prefix. Flushing the
+            // whole backend also empties every co-tenant sharing it, so it has
+            // to be asked for by name rather than being what "clear" means.
+            ->addOption('all', null, InputOption::VALUE_NONE, 'Flush the ENTIRE cache backend, including other installations sharing it');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $category = (string) ($input->getOption('category') ?? '');
+        $everything = (bool) $input->getOption('all');
+
+        if ($everything && $category !== '') {
+            $output->writeln('<error>--all and --category are mutually exclusive.</error>');
+            return Command::FAILURE;
+        }
 
         try {
-            $ok = $this->clearCache($category);
+            $ok = $everything ? $this->flushEverything() : $this->clearCache($category);
         } catch (\Throwable $e) {
             $output->writeln('<error>Cache clear failed: ' . $e->getMessage() . '</error>');
             return Command::FAILURE;
@@ -46,8 +56,13 @@ class CacheClear extends Command
             return Command::SUCCESS;
         }
 
+        if ($everything) {
+            $output->writeln('<info>Entire cache backend flushed.</info>');
+            return Command::SUCCESS;
+        }
+
         $output->writeln($category === ''
-            ? '<info>Cache cleared.</info>'
+            ? '<info>Cache cleared for this installation.</info>'
             : "<info>Cache category '{$category}' cleared.</info>");
 
         return Command::SUCCESS;
@@ -66,5 +81,16 @@ class CacheClear extends Command
     protected function clearCache(string $category): bool
     {
         return Cache::getInstance()->clear($category);
+    }
+
+    /**
+     * Flush the whole backend, prefix and co-tenants included.
+     *
+     * Separated for the same reason as clearCache(): overridable in tests
+     * without touching the singleton.
+     */
+    protected function flushEverything(): bool
+    {
+        return Cache::getInstance()->flushEverything();
     }
 }

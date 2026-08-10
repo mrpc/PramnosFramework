@@ -153,6 +153,31 @@ class MemcacheAdapter extends AbstractAdapter
     /**
      * @inheritDoc
      */
+
+    /**
+     * Flush the whole Memcache server, prefix and co-tenants included.
+     *
+     * @return bool
+     */
+    public function flushEverything()
+    {
+        if (!$this->caching || !$this->connected) {
+            return false;
+        }
+
+        try {
+            \Pramnos\Logs\Logger::log(
+                'Flushing the entire Memcache server, ignoring the key prefix.',
+                'cache'
+            );
+            $this->memcache->flush();
+            return true;
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+    }
+
     public function clear($category = '')
     {
         if (!$this->caching || !$this->connected) {
@@ -160,7 +185,27 @@ class MemcacheAdapter extends AbstractAdapter
         }
         
         if ($category == '') {
+            // flush() empties the whole server, prefix and co-tenants included.
+            // The legacy Memcache extension can neither enumerate keys nor track
+            // them here, so a prefixed installation cannot scope this at all —
+            // and quietly destroying someone else's cache is worse than saying
+            // it cannot be done. flushEverything() is the explicit way.
+            if ($this->prefix !== '') {
+                \Pramnos\Logs\Logger::log(
+                    'Refusing to flush the whole Memcache server for prefix "'
+                    . $this->prefix . '": it would clear every other installation '
+                    . 'sharing it, and Memcache cannot delete by prefix. Clear a '
+                    . 'category, or call flushEverything() to empty the server.',
+                    'cache'
+                );
+                return false;
+            }
+
             try {
+                \Pramnos\Logs\Logger::log(
+                    'Cache clear with no key prefix: flushing the entire Memcache server.',
+                    'cache'
+                );
                 $this->memcache->flush();
                 return true;
             } catch (\Exception $ex) {
