@@ -1640,8 +1640,40 @@ abstract class MakeCommandBase extends Command
             return [];
         }
 
-        return array_values(array_diff($columns, ['created', 'updated', 'createdate', 'updatedate']));
+        return array_values(array_diff($columns, self::NON_EDITABLE_COLUMNS));
     }
+
+    /**
+     * Columns a generated screen must never show or offer for editing.
+     *
+     * Two kinds, for two reasons:
+     *
+     *  - **Timestamps** the model maintains: typing over them is meaningless.
+     *  - **Secrets.** A generated CRUD renders every column it is given both as
+     *    a table cell and as a text input. For `users` that would print the
+     *    password hash in an admin list and offer it for editing — and writing
+     *    a typed string into the hash column locks the account out. For
+     *    `applications` it would print the API secret.
+     *
+     * This is a name heuristic, and a heuristic cannot be complete: an
+     * application with a differently-named secret column should exclude it in
+     * the generated screen, which is a file it owns. Erring toward hiding is
+     * the right side to err on — a missing field is visible immediately, a
+     * leaked secret is not.
+     *
+     * @var string[]
+     */
+    protected const NON_EDITABLE_COLUMNS = [
+        // Maintained by the model.
+        'created', 'updated', 'createdate', 'updatedate',
+        // Credentials and secrets.
+        'password', 'passwd', 'pass', 'salt', 'secret',
+        'apikey', 'api_key', 'apisecret', 'api_secret',
+        'token', 'accesstoken', 'access_token',
+        'refreshtoken', 'refresh_token', 'remember_token',
+        'private_key', 'privatekey', 'code_challenge',
+        'twofactor_secret', 'twofactorsecret', 'backup_codes',
+    ];
 
     /**
      * Primary key column of a table, defaulting to the conventional `<table>id`.
