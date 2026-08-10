@@ -125,9 +125,20 @@ so the host needs no toolchain at all:
 ```bash
 ./dockernpm install        # npm inside the container
 ./dockernpm run build      # production build
-./dockernpm run dev        # Vite dev server + HMR, port published by compose
+./dockernpm run dev        # Vite dev server + HMR
 ./testjs                   # front-end tests (Vitest, or node --test)
 ```
+
+### Developing with HMR — keep browsing the app URL
+
+Do **not** open the Vite port: there is no `index.html` there, so it answers 404.
+The page is always served by the application; only the modules come from Vite.
+
+While `npm run dev` runs it writes `www/assets/spa/.vite/hot` with its origin, and
+the shell switches to loading the Vite client and the entry module from the dev
+server. Stop it and the shell silently goes back to the built bundle. So you edit
+a component, keep the same URL open, and get HMR against the real backend — real
+sessions, real cookies, no proxy and no CORS gymnastics in the app itself.
 
 Tailwind and daisyUI are configured from CSS alone (`@import "tailwindcss";`
 `@plugin "daisyui";`) — there is no `tailwind.config.js` to keep in sync.
@@ -145,10 +156,12 @@ dynamic and must not be cached; the assets it references are cached hard and
 busted on change** (exactly what Laravel/Rails/Symfony do with fingerprinted
 assets).
 
-The generated shell (`www/spa.php`, or `www/app.php` in a hybrid project) handles
-**both** busting modes and picks between them at runtime, so the same file is
-correct before and after the first build:
+The generated shell (`www/spa.php`, or `www/app.php` in a hybrid project) picks
+its assets at runtime, so the same file is correct in development, before the
+first build, and in production:
 
+- **A dev server is running** (`.vite/hot` exists) → the Vite client and the
+  entry module are loaded from it, with HMR.
 - **A Vite build wrote a manifest** → the shell reads
   `www/assets/spa/.vite/manifest.json` and emits the content-hashed filenames
   (`main-B7w2Jpx_.js`), plus whatever CSS the entry imports. The hash *is* the

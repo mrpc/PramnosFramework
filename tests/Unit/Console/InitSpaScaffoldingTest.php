@@ -269,6 +269,66 @@ class InitSpaScaffoldingTest extends TestCase
     }
 
     /**
+     * The Vite dev server serves no HTML — there is no index.html, the page
+     * comes from Apache. So opening the Vite port gives a 404, and the actual
+     * workflow is: the dev server writes a "hot" file, and the shell then loads
+     * the Vite client plus the entry module from it while browsing the app URL.
+     */
+    public function testDevServerIsWiredThroughTheShellNotItsOwnPort(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert — the dev server announces itself...
+        $vite = $this->read('vite.config.js');
+        $this->assertStringContainsString('.vite/hot', $vite);
+        $this->assertStringContainsString('pramnosHotFile()', $vite);
+        // ...cross-origin module loads are allowed (page and assets differ)...
+        $this->assertStringContainsString('cors: true', $vite);
+        // ...and no proxy is configured: the page is already served by the
+        // backend, so API calls are same-origin and need no forwarding.
+        $this->assertStringNotContainsString('proxy:', $vite);
+
+        // The shell prefers the dev server over any build output, and asks for
+        // the Vite client under the configured base — the dev server serves
+        // everything, its own client included, beneath it (a bare
+        // /@vite/client is a 404, verified against a running server).
+        $shell = $this->read('www/spa.php');
+        $this->assertStringContainsString('.vite/hot', $shell);
+        $this->assertStringContainsString("'/assets/spa/@vite/client'", $shell);
+
+        // ...and the summary must not send the developer to the Vite port
+        $this->assertStringNotContainsString(
+            'run dev</comment> → <comment>http://localhost',
+            $this->read('www/spa.php')
+        );
+    }
+
+    /**
+     * package.json in a SPA project declares "type": "module", which turns every
+     * .js file into an ES module — including the CommonJS API-docs generator.
+     * It ships as .cjs so `npm run docs:build` does not die on "require is not
+     * defined in ES module scope".
+     */
+    public function testApiDocsGeneratorSurvivesTypeModule(): void
+    {
+        // Act — both features on at once is exactly the combination that broke
+        $this->runInit([
+            '--app-style' => 'spa',
+            '--spa-stack' => 'svelte',
+            '--api-docs'  => 'y',
+        ]);
+
+        // Assert
+        $this->assertFileExists($this->tmpDir . '/scripts/apidoc-to-openapi.cjs');
+        $this->assertFileDoesNotExist($this->tmpDir . '/scripts/apidoc-to-openapi.js');
+
+        $pkg = json_decode($this->read('package.json'), true);
+        $this->assertSame('module', $pkg['type']);
+        $this->assertSame('node scripts/apidoc-to-openapi.cjs', $pkg['scripts']['openapi:generate']);
+    }
+
+    /**
      * A SPA project still ships server-rendered areas (login, admin CRUD, the
      * API). Those paths must keep reaching the front controller — otherwise the
      * shell swallows them and the login page silently becomes the SPA.
@@ -283,6 +343,11 @@ class InitSpaScaffoldingTest extends TestCase
         $this->assertMatchesRegularExpression('/\^\(api\|.*\)\(\/\.\*\)\?\$ index\.php/', $htaccess);
         $this->assertStringContainsString('login', $htaccess, 'the auth feature was enabled');
         $this->assertStringContainsString('spa.php [L]', $htaccess, 'everything else is a client route');
+
+        // The document root is a directory, so the !-d guarded catch-all never
+        // fires for "/" — without an explicit DirectoryIndex the site root
+        // serves the MVC index.php instead of the SPA (seen with a real curl).
+        $this->assertStringContainsString('DirectoryIndex spa.php', $htaccess);
     }
 
     /**
@@ -425,6 +490,134 @@ class InitSpaScaffoldingTest extends TestCase
         $this->assertFileExists($this->tmpDir . '/www/spa.php');
         $this->assertFileExists($this->tmpDir . '/www/assets/js/main.js');
         $this->assertFileDoesNotExist($this->tmpDir . '/frontend');
+    }
+
+    /**
+     * Every generated JavaScript file must actually parse.
+     *
+     * Assertions over substrings cannot see a missing comma between two plugin
+     * entries — a real `npm run build` did, with "Expected ] but found
+     * pramnosHotFile". Node parses the files here so that class of defect fails
+     * in the suite instead of in someone's project.
+     *
+     * @param string $stack
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('spaStackProvider')]
+    public function testGeneratedJavaScriptParses(string $stack): void
+    {
+        // Arrange
+        $node = trim((string) shell_exec('command -v node 2>/dev/null'));
+        if ($node === '') {
+            $this->markTestSkipped('node is not available in this environment');
+        }
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => $stack]);
+
+        // Act + Assert — check every generated .js/.svelte-free module
+        $files = array_merge(
+            glob($this->tmpDir . '/*.js') ?: [],
+            glob($this->tmpDir . '/frontend/*.js') ?: [],
+            glob($this->tmpDir . '/frontend/lib/*.js') ?: [],
+            glob($this->tmpDir . '/www/assets/js/*.js') ?: [],
+            glob($this->tmpDir . '/www/assets/js/lib/*.js') ?: []
+        );
+        $this->assertNotEmpty($files, 'the stack must generate JavaScript');
+
+        foreach ($files as $file) {
+            // node --check parses .mjs as an ES module, which these all are.
+            $asModule = $file . '.mjs';
+            copy($file, $asModule);
+            exec('node --check ' . escapeshellarg($asModule) . ' 2>&1', $out, $status);
+            unlink($asModule);
+            $this->assertSame(
+                0,
+                $status,
+                basename($file) . " does not parse:\n" . implode("\n", $out)
+            );
+            $out = [];
+        }
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function spaStackProvider(): array
+    {
+        return [
+            'svelte'       => ['svelte'],
+            'vanilla-vite' => ['vanilla-vite'],
+            'vanilla'      => ['vanilla'],
+        ];
+    }
+
+    /**
+     * Everything the container writes into the bind mount must belong to the
+     * host user, not to root.
+     *
+     * The image remaps its www-data user to the host user's ids, and the ids
+     * travel through .env because docker-compose interpolates ${UID}/${GID}
+     * from there — a plain shell does not export UID, so relying on the
+     * environment would silently fall back to the 1000 default.
+     */
+    public function testContainerWritesFilesAsTheHostUser(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert — the image accepts and applies the ids
+        $dockerfile = $this->read('Dockerfile');
+        $this->assertStringContainsString('ARG UID=1000', $dockerfile);
+        $this->assertStringContainsString('usermod -o -u $UID', $dockerfile);
+
+        // ...compose passes them as build args...
+        $compose = $this->read('docker-compose.yml');
+        $this->assertStringContainsString('UID: ${UID:-1000}', $compose);
+        $this->assertStringContainsString('GID: ${GID:-1000}', $compose);
+
+        // ...and .env carries this host's actual ids
+        $env = $this->read('.env');
+        $ids = Init::hostUserIds();
+        $this->assertStringContainsString('UID=' . $ids['UID'], $env);
+        $this->assertStringContainsString('GID=' . $ids['GID'], $env);
+
+        // .env is machine-specific and must not be committed
+        $this->assertStringContainsString('/.env', $this->read('.gitignore'));
+    }
+
+    /**
+     * An existing .env must survive: appending the ids may not clobber
+     * application configuration a developer already put there.
+     */
+    public function testExistingEnvIsPreserved(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/.env', "APP_SECRET=keepme\n");
+
+        // Act
+        $this->runInit(['--app-style' => 'mvc']);
+
+        // Assert
+        $env = $this->read('.env');
+        $this->assertStringContainsString('APP_SECRET=keepme', $env);
+        $this->assertStringContainsString('UID=', $env);
+    }
+
+    /**
+     * The generated helper scripts run as the mapped user too — otherwise
+     * `./dockernpm install` recreates the very root-owned node_modules the
+     * image mapping exists to prevent.
+     */
+    public function testHelperScriptsRunAsTheMappedUser(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert
+        $this->assertStringContainsString('-u www-data', $this->read('dockernpm'));
+        $this->assertStringContainsString('-u www-data', $this->read('testjs'));
+        $this->assertStringContainsString('-u www-data', $this->read('dockerbash'));
+        $this->assertStringContainsString('-u www-data', $this->read('dockertest'));
+        // The CLI wrapper too — it runs migrations, which write into var/logs.
+        $this->assertStringContainsString('-u www-data', $this->read('spaapp'));
     }
 
     /**

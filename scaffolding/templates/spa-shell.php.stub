@@ -6,9 +6,12 @@
  * the app-shell HTML and boots the JS client, which talks to the JSON API over
  * fetch(). The API is the contract; document it with `php {{ cliName }}.php api:docs`.
  *
- * Cache discipline: this shell is dynamic and must not be cached, while the
- * assets it references are cached hard and busted on change. Both build modes
- * are handled here:
+ * Three asset modes are handled here, in order:
+ *
+ *   - A **running Vite dev server** writes {{ hotPath }} with its origin. While
+ *     that file exists the shell loads the Vite client and the entry module
+ *     from it, so you develop with HMR against the real backend by browsing
+ *     this page — the Vite port itself serves no HTML.
  *
  *   - A Vite build writes {{ manifestPath }}; each entry carries a
  *     content-hashed filename, which IS the cache-buster. Read it and emit the
@@ -29,8 +32,21 @@ $stamp = static function (string $path) use ($root): string {
 $scripts = [];
 $styles  = [];
 
+// 1. Dev server running? Load everything from it; Vite injects the CSS itself.
+$hotFile = $root . '/{{ hotPath }}';
+if (is_file($hotFile)) {
+    $origin  = rtrim(trim((string) file_get_contents($hotFile)), '/');
+    // Both URLs carry the configured base — the dev server serves everything,
+    // its own client included, underneath it.
+    $scripts = [
+        $origin . '{{ assetBase }}@vite/client',
+        $origin . '{{ assetBase }}{{ entry }}',
+    ];
+}
+
+// 2. A build wrote a manifest? Use its content-hashed filenames.
 $manifestFile = $root . '/{{ manifestPath }}';
-if (is_file($manifestFile)) {
+if ($scripts === [] && is_file($manifestFile)) {
     $manifest = json_decode((string) file_get_contents($manifestFile), true);
     $entry    = is_array($manifest) ? ($manifest['{{ entryKey }}'] ?? null) : null;
     if (is_array($entry) && isset($entry['file'])) {
@@ -41,8 +57,8 @@ if (is_file($manifestFile)) {
     }
 }
 
+// 3. Neither: serve the sources as they are, stamped with their mtime.
 if ($scripts === []) {
-    // No manifest yet: fall back to the unbuilt asset paths.
     $styles  = [$stamp('{{ fallbackCss }}')];
     $scripts = [$stamp('{{ fallbackJs }}')];
 }

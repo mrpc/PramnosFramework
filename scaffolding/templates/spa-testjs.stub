@@ -26,7 +26,9 @@ run_in_container() {
         return 1
     fi
     echo "Running front-end tests in the $SERVICE container..."
-    docker-compose exec -T "$SERVICE" sh -lc "cd /var/www/html && $COMMAND $*"
+    # -u www-data + a writable HOME: the user is mapped to the host user, so any
+    # cache or coverage output the run leaves behind is owned by you.
+    docker-compose exec -T -u www-data -e HOME=/tmp "$SERVICE" sh -lc "cd /var/www/html && $COMMAND $*"
 }
 
 if ! run_in_container "$@"; then

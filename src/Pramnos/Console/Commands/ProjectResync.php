@@ -15,7 +15,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * Some scaffolded files are "framework-owned": the CSP-safe UI hook scripts
  * (scaffolding/assets/js/pf-*.js) and the API-docs tooling
- * (scaffolding/scripts/apidoc-to-openapi.js + scripts/doc.sh). When the framework
+ * (scaffolding/scripts/apidoc-to-openapi.cjs + scripts/doc.sh). When the framework
  * updates those, an existing project keeps its stale copies. This command
  * re-copies them from the installed framework's scaffolding into the project.
  *
@@ -53,7 +53,7 @@ class ProjectResync extends Command
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show what would change without writing any files')
             ->addOption('all', null, InputOption::VALUE_NONE, 'Also copy framework files that are not present in the project yet')
             ->addOption('js', null, InputOption::VALUE_NONE, 'Only sync the pf-*.js UI hook scripts')
-            ->addOption('scripts', null, InputOption::VALUE_NONE, 'Only sync the docs tooling scripts (apidoc-to-openapi.js, doc.sh)');
+            ->addOption('scripts', null, InputOption::VALUE_NONE, 'Only sync the docs tooling scripts (apidoc-to-openapi.cjs, doc.sh)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -98,7 +98,7 @@ class ProjectResync extends Command
         // etc. Only when the docs tooling itself is being synced (its scripts would
         // otherwise reference files that don't exist).
         $syncPkg = $doScripts && (
-            (glob($scaffoldingDir . '/scripts/*.js') ?: []) !== []
+            (glob($scaffoldingDir . '/scripts/*.{js,cjs}', GLOB_BRACE) ?: []) !== []
             || is_file($scaffoldingDir . '/templates/doc.sh.stub')
         );
 
@@ -327,7 +327,7 @@ class ProjectResync extends Command
 
         if ($doScripts) {
             // Raw-copied JS tooling under scaffolding/scripts/.
-            foreach (glob($scaffoldingDir . '/scripts/*.js') ?: [] as $src) {
+            foreach (glob($scaffoldingDir . '/scripts/*.{js,cjs}', GLOB_BRACE) ?: [] as $src) {
                 $files[] = [
                     'content' => (string) file_get_contents($src),
                     'dest'    => 'scripts/' . basename($src),
