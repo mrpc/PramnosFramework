@@ -72,6 +72,21 @@ Three parts, all needed — any one alone leaves a gap:
    (`COMPOSER_HOME=/tmp/composer`, `HOME=/tmp`), because `www-data`'s home is not
    writable and the cache would otherwise fail.
 
+### npm was the last root left
+
+The API-docs generator (`scripts/doc.sh`) also installs node modules, and it still
+ran as root — which created a root-owned `node_modules` that every later npm command
+then crashed on:
+
+```
+npm ERR! Error: EACCES: permission denied, mkdir '/var/www/html/node_modules/@esbuild/aix-ppc64'
+```
+
+`doc.sh` now runs as the mapped user as well. Two repair paths handle whatever is
+already root-owned: `init` chowns the tree once after the containers come up, and
+`./dockernpm` hands back `node_modules` / `www/assets/spa` before running if they
+are not owned by the web user — so the command that used to fail now fixes itself.
+
 ## Existing projects
 
 Add the two lines to your `Dockerfile`, the `args:` block to `docker-compose.yml`
@@ -79,7 +94,7 @@ and a `.env` with your ids (`id -u`, `id -g`), then rebuild:
 
 ```bash
 docker-compose build app && docker-compose up -d
-sudo chown -R "$(id -u):$(id -g)" .   # once, for what is already root-owned
+docker-compose exec -u root app chown -R www-data:www-data /var/www/html
 ```
 
 ## Tests

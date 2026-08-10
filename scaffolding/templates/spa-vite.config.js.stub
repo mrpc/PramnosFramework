@@ -39,7 +39,20 @@ function pramnosHotFile() {
             };
             const clean = () => rmSync(HOT_FILE, { force: true });
 
-            server.httpServer?.once('listening', write);
+            server.httpServer?.once('listening', () => {
+                write();
+                // Vite prints its own URL, which is NOT the one to open: this
+                // server has no index.html and answers 404 there. Say so, right
+                // under the banner, with the URL that does work.
+                // Deferred so it lands *under* Vite's banner, which is printed
+                // from its own listening handler.
+                setTimeout(() => {
+                    server.config.logger.info(
+                        `  \x1b[32m➜\x1b[0m  \x1b[1mOpen the app at:\x1b[0m {{ appUrl }}`
+                        + `\n     (this dev server only serves modules — its own URL has no page)\n`
+                    );
+                }, 100);
+            });
             for (const signal of ['SIGINT', 'SIGTERM', 'exit']) {
                 process.once(signal, clean);
             }

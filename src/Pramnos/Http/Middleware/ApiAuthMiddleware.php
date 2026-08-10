@@ -68,11 +68,14 @@ class ApiAuthMiddleware implements MiddlewareInterface
         }
 
         // --- Bearer / Access Token auth (optional) ---
-        if (!empty($_SERVER['HTTP_ACCESSTOKEN'])
-            && trim($_SERVER['HTTP_ACCESSTOKEN']) !== '') {
+        // Request::accessToken() takes the framework's accessToken header first
+        // and falls back to a standard "Authorization: Bearer …", so a client
+        // that only knows the RFC header authenticates instead of silently
+        // being treated as anonymous.
+        $tkn = Request::accessToken();
+        if ($tkn !== null) {
 
             $user = $this->resolveUser();
-            $tkn  = $_SERVER['HTTP_ACCESSTOKEN'];
 
             // Read RSA public key if the token header indicates RS256
             $decodeKey  = $this->authKey;

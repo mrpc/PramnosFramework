@@ -1,0 +1,30 @@
+<?php
+declare(strict_types=1);
+
+namespace {{ namespace }}\Api\Controllers;
+
+use Pramnos\Http\Response;
+use {{ namespace }}\Services\StatusService;
+
+/**
+ * Status API — the endpoint the SPA calls on its first screen.
+ *
+ * A controller in this style is deliberately thin: it takes the request apart,
+ * asks a service, and shapes the response. All behaviour lives in the service,
+ * which is what makes it testable without HTTP.
+ *
+ * @api {get} /status Status
+ * @apiName getStatus
+ * @apiGroup Status
+ * @apiDescription Public health snapshot of the application.
+ */
+class Status extends \Pramnos\Application\Controller
+{
+    /**
+     * GET /status
+     */
+    public function display(): Response
+    {
+        return Response::json((new StatusService())->snapshot());
+    }
+}

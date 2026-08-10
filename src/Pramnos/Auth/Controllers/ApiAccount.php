@@ -81,8 +81,11 @@ class ApiAccount extends Controller
      */
     public function logout(): mixed
     {
-        $token = trim((string) ($_SERVER['HTTP_ACCESSTOKEN'] ?? ''));
-        if ($token !== '') {
+        // Accepts the framework's accessToken header or a standard
+        // "Authorization: Bearer …" — logging out must work for whichever one
+        // the client used to log in with.
+        $token = \Pramnos\Http\Request::accessToken();
+        if ($token !== null) {
             $this->revokeToken($token);
         }
 

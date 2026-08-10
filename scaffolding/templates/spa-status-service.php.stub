@@ -1,0 +1,51 @@
+<?php
+declare(strict_types=1);
+
+namespace {{ namespace }}\Services;
+
+/**
+ * Application status — the first service of a Services + API + SPA project.
+ *
+ * It exists for two reasons: the SPA needs something real to call on its first
+ * screen, and this is the shape every other service should follow — plain class,
+ * no framework base class, intention-revealing method, all data access inside.
+ * Replace or delete it once the app has services of its own.
+ */
+class StatusService
+{
+    /**
+     * A snapshot of what the backend can tell an anonymous caller.
+     *
+     * Deliberately free of anything sensitive: it is served without
+     * authentication, so no versions of internal components, no paths, no
+     * configuration values.
+     *
+     * @return array<string, mixed>
+     */
+    public function snapshot(): array
+    {
+        return [
+            'application' => '{{ appName }}',
+            'status'      => 'ok',
+            'database'    => $this->databaseIsReachable() ? 'up' : 'down',
+            'time'        => gmdate('c'),
+        ];
+    }
+
+    /**
+     * Can the application reach its database right now?
+     *
+     * Any failure is an answer, not an exception: the endpoint's job is to
+     * report the state, and a status page that itself 500s is useless.
+     */
+    private function databaseIsReachable(): bool
+    {
+        try {
+            $database = \Pramnos\Database\Database::getInstance();
+            $database->query('SELECT 1');
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+}

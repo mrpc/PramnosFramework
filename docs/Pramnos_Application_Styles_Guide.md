@@ -147,6 +147,27 @@ Every stack ships with tests for the API client (cookie auth, Bearer auth, JSON
 encoding, `204`, error statuses) and, for Svelte, component tests for the root
 screen. They are meant to be extended, not deleted.
 
+### Adding a feature: `create:crud`
+
+The generator reads `app_style` from `app.php`, so one command produces the
+halves this project actually needs:
+
+```bash
+./myapp create:crud thing --table=things
+```
+
+| Style | Produces |
+|---|---|
+| `mvc` | model + controller + server-rendered views |
+| `spa` | model + API controller + routes + a front-end screen |
+| `hybrid` | both, over **one** model — a single domain object, two controllers |
+
+The screen lands in `frontend/screens/` (or `www/assets/js/screens/` without a
+build step) and registers itself in `screens/registry.js`, which the application
+reads to build its navigation. Its list uses the model's `getApiList()` pipeline,
+so paging and search are the server's. `--target=mvc|spa|both` overrides the
+choice for one run.
+
 ### The shell is a page, not a view
 
 The shell is deliberately **not** an MVC view: it is not rendered through a theme

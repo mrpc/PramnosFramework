@@ -1,17 +1,37 @@
 /**
  * Entry point of the {{ appName }} SPA (vanilla JavaScript).
  *
- * No framework, no component model — just the API client and DOM. It calls the
- * health endpoint on load so a fresh project immediately shows whether the
- * front end reaches the JSON API; replace `render()` with your own first screen.
+ * No framework, no component model — the API client plus the DOM. It proves the
+ * two things a scaffold should prove on first load: the front end reaches the
+ * JSON API, and (when the auth feature is enabled) signing in works end to end.
+ *
+ * boot() and render() are exported separately so the API outcome can be tested
+ * without a DOM, and the DOM work without a network.
  */
-{{ cssImport }}import { api, ApiError } from './lib/api.js';
+{{ cssImport }}import { api, ApiError, login, logout, currentUser } from './lib/api.js';
+
+const hasAuth = Boolean(globalThis.window?.__PRAMNOS__?.features?.auth);
+
+/**
+ * Probe the API and describe the outcome.
+ *
+ * @returns {Promise<{ok: boolean, text: string, data: *}>}
+ */
+export async function boot() {
+    try {
+        const status = await api.get('{{ probeEndpoint }}');
+        return { ok: true, text: 'Connected to the API.', data: status };
+    } catch (err) {
+        const detail = err instanceof ApiError ? ` (HTTP ${err.status})` : '';
+        return { ok: false, text: `Could not reach the API${detail}.`, data: null };
+    }
+}
 
 /**
  * Render the boot result into the shell's #app element.
  *
  * @param {HTMLElement} target
- * @param {{ok: boolean, text: string}} result
+ * @param {{ok: boolean, text: string, data: *}} result
  */
 export function render(target, result) {
     target.textContent = '';
@@ -24,27 +44,86 @@ export function render(target, result) {
     message.textContent = result.text;
 
     target.append(heading, message);
+
+    if (result.data) {
+        const payload = document.createElement('pre');
+        payload.textContent = JSON.stringify(result.data, null, 2);
+        target.append(payload);
+    }
 }
 
 /**
- * Probe the API and describe the outcome.
+ * Build the sign-in form, and swap it for the user once signed in.
  *
- * Exported separately from the DOM work so it can be unit-tested with a stubbed
- * fetch, without a DOM.
+ * Kept out of render() so a project without the auth feature carries no dead
+ * markup, and so the form can be tested on its own.
  *
- * @returns {Promise<{ok: boolean, text: string}>}
+ * @param {HTMLElement} target
  */
-export async function boot() {
-    try {
-        const status = await api.get('{{ probeEndpoint }}');
-        return { ok: true, text: `Connected to the API: ${JSON.stringify(status)}` };
-    } catch (err) {
-        const detail = err instanceof ApiError ? ` (HTTP ${err.status})` : '';
-        return { ok: false, text: `Could not reach the API${detail}.` };
-    }
+export function renderAuth(target) {
+    const section = document.createElement('section');
+    target.append(section);
+
+    /** Show whoever is signed in, with a way out. */
+    const showUser = (user) => {
+        section.textContent = '';
+        const who = document.createElement('p');
+        who.className   = 'status status-ok';
+        who.textContent = `Signed in as ${user.username ?? user.email}.`;
+
+        const out = document.createElement('button');
+        out.textContent = 'Sign out';
+        out.addEventListener('click', async () => {
+            await logout();
+            showForm();
+        });
+
+        section.append(who, out);
+    };
+
+    /** Show the credentials form. */
+    const showForm = () => {
+        section.textContent = '';
+        const form = document.createElement('form');
+        form.innerHTML = '<h2>Sign in</h2>'
+            + '<p><label>Username <input name="username" autocomplete="username" required></label></p>'
+            + '<p><label>Password <input name="password" type="password" autocomplete="current-password" required></label></p>'
+            + '<p><button type="submit">Sign in</button></p>';
+
+        const problem = document.createElement('p');
+        problem.className = 'status status-error';
+        problem.hidden    = true;
+        form.append(problem);
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            problem.hidden = true;
+            try {
+                const user = await login(form.username.value, form.password.value);
+                showUser(user);
+            } catch (err) {
+                problem.hidden = false;
+                problem.textContent = err instanceof ApiError && err.status === 401
+                    ? 'Wrong username or password.'
+                    : 'Could not sign in.';
+            }
+        });
+
+        section.append(form);
+    };
+
+    // Someone signed in through the server-rendered pages is already
+    // authenticated here: the API accepts the session cookie.
+    currentUser().then((user) => (user ? showUser(user) : showForm())).catch(showForm);
 }
 
 // Guarded so importing this module in a test does not touch the DOM.
 if (typeof document !== 'undefined' && document.getElementById('app')) {
-    boot().then((result) => render(document.getElementById('app'), result));
+    const target = document.getElementById('app');
+    boot().then((result) => {
+        render(target, result);
+        if (hasAuth) {
+            renderAuth(target);
+        }
+    });
 }
