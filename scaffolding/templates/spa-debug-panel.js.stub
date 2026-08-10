@@ -1,0 +1,114 @@
+/**
+ * Debug panel for the {{ appName }} SPA.
+ *
+ * The framework's HTML toolbar is injected before `</body>`, which a JSON
+ * response does not have — so a SPA had no debug information for the requests
+ * that actually do the work. In development the API attaches a `_debug` key to
+ * every response; this renders the last few of them in a corner of the screen.
+ *
+ * Inert in production: nothing is attached to the responses, so `record()` never
+ * has anything to show and the panel never appears.
+ */
+
+/** How many requests are kept. Enough to see a pattern, not enough to hoard. */
+const HISTORY = 20;
+
+const entries = [];
+let panel   = null;
+let list    = null;
+let open    = false;
+
+/**
+ * Note one API response.
+ *
+ * Called by the API client for every request, with whatever `_debug` the server
+ * attached (or null). A call with no debug data is ignored rather than shown as
+ * an empty row — that is the normal production case.
+ *
+ * @param {string} method
+ * @param {string} path
+ * @param {number} status
+ * @param {object|null} debug
+ */
+export function record(method, path, status, debug) {
+    if (!debug) {
+        return;
+    }
+
+    entries.unshift({ method, path, status, debug, at: new Date() });
+    entries.length = Math.min(entries.length, HISTORY);
+
+    render();
+}
+
+/**
+ * Create the panel on first use, so a production bundle that never records
+ * anything also never touches the DOM.
+ */
+function ensurePanel() {
+    if (panel) {
+        return;
+    }
+
+    panel = document.createElement('div');
+    panel.style.cssText = 'position:fixed;right:0;bottom:0;z-index:2147483000;'
+        + 'font:12px/1.4 ui-monospace,monospace;color:#eee;background:#1b1b1f;'
+        + 'border-top-left-radius:.5rem;box-shadow:0 0 12px rgba(0,0,0,.4);max-width:min(48rem,95vw)';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.style.cssText = 'all:unset;cursor:pointer;display:block;padding:.4rem .8rem;font:inherit;color:#9ae6b4';
+    toggle.addEventListener('click', () => {
+        open = !open;
+        render();
+    });
+
+    list = document.createElement('div');
+    list.style.cssText = 'max-height:40vh;overflow:auto;padding:0 .8rem .8rem';
+
+    panel.append(toggle, list);
+    panel.__toggle = toggle;
+    document.body.append(panel);
+}
+
+/** Draw the current history. */
+function render() {
+    ensurePanel();
+
+    const last = entries[0];
+    panel.__toggle.textContent = `⚡ ${entries.length} API call${entries.length === 1 ? '' : 's'}`
+        + (last ? ` — last ${last.debug.time}ms, ${queryCount(last.debug)} queries` : '');
+
+    list.hidden = !open;
+    if (!open) {
+        return;
+    }
+
+    list.textContent = '';
+    for (const entry of entries) {
+        const row = document.createElement('details');
+        row.style.cssText = 'border-top:1px solid #333;padding:.35rem 0';
+
+        const summary = document.createElement('summary');
+        summary.style.cssText = 'cursor:pointer;color:' + (entry.status >= 400 ? '#feb2b2' : '#e2e8f0');
+        summary.textContent = `${entry.method} ${entry.path} → ${entry.status}`
+            + ` · ${entry.debug.time}ms · ${queryCount(entry.debug)} queries`;
+
+        const body = document.createElement('pre');
+        body.style.cssText = 'margin:.4rem 0 0;white-space:pre-wrap;color:#cbd5e0';
+        body.textContent = JSON.stringify(entry.debug, null, 2);
+
+        row.append(summary, body);
+        list.append(row);
+    }
+}
+
+/**
+ * Queries in one payload, however the collector labelled them.
+ *
+ * @param {object} debug
+ * @returns {number}
+ */
+function queryCount(debug) {
+    return debug.queries?.count ?? (debug.queries?.queries ?? []).length ?? 0;
+}
