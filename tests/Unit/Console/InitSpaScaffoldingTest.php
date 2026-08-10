@@ -480,7 +480,9 @@ class InitSpaScaffoldingTest extends TestCase
 
         // Assert — client verbs...
         $client = $this->read('frontend/lib/api.js');
-        $this->assertStringContainsString("api.post('/account/login'", $client);
+        // login() calls request() directly so it can be anonymous — sending a
+        // stale token with it is what used to make signing in impossible.
+        $this->assertStringContainsString("request('/account/login'", $client);
         $this->assertStringContainsString("api.post('/account/logout'", $client);
         $this->assertStringContainsString("api.get('/me')", $client);
 
@@ -488,6 +490,7 @@ class InitSpaScaffoldingTest extends TestCase
         $app = $this->read('frontend/App.svelte');
         $this->assertStringContainsString('submitLogin', $app);
         $this->assertStringContainsString('Sign out', $app);
+        $this->assertStringContainsString('Sign in', $app);
     }
 
     /**
@@ -606,6 +609,194 @@ class InitSpaScaffoldingTest extends TestCase
         // Assert
         $this->assertFileDoesNotExist($this->tmpDir . '/frontend/screens/Admin.svelte');
         $this->assertStringNotContainsString("name: 'admin'", $this->read('frontend/screens/registry.js'));
+    }
+
+    /**
+     * Signing in must work even with a stale token in storage.
+     *
+     * The API validates the access token before routing, so a token signed with
+     * a key the application no longer has — every re-deploy produces one —
+     * failed **every** request with 403 InvalidAccessToken, including the login
+     * that would have replaced it. The application was wedged until someone
+     * cleared their browser storage. Login is therefore explicitly anonymous,
+     * and a rejected token is dropped rather than presented again.
+     */
+    public function testLoginIsAnonymousAndABadTokenIsDiscarded(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert
+        $client = $this->read('frontend/lib/api.js');
+        $this->assertStringContainsString('anonymous: true', $client, 'login must send no token');
+        $this->assertStringContainsString("const token = anonymous ? null : getToken();", $client);
+        $this->assertStringContainsString("payload.error === 'InvalidAccessToken'", $client);
+        $this->assertStringContainsString('setToken(null)', $client, 'a rejected token must be dropped');
+    }
+
+    /**
+     * Every screen has a real URL, and access decides where you land.
+     *
+     * Without routing the back button leaves the application and no page can be
+     * linked to. And an anonymous visitor clicking a protected screen must be
+     * sent to sign in — telling them they lack permission when they simply have
+     * not signed in is a dead end.
+     */
+    public function testScreensHaveUrlsAndUnauthenticatedVisitorsAreSentToSignIn(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert — a router with real history entries
+        $router = $this->read('frontend/lib/router.js');
+        $this->assertStringContainsString('window.history', $router);
+        $this->assertStringContainsString('popstate', $router, 'the back button must work');
+        // Modified clicks stay with the browser
+        $this->assertStringContainsString('event.metaKey', $router);
+
+        // ...and the sign-in path does not shadow the server-rendered /login
+        $this->assertStringContainsString("'signin'", $router);
+
+        $app = $this->read('frontend/App.svelte');
+        $this->assertStringContainsString("router.go('signin', true)", $app, 'anonymous → sign in');
+        $this->assertStringContainsString("router.go('home', true)", $app);
+        $this->assertStringContainsString('href={pathFor(', $app, 'navigation uses real links');
+    }
+
+    /**
+     * The daisyUI palette is derived from the project's theme at build time.
+     *
+     * daisyUI reads its colours from CSS custom properties, and so does the
+     * scaffolded theme, so they are mapped across rather than chosen twice by
+     * hand. It happens in a build step, not in the shell: a per-request
+     * derivation would put work on every page load and need an inline <style>
+     * that a CSP has to be taught about, to save nothing.
+     */
+    public function testThemePaletteIsGeneratedByABuildStep(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--ui-system' => 'plain-css']);
+
+        // Assert — the generator exists and reads the theme the browser loads
+        $script = $this->read('scripts/build-theme.mjs');
+        $this->assertStringContainsString('www/assets/css/style.css', $script);
+        $this->assertStringContainsString('frontend/theme.css', $script);
+        $this->assertStringContainsString('--color-primary', $script);
+        $this->assertStringContainsString(':root:root', $script, 'must beat daisyUI on specificity');
+
+        // ...npm runs it before every build and every dev-server start...
+        $pkg = json_decode($this->read('package.json'), true);
+        $this->assertSame('node scripts/build-theme.mjs', $pkg['scripts']['prebuild']);
+        $this->assertSame('node scripts/build-theme.mjs', $pkg['scripts']['predev']);
+
+        // ...and the stylesheet imports the file it writes, which exists from
+        // the start so the very first build cannot fail on a missing import.
+        $this->assertStringContainsString('@import "./theme.css"', $this->read('frontend/app.css'));
+        $this->assertFileExists($this->tmpDir . '/frontend/theme.css');
+    }
+
+    /**
+     * Running the generator produces the theme's own colours — asserted by
+     * executing it, so the test cannot drift from the implementation.
+     */
+    public function testGeneratorMapsTheThemeColours(): void
+    {
+        // Arrange
+        $node = trim((string) shell_exec('command -v node 2>/dev/null'));
+        if ($node === '') {
+            $this->markTestSkipped('node is not available in this environment');
+        }
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--ui-system' => 'plain-css']);
+
+        // Act — run it exactly as `npm run build` would
+        exec(
+            'cd ' . escapeshellarg($this->tmpDir) . ' && node scripts/build-theme.mjs 2>&1',
+            $output,
+            $status
+        );
+
+        // Assert
+        $this->assertSame(0, $status, implode("\n", $output));
+        $theme = $this->read('frontend/theme.css');
+        $this->assertStringContainsString('--color-primary: #2563eb', $theme, "the theme's --primary-color");
+        $this->assertStringContainsString('--color-base-content: #1e293b', $theme, "its --text-main");
+        $this->assertStringContainsString('--color-neutral: #64748b', $theme, "its --text-muted");
+        $this->assertStringContainsString('GENERATED', $theme, 'and it says not to edit it');
+    }
+
+    /**
+     * A changed theme colour reaches the SPA on the next build — the whole
+     * point of deriving rather than copying.
+     */
+    public function testAThemeColourChangePropagatesOnTheNextBuild(): void
+    {
+        // Arrange
+        $node = trim((string) shell_exec('command -v node 2>/dev/null'));
+        if ($node === '') {
+            $this->markTestSkipped('node is not available in this environment');
+        }
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--ui-system' => 'plain-css']);
+
+        $style = $this->tmpDir . '/www/assets/css/style.css';
+        file_put_contents($style, str_replace(
+            '--primary-color: #2563eb',
+            '--primary-color: #dc2626',
+            (string) file_get_contents($style)
+        ));
+
+        // Act
+        exec('cd ' . escapeshellarg($this->tmpDir) . ' && node scripts/build-theme.mjs 2>&1', $out, $status);
+
+        // Assert
+        $this->assertSame(0, $status, implode("\n", $out));
+        $this->assertStringContainsString('--color-primary: #dc2626', $this->read('frontend/theme.css'));
+    }
+
+    /**
+     * A theme that declares no custom properties falls back to the colour its
+     * own framework paints with — not daisyUI's default, which would match
+     * nothing on the server-rendered side — and the generated file says so.
+     */
+    public function testPaletteFallsBackToTheUiFrameworkColour(): void
+    {
+        // Arrange
+        $node = trim((string) shell_exec('command -v node 2>/dev/null'));
+        if ($node === '') {
+            $this->markTestSkipped('node is not available in this environment');
+        }
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--ui-system' => 'bootstrap']);
+
+        // Act
+        exec('cd ' . escapeshellarg($this->tmpDir) . ' && node scripts/build-theme.mjs 2>&1', $out, $status);
+
+        // Assert — Bootstrap's own primary, with the reason stated
+        $this->assertSame(0, $status, implode("\n", $out));
+        $theme = $this->read('frontend/theme.css');
+        $this->assertStringContainsString('--color-primary: #0d6efd', $theme);
+        $this->assertStringContainsString('framework palette', $theme);
+    }
+
+    /**
+     * The SPA shell mirrors the server-rendered theme, so the two halves of a
+     * hybrid project do not look like two different products.
+     */
+    public function testSpaLooksLikeTheRestOfTheApplication(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'hybrid', '--spa-stack' => 'svelte']);
+
+        // Assert — header with the application name, navigation, footer
+        $app = $this->read('frontend/App.svelte');
+        $this->assertStringContainsString('<header', $app);
+        $this->assertStringContainsString('<nav', $app);
+        $this->assertStringContainsString('<footer', $app);
+        $this->assertStringContainsString('All rights reserved', $app, 'same footer line as the theme');
+
+        // ...and the MVC front page points at the SPA, which is otherwise easy
+        // to forget behind it in a hybrid project
+        $home = $this->read('src/Views/home/home.html.php');
+        $this->assertStringContainsString('Single-page application', $home);
+        $this->assertStringContainsString('/app', $home);
     }
 
     /**

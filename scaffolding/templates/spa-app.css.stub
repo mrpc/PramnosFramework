@@ -7,6 +7,11 @@
  * files to scan for class names (Svelte components included).
  */
 @import "tailwindcss";
+/* The palette, generated from this project's server-rendered theme so both
+   halves of the application share one set of colours. CSS requires @import
+   before other rules, so the file wins on specificity rather than order — see
+   the note in theme.css. */
+@import "./theme.css";
 @plugin "daisyui";
 
 @source "./**/*.{svelte,js}";

@@ -103,17 +103,23 @@ export function setToken(value) {
  * @param {string} [options.method]  HTTP method (default GET)
  * @param {*}      [options.body]    Payload, JSON-encoded when present
  * @param {object} [options.headers] Extra headers
+ * @param {boolean} [options.anonymous] Send no access token (for signing in)
  * @returns {Promise<*>} Decoded body, or null for 204
  * @throws {ApiError} When the response status is not 2xx
  */
-export async function request(path, { method = 'GET', body = null, headers = {} } = {}) {
+export async function request(path, { method = 'GET', body = null, headers = {}, anonymous = false } = {}) {
     const { apiPrefix = DEFAULT_PREFIX, apiKey = '' } = config();
     const requestHeaders = { Accept: 'application/json', ...headers };
 
     if (apiKey) {
         requestHeaders.apiKey = apiKey;
     }
-    const token = getToken();
+    // A stored token is presented on every call EXCEPT the ones whose whole
+    // purpose is to obtain one. The API validates the token before routing, so
+    // a stale or foreign token (a re-deployed application signs with a new key)
+    // makes every request fail with InvalidAccessToken — including the login
+    // that would replace it. That wedges the application permanently.
+    const token = anonymous ? null : getToken();
     if (token) {
         requestHeaders.accessToken = token;
     }
@@ -147,6 +153,13 @@ export async function request(path, { method = 'GET', body = null, headers = {} 
     recordDebug(method, path, response.status, payload && payload._debug);
 
     if (!response.ok) {
+        // A token the server will not accept is worse than no token: it fails
+        // every later call the same way. Drop it so the next request is clean
+        // and the user can sign in again.
+        if (payload && payload.error === 'InvalidAccessToken') {
+            setToken(null);
+        }
+
         const detail = payload && payload.message ? `: ${payload.message}` : '';
         throw new ApiError(`${method} ${path} failed (${response.status})${detail}`, response.status, payload);
     }
@@ -170,7 +183,13 @@ export const api = {
  * @returns {Promise<object>} The authenticated user
  */
 export async function login(username, password) {
-    const result = await api.post('/account/login', { username, password });
+    // Explicitly anonymous: signing in must work even when a stale token is
+    // still in storage, which is exactly when a user needs it to.
+    const result = await request('/account/login', {
+        method: 'POST',
+        body: { username, password },
+        anonymous: true,
+    });
     if (result && result.access_token) {
         setToken(result.access_token);
     }
