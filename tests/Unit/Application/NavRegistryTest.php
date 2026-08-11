@@ -20,7 +20,7 @@ use Pramnos\Application\NavSection;
  *   1. requireAuth=true  + guest          → hidden
  *   2. minUserType > 0   + low usertype   → hidden
  *   3. feature gate      + missing feature → hidden
- *   4. RBAC              + no PermissionEngine class → fallback to minUserType only
+ *   4. permission set     + no rule for it            → kept (silence is not a deny)
  *   5. Both minUserType and RBAC must pass when set
  */
 #[CoversClass(NavRegistry::class)]
@@ -579,20 +579,19 @@ class NavRegistryTest extends TestCase
         return $user;
     }
 
-    // ── PermissionEngine RBAC path ────────────────────────────────────────────
+    // ── Permission path ───────────────────────────────────────────────────────
 
     /**
-     * When PermissionEngine exists and userHas() returns false, an item with
-     * a permission requirement must be hidden for the logged-in user.
+     * An explicit deny hides the item.
      *
-     * This covers lines 171-173 of NavRegistry::isVisible() — the code path
-     * that runs only when the optional PermissionEngine class is present.
+     * The check used to ask an optional `PermissionEngine` addon that exists
+     * nowhere, so `class_exists()` was always false and every declared
+     * permission was skipped — each item shown to every signed-in user, with a
+     * comment saying so. It asks the framework's own permission store now.
      */
-    public function testPermissionItemHiddenWhenPermissionEngineDenies(): void
+    public function testPermissionItemHiddenWhenDenied(): void
     {
-        // Arrange — configure the stub to deny all permission checks
-        \Pramnos\Auth\PermissionEngine::$allow = false;
-
+        // Arrange
         NavRegistry::register(new NavItem(
             'admin.secret',
             'Secret',
@@ -603,27 +602,23 @@ class NavRegistryTest extends TestCase
             permission: 'admin.secret',
         ));
 
-        $user = $this->makeUser(90);
+        $user = $this->makeUserWithPermissions(90, ['admin.secret' => false]);
 
-        // Act — PermissionEngine::userHas() returns false → item must be hidden
+        // Act
         $nav   = NavRegistry::getForUser($user);
-        $items = $nav[NavSection::Main->value] ?? [];
-        $ids   = array_column($items, 'id');
+        $ids   = array_column($nav[NavSection::Main->value] ?? [], 'id');
 
-        // Assert — item is hidden because RBAC denies it
+        // Assert
         $this->assertNotContains('admin.secret', $ids,
-            'Item with permission must be hidden when PermissionEngine denies it');
+            'an item whose permission is denied must not be shown');
     }
 
     /**
-     * When PermissionEngine exists and userHas() returns true, an item with
-     * a permission requirement must be visible for the logged-in user.
+     * An explicit allow shows it.
      */
-    public function testPermissionItemVisibleWhenPermissionEngineAllows(): void
+    public function testPermissionItemVisibleWhenAllowed(): void
     {
-        // Arrange — configure the stub to allow all permission checks
-        \Pramnos\Auth\PermissionEngine::$allow = true;
-
+        // Arrange
         NavRegistry::register(new NavItem(
             'admin.allowed',
             'Allowed',
@@ -634,15 +629,82 @@ class NavRegistryTest extends TestCase
             permission: 'admin.allowed',
         ));
 
-        $user = $this->makeUser(90);
+        $user = $this->makeUserWithPermissions(90, ['admin.allowed' => true]);
 
-        // Act — PermissionEngine::userHas() returns true → item must be visible
-        $nav   = NavRegistry::getForUser($user);
-        $items = $nav[NavSection::Main->value] ?? [];
-        $ids   = array_column($items, 'id');
+        // Act
+        $nav = NavRegistry::getForUser($user);
+        $ids = array_column($nav[NavSection::Main->value] ?? [], 'id');
 
-        // Assert — item is visible because RBAC allows it
-        $this->assertContains('admin.allowed', $ids,
-            'Item with permission must be visible when PermissionEngine allows it');
+        // Assert
+        $this->assertContains('admin.allowed', $ids);
     }
+
+    /**
+     * No rule at all shows it — silence is not a deny.
+     *
+     * An application that declares permission names but has granted nothing to
+     * anybody would otherwise have an empty menu on first run. Hiding
+     * navigation is not access control either: the action behind the item
+     * enforces its own.
+     */
+    public function testPermissionItemVisibleWhenNobodyHasSaidAnything(): void
+    {
+        // Arrange — a user whose permission scheme has no opinion on this name
+        NavRegistry::register(new NavItem(
+            'reports.view',
+            'Reports',
+            '/reports',
+            NavSection::Main,
+            0,
+            requireAuth: true,
+            permission: 'reports.view',
+        ));
+
+        $user = $this->makeUserWithPermissions(90, []);
+
+        // Act
+        $nav = NavRegistry::getForUser($user);
+        $ids = array_column($nav[NavSection::Main->value] ?? [], 'id');
+
+        // Assert
+        $this->assertContains('reports.view', $ids,
+            'an undeclared permission must not empty the menu');
+    }
+
+    /**
+     * A user object carrying its own scheme, as real applications have.
+     *
+     * @param  int                 $usertype
+     * @param  array<string, bool> $permissions Answers keyed by permission name
+     */
+    private function makeUserWithPermissions(int $usertype, array $permissions): \Pramnos\User\User
+    {
+        $_SESSION['logged'] = true;
+        $_SESSION['uid']    = 42;
+
+        // Extends User because getForUser() is typed `?User` — a bare anonymous
+        // class does not satisfy it, and that type is part of the contract.
+        return new class ($usertype, $permissions) extends \Pramnos\User\User {
+            /**
+             * @param array<string, bool> $permissions
+             */
+            public function __construct(int $usertype, private array $permissions)
+            {
+                parent::__construct();
+                $this->userid   = 42;
+                $this->usertype = $usertype;
+            }
+
+            /**
+             * The shape a real application's User exposes: a named permission,
+             * answered true or false. A name it has never heard of is "true" —
+             * the same "no opinion" the store gives.
+             */
+            public function hasPermission(string $name): bool
+            {
+                return $this->permissions[$name] ?? true;
+            }
+        };
+    }
+
 }

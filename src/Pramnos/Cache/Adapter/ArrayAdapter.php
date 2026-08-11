@@ -114,11 +114,25 @@ class ArrayAdapter extends AbstractAdapter
             return true;
         }
 
+        // Match the category as a whole segment, not as a substring.
+        //
+        // The Cache layer builds keys as `<prefix_><category>_<id>…`, so
+        // clearing `user` with a plain substring search also removed
+        // `users_456`, `user_profiles_9` and anything else whose name merely
+        // contained the word. Clearing one category quietly emptied its
+        // neighbours.
+        $segment = preg_replace(
+            array('/\s+/', '/[^\w\-]/'),
+            array('_', ''),
+            $category
+        ) . '_';
+
         foreach (array_keys($this->store) as $key) {
-            if (str_contains($key, $category)) {
+            if (str_starts_with($key, $segment) || str_contains($key, '_' . $segment)) {
                 unset($this->store[$key]);
             }
         }
+
         return true;
     }
 

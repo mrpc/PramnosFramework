@@ -257,9 +257,28 @@ class MigrationRunner
         $ran    = [];
         $failed = [];
 
-        // Activate maintenance mode for the batch duration so that concurrent
-        // HTTP requests cannot trigger a second migration run. Skip if
-        // maintenance was already active (we must not deactivate it on exit).
+        // Only one process may run a batch. The maintenance flag below cannot
+        // provide that: `!file_exists()` then `startMaintenance()` is two steps,
+        // and two requests arriving together both see no flag and both proceed.
+        // Since runAutoMigrations() fires on ordinary HTTP requests, "two
+        // requests arriving together" is simply what a busy site does after a
+        // deploy.
+        //
+        // Creating a file with O_CREAT|O_EXCL is one step, and exactly one
+        // process wins it on any filesystem — which is why WorkerLock already
+        // exists and does that. It also takes over a lock left behind by a
+        // process that died mid-batch, instead of blocking for ever.
+        $lock = $this->batchLock();
+        if ($lock !== null && !$lock->acquire()) {
+            if ($onProgress !== null) {
+                $onProgress('skipped', '', 'another process is already running migrations');
+            }
+
+            return ['ran' => [], 'failed' => []];
+        }
+
+        // Maintenance mode still goes up, for the different job of telling
+        // arriving requests that the database is in flux.
         $maintenanceFlag      = $this->maintenanceFlagPath();
         $weStartedMaintenance = false;
         if ($this->app !== null && $maintenanceFlag !== null && !file_exists($maintenanceFlag)) {
@@ -315,6 +334,7 @@ class MigrationRunner
             if ($weStartedMaintenance) {
                 $this->app->stopMaintenance();
             }
+            $lock?->release('finished');
         }
 
         return ['ran' => $ran, 'failed' => $failed];
@@ -857,6 +877,28 @@ class MigrationRunner
                 $slug
             )
         );
+    }
+
+    /**
+     * The lock that keeps two processes from running a batch at once.
+     *
+     * Named after the history table, so an application running more than one
+     * migration set — its own and the framework's — does not have them block
+     * each other.
+     *
+     * Returns null when there is nowhere to put a lock file. That is not a
+     * reason to refuse to migrate: a single-process CLI run, which is how most
+     * migrations happen, needs no lock at all.
+     *
+     * @return \Pramnos\Console\WorkerLock|null
+     */
+    protected function batchLock()
+    {
+        try {
+            return new \Pramnos\Console\WorkerLock('migrations-' . $this->historyTable);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

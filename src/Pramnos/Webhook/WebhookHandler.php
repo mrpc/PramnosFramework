@@ -376,10 +376,30 @@ class WebhookHandler
         if ($this->logChannel === '') {
             return;
         }
+
         try {
-            \Pramnos\Logs\Logs::getInstance()->write($message, $level, $this->logChannel);
-        } catch (\Throwable) {
-            // Logging is best-effort — never break the webhook response
+            // `Pramnos\Logs\Logger`, not `Logs` — a class that exists nowhere in
+            // the framework. The Error it raised was swallowed by the catch
+            // below, so the record of *which commands this webhook ran on the
+            // server* was never written, on any installation, silently.
+            match (strtolower($level)) {
+                'emergency' => \Pramnos\Logs\Logger::emergency($message, [], $this->logChannel),
+                'alert'     => \Pramnos\Logs\Logger::alert($message, [], $this->logChannel),
+                'critical'  => \Pramnos\Logs\Logger::critical($message, [], $this->logChannel),
+                'error'     => \Pramnos\Logs\Logger::error($message, [], $this->logChannel),
+                'warning'   => \Pramnos\Logs\Logger::warning($message, [], $this->logChannel),
+                'notice'    => \Pramnos\Logs\Logger::notice($message, [], $this->logChannel),
+                'debug'     => \Pramnos\Logs\Logger::debug($message, [], $this->logChannel),
+                default     => \Pramnos\Logs\Logger::info($message, [], $this->logChannel),
+            };
+        } catch (\Throwable $ex) {
+            // Best effort means the webhook response survives a logging
+            // failure — not that nobody ever finds out. This is a deploy
+            // audit trail; losing it quietly is how the last one was lost.
+            error_log(
+                'Webhook logging failed (' . $this->logChannel . '): '
+                . $ex->getMessage()
+            );
         }
     }
 

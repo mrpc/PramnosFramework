@@ -108,8 +108,8 @@ class NavRegistry
      *   0. guestOnly=true    AND user is logged in          → removed  (e.g. Login link)
      *   1. requireAuth=true  AND no user logged in          → removed
      *   2. minUserType > 0   AND user->usertype < min       → removed
-     *   3. permission set    AND RBAC active                → PermissionEngine check
-     *   4. permission set    AND RBAC not active            → permission check skipped (fallback to minUserType)
+     *   3. permission set    AND explicitly denied          → removed
+     *   4. permission set    AND no rule for it              → kept (silence is not a deny)
      *   5. feature set       AND feature not in $features   → removed
      *
      * Within each section items are sorted ascending by position.
@@ -166,14 +166,19 @@ class NavRegistry
             }
         }
 
-        // Rule 3 & 4 — RBAC permission check (only when RBAC is available)
+        // Rule 3 & 4 — permission check
+        //
+        // This used to ask an optional `Pramnos\Auth\PermissionEngine` addon and,
+        // finding it absent, skip the check — as the comment said out loud. The
+        // addon exists nowhere, so every declared permission was skipped on every
+        // installation and each item was shown to every signed-in user. That was
+        // written before the framework had a permission system; it has one now,
+        // and it ships with the `auth` feature, so every installation with users
+        // has it.
         if ($item->permission !== null && $isLoggedIn) {
-            if (class_exists(\Pramnos\Auth\PermissionEngine::class)) {
-                if (!\Pramnos\Auth\PermissionEngine::userHas($user, $item->permission)) {
-                    return false;
-                }
+            if (!static::userHasPermission($user, $item->permission)) {
+                return false;
             }
-            // If PermissionEngine does not exist, fallback: permission check is skipped
         }
 
         // Rule 5 — feature gate
@@ -182,5 +187,61 @@ class NavRegistry
         }
 
         return true;
+    }    /**
+     * May this user use the thing behind that menu item?
+     *
+     * Asked of the framework's own permission store, through the small API that
+     * knows how to read it. Three answers, and the third is the one that keeps
+     * this usable:
+     *
+     *   - an explicit **deny** hides the item;
+     *   - an explicit **allow** shows it;
+     *   - **no rule at all** shows it, because an application that has declared
+     *     a permission name but granted nothing to anybody would otherwise have
+     *     an empty menu. Hiding navigation is not access control — the action
+     *     behind the item enforces its own — so silence here means "no opinion",
+     *     the same as everywhere else in this framework.
+     *
+     * A store that cannot be reached is also no opinion. A menu that empties
+     * itself because the database hiccuped would be a worse failure than the one
+     * this replaced.
+     *
+     * @param  object|null $user       The signed-in user
+     * @param  string      $permission Permission name declared on the item
+     * @return bool
+     */
+    protected static function userHasPermission($user, string $permission): bool
+    {
+        if (!is_object($user) || (int) ($user->userid ?? 0) < 2) {
+            return false;
+        }
+
+        // An application with its own scheme is asked first: it is the one that
+        // governs the rest of that application.
+        if (method_exists($user, 'hasPermission')) {
+            try {
+                return (bool) $user->hasPermission($permission);
+            } catch (\Throwable) {
+                return true;
+            }
+        }
+
+        try {
+            $verdict = \Pramnos\Auth\Permissions::getInstance()->isAllowed(
+                (int) $user->userid,
+                $permission,
+                'view',
+                '',
+                'module',
+                'user',
+                false
+            );
+        } catch (\Throwable) {
+            return true;
+        }
+
+        return $verdict !== false;
     }
+
+
 }
