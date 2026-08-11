@@ -984,12 +984,34 @@ class UserCoverageTest extends TestCase
             "UPDATE users SET password = '" . md5($plaintext) . "' WHERE userid = {$user->userid}"
         );
 
-        // Act: verifyPassword() should detect the MD5 match
-        $result = $user->verifyPassword($plaintext);
+        // Act + Assert — refused by default. The login driver has gated legacy
+        // MD5 behind `auth.legacy_md5` (default false) all along; this method
+        // accepted it unconditionally, so an installation that had deliberately
+        // turned MD5 off still accepted an MD5 password at the step-up check in
+        // front of sensitive actions.
+        $this->assertFalse(
+            $user->verifyPassword($plaintext),
+            'legacy MD5 must not be accepted unless the installation enables it'
+        );
 
-        // Assert
-        $this->assertTrue($result,
-            'verifyPassword() must accept legacy MD5 passwords stored in the DB');
+        // ...and accepted when the installation says so, exactly as the login
+        // driver reads the same key.
+        $enabled = new class ($user->userid) extends \Pramnos\User\User {
+            public function __construct(int $userid)
+            {
+                parent::__construct($userid);
+            }
+
+            protected function legacyMd5Allowed(): bool
+            {
+                return true;
+            }
+        };
+
+        $this->assertTrue(
+            $enabled->verifyPassword($plaintext),
+            'with auth.legacy_md5 on, the historical hash still works'
+        );
     }
 
     /**

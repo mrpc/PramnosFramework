@@ -268,6 +268,35 @@ class Session extends Base
     }
 
     /**
+     * Give the current session a new id, keeping its contents.
+     *
+     * Called at every privilege change. On **logout** it is part of wiping the
+     * session; on **login** it is what stops session fixation — an attacker who
+     * planted a session id the victim then logs in with must not end up sharing
+     * the authenticated session.
+     *
+     * `session.use_strict_mode` (set in {@see start()}) already refuses an id
+     * the server never issued, which blocks the naive version of that attack.
+     * It does not block the version where the attacker first obtains a valid id
+     * from the server and plants that.
+     *
+     * Guarded on both sides: without an active session there is nothing to
+     * regenerate, and after headers are sent PHP cannot set the new cookie —
+     * in both cases doing nothing is better than a warning, and the caller is
+     * not in a position to do anything about it either.
+     *
+     * @return bool Whether the id was actually replaced
+     */
+    public function regenerateId(): bool
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE || headers_sent()) {
+            return false;
+        }
+
+        return session_regenerate_id(true);
+    }
+
+    /**
      * Resets all session data for authentication
      */
     function reset()
@@ -283,9 +312,7 @@ class Session extends Base
         // Invalidate the old session ID to prevent session fixation after a
         // privilege change (login / logout). delete_old_session=true ensures
         // the previous session file is removed immediately.
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            session_regenerate_id(true);
-        }
+        $this->regenerateId();
 
         $this->regenerateToken();
         $this->regenerateCsrfToken();

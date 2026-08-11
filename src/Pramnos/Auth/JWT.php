@@ -65,6 +65,33 @@ class JWT
      * Get information about the JWT token header
      * 
      */
+    /**
+     * Read a token's claims **without verifying its signature**.
+     *
+     * There are honest reasons to want this — inspecting `kid` to pick a key,
+     * logging an `iss`, showing an expiry in a debug panel. What there is no
+     * honest reason for is doing it by accident, which is what happened while
+     * `decode()` silently skipped verification whenever its key argument was
+     * omitted.
+     *
+     * Nothing this returns has been proven. Do not make an authorisation
+     * decision with it.
+     *
+     * @param  string $jwt
+     * @return object|false The payload, or false when the token is malformed
+     */
+    public static function decodeUnverified(string $jwt)
+    {
+        $segments = explode('.', $jwt);
+        if (count($segments) !== 3) {
+            return false;
+        }
+
+        $payload = json_decode(self::b64UrlDecode($segments[1]));
+
+        return $payload === null ? false : $payload;
+    }
+
     public static function getTokenInformation(string $jwt) {
         $tks = explode('.', $jwt);
         if (count($tks) != 3) {
@@ -121,6 +148,20 @@ class JWT
             throw new \UnexpectedValueException('Invalid claims encoding');
         }
         
+        if (!isset($key)) {
+            // Without a key there is nothing to verify against, and everything
+            // below — algorithm allow-list, signature check, expiry — sits
+            // inside this branch. Returning the payload anyway would hand the
+            // caller the contents of an unsigned or forged token as though they
+            // had been proven. Reading claims without verifying is a legitimate
+            // need; it just has to be asked for by name.
+            throw new \InvalidArgumentException(
+                'JWT::decode() needs a key. To read a token without verifying '
+                . 'it — the header, or claims you are not going to trust — call '
+                . 'JWT::decodeUnverified() instead.'
+            );
+        }
+
         if (isset($key)) {
             if (empty($header->alg)) {
                 throw new \DomainException('Empty algorithm');

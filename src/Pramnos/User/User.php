@@ -578,7 +578,9 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             // Rehash the password with the real userid now that it is known.
             // setPassword() stored MD5 as a placeholder when userid was <= 1.
             if ($this->_pendingPlainPassword !== null && $this->userid > 1) {
-                $this->setPassword($this->_pendingPlainPassword);
+                $plain = $this->_pendingPlainPassword;
+                $this->_pendingPlainPassword = null;
+                $this->setPassword($plain);
                 $database->updateTableData(
                     $database->prefix . "users",
                     [['fieldName' => 'password', 'value' => $this->password, 'type' => 'string']],
@@ -1767,11 +1769,57 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         );
         if (password_verify($pwd, $this->password)) {
             return true;
-        } elseif (md5($password) == $this->password) {
-            return true;
-        } 
+        }
 
-        return false;
+        // Legacy MD5, behind the same switch the login driver uses.
+        //
+        // This used to be unconditional, which meant an installation that had
+        // deliberately turned legacy MD5 *off* still accepted an MD5 password
+        // here — and "here" is the step-up check in front of sensitive actions
+        // (Account::confirmPassword). One place accepting what the front door
+        // rejects is not a fallback, it is a second front door.
+        if (!$this->legacyMd5Allowed()) {
+            return false;
+        }
+
+        return hash_equals((string) $this->password, md5($password));
+    }
+
+    /**
+     * Keep the pending plaintext password out of anything serialized.
+     *
+     * Between `setPassword()` on a user with no id yet and the rehash in
+     * `_save()`, the plain password sits on the object. User objects go into
+     * `$_SESSION`, and sessions get written to disk, Redis or a database — so
+     * without this the password could be persisted in clear text by a step that
+     * has nothing to do with passwords.
+     *
+     * @return array<int, string> Property names to serialize
+     */
+    public function __sleep()
+    {
+        return array_diff(
+            array_keys(get_object_vars($this)),
+            ['_pendingPlainPassword']
+        );
+    }
+
+    /**
+     * Does this installation still accept MD5 password hashes?
+     *
+     * Reads the same `auth.legacy_md5` key as
+     * {@see \Pramnos\Auth\Drivers\DatabaseAuthDriver}, so the answer cannot
+     * differ between the login and a password confirmation. Default false: an
+     * installation that needs it says so.
+     */
+    protected function legacyMd5Allowed(): bool
+    {
+        $app = \Pramnos\Application\Application::getInstance();
+        if (!is_object($app)) {
+            return false;
+        }
+
+        return (bool) ($app->applicationInfo['auth']['legacy_md5'] ?? false);
     }
 
     /**

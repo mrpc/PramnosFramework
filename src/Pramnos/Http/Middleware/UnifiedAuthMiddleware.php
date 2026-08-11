@@ -259,10 +259,30 @@ class UnifiedAuthMiddleware implements MiddlewareInterface
             'error'   => $error,
         ];
 
-        if ($detail !== null) {
+        // The detail is whatever the JWT library said, which describes the
+        // token rather than the caller's mistake. Useful while developing,
+        // needless information for anyone else — an unauthenticated caller has
+        // already been told everything they are entitled to: it did not work.
+        if ($detail !== null && $this->isDebugging()) {
             $payload['data'] = $detail;
         }
 
         return (string) json_encode($payload);
+    }
+
+    /**
+     * Is this environment one where internal detail may be shown?
+     *
+     * The same signal the framework's exception handler uses for its own
+     * decision — one definition of "developing", not a second opinion.
+     */
+    private function isDebugging(): bool
+    {
+        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
+            return true;
+        }
+        $env = getenv('APP_DEBUG');
+
+        return $env !== false && $env !== '' && $env !== '0' && $env !== 'false';
     }
 }

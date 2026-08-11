@@ -289,7 +289,7 @@ class MiddlewareBuiltinsTest extends TestCase
     public function testCorsMiddlewareAllowCredentialsPathExecutes(): void
     {
         // Arrange
-        $mw     = new CorsMiddleware(['*'], allowCredentials: true);
+        $mw     = new CorsMiddleware(['https://app.example.com'], allowCredentials: true);
         $called = false;
 
         // Act — no exception means the credentials header was set

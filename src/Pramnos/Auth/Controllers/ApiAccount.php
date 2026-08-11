@@ -33,9 +33,21 @@ class ApiAccount extends Controller
     /** @var array<string, mixed>|null decoded JSON body cache */
     private ?array $jsonBodyCache = null;
 
+    /**
+     * The user the credentials check just resolved.
+     *
+     * The flow reports a user *id*; this is the object that produced it. Keeping
+     * it saves loading the same row twice, and keeps the seam honest: an
+     * application that overrode `verifyCredentials()` to return its own User
+     * subclass gets that object back, not a freshly constructed base one.
+     *
+     * @var User|null
+     */
+    private ?User $resolvedUser = null;
+
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addaction(['login', 'logout']);
+        $this->addaction(['login', 'login2fa', 'logout']);
         parent::__construct($application);
     }
 
@@ -55,11 +67,90 @@ class ApiAccount extends Controller
             return Response::json(['error' => 'missing_credentials'], 400);
         }
 
-        $user = $this->verifyCredentials($username, $password);
-        if ($user === null) {
+        $result = $this->loginFlow()->attempt($username, $password, false);
+
+        if ($result->isLocked()) {
+            return Response::json([
+                'error'             => 'too_many_attempts',
+                'error_description' => 'Too many failed attempts. Try again later.',
+                'retry_after'       => $result->lockoutRemaining,
+            ], 429);
+        }
+
+        if ($result->status === \Pramnos\Auth\LoginFlowResult::STEP_UP_REQUIRED) {
+            return Response::json([
+                'error'             => 'two_factor_required',
+                'error_description' => 'This account needs a second factor. '
+                    . 'Post the code to /account/login2fa.',
+                'methods'           => $result->stepUpMethods,
+            ], 401);
+        }
+
+        if (!$result->isSuccess() || $result->userId === null) {
             return Response::json(['error' => 'invalid_credentials'], 401);
         }
 
+        return $this->tokenResponse($this->userFor($result->userId));
+    }
+
+    /**
+     * POST /account/login2fa — finish a login that needed a second factor.
+     *
+     * The pending state was stashed by {@see login()} and lives server-side, so
+     * the only thing the client sends is the code. A wrong code leaves the
+     * pending login intact so the user can try again.
+     */
+    public function login2fa(): mixed
+    {
+        if ($this->requestMethod() !== 'POST') {
+            return Response::json(['error' => 'method_not_allowed'], 405);
+        }
+
+        $code = trim((string) $this->input('code'));
+        if ($code === '') {
+            return Response::json(['error' => 'missing_code'], 400);
+        }
+
+        $result = $this->loginFlow()->completeTwoFactor($code);
+
+        if ($result->isLocked()) {
+            return Response::json([
+                'error'       => 'too_many_attempts',
+                'retry_after' => $result->lockoutRemaining,
+            ], 429);
+        }
+
+        if (!$result->isSuccess() || $result->userId === null) {
+            return Response::json(['error' => 'invalid_code'], 401);
+        }
+
+        return $this->tokenResponse($this->userFor($result->userId));
+    }
+
+    /**
+     * The user behind a verified login.
+     *
+     * The first leg already has the object; the second leg (a code posted on a
+     * later request) does not, and loads it.
+     */
+    protected function userFor(int $userId): User
+    {
+        if ($this->resolvedUser !== null
+            && (int) $this->resolvedUser->userid === $userId) {
+            return $this->resolvedUser;
+        }
+
+        return new User($userId);
+    }
+
+    /**
+     * The success response: a bearer token for a fully verified user.
+     *
+     * Shared by both legs so a login that needed a second factor is answered
+     * exactly like one that did not.
+     */
+    protected function tokenResponse(User $user): mixed
+    {
         $token = $this->issueToken($user);
         if ($token === null) {
             return Response::json(
@@ -74,6 +165,31 @@ class ApiAccount extends Controller
             'token_type'   => 'Bearer',
             'user'         => $this->userPayload($user),
         ]);
+    }
+
+    /**
+     * The flow that decides what a password entitles the caller to.
+     *
+     * The same one the HTML login uses — lockout, credentials, second factor —
+     * with the last step swapped for a token. This endpoint used to go straight
+     * from password to token, so an account with 2FA could be entered with the
+     * password alone and nothing counted failed attempts.
+     *
+     * `verifyCredentials()` stays the seam it always was: the flow calls back
+     * into it, so an application that overrode it keeps its hook.
+     */
+    protected function loginFlow(): \Pramnos\Auth\ApiLoginFlow
+    {
+        return new \Pramnos\Auth\ApiLoginFlow(
+            function (string $username, string $password): array|false {
+                $user = $this->verifyCredentials($username, $password);
+                $this->resolvedUser = $user;
+
+                return $user === null
+                    ? false
+                    : ['status' => true, 'uid' => (int) $user->userid];
+            }
+        );
     }
 
     /**

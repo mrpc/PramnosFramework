@@ -176,18 +176,62 @@ export const api = {
 };
 
 /**
+ * Thrown when the password was right but the account wants a second factor.
+ *
+ * Not an error in the usual sense — the login is half done and the server is
+ * holding the rest. Call `loginTwoFactor(code)` to finish it.
+ */
+export class TwoFactorRequired extends Error {
+    /** @param {string[]} methods Second factors this account can use. */
+    constructor(methods) {
+        super('This account needs a second factor.');
+        this.name = 'TwoFactorRequired';
+        this.methods = methods ?? [];
+    }
+}
+
+/**
  * Sign in and remember the issued bearer token.
  *
  * @param {string} username
  * @param {string} password
+ * @throws {TwoFactorRequired} When the account has two-factor authentication on
  * @returns {Promise<object>} The authenticated user
  */
 export async function login(username, password) {
     // Explicitly anonymous: signing in must work even when a stale token is
     // still in storage, which is exactly when a user needs it to.
-    const result = await request('/account/login', {
+    let result;
+    try {
+        result = await request('/account/login', {
+            method: 'POST',
+            body: { username, password },
+            anonymous: true,
+        });
+    } catch (error) {
+        // The password was accepted; the account simply needs more. The pending
+        // login lives server-side, so nothing has to be carried here.
+        if (error instanceof ApiError && error.payload?.error === 'two_factor_required') {
+            throw new TwoFactorRequired(error.payload.methods);
+        }
+        throw error;
+    }
+    if (result && result.access_token) {
+        setToken(result.access_token);
+    }
+    return result ? result.user : null;
+}
+
+/**
+ * Finish a sign-in that asked for a second factor.
+ *
+ * @param {string} code The code from the authenticator app, or a backup code
+ * @returns {Promise<object>} The authenticated user
+ */
+export async function loginTwoFactor(code) {
+    const result = await request('/account/login2fa', {
         method: 'POST',
-        body: { username, password },
+        body: { code },
         anonymous: true,
     });
     if (result && result.access_token) {

@@ -801,12 +801,33 @@ class Helpers
 
     /**
      * Check if a string contains a serialized object
+     *
+     * The check used to answer by running `unserialize()` on the string — that
+     * is, by performing the operation it exists to make safe. Anything a
+     * malicious payload could do on being deserialized (`__wakeup`,
+     * `__destruct` and the gadget chains built on them) happened inside the
+     * "check", before the caller had decided anything.
+     *
+     * It now parses with `allowed_classes: false`, so the string is still fully
+     * validated but no class is ever instantiated. An object payload comes back
+     * as `__PHP_Incomplete_Class`, which is not `false` — so the answer is
+     * identical to before for every input, including serialized objects.
+     *
+     * The caller's own `unserialize()` afterwards is unchanged and unrestricted;
+     * this only stops the *check* from being the thing that runs the payload.
+     * Where the data is not trusted, pass `['allowed_classes' => false]` there
+     * too.
+     *
      * @param string $str
      * @return boolean
      */
     public static function checkUnserialize($str)
     {
-        $data = @unserialize($str);
+        if (!is_string($str)) {
+            return false;
+        }
+
+        $data = @unserialize($str, ['allowed_classes' => false]);
         if ($str === 'b:0;' || $data !== false) {
             return true;
         } else {

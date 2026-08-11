@@ -474,6 +474,14 @@ class Auth extends \Pramnos\Framework\Base
         $lang     = \Pramnos\Framework\Factory::getLanguage();
         $request  = \Pramnos\Http\Request::getInstance();
 
+        // Session fixation: the id that carried the anonymous visitor must not
+        // carry the authenticated one. Regenerating here — before anything is
+        // written — means everything below lands on the new session, and an id
+        // planted beforehand is worthless. `session.use_strict_mode` blocks only
+        // the version of this attack where the attacker invents an id; this
+        // blocks the version where they first get a real one from the server.
+        \Pramnos\Http\Session::getInstance()->regenerateId();
+
         $_SESSION['logged']   = true;
         $_SESSION['uid']      = $info['uid'];
         $_SESSION['username'] = $info['username'];

@@ -30,7 +30,21 @@ class CorsMiddleware implements MiddlewareInterface
         private array $allowedHeaders = ['Content-Type', 'Authorization', 'X-Requested-With'],
         private bool  $allowCredentials = false,
         private int   $maxAge = 86400
-    ) {}
+    ) {
+        // `Access-Control-Allow-Origin: *` together with
+        // `Allow-Credentials: true` is a combination browsers reject outright,
+        // so the effect is that credentialed cross-origin requests simply stop
+        // working — with nothing anywhere saying why. Refusing the combination
+        // at construction turns a silent misconfiguration into a sentence.
+        if ($allowCredentials && in_array('*', $allowedOrigins, true)) {
+            throw new \InvalidArgumentException(
+                'CorsMiddleware: credentials cannot be allowed for every origin. '
+                . 'Browsers reject "Access-Control-Allow-Origin: *" with '
+                . '"Access-Control-Allow-Credentials: true". List the origins '
+                . 'that may send credentials instead of using "*".'
+            );
+        }
+    }
 
     /** @return list<string> */
     public function getAllowedOrigins(): array
