@@ -102,7 +102,8 @@ class MakeWebhook extends MakeCommandBase
                     return $candidate ?: 'pramnos';
                 }
             } catch (\Throwable) {
-            }
+            // Optional .env write; the generated files are already on disk.
+        }
         }
 
         // Look for a single *.php entry point in root (exclude composer.php, index.php)

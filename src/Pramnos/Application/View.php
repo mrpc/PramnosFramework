@@ -394,6 +394,8 @@ class View extends \Pramnos\Framework\Base
                 $vc->record($this->name, $file, (microtime(true) - $_pdb_partial_start) * 1000);
             }
         } catch (\Throwable) {
+            // A view helper that cannot resolve is not a reason to blank the page:
+                // the surrounding template renders without it.
         }
     }
 
@@ -538,7 +540,9 @@ class View extends \Pramnos\Framework\Base
                             $vc->record($this->name, $tpl . '.' . $type . '.php', 0.0, true);
                         }
                     } catch (\Throwable) {
-                    }
+            // A view helper that cannot resolve is not a reason to blank the page:
+                // the surrounding template renders without it.
+        }
                     if ($render) {
                         return (string) $cachedData;
                     }
@@ -585,7 +589,9 @@ class View extends \Pramnos\Framework\Base
                         $ec->record($ex);
                     }
                 } catch (\Throwable) {
-                }
+            // A view helper that cannot resolve is not a reason to blank the page:
+                // the surrounding template renders without it.
+        }
                 \Pramnos\Logs\Logger::log(
                     'Error in view: ' . $this->name . ' and template file: '
                     . $tplfile . '. ' . $ex->getMessage()
@@ -643,7 +649,9 @@ class View extends \Pramnos\Framework\Base
                     $vc->record($this->name, $tplfile, (microtime(true) - $_pdb_view_start) * 1000);
                 }
             } catch (\Throwable) {
-            }
+            // A view helper that cannot resolve is not a reason to blank the page:
+                // the surrounding template renders without it.
+        }
 
             // Output-cache write: store rendered result for subsequent requests.
             if ($cacheTtl !== null) {

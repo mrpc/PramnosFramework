@@ -85,6 +85,8 @@ class TimescaleInspector
                 return (string) $r->fields['extversion'];
             }
         } catch (\Exception) {
+            // Introspection on a backend without the extension: nothing to report,
+            // which is what the empty result already says.
         }
 
         // If the extension row is missing but the connection is flagged as
@@ -136,6 +138,8 @@ class TimescaleInspector
             );
             return ($r && $r->numRows > 0) ? $r->fetchAll() : [];
         } catch (\Exception) {
+            // Introspection on a backend without the extension: nothing to report,
+            // which is what the empty result already says.
         }
 
         // Fallback: minimal query without version-specific columns.

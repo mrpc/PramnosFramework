@@ -291,13 +291,36 @@ class DevPanelControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('world', $output);
     }
 
+    /**
+     * The sessions and lockouts panels render the rows they are given.
+     *
+     * The fixture below is the real schema — `usertokens` with `lastused` and
+     * `ipaddress`, `authserver.loginlockouts` with `displayvalue` and
+     * `lockoutuntil`. It used to describe a table called `tokens` with
+     * `last_used` and `ip_address`, which is what the panel queried and what no
+     * migration creates: both panels had been rendering empty on every
+     * installation, and an empty `catch` made that look like "nothing to show".
+     */
     public function testUsersActionRendersSessionsAndLockouts()
     {
-        $this->dbMock->mockResults['tokens'] = new FakeDatabaseResult([], [
-            ['tokenid' => 101, 'userid' => 1, 'username' => 'alice', 'last_used' => '2026-06-03 00:00:00', 'ip_address' => '127.0.0.1', 'application' => 'web', 'tokentype' => 1]
+        $this->dbMock->mockResults['usertokens'] = new FakeDatabaseResult([], [
+            [
+                'tokenid'       => 101,
+                'userid'        => 1,
+                'username'      => 'alice',
+                'lastused'      => '2026-06-03 00:00:00',
+                'ipaddress'     => '127.0.0.1',
+                'applicationid' => 7,
+                'tokentype'     => 'auth',
+            ],
         ]);
         $this->dbMock->mockResults['loginlockouts'] = new FakeDatabaseResult([], [
-            ['identifier' => 'bob', 'ip_address' => '10.0.0.1', 'lockout_until' => '2026-06-03 12:00:00', 'failed_attempts' => 5]
+            [
+                'displayvalue'   => 'bob',
+                'lastipaddress'  => '10.0.0.1',
+                'lockoutuntil'   => '2026-06-03 12:00:00',
+                'failedattempts' => 5,
+            ],
         ]);
 
         $this->controller->users();
@@ -306,6 +329,11 @@ class DevPanelControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('Active Sessions', $this->controller->lastRenderedContent);
         $this->assertStringContainsString('alice', $this->controller->lastRenderedContent);
         $this->assertStringContainsString('bob', $this->controller->lastRenderedContent);
+
+        // ...and the values, not just the names: an empty panel contained the
+        // headings too, which is how this stayed green while showing nothing.
+        $this->assertStringContainsString('127.0.0.1', $this->controller->lastRenderedContent);
+        $this->assertStringContainsString('10.0.0.1', $this->controller->lastRenderedContent);
     }
 
     public function testTokenDetailView()

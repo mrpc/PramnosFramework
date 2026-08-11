@@ -474,6 +474,7 @@ class ProcessQueue extends CommandBase
                 return $result === null ? true : (bool)$result;
             }
         } catch (\Throwable) {
+            // Reporting a finished job must not fail the worker loop.
         }
         return false;
     }

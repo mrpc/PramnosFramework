@@ -921,7 +921,9 @@ class Application extends Base
                     $ec->record($Exception);
                 }
             } catch (\Throwable) {
-            }
+            // Instrumentation and shutdown housekeeping: neither is allowed to be
+            // the reason a request fails.
+        }
             //\Pramnos\Logs\Logger::log($Exception->getMessage());
             $this->notFound();
         }
@@ -941,6 +943,8 @@ class Application extends Base
                 ]);
             }
         } catch (\Throwable) {
+            // Instrumentation and shutdown housekeeping: neither is allowed to be
+            // the reason a request fails.
         }
 
         /*
@@ -995,7 +999,9 @@ class Application extends Base
                     $ec->record($exception);
                 }
             } catch (\Throwable) {
-            }
+            // Instrumentation and shutdown housekeeping: neither is allowed to be
+            // the reason a request fails.
+        }
             $request = new \Pramnos\Http\Request();
             $_SESSION['_validation_errors'] = $exception->errors();
             $_SESSION['_old_input'] = $request->allCurrent();
@@ -1010,7 +1016,9 @@ class Application extends Base
                     $ec->record($exception);
                 }
             } catch (\Throwable) {
-            }
+            // Instrumentation and shutdown housekeeping: neither is allowed to be
+            // the reason a request fails.
+        }
             $format = isset($doc) && $doc->getType() === 'json' ? 'json' : 'html';
             $debug  = defined('DEVELOPMENT') && DEVELOPMENT === true;
             \Pramnos\Http\ExceptionHandler::log($exception);
