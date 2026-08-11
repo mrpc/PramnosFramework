@@ -74,11 +74,30 @@ class Session extends Base
      */
     public function getFingerprint(bool $useIp = false): string
     {
+        // The siblings that call this — checkTokenValue(), getTokenField() —
+        // already start the session first, so this is a no-op for them. Called
+        // directly it is not: `$this->_token` would be null and the HMAC key
+        // with it, which PHP 8.5 deprecates and a later version will reject.
+        $this->ensureStarted();
+
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'none';
         // Behind a proxy REMOTE_ADDR is the proxy, identical for every visitor,
         // so pinning to it would pin to nothing. clientIp() is the real client
         // wherever the application has declared its proxies.
-        $ip = $useIp ? (\Pramnos\Http\Request::clientIp('none')) : '';
+        //
+        // The fallback reproduces the original expression exactly, and that
+        // precision matters: this value is hashed into a token issued by one
+        // request and verified by the next, so any change to it invalidates
+        // every form in flight. `REMOTE_ADDR` set to an empty string is not the
+        // same as `REMOTE_ADDR` absent — `?? 'none'` never fired for the former
+        // — and collapsing the two broke a reference application's login.
+        $ip = '';
+        if ($useIp) {
+            $ip = \Pramnos\Http\Request::clientIp();
+            if ($ip === '') {
+                $ip = $_SERVER['REMOTE_ADDR'] ?? 'none';
+            }
+        }
         return hash_hmac('sha256', $ua . $ip, $this->_token);
     }
 

@@ -2383,7 +2383,13 @@ class Database extends \Pramnos\Framework\Base
         $vars = [
             'app.userid' => $userId ?? 'guest',
             'app.session_id' => session_id(),
-            'app.client_ip' => \Pramnos\Http\Request::clientIp(),
+            // Deliberately REMOTE_ADDR and not Request::clientIp(): this runs
+            // while the connection is being established, and resolving the
+            // client goes through the application config — a lookup that must
+            // never happen mid-connect. The value is diagnostic (it lands in a
+            // PostgreSQL session variable for tracing), so the connecting peer
+            // is good enough and the layering stays honest.
+            'app.client_ip' => $_SERVER['REMOTE_ADDR'] ?? '',
             'app.user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
             'app.request_path' => $_SERVER['REQUEST_URI'] ?? '',
             'app.http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
