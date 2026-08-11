@@ -10,6 +10,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Pramnos\Application\Application;
+use Pramnos\Database\ContinuousAggregateRegistry;
 use Pramnos\Database\HypertableRegistry;
 
 /**
@@ -83,24 +84,31 @@ class TimescaleEnsure extends Command
         $database = $app->database;
         $schema   = $database->schema();
 
-        // A database without the extension must come out unchanged and be told
-        // why — this is a repair for installations that gained TimescaleDB, not
-        // a demand that they have it.
-        if (!$database->capabilities()->hasTimescaleDB()) {
+        $only     = $input->getOption('table');
+        $dryRun   = (bool) $input->getOption('dry-run');
+        $hasTs    = $database->capabilities()->hasTimescaleDB();
+
+        // Rolled-up views need a refresh policy on **every** backend, and the
+        // backend without TimescaleDB is the one where they were left without
+        // one — a materialized view that nothing refreshes is frozen at the
+        // moment it was created. So this part runs first and runs everywhere,
+        // before the hypertable work bows out.
+        $aggregates = $this->ensureAggregates($output, $schema, $dryRun);
+
+        if (!$hasTs) {
+            $output->writeln('');
             $output->writeln(
                 '<comment>TimescaleDB is not available on this connection ('
                 . $database->type . ').</comment>'
             );
             $output->writeln(
-                'Nothing was changed. Retention on this backend is handled by '
-                . 'the software policy engine (service:policy-engine).'
+                'No hypertable was touched. On this backend both compression and '
+                . 'retention are the policy engine\'s job (service:policy-engine).'
             );
 
-            return Command::SUCCESS;
+            return $aggregates ? Command::SUCCESS : Command::FAILURE;
         }
 
-        $only   = $input->getOption('table');
-        $dryRun = (bool) $input->getOption('dry-run');
         $tables = HypertableRegistry::all();
 
         if (is_string($only) && $only !== '') {
@@ -123,6 +131,67 @@ class TimescaleEnsure extends Command
         return $dryRun
             ? $this->report($output, $plan)
             : $this->repair($output, $schema, $plan);
+    }
+
+    /**
+     * Make sure every declared rolled-up view is being refreshed.
+     *
+     * Runs on both backends, because the defect it repairs belongs to the one
+     * without TimescaleDB: four migrations registered the refresh only inside
+     * their TimescaleDB branch, so on plain PostgreSQL the materialized view was
+     * created and then never updated again.
+     *
+     * @param  \Pramnos\Database\SchemaBuilder $schema
+     * @return bool Whether everything that could be done was done
+     */
+    protected function ensureAggregates(OutputInterface $output, $schema, bool $dryRun): bool
+    {
+        $pending = [];
+
+        foreach (ContinuousAggregateRegistry::all() as $view => $spec) {
+            if (!$schema->hasView($view)) {
+                continue;   // this installation does not have that feature
+            }
+            if ($schema->hasContinuousAggregatePolicy($view)) {
+                continue;
+            }
+            $pending[$view] = $spec;
+        }
+
+        if ($pending === []) {
+            $output->writeln('<info>Rolled-up views: every one is being refreshed.</info>');
+
+            return true;
+        }
+
+        if ($dryRun) {
+            $output->writeln('<comment>Rolled-up views with no refresh policy:</comment>');
+            foreach ($pending as $view => $spec) {
+                $output->writeln(
+                    '  ' . $view . ' — would refresh every ' . $spec['schedule_interval']
+                );
+            }
+            $output->writeln(
+                '  <comment>Until one is added these views answer with the data they '
+                . 'held when they were created.</comment>'
+            );
+
+            return true;
+        }
+
+        $ok = true;
+        foreach ($pending as $view => $spec) {
+            try {
+                foreach (ContinuousAggregateRegistry::apply($schema, $view) as $step) {
+                    $output->writeln('  <info>✓</info> ' . $view . ': ' . $step);
+                }
+            } catch (\Throwable $ex) {
+                $ok = false;
+                $output->writeln('<error>' . $view . ': ' . $ex->getMessage() . '</error>');
+            }
+        }
+
+        return $ok;
     }
 
     // -------------------------------------------------------------------------

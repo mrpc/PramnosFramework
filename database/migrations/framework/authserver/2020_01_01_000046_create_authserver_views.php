@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\AuthServer;
 
+use Pramnos\Database\ContinuousAggregateRegistry;
 use Pramnos\Database\Migration;
 
 /**
@@ -237,12 +238,6 @@ class CreateAuthserverViews extends Migration
                      FROM authserver.twofactor_attempts
                      GROUP BY time_bucket('1 day', attempt_time)"
                 );
-                $schema->addContinuousAggregatePolicy(
-                    'authserver.daily_2fa_stats',
-                    '1 month',
-                    '1 hour',
-                    '1 hour'
-                );
             },
             function () use ($schema) {
                 $schema->createMaterializedView(
@@ -264,6 +259,10 @@ class CreateAuthserverViews extends Migration
                 );
             }
         );
+
+        // Outside the capability check on purpose: both branches create something
+        // that has to be refreshed, and only the TimescaleDB one used to say so.
+        ContinuousAggregateRegistry::apply($schema, 'authserver.daily_2fa_stats');
     }
 
     // ------------------------------------------------------------------ //

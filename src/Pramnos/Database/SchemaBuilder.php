@@ -932,6 +932,112 @@ class SchemaBuilder
     }
 
     /**
+     * Does this view exist, of any kind?
+     *
+     * "View" covers three things that are not tables and not each other: a plain
+     * view, a materialized view, and — on TimescaleDB — a continuous aggregate,
+     * which presents as a view over a hidden materialization hypertable.
+     * `hasTable()` finds none of them, which is why asking it about an aggregate
+     * quietly answers no.
+     *
+     * @param  string $view Logical view name, e.g. `authserver.daily_2fa_stats`
+     * @return bool
+     */
+    public function hasView(string $view): bool
+    {
+        [$schema, $name] = $this->splitTable($view);
+
+        if ($this->capabilities->isMySQL()) {
+            $result = $this->db->query(
+                $this->db->prepareQuery(
+                    'SELECT 1 FROM information_schema.views
+                     WHERE table_schema = DATABASE() AND table_name = %s',
+                    $name
+                )
+            );
+
+            return $result && $result->numRows > 0;
+        }
+
+        // relkind: v = view, m = materialized view. A continuous aggregate is
+        // the former, so both belong in the same question.
+        $result = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT 1 FROM pg_class c
+                   JOIN pg_namespace n ON n.oid = c.relnamespace
+                  WHERE c.relkind IN ('v', 'm') AND n.nspname = %s AND c.relname = %s",
+                $schema,
+                $name
+            )
+        );
+
+        return $result && $result->numRows > 0;
+    }
+
+    /**
+     * Is this aggregate already being refreshed by something?
+     *
+     * Two backends, two answers, one question — which is the whole point of
+     * asking it here rather than at each call site.
+     *
+     * On TimescaleDB the refresh is a background job. It cannot be found by the
+     * view's name: `timescaledb_information.jobs` records the *materialization*
+     * hypertable (`_timescaledb_internal._materialized_hypertable_N`), so the
+     * lookup has to go through `continuous_aggregates` to get from one to the
+     * other.
+     *
+     * Everywhere else the "aggregate" is a materialized view that PostgreSQL
+     * never refreshes on its own, and the refresh is a row in
+     * `pramnos.framework_policies` executed by the policy engine. A view with no
+     * such row is frozen at the moment it was created — which is what four
+     * framework migrations quietly produced, because they registered the policy
+     * only inside their TimescaleDB branch.
+     *
+     * @param  string $view Logical view name, e.g. `authserver.daily_2fa_stats`
+     * @return bool
+     */
+    public function hasContinuousAggregatePolicy(string $view): bool
+    {
+        if ($this->capabilities->hasTimescaleDB()) {
+            [$schema, $name] = $this->splitTable($view);
+
+            $result = $this->db->query(
+                $this->db->prepareQuery(
+                    "SELECT COUNT(*) AS cnt
+                       FROM timescaledb_information.jobs j
+                       JOIN timescaledb_information.continuous_aggregates c
+                         ON j.hypertable_schema = c.materialization_hypertable_schema
+                        AND j.hypertable_name   = c.materialization_hypertable_name
+                      WHERE j.proc_name = 'policy_refresh_continuous_aggregate'
+                        AND c.view_schema = %s AND c.view_name = %s",
+                    $schema,
+                    $name
+                )
+            );
+
+            return $result && (int) ($result->fields['cnt'] ?? 0) > 0;
+        }
+
+        // Software policy. A missing policies table means the core migrations
+        // have not run, not that the policy is present.
+        try {
+            if (!$this->hasTable('pramnos.framework_policies')) {
+                return false;
+            }
+
+            $result = $this->db->queryBuilder()
+                ->table('pramnos.framework_policies')
+                ->where('policy_type', 'aggregate_refresh')
+                ->where('target', $view)
+                ->count();
+
+            return $result > 0;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
      * Return all continuous aggregates, optionally filtered by view schema.
      * Each row object has at least: view_schema, view_name, hypertable_schema,
      * hypertable_name, materialized_only, finalized.
@@ -1290,10 +1396,15 @@ class SchemaBuilder
         }
 
         // schema.table passed explicitly — handle as-is per driver.
+        //
+        // On MySQL a schema is flattened into the table name, so the prefix is
+        // the only namespace there is and it applies. On PostgreSQL the schema
+        // *is* the namespace, and prefixing inside it would rename tables the
+        // framework addresses by schema everywhere else.
         if (strpos($table, '.') !== false) {
             if ($this->capabilities->isMySQL()) {
                 [$schema, $name] = explode('.', $table, 2);
-                return $prefix . $schema . '_' . $name;
+                return $this->withPrefix($prefix, $schema . '_' . $name);
             }
             return $table;
         }
@@ -1301,13 +1412,45 @@ class SchemaBuilder
         // Apply schema override from withSchema() when the table has no explicit schema.
         if ($this->overrideSchema !== null) {
             if ($this->capabilities->isMySQL()) {
-                return $prefix . $this->overrideSchema . '_' . $table;
+                return $this->withPrefix($prefix, $this->overrideSchema . '_' . $table);
             }
             // PostgreSQL: schema.table — quoteTable() will split and double-quote.
             return $this->overrideSchema . '.' . $table;
         }
 
-        return $table;
+        // A plain table name gets the configured prefix.
+        //
+        // It did not, and that was the whole of the defect: `#PREFIX#users` in
+        // application code resolved to `pramnos_users` while `createTable('users')`
+        // in a migration created `users`. Two layers of the same framework
+        // disagreeing about what a table is called — invisible on the default
+        // empty prefix, and total on any installation that sets one.
+        return $this->withPrefix($prefix, $table);
+    }
+
+    /**
+     * Prefix a resolved table name, unless it already carries the prefix.
+     *
+     * The guard is not decoration. Some callers resolve the name themselves and
+     * hand the *result* to the builder — `Model::getFullTableName()` substitutes
+     * `#PREFIX#` and then calls `queryBuilder()->from(...)` with what comes out.
+     * Prefixing that a second time would look for `pramnos_pramnos_users`.
+     *
+     * A table genuinely named `pramnos_x` on an installation prefixed `pramnos_`
+     * is indistinguishable from an already-prefixed `x` — which is fine, because
+     * they are the same table.
+     *
+     * @param  string $prefix Configured prefix, already ending in `_`
+     * @param  string $table  Resolved table name
+     * @return string
+     */
+    protected function withPrefix(string $prefix, string $table): string
+    {
+        if ($prefix === '' || str_starts_with($table, $prefix)) {
+            return $table;
+        }
+
+        return $prefix . $table;
     }
 
     /**
