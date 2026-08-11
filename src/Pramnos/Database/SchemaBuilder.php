@@ -1261,6 +1261,76 @@ class SchemaBuilder
         );
     }
 
+    /**
+     * Decompress one chunk so that it accepts writes again.
+     *
+     * A compressed chunk rejects inserts into the time range it covers. The
+     * only way to write there is to decompress it, write, and compress it back
+     * — which is expensive, and the reason anything doing this should group its
+     * writes so that the pair is paid **once per chunk** rather than once per
+     * row.
+     *
+     * Identify the chunk with the schema and name that {@see getChunks()}
+     * reports (`chunk_schema`, `chunk_name`), not with the hypertable's name.
+     *
+     * @param  string $chunkSchema The chunk's own schema, e.g. `_timescaledb_internal`
+     * @param  string $chunkName   The chunk's own name, e.g. `_hyper_3_17_chunk`
+     * @return bool   False without TimescaleDB, or when the statement failed
+     *                (a failure is logged; an unsupported backend is not).
+     */
+    public function decompressChunk(string $chunkSchema, string $chunkName): bool
+    {
+        return $this->chunkCompression('decompress_chunk', $chunkSchema, $chunkName);
+    }
+
+    /**
+     * Compress one chunk again after it was decompressed for a write.
+     *
+     * @param  string $chunkSchema The chunk's own schema
+     * @param  string $chunkName   The chunk's own name
+     * @return bool   False without TimescaleDB, or when the statement failed
+     */
+    public function compressChunk(string $chunkSchema, string $chunkName): bool
+    {
+        return $this->chunkCompression('compress_chunk', $chunkSchema, $chunkName);
+    }
+
+    /**
+     * Shared body of {@see compressChunk()} and {@see decompressChunk()}.
+     *
+     * `format('%I.%I', …)` quotes both identifiers the way PostgreSQL itself
+     * would, which matters because the internal chunk names are generated and
+     * may need quoting that a plain concatenation would not apply.
+     *
+     * @param  string $function    `compress_chunk` or `decompress_chunk`
+     * @param  string $chunkSchema The chunk's own schema
+     * @param  string $chunkName   The chunk's own name
+     * @return bool
+     */
+    protected function chunkCompression(
+        string $function,
+        string $chunkSchema,
+        string $chunkName
+    ): bool {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return false;
+        }
+
+        // Raw by necessity: these are TimescaleDB functions taking a regclass
+        // built from two quoted identifiers — nothing the query builder models.
+        $sql = 'SELECT ' . $function . '(' . $this->db->prepareQuery(
+            "format('%%I.%%I', %s, %s)",
+            $chunkSchema,
+            $chunkName
+        ) . ')';
+
+        return $this->runTimescaleStatement(
+            $sql,
+            $function,
+            $chunkSchema . '.' . $chunkName
+        );
+    }
+
     // =========================================================================
     // Capability-conditional DDL
     // =========================================================================
