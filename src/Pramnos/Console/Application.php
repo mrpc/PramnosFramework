@@ -95,6 +95,8 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\PolicyEngine());
         // Hypertable repair for databases that gained TimescaleDB later
         $this->add(new \Pramnos\Console\Commands\TimescaleEnsure());
+        // Writes that were queued because their chunk was already compressed
+        $this->add(new \Pramnos\Console\Commands\TimescaleDrain());
         // Queue System (Phase 2)
         $this->add(new \Pramnos\Console\Commands\ProcessQueue());
         $this->add(new \Pramnos\Console\Commands\CleanupQueue());

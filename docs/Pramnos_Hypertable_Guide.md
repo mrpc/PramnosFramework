@@ -124,6 +124,118 @@ retention policy for a table that did not ask for one deletes data.
 Your table must have the partitioning column in its primary key, and in every
 unique constraint. `PRIMARY KEY (id, measured_at)`, not `PRIMARY KEY (id)`.
 
+## Writing late data into a compressed table
+
+A hypertable with a compression policy stops accepting writes into the ranges it
+has already compressed. Every application that writes late data meets this: a
+delayed reading, a backfill, a correction, a webhook that arrives months after
+the event it describes. Without somewhere to put those rows, the choice is
+"compression **or** the ability to correct data" — which is why tables that get
+updated after the fact usually end up uncompressed for ever.
+
+`Pramnos\Database\DeferredWriteQueue` is that somewhere.
+
+### Declaring the table
+
+Add `deferred_writes` to the declaration, and — if a late row should *correct* an
+existing one rather than duplicate it — the columns that identify it:
+
+```php
+HypertableRegistry::register('readings', [
+    'time_column'     => 'measured_at',
+    'chunk_interval'  => '1 day',
+    'compress_after'  => '7 days',
+    'deferred_writes' => true,
+    'conflict'        => ['device_id', 'measured_at'],
+    'conflict_update' => ['value'],          // optional
+]);
+```
+
+`conflict_update` defaults to every column that is not part of `conflict`. Name
+it explicitly when some columns must survive an overwrite — an audit stamp, a
+flag an operator set by hand.
+
+### Writing
+
+Replace the direct insert with `write()`:
+
+```php
+use Pramnos\Database\DeferredWriteQueue;
+
+$queue = new DeferredWriteQueue($database);
+
+$queue->write('readings', [
+    'device_id'   => 42,
+    'measured_at' => $timestamp,
+    'value'       => 19.4,
+]);
+```
+
+It returns `true` when the row went into the table and `false` when it was
+queued. The row's time comes from the declared `time_column`; pass it as a third
+argument when it lives somewhere else.
+
+The cutoff is read from the **live compression policy**, not from a constant, and
+cached for the life of the process — a bulk import pays one query, not one per
+row. On a database with no policy, on MySQL, and on any development or CI box
+without TimescaleDB, there is no cutoff, nothing is ever deferred, and this is a
+plain insert. That is what lets the same code run on every backend.
+
+A write that is cleared and then fails anyway — the policy compressed the chunk
+in the second between the two — is queued rather than lost.
+
+### Draining
+
+```
+php pramnos timescale:drain                  # write everything waiting
+php pramnos timescale:drain --status         # what is waiting, per table
+php pramnos timescale:drain --table=readings # one table
+php pramnos timescale:drain --retry-failed   # re-queue rows that failed
+```
+
+Run it from cron, as often as your tolerance for late data requires. Hourly is a
+reasonable default.
+
+**What makes it worth having:** the drain groups the backlog **by chunk**. A
+compressed chunk has to be decompressed before it accepts a write and compressed
+again afterwards, and that pair costs the same for one row as for ten thousand.
+Paying it once per row is the obvious implementation and an unusable one. The
+grouping is the pattern; everything else is bookkeeping.
+
+It asks TimescaleDB only for the chunks that actually have rows waiting, so a
+drain is proportional to the backlog rather than to the table's age.
+
+### When something cannot be written
+
+A batch runs in one transaction. If it raises, the batch is replayed row by row,
+so one bad row is marked failed and its five hundred blameless neighbours are
+still written — the difference between a queue that drains and one that jams
+behind a single row.
+
+Failed rows are **kept**, with the error message, and never retried on their own:
+a row that fails once usually fails the same way for ever, and a queue that
+retries it hourly hides the problem instead of showing it. Fix the cause, then
+`--retry-failed`.
+
+The chunk is compressed again even when every row in it failed. A chunk left
+decompressed never recompresses on its own — the policy only looks at chunks it
+has not already handled — so this would otherwise be a silent storage
+regression.
+
+### From code
+
+```php
+$queue->pending('readings');              // rows waiting
+$queue->failed('readings');               // rows that could not be written
+$queue->tablesWithPendingRows();          // which tables have work
+$queue->writeCutoff('readings');          // the live cutoff, or null
+$queue->retryFailed('readings');          // put failures back in the queue
+$queue->process('readings');              // drain, returns per-table stats
+```
+
+The queue lives in `deferredwrites`, created by a framework core migration on
+every backend.
+
 ## Checking state from code
 
 ```php

@@ -67,6 +67,15 @@ class HypertableRegistry
      *     @type string|null $retention      When to drop chunks; null = keep for ever
      *     @type string|null $segmentby      Compression segment-by columns
      *     @type string|null $orderby        Compression order-by clause
+     *     @type bool        $deferred_writes Whether late rows should be queued
+     *                                       rather than lost; see
+     *                                       {@see DeferredWriteQueue}
+     *     @type list<string>|null $conflict Columns identifying an existing row,
+     *                                       for a deferred write that should
+     *                                       overwrite rather than duplicate
+     *     @type list<string>|null $conflict_update Columns to rewrite on a
+     *                                       conflict; all non-key columns when
+     *                                       omitted
      *     @type string      $feature        Feature key that owns the table
      * }
      */
@@ -74,15 +83,7 @@ class HypertableRegistry
     {
         static::ensureDefaults();
 
-        static::$tables[$table] = $spec + [
-            'time_column'    => 'created_at',
-            'chunk_interval' => '7 days',
-            'compress_after' => null,
-            'retention'      => null,
-            'segmentby'      => null,
-            'orderby'        => null,
-            'feature'        => '',
-        ];
+        static::$tables[$table] = $spec + static::specDefaults();
     }
 
     /**
@@ -107,6 +108,19 @@ class HypertableRegistry
         static::ensureDefaults();
 
         return static::$tables[$table] ?? null;
+    }
+
+    /**
+     * The declared tables whose late writes should be queued rather than lost.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public static function deferrable(): array
+    {
+        return array_filter(
+            static::all(),
+            static fn(array $spec): bool => !empty($spec['deferred_writes'])
+        );
     }
 
     /**
@@ -200,14 +214,33 @@ class HypertableRegistry
         static::$defaultsLoaded = true;
 
         foreach (static::frameworkTables() as $table => $spec) {
-            static::$tables[$table] = $spec + [
-                'compress_after' => null,
-                'retention'      => null,
-                'segmentby'      => null,
-                'orderby'        => null,
-                'feature'        => '',
-            ];
+            static::$tables[$table] = $spec + static::specDefaults();
         }
+    }
+
+    /**
+     * What a declaration means when it does not say.
+     *
+     * One list, used for both the framework's own tables and registered ones,
+     * so that a spec read from the registry always has every key — callers can
+     * read `$spec['conflict']` without asking whether it is there.
+     *
+     * @return array<string, mixed>
+     */
+    protected static function specDefaults(): array
+    {
+        return [
+            'time_column'     => 'created_at',
+            'chunk_interval'  => '7 days',
+            'compress_after'  => null,
+            'retention'       => null,
+            'segmentby'       => null,
+            'orderby'         => null,
+            'deferred_writes' => false,
+            'conflict'        => null,
+            'conflict_update' => null,
+            'feature'         => '',
+        ];
     }
 
     /**
