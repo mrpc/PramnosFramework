@@ -1671,7 +1671,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         return [
             [
                 'session_id' => session_id(),
-                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+                'ip_address' => \Pramnos\Http\Request::clientIp('unknown'),
                 'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
                 'last_activity' => date('Y-m-d H:i:s'),
                 'is_current' => true
@@ -1707,7 +1707,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
 
         if ($result->numRows > 0) {
             $tokenObj             = new Token($result->fields);
-            $tokenObj->ipaddress  = $ipAddress ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+            $tokenObj->ipaddress  = $ipAddress ?? \Pramnos\Http\Request::clientIp();
             $_SESSION['usertoken'] = $tokenObj;
             return $tokenObj;
         }

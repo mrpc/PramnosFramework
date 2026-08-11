@@ -2383,7 +2383,7 @@ class Database extends \Pramnos\Framework\Base
         $vars = [
             'app.userid' => $userId ?? 'guest',
             'app.session_id' => session_id(),
-            'app.client_ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+            'app.client_ip' => \Pramnos\Http\Request::clientIp(),
             'app.user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
             'app.request_path' => $_SERVER['REQUEST_URI'] ?? '',
             'app.http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',

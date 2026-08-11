@@ -337,6 +337,33 @@ Backend support is layered so it is fully **backwards compatible**:
 - If you inject a bare `AdapterInterface` without these methods, `FlatCache`
   transparently falls back to a get+set emulation.
 
+#### The same capability on the classic `Cache` object
+
+`FlatCache` is the PSR-16-shaped front end. Code that holds a classic
+`\Pramnos\Cache\Cache` — the middleware pipeline, for one — reaches the same
+counters through two additions:
+
+```php
+if ($cache->supportsAtomicCounter()) {
+    $count = $cache->increment($key, $ttl);   // int, or false on failure
+}
+```
+
+Two differences from `FlatCache::increment()` are deliberate:
+
+- **The expiry is fixed, not sliding.** It is applied by whichever call creates
+  the key and is not refreshed afterwards. A sliding expiry never lets a busy
+  key die, so a rate-limit counter under sustained traffic would climb for ever
+  and lock the client out permanently.
+- **Failure is `false`, not a silent fallback.** `false` means "the counter did
+  not work" — a dropped Redis connection, say — and is *not* zero. A caller
+  doing security work must be able to tell the difference; reading a failure as
+  an empty bucket opens the door at the moment the site is under strain.
+
+`supportsAtomicCounter()` answers whether the backing adapter can do this at
+all. Redis (`INCRBY`) and Memcached (`increment`, with creation through the
+atomic `add`) can; Array and File cannot, and say so rather than pretending.
+
 ### Atomic swap (change detection / de-duplication)
 
 `swap()` sets a key to a new value and returns the **previous** one in a single

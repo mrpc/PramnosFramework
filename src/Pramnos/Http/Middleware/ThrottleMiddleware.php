@@ -4,6 +4,7 @@ namespace Pramnos\Http\Middleware;
 
 use Pramnos\Http\MiddlewareInterface;
 use Pramnos\Http\Request;
+use Pramnos\Http\TooManyRequestsException;
 
 /**
  * Rate-limits requests per client IP using APCu as a sliding-window counter.
@@ -36,21 +37,86 @@ class ThrottleMiddleware implements MiddlewareInterface
 
     public function handle(Request $request, callable $next): mixed
     {
-        $ip  = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $ip  = Request::clientIp('0.0.0.0');
         $key = $this->keyPrefix . md5($ip);
 
+        $count = $this->bumpCount($key);
+
+        if ($count !== false && $count > $this->maxRequests) {
+            throw new TooManyRequestsException(
+                'Too many requests. Please slow down.',
+                $this->perSeconds
+            );
+        }
+
+        return $next($request);
+    }
+
+    /**
+     * Count this request and return the new total for the window.
+     *
+     * `apcu_inc()` creates the counter when it is absent and returns the new
+     * value in a single operation, which is what makes this correct under
+     * concurrency. The previous fetch-then-compare-then-increment lost
+     * increments when requests overlapped: two arriving together both read the
+     * same count and only one increment survived. A rate limiter that
+     * undercounts a burst is at its least accurate exactly when it is needed.
+     *
+     * @return int|false The new count, or false when APCu is unavailable — in
+     *                   which case the middleware passes everything through, as
+     *                   it always has.
+     */
+    protected function bumpCount(string $key): int|false
+    {
+        // An application that overrode the original seams keeps the original
+        // behaviour, including its looser counting: silently routing around a
+        // subclass's storage would be worse than the race it fixes.
+        if ($this->usesLegacySeams()) {
+            return $this->bumpCountViaLegacySeams($key);
+        }
+
+        if (!function_exists('apcu_inc')) {
+            return false;
+        }
+
+        $success = false;
+        $new     = apcu_inc($key, 1, $success, $this->perSeconds);
+
+        return $success ? (int) $new : false;
+    }
+
+    /**
+     * Whether a subclass has replaced any of the original storage seams.
+     */
+    private function usesLegacySeams(): bool
+    {
+        foreach (['fetchCount', 'storeCount', 'incrementCount'] as $method) {
+            if ((new \ReflectionMethod($this, $method))->getDeclaringClass()->getName() !== self::class) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The original read-modify-write path, for subclasses that supply their own
+     * storage. Returns the count *including* this request, matching
+     * {@see bumpCount()}.
+     */
+    private function bumpCountViaLegacySeams(string $key): int|false
+    {
         $count = $this->fetchCount($key);
 
         if ($count === false) {
             $this->storeCount($key, 1, $this->perSeconds);
-        } elseif ($count >= $this->maxRequests) {
-            header('Retry-After: ' . $this->perSeconds);
-            throw new \Exception('Too many requests. Please slow down.', 429);
-        } else {
-            $this->incrementCount($key);
+
+            return 1;
         }
 
-        return $next($request);
+        $this->incrementCount($key);
+
+        return $count + 1;
     }
 
     /**

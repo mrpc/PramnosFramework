@@ -330,7 +330,7 @@ class Api extends Application
         }
         $log = "URL: " . $url . "\nInput Data: "
             . $inputData . "\nIP: "
-            . $_SERVER['REMOTE_ADDR'] . "\n\n";
+            . \Pramnos\Http\Request::clientIp('unknown') . "\n\n";
         \Pramnos\Logs\Logger::log($log, 'notAuthenticatedActions');
     }
 

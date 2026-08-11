@@ -632,14 +632,20 @@ class TokenTest extends TestCase
     }
 
     /**
-     * addAction() must prefer the Cloudflare connecting IP header over
-     * REMOTE_ADDR when HTTP_CF_CONNECTING_IP is present.
+     * addAction() records the Cloudflare connecting IP — but only when the peer
+     * that sent it is a configured trusted proxy.
      *
-     * This covers lines 348–352 in addAction(): the CF header overrides the
-     * direct REMOTE_ADDR. This is critical for applications behind Cloudflare
-     * proxies where REMOTE_ADDR is the CDN edge node, not the real client.
+     * This used to read HTTP_CF_CONNECTING_IP unconditionally, which meant any
+     * client could dictate the address written into its own token record. Those
+     * records read as evidence — they are what an audit consults to answer
+     * "where was this token used from" — so an address the subject chooses is
+     * worse than no address at all.
+     *
+     * Both halves are asserted because both are the contract: an application
+     * behind Cloudflare that declares it gets the real client, and one that
+     * declares nothing gets the peer rather than a forgery.
      */
-    public function testAddActionPrefersCloudflarIp(): void
+    public function testAddActionUsesCloudflareIpOnlyFromATrustedProxy(): void
     {
         // Arrange
         $token            = new Token();
@@ -649,19 +655,38 @@ class TokenTest extends TestCase
         $token->created   = time();
         $token->save();
 
-        $_SERVER['REMOTE_ADDR']          = '10.0.0.1';
+        $app      = Application::getInstance();
+        $original = $app->applicationInfo['trusted_proxies'] ?? null;
+
+        $_SERVER['REMOTE_ADDR']           = '10.0.0.1';
         $_SERVER['HTTP_CF_CONNECTING_IP'] = '203.0.113.45';
 
-        // Act
-        $token->addAction();
+        try {
+            // Act — nothing trusted: the header is an unverified claim
+            $app->applicationInfo['trusted_proxies'] = [];
+            $token->addAction();
 
-        // Assert — ipaddress must be the Cloudflare header value
-        $this->assertSame('203.0.113.45', $token->ipaddress,
-            'addAction() must use HTTP_CF_CONNECTING_IP over REMOTE_ADDR');
+            // Assert
+            $this->assertSame('10.0.0.1', $token->ipaddress,
+                'an unverified CF header must not choose the recorded address');
 
-        // Cleanup
-        $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
-        unset($_SERVER['HTTP_CF_CONNECTING_IP']);
+            // Act — the peer is declared a proxy, so it may name its client
+            $app->applicationInfo['trusted_proxies'] = ['private_ranges'];
+            $token->addAction();
+
+            // Assert
+            $this->assertSame('203.0.113.45', $token->ipaddress,
+                'a trusted proxy names the real client');
+        } finally {
+            // Cleanup
+            if ($original === null) {
+                unset($app->applicationInfo['trusted_proxies']);
+            } else {
+                $app->applicationInfo['trusted_proxies'] = $original;
+            }
+            $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+            unset($_SERVER['HTTP_CF_CONNECTING_IP']);
+        }
     }
 
     /**

@@ -321,6 +321,32 @@ class Request extends Base
     }
 
     /**
+     * The client's IP address, honouring forwarding headers only from proxies
+     * the application has said it trusts.
+     *
+     * Every place in the framework that needs to know who is calling — rate
+     * limiting, session tracking, audit logging — should ask here rather than
+     * reading `$_SERVER['REMOTE_ADDR']`. That variable is the connecting peer,
+     * which behind a proxy is the proxy: one address for the whole world.
+     *
+     * With no `trusted_proxies` configured the answer is `REMOTE_ADDR`, exactly
+     * as before. Reading `X-Forwarded-For` without that list would be a genuine
+     * regression, not an improvement: the header is client-supplied, so a fresh
+     * random value per request would defeat any per-IP control outright.
+     *
+     * @param string $default Returned when there is no peer at all — CLI, or a
+     *                        test that has not populated `$_SERVER`.
+     * @return string
+     * @see ClientIpResolver
+     */
+    public static function clientIp(string $default = ''): string
+    {
+        $resolved = ClientIpResolver::fromApplication()->resolve($_SERVER);
+
+        return $resolved === '' ? $default : $resolved;
+    }
+
+    /**
      * Get a user request
      * @param  string $varname name of the request
      * @param  mixed  $default Default value, if variable is not set

@@ -936,7 +936,7 @@ class Account extends Controller
                 // BEFORE erasing. Keeps a who/when trail without a new table.
                 \Pramnos\Logs\Logger::log(
                     'account_deleted: userid=' . (int) $currentUser->userid
-                        . ' ip=' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'),
+                        . ' ip=' . \Pramnos\Http\Request::clientIp('unknown'),
                     'auth'
                 );
                 $this->eraseUserData((int) $currentUser->userid);

@@ -814,14 +814,14 @@ class Email extends \Pramnos\Framework\Base
                     [
                         ['fieldName' => 'opened', 'value' => 1, 'type' => 'integer'],
                         ['fieldName' => 'opened_at', 'value' => date('Y-m-d H:i:s'), 'type' => 'string'],
-                        ['fieldName' => 'ip_address', 'value' => $_SERVER['REMOTE_ADDR'] ?? null, 'type' => 'string'],
+                        ['fieldName' => 'ip_address', 'value' => \Pramnos\Http\Request::clientIp() ?: null, 'type' => 'string'],
                         ['fieldName' => 'user_agent', 'value' => $_SERVER['HTTP_USER_AGENT'] ?? null, 'type' => 'string']
                     ], 
                     "`tracking_id` = '" . $db->prepareInput($trackingId) . "'"
                 );
                 
                 // Optional: Log the event
-                \Pramnos\Logs\Logger::log("Email opened: $trackingId from " . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+                \Pramnos\Logs\Logger::log("Email opened: $trackingId from " . \Pramnos\Http\Request::clientIp('unknown'));
             } catch (\Exception $e) {
                 // Silent fail - don't show errors to email clients
                 \Pramnos\Logs\Logger::log("Error tracking email open: " . $e->getMessage(), \Pramnos\Logs\Logger::LEVEL_ERROR);

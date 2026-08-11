@@ -203,9 +203,13 @@ class RedisAdapter extends AbstractAdapter
      * @param string   $key The raw (already-prefixed) counter key.
      * @param int      $by  Amount to add (default 1).
      * @param int|null $ttl Sliding TTL in seconds; null/<=0 leaves expiry untouched.
+     * @param bool     $slidingExpiry When false, the TTL is applied only on the
+     *                 call that creates the key, giving a window that actually
+     *                 ends. The default is true and preserves the original
+     *                 behaviour for existing callers.
      * @return int|false New value, or false when caching/connection is unavailable.
      */
-    public function increment($key, $by = 1, $ttl = null)
+    public function increment($key, $by = 1, $ttl = null, $slidingExpiry = true)
     {
         if (!$this->caching || !$this->connected) {
             return false;
@@ -214,7 +218,13 @@ class RedisAdapter extends AbstractAdapter
         try {
             $new = $this->redis->incrBy($key, (int) $by);
             if ($ttl !== null && (int) $ttl > 0) {
-                $this->redis->expire($key, (int) $ttl);
+                // A sliding expiry never lets a busy key die: sustained traffic
+                // refreshes it on every hit, so a rate-limit counter would climb
+                // for ever and lock the client out permanently. A fixed window
+                // sets the expiry once, on the call that created the key.
+                if ($slidingExpiry || (int) $new === (int) $by) {
+                    $this->redis->expire($key, (int) $ttl);
+                }
             }
             return (int) $new;
         } catch (\Exception $ex) {
