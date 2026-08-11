@@ -131,8 +131,11 @@ class MigrationCharacterizationTest extends TestCase
         $migration->up();
         $migration->down();
 
-        // Assert
-        $this->assertTrue(true);
+        // Assert — the assertion is the mock's own: `expects($this->never())`
+        // above fails at verification if either default touched the database.
+        // Counting it here keeps PHPUnit from reporting the test as risky while
+        // making it plain where the check lives.
+        $this->addToAssertionCount(1);
     }
 
     /**

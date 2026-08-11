@@ -259,26 +259,38 @@ class AuthCharacterizationTest extends TestCase
     }
 
     /**
-     * setaccess() delegates permission writing to pramnos_factory::getPermissions().
+     * setaccess() writes a grant, revokes it, and denies it.
      *
-     * value=1 calls allow(), value=2 calls removePermission(), anything else calls deny().
-     * These are the three branches in setaccess() that were previously untested.
+     * value=1 calls allow(), value=2 calls removePermission(), anything else
+     * calls deny() — the three branches, checked by their *effect* rather than
+     * by the absence of an exception. This test used to end in
+     * `assertTrue(true)`, which passes whatever the three calls did, including
+     * nothing: while `setaccess()` named a class that does not exist, the only
+     * thing keeping it green was a stub the test suite loaded for that name.
      */
-    public function testSetaccessDelegatesToPermissionsObject(): void
+    public function testSetaccessWritesRevokesAndDenies(): void
     {
         // Arrange
-        $auth = new Auth();
+        $auth        = new Auth();
+        $permissions = \Pramnos\Auth\Permissions::getInstance();
+        $ask = static fn(): ?bool => $permissions->isAllowed(
+            1, 'blog', 'read', '', 'module', 'user', false
+        );
 
-        // Act + Assert — all three branches must not throw
-        // value=1: allow
-        $auth->setaccess(1, 'module', 'blog', 'read', 0, 'user', '', 1);
-        // value=2: removePermission
-        $auth->setaccess(1, 'module', 'blog', 'read', 0, 'user', '', 2);
-        // other value: deny
-        $auth->setaccess(1, 'module', 'blog', 'read', 0, 'user', '', 0);
+        // Act + Assert — 1 grants
+        $auth->setaccess(1, 'module', 'blog', 'read', '', 'user', '', 1);
+        $this->assertTrue($ask(), 'value=1 must grant');
 
-        // All three delegations completed without exception — contract satisfied
-        $this->assertTrue(true);
+        // 2 removes: absence is not a denial, so the tri-state answer is null
+        $auth->setaccess(1, 'module', 'blog', 'read', '', 'user', '', 2);
+        $this->assertNull($ask(), 'value=2 must remove the grant entirely');
+
+        // anything else denies, which is a different answer from absence
+        $auth->setaccess(1, 'module', 'blog', 'read', '', 'user', '', 0);
+        $this->assertFalse($ask(), 'any other value must deny');
+
+        // Cleanup — leave no grant behind for the next test
+        $auth->setaccess(1, 'module', 'blog', 'read', '', 'user', '', 2);
     }
 
     /**

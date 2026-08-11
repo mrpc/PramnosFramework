@@ -32,3 +32,6 @@ site/*
 # only ever created as a side effect of the test suite (OAuth2 key generation,
 # the model registry) — the tests clean up after themselves, this is the belt.
 /app
+
+# Test debris: the media tests write into ROOT/www/uploads
+/www/

@@ -99,12 +99,13 @@ class TestClient
 
         // 3. Try Router first
         try {
-            $router = Factory::getContainer()->get(\Pramnos\Routing\Router::class);
+            // `$app->router`, not a DI container: `Factory::getContainer()` does
+            // not exist. The Error it raised was caught below, so this branch
+            // never ran — every request through TestClient fell through to the
+            // classic MVC path, including the ones written to exercise attribute
+            // routing. The comment underneath claimed the opposite.
+            $router = $this->resolveRouter();
             if ($router) {
-                // @codeCoverageIgnoreStart
-                // Router dispatch is only reachable when a Router is bound in the
-                // DI container.  Unit tests use stub apps that skip container setup;
-                // this block is exercised by Feature/Integration tests.
                 $routeResult = $router->dispatchSafe($request);
                 if (!isset($routeResult['error']) || $routeResult['error'] !== 'RouteNotFound') {
                     if (isset($routeResult['error']) && $routeResult['error'] === 'InsufficientPermissions') {
@@ -115,7 +116,6 @@ class TestClient
                     }
                     return new TestResponse(Response::make((string)$routeResult['data']));
                 }
-                // @codeCoverageIgnoreEnd
             }
         } catch (\Throwable $e) {
             // Router might not be bound, not yet implemented, or might throw
@@ -159,4 +159,24 @@ class TestClient
             return new TestResponse($response);
         }
     }
+    /**
+     * The Router this application published, if it has one.
+     *
+     * The same place `route:list` looks: applications publish their populated
+     * Router as `$app->router`. An application that does not is not an error —
+     * it simply has no attribute routes, and the classic MVC path below is the
+     * whole of its dispatch.
+     *
+     * @return \Pramnos\Routing\Router|null
+     */
+    protected function resolveRouter(): ?\Pramnos\Routing\Router
+    {
+        if (isset($this->app->router)
+            && $this->app->router instanceof \Pramnos\Routing\Router) {
+            return $this->app->router;
+        }
+
+        return null;
+    }
+
 }

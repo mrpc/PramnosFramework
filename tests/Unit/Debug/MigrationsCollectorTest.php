@@ -222,9 +222,17 @@ class MigrationsCollectorTest extends TestCase
         $bar = DebugBar::getInstance();
         $bar->addCollector(new TimeCollector());
 
-        // Act / Assert — must not throw
+        // Act
         DebugBar::recordMigration('some_slug', 10.0);
-        $this->assertTrue(true);
+
+        // Assert — the call is absorbed, and nothing is invented on the way:
+        // the collector that *is* registered must not have grown a migrations
+        // section. `assertTrue(true)` said only that no exception escaped, which
+        // a method that silently recorded into the wrong place also satisfies.
+        $this->assertNull(
+            $bar->getCollector('migrations'),
+            'no migrations collector may appear from a recorded migration'
+        );
     }
 
     /**
@@ -232,9 +240,15 @@ class MigrationsCollectorTest extends TestCase
      */
     public function testRecordMigrationIsNoopWithEmptyBar(): void
     {
-        // Act / Assert — no exception even with an empty DebugBar
+        // Act
         DebugBar::recordMigration('slug', 5.0);
-        $this->assertTrue(true);
+
+        // Assert — an empty bar stays empty
+        $this->assertSame(
+            [],
+            DebugBar::getInstance()->getCollectors(),
+            'recording into a bar with no collectors must not create one'
+        );
     }
 
     // ── DebugBar rendering ────────────────────────────────────────────────────

@@ -77,4 +77,3 @@ require __DIR__ . '/stubs/storage_shadows.php';
 require __DIR__ . '/stubs/console_shadows.php';
 require __DIR__ . '/stubs/console_test_shadows.php';
 require __DIR__ . '/stubs/log_controller_shadows.php';
-require __DIR__ . '/stubs/permission_engine_stub.php';
