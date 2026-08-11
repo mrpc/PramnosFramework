@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\Auth;
 
+use Pramnos\Database\ContinuousAggregateRegistry;
 use Pramnos\Database\Migration;
 use Pramnos\Database\DatabaseCapabilities;
 
@@ -56,12 +57,6 @@ class CreateDailyActivitySummaryView extends Migration
                      FROM authserver.user_activity_log
                      GROUP BY time_bucket('1 day', created_at), userid, action"
                 );
-                $schema->addContinuousAggregatePolicy(
-                    'authserver.daily_activity_summary',
-                    '1 month',
-                    '1 hour',
-                    '1 hour'
-                );
             },
             // Fallback: materialized view on PostgreSQL, plain view on MySQL
             function () use ($schema) {
@@ -83,6 +78,13 @@ class CreateDailyActivitySummaryView extends Migration
                 $schema->createMaterializedView('authserver.daily_activity_summary', $sql);
             }
         );
+
+        // Outside the capability check on purpose. Both branches above create
+        // something that has to be refreshed, and only one of them used to say
+        // so — leaving a materialized view on plain PostgreSQL frozen at the
+        // moment this migration ran. addContinuousAggregatePolicy() already
+        // knows the difference between a native job and a software policy.
+        ContinuousAggregateRegistry::apply($schema, 'authserver.daily_activity_summary');
     }
 
     public function down(): void

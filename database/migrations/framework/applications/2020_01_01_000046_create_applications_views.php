@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\Applications;
 
+use Pramnos\Database\ContinuousAggregateRegistry;
 use Pramnos\Database\Migration;
 use Pramnos\Database\DatabaseCapabilities;
 
@@ -242,12 +243,6 @@ class CreateApplicationsViews extends Migration
                      FROM applications.application_stats
                      GROUP BY time_bucket('1 day', time), appid"
                 );
-                $schema->addContinuousAggregatePolicy(
-                    'applications.application_stats_daily',
-                    '3 days',
-                    '1 day',
-                    '1 day'
-                );
             },
             function () use ($schema) {
                 $schema->createMaterializedView(
@@ -281,6 +276,10 @@ class CreateApplicationsViews extends Migration
             }
         );
 
+        // Outside the capability check on purpose: both branches create something
+        // that has to be refreshed, and only the TimescaleDB one used to say so.
+        ContinuousAggregateRegistry::apply($schema, 'applications.application_stats_daily');
+
         // application_stats_hourly — continuous aggregate on TimescaleDB, matview on plain PG
         $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_hourly CASCADE");
         $schema->ifCapable(
@@ -307,12 +306,6 @@ class CreateApplicationsViews extends Migration
                          SUM(bytes_received)                           AS bytes_received
                      FROM applications.application_stats
                      GROUP BY time_bucket('1 hour', time), appid"
-                );
-                $schema->addContinuousAggregatePolicy(
-                    'applications.application_stats_hourly',
-                    '3 hours',
-                    '1 hour',
-                    '1 hour'
                 );
             },
             function () use ($schema) {
@@ -345,6 +338,10 @@ class CreateApplicationsViews extends Migration
                 );
             }
         );
+
+        // Outside the capability check on purpose: both branches create something
+        // that has to be refreshed, and only the TimescaleDB one used to say so.
+        ContinuousAggregateRegistry::apply($schema, 'applications.application_stats_hourly');
 
         // usage_statistics — live multi-CTE view: token activity, OAuth config, webhook health
         $this->DB()->query("DROP VIEW IF EXISTS applications.usage_statistics CASCADE");

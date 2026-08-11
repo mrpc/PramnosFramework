@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\Applications;
 
+use Pramnos\Database\ContinuousAggregateRegistry;
 use Pramnos\Database\Migration;
 use Pramnos\Database\DatabaseCapabilities;
 
@@ -75,12 +76,6 @@ class CreateTokenactionsHourlyView extends Migration
                      WHERE action_time IS NOT NULL
                      GROUP BY time_bucket('1 hour', action_time), tokenid, urlid, method, return_status"
                 );
-                $schema->addContinuousAggregatePolicy(
-                    'applications.tokenactions_hourly',
-                    '3 hours',
-                    '1 hour',
-                    '1 hour'
-                );
             },
             function () use ($schema) {
                 // plain PostgreSQL: percentile_cont requires ordering; use NULL for p50/p95.
@@ -112,6 +107,10 @@ class CreateTokenactionsHourlyView extends Migration
                 );
             }
         );
+
+        // Outside the capability check on purpose: both branches create something
+        // that has to be refreshed, and only the TimescaleDB one used to say so.
+        ContinuousAggregateRegistry::apply($schema, 'applications.tokenactions_hourly');
     }
 
     // ------------------------------------------------------------------ //
