@@ -303,13 +303,17 @@ class CorsMiddlewareTest extends TestCase
     }
 
     /**
-     * When allowCredentials is true, handle() must emit the
-     * Access-Control-Allow-Credentials header. Covers line 130-132.
+     * Credentials for named origins work, and the request passes through.
+     *
+     * This test used to construct `['*']` with credentials — a combination
+     * browsers reject outright, so it emitted headers no browser would honour
+     * and asserted that nothing complained. It is refused at construction now,
+     * which is the case below.
      */
     public function testHandleEmitsCredentialsHeaderWhenEnabled(): void
     {
         // Arrange
-        $mw  = new CorsMiddleware(['*'], allowCredentials: true);
+        $mw  = new CorsMiddleware(['https://app.example.com'], allowCredentials: true);
         $req = Request::create('/api/data', 'GET');
 
         // Act
@@ -317,6 +321,22 @@ class CorsMiddlewareTest extends TestCase
 
         // Assert — $next still called normally
         $this->assertSame('ok', $result);
+    }
+
+    /**
+     * Credentials for every origin is refused, with a sentence.
+     *
+     * The combination is invalid per the CORS spec: a browser presented with
+     * `Allow-Origin: *` and `Allow-Credentials: true` drops the response. The
+     * configuration therefore failed silently — credentialed cross-origin
+     * requests simply stopped working, and nothing said why.
+     */
+    public function testWildcardWithCredentialsIsRefused(): void
+    {
+        // Act + Assert
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/credentials cannot be allowed for every origin/');
+        new CorsMiddleware(['*'], allowCredentials: true);
     }
 
     /**

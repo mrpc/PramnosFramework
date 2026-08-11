@@ -786,6 +786,17 @@ class Init extends Command
             . "        'Pramnos\\\\Http\\\\Middleware\\\\SessionTrackingMiddleware',\n"
             . "    ],\n";
 
+        // API bearer tokens expire after a week in a new project. The framework
+        // default is 0 — never — which is what existing installations rely on
+        // and what they keep; a project starting today has no such history, and
+        // a token that never expires is one an attacker keeps for ever. Raise or
+        // remove it here if the application needs longer-lived tokens.
+        $authSection = in_array('auth', $features, true)
+            ? "    'auth' => [\n"
+              . "        'token_ttl' => 604800, // 7 days; 0 = never expires\n"
+              . "    ],\n"
+            : '';
+
         // Tailwind's browser build generates CSS at runtime by injecting a
         // <style> element, which a nonce-based style-src blocks. Allowing
         // 'unsafe-inline' makes the framework drop the style nonce (see
@@ -797,7 +808,7 @@ class Init extends Command
             ? "        'style-src'  => [\"'unsafe-inline'\"]\n"
             : "        'style-src'  => []\n";
 
-        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$styleLines}{$featuresPhp}{$addonsSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
+        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$styleLines}{$featuresPhp}{$addonsSection}{$authSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
         $this->writeFile($path, $content);
     }
 

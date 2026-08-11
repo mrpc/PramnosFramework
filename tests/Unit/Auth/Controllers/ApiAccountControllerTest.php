@@ -218,6 +218,87 @@ class TestableApiAccount extends ApiAccount
     protected function signingKey(): string { return $this->key; }
     protected function audience(): string { return $this->aud; }
     protected function revokeToken(string $token): void { $this->revoked[] = $token; }
+
+    /**
+     * The login flow, with its two database-backed collaborators replaced.
+     *
+     * `login()` now goes through `ApiLoginFlow` — the same lockout, credentials
+     * and second-factor sequence the HTML login uses — so a unit test has to
+     * supply the parts that would otherwise reach for a connection. Credentials
+     * still come from this class's own `verifyCredentials()`, which is what the
+     * production seam does too.
+     */
+    protected function loginFlow(): \Pramnos\Auth\ApiLoginFlow
+    {
+        $lockout = new class extends \Pramnos\Auth\Loginlockout {
+            public function __construct()
+            {
+            }
+
+            public function getLockoutStatus(string $scope, string $identifier): array
+            {
+                return ['locked' => false, 'remaining' => 0];
+            }
+
+            public function recordFailedAttempt(string $scope, string $identifier): void
+            {
+            }
+
+            public function clearSuccessfulLoginState(string $scope, string $identifier): void
+            {
+            }
+        };
+
+        $twoFactor = new class extends \Pramnos\Auth\TwoFactorAuthService {
+            public function __construct()
+            {
+            }
+
+            public function isEnabled(int $userId): bool
+            {
+                return false;
+            }
+        };
+
+        return new class (
+            function (string $username, string $password): array|false {
+                $user = $this->verifyCredentialsForFlow($username, $password);
+                $this->rememberUser($user);
+
+                return $user === null
+                    ? false
+                    : ['status' => true, 'uid' => (int) $user->userid];
+            },
+            null,
+            $lockout,
+            $twoFactor
+        ) extends \Pramnos\Auth\ApiLoginFlow {
+            protected function establishSession(int $userId, bool $remember): bool
+            {
+                return true;
+            }
+        };
+    }
+
+    /** Bridge to the protected seam, callable from the flow's closure. */
+    public function verifyCredentialsForFlow(string $username, string $password): ?User
+    {
+        return $this->verifyCredentials($username, $password);
+    }
+
+    /** @var User|null The user this double resolved */
+    private ?User $doubleUser = null;
+
+    /** Keep the resolved user so no row has to be loaded to answer with it. */
+    public function rememberUser(?User $user): void
+    {
+        $this->doubleUser = $user;
+    }
+
+    protected function userFor(int $userId): User
+    {
+        return $this->doubleUser ?? parent::userFor($userId);
+    }
 }
 
 /** User with a skipped constructor + a recording addToken (no DB). */

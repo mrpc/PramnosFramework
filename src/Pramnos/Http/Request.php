@@ -363,8 +363,11 @@ class Request extends Base
      * @param  mixed  $default Default value, if variable is not set
      * @param  string $method  Request method. request, post,get,files,
      *                         cookie,env,session,server
-     * @param  string $type    Variable type for casting. Example: int
-     * @return string
+     * @param  string $type    Optional filter: int | float | bool | string |
+     *                         alnum | email | array. Anything else returns the
+     *                         raw value — this parameter filters when asked and
+     *                         never sanitises by default.
+     * @return mixed
      */
     public static function staticGet($varname, $default = null,
         $method = 'request', $type = '')
@@ -410,8 +413,32 @@ class Request extends Base
         } else {
             $return = $default;
         }
-        if ($type == 'int') {
-            $return = (int) $return;
+        // The filters are opt-in and unchanged in effect: anything not named
+        // here comes back exactly as it arrived, as it always has. `int` was
+        // the only one for years, which quietly suggested the others existed.
+        switch ($type) {
+            case 'int':
+                $return = (int) $return;
+                break;
+            case 'float':
+                $return = (float) $return;
+                break;
+            case 'bool':
+                $return = filter_var($return, FILTER_VALIDATE_BOOL);
+                break;
+            case 'string':
+                $return = is_scalar($return) ? (string) $return : '';
+                break;
+            case 'alnum':
+                $return = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $return);
+                break;
+            case 'email':
+                $email  = filter_var((string) $return, FILTER_VALIDATE_EMAIL);
+                $return = $email === false ? '' : $email;
+                break;
+            case 'array':
+                $return = is_array($return) ? $return : [];
+                break;
         }
 
         return $return;

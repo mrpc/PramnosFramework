@@ -191,21 +191,75 @@ class JWTTest extends TestCase
     }
 
     /**
-     * decode() ignores the $key and $allowed_algs arguments when $key is null,
-     * returning the payload without any signature verification.
-     * This mode is used for trusted-internal token inspection.
+     * decode() refuses to work without a key.
+     *
+     * This test used to assert the opposite, under the name
+     * `testDecodeWithNullKeySkipsSignatureVerification` — an accurate name for
+     * what the code did. The whole verification block sat inside
+     * `if (isset($key))`, so omitting the argument returned the payload of any
+     * token, forged or unsigned, as though it had been proven. A signature check
+     * that can be switched off by leaving out an argument is not a signature
+     * check; it is a default waiting to be forgotten.
      */
-    public function testDecodeWithNullKeySkipsSignatureVerification(): void
+    public function testDecodeRefusesToWorkWithoutAKey(): void
     {
         // Arrange
         $token = JWT::encode(['uid' => 3, 'role' => 'reader'], self::SECRET, 'HS256');
 
-        // Act – passing null for key skips verification
-        $payload = JWT::decode($token, null, []);
+        // Act + Assert
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/decodeUnverified/');
+        JWT::decode($token, null, []);
+    }
 
-        // Assert – payload is still accessible
-        $this->assertSame(3,        $payload->uid);
+    /**
+     * Reading claims without verifying them is still possible — by name.
+     *
+     * There are honest reasons to want it: picking a key from `kid`, logging an
+     * issuer, showing an expiry in a debug panel. What there is no honest reason
+     * for is doing it by accident.
+     */
+    public function testDecodeUnverifiedReadsClaimsWithoutAKey(): void
+    {
+        // Arrange
+        $token = JWT::encode(['uid' => 3, 'role' => 'reader'], self::SECRET, 'HS256');
+
+        // Act
+        $payload = JWT::decodeUnverified($token);
+
+        // Assert
+        $this->assertSame(3, $payload->uid);
         $this->assertSame('reader', $payload->role);
+    }
+
+    /**
+     * ...and it reads a token nobody signed, which is exactly why its name says
+     * so and no authorisation decision may be made from what it returns.
+     */
+    public function testDecodeUnverifiedAlsoReadsAnUnsignedToken(): void
+    {
+        // Arrange — a forged token: valid structure, meaningless signature
+        $forged = implode('.', [
+            rtrim(strtr(base64_encode('{"alg":"HS256","typ":"JWT"}'), '+/', '-_'), '='),
+            rtrim(strtr(base64_encode('{"uid":99}'), '+/', '-_'), '='),
+            'not-a-signature',
+        ]);
+
+        // Act
+        $payload = JWT::decodeUnverified($forged);
+
+        // Assert
+        $this->assertSame(99, $payload->uid, 'unverified means unverified');
+    }
+
+    /**
+     * A malformed token is reported, not returned.
+     */
+    public function testDecodeUnverifiedRejectsAMalformedToken(): void
+    {
+        // Act + Assert
+        $this->assertFalse(JWT::decodeUnverified('not.a.token.at.all'));
+        $this->assertFalse(JWT::decodeUnverified('nonsense'));
     }
 
     /**

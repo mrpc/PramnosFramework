@@ -111,8 +111,20 @@ class ExceptionHandler
         int        $status,
         bool       $debug
     ): Response {
+        // A 4xx describes what the caller did — the message is the answer, and
+        // hiding it turns a usable API into a guessing game. A 5xx describes
+        // what went wrong inside, and in this framework a database exception
+        // carries the whole statement in its message:
+        //
+        //   ERROR: relation "x" does not exist ::: SQL QUERY: SELECT …
+        //
+        // So the message crosses the wire for client errors and stays home for
+        // server errors, unless debug is on. The HTML renderer has always drawn
+        // this line (buildFriendlyHtml); the JSON one did not.
         $payload = [
-            'error' => $exception->getMessage(),
+            'error' => ($debug || $status < 500)
+                ? $exception->getMessage()
+                : static::serverErrorMessage($status),
             'code'  => $status,
         ];
 
@@ -126,6 +138,19 @@ class ExceptionHandler
         }
 
         return Response::json($payload, $status);
+    }
+
+    /**
+     * What a client is told about a server-side failure.
+     *
+     * Deliberately free of detail: the specifics are in the log, which is where
+     * whoever can act on them is looking.
+     */
+    protected static function serverErrorMessage(int $status): string
+    {
+        return $status === 503
+            ? 'The service is temporarily unavailable.'
+            : 'The request could not be completed.';
     }
 
     protected static function renderHtml(

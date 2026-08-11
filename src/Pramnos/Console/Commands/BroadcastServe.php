@@ -130,6 +130,18 @@ class BroadcastServe extends CommandBase
         if ($secret !== '') {
             $this->wsServer->useAuthorizer(new PusherAuthorizer($appKey, $secret));
             $output->writeln('  Auth: <info>Pusher signatures enforced</info>');
+        } else {
+            // Saying nothing here is how a server ends up in production with
+            // private and presence channels open to anyone: the default
+            // authorizer accepts every connection, and silence looks the same
+            // as a configured one.
+            $output->writeln(
+                '  Auth: <comment>none — every connection and channel is accepted</comment>'
+            );
+            $output->writeln(
+                '        Set broadcasting.pusher.app_secret in app.php before '
+                . 'using private-* or presence-* channels outside development.'
+            );
         }
 
         $channels = array_values(array_filter(array_map(

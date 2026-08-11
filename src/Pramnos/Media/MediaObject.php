@@ -504,7 +504,7 @@ class MediaObject extends \Pramnos\Framework\Base
 
         $image = \Pramnos\General\Helpers::fileGetContents($url);
         $filename = ROOT . DS . 'www' . DS
-            . 'uploads' . DS . 'tmp' . rand(0, time())
+            . 'uploads' . DS . 'tmp' . self::randomToken()
             . '.' . $ext;
         $handler = fopen($filename, 'w');
         fwrite($handler, $image);
@@ -524,6 +524,7 @@ class MediaObject extends \Pramnos\Framework\Base
             mkdir(ROOT . DS . 'www' . DS . 'uploads');
         }
         $path = ROOT . DS . 'www' . DS . 'uploads';
+        self::protectUploadDirectory($path);
 
         if ($module != '') {
             $this->module = $module;
@@ -980,7 +981,7 @@ class MediaObject extends \Pramnos\Framework\Base
         );
         $filename = time()
             . substr(md5($filename), 0, 5)
-            . rand(0, time())
+            . self::randomToken()
             . '.'
             . $ext;
         $this->_ext=$ext;
@@ -1072,9 +1073,21 @@ class MediaObject extends \Pramnos\Framework\Base
             }
         }
 
+        // Everything checked so far describes what the *client* claimed: the
+        // extension it chose and the Content-Type it sent. Ask the file itself
+        // before it is written anywhere. This only refuses content that is
+        // nothing like what the extension promises — a PHP script named .jpg —
+        // and stays quiet about the odd-but-valid files real users upload.
+        $detected = self::detectMimeType($file['tmp_name']);
+        if ($detected !== null && !self::contentMatchesExtension($detected, $ext)) {
+            $this->error = '#5 File content does not match its extension: '
+                . $detected . ' as .' . $ext;
+            return $this;
+        }
+
         $uploadfile = $path . $filename;
         if (file_exists($uploadfile)) {
-            $uploadfile = $path . rand(0, time()) . $filename;
+            $uploadfile = $path . self::randomToken() . $filename;
         }
 
         if ($this->move_uploaded_file($file['tmp_name'], $uploadfile)) {
@@ -1913,6 +1926,132 @@ class MediaObject extends \Pramnos\Framework\Base
             $thumb->url = $this->url;
             return $thumb;
         }
+    }
+
+    /**
+     * Stop the uploads directory from ever executing what it stores.
+     *
+     * Uploads land inside the document root, and the extension allow-list is
+     * what keeps a script out of there. That list is one line of defence, and
+     * one line is thin for a directory whose contents come from outside: a
+     * server misconfigured to run PHP by content rather than extension, or an
+     * allow-list widened in a hurry, is all it takes.
+     *
+     * Written once, never overwritten — an application that has tuned this file
+     * keeps its version. No-op on nginx, which does not read it; there the same
+     * rule belongs in the site config.
+     *
+     * @param  string $path
+     * @return void
+     */
+    private static function protectUploadDirectory($path): void
+    {
+        $file = $path . DS . '.htaccess';
+        if (file_exists($file) || !is_writable($path)) {
+            return;
+        }
+
+        @file_put_contents(
+            $file,
+            "# Uploaded files are data, never code.\n"
+            . "php_flag engine off\n"
+            . "<IfModule mod_rewrite.c>\n"
+            . "    RewriteEngine On\n"
+            . "    RewriteRule \\.(php[0-9]?|phtml|phar)$ - [F,L,NC]\n"
+            . "</IfModule>\n"
+        );
+    }
+
+    /**
+     * What the file actually is, according to its own bytes.
+     *
+     * Returns null when the extension is unavailable or the file cannot be
+     * read — an inability to look is not evidence of wrongdoing, and refusing
+     * every upload on a server without fileinfo would be a worse bug than the
+     * one this guards against.
+     *
+     * @param  string $path
+     * @return string|null
+     */
+    private static function detectMimeType($path): ?string
+    {
+        if (!function_exists('finfo_open') || !is_readable($path)) {
+            return null;
+        }
+
+        $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo === false) {
+            return null;
+        }
+
+        $detected = @finfo_file($finfo, $path);
+        // No finfo_close(): deprecated in PHP 8.5, where the handle is freed
+        // when it goes out of scope.
+
+        return is_string($detected) && $detected !== '' ? $detected : null;
+    }
+
+    /**
+     * Is this content plausibly what the extension says it is?
+     *
+     * Deliberately permissive within a family: browsers, phones and scanners
+     * disagree about JPEG and Excel MIME types, and rejecting a valid photo is
+     * a real cost paid by real users. What it refuses is content from a
+     * different family altogether — which is what a disguised upload looks like.
+     *
+     * @param  string $detected MIME type read from the file
+     * @param  string $ext      Extension the upload will be stored under
+     * @return bool
+     */
+    private static function contentMatchesExtension($detected, $ext): bool
+    {
+        $families = [
+            'jpg'  => ['image/'],
+            'jpeg' => ['image/'],
+            'png'  => ['image/'],
+            'gif'  => ['image/'],
+            'bmp'  => ['image/'],
+            'ico'  => ['image/', 'application/octet-stream'],
+            'pdf'  => ['application/pdf'],
+            // Spreadsheets are the loose family on purpose: plenty of tools
+            // export CSV or HTML and name it .xls, and refusing those would
+            // reject files that have always been accepted here. The check is
+            // for content from a different world — a script, an executable —
+            // not for pedantry about Excel's many disguises.
+            'xls'  => ['application/vnd.ms-excel', 'application/vnd.openxmlformats',
+                       'application/zip', 'application/octet-stream', 'text/'],
+            'xlsx' => ['application/vnd.ms-excel', 'application/vnd.openxmlformats',
+                       'application/zip', 'application/octet-stream', 'text/'],
+        ];
+
+        // An extension nobody listed is not this method's business — the
+        // extension allow-list above already decides what may be stored.
+        if (!isset($families[$ext])) {
+            return true;
+        }
+
+        foreach ($families[$ext] as $prefix) {
+            if (str_starts_with($detected, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Unguessable component for an uploaded file's name.
+     *
+     * `rand(0, time())` is seeded from a value an attacker knows and drawn from
+     * a non-cryptographic generator, so the URLs of files uploaded around a
+     * known moment are searchable. For anything not meant to be public, the
+     * name is the only thing standing between the file and whoever guesses it.
+     *
+     * @return string
+     */
+    private static function randomToken(): string
+    {
+        return bin2hex(random_bytes(8));
     }
 
     private function move_uploaded_file($filename, $destination)
